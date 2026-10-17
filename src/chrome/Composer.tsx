@@ -159,6 +159,7 @@ import {
 } from "../lib/discussions";
 import { useStartedDiscussionId } from "../hooks/useDiscussions";
 import { DiscussionBar } from "./DiscussionBar";
+import { RaceBar } from "./RaceBar";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -1670,6 +1671,7 @@ function ComposerComponent({
       {discussion ? (
         <DiscussionBar sessionId={sessionId} onOpen={discussion.open} />
       ) : null}
+      <RaceBar sessionId={sessionId} />
       <SharedWorkBar sessionId={sessionId} />
       {children}
       <MessageQueue

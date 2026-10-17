@@ -25,6 +25,7 @@ import type { TerminalMetaPatch } from "../lib/terminalTab";
 import type { EditorNavigationTarget } from "../lib/search";
 import { editorPathsEqual } from "../lib/search";
 import type { DiscussionHost } from "../lib/discussions";
+import { getRace } from "../lib/race";
 import type { PlanBuildTarget, Session } from "../lib/session";
 import { Play } from "../chrome/icons";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
@@ -323,8 +324,11 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   }
 
   for (const file of next.pane.files) {
-    // Plans and agent tabs read live session objects here.
-    const sessionIds = [file.plan?.sessionId ?? file.agent?.sessionId];
+    // Plans and agent tabs read live session objects here, and a race
+    // overview its lanes' sessions, which say whether each agent still works.
+    const sessionIds = file.race
+      ? (getRace(file.race.raceId)?.lanes.map((lane) => lane.sessionId) ?? [])
+      : [file.plan?.sessionId ?? file.agent?.sessionId];
     for (const sessionId of sessionIds) {
       if (!sessionId) continue;
       const before = previous.sessions.find(

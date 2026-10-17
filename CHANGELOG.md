@@ -16,6 +16,11 @@
 - Orchestration messages use plain words. Other chats in the project say "<project> is busy with an orchestration in “<chat>”. Finish or stop it there." with **Go to lead**; the plan card reads Running, Paused, Finished or Stopped; pauses say what happened and what to do next.
 - A finished run's sidebar card folds to one line, such as "Finished · 4 agents · 2h ago", and opens when you click it. Its count leaves cancelled tasks out: "3 done · 1 cancelled".
 - Long orchestrations are lighter on the workspace: each chat and card redraws only for its own run, and the floating sidebar receives a short summary of each run instead of every prompt and result.
+- A race's comparison is always one click away. A slim "Racing · 2 of 3 done" bar above each racing chat's message box has **Compare**, and Parallel work shows a running race as one row, "Race · <your prompt>" with "3 agents · 2 done", listing its agents inside with **Compare** and **Discard race**. The race tab's right-click **Open race overview** stays.
+- Race asks before what can't be undone. **Keep this** and **Keep N selected files** while an agent is still working, and **Discard race** always, show a question that says what stops and what is deleted, such as "Keep Claude Code's version? This stops 2 agents still working and deletes their copies."
+- Each racing agent shows how it really ended: Working, Needs you, Done, Failed, Stopped, or Interrupted after Aven quit, and its clock stops when it finished. A failed or interrupted agent offers **Retry**, which sends it the task again in its own copy.
+- Files you pick in a race are remembered when you reopen it, a kept race shows what it kept ("Kept Claude Code's version · 4 files"), and Aven keeps running races plus the 20 most recent finished ones instead of every race ever run.
+- In Parallel work, a copy with uncommitted files says "3 files changed" (or "3 files changed · 2 to merge") instead of "Up to date".
 
 ### Removed
 
@@ -28,6 +33,10 @@
 - Finished agent turns no longer linger as unread on Home and in the unread count.
 - An older plan card can no longer start a plan that a newer one replaced; it reads "Replaced by a newer plan".
 - An orchestration's lead no longer sees its own successful finish reported as "Lead connection was revoked".
+- Keeping one agent's result while it was still working could leave out the files it wrote in the last few seconds, for example a new file that a kept change imports. Aven now reads that agent's changes again after stopping it.
+- **Open chat** in a race did nothing when that agent's chat was not in an open tab. It now brings the chat back.
+- Comparing a race no longer stages each agent's work in its copy while it runs, so an agent's own `git diff` is no longer empty and its git commands no longer collide with Aven's.
+- A race started from uncommitted changes no longer shows each fresh copy as "2 to merge" in Parallel work.
 
 ## [0.1.144] - 2026-10-16
 

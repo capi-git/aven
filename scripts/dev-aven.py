@@ -230,6 +230,17 @@ def prepare_smoke_folder():
     return root
 
 
+def add_race_stand_in(root):
+    """A stand-in `grok` beside the stand-in `claude`, so a race has two agents.
+
+    A race gives each provider one lane, and Grok Build's protocol is the
+    smallest to stand in for. It also lives in the throwaway home only.
+    """
+    stand_in = root / 'home/.local/bin/grok'
+    shutil.copy2(ROOT / 'scripts/smoke/fake-grok.py', stand_in)
+    stand_in.chmod(0o755)
+
+
 def add_parallel_copy(root):
     """Make the check's project a Git repository with one other checkout.
 
@@ -260,10 +271,10 @@ def remove_smoke_folder(root):
 
 def stop_stand_ins(root):
     """End any stand-in still running from this run's folder."""
-    marker = str(root / 'home/.local/bin/claude')
+    markers = [str(root / f'home/.local/bin/{name}') for name in ('claude', 'grok')]
     for line in subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True).splitlines():
         pid, _, command = line.strip().partition(' ')
-        if marker in command and pid.isdigit():
+        if any(marker in command for marker in markers) and pid.isdigit():
             try:
                 os.kill(int(pid), signal.SIGTERM)
             except ProcessLookupError:
@@ -274,6 +285,7 @@ def smoke(keep=False):
     """Run Aven Dev's real-app check and return whether it passed."""
     root = prepare_smoke_folder()
     add_parallel_copy(root)
+    add_race_stand_in(root)
     passed = False
     try:
         child_env = host_scoped_environment()

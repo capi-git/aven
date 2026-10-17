@@ -130,9 +130,12 @@ pub struct GitWorktree {
     pub files: Vec<GitChangedFile>,
     pub additions: i64,
     pub deletions: i64,
-    /// Commits in this checkout that the default branch does not have.
+    /// Commits in this checkout that the default branch does not have. A
+    /// race lane is measured against the commit its race started from, so a
+    /// fresh lane is not "ahead" by the snapshot of uncommitted work it began
+    /// with.
     pub ahead_of_default: i64,
-    /// Default-branch commits this checkout does not have yet.
+    /// Default-branch (or race base) commits this checkout does not have yet.
     pub behind_default: i64,
     /// No uncommitted files, and merging this checkout into the default
     /// branch would change nothing. True after a squash merge too, when the
@@ -141,15 +144,32 @@ pub struct GitWorktree {
 }
 
 /// Every checkout of the repository containing `cwd`, with its uncommitted
-/// files and how far it is from the default branch.
+/// files and how far it is from the default branch. `bases` maps a checkout's
+/// path to the commit it should be measured against instead (a race lane's
+/// starting commit).
 #[tauri::command]
-pub async fn git_worktrees(cwd: String) -> Result<Vec<GitWorktree>, String> {
-    tauri::async_runtime::spawn_blocking(move || git_worktrees_for(&expand_home(&cwd)))
-        .await
-        .map_err(|e| e.to_string())
+pub async fn git_worktrees(
+    cwd: String,
+    bases: Option<HashMap<String, String>>,
+) -> Result<Vec<GitWorktree>, String> {
+    let bases = bases.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        git_worktrees_with_bases(&expand_home(&cwd), &bases)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
+    git_worktrees_with_bases(root, &HashMap::new())
+}
+
+/// A full commit id, never an option or a ref name chosen by the caller.
+fn is_commit_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn git_worktrees_with_bases(root: &Path, bases: &HashMap<String, String>) -> Vec<GitWorktree> {
     let Some(text) = git_run(root, &["worktree", "list", "--porcelain"]) else {
         return Vec::new();
     };
@@ -173,19 +193,24 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
                 return None;
             }
             let changes = git_diff_files_for(&dir);
-            let (ahead_of_default, behind_default) = base
-                .as_deref()
+            let own_base = bases
+                .iter()
+                .find(|(path, commit)| is_commit_id(commit) && same_entry(&expand_home(path), &dir))
+                .map(|(_, commit)| commit.as_str());
+            let (ahead_of_default, behind_default) = own_base
+                .or(base.as_deref())
                 .map(|base| git_ahead_behind(&dir, base))
                 .unwrap_or((0, 0));
             let merged_into_default = changes.files.is_empty()
-                && match (base.as_deref(), base_tree.as_deref()) {
-                    (Some(_), _) if ahead_of_default == 0 => true,
-                    (Some(base), Some(tree)) => {
-                        git_merges_cleanly_into(&dir, base, tree)
-                            || git_landed_as_one_commit(&dir, base)
-                    }
-                    _ => false,
-                };
+                && (ahead_of_default == 0
+                    || match (base.as_deref(), base_tree.as_deref()) {
+                        (Some(base), Some(tree)) => {
+                            git_merges_cleanly_into(&dir, base, tree)
+                                || git_landed_as_one_commit(&dir, base)
+                        }
+                        _ => false,
+                    })
+                && (own_base.is_some() || base.is_some());
             Some(GitWorktree {
                 current: current
                     .as_deref()
@@ -3533,6 +3558,66 @@ mod tests {
             (copies[1].ahead_of_default, copies[1].behind_default),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn measures_a_race_lane_against_the_commit_its_race_started_from() {
+        let dir = tmp("git-worktrees-race-base");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(&repo, &[("a.txt", "one\n")]));
+        // A race started from uncommitted work branches from a stash commit,
+        // which main lacks, along with the index commit beneath it.
+        std::fs::write(repo.join("a.txt"), "one\nmine\n").unwrap();
+        let stash = Command::new("git")
+            .args(["stash", "create"])
+            .current_dir(&repo)
+            .env("GIT_AUTHOR_NAME", "Aven")
+            .env("GIT_AUTHOR_EMAIL", "aven@test")
+            .env("GIT_COMMITTER_NAME", "Aven")
+            .env("GIT_COMMITTER_EMAIL", "aven@test")
+            .output()
+            .unwrap();
+        let stash = String::from_utf8_lossy(&stash.stdout).trim().to_string();
+        assert!(is_commit_id(&stash), "{stash}");
+        let lane = dir.0.join("lane");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "aven/race/x-0",
+                lane.to_str().unwrap(),
+                &stash
+            ]
+        ));
+        let lane_of = |copies: &[GitWorktree]| {
+            copies
+                .iter()
+                .find(|copy| same_entry(Path::new(&copy.path), &lane))
+                .cloned()
+                .unwrap()
+        };
+
+        let against_main = lane_of(&git_worktrees_for(&repo));
+        assert_eq!(against_main.ahead_of_default, 2);
+
+        let mut bases = HashMap::new();
+        bases.insert(lane.to_string_lossy().to_string(), stash.clone());
+        // Anything but a commit id is ignored rather than handed to git.
+        bases.insert(repo.to_string_lossy().to_string(), "--output=x".into());
+        let fresh = lane_of(&git_worktrees_with_bases(&repo, &bases));
+        assert_eq!((fresh.ahead_of_default, fresh.behind_default), (0, 0));
+        assert!(fresh.files.is_empty());
+
+        std::fs::write(lane.join("b.txt"), "lane\n").unwrap();
+        assert!(git(&lane, &["add", "b.txt"]));
+        assert!(git(&lane, &["commit", "-q", "-m", "lane work"]));
+        let worked = lane_of(&git_worktrees_with_bases(&repo, &bases));
+        assert_eq!(worked.ahead_of_default, 1);
+        assert!(!worked.merged_into_default);
     }
 
     #[test]

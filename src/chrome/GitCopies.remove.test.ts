@@ -557,8 +557,8 @@ describe("parallel work rows", () => {
           .join(" "),
       ]);
     expect(rows()).toEqual([
-      ["Gamma", "2 to merge", "working uncommitted"],
-      ["Alpha", "Up to date", "uncommitted"],
+      ["Gamma", "1 file changed · 2 to merge", "working uncommitted"],
+      ["Alpha", "1 file changed", "uncommitted"],
       ["Beta", "78 to merge", ""],
     ]);
     const more = [...container.querySelectorAll("button")].find(

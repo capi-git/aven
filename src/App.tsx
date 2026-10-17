@@ -204,8 +204,10 @@ import type {
   PaletteRaceRequest,
 } from "./chrome/CommandPalette";
 import {
+  getRace,
   installRaceWorkspace,
   isFinishingRaceCheckout,
+  listRaces,
   raceHost,
   racePrompt,
   releaseRaceCheckout,
@@ -275,12 +277,16 @@ import {
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
+  listDir,
   notifyGitChanged,
   pickFolder,
+  readTextFile,
   restoreSessionCheckout,
   type GitFileDiffKind,
   type GitHistoryCommit,
 } from "./lib/fs";
+import { resolveGrokBinary } from "./lib/harness/child";
+import { saveRaceAgentChoice } from "./lib/raceAgents";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -1003,6 +1009,8 @@ export default function App({
     settle: async () => {},
     release: async () => {},
     openChat: () => {},
+    compare: () => {},
+    retry: () => {},
   });
   useEffect(
     () =>
@@ -1011,6 +1019,8 @@ export default function App({
         settle: (race) => raceActionsRef.current.settle(race),
         release: (race) => raceActionsRef.current.release(race),
         openChat: (id) => raceActionsRef.current.openChat(id),
+        compare: (id) => raceActionsRef.current.compare(id),
+        retry: (race, lane) => raceActionsRef.current.retry(race, lane),
       }),
     [],
   );
@@ -8448,14 +8458,19 @@ export default function App({
     );
   };
   startScheduledAgentRef.current = (agent) => void startScheduledAgent(agent);
-  const openRaceOverview = (tabId: string) => {
-    const tab = tabsRef.current.find((entry) => entry.id === tabId);
-    const race = tab
-      ? leafIds(tab.layout)
-          .map((id) => raceLaneFor(id)?.race)
-          .find((entry) => entry != null)
-      : undefined;
+  /** The race's overview tab, opened or brought forward in its project. */
+  const showRaceOverview = (raceId: string) => {
+    const race = getRace(raceId);
     if (!race) return;
+    flushSync(() => {
+      setHomeViewOpen(false);
+      closeUtilityViews();
+      leaveExpandedPreview();
+      if (!sameProjectPath(race.project, projectCwdRef.current)) {
+        revealProjectTask(race.project);
+        setProjectCwd(race.project);
+      }
+    });
     const existing = tabsRef.current.find((entry) =>
       entry.editorPanes.some((pane) =>
         pane.files.some((file) => file.race?.raceId === race.id),
@@ -8472,6 +8487,15 @@ export default function App({
     );
     appendTab(overview, race.project);
     setActiveTabId(overview.id);
+  };
+  const openRaceOverview = (tabId: string) => {
+    const tab = tabsRef.current.find((entry) => entry.id === tabId);
+    const race = tab
+      ? leafIds(tab.layout)
+          .map((id) => raceLaneFor(id)?.race)
+          .find((entry) => entry != null)
+      : undefined;
+    if (race) showRaceOverview(race.id);
   };
   raceActionsRef.current = {
     stop: (ids) => {
@@ -8569,7 +8593,19 @@ export default function App({
       notifyGitChanged();
       nudgeWatchedFiles();
     },
-    openChat: (id) => onFocusPane(id),
+    // The same open-or-restore path as a notification: a lane whose tab was
+    // closed comes back into one.
+    openChat: (id) => void onOpenApprovalSession(id),
+    compare: showRaceOverview,
+    retry: (race, lane) => {
+      const record = race.lanes[lane];
+      if (!record || getRace(race.id)?.state !== "running") return;
+      void ensureOpenSession(record.sessionId).then((session) => {
+        if (!session || session.busy || getRace(race.id)?.state !== "running")
+          return;
+        onSubmit(session.id, racePrompt(race.prompt, race.lanes.length), []);
+      });
+    },
   };
 
   showAgentPageRef.current = (notice) => {
@@ -8819,6 +8855,14 @@ export default function App({
     orchestration: {
       run: (leadId) => orchestrator.run(leadId),
       submissionError: (sessionId) => orchestrator.submissionError(sessionId),
+    },
+    race: {
+      races: listRaces,
+      listDir,
+      readFile: readTextFile,
+      resolveGrok: resolveGrokBinary,
+      probe: () => probeHarnessAvailability({ force: true }),
+      chooseAgents: saveRaceAgentChoice,
     },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,

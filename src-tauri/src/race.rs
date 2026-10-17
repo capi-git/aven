@@ -7,6 +7,12 @@
 //! `aven/race/*` branches; nothing is written inside the project itself.
 //! Keeping a result applies each lane's diff against that base to the
 //! project's working tree; cleanup removes the worktrees and branches.
+//!
+//! Reading a lane never stages anything in it. New files only show up in a
+//! diff once they are in an index, so each read stages into a scratch copy
+//! of the lane's index (`GIT_INDEX_FILE`); the agent's own index stays as it
+//! left it, and its `git diff` and `git add` see exactly what they would
+//! without Aven.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -84,7 +90,18 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
 }
 
 fn run_with_input(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
-    let mut child = git(dir)
+    run_git(git(dir), args, input)
+}
+
+/// Like `run`, staging into `index` instead of the checkout's own index.
+fn run_staged(dir: &Path, index: &ScratchIndex, args: &[&str]) -> Result<Vec<u8>, String> {
+    let mut cmd = git(dir);
+    cmd.env("GIT_INDEX_FILE", &index.0);
+    run_git(cmd, args, None)
+}
+
+fn run_git(mut cmd: Command, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let mut child = cmd
         .args(args)
         .stdin(if input.is_some() {
             Stdio::piped()
@@ -112,6 +129,40 @@ fn run_with_input(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec
 
 fn text(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).trim().to_string()
+}
+
+/// A throwaway copy of a lane's index, removed when dropped. Seeding it from
+/// the lane's own index keeps what the agent staged (a `git rm`, say) and
+/// lets `git add -A` reuse its cached file stats.
+struct ScratchIndex(PathBuf);
+
+impl ScratchIndex {
+    fn seeded_from(worktree: &Path) -> Result<Self, String> {
+        let reported = text(run(worktree, &["rev-parse", "--git-path", "index"])?);
+        let own = if Path::new(&reported).is_absolute() {
+            PathBuf::from(&reported)
+        } else {
+            worktree.join(&reported)
+        };
+        let scratch =
+            std::env::temp_dir().join(format!("aven-race-index-{}", uuid::Uuid::new_v4()));
+        // Git replaces an index by renaming a finished file over it, so this
+        // copy is never half-written even while the agent runs git.
+        if own.is_file() {
+            std::fs::copy(&own, &scratch)
+                .map_err(|e| format!("Could not read the race copy's changes: {e}"))?;
+        }
+        Ok(Self(scratch))
+    }
+}
+
+impl Drop for ScratchIndex {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        let mut lock = self.0.clone().into_os_string();
+        lock.push(".lock");
+        let _ = std::fs::remove_file(PathBuf::from(lock));
+    }
 }
 
 fn is_sha(value: &str) -> bool {
@@ -255,16 +306,19 @@ pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
     if !is_sha(base) {
         return Err("Invalid race base".into());
     }
-    // Stage everything in the lane's own index so new files count too; the
-    // project's index is never touched.
-    run(worktree, &["add", "-A"])?;
-    let numstat = String::from_utf8_lossy(&run(
+    // New files count too once staged, into a scratch index: neither the
+    // lane's index nor the project's is touched.
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    let numstat = String::from_utf8_lossy(&run_staged(
         worktree,
+        &index,
         &["diff", "--cached", "--no-renames", "--numstat", base],
     )?)
     .to_string();
-    let names = String::from_utf8_lossy(&run(
+    let names = String::from_utf8_lossy(&run_staged(
         worktree,
+        &index,
         &["diff", "--cached", "--no-renames", "--name-status", base],
     )?)
     .to_string();
@@ -326,10 +380,11 @@ pub fn apply(root: &Path, races: &Path, base: &str, choices: &[RaceChoice]) -> R
             .iter()
             .map(|path| clean_relative(path))
             .collect::<Result<Vec<_>, _>>()?;
-        run(&worktree, &["add", "-A"])?;
+        let index = ScratchIndex::seeded_from(&worktree)?;
+        run_staged(&worktree, &index, &["add", "-A"])?;
         let mut args = vec!["diff", "--cached", "--binary", "--no-renames", base, "--"];
         args.extend(paths.iter().map(String::as_str));
-        let patch = run(&worktree, &args)?;
+        let patch = run_staged(&worktree, &index, &args)?;
         if !patch.is_empty() {
             patches.push(patch);
         }
@@ -578,6 +633,74 @@ mod tests {
             std::fs::read_to_string(root.join("b.txt")).unwrap(),
             "keep\n"
         );
+        cleanup(&root, &races, &[lane]).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&races);
+    }
+
+    #[test]
+    fn reading_and_keeping_a_lane_never_stage_its_work() {
+        let root = repo();
+        let races = temp_dir("races");
+        let base = prepare(&root).unwrap();
+        let root = PathBuf::from(&base.root);
+        let lane = create_lane(&root, &races, "race-3", 0, &base.base).unwrap();
+        let lane_path = PathBuf::from(&lane.path);
+        std::fs::write(lane_path.join("a.txt"), "one\ntwo\nlane\n").unwrap();
+        std::fs::write(lane_path.join("new.txt"), "fresh\n").unwrap();
+        // The agent staged a deletion itself; Aven must see it and keep it staged.
+        git_ok(&lane_path, &["rm", "-q", "b.txt"]);
+        let index = {
+            let reported = text(run(&lane_path, &["rev-parse", "--git-path", "index"]).unwrap());
+            let path = PathBuf::from(&reported);
+            if path.is_absolute() {
+                path
+            } else {
+                lane_path.join(path)
+            }
+        };
+        let index_before = std::fs::read(&index).unwrap();
+        let status = || text(run(&lane_path, &["status", "--porcelain"]).unwrap());
+        let status_before = status();
+        assert!(status_before.lines().any(|line| line == "?? new.txt"));
+
+        let changes = diff(&lane_path, &base.base).unwrap();
+        let mut files: Vec<_> = changes
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status.as_str()))
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                ("a.txt", "modified"),
+                ("b.txt", "deleted"),
+                ("new.txt", "added")
+            ]
+        );
+        // The agent's own view is exactly as it left it.
+        assert_eq!(status(), status_before);
+        assert_eq!(std::fs::read(&index).unwrap(), index_before);
+
+        apply(
+            &root,
+            &races,
+            &base.base,
+            &[RaceChoice {
+                worktree: lane.path.clone(),
+                paths: vec!["new.txt".into(), "b.txt".into()],
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("new.txt")).unwrap(),
+            "fresh\n"
+        );
+        assert!(!root.join("b.txt").exists());
+        assert_eq!(status(), status_before);
+        assert_eq!(std::fs::read(&index).unwrap(), index_before);
+
         cleanup(&root, &races, &[lane]).unwrap();
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&races);
