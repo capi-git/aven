@@ -22,7 +22,8 @@ import { isInFlightSession, markTurnInterrupted } from "./inFlight";
 import { isFilesystemTab, type WorkspaceTab } from "./layout";
 import { listenerGroup } from "./listenerGroup";
 import { projectName } from "./paths";
-import { sessionDisplayTitle, sessionNeedsUser, type Session } from "./session";
+import { sessionDisplayTitle, type Session } from "./session";
+import { sessionNeedsUser } from "./teamAttention";
 import { shouldPersistSession, upsertSession } from "./sessionStore";
 import {
   hasRestartWork,

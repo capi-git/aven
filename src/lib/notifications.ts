@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "./session";
 import { loadSoundsEnabled } from "./sounds";
 import { recordActivity, type ActivityOutcome } from "./activity";
+import { requestsAreUsers } from "./teamAttention";
 
 const KEY = "monocode.notifications";
 
@@ -178,13 +179,13 @@ export function sessionTurnActivityId(session: Session): string {
 }
 /**
  * Each request gets its own identity, including consecutive requests in one
- * turn. An orchestration worker's requests are its lead's to decide, so they
- * are never announced to the user.
+ * turn. Only requests that are the user's are announced (see
+ * `teamAttention`): an orchestration worker's are its lead's to decide.
  */
 export function pendingSessionActivityEvents(
   session: Session,
 ): SessionActivityEvent[] {
-  if (session.inboxAsk || session.orchestrationLeadId) return [];
+  if (session.inboxAsk || !requestsAreUsers(session)) return [];
   const turn = sessionTurnActivityId(session);
   const events: SessionActivityEvent[] = session.blocks.flatMap((block) =>
     block.approval && !block.approval.decided

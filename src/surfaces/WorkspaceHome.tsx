@@ -155,6 +155,7 @@ const NO_PROVIDERS: readonly RateLimitProvider[] = [];
 const ATTENTION_LABEL: Record<HomeAttention["kind"], string> = {
   approval: "Needs approval",
   question: "Has a question",
+  paused: "Needs you",
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",

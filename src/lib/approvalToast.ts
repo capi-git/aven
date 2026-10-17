@@ -1,6 +1,7 @@
 import { leafIds, type WorkspaceTab } from "./layout";
 import type { Block, Session } from "./session";
 import { toolCallLabel } from "../surfaces/transcriptActivity";
+import { requestsAreUsers } from "./teamAttention";
 
 export type PendingApprovalNotice = {
   sessionId: string;
@@ -63,7 +64,8 @@ export function hiddenApprovalNotices(
   for (const session of sessions) {
     if (session.inboxAsk) continue;
     // An orchestrated worker answers to its lead, never to the user directly.
-    if (session.orchestrationLeadId) continue;
+    // A worker's approval is its lead's to decide (see teamAttention).
+    if (!requestsAreUsers(session)) continue;
     const pending = pendingApprovalForSession(session);
     if (!pending) continue;
     if (

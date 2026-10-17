@@ -9,6 +9,7 @@ import {
 import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
+import type { TeamRun } from "../lib/teamRuns";
 import {
   homeFinished,
   homeLiveSessions,
@@ -40,6 +41,7 @@ export type WorkspaceHomeData = {
 };
 
 const RECENT_ROWS = 24;
+const NO_TEAMS: readonly TeamRun[] = Object.freeze([]);
 const EMPTY_LIVE: readonly HomeLiveSession[] = Object.freeze([]);
 const EMPTY_INDEX: HomeSessionIndex = Object.freeze({
   at: new Map<string, number>(),
@@ -69,6 +71,7 @@ export function useWorkspaceHomeData({
   activity,
   projects,
   standaloneCwds,
+  teams = NO_TEAMS,
 }: {
   enabled: boolean;
   sessions: readonly Session[];
@@ -80,6 +83,8 @@ export function useWorkspaceHomeData({
   projects: readonly RecentProject[];
   /** The workspace's folders for tasks without a project. */
   standaloneCwds: readonly string[];
+  /** Discussions, races and orchestrations, for the teams that need you. */
+  teams?: readonly TeamRun[];
 }): WorkspaceHomeData {
   const next = useMemo(
     () => (enabled ? homeLiveSessions(sessions, inFlightIds) : EMPTY_LIVE),
@@ -116,8 +121,10 @@ export function useWorkspaceHomeData({
   const needsYou = useStable(
     useMemo(
       () =>
-        enabled ? homeNeedsYou(live, activity, scope, index) : EMPTY.needsYou,
-      [enabled, live, activity, scope, index],
+        enabled
+          ? homeNeedsYou(live, activity, scope, index, teams)
+          : EMPTY.needsYou,
+      [enabled, live, activity, scope, index, teams],
     ),
   );
   const running = useMemo(

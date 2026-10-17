@@ -16,7 +16,9 @@ import {
   Search,
 } from "./icons";
 import {
+  createContext,
   memo,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -164,6 +166,12 @@ export type SidebarProps = {
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
   approvalSessionIds: Set<string>;
+  /**
+   * Chats among `approvalSessionIds` that wait on you for their team (a
+   * paused discussion, race or run) rather than their own request; they
+   * read "Needs you".
+   */
+  teamNeedIds?: ReadonlySet<string>;
   activeSessionId?: string;
   /** Open tabs, including blank ones not yet in history. */
   openSessions?: readonly SessionSummary[];
@@ -270,6 +278,9 @@ export type SidebarProps = {
 };
 
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
+const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
+/** Rows whose amber comes from their team needing you (see `teamNeedIds`). */
+const TeamNeeds = createContext<ReadonlySet<string>>(NO_TEAM_NEEDS);
 const NO_CONFLICTS: WorkConflictMap = {};
 
 /** Personal is the default home for every project, so it cannot be deleted. */
@@ -355,6 +366,7 @@ function SidebarComponent({
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
+  teamNeedIds = NO_TEAM_NEEDS,
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
@@ -2165,7 +2177,9 @@ function SidebarComponent({
       inert={!sidebarVisible || undefined}
       style={{ "--nav-width": `${resize.width}px` } as CSSProperties}
     >
-      {sidebarContent}
+      <TeamNeeds.Provider value={teamNeedIds}>
+        {sidebarContent}
+      </TeamNeeds.Provider>
     </div>
   );
 }
@@ -2185,6 +2199,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "standaloneSessions",
   "busySessionIds",
   "approvalSessionIds",
+  "teamNeedIds",
   "loadedProjectPaths",
   "projectHistoryErrors",
   "unseenFinishedIds",
@@ -2520,9 +2535,12 @@ function SessionCard({
   const gitLabel = formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
   const model = resolveModel(session.harness, session.model).name;
-  const approvalLabel = session.orchestration
-    ? "Needs input"
-    : "Needs approval";
+  const teamNeeds = useContext(TeamNeeds);
+  const approvalLabel = teamNeeds.has(session.id)
+    ? "Needs you"
+    : session.orchestration
+      ? "Needs input"
+      : "Needs approval";
   const statusClass = needsApproval
     ? "text-amber-400"
     : busy

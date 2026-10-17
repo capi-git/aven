@@ -12,6 +12,8 @@ import {
 import { isActiveSessionAgent } from "./sessionAgents";
 import { summaryFromSession } from "./sessionHistory";
 import type { SessionSummary } from "./sessionStore";
+import { requestsAreUsers, teamsNeedingYou } from "./teamAttention";
+import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
 
 /**
@@ -59,11 +61,14 @@ export type HomeSession = {
   running?: true;
 };
 
-/** Something waiting on the user: an approval, a question or an unread reply. */
+/**
+ * Something waiting on the user: an approval, a question, a team that paused
+ * for them, or an unread reply.
+ */
 export type HomeAttention = {
   /** Session id. */
   id: string;
-  kind: "approval" | "question" | "completed" | "failed" | "stopped";
+  kind: "approval" | "question" | "paused" | "completed" | "failed" | "stopped";
   title: string;
   cwd: string;
   /** What it asks, or the first line of the reply. */
@@ -223,7 +228,7 @@ export function currentActivity(session: Session): string {
 function applyActivity(row: HomeLiveSession, session: Session) {
   // A worker's approval or question is its lead's to decide, not yours: the
   // lead's row keeps working ("Lead deciding") instead of asking for you.
-  const managed = !!session.orchestrationLeadId;
+  const managed = !requestsAreUsers(session);
   const approval = managed ? undefined : pendingApproval(session.blocks);
   const question = managed ? undefined : session.pendingQuestion;
   const deciding =
@@ -424,6 +429,7 @@ export function homeNeedsYou(
   activity: readonly ActivityEntry[],
   scope: HomeScope,
   index: HomeSessionIndex = NO_INDEX,
+  teams: readonly TeamRun[] = [],
 ): HomeAttention[] {
   const requested = new Map<string, number>();
   const replies = new Map<string, ActivityEntry>();
@@ -456,6 +462,22 @@ export function homeNeedsYou(
         session.updatedAt,
     });
   }
+  // A paused team, or a race no agent finished: the chat to open about it.
+  // Its members' own requests are already listed above.
+  for (const team of teamsNeedingYou(teams)) {
+    const need = team.need;
+    if (!need || need.kind === "approval" || need.kind === "question") continue;
+    if (!inHomeScope(scope, team.project)) continue;
+    if (waiting.some((item) => item.id === need.sessionId)) continue;
+    waiting.push({
+      id: need.sessionId,
+      kind: "paused",
+      title: index.title.get(need.sessionId) ?? team.title,
+      cwd: team.project,
+      detail: clip(need.text),
+      at: index.at.get(need.sessionId) ?? need.since,
+    });
+  }
   const listed = new Set(waiting.map((item) => item.id));
   const unread: HomeAttention[] = [];
   for (const entry of replies.values()) {
@@ -473,7 +495,11 @@ export function homeNeedsYou(
 }
 
 export function isWaitingAttention(item: HomeAttention): boolean {
-  return item.kind === "approval" || item.kind === "question";
+  return (
+    item.kind === "approval" ||
+    item.kind === "question" ||
+    item.kind === "paused"
+  );
 }
 
 /** Sessions with an agent at work, longest-running first, like the sidebar. */

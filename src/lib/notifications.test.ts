@@ -12,7 +12,8 @@ import {
   setWindowFocused,
   probeNotificationPermission,
 } from "./notifications";
-import { newSession, sessionNeedsUser, type Session } from "./session";
+import { newSession, type Session } from "./session";
+import { sessionNeedsUser } from "./teamAttention";
 
 import { invoke } from "@tauri-apps/api/core";
 import { getActivitySnapshot } from "./activity";

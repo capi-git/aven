@@ -435,20 +435,6 @@ export function sessionNeedsInput(session: Session): boolean {
   return hasPendingApproval(session.blocks) || session.pendingQuestion != null;
 }
 
-/**
- * Input that is the user's to give. An orchestration worker's approvals and
- * questions go to its lead, which decides them; only the lead asking in its
- * own chat counts as needing you.
- */
-export function sessionNeedsUser(
-  session: Pick<Session, "blocks" | "pendingQuestion" | "orchestrationLeadId">,
-): boolean {
-  return (
-    !session.orchestrationLeadId &&
-    (hasPendingApproval(session.blocks) || session.pendingQuestion != null)
-  );
-}
-
 /** Input that pauses work, rather than an optional question answered in parallel. */
 export function sessionIsWaitingForInput(session: Session): boolean {
   return (

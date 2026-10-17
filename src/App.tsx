@@ -22,6 +22,11 @@ import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { quietTurns, runOutcomeActivity } from "./lib/orchestrationActivity";
 import { encodedSidebarRuns } from "./lib/orchestrationSummary";
 import { retainedSessionIds } from "./lib/sessionRetention";
+import {
+  attentionSessionIds,
+  sessionNeedsUser,
+  teamNeedSessionIds,
+} from "./lib/teamAttention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
 import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
@@ -484,7 +489,6 @@ import {
   HARNESS_TITLE,
   canReplaceSessionTitle,
   formatSessionTitle,
-  sessionNeedsUser,
   sessionIsWaitingForInput,
   newDefaultSession,
   newSession,
@@ -523,7 +527,10 @@ import {
   upsertSession,
   type SessionSummary,
 } from "./lib/sessionStore";
-import { syncDockBadge } from "./lib/dockBadge";
+import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
+import { teamRunsFrom } from "./lib/teamRuns";
+import { useTeamStores } from "./hooks/useTeamRuns";
+import { equalChromeData } from "./hooks/useChromeProps";
 import {
   backgroundWorkerIdsForStop,
   isCurrentSessionAgentSource,
@@ -2090,22 +2097,47 @@ export default function App({
     void refreshHarnessCatalogs([activeHarness]);
   }, [activeHarness]);
 
-  // Chats waiting on the user. A worker's approval or question is its
-  // lead's to decide, so neither the worker nor its lead counts; the lead
-  // asking in its own chat does.
-  const nextApprovalSessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const session of sessions)
-      if (sessionNeedsUser(session)) ids.add(session.id);
-    return ids;
-  }, [sessions]);
+  const activityEntries = useActivity();
+  // Every discussion, race and orchestration as one team view (see
+  // teamRuns), from the committed sessions: streaming that commits nothing
+  // never recomputes it, and its identity holds until a team changes.
+  const teamStores = useTeamStores();
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+  const nextTeams = useMemo(
+    () =>
+      teamRunsFrom(teamStores, {
+        session: (id) => sessionById.get(id),
+        activity: activityEntries,
+      }),
+    [activityEntries, sessionById, teamStores],
+  );
+  const teamsRef = useRef(nextTeams);
+  if (!equalChromeData(teamsRef.current, nextTeams))
+    teamsRef.current = nextTeams;
+  const teams = teamsRef.current;
+  const teamsLatest = useRef(teams);
+  teamsLatest.current = teams;
+
+  // Chats waiting on the user (see teamAttention): their own approvals and
+  // questions, never an orchestration worker's, which its lead decides; and
+  // the chat to open for a team that paused or that no agent finished.
+  const nextTeamNeedIds = useMemo(() => teamNeedSessionIds(teams), [teams]);
+  const teamNeedIdsRef = useRef(nextTeamNeedIds);
+  if (!setsEqual(teamNeedIdsRef.current, nextTeamNeedIds))
+    teamNeedIdsRef.current = nextTeamNeedIds;
+  const teamNeedIds = teamNeedIdsRef.current;
+  const nextApprovalSessionIds = useMemo(
+    () => attentionSessionIds(sessions, teams),
+    [sessions, teams],
+  );
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
   if (!setsEqual(approvalSessionIdsRef.current, nextApprovalSessionIds)) {
     approvalSessionIdsRef.current = nextApprovalSessionIds;
   }
   const approvalSessionIds = approvalSessionIdsRef.current;
-
-  const activityEntries = useActivity();
   const [notificationWindowFocused, setNotificationWindowFocused] = useState(
     () => document.hasFocus(),
   );
@@ -2256,8 +2288,9 @@ export default function App({
   );
 
   useEffect(() => {
+    setDockTeamNeeds(teamNeedIds);
     syncDockBadge(sessions);
-  }, [sessions]);
+  }, [sessions, teamNeedIds]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -8687,6 +8720,7 @@ export default function App({
     activity: activityEntries,
     projects: profiles.profileProjects,
     standaloneCwds,
+    teams,
   });
   const sidebarProps: Omit<
     SidebarProps,
@@ -8731,6 +8765,7 @@ export default function App({
         : sidebarHistory,
     busySessionIds,
     approvalSessionIds,
+    teamNeedIds,
     activeSessionId: profileHome ? undefined : active?.id,
     status: historyFailed ? "error" : "idle",
     pending: historyPending,

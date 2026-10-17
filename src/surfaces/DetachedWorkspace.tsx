@@ -1,6 +1,7 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
-import { sessionNeedsUser, sessionWorkCwd } from "../lib/session";
+import { sessionWorkCwd } from "../lib/session";
+import { sessionNeedsUser } from "../lib/teamAttention";
 import { useBootSplashReady } from "../lib/bootSplash";
 import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";

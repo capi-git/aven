@@ -27,6 +27,7 @@ import {
   type HarnessId,
   type Session,
 } from "./session";
+import { teamAttention } from "./teamAttention";
 import { currentActivity } from "./workspaceHome";
 
 export type TeamKind = "discuss" | "race" | "orchestrate";
@@ -231,29 +232,20 @@ export function discussionTeam(
       : done
         ? `Stopped after ${plural(done, "round")} of ${discussion.rounds}`
         : "Stopped";
-  const asking = members.find((entry) => entry.asking);
-  const status: TeamStatus = ended
-    ? completed
-      ? "finished"
-      : "stopped"
-    : asking || discussion.status === "paused"
-      ? "needs-you"
-      : "running";
-  const need: TeamNeed | undefined = asking?.asking
-    ? {
-        sessionId: asking.sessionId,
-        kind: asking.asking.kind,
-        text: asking.asking.text,
-        since: discussion.updatedAt,
-      }
-    : discussion.status === "paused"
-      ? {
-          sessionId: discussion.blockedBy ?? discussion.a.sessionId,
-          kind: "paused",
-          text: discussion.reason ?? "Paused",
-          since: discussion.updatedAt,
-        }
-      : undefined;
+  const { status, need } = teamAttention({
+    kind: "discuss",
+    phase: ended
+      ? completed
+        ? "finished"
+        : "stopped"
+      : discussion.status === "paused"
+        ? "paused"
+        : "running",
+    members,
+    origin: discussion.a.sessionId,
+    since: discussion.updatedAt,
+    pause: { reason: discussion.reason, sessionId: discussion.blockedBy },
+  });
   return {
     id: `discuss:${discussion.id}`,
     kind: "discuss",
@@ -341,40 +333,14 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
         : {}),
     };
   });
-  const active = members.some(
-    (entry) => entry.state === "working" || entry.state === "needs-you",
-  );
-  const asking = members.find((entry) => entry.state === "needs-you");
-  const anyDone = members.some((entry) => entry.state === "done");
-  const status: TeamStatus = !running
-    ? race.state === "kept"
-      ? "finished"
-      : "stopped"
-    : asking
-      ? "needs-you"
-      : active
-        ? "running"
-        : anyDone
-          ? "ready"
-          : "needs-you";
   const origin = race.origin ?? { sessionId: race.lanes[0]?.sessionId ?? "" };
-  const need: TeamNeed | undefined = !running
-    ? undefined
-    : asking
-      ? {
-          sessionId: asking.sessionId,
-          kind: asking.asking?.kind ?? "approval",
-          text: asking.asking?.text ?? `${asking.label} needs you`,
-          since: race.createdAt,
-        }
-      : status === "needs-you"
-        ? {
-            sessionId: origin.sessionId,
-            kind: "error",
-            text: "No agent finished. Retry one or discard the race.",
-            since: race.createdAt,
-          }
-        : undefined;
+  const { status, need } = teamAttention({
+    kind: "race",
+    phase: running ? "running" : race.state === "kept" ? "finished" : "stopped",
+    members,
+    origin: origin.sessionId,
+    since: race.createdAt,
+  });
   const headline = raceHeadline(race);
   const why =
     race.outcome?.kind === "lane" && race.outcome.why
@@ -525,29 +491,19 @@ export function orchestrationTeam(
       ...(task.summary ? { summary: task.summary } : {}),
     };
   });
-  const status: TeamStatus =
-    run.status === "finished"
-      ? "finished"
-      : run.status === "stopped"
-        ? "stopped"
-        : run.status === "paused" || leadAsking
-          ? "needs-you"
-          : "running";
-  const need: TeamNeed | undefined = leadAsking
-    ? {
-        sessionId: run.leadId,
-        kind: leadAsking.kind,
-        text: leadAsking.text,
-        since: run.startedAt ?? 0,
-      }
-    : run.status === "paused"
-      ? {
-          sessionId: run.leadId,
-          kind: "paused",
-          text: run.error ?? "Paused",
-          since: run.startedAt ?? 0,
-        }
-      : undefined;
+  const { status, need } = teamAttention({
+    kind: "orchestrate",
+    phase:
+      run.status === "active"
+        ? "running"
+        : run.status === "paused"
+          ? "paused"
+          : run.status,
+    members: [lead, ...workers],
+    origin: run.leadId,
+    since: run.startedAt ?? 0,
+    pause: { reason: run.error, sessionId: run.leadId },
+  });
   const title =
     run.title ||
     (leadSession

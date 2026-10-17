@@ -919,7 +919,8 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-row[data-attention="approval"] .workspace-home-kind,
-.workspace-home-row[data-attention="question"] .workspace-home-kind {
+.workspace-home-row[data-attention="question"] .workspace-home-kind,
+.workspace-home-row[data-attention="paused"] .workspace-home-kind {
   color: color-mix(in srgb, var(--color-content) 35%, var(--color-amber-400));
 }
 
