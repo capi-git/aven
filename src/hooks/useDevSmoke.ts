@@ -864,6 +864,31 @@ export async function checkRace(
     throw new Error(
       `Activity posted ${loud.map((entry) => `"${entry.summary}"`).join(", ")} for a lane`,
     );
+  // Watched from the card, the team panel shows each lane as the card does.
+  let watched = "";
+  if (teamWorkspace()?.watch) {
+    const teamId = `race:${record.id}`;
+    watched = await checkTeamPanel(
+      teamId,
+      () => card()?.querySelector<HTMLElement>(`[data-team-watch="${teamId}"]`),
+      (panel) => {
+        const lanes = [...panel.querySelectorAll("[data-team-lane]")].map(
+          (lane) => lane.getAttribute("data-lane-state"),
+        );
+        if (lanes.join() !== lanesOf().join())
+          return `its lanes read ${lanes.join(", ") || "nothing"}, the card's ${lanesOf().join(", ")}`;
+        if (
+          panel.querySelectorAll(".team-watch-tile").length !==
+          record.lanes.length
+        )
+          return "its header has no mascot for each lane";
+        if (!buttonNamed(panel, "Compare") || !buttonNamed(panel, "Stop all"))
+          return "it offers no Compare or Stop all";
+        return null;
+      },
+    );
+    closeTeamPanel(teamId);
+  }
   // Compare from the card.
   const compare = card()?.querySelector<HTMLButtonElement>(
     "[data-race-compare]",
@@ -1069,7 +1094,7 @@ export async function checkRace(
   )
     throw new Error("The result has no Review changes or Continue with");
   if (barOf()) throw new Error("The race's bar stayed after the keep");
-  return `your message and the card stayed in the chat you raced from, with one Stop all; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"`;
+  return `your message and the card stayed in the chat you raced from, with one Stop all; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
 }
 
 /** The second race: both lanes write their file and finish within seconds. */
@@ -1251,6 +1276,132 @@ function buttonNamed(
       (button) => button.textContent?.trim() === label,
     ) ?? null
   );
+}
+
+/** A team's floating panel, when it is on screen. */
+function teamPanel(teamId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-team-panel="${teamId}"]`,
+      ),
+    ].find((panel) => panel.getClientRects().length > 0) ?? null
+  );
+}
+
+/** The pill a shrunk team panel becomes, when it is on screen. */
+function teamPill(teamId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(`[data-team-pill="${teamId}"]`),
+    ].find((pill) => pill.getClientRects().length > 0) ?? null
+  );
+}
+
+/** A native window, as far as the check needs one. */
+export type SmokeWindow = {
+  label: string;
+  isVisible(): Promise<boolean>;
+  close(): Promise<void>;
+};
+
+const nativeWindows = async (): Promise<SmokeWindow[]> =>
+  (await import("@tauri-apps/api/window")).getAllWindows();
+
+/**
+ * A team's floating panel from Watch: it must open with the body `problem`
+ * accepts, shrink to a pill and come back from it, and, where the platform
+ * offers ↗, open in a window of its own that draws and shows itself, and
+ * come back as a pill when that window is closed.
+ */
+export async function checkTeamPanel(
+  teamId: string,
+  watch: () => HTMLElement | null | undefined,
+  problem: (panel: HTMLElement) => string | null,
+  windows: () => Promise<SmokeWindow[]> = nativeWindows,
+): Promise<string> {
+  const button = watch();
+  if (!button) throw new Error(`There is no Watch for ${teamId}`);
+  button.click();
+  await waitFor(
+    () => teamPanel(teamId),
+    5_000,
+    "Watch to open the team's panel",
+  );
+  let seen: string | null = "the panel never drew its body";
+  try {
+    await waitFor(
+      () => {
+        const panel = teamPanel(teamId);
+        seen = panel ? problem(panel) : "the panel closed";
+        return !seen;
+      },
+      10_000,
+      "the panel to show the team",
+    );
+  } catch (error) {
+    throw new Error(`${errorText(error)}: ${seen ?? ""}`);
+  }
+  teamPanel(teamId)?.querySelector<HTMLElement>("[data-team-shrink]")?.click();
+  const pill = await waitFor(
+    () => teamPill(teamId),
+    5_000,
+    "the panel to shrink to a pill",
+  );
+  if (teamPanel(teamId))
+    throw new Error("The panel stayed open beside its pill");
+  const pillText = [...pill.children]
+    .map((part) => part.textContent?.trim())
+    .filter(Boolean)
+    .join(" · ");
+  pill.click();
+  await waitFor(
+    () => teamPanel(teamId) && !teamPill(teamId),
+    5_000,
+    "the pill to bring the panel back",
+  );
+  const popOut = teamPanel(teamId)?.querySelector<HTMLElement>(
+    "[data-team-pop-out]",
+  );
+  if (!popOut)
+    return `Watch opened its panel; it shrank to "${pillText}" and came back; no pop-out here`;
+  const before = new Set((await windows()).map((window) => window.label));
+  popOut.click();
+  await waitFor(
+    () => !teamPanel(teamId) && !teamPill(teamId),
+    5_000,
+    "the panel to leave for a window of its own",
+  );
+  let opened: SmokeWindow | undefined;
+  await waitForAsync(
+    async () => {
+      opened = (await windows()).find(
+        (window) =>
+          window.label.startsWith("team-watch-") && !before.has(window.label),
+      );
+      return !!opened && (await opened.isVisible());
+    },
+    15_000,
+    "the pop-out to draw and show itself",
+  );
+  await opened!.close();
+  await waitFor(
+    () => teamPill(teamId) && !teamPanel(teamId),
+    10_000,
+    "closing the pop-out to leave a pill here",
+  );
+  teamPill(teamId)!.click();
+  await waitFor(
+    () => teamPanel(teamId),
+    5_000,
+    "the pill to bring the panel back after the pop-out",
+  );
+  return `Watch opened its panel; it shrank to "${pillText}" and came back; it popped out into a window that showed itself, and closing that left a pill`;
+}
+
+/** Close a team's panel so the workspace is as the check found it. */
+function closeTeamPanel(teamId: string) {
+  teamPanel(teamId)?.querySelector<HTMLElement>("[data-team-close]")?.click();
 }
 
 /** The newest proposal card in a lead's chat. */
@@ -2959,15 +3110,53 @@ export async function runDevSmoke(
         throw new Error(
           `Another chat in the project is told: ${refused ?? "nothing"}`,
         );
-      const bar = await waitFor(
-        () => {
-          const found = chatPane(lead.id)?.querySelector<HTMLElement>(
-            `[data-orchestration-bar="${lead.id}"]`,
-          );
-          return found?.querySelector('[data-state="stalled"]') && found;
-        },
+      const stalledBar = () => {
+        const found = chatPane(lead.id)?.querySelector<HTMLElement>(
+          `[data-orchestration-bar="${lead.id}"]`,
+        );
+        return found?.querySelector('[data-state="stalled"]') && found;
+      };
+      await waitFor(
+        stalledBar,
         90_000,
         "the bar to say the lead stopped without finishing",
+      );
+      // Watched from the bar, the team panel says so too, with the lead
+      // and each agent.
+      let watched = "";
+      if (teamWorkspace()?.watch) {
+        const teamId = `orchestrate:${lead.id}`;
+        const tasks = orchestration.run(lead.id)?.tasks.length ?? 0;
+        watched = await checkTeamPanel(
+          teamId,
+          () =>
+            stalledBar()?.querySelector<HTMLElement>(
+              `[data-team-watch="${teamId}"]`,
+            ),
+          (panel) => {
+            if (
+              !panel.querySelector(
+                `[data-team-member="${lead.id}"][data-role="lead"]`,
+              )
+            )
+              return "it has no row for the lead";
+            const rows = panel.querySelectorAll(
+              '[data-team-member][data-role="worker"]',
+            ).length;
+            if (rows !== tasks) return `it lists ${rows} agents, not ${tasks}`;
+            const notice = panel.querySelector('[data-team-notice="stalled"]');
+            if (!notice || !buttonNamed(notice as Element, "Finish run"))
+              return "it does not say the lead stopped, with Finish run";
+            if (!buttonNamed(panel, "Stop run")) return "it has no Stop run";
+            return null;
+          },
+        );
+        closeTeamPanel(teamId);
+      }
+      const bar = await waitFor(
+        stalledBar,
+        5_000,
+        "the bar to still say the lead stopped",
       );
       const said = bar.textContent ?? "";
       if (!said.includes("The lead stopped without finishing"))
@@ -2991,7 +3180,7 @@ export async function runDevSmoke(
         5_000,
         "the bar to go and the card to read Finished",
       );
-      return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run`;
+      return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run${watched ? `; ${watched}` : ""}`;
     });
 
   // A two-lane race from the message box, with the stand-in Grok as the
