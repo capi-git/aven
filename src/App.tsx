@@ -590,7 +590,6 @@ import { shouldOfferProviderSetup } from "./lib/providerSetup";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
-import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
   loadLiveAgentsEnabled,
   loadNotesEnabled,
@@ -2859,47 +2858,22 @@ export default function App({
   ]);
 
   const onStartInboxItem = useCallback(
-    async (item: InboxItem, body?: string) => {
-      const start = (description?: string) => {
-        // The Inbox may have been opened over Home; show the new chat.
-        showWorkspace();
-        setSidebarTab("sessions");
-        const cwd =
-          item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
-        const ref =
-          item.provider === "linear"
-            ? item.identifier?.trim() || `#${item.number}`
-            : `#${item.number}`;
-        const session = {
-          ...newDefaultSession(cwd),
-          title: `${ref} ${item.title}`,
-          inboxCard: inboxComposerCard(item, description),
-        };
-        const tab = newTab(session.id);
-        setSessions((prev) => [...prev, session]);
-        appendTab(tab, cwd);
-        setActiveTabId(tab.id);
-        setComposerFocused(true);
+    (item: InboxItem) => {
+      // The Inbox may have been opened over Home; show the new chat.
+      showWorkspace();
+      setSidebarTab("sessions");
+      const cwd =
+        item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
+      const session = {
+        ...newDefaultSession(cwd),
+        title: `#${item.number} ${item.title}`,
+        inboxCard: inboxComposerCard(item),
       };
-
-      if (item.provider !== "linear") {
-        start();
-        return;
-      }
-      if (!item.id) {
-        throw new Error("Missing Linear issue");
-      }
-      if (body !== undefined) {
-        start(body);
-        return;
-      }
-      const cached = peekLinearIssueDetails(item.id);
-      if (cached) {
-        start(cached.body);
-        return;
-      }
-      const details = await linearIssueDetails(item.id);
-      start(details.body);
+      const tab = newTab(session.id);
+      setSessions((prev) => [...prev, session]);
+      appendTab(tab, cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
     },
     [
       active?.cwd,
@@ -4271,13 +4245,6 @@ export default function App({
             candidate && candidate !== "~"
               ? candidate
               : await invoke<string>("default_cwd");
-          const description =
-            item.provider === "linear" && item.id
-              ? (
-                  peekLinearIssueDetails(item.id) ??
-                  (await linearIssueDetails(item.id))
-                ).body
-              : undefined;
           session = {
             ...newDefaultSession(cwd),
             title: `Ask · ${item.title}`,
@@ -4286,7 +4253,6 @@ export default function App({
               title: item.title,
               url: item.url,
               provider: item.provider,
-              description,
             },
           };
           sessionsRef.current = [...sessionsRef.current, session];

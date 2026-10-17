@@ -1,13 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
-  linearConnected,
-  linearTeamIdsForFetch,
-  listLinearIssues,
-  listLinearTeams,
-  loadHiddenLinearTeamIds,
-  type LinearIssue,
-} from "./linear";
-import {
   collectRailProjects,
   normalizeProjectPath,
   sameProjectPath,
@@ -15,7 +7,7 @@ import {
 } from "./recents";
 
 export type GithubTaskKind = "issue" | "pr";
-export type InboxKind = GithubTaskKind | "linear";
+export type InboxKind = GithubTaskKind;
 
 export type GithubLabel = {
   name: string;
@@ -42,20 +34,12 @@ export type GithubWorkItem = {
   repo: string;
 };
 
-export type InboxProvider = "github" | "linear";
+/** Part of every item's seen-state key, so saved read marks keep matching. */
+export type InboxProvider = "github";
 
-export type InboxItem = Omit<GithubWorkItem, "kind"> & {
-  kind: InboxKind;
+export type InboxItem = GithubWorkItem & {
   projectPath: string;
   provider: InboxProvider;
-  id?: string;
-  identifier?: string;
-  teamId?: string;
-  teamName?: string;
-  /** Linear project the issue belongs to. Empty when it sits outside every project. */
-  projectId?: string;
-  projectName?: string;
-  stateType?: string;
 };
 
 export type GithubWorkItemDetails = {
@@ -112,9 +96,7 @@ export type GithubWorkItemQuery = {
   search: string;
 };
 
-export type InboxQuery = Omit<GithubWorkItemQuery, "kind"> & {
-  linearHiddenTeamIds?: string[];
-};
+export type InboxQuery = Omit<GithubWorkItemQuery, "kind">;
 
 export type InboxProviderErrors = Partial<Record<InboxProvider, string>>;
 
@@ -161,8 +143,7 @@ export function inboxListCacheKey(
     .map((project) => normalizeProjectPath(project.path))
     .sort()
     .join("|");
-  const teams = [...(query.linearHiddenTeamIds ?? [])].sort().join(",");
-  return `${query.assignedToMe ? 1 : 0}:${query.state}:${paths}:${teams}`;
+  return `${query.assignedToMe ? 1 : 0}:${query.state}:${paths}`;
 }
 
 export function peekInboxList(
@@ -233,14 +214,12 @@ export function githubAvatarUrl(login: string, size = 64): string {
 }
 
 export function inboxPersonAvatarUrl(
-  provider: InboxProvider,
   login: string,
   avatarUrl?: string,
 ): string {
   const explicit = avatarUrl?.trim() ?? "";
   if (explicit) return explicit;
-  if (provider === "github") return githubAvatarUrl(login);
-  return "";
+  return githubAvatarUrl(login);
 }
 
 export function formatRelativeTime(
@@ -487,62 +466,7 @@ async function fetchInboxItems(
   const errors: InboxProviderErrors = {};
   if (github.error && grouped.length > 0) errors.github = github.error;
 
-  let linearItems: InboxItem[] = [];
-  if ((await linearConnected()).connected) {
-    try {
-      linearItems = await fetchLinearInboxItems(query);
-    } catch (error) {
-      errors.linear = inboxErrorMessage(error);
-    }
-  }
-
-  return {
-    items: dedupeInboxItems([...github.items, ...linearItems], preferredPaths),
-    errors,
-  };
-}
-
-async function fetchLinearInboxItems(query: InboxQuery): Promise<InboxItem[]> {
-  const hiddenIds = query.linearHiddenTeamIds ?? loadHiddenLinearTeamIds();
-  let teamIds: string[] | null = null;
-  if (hiddenIds.length > 0) {
-    teamIds = linearTeamIdsForFetch(await listLinearTeams(), hiddenIds);
-    if (teamIds?.length === 0) return [];
-  }
-  const issues = await listLinearIssues({
-    assignedToMe: query.assignedToMe,
-    state: query.state,
-    teamIds: teamIds ?? [],
-    limit: query.state === "all" ? INBOX_ALL_LIMIT : undefined,
-  });
-  const hidden = new Set(hiddenIds);
-  return issues
-    .filter((issue) => hidden.size === 0 || !hidden.has(issue.teamId))
-    .map(linearIssueToInboxItem);
-}
-
-function linearIssueToInboxItem(issue: LinearIssue): InboxItem {
-  return {
-    provider: "linear",
-    kind: "linear",
-    id: issue.id,
-    identifier: issue.identifier,
-    number: issue.number,
-    title: issue.title,
-    url: issue.url,
-    state: issue.state,
-    stateType: issue.stateType,
-    updatedAt: issue.updatedAt,
-    labels: issue.labels,
-    assignees: issue.assignees,
-    draft: false,
-    repo: issue.repo,
-    teamId: issue.teamId,
-    teamName: issue.teamName,
-    projectId: issue.projectId || "",
-    projectName: issue.projectName || "",
-    projectPath: issue.projectPath || "",
-  };
+  return { items: github.items, errors };
 }
 
 export function inboxProjectsForRail(
@@ -610,19 +534,11 @@ function inboxErrorMessage(error: unknown): string {
 }
 
 export function inboxIdentityKey(item: {
-  provider?: InboxProvider;
   kind: InboxKind;
   number: number;
   repo: string;
   url: string;
-  identifier?: string;
-  id?: string;
 }): string {
-  if (item.provider === "linear") {
-    const identity = item.identifier?.trim() || item.id?.trim();
-    if (identity) return identity.toLowerCase();
-    return `linear:${item.number}`;
-  }
   const repo = item.repo.trim().toLowerCase();
   if (repo) return `${repo}:${item.kind}:${item.number}`;
   const url = item.url.trim().toLowerCase();
@@ -683,16 +599,9 @@ export function githubWorkItemKey(item: GithubWorkItem): string {
 }
 
 export function inboxItemStatus(item: {
-  kind: InboxKind;
   state: string;
   draft: boolean;
-  stateType?: string;
 }): string {
-  if (item.kind === "linear") {
-    const type = item.stateType?.trim().toLowerCase();
-    if (type === "completed" || type === "canceled") return "Closed";
-    return "Open";
-  }
   if (item.draft) return "Draft";
   if (item.state === "merged") return "Merged";
   if (item.state === "closed") return "Closed";
@@ -702,19 +611,11 @@ export function inboxItemStatus(item: {
 export function matchesInboxQuery(item: InboxItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const kind =
-    item.kind === "pr"
-      ? "pull request pr"
-      : item.kind === "linear"
-        ? "linear issue"
-        : "issue";
+  const kind = item.kind === "pr" ? "pull request pr" : "issue";
   const haystack = [
     item.title,
     item.repo,
     item.projectPath,
-    item.identifier,
-    item.teamName,
-    item.projectName,
     kind,
     `#${item.number}`,
     String(item.number),
@@ -733,30 +634,11 @@ export function filterInboxItems(
   return items.filter((item) => matchesInboxQuery(item, query));
 }
 
-export function inboxItemRef(item: {
-  provider?: InboxProvider;
-  number: number;
-  identifier?: string;
-}): string {
-  if (item.provider === "linear") {
-    return item.identifier?.trim() || `#${item.number}`;
-  }
+export function inboxItemRef(item: { number: number }): string {
   return `#${item.number}`;
 }
 
-export function inboxStartDraft(item: InboxItem, body?: string): string {
-  if (item.provider === "linear") {
-    const id = item.identifier?.trim() || `Linear #${item.number}`;
-    const title = item.title.trim() || id;
-    const lines = ["Work on this Linear issue:", "", `${id} ${title}`];
-    const url = item.url.trim();
-    if (url) lines.push(url);
-    const description = body?.trim();
-    if (description) {
-      lines.push("", description);
-    }
-    return `${lines.join("\n")}\n`;
-  }
+export function inboxStartDraft(item: InboxItem): string {
   const kind = item.kind === "pr" ? "pull request" : "issue";
   const title = item.title.trim() || `GitHub ${kind} #${item.number}`;
   const lines = [
@@ -771,7 +653,6 @@ export function inboxStartDraft(item: InboxItem, body?: string): string {
 
 /** Compact chip shown above the composer when starting from Inbox. */
 export type InboxComposerCard = {
-  provider: InboxProvider;
   kind: InboxKind;
   identifier: string;
   title: string;
@@ -781,20 +662,15 @@ export type InboxComposerCard = {
   prompt: string;
 };
 
-export function inboxComposerCard(
-  item: InboxItem,
-  body?: string,
-): InboxComposerCard {
-  const linear = item.provider === "linear";
+export function inboxComposerCard(item: InboxItem): InboxComposerCard {
   return {
-    provider: item.provider,
     kind: item.kind,
     identifier: inboxItemRef(item),
     title: item.title.trim() || inboxItemRef(item),
     url: item.url.trim(),
-    source: linear ? item.teamName || item.repo : item.repo,
+    source: item.repo,
     labels: item.labels.slice(0, 2),
-    prompt: inboxStartDraft(item, body).trimEnd(),
+    prompt: inboxStartDraft(item).trimEnd(),
   };
 }
 

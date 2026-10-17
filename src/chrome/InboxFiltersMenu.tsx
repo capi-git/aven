@@ -5,11 +5,8 @@ import {
   DEFAULT_INBOX_FILTERS,
   hasActiveInboxFilters,
   type InboxFilters,
-  type InboxSource,
   type InboxTimeFilter,
-  type LinearProjectOption,
 } from "../lib/inboxFilters";
-import type { LinearTeam } from "../lib/linear";
 import { Popover } from "./Popover";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 
@@ -25,14 +22,8 @@ type Props = {
   /** The filter button. Pressing it again closes the menu, not reopens it. */
   anchor: HTMLElement;
   projects: ProjectOption[];
-  linearProjects: LinearProjectOption[];
-  linearTeams: LinearTeam[];
-  hiddenLinearTeamIds: string[];
-  source: InboxSource;
   filters: InboxFilters;
   onChange: (filters: InboxFilters) => void;
-  /** Shared with Settings → Linear Teams; narrows the fetch, not just the list. */
-  onLinearTeamsChange: (ids: string[]) => void;
   onClose: () => void;
 };
 
@@ -63,20 +54,12 @@ const KIND_OPTIONS: {
 export function InboxFiltersMenu({
   anchor,
   projects,
-  linearProjects,
-  linearTeams,
-  hiddenLinearTeamIds,
-  source,
   filters,
   onChange,
-  onLinearTeamsChange,
   onClose,
 }: Props) {
   const hiddenProjects = new Set(filters.hiddenProjects);
-  const hiddenLinearProjects = new Set(filters.hiddenLinearProjects);
-  const hiddenTeams = new Set(hiddenLinearTeamIds);
   const hiddenKinds = new Set(filters.hiddenKinds);
-  const teamsActive = source === "linear" && hiddenLinearTeamIds.length > 0;
 
   const toggleAssigned = () => {
     onChange({ ...filters, assignedToMe: !filters.assignedToMe });
@@ -94,20 +77,6 @@ export function InboxFiltersMenu({
     if (next.has(path)) next.delete(path);
     else next.add(path);
     onChange({ ...filters, hiddenProjects: [...next] });
-  };
-
-  const toggleLinearTeam = (id: string) => {
-    const next = new Set(hiddenTeams);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onLinearTeamsChange([...next]);
-  };
-
-  const toggleLinearProject = (id: string) => {
-    const next = new Set(hiddenLinearProjects);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange({ ...filters, hiddenLinearProjects: [...next] });
   };
 
   const setTime = (time: InboxTimeFilter) => {
@@ -146,25 +115,21 @@ export function InboxFiltersMenu({
         checked={filters.status.open}
         onClick={() => toggleStatus("open")}
       />
-      {source === "github" ? (
-        <FilterItem
-          label="Draft"
-          checked={filters.status.draft}
-          onClick={() => toggleStatus("draft")}
-        />
-      ) : null}
+      <FilterItem
+        label="Draft"
+        checked={filters.status.draft}
+        onClick={() => toggleStatus("draft")}
+      />
       <FilterItem
         label="Closed"
         checked={filters.status.closed}
         onClick={() => toggleStatus("closed")}
       />
-      {source === "github" ? (
-        <FilterItem
-          label="Merged"
-          checked={filters.status.merged}
-          onClick={() => toggleStatus("merged")}
-        />
-      ) : null}
+      <FilterItem
+        label="Merged"
+        checked={filters.status.merged}
+        onClick={() => toggleStatus("merged")}
+      />
 
       <SectionLabel>Time</SectionLabel>
       {TIME_OPTIONS.map((option) => (
@@ -176,50 +141,18 @@ export function InboxFiltersMenu({
         />
       ))}
 
-      {source === "github" ? (
-        <>
-          <SectionLabel>Type</SectionLabel>
-          {KIND_OPTIONS.map((option) => (
-            <FilterItem
-              key={option.id}
-              label={option.label}
-              checked={!hiddenKinds.has(option.id)}
-              icon={option.icon}
-              onClick={() => toggleKind(option.id)}
-            />
-          ))}
-        </>
-      ) : null}
+      <SectionLabel>Type</SectionLabel>
+      {KIND_OPTIONS.map((option) => (
+        <FilterItem
+          key={option.id}
+          label={option.label}
+          checked={!hiddenKinds.has(option.id)}
+          icon={option.icon}
+          onClick={() => toggleKind(option.id)}
+        />
+      ))}
 
-      {source === "linear" && linearTeams.length > 0 ? (
-        <>
-          <SectionLabel>Teams</SectionLabel>
-          {linearTeams.map((team) => (
-            <FilterItem
-              key={team.id}
-              label={team.name || team.key}
-              checked={!hiddenTeams.has(team.id)}
-              onClick={() => toggleLinearTeam(team.id)}
-            />
-          ))}
-        </>
-      ) : null}
-
-      {source === "linear" && linearProjects.length > 0 ? (
-        <>
-          <SectionLabel>Projects</SectionLabel>
-          {linearProjects.map((project) => (
-            <FilterItem
-              key={project.id}
-              label={project.name}
-              checked={!hiddenLinearProjects.has(project.id)}
-              onClick={() => toggleLinearProject(project.id)}
-            />
-          ))}
-        </>
-      ) : null}
-
-      {source === "github" && projects.length > 0 ? (
+      {projects.length > 0 ? (
         <>
           <SectionLabel>Projects</SectionLabel>
           {projects.map((project) => (
@@ -242,17 +175,14 @@ export function InboxFiltersMenu({
         </>
       ) : null}
 
-      {hasActiveInboxFilters(filters, source, hiddenLinearTeamIds) ? (
+      {hasActiveInboxFilters(filters) ? (
         <>
           <div role="separator" className="my-1 h-px bg-content/10" />
           <button
             type="button"
             role="menuitem"
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              onChange(DEFAULT_INBOX_FILTERS);
-              if (teamsActive) onLinearTeamsChange([]);
-            }}
+            onClick={() => onChange(DEFAULT_INBOX_FILTERS)}
             className="flex h-7 w-full items-center rounded-lg px-2 text-left text-ui-body leading-none text-content/70 hover:bg-content/5 hover:text-content"
           >
             Clear filters

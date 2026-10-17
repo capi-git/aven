@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Linear is gone from Aven. The Inbox now shows only GitHub issues and pull requests, without the GitHub | Linear switch, and Settings → Connections no longer has a Linear section. If you had connected Linear, Aven stops using the API key it saved; your GitHub inbox, filters and read marks are unchanged.
+
 ## [0.1.144] - 2026-10-16
 
 ### Added

@@ -41,7 +41,6 @@ mod github_account;
 mod harness;
 mod inbox_media;
 mod keep_awake;
-mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mcp_manage;
@@ -444,13 +443,6 @@ pub fn run() {
             git::git_github_work_item_comment,
             git::git_github_pr_diff,
             inbox_media::fetch_inbox_media,
-            linear::linear_status,
-            linear::linear_set_token,
-            linear::linear_list_teams,
-            linear::linear_list_issues,
-            linear::linear_issue_details,
-            linear::linear_issue_thread,
-            linear::linear_issue_comment,
             git::git_branches,
             git::git_checkout,
             git::git_create_branch,

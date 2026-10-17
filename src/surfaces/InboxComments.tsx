@@ -11,13 +11,11 @@ import {
   formatRelativeTime,
   githubReviewStateLabel,
   inboxPersonAvatarUrl,
-  type InboxProvider,
 } from "../lib/githubTasks";
 import { MOD } from "../lib/platform";
 import { AgentMarkdown } from "./AgentMarkdown";
 
 export type InboxReplyTarget = {
-  id: string;
   author: string;
   threadId: string;
 };
@@ -48,20 +46,10 @@ type Props = {
   loading: boolean;
   error: string | null;
   cwd: string;
-  provider: InboxProvider;
-  replyMode?: "thread" | "parent";
   onReply?: (target: InboxReplyTarget) => void;
 };
 
-export function InboxComments({
-  thread,
-  loading,
-  error,
-  cwd,
-  provider,
-  replyMode,
-  onReply,
-}: Props) {
+export function InboxComments({ thread, loading, error, cwd, onReply }: Props) {
   if (thread && thread.comments.length === 0 && !thread.truncated) {
     if (loading) return <CommentsPending />;
     return null;
@@ -79,14 +67,13 @@ export function InboxComments({
     0,
   );
   const label = count === 1 ? "1 comment" : `${count} comments`;
-  const moreOn = provider === "linear" ? "Linear" : "GitHub";
 
   return (
     <section className="flex flex-col gap-3 border-t border-content/10 pt-5">
       <div className="flex items-center gap-2 text-ui-label text-content/50">
         <h2 className="text-content/70">{label}</h2>
         {thread.truncated ? (
-          <span>Latest comments · more on {moreOn}</span>
+          <span>Latest comments · more on GitHub</span>
         ) : null}
         {loading ? (
           <LoaderCircle
@@ -99,13 +86,7 @@ export function InboxComments({
       <ol className="flex flex-col gap-2">
         {thread.comments.map((comment) => (
           <li key={comment.id}>
-            <InboxComment
-              comment={comment}
-              cwd={cwd}
-              provider={provider}
-              replyMode={replyMode}
-              onReply={onReply}
-            />
+            <InboxComment comment={comment} cwd={cwd} onReply={onReply} />
           </li>
         ))}
       </ol>
@@ -225,16 +206,12 @@ function CommentsPending() {
 function InboxComment({
   comment,
   cwd,
-  provider,
   nested = false,
-  replyMode,
   onReply,
 }: {
   comment: InboxComment;
   cwd: string;
-  provider: InboxProvider;
   nested?: boolean;
-  replyMode?: "thread" | "parent";
   onReply?: (target: InboxReplyTarget) => void;
 }) {
   const time = formatRelativeTime(comment.createdAt);
@@ -248,10 +225,8 @@ function InboxComment({
   ].filter((part) => part.length > 0);
   const hasBody = comment.body.trim().length > 0;
   const hasReplies = !nested && comment.replies.length > 0;
-  const canReply =
-    onReply != null &&
-    (replyMode === "parent" ||
-      (replyMode === "thread" && (comment.threadId ?? "").trim().length > 0));
+  const threadId = (comment.threadId ?? "").trim();
+  const canReply = onReply != null && threadId.length > 0;
 
   const inner = (
     <>
@@ -263,7 +238,6 @@ function InboxComment({
         <InboxCommentPerson
           name={comment.author || "ghost"}
           avatarUrl={inboxPersonAvatarUrl(
-            provider,
             comment.author,
             comment.authorAvatarUrl,
           )}
@@ -277,9 +251,7 @@ function InboxComment({
             {comment.url && part === time ? (
               <button
                 type="button"
-                title={
-                  provider === "linear" ? "Open in Linear" : "Open on GitHub"
-                }
+                title="Open on GitHub"
                 onClick={() => void openInAppUrl(comment.url)}
                 className="hover:text-content"
               >
@@ -308,11 +280,7 @@ function InboxComment({
             <button
               type="button"
               onClick={() =>
-                onReply({
-                  id: comment.id,
-                  author: comment.author || "ghost",
-                  threadId: (comment.threadId ?? "").trim(),
-                })
+                onReply({ author: comment.author || "ghost", threadId })
               }
               className="hover:text-content"
             >
@@ -343,9 +311,7 @@ function InboxComment({
               <InboxComment
                 comment={reply}
                 cwd={cwd}
-                provider={provider}
                 nested
-                replyMode={replyMode}
                 onReply={onReply}
               />
             </div>
