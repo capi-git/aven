@@ -562,6 +562,17 @@ function AgentTranscriptComponent({
       }),
     [],
   );
+  // A folded discussion opens by itself while this chat waits on an
+  // approval inside it: its Allow and Deny would otherwise be out of reach.
+  const askingSpans = useMemo(() => {
+    const asking = new Set<string>();
+    for (const [index, span] of spans)
+      if (!asking.has(span.key) && hasPendingApproval(turns[index]))
+        asking.add(span.key);
+    return asking;
+  }, [spans, turns]);
+  const spansRef = useRef(spans);
+  spansRef.current = spans;
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -600,6 +611,14 @@ function AgentTranscriptComponent({
         turn.some((block) => block.id === blockId),
       );
       if (index < 0) return false;
+      // Inside a folded discussion the turn draws nothing: unfold it first.
+      const span = spansRef.current.get(index);
+      if (span)
+        flushSync(() =>
+          setShownSpans((current) =>
+            current.has(span.key) ? current : new Set([...current, span.key]),
+          ),
+        );
       const needed = all.length - index;
       if (needed <= visibleTurnCountRef.current) return true;
       prepareToPrepend();
@@ -637,7 +656,8 @@ function AgentTranscriptComponent({
           const turnAt = firstVisibleTurn + turnIndex;
           const isLastTurn = turnAt === turns.length - 1;
           const span = spans.get(turnAt);
-          const spanShown = !!span && shownSpans.has(span.key);
+          const spanShown =
+            !!span && (shownSpans.has(span.key) || askingSpans.has(span.key));
           // A folded discussion shows once, at the start of its span.
           if (span && !spanShown && turnAt !== span.start) return null;
           const spanStart = span && turnAt === span.start ? span : undefined;
@@ -2732,7 +2752,10 @@ function ApprovalControls({
   const approval = block.approval;
   if (!approval || approval.decided) return null;
   return (
-    <div className="personal-tool-approval mt-1.5 flex gap-2">
+    <div
+      className="personal-tool-approval mt-1.5 flex gap-2"
+      data-approval-pending
+    >
       <button
         type="button"
         className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-content/80     text-background-base"

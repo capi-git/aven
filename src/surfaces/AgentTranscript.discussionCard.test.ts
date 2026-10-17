@@ -254,6 +254,86 @@ describe("a discussion's card in the chat that started it", () => {
     expect(discussionStore().get("d1")?.status).toBe("active");
   });
 
+  it("opens around this chat's own approval, and the card shows it", async () => {
+    startDiscussion();
+    await act(async () =>
+      discussionStore().pause(
+        "d1",
+        "“Caching plan” needs your approval.",
+        "chat-a",
+      ),
+    );
+    const asking: Block[] = [
+      ...midway(),
+      {
+        id: "relay-4",
+        role: "user",
+        text: "Thirty seconds.",
+        startedAt: 4,
+        discussion: meta(4),
+      },
+      {
+        id: "ask",
+        role: "tool",
+        text: "Run npm test",
+        tool: { kind: "shell", status: "pending" },
+        approval: { requestId: 9 },
+      },
+    ];
+    await render(asking, true);
+    // Unfolded by itself: Allow and Deny are right there.
+    expect(one("[data-approval-pending]")).not.toBeNull();
+    // This chat is the one waiting: no "Go to" itself.
+    expect(one("[data-discussion-card-goto]")).toBeNull();
+    expect(text(one("[data-discussion-card-show-approval]"))).toBe(
+      "Show approval",
+    );
+    await press("[data-discussion-card-show-approval]");
+    expect(document.activeElement?.textContent).toBe("Allow");
+    // Decided: it folds back.
+    await render(
+      asking.map((block) =>
+        block.id === "ask"
+          ? { ...block, approval: { requestId: 9, decided: "allow" } }
+          : block,
+      ),
+      true,
+    );
+    expect(one("[data-approval-pending]")).toBeNull();
+    expect(
+      container.querySelector("[data-discussion-span='d1']"),
+    ).not.toBeNull();
+  });
+
+  it("unfolds itself for a jump to a turn inside it", async () => {
+    startDiscussion();
+    let reveal: ((blockId: string) => boolean) | undefined;
+    await act(async () =>
+      root.render(
+        createElement(
+          DiscussionActions,
+          { host },
+          createElement(AgentTranscript, {
+            blocks: midway(),
+            busy: false,
+            harness: "claude",
+            model: "claude:opus-5.5",
+            cwd: "/work/site",
+            onRevealReady: (next: (blockId: string) => boolean) => {
+              reveal = next;
+            },
+          }),
+        ),
+      ),
+    );
+    expect(container.textContent).not.toContain("Thirty seconds it is.");
+    await act(async () => {
+      expect(reveal?.("relay-2")).toBe(true);
+    });
+    // The prompt outline's mark lands on that turn, not the top of the chat.
+    expect(container.textContent).toContain("Thirty seconds it is.");
+  });
+
   it("becomes Discussed for N rounds with Open, followed by where they landed", async () => {
     startDiscussion();
     discussionStore().settle("d1", 3, { status: "completed", text: LAST });

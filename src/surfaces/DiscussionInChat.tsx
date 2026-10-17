@@ -109,6 +109,22 @@ export function cardView(
   };
 }
 
+/**
+ * Bring this transcript's pending approval into view, with the keyboard on
+ * its Allow button. The discussion around it unfolds by itself while it
+ * waits (see `AgentTranscript`).
+ */
+function revealApproval(from: HTMLElement) {
+  const approval = from
+    .closest(".agent-transcript")
+    ?.querySelector<HTMLElement>("[data-approval-pending]");
+  if (!approval) return;
+  approval.scrollIntoView({ block: "center" });
+  approval.querySelector<HTMLButtonElement>("button")?.focus({
+    preventScroll: true,
+  });
+}
+
 /** The card's tone in the family's terms (see `TeamCard`). */
 const TONE = {
   live: "live",
@@ -189,7 +205,16 @@ export const DiscussionCard = memo(function DiscussionCard({
         <>
           {host && discussion ? (
             <>
-              {view.state === "needs-you" && blocked && host.show ? (
+              {view.state === "needs-you" && blocked === "a" ? (
+                // This chat is the one waiting: its approval shows below,
+                // the discussion unfolded around it.
+                <TeamCardButton
+                  data-discussion-card-show-approval
+                  onClick={(event) => revealApproval(event.currentTarget)}
+                >
+                  Show approval
+                </TeamCardButton>
+              ) : view.state === "needs-you" && blocked && host.show ? (
                 <TeamCardButton
                   data-discussion-card-goto={blocked}
                   onClick={() => host.show!(id, blocked)}
