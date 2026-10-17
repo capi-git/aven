@@ -135,3 +135,22 @@ The speed test gained a last scenario, an agent writing a 240-line code block (`
 
 The before run of the speed test on the base commit is `target/perf/perf-20261016-201036.json` (streaming a long reply: 56.5% CPU, 143 React commits per second, Streamdown 641 ms of render time over 8 s; typing while streaming: 13.1 ms of React work per character in 15.3 commits; background tab: 22.6% CPU, 53.8 wakeups per second). The after run, and a before run that includes the new code-block scenario, had not been made when this was written: the Mac was locked.
 
+## Motion, October 17, 2026
+
+Aven's animations exist to make it feel faster: each shows a change that has already happened, so nothing a click or key does waits for one. The rules follow the WebKit costs measured above.
+
+- **Compositor only.** Animate `transform` and `opacity`, never width, height, top, left or margin, and never `backdrop-filter`. The bottom bar's usage fill used to animate its width; it is now a full-width bar slid by `translateX`.
+- **Short and one place.** Every duration and curve is a CSS variable in `src/motion.css` (`--aven-motion-fast` 120 ms, `--aven-motion-base` 150 ms, `--aven-motion-glide` 160 ms, `--aven-ease-out`, `--aven-ease-spring`). `src/lib/motion.ts` mirrors them for the one animation script starts itself (sidebar rows gliding), and a test keeps the two equal and checks that every animation in `motion.css` is timed by a token, touches only `transform` and `opacity`, and never loops.
+- **One switch.** `html[data-motion="reduce"]`, set from the system's Reduce motion or **Settings › Appearance › Reduce motion**, zeroes every duration and the pressed scale, and `playMotion()` starts nothing. Older animations that predate the tokens still follow the system setting through their own media queries.
+- **Nothing left running.** A one-shot is started by a `data-aven-motion` attribute that `playMotion()` removes on `animationend` or `animationcancel`, with backwards fill only, so nothing stays composited. No `will-change`, no timers, nothing loops: an idle window draws no frames for motion.
+- **No broad restyles.** No universal `*` rules, no selectors that name descendants of `[hidden]`, and no animated custom properties; the motion tokens are set on the root and change only with the preference.
+- **No work on a switch beyond the fade.** Hidden tabs keep their layout and use `visibility` as before. The pane a switch brings into view gets a 120 ms opacity animation, found by comparing the shown set in one layout effect; nothing is measured or re-rendered for it.
+- **Read layout only when something moved.** Sidebar rows glide by FLIP: `MotionList` reads row positions in `getSnapshotBeforeUpdate` (before React moves them) and once after the commit, reading every row before starting any animation, and only when the rows' keys or statuses changed. React still owns the DOM order and focus.
+- **Popups stay solid.** Menus, dialogs and the team panel spring in by scaling an opaque frame (0.97 to 1); only their contents fade, from 0.4.
+
+Cut for cost:
+
+- **Closing animations for popups, dialogs and removed sidebar rows.** A popup's owner removes it from React, so animating it out means leaving a copy in the page for the length of the fade. That copy kept a closed menu over a native browser page (the test that the page is restored without delay failed), was found by anything that checks a menu or dialog is gone (75 tests failed), and would be found by the real-app check's queries. Popups and rows close at once instead, which is faster than they open, and the rows below a removed row glide into its place.
+- **Transforms on panes.** A native browser page is placed from its pane's on-screen rectangle; scaling or moving a pane while it appears would misplace the page until the animation ended. Panes fade only.
+
+Measured so far: source checks only. The frontend suite and type check pass, lint stays at 152 warnings, and tests cover the rules above: reduced motion starts nothing and zeroes every token, a sent message is in the transcript in the same render, a switch with unchanged rows reads no layout, and FLIP keeps React's order and focus. A before/after speed test (`npm run perf:app`, with `--perf-compare`, on 9a290d8f and on this work) has not been run yet: the Mac was locked. It should compare switching, sidebar, Settings and streaming, alternating runs, for input-to-frame time, CPU and idle wakeups; anything that costs more than noise gets cut.
