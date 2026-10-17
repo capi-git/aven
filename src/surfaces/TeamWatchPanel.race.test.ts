@@ -378,6 +378,8 @@ describe("a race in the team panel", () => {
     });
     expect(send).toHaveBeenCalledWith("chat", expect.any(Function), {
       onSettled: expect.any(Function),
+      // Never queued behind other messages or steered into a turn.
+      whenIdle: true,
     });
     const reviewer = view()!.querySelector<HTMLElement>(
       '[data-team-reviewer="chat"]',

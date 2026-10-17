@@ -314,6 +314,8 @@ describe("a race's card in the chat it was sent from", () => {
     });
     expect(send).toHaveBeenCalledWith("chat", expect.any(Function), {
       onSettled: expect.any(Function),
+      // Never queued behind other messages or steered into a turn.
+      whenIdle: true,
     });
     const compose = (
       send.mock.calls[0] as unknown as [

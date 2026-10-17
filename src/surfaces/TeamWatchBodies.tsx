@@ -329,8 +329,8 @@ function RaceLanes({
         </p>
       ) : review?.status === "failed" && team.status === "ready" ? (
         <p className="team-watch-suggestion" data-team-suggestion="failed">
-          The reviewer didn't name a winner. Read its reply in its chat, or
-          compare their changes.
+          {review.error ??
+            "The reviewer didn't name a winner. Read its reply in its chat, or compare their changes."}
         </p>
       ) : suggestion?.status === "failed" && team.status === "ready" ? (
         <p className="team-watch-suggestion" data-team-suggestion="failed">
@@ -712,6 +712,9 @@ function TeamActions({
       suggestion?.status === "running" || pending === "suggest";
     const reviewing =
       view.race?.review?.status === "running" || pending === "review";
+    // One judge at a time: a suggestion and a review never overwrite each
+    // other's pick.
+    const judging = suggesting || reviewing;
     const reviewers = view.race?.reviewers;
     if (!open) return null;
     return (
@@ -775,7 +778,7 @@ function TeamActions({
             type="button"
             className="team-watch-button"
             data-team-suggest
-            disabled={suggesting}
+            disabled={judging}
             title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
             onClick={() => run({ kind: "suggest" })}
           >
@@ -790,7 +793,7 @@ function TeamActions({
             className="team-watch-button"
             data-team-review-ask
             aria-expanded={picking}
-            disabled={suggesting || reviewing}
+            disabled={judging}
             title="Send the agents' results to a chat of your choice, to compare them as a Reviewer"
             onClick={() => setPicking((value) => !value)}
           >

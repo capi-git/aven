@@ -228,6 +228,7 @@ import {
   raceLaneStarted,
   raceOriginBlock,
   saveRace,
+  subscribeRaces,
   usesRaceCheckout,
   type RaceBase,
   type RaceWorkspace,
@@ -554,7 +555,12 @@ import {
   teamsNoLongerNeedingYou,
   type TeamSeen,
 } from "./lib/teamActivity";
-import { leadVerdict, summarizeRun } from "./lib/teamResult";
+import {
+  leadVerdict,
+  reconcileRaceReviews,
+  summarizeRun,
+  watchRaceSuggestions,
+} from "./lib/teamResult";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
 import { equalChromeData } from "./hooks/useChromeProps";
@@ -2328,6 +2334,21 @@ export default function App({
       }),
     [announceActivity, sessionsRef],
   );
+
+  // A suggested winner this window asked for before a reload, or one that
+  // ran longer than a call can, is over; a review asked before a reload is
+  // settled from its chat's reply once that chat stops working.
+  useEffect(() => watchRaceSuggestions(subscribeRaces), []);
+  useEffect(() => {
+    if (
+      teamStores.races.some(
+        (race) => race.state === "running" && race.review?.status === "running",
+      )
+    )
+      void reconcileRaceReviews((id) => sessionById.get(id)).catch((error) =>
+        logError("Race review", error),
+      );
+  }, [sessionById, teamStores.races]);
 
   // A finished run's result card: the lead's verdict once its last turn
   // ended, and a line per agent from the cheap model (see teamResult).
@@ -8851,9 +8872,18 @@ export default function App({
     openChat: (id) => void onOpenApprovalSession(id),
     watch: (teamId) => openTeamPanel(teamId),
     send: async (id, compose, options) => {
-      const session = await ensureOpenSession(id);
-      if (!session) return false;
+      const opened = await ensureOpenSession(id);
+      if (!opened) return false;
       await onOpenApprovalSession(id);
+      const session =
+        sessionsRef.current.find((entry) => entry.id === id) ?? opened;
+      // Queued behind other messages or steered into a turn, the message
+      // would never report how its own turn ended.
+      if (
+        options?.whenIdle &&
+        (session.busy || !!session.queuedMessages?.length)
+      )
+        return false;
       const { text, shown } = compose(session.blocks);
       return (
         onSubmit(session.id, text, [], {

@@ -20,13 +20,17 @@ export type TeamWorkspace = {
   /**
    * Open a chat and send it a message as your own, written from its
    * transcript once it is loaded; the transcript shows `shown` in its place
-   * when given. `onSettled` hears how that turn ended. Resolves false when
-   * it could not.
+   * when given. `onSettled` hears how that turn ended. `whenIdle` refuses a
+   * chat that is working or has messages waiting, rather than queueing the
+   * message or steering it in. Resolves false when it could not.
    */
   send(
     sessionId: string,
     compose: (blocks: readonly Block[]) => { text: string; shown?: string },
-    options?: { onSettled?: (outcome: ControlOutcome) => void },
+    options?: {
+      onSettled?: (outcome: ControlOutcome) => void;
+      whenIdle?: boolean;
+    },
   ): Promise<boolean>;
 };
 

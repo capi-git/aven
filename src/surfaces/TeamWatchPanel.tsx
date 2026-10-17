@@ -229,7 +229,14 @@ export function useTeamWatchPerformer({
           // Answered once it starts: the cheap model can take a couple of
           // minutes, and the race's own view shows it working, then its pick
           // (in a pop-out too, which would otherwise stop waiting first).
-          if (suggestionRunning(race.suggestion) || reviewRunning(race.review))
+          if (
+            suggestionRunning(race.suggestion) ||
+            reviewRunning(
+              race.review,
+              Date.now(),
+              live?.session(race.review?.sessionId ?? ""),
+            )
+          )
             return "A suggestion is already on its way.";
           void requestRaceSuggestion(
             race.id,
@@ -250,17 +257,15 @@ export function useTeamWatchPerformer({
           const send = teamWorkspace()?.send;
           if (!send) return "This window can't ask a reviewer.";
           return later(async () => {
-            const sent = await askRaceReviewer(
+            // A refusal is kept with the race, so this panel and the card
+            // both say why.
+            await askRaceReviewer(
               race.id,
               choice,
               (id) => live?.session(id),
               team.members.map((member) => member.stateLabel),
               send as ReviewSend,
             );
-            if (!sent)
-              throw new Error(
-                `Couldn't send the comparison to “${choice.title}”.`,
-              );
           });
         }
         default:
@@ -355,11 +360,16 @@ export function useTeamWatchView(teamId: string): TeamWatchView | null {
         sessionId: race.review.sessionId,
         harness: race.review.harness,
         label: race.review.label,
-        status: reviewRunning(race.review)
+        status: reviewRunning(
+          race.review,
+          Date.now(),
+          live?.session(race.review.sessionId),
+        )
           ? "running"
           : race.review.status === "running"
             ? "failed"
             : race.review.status,
+        ...(race.review.error ? { error: race.review.error } : {}),
       }
     : undefined;
   const reviewers =

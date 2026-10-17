@@ -460,6 +460,8 @@ export type TeamWatchReview = {
   harness: ReviewerChoice["harness"];
   label: string;
   status: "running" | "done" | "failed";
+  /** Why it failed, when nothing reached the chat. */
+  error?: string;
 };
 
 /**

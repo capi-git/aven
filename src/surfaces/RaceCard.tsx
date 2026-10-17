@@ -245,7 +245,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
   const suggestion = race.suggestion;
   const suggesting = suggestionRunning(suggestion);
   const review = race.review;
-  const reviewing = reviewRunning(review);
+  const reviewing = reviewRunning(
+    review,
+    Date.now(),
+    review ? live?.session(review.sessionId) : undefined,
+  );
   const tone: TeamCardTone = kept
     ? "done"
     : over
@@ -283,7 +287,8 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
             : suggested
               ? suggested
               : review?.status === "failed" && ready
-                ? "The reviewer didn't name a winner. Read its reply in its chat, or compare their changes."
+                ? (review.error ??
+                  "The reviewer didn't name a winner. Read its reply in its chat, or compare their changes.")
                 : suggestion?.status === "failed" && ready
                   ? "Couldn't suggest a winner. Compare their changes to choose."
                   : ready
@@ -325,7 +330,9 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
           : review.status === "done"
             ? "Done"
             : review.status === "failed"
-              ? "No pick"
+              ? review.error
+                ? "Not sent"
+                : "No pick"
               : "Stopped";
         return {
           voice: memberVoice(
@@ -343,7 +350,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
             ? "Comparing the agents' results"
             : pick
               ? `Suggests ${pick.label}`
-              : review.status === "failed"
+              : review.status === "failed" && !review.error
                 ? "Didn't name a winner"
                 : undefined,
         };

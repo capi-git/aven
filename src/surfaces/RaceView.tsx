@@ -51,6 +51,7 @@ import {
   continueRace,
   replyOpening,
   requestRaceSuggestion,
+  reviewRunning,
   suggestionRunning,
 } from "../lib/teamResult";
 import { teamWorkspace } from "../lib/teamWorkspace";
@@ -356,7 +357,14 @@ function RaceBody({
   const outcome = raceOutcomeText(race);
   // Winner and why: once no lane works, the cheap model can suggest one.
   const suggestion = race.suggestion;
-  const suggesting = suggestionRunning(suggestion);
+  // One judge at a time: never while a reviewer compares them.
+  const suggesting =
+    suggestionRunning(suggestion) ||
+    reviewRunning(
+      race.review,
+      Date.now(),
+      sessions.find((entry) => entry.id === race.review?.sessionId),
+    );
   const settled =
     running && !anyActive && states.some((state) => state.kind === "done");
   const suggested = suggestion?.status === "done" ? suggestion.lane : undefined;

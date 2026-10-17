@@ -40,7 +40,12 @@ export type RaceLaneStats = {
  * suggestion is kept too, so the card can say so instead of asking again.
  */
 export type RaceSuggestion =
-  | { status: "running"; since: number }
+  | {
+      status: "running";
+      since: number;
+      /** The window asking, which alone can finish it. */
+      window?: string;
+    }
   | {
       status: "done";
       lane: number;
@@ -65,6 +70,10 @@ export type RaceReview = {
   role: AgentRoleId;
   status: "running" | "done" | "failed";
   since: number;
+  /** Why it failed when that was not a missing pick, in words. */
+  error?: string;
+  /** The window that asked, which alone hears its turn end. */
+  window?: string;
 };
 
 /** The chat a race was started from, and the block its card follows. */

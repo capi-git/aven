@@ -1,4 +1,5 @@
 import { voiceName } from "./discussionVoices";
+import { orchestrator } from "./orchestration";
 import type { LiveSessionStore } from "./liveSessions";
 import { modelDisplayName } from "./sessionLabels";
 import { raceLaneFor, type RaceRecord } from "./race";
@@ -21,22 +22,30 @@ export type ReviewerChoice = {
 
 /**
  * Chats in the race's project that could review it: the chat it was sent
- * from first, then the others, newest first. Never a lane of any race or an
- * orchestration's worker.
+ * from first, then the others, newest first. Never a lane of any race, an
+ * orchestration's worker, a lead whose run is open (the comparison would
+ * land in its run as an instruction), or a chat a run keeps from working.
  */
 export function reviewerChoices(
   race: RaceRecord,
   live: Pick<LiveSessionStore, "list">,
+  runs: Pick<typeof orchestrator, "run" | "blockingRun"> = orchestrator,
 ): ReviewerChoice[] {
   return live
     .list()
-    .filter(
-      (session) =>
-        sameProjectPath(session.cwd, race.project) &&
-        !session.inboxAsk &&
-        !session.orchestrationLeadId &&
-        !raceLaneFor(session.id),
-    )
+    .filter((session) => {
+      if (
+        !sameProjectPath(session.cwd, race.project) ||
+        session.inboxAsk ||
+        session.orchestrationLeadId ||
+        raceLaneFor(session.id)
+      )
+        return false;
+      const own = runs.run(session.id);
+      if (own && (own.status === "active" || own.status === "paused"))
+        return false;
+      return !runs.blockingRun(session.id);
+    })
     .map((session): ReviewerChoice => {
       return {
         sessionId: session.id,
