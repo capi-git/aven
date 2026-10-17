@@ -366,9 +366,16 @@ export function cleanupSkipReason(
   if (race?.race.state === "running") return "its race is still running";
   if (copyInUse(worktree.path, sessions)) return "an agent is using it";
   if (!race && !worktree.branch) return "it has no branch";
-  if (!race && worktree.branch?.startsWith("aven/race/"))
-    return "its race is no longer recorded";
   return null;
+}
+
+/**
+ * A race's copy, recorded or not: a race whose record was pruned after
+ * its cleanup failed leaves a copy on an `aven/race/` branch, which is
+ * removed the way its race would have removed it.
+ */
+function isRaceCopy(copy: CopySummary): boolean {
+  return !!copy.race || !!copy.worktree.branch?.startsWith("aven/race/");
 }
 
 export type CleanupPlan = {
@@ -450,9 +457,10 @@ function listNames(names: readonly string[]): string {
 
 /** What removing a copy throws away, for its confirmation. */
 export function removalWarning(copy: CopySummary): string {
-  const { worktree, race } = copy;
-  if (race?.race.state === "running")
-    return `This race is still running. Removing it stops its agents and deletes all ${race.race.lanes.length} of its copies, including unsaved and ignored files.`;
+  const { worktree } = copy;
+  const race = isRaceCopy(copy);
+  if (copy.race?.race.state === "running")
+    return `This race is still running. Removing it stops its agents and deletes all ${copy.race.race.lanes.length} of its copies, including unsaved and ignored files.`;
   if (!race && !worktree.branch)
     return "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.";
   const parts = [
@@ -476,10 +484,16 @@ export function removalWarning(copy: CopySummary): string {
 
 /** Remove a copy the right way: races clean up through their race. */
 export async function removeCopy(cwd: string, copy: CopySummary) {
-  const { race } = copy;
-  if (!race) return removeGitWorktree(cwd, copy.worktree.path);
-  if (race.race.state === "running") return finishRace(race.race, null);
-  return raceHost.cleanup(race.race.root, [race.lane]);
+  const { race, worktree } = copy;
+  if (race?.race.state === "running") return finishRace(race.race, null);
+  if (race) return raceHost.cleanup(race.race.root, [race.lane]);
+  // A race copy whose race is no longer recorded: the host removes only
+  // copies in its races folder on an aven/race/ branch.
+  if (worktree.branch?.startsWith("aven/race/"))
+    return raceHost.cleanup(cwd, [
+      { path: worktree.path, branch: worktree.branch },
+    ]);
+  return removeGitWorktree(cwd, worktree.path);
 }
 
 function firstLine(text: string): string {
@@ -953,10 +967,11 @@ export function GitCopies({
     const files = worktree.files.length;
     const status = copyStatus(copy, base);
     const chatLine = chat ? describeCopyChat(chat, now) : null;
+    // A race's copy is kept or discarded through its race, never shipped.
     const canShip =
       !copy.finished &&
       (files > 0 || worktree.aheadOfDefault > 0) &&
-      race?.race.state !== "running";
+      !isRaceCopy(copy);
     const where = worktree.branch ?? "No branch";
     return (
       <div key={worktree.path}>
@@ -1161,10 +1176,17 @@ export function GitCopies({
       (sum, copy) => sum + (copy?.worktree.files.length ?? 0),
       0,
     );
+    // Each agent's changes since the race began, committed or not: its
+    // last read numbers, or at least its uncommitted files.
     const question = raceDiscardQuestion(
       race,
       lanes,
-      group.copies.map((copy) => copy?.worktree.files.length),
+      group.copies.map((copy, index) =>
+        Math.max(
+          race.stats?.[index]?.files ?? 0,
+          copy?.worktree.files.length ?? 0,
+        ),
+      ),
     );
     return (
       <div key={key}>

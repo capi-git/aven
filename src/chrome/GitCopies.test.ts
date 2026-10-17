@@ -336,6 +336,21 @@ describe("other copies", () => {
     await removeCopy("/repo", summary({ path: "/races/race-1/0" }, running));
     expect(finishRace).toHaveBeenCalledWith(running, null);
     expect(invoke).not.toHaveBeenCalled();
+
+    // Its race was pruned after its cleanup failed: removed the same way.
+    await removeCopy(
+      "/repo",
+      summary({ path: "/races/old/0", branch: "aven/race/old-0" }),
+    );
+    expect(invoke).toHaveBeenLastCalledWith("race_cleanup", {
+      root: "/repo",
+      lanes: [{ path: "/races/old/0", branch: "aven/race/old-0" }],
+    });
+    expect(
+      removalWarning(
+        summary({ path: "/races/old/0", branch: "aven/race/old-0" }),
+      ),
+    ).toBe("The entire folder, including ignored files, will be deleted.");
   });
   it("knows which copies an agent is working in", () => {
     const busy = session({ cwd: "/copies/x/src", busy: true });
@@ -388,9 +403,11 @@ describe("other copies", () => {
         session({ cwd: "/c/squashed" }),
       ],
     );
+    // A race copy whose record was pruned is removed as its race would.
     expect(plan.remove.map((copy) => copy.name)).toEqual([
       "Done",
       "Kept lane",
+      "Orphan",
       "Squashed",
     ]);
     expect(plan.skip.map(({ copy, reason }) => [copy.name, reason])).toEqual([
@@ -401,7 +418,6 @@ describe("other copies", () => {
       ["Running", "its race is still running"],
       ["Agent", "an agent is using it"],
       ["Detached", "it has no branch"],
-      ["Orphan", "its race is no longer recorded"],
     ]);
   });
 

@@ -13,6 +13,7 @@ import {
   finishRace,
   installRaceWorkspace,
   saveRace,
+  updateRace,
   type RaceRecord,
 } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
@@ -215,6 +216,27 @@ it("asks before discarding the race and names what goes", async () => {
   expect(finishRace).toHaveBeenCalledWith(
     expect.objectContaining({ id: "race-1" }),
     null,
+  );
+});
+
+it("counts an agent's committed work in what discarding deletes", async () => {
+  // Codex committed its change: no unsaved files, but 3 changed files.
+  updateRace(race.id, {
+    stats: [
+      { files: 2, additions: 4, deletions: 0 },
+      { files: 3, additions: 9, deletions: 1 },
+      null,
+    ],
+  });
+  await render();
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>("[data-race-group] .git-copy-line")!
+      .click(),
+  );
+  await act(async () => button("Discard race").click());
+  expect(container.querySelector('[role="group"]')!.textContent).toContain(
+    "deletes all 3 copies and the changes in them: Claude Code (2 files) and Codex (3 files).",
   );
 });
 
