@@ -75,7 +75,7 @@ export type FilePaneTab = {
   agent?: AgentTabSource;
   /** A race's comparison view. */
   race?: RaceTabSource;
-  /** Two chats' discussion as one conversation page. */
+  /** An earlier version's discussion page; see `DiscussionTabSource`. */
   discussion?: DiscussionTabSource;
   terminal?: boolean;
   /** Foreground command when it isn't the shell. Live only — not persisted. */
@@ -379,9 +379,12 @@ export function newRaceWorkspaceTab(
   };
 }
 
+/**
+ * A discussion's page tab from an earlier version. Discussions now open in
+ * their floating panel; saved tabs are dropped when a workspace is restored.
+ */
 export type DiscussionTabSource = {
   discussionId: string;
-  /** The two chats, so the page re-renders only when one of them changes. */
   a: string;
   b: string;
   /** The tab's label: the topic's first line. */
@@ -392,100 +395,6 @@ export function isDiscussionTab(
   file: FilePaneTab,
 ): file is FilePaneTab & { discussion: DiscussionTabSource } {
   return !!file.discussion;
-}
-
-/** The tab label for a discussion: its topic's first line, kept short. */
-export function discussionTabTitle(topic: string): string {
-  const line = topic.trim().split(/\r?\n/)[0]?.trim() ?? "";
-  const max = 48;
-  return line.length > max
-    ? `${line.slice(0, max - 1).trimEnd()}…`
-    : line || "Discussion";
-}
-
-/** A discussion's conversation page, as a tab beside its chats. */
-export function newDiscussionTab(discussion: {
-  id: string;
-  topic: string;
-  a: { sessionId: string; cwd: string };
-  b: { sessionId: string };
-}): FilePaneTab & { discussion: DiscussionTabSource } {
-  return {
-    id: crypto.randomUUID(),
-    path: `discussion:${discussion.id}`,
-    cwd: discussion.a.cwd,
-    discussion: {
-      discussionId: discussion.id,
-      a: discussion.a.sessionId,
-      b: discussion.b.sessionId,
-      title: discussionTabTitle(discussion.topic),
-    },
-  };
-}
-
-/**
- * Show `file` in `tab` beside the leaf `besideId`: focus it where it is
- * already open, else add it to the tab's editor pane, else split `besideId`
- * to the right for it.
- */
-export function openEditorTabBeside(
-  tab: WorkspaceTab,
-  file: FilePaneTab,
-  besideId: string,
-): WorkspaceTab {
-  const key = editorTabKey(file);
-  const open = tab.editorPanes.some((pane) =>
-    pane.files.some((entry) => editorTabKey(entry) === key),
-  );
-  const beside = leafIds(tab.layout).includes(besideId)
-    ? besideId
-    : tab.focusedId;
-  return openEditorTab(open ? tab : { ...tab, focusedId: beside }, file);
-}
-
-/**
- * Where a discussion's page goes in this window's tabs: focused where it is
- * already open, otherwise beside the chat that started it (A), or beside its
- * partner. Null when neither chat is in these tabs.
- */
-export function showDiscussionInTabs(
-  tabs: readonly WorkspaceTab[],
-  file: FilePaneTab & { discussion: DiscussionTabSource },
-): { tabs: WorkspaceTab[]; tabId: string } | null {
-  const { discussionId, a, b } = file.discussion;
-  const holds = (tab: WorkspaceTab, sessionId: string) =>
-    leafIds(tab.layout).includes(sessionId);
-  const host =
-    tabs.find((tab) =>
-      tab.editorPanes.some((pane) =>
-        pane.files.some(
-          (entry) => entry.discussion?.discussionId === discussionId,
-        ),
-      ),
-    ) ??
-    tabs.find((tab) => holds(tab, a)) ??
-    tabs.find((tab) => holds(tab, b));
-  if (!host) return null;
-  const beside = holds(host, a) ? a : b;
-  return {
-    tabs: tabs.map((tab) =>
-      tab.id === host.id ? openEditorTabBeside(tab, file, beside) : tab,
-    ),
-    tabId: host.id,
-  };
-}
-
-/** A workspace tab holding one discussion's page. */
-export function newDiscussionWorkspaceTab(file: FilePaneTab): WorkspaceTab {
-  const pane = newEditorPane(file);
-  return {
-    kind: "session",
-    id: crypto.randomUUID(),
-    layout: leaf(pane.id),
-    focusedId: pane.id,
-    editorPanes: [pane],
-    terminalPanes: [],
-  };
 }
 
 export function isFilesystemTab(file: FilePaneTab): boolean {

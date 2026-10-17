@@ -21,7 +21,7 @@ import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
-import { DiscussionOpenContext } from "../chrome/DiscussionRelayCard";
+import { DiscussionActions } from "../chrome/DiscussionWrapUpNote";
 import { SessionReview } from "../chrome/SessionReview";
 import { PromptOutline } from "../chrome/PromptOutline";
 import {
@@ -651,9 +651,7 @@ export const SessionPane = memo(function SessionPane({
           )
         ) : (
           <>
-            <DiscussionOpenContext.Provider
-              value={session.inboxAsk ? undefined : discussion?.open}
-            >
+            <DiscussionActions host={session.inboxAsk ? undefined : discussion}>
               <AgentTranscript
                 blocks={session.blocks}
                 busy={!!session.busy}
@@ -686,7 +684,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
               />
-            </DiscussionOpenContext.Provider>
+            </DiscussionActions>
             <PromptOutline
               blocks={session.blocks}
               scope={transcriptScope}

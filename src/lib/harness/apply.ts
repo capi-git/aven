@@ -198,7 +198,10 @@ export function applyHarnessEvent(
     case "status":
       return event.key
         ? upsertKeyedStatus(session, event.key, event.text)
-        : appendStatus(session, event.text);
+        : appendStatus(session, event.text, {
+            discussionEnd: event.discussionEnd,
+            discussionReply: event.discussionReply,
+          });
     default:
       return session;
   }
@@ -605,17 +608,32 @@ function stampTurnDuration(blocks: Block[]): Block[] {
 }
 
 /** Status pings repeat; keep one row per run instead of stacking identical lines. */
-function appendStatus(session: Session, text: string): Session {
+function appendStatus(
+  session: Session,
+  text: string,
+  marks: Pick<Block, "discussionEnd" | "discussionReply"> = {},
+): Session {
   const trimmed = text.trim();
   if (!trimmed) return session;
+  const { discussionEnd, discussionReply } = marks;
   const last = [...session.blocks]
     .reverse()
     .find((block) => block.role !== "reasoning");
-  if (last?.role === "system" && last.text === trimmed) return session;
+  if (
+    last?.role === "system" &&
+    last.text === trimmed &&
+    last.discussionEnd?.id === discussionEnd?.id &&
+    last.discussionEnd?.settled === discussionEnd?.settled &&
+    last.discussionReply?.id === discussionReply?.id &&
+    last.discussionReply?.turn === discussionReply?.turn
+  )
+    return session;
   return appendBlock(session, {
     id: crypto.randomUUID(),
     role: "system",
     text: trimmed,
+    ...(discussionEnd ? { discussionEnd } : {}),
+    ...(discussionReply ? { discussionReply } : {}),
   });
 }
 

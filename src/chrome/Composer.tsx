@@ -152,10 +152,12 @@ import {
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
 import {
+  discussionStore,
   loadDiscussionRounds,
   saveDiscussionRounds,
   type DiscussionHost,
 } from "../lib/discussions";
+import { useStartedDiscussionId } from "../hooks/useDiscussions";
 import { DiscussionBar } from "./DiscussionBar";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
@@ -630,6 +632,11 @@ function ComposerComponent({
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   // Discuss mode: sending starts a discussion with the message as its topic.
   const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
+  // The discussion this chat started: while it runs or is paused, what the
+  // user sends goes to both chats with the next replies, not to this agent.
+  const jumpInId = useStartedDiscussionId(
+    discussAvailable ? sessionId : undefined,
+  );
   const [discussSelected, setDiscussSelected] = useState(false);
   const discussActive = discussAvailable && discussSelected;
   const [discussPick, setDiscussPick] = useState<DiscussionPick | null>(null);
@@ -1371,7 +1378,32 @@ function ComposerComponent({
     if (!preview) clearField();
   };
 
+  /** Send with this chat's discussion running: add it for both chats. */
+  const jumpIn = (discussionId: string, value: string) => {
+    if (!value.trim()) return;
+    if (attachmentsRef.current.length) {
+      setCommandNotice(
+        "Messages for both chats are text only. Remove the attachments to send.",
+      );
+      return;
+    }
+    const refused = discussionStore().interject(discussionId, value);
+    if (refused) {
+      setCommandNotice(refused);
+      return;
+    }
+    setCommandNotice(null);
+    setPlusOpen(false);
+    setSlash(null);
+    setMention(null);
+    clearField();
+  };
+
   const submit = (value: string) => {
+    if (jumpInId) {
+      jumpIn(jumpInId, value);
+      return;
+    }
     if (discussAvailable) {
       // A typed /discuss turns Discuss mode on; the rest is the topic.
       const discussCommand = consumeDiscussCommand(value);
@@ -1821,22 +1853,24 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               placeholder={
-                discussActive
-                  ? "What should they discuss?"
-                  : inboxCard
-                    ? "Add a note, or send to start…"
-                    : noteCard
-                      ? "Add a message, or send…"
-                      : handoffCard
-                        ? "Add context, or send to continue…"
-                        : composerHint(
-                            hasNativeCommands(harness),
-                            looksLikeProject(cwd)
-                              ? "files"
-                              : notesEnabled
-                                ? "notes"
-                                : null,
-                          )
+                jumpInId
+                  ? "Add something for both of them…"
+                  : discussActive
+                    ? "What should they discuss?"
+                    : inboxCard
+                      ? "Add a note, or send to start…"
+                      : noteCard
+                        ? "Add a message, or send…"
+                        : handoffCard
+                          ? "Add context, or send to continue…"
+                          : composerHint(
+                              hasNativeCommands(harness),
+                              looksLikeProject(cwd)
+                                ? "files"
+                                : notesEnabled
+                                  ? "notes"
+                                  : null,
+                            )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -2134,13 +2168,15 @@ function ComposerComponent({
               <ComposerAction
                 busy={busy}
                 actionLabel={
-                  raceActive
-                    ? `Race ${raceLanes.length} agents`
-                    : queueSubmission
-                      ? "Queue message"
-                      : busy
-                        ? "Steer active turn"
-                        : "Send"
+                  jumpInId
+                    ? "Send to both"
+                    : raceActive
+                      ? `Race ${raceLanes.length} agents`
+                      : queueSubmission
+                        ? "Queue message"
+                        : busy
+                          ? "Steer active turn"
+                          : "Send"
                 }
                 hasValue={hasValue}
                 onSend={() => submit(ref.current?.value ?? "")}

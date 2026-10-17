@@ -10,7 +10,12 @@ import {
 } from "../lib/discussions";
 import type { DiscussionTranscripts } from "../lib/discussionThread";
 import { appendUser, stopStreaming } from "../lib/harness/apply";
-import { newSession, type Session } from "../lib/session";
+import {
+  newSession,
+  type DiscussionRelayMeta,
+  type DiscussionWrapUpMeta,
+  type Session,
+} from "../lib/session";
 import {
   discussionChatTitle,
   useDiscussionBroker,
@@ -30,6 +35,15 @@ let sent: Sent[];
 let messages: { sessionId: string; text: string }[];
 let focused: string[];
 let notes: { sessionId: string; text: string }[];
+/** What closing notes carried to show where they landed. */
+let wrapUps: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Where they landed, copied into a note once written. */
+let recorded: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Discussions this window started, and those that used up their rounds. */
+let started: string[];
+let endedIds: string[];
+/** The other chat's last reply, copied into the starting chat. */
+let replies: { sessionId: string; text: string; meta: DiscussionRelayMeta }[];
 let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
 let ref: () => Session[];
@@ -89,9 +103,36 @@ function Harness({ initial }: { initial: Session[] }) {
       );
       return undefined;
     },
-    postNote: (sessionId, text) => notes.push({ sessionId, text }),
+    postNote: (sessionId, text, wrapUp) => {
+      notes.push({ sessionId, text });
+      if (wrapUp) wrapUps.push({ sessionId, wrapUp });
+    },
+    recordWrapUp: (sessionId, wrapUp) => recorded.push({ sessionId, wrapUp }),
+    postReply: (sessionId, text, meta) => {
+      replies.push({ sessionId, text, meta });
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                blocks: [
+                  ...session.blocks,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    text,
+                    discussionReply: meta,
+                  },
+                ],
+              }
+            : session,
+        ),
+      );
+    },
     openPartner: openPartner as never,
     openView,
+    onStarted: (id) => started.push(id),
+    onEnded: (discussion) => endedIds.push(discussion.id),
     focusChat: (sessionId) => focused.push(sessionId),
     summarise,
   });
@@ -141,6 +182,11 @@ beforeEach(() => {
   messages = [];
   focused = [];
   notes = [];
+  wrapUps = [];
+  recorded = [];
+  replies = [];
+  started = [];
+  endedIds = [];
   summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
   openPartner = vi.fn();
@@ -196,7 +242,7 @@ describe("useDiscussionBroker", () => {
     ]);
   });
 
-  it("opens the conversation page when one starts, and on request", async () => {
+  it("opens the conversation page only on request", async () => {
     await mount([chat("a", "Caching"), chat("b", "Review")]);
     await act(async () => {
       host.start({
@@ -207,12 +253,13 @@ describe("useDiscussionBroker", () => {
       });
     });
     const id = store.snapshot()[0].id;
-    expect(openView).toHaveBeenCalledExactlyOnceWith(id);
+    // It plays out in the chat that started it.
+    expect(openView).not.toHaveBeenCalled();
     host.open?.(id);
-    expect(openView).toHaveBeenCalledTimes(2);
+    expect(openView).toHaveBeenCalledExactlyOnceWith(id);
     // Nothing to open for a discussion this window has never heard of.
     host.open?.("unknown");
-    expect(openView).toHaveBeenCalledTimes(2);
+    expect(openView).toHaveBeenCalledTimes(1);
   });
 
   it("opens nothing when the start is refused", async () => {
@@ -379,7 +426,7 @@ describe("useDiscussionBroker", () => {
     });
   });
 
-  it("starts with a new chat opened beside this one", async () => {
+  it("starts with a new chat it does not show", async () => {
     await mount([chat("a", "Caching")]);
     openPartner.mockImplementation(() => {
       setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
@@ -401,6 +448,45 @@ describe("useDiscussionBroker", () => {
     );
     expect(store.snapshot()[0].b.sessionId).toBe("new");
     expect(sent[0].sessionId).toBe("a");
+    // Nothing opens: neither the new chat nor the page.
+    expect(openView).not.toHaveBeenCalled();
+    expect(focused).toEqual([]);
+  });
+
+  it("leaves a chat that is already open where it is", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    expect(openPartner).not.toHaveBeenCalled();
+    expect(focused).toEqual([]);
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("shows either side's chat when the page asks", async () => {
+    await mount([chat("a", "Caching")]);
+    openPartner.mockImplementation(() => {
+      setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
+      return "new";
+    });
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "new", harness: "codex", model: "gpt-5" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    host.show?.(id, "b");
+    host.show?.(id, "a");
+    host.show?.("unknown", "a");
+    expect(focused).toEqual(["new", "a"]);
   });
 
   it("lists other chats and refuses busy ones", async () => {
@@ -490,9 +576,12 @@ describe("useDiscussionBroker with the user jumping in", () => {
     expect(sent[2].text).toContain(
       "says:\n\nFor how long?\n\nThe user adds: Keep it small.",
     );
-    expect(sent[2].options.displayText).toBe(
-      "For how long?\n\nYou added: Keep it small.",
-    );
+    // The chat that started it shows the reply, then the user's message
+    // as their own.
+    expect(sent[2].options.displayText).toBe("For how long?");
+    expect(sent[2].options.discussion.added).toEqual({
+      after: ["Keep it small."],
+    });
 
     await finish("a", "Five minutes.");
     expect(sent[3].sessionId).toBe("b");
@@ -630,10 +719,162 @@ describe("useDiscussionBroker's wrap-up", () => {
     });
   });
 
+  it("shows where they landed under the starting chat's closing note, and keeps the lists there", async () => {
+    let write: (summary: DiscussionSummary) => void = () => {};
+    summarise.mockImplementationOnce(
+      () =>
+        new Promise<DiscussionSummary>((resolve) => {
+          write = resolve;
+        }),
+    );
+    const id = await complete();
+    // Both chats get the note; only the starting chat's shows the wrap-up,
+    // which is still being written.
+    expect(notes.map((note) => note.sessionId)).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([{ sessionId: "a", wrapUp: { id, settled: 2 } }]);
+    expect(recorded).toEqual([]);
+    await act(async () =>
+      write({
+        status: "done",
+        agreed: ["Cache by URL"],
+        open: ["Errors"],
+        model: "Claude Haiku 4.5",
+      }),
+    );
+    expect(recorded).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: ["Errors"] },
+      },
+    ]);
+    // Nothing is sent to either agent.
+    expect(sent).toHaveLength(2);
+    expect(messages).toEqual([]);
+  });
+
+  it("copies the other chat's last reply into the starting chat, shown only", async () => {
+    const id = await complete();
+    expect(replies).toEqual([
+      {
+        sessionId: "a",
+        text: "Agreed, with a TTL.",
+        meta: expect.objectContaining({
+          id,
+          turn: 2,
+          partner: expect.objectContaining({ title: "Review", sessionId: "b" }),
+          self: expect.objectContaining({ sessionId: "a" }),
+          at: expect.any(Number),
+        }),
+      },
+    ]);
+    // Neither agent is sent anything more.
+    expect(sent).toHaveLength(2);
+    // Continued from the chat: that reply is passed on to the starting chat
+    // again, but not shown twice.
+    await act(async () => {
+      store.interject(id, "And eviction?");
+    });
+    expect(sent).toHaveLength(3);
+    expect(sent[2].sessionId).toBe("a");
+    expect(sent[2].text).toContain("Agreed, with a TTL.");
+    expect(sent[2].options.displayText).toBe("");
+    expect(sent[2].options.discussion).toMatchObject({
+      turn: 2,
+      replyShown: true,
+      added: { after: ["And eviction?"] },
+    });
+  });
+
+  it("opens the panel when one starts, and says so when it used up its rounds", async () => {
+    const id = await complete();
+    expect(started).toEqual([id]);
+    expect(endedIds).toEqual([id]);
+  });
+
+  it("copies nothing when the discussion was stopped", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await finish("a", "Cache by URL.");
+    await act(async () => store.stop(store.snapshot()[0].id));
+    await finish("b", "Too late.");
+    expect(replies).toEqual([]);
+    expect(endedIds).toEqual([]);
+  });
+
+  it("puts the lists in the note itself when they are written first", async () => {
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Cache by URL"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 1,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    await finish("a", "Cache by URL.");
+    // The starting chat is busy with your own turn when the discussion ends.
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: true } : session,
+        ),
+      ),
+    );
+    await finish("b", "Agreed.");
+    expect(store.get(id)?.summary?.status).toBe("done");
+    expect(wrapUps).toEqual([]);
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: false } : session,
+        ),
+      ),
+    );
+    expect(wrapUps).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: [] },
+      },
+    ]);
+  });
+
+  it("shows no wrap-up after a stopped discussion's note", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await act(async () => store.stop(store.snapshot()[0].id));
+    // The starting chat's note waits for the turn it was sent to end.
+    await finish("a", "Cache by URL.");
+    expect(notes.map((note) => note.sessionId).sort()).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([]);
+  });
+
   it("keeps a failed summary as failed and never retries it", async () => {
     summarise.mockRejectedValue(new Error("No model"));
     const id = await complete();
     expect(store.get(id)?.summary).toEqual({ status: "failed" });
+    // No lists to keep.
+    expect(recorded).toEqual([]);
     await act(async () =>
       setSessions((list) => list.map((session) => ({ ...session }))),
     );

@@ -57,9 +57,6 @@ const WorkingTreeDiff = retryableLazy(() =>
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
 );
-const DiscussionView = retryableLazy(() =>
-  import("./DiscussionView").then((module) => module.DiscussionView),
-);
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
 const surfaceFallback = <div aria-busy="true" className="h-full w-full" />;
@@ -87,7 +84,7 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
-  /** The window's discussions; a discussion's page builds through it. */
+  /** The window's discussions; an old discussion tab opens its panel through it. */
   discussion?: DiscussionHost;
 };
 
@@ -219,18 +216,29 @@ function FilePaneComponent({
                       visible={presented && file.id === pane.activeFileId}
                     />
                   ) : isDiscussionTab(file) ? (
-                    <DiscussionView
-                      discussionId={file.discussion.discussionId}
-                      a={sessions.find(
-                        (entry) => entry.id === file.discussion.a,
-                      )}
-                      b={sessions.find(
-                        (entry) => entry.id === file.discussion.b,
-                      )}
-                      focused={focused && file.id === pane.activeFileId}
-                      onOpenFile={onOpenFile}
-                      host={discussion}
-                    />
+                    // An earlier version's discussion page: discussions now
+                    // open in their floating panel.
+                    <div
+                      className="grid h-full place-items-center px-6 text-center"
+                      data-discussion-moved={file.discussion.discussionId}
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <p className="max-w-sm text-ui-label leading-5 text-content/50">
+                          Discussions now open in their own panel.
+                        </p>
+                        {discussion?.open ? (
+                          <button
+                            type="button"
+                            className="rounded-md bg-content/8 px-2.5 py-1.5 text-ui-label text-content/75 hover:bg-content/12 hover:text-content"
+                            onClick={() =>
+                              discussion.open!(file.discussion.discussionId)
+                            }
+                          >
+                            Open the discussion
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -315,10 +323,8 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   }
 
   for (const file of next.pane.files) {
-    // Plans, agent tabs and discussions read live session objects here.
-    const sessionIds = file.discussion
-      ? [file.discussion.a, file.discussion.b]
-      : [file.plan?.sessionId ?? file.agent?.sessionId];
+    // Plans and agent tabs read live session objects here.
+    const sessionIds = [file.plan?.sessionId ?? file.agent?.sessionId];
     for (const sessionId of sessionIds) {
       if (!sessionId) continue;
       const before = previous.sessions.find(

@@ -3,7 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
-  DISCUSSION_HISTORY_LIMIT,
   discussionStore,
   resetDiscussionStore,
   type DiscussionParty,
@@ -130,7 +129,7 @@ it("opens its discussion's page while it runs and after it has ended", async () 
   expect(open).toHaveBeenCalledTimes(2);
 });
 
-it("is plain text once the discussion has dropped out of history", async () => {
+it("stays openable however many finish after it, until its chat is deleted", async () => {
   // Each finished discussion is newer than the one before.
   let clock = 1_000;
   vi.spyOn(Date, "now").mockImplementation(() => (clock += 1));
@@ -151,9 +150,13 @@ it("is plain text once the discussion has dropped out of history", async () => {
   await renderInChat(meta({}));
   expect(link()).not.toBeNull();
   await act(async () => {
-    for (let index = 0; index < DISCUSSION_HISTORY_LIMIT; index += 1)
-      finish(`later-${index}`);
+    // More than the twenty finished discussions once kept.
+    for (let index = 0; index < 25; index += 1) finish(`later-${index}`);
   });
+  expect(store.get("d1")).toBeDefined();
+  expect(link()).not.toBeNull();
+  // The chat that started it is deleted: the discussion goes with it.
+  await act(async () => store.forgetChat("d1-a"));
   expect(store.get("d1")).toBeUndefined();
   expect(link()).toBeNull();
   expect(container.querySelector("button")).toBeNull();

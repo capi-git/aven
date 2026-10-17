@@ -3,8 +3,8 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  newDiscussionTab,
   newEditorPane,
+  newFileTab,
   type EditorPane,
   type LayoutNode,
 } from "../lib/layout";
@@ -40,7 +40,9 @@ vi.mock("./EmptySession", () => ({ EmptySession: () => null }));
 vi.mock("./AgentTranscript", () => ({
   AgentTranscript: () => createElement("p", { "data-transcript": "" }),
 }));
-vi.mock("./DiscussionView", () => ({ DiscussionView: () => null }));
+vi.mock("./FileEditor", () => ({
+  FileEditor: () => createElement("div", { "data-file-editor": "" }),
+}));
 
 import { PaneTree } from "./PaneTree";
 
@@ -64,7 +66,7 @@ const split = (a: string, b: string): LayoutNode => ({
 let root: Root;
 let container: HTMLDivElement;
 let props: ComponentProps<typeof PaneTree>;
-let page: EditorPane;
+let files: EditorPane;
 
 async function render(patch: Partial<ComponentProps<typeof PaneTree>> = {}) {
   props = { ...props, ...patch };
@@ -86,19 +88,12 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  page = newEditorPane(
-    newDiscussionTab({
-      id: "d1",
-      topic: "Cache it?",
-      a: { sessionId: "a", cwd: "/repo" },
-      b: { sessionId: "b" },
-    }),
-  );
+  files = newEditorPane(newFileTab("/repo/README.md", "/repo"));
   props = {
     visible: true,
     layout: { type: "leaf", id: "a" },
     sessions: [chat("a", "Alpha"), chat("b", "Beta")],
-    editorPanes: [page],
+    editorPanes: [files],
     dirtyFileIds: new Set(),
     fileErrorCounts: new Map(),
     focusedId: "a",
@@ -128,12 +123,12 @@ describe("pane name strips", () => {
   });
 
   it("gives each pane of a split exactly one strip, above its content", async () => {
-    await render({ layout: split("a", page.id) });
-    // The chat's strip is its own; the page keeps its tab row and gets no other.
+    await render({ layout: split("a", files.id) });
+    // The chat's strip is its own; the file keeps its tab row and gets no other.
     expect(strips("a")).toHaveLength(1);
-    expect(strips(page.id)).toHaveLength(1);
-    expect(pane(page.id).querySelector("[data-pane-strip]")).toBeNull();
-    expect(pane(page.id).textContent).toContain("Cache it?");
+    expect(strips(files.id)).toHaveLength(1);
+    expect(pane(files.id).querySelector("[data-pane-strip]")).toBeNull();
+    expect(pane(files.id).textContent).toContain("README.md");
     // Laid out in the pane's column, before the transcript, not over it.
     const chatStrip = strip("a");
     expect(chatStrip.parentElement?.dataset.sessionDrop).toBe("a");
@@ -181,10 +176,10 @@ describe("pane name strips", () => {
     expect(tab("b").dataset.active).toBe("false");
 
     // Beside a file pane, the file pane's own row takes the focus state.
-    await render({ layout: split("a", page.id), focusedId: page.id });
+    await render({ layout: split("a", files.id), focusedId: files.id });
     expect(tab("a").dataset.active).toBe("false");
     expect(
-      pane(page.id)
+      pane(files.id)
         .querySelector(".aven-tab-bar")
         ?.getAttribute("data-pane-focused"),
     ).toBe("true");

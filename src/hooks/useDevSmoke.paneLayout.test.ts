@@ -27,15 +27,16 @@ function measure() {
 const at = (selector: string, box: Box) =>
   boxes.set(document.querySelector(selector)!, box);
 
-/** A tab holding a chat beside a discussion's page, measured as on screen. */
+/** A tab holding a chat beside a file, measured as on screen. */
 function layout({
   chatStrips = 1,
+  fileNameStrip = false,
   floating = false,
   chip = false,
   stripHeight = 32,
   radius = "12px",
   inset = 5,
-  pageTabHeight = 26,
+  fileTabHeight = 26,
 } = {}) {
   const strip = `
     <div class="aven-tab-bar" data-pane-strip
@@ -55,10 +56,11 @@ function layout({
           </div>
         </div>
         <div data-pane-id="files">
+          ${fileNameStrip ? '<div class="aven-tab-bar" data-file-name-strip></div>' : ""}
           <div class="aven-surface-tabs aven-tab-bar"><button
-            class="aven-tab-button" data-page-tab
+            class="aven-tab-button" data-file-tab
             style="border-top-left-radius:6px"></button></div>
-          <div data-page-content><div data-discussion-view="d"></div></div>
+          <div data-file-body></div>
         </div>
       </div>
       <div data-workspace-header="tab"><button class="aven-tab-button"
@@ -95,15 +97,15 @@ function layout({
     height: 400,
   });
   at(".aven-surface-tabs", { left: 507, top: 38, width: 488, height: 32 });
-  at("[data-page-tab]", {
+  at("[data-file-tab]", {
     left: 513,
     top: 41,
     width: 200,
-    height: pageTabHeight,
+    height: fileTabHeight,
   });
-  at("[data-page-content]", { left: 507, top: 70, width: 488, height: 520 });
+  at("[data-file-body]", { left: 507, top: 70, width: 488, height: 520 });
   measure();
-  return document.querySelector<HTMLElement>("[data-discussion-view]")!;
+  return document.querySelector<HTMLElement>("[data-file-body]")!;
 }
 
 afterEach(() => {
@@ -116,7 +118,7 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content; cards with 12px corners 5px from the edge; tab, chat and page tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content; cards with 12px corners 5px from the edge; tab, chat and file tabs 26px tall, 6px corners",
     );
   });
 
@@ -127,6 +129,9 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ chatStrips: 2 })).problem).toBe(
       "the chat has 2 strips, not one",
     );
+    expect(paneLayoutProblem(layout({ fileNameStrip: true })).problem).toBe(
+      "the file has 2 strips, not one",
+    );
     expect(paneLayoutProblem(layout({ floating: true })).problem).toBe(
       "the chat's strip floats over its content",
     );
@@ -136,9 +141,9 @@ describe("paneLayoutProblem", () => {
   });
 
   it("names a strip over content, square or edge-to-edge panes and mismatched tabs", () => {
-    const page = layout();
+    const file = layout();
     at("[data-chat-content]", { left: 6, top: 50, width: 500, height: 400 });
-    expect(paneLayoutProblem(page).problem).toBe(
+    expect(paneLayoutProblem(file).problem).toBe(
       "the chat's strip covers 20px of its content",
     );
     expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
@@ -148,10 +153,10 @@ describe("paneLayoutProblem", () => {
       "the card is 0px from the workspace edge",
     );
     expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
-      "the tab's bar is 32px, the chat's strip 24px and the page's 32px",
+      "the tab's bar is 32px, the chat's strip 24px and the file's 32px",
     );
-    expect(paneLayoutProblem(layout({ pageTabHeight: 32 })).problem).toBe(
-      "the tab is 26px tall, 6px corners and the page's is 32px tall, 6px corners",
+    expect(paneLayoutProblem(layout({ fileTabHeight: 32 })).problem).toBe(
+      "the tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
     );
   });
 });

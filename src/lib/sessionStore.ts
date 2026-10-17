@@ -5,6 +5,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
+import { discussionStore, readDiscussionWrapUpMeta } from "./discussions";
 import { normalizeProjectPath } from "./recents";
 import type {
   Block,
@@ -399,6 +400,12 @@ export async function deleteSession(sessionId: string): Promise<void> {
     pendingSessionSnapshots.clear();
     throw error;
   }
+  // A discussion it started is kept only as long as the chat is.
+  try {
+    discussionStore().forgetChat(sessionId);
+  } catch {
+    // The chat is gone; a discussion left behind only shows as finished.
+  }
 }
 
 export async function setSessionArchived(
@@ -525,6 +532,16 @@ function sanitizeBlock(block: Block): Block | null {
   const discussion =
     block.role === "user" ? sanitizeDiscussion(block.discussion) : undefined;
   if (discussion) next.discussion = discussion;
+  const discussionEnd =
+    block.role === "system"
+      ? readDiscussionWrapUpMeta(block.discussionEnd)
+      : null;
+  if (discussionEnd) next.discussionEnd = discussionEnd;
+  const discussionReply =
+    block.role === "system"
+      ? sanitizeDiscussion(block.discussionReply)
+      : undefined;
+  if (discussionReply) next.discussionReply = discussionReply;
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
   return next;
@@ -735,6 +752,11 @@ function sanitizeDiscussion(
     typeof partner.title !== "string"
   )
     return undefined;
+  const self = value.self;
+  const added = {
+    before: addedMessages(value.added?.before),
+    after: addedMessages(value.added?.after),
+  };
   return {
     id: value.id,
     turn: value.turn,
@@ -746,9 +768,47 @@ function sanitizeDiscussion(
       ...(typeof partner.cwd === "string" && partner.cwd
         ? { cwd: partner.cwd.slice(0, 4096) }
         : {}),
+      ...(typeof partner.sessionId === "string" &&
+      isPersistableId(partner.sessionId)
+        ? { sessionId: partner.sessionId }
+        : {}),
     },
+    ...(self &&
+    typeof self.sessionId === "string" &&
+    isPersistableId(self.sessionId) &&
+    (HARNESSES as string[]).includes(self.harness) &&
+    typeof self.model === "string"
+      ? {
+          self: {
+            sessionId: self.sessionId,
+            harness: self.harness,
+            model: self.model.slice(0, 200),
+          },
+        }
+      : {}),
+    ...(added.before.length || added.after.length
+      ? {
+          added: {
+            ...(added.before.length ? { before: added.before } : {}),
+            ...(added.after.length ? { after: added.after } : {}),
+          },
+        }
+      : {}),
+    ...(value.replyShown === true ? { replyShown: true as const } : {}),
+    ...(typeof value.at === "number" && Number.isFinite(value.at)
+      ? { at: value.at }
+      : {}),
     ...(value.truncated === true ? { truncated: true } : {}),
   };
+}
+
+/** What the user added to a discussion, as kept on a relayed message. */
+function addedMessages(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((text): text is string => typeof text === "string" && !!text)
+    .slice(0, 10)
+    .map((text) => text.slice(0, 2000));
 }
 
 function sanitizeNoteCard(value: Block["noteCard"]): Block["noteCard"] {

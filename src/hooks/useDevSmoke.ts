@@ -33,7 +33,8 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
-import type { Session } from "../lib/session";
+import { providerShortName } from "../lib/discussionVoices";
+import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -67,6 +68,8 @@ type Options = DevPerfOptions & {
   sharedWork?: boolean;
   /** Panes are drawn as cards with one bar each and the shared tab style. */
   paneLayout?: boolean;
+  /** Open a file beside the current chat, as a file link does. */
+  openFile?: (path: string) => void;
 };
 
 type SmokeUtilities = {
@@ -98,7 +101,10 @@ const HOLD_MS = 4_000;
  */
 const DISCUSSION_HOLD_MS = 8_000;
 const DISCUSSION_ROUNDS = 2;
-/** What the check adds to the discussion from its page. */
+/** The Discuss dropdown's row for a new chat, and the providers it lists. */
+const NEW_CHAT_LABEL = "New chat with…";
+const NEW_CHAT_MENU = "Choose the model for the new chat";
+/** What the check adds to the discussion from its panel. */
 const JUMP_IN_TEXT = `Keep it short. ${SMOKE_JUMP_IN_WORD}`;
 /** The stand-in plays the cheapest model; its first call starts a process. */
 const WRAP_UP_WAIT_MS = 60_000;
@@ -339,6 +345,134 @@ function chatComposer(sessionId: string): HTMLElement | null {
   );
 }
 
+/**
+ * Why starting a discussion with a new chat did not fold it into one card in
+ * the chat that started it, or null: the new chat in no tab or pane, the
+ * topic as the user's message, then the live card, and none of the turns
+ * it stands for drawn.
+ */
+function startProblem(a: string, b: string, id: string): string | null {
+  if (document.querySelector(`[data-session-drop="${b}"]`))
+    return "the new chat opened in a tab or pane";
+  const pane = document.querySelector<HTMLElement>(
+    `[data-session-drop="${a}"]`,
+  );
+  if (!pane) return "the first chat is not on screen";
+  return cardProblem(pane, id, "live");
+}
+
+/** Why the discussion's card in a chat is not as expected, or null. */
+function cardProblem(
+  pane: HTMLElement,
+  id: string,
+  state: "live" | "done",
+): string | null {
+  const card = pane.querySelector<HTMLElement>(
+    `[data-discussion-card="${id}"]`,
+  );
+  if (!card) return "the first chat has no card for the discussion";
+  if (card.dataset.state !== state)
+    return `the card is ${card.dataset.state ?? "unmarked"}, not ${state}`;
+  if (card.querySelectorAll("[data-discussion-avatar]").length !== 2)
+    return "the card does not show both mascots";
+  const topic = [
+    ...pane.querySelectorAll<HTMLElement>(".personal-user-message"),
+  ].find((message) => message.textContent?.includes("Compare notes."));
+  if (!follows(topic ?? null, card)) return "the card is not after the topic";
+  if (pane.querySelector(".personal-transcript-response"))
+    return "the turns the card stands for are drawn in the chat";
+  const title = card.querySelector(".discussion-card-title")?.textContent;
+  if (state === "live") {
+    if (!title?.endsWith("are discussing"))
+      return `the card reads "${title ?? ""}"`;
+    if (!card.querySelector("[data-discussion-card-watch]"))
+      return "the card has no Watch";
+    if (!card.querySelector("[data-discussion-card-stop]"))
+      return "the card has no Stop";
+  } else {
+    if (title !== `Discussed for ${DISCUSSION_ROUNDS} rounds`)
+      return `the finished card reads "${title ?? ""}"`;
+    if (
+      card.querySelector("[data-discussion-card-watch]")?.textContent !== "Open"
+    )
+      return "the finished card has no Open";
+  }
+  return null;
+}
+
+/** The discussion's floating panel, when it is on screen. */
+function discussionPanel(id?: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        id ? `[data-discussion-panel="${id}"]` : "[data-discussion-panel]",
+      ),
+    ].find((panel) => panel.getClientRects().length > 0) ?? null
+  );
+}
+
+/** The pill a shrunk discussion becomes, when it is on screen. */
+function discussionPill(id: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-discussion-pill="${id}"]`,
+      ),
+    ].find((pill) => pill.getClientRects().length > 0) ?? null
+  );
+}
+
+/** Type into the panel's own message box and press Enter. */
+function jumpIn(id: string, text: string) {
+  const field = discussionPanel(id)?.querySelector<HTMLTextAreaElement>(
+    "[data-discussion-jump] textarea",
+  );
+  if (!field) throw new Error("The discussion's panel has no message box");
+  if (field.placeholder !== "Add something for both of them…")
+    throw new Error(`The panel's message box reads "${field.placeholder}"`);
+  typeInComposer(field, text);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * Why the first chat does not end with where they landed after the card,
+ * or null: the finished card, then the wrap-up with both lists, a build
+ * button for each chat and a link to the panel.
+ */
+function transcriptWrapUpProblem(a: string, id: string): string | null {
+  const pane = document.querySelector<HTMLElement>(
+    `[data-session-drop="${a}"]`,
+  );
+  if (!pane) return "the first chat is not on screen";
+  const card = cardProblem(pane, id, "done");
+  if (card) return card;
+  const holder = pane.querySelector<HTMLElement>(
+    `[data-discussion-wrapup-note="${id}"]`,
+  );
+  if (!holder) return "the first chat has no wrap-up after its card";
+  if (!follows(pane.querySelector(`[data-discussion-card="${id}"]`), holder))
+    return "the wrap-up is not after the card";
+  const wrapUp = holder.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (wrapUp?.dataset.discussionWrapup !== "done")
+    return `the first chat's wrap-up is ${wrapUp?.dataset.discussionWrapup ?? "missing"}, without its lists`;
+  const agreed = [
+    ...wrapUp.querySelectorAll('[data-discussion-list="agreed"] li'),
+  ].map((item) => item.textContent ?? "");
+  if (!agreed.includes(SMOKE_WRAP_UP_WORD))
+    return `the first chat's Agreed lists ${agreed.join(" | ") || "nothing"}`;
+  if (wrapUp.querySelectorAll("[data-discussion-build]").length !== 2)
+    return "the first chat's wrap-up has no build buttons";
+  if (!wrapUp.querySelector("[data-discussion-wrapup-open]"))
+    return "the first chat's wrap-up has no Open discussion";
+  return null;
+}
+
 /** Type into a message box the way a paste reaches React. */
 function typeInComposer(field: HTMLTextAreaElement, text: string) {
   field.focus();
@@ -351,12 +485,13 @@ function typeInComposer(field: HTMLTextAreaElement, text: string) {
 
 /**
  * Start a discussion the way a person does: the chat's + menu turns on
- * Discuss, the chip's dropdown picks the partner and rounds, and sending
- * the message starts it with the message as the topic.
+ * Discuss, the chip's dropdown picks the partner (another chat, or a new
+ * chat with a provider from New chat with…) and rounds, and sending the
+ * message starts it with the message as the topic.
  */
 async function startDiscussionFromComposer(
   sessionId: string,
-  partnerId: string,
+  partner: { chat: string } | { newWith: HarnessId },
   topic: string,
   rounds: number,
 ) {
@@ -394,14 +529,52 @@ async function startDiscussionFromComposer(
     5_000,
     "the Discuss chip's dropdown",
   );
-  const partner = inMenu<HTMLButtonElement>(
-    `[data-discussion-candidate="${partnerId}"]`,
-  );
-  if (!partner)
-    throw new Error("The Discuss dropdown does not list the other chat");
-  if (partner.disabled)
-    throw new Error(`The other chat can't join: ${partner.title}`);
-  partner.click();
+  if ("chat" in partner) {
+    const row = inMenu<HTMLButtonElement>(
+      `[data-discussion-candidate="${partner.chat}"]`,
+    );
+    if (!row)
+      throw new Error("The Discuss dropdown does not list the other chat");
+    if (row.disabled)
+      throw new Error(`The other chat can't join: ${row.title}`);
+    row.click();
+  } else {
+    const newChat = inMenu<HTMLButtonElement>(
+      `button[aria-label="${NEW_CHAT_LABEL}"]`,
+    );
+    if (!newChat)
+      throw new Error("The Discuss dropdown does not offer New chat with…");
+    if (newChat.disabled)
+      throw new Error(`New chat with… is off: ${newChat.title}`);
+    newChat.click();
+    const providers = await waitFor(
+      () =>
+        document.querySelector<HTMLElement>(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ),
+      5_000,
+      "New chat with…'s providers",
+    );
+    const title = HARNESS_TITLE[partner.newWith];
+    const provider = [
+      ...providers.querySelectorAll<HTMLButtonElement>(
+        "button[data-provider-index]",
+      ),
+    ].find((row) => row.textContent?.trim() === title);
+    if (!provider || provider.disabled)
+      throw new Error(`New chat with… does not offer ${title}`);
+    provider.click();
+    const picked = `Discuss with new ${providerShortName(partner.newWith)} chat`;
+    await waitFor(
+      () =>
+        !document.querySelector(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ) &&
+        inBox("[data-discussion-chip-label]")?.textContent?.includes(picked),
+      5_000,
+      `the chip to read "${picked}"`,
+    );
+  }
   const count = inMenu<HTMLElement>(`[data-discussion-rounds="${rounds}"]`);
   if (!count)
     throw new Error(`The Discuss dropdown offers no ${rounds} rounds`);
@@ -432,17 +605,6 @@ async function startDiscussionFromComposer(
   );
 }
 
-/** The discussion's conversation page, when it is on screen. */
-function discussionPage(id?: string): HTMLElement | null {
-  return (
-    [
-      ...document.querySelectorAll<HTMLElement>(
-        id ? `[data-discussion-view="${id}"]` : "[data-discussion-view]",
-      ),
-    ].find((page) => page.getClientRects().length > 0) ?? null
-  );
-}
-
 const onScreen = (element: Element) => element.getClientRects().length > 0;
 
 /** A pane's tab-style bars: a chat's name strip or a file pane's tab row. */
@@ -453,36 +615,37 @@ function paneStrips(pane: Element): HTMLElement[] {
 }
 
 /**
- * Why a tab holding a chat beside a file pane (here, a discussion's page)
- * does not give each pane one strip laid out above its content, draw panes
- * as cards and use one tab style, or null with what it measured.
+ * Why a tab holding a chat beside a file pane does not give each pane one
+ * strip laid out above its content (the file's tab row is its strip), draw
+ * panes as cards and use one tab style, or null with what it measured.
+ * `file` is any element in the file's pane.
  */
-export function paneLayoutProblem(page: HTMLElement): {
+export function paneLayoutProblem(file: HTMLElement): {
   problem: string | null;
   summary: string;
 } {
   const fail = (problem: string) => ({ problem, summary: "" });
-  const card = page.closest<HTMLElement>(".workspace-stage-surface");
+  const card = file.closest<HTMLElement>(".workspace-stage-surface");
   const stage = card?.closest<HTMLElement>("[data-workspace-stage]");
-  if (!card || !stage) return fail("the page is not in a workspace pane");
-  const pagePane = page.closest<HTMLElement>("[data-pane-id]");
+  if (!card || !stage) return fail("the file is not in a workspace pane");
+  const filePane = file.closest<HTMLElement>("[data-pane-id]");
   const chatPane = [
     ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
   ].find(
     (pane) =>
-      pane !== pagePane &&
+      pane !== filePane &&
       onScreen(pane) &&
       pane.querySelector("[data-session-drop]"),
   );
-  if (!pagePane) return fail("the page is not in a pane of its own");
-  if (!chatPane) return fail("no chat is beside the page");
+  if (!filePane) return fail("the file is not in a pane of its own");
+  if (!chatPane) return fail("no chat is beside the file");
   if (chatPane.querySelector("[data-session-pane-controls]"))
     return fail("the chat still has the floating chip");
   // One strip per pane, in the pane's layout: its content starts below it.
   const strips: HTMLElement[] = [];
   for (const [who, pane] of [
     ["chat", chatPane],
-    ["page", pagePane],
+    ["file", filePane],
   ] as const) {
     const found = paneStrips(pane);
     if (found.length !== 1)
@@ -502,7 +665,7 @@ export function paneLayoutProblem(page: HTMLElement): {
       );
     strips.push(strip);
   }
-  const [chatStrip, pageStrip] = strips;
+  const [chatStrip, fileStrip] = strips;
   // A card: rounded, with a hairline edge, clear of the workspace's edges.
   const style = getComputedStyle(card);
   const radius = parseFloat(style.borderTopLeftRadius);
@@ -518,23 +681,23 @@ export function paneLayoutProblem(page: HTMLElement): {
     stageRect.bottom - cardRect.bottom,
   );
   if (inset < 3) return fail(`the card is ${inset}px from the workspace edge`);
-  // One tab style: the tab's own bar, the chat's strip and the page's tabs.
+  // One tab style: the tab's own bar, the chat's strip and the file's tabs.
   const header = stage.querySelector<HTMLElement>(
     `:scope > [data-workspace-header="${card.dataset.workspaceSurface}"]`,
   );
   const headerTab = header?.querySelector<HTMLElement>(".aven-tab-button");
   const chatTab = chatStrip.querySelector<HTMLElement>(".aven-tab-button");
-  const pageTab = pageStrip.querySelector<HTMLElement>(".aven-tab-button");
-  if (!header || !headerTab || !chatTab || !pageTab)
-    return fail("the tab, the chat or the page has no tab");
+  const fileTab = fileStrip.querySelector<HTMLElement>(".aven-tab-button");
+  if (!header || !headerTab || !chatTab || !fileTab)
+    return fail("the tab, the chat or the file has no tab");
   const height = (element: HTMLElement) =>
     Math.round(element.getBoundingClientRect().height);
   if (
     height(chatStrip) !== height(header) ||
-    height(pageStrip) !== height(header)
+    height(fileStrip) !== height(header)
   )
     return fail(
-      `the tab's bar is ${height(header)}px, the chat's strip ${height(chatStrip)}px and the page's ${height(pageStrip)}px`,
+      `the tab's bar is ${height(header)}px, the chat's strip ${height(chatStrip)}px and the file's ${height(fileStrip)}px`,
     );
   const look = (element: HTMLElement) => {
     const tab = getComputedStyle(element);
@@ -542,7 +705,7 @@ export function paneLayoutProblem(page: HTMLElement): {
   };
   for (const [who, tab] of [
     ["chat's strip", chatTab],
-    ["page's", pageTab],
+    ["file's", fileTab],
   ] as const)
     if (look(tab) !== look(headerTab))
       return fail(
@@ -550,7 +713,7 @@ export function paneLayoutProblem(page: HTMLElement): {
       );
   return {
     problem: null,
-    summary: `one ${height(header)}px strip per pane above its content; cards with ${radius}px corners ${Math.round(inset)}px from the edge; tab, chat and page tabs ${look(headerTab)}`,
+    summary: `one ${height(header)}px strip per pane above its content; cards with ${radius}px corners ${Math.round(inset)}px from the edge; tab, chat and file tabs ${look(headerTab)}`,
   };
 }
 
@@ -569,58 +732,40 @@ export function singlePaneProblem(chat: HTMLElement): string | null {
 }
 
 /**
- * Why the page does not show the discussion as expected, or null: both
- * avatars in its header, the replies so far alternating from A, and the
- * answering side typing (or, once ended, the closing note).
+ * Why the discussion's panel does not show the discussion as expected, or
+ * null: both mascots in its face-off row, the replies so far alternating
+ * from A, and the answering side typing (or, once ended, the closing note).
  */
-function pageProblem(
-  page: HTMLElement,
+function panelProblem(
+  panel: HTMLElement,
   replies: number,
   end: { typing: "a" | "b" } | { closing: string },
 ): string | null {
-  const cast = page.querySelector("[data-discussion-cast]");
+  const cast = panel.querySelector("[data-discussion-cast]");
   for (const side of ["a", "b"])
     if (!cast?.querySelector(`[data-discussion-avatar="${side}"]`))
-      return `the page's header has no avatar for side ${side}`;
+      return `the panel's face-off has no mascot for side ${side}`;
   const sides = [
-    ...page.querySelectorAll<HTMLElement>("[data-discussion-message]"),
+    ...panel.querySelectorAll<HTMLElement>("[data-discussion-message]"),
   ].map((message) => message.dataset.side ?? "?");
   const expected = Array.from({ length: replies }, (_, turn) =>
     turn % 2 === 0 ? "a" : "b",
   );
   if (sides.join() !== expected.join())
-    return `the page shows replies on sides ${sides.join(",") || "none"}, not ${expected.join(",")}`;
-  const typing = page.querySelector<HTMLElement>("[data-discussion-typing]");
+    return `the panel shows replies on sides ${sides.join(",") || "none"}, not ${expected.join(",")}`;
+  const typing = panel.querySelector<HTMLElement>("[data-discussion-typing]");
   if ("typing" in end) {
     if (typing?.dataset.discussionTyping !== end.typing)
-      return `the page shows ${typing?.dataset.discussionTyping ?? "nobody"} typing, not ${end.typing}`;
+      return `the panel shows ${typing?.dataset.discussionTyping ?? "nobody"} typing, not ${end.typing}`;
     return null;
   }
-  if (typing) return "the page still shows a side typing";
-  const closing = page
+  if (typing) return "the panel still shows a side typing";
+  const closing = panel
     .querySelector("[data-discussion-closing]")
     ?.textContent?.trim();
   return closing === end.closing
     ? null
-    : `the page's closing note reads "${closing ?? ""}"`;
-}
-
-/** Type into the discussion page's own message box and press Enter. */
-function jumpIn(id: string, text: string) {
-  const field = discussionPage(id)?.querySelector<HTMLTextAreaElement>(
-    "[data-discussion-jump] textarea",
-  );
-  if (!field) throw new Error("The discussion's page has no message box");
-  if (field.placeholder !== "Add something for both of them…")
-    throw new Error(`The page's message box reads "${field.placeholder}"`);
-  typeInComposer(field, text);
-  field.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
+    : `the panel's closing note reads "${closing ?? ""}"`;
 }
 
 function follows(first: Element | null, then: Element | null): boolean {
@@ -632,17 +777,17 @@ function follows(first: Element | null, then: Element | null): boolean {
 }
 
 /**
- * Why the page does not show the message the check added where the chats
+ * Why the panel does not show the message the check added where the chats
  * read it, or null: a "You" bubble, waiting below the second chat's typing
  * while that turn runs, then between the second chat's first reply and the
  * first chat's answer to it.
  */
 function jumpInProblem(
-  page: HTMLElement,
+  panel: HTMLElement,
   state: "queued" | "sent",
 ): string | null {
-  const bubble = page.querySelector<HTMLElement>("[data-discussion-you]");
-  if (!bubble) return "the page shows no message from you";
+  const bubble = panel.querySelector<HTMLElement>("[data-discussion-you]");
+  if (!bubble) return "the panel shows no message from you";
   const said = bubble
     .querySelector(".discussion-you-bubble")
     ?.textContent?.trim();
@@ -652,11 +797,13 @@ function jumpInProblem(
   if (bubble.dataset.state !== state)
     return `your message is ${bubble.dataset.state ?? "unmarked"}, not ${state}`;
   if (state === "queued")
-    return follows(page.querySelector("[data-discussion-typing]"), bubble)
+    return follows(panel.querySelector("[data-discussion-typing]"), bubble)
       ? null
       : "your message is not below the answering chat's typing";
-  return follows(page.querySelector('[data-discussion-message="1"]'), bubble) &&
-    follows(bubble, page.querySelector('[data-discussion-message="2"]'))
+  return follows(
+    panel.querySelector('[data-discussion-message="1"]'),
+    bubble,
+  ) && follows(bubble, panel.querySelector('[data-discussion-message="2"]'))
     ? null
     : "your message is not between the second chat's reply and the answer to it";
 }
@@ -675,14 +822,14 @@ function relayedText(
 }
 
 /**
- * Why the page's wrap-up is not as expected, or null: both lists, the
+ * Why the panel's wrap-up is not as expected, or null: both lists, the
  * stand-in's word agreed, its line addressed to agents gone, and a build
  * button for each chat named by its provider.
  */
-function wrapUpProblem(page: HTMLElement): string | null {
-  const card = page.querySelector<HTMLElement>("[data-discussion-wrapup]");
-  if (!card) return "the page has no wrap-up after the closing note";
-  if (!follows(page.querySelector("[data-discussion-closing]"), card))
+function wrapUpProblem(panel: HTMLElement): string | null {
+  const card = panel.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (!card) return "the panel has no wrap-up after the closing note";
+  if (!follows(panel.querySelector("[data-discussion-closing]"), card))
     return "the wrap-up is not after the closing note";
   if (card.dataset.discussionWrapup !== "done")
     return `the wrap-up is ${card.dataset.discussionWrapup ?? "unmarked"}, without its lists`;
@@ -1219,15 +1366,19 @@ export async function runDevSmoke(
       }
     });
 
-  // Two chats discuss a topic, started from the first chat's message box in
-  // Discuss mode. Its conversation page opens beside it; while the second
-  // chat answers, the page shows that side typing, the sidebar links both
-  // rows and the bar counts the round. Every reply is relayed once, both
-  // chats get the closing note, and the page shows the replies alternating.
+  // A chat discusses a topic with a new chat, started from its message box
+  // in Discuss mode. The chat that started it folds the discussion into one
+  // live card, and its floating panel opens the first time; the new chat
+  // gets no tab. While the new chat answers, the panel shows it typing, the
+  // sidebar links both rows and the bar counts the round; what the user
+  // sends from the panel goes to both, and the panel shrinks to a pill and
+  // back. Every reply is relayed once, both chats get the closing note, the
+  // card says how long they discussed and is followed by where they landed,
+  // and the finished card opens the panel again.
   const discussion = get().discussion;
   if (safe && discussion)
     await step(
-      "two chats discuss for two rounds on one page, linked in the sidebar",
+      "two chats discuss for two rounds behind a card and a floating panel",
       async () => {
         get().motion?.showWorkspace?.();
         if (!get().sidebarOpen) {
@@ -1238,23 +1389,56 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
-        // The second chat opened is the one on screen; it starts.
-        const b = await openNewTask(get, config.projectPath);
         const a = await openNewTask(get, config.projectPath);
+        const before = new Set(get().sessions.map((entry) => entry.id));
         await startDiscussionFromComposer(
           a.id,
-          b.id,
+          { newWith: "claude" },
           `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
           DISCUSSION_ROUNDS,
         );
-        const opened = await waitFor(
-          () => discussionPage(),
-          5_000,
-          "the discussion's page to open beside the chat",
-        );
-        const id = opened.dataset.discussionView!;
         const session = (chat: string) =>
           get().sessions.find((entry) => entry.id === chat);
+        const b = await waitFor(
+          () =>
+            get().sessions.find(
+              (entry) =>
+                !before.has(entry.id) &&
+                sameProjectPath(entry.cwd, config.projectPath),
+            ),
+          5_000,
+          "the new chat to discuss with",
+        );
+        const topic = await waitFor(
+          () =>
+            session(a.id)?.blocks.find((block) => block.discussion?.turn === 0)
+              ?.discussion,
+          5_000,
+          "the topic in the first chat",
+        );
+        const id = topic.id;
+        // One card in the first chat, no tab for the new one, and the
+        // panel open the first time.
+        try {
+          await waitFor(
+            () => !startProblem(a.id, b.id, id),
+            5_000,
+            "the first chat to fold the discussion into its card",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${startProblem(a.id, b.id, id) ?? "shown too late"}`,
+          );
+        }
+        const opened = await waitFor(
+          () => discussionPanel(id),
+          5_000,
+          "the discussion's panel to open the first time",
+        );
+        const title =
+          opened.querySelector(".discussion-float-title")?.textContent ?? "";
+        if (!title.startsWith("Discussion · “Compare notes."))
+          throw new Error(`The panel's header reads "${title}"`);
 
         // B's first turn: A's reply, relayed and held open by the stand-in.
         await waitFor(
@@ -1271,38 +1455,38 @@ export async function runDevSmoke(
             `The second chat received "${relayed?.text ?? ""}", not the first chat's reply`,
           );
         if (relayed.discussion!.id !== id)
-          throw new Error("The page shows a different discussion");
+          throw new Error("The second chat is in a different discussion");
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !pageProblem(page, 1, { typing: "b" });
+              const panel = discussionPanel(id);
+              return panel && !panelProblem(panel, 1, { typing: "b" });
             },
             5_000,
-            "the page to show the first reply and the second chat typing",
+            "the panel to show the first reply and the second chat typing",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? pageProblem(page, 1, { typing: "b" }) : "it is not on screen"}`,
+            `${errorText(error)}: ${panel ? panelProblem(panel, 1, { typing: "b" }) : "it is not on screen"}`,
           );
         }
-        // Jump in from the page while the second chat answers: the message
+        // Jump in from the panel while the second chat answers: the message
         // waits below its typing, for the next reply.
         jumpIn(id, JUMP_IN_TEXT);
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !jumpInProblem(page, "queued");
+              const panel = discussionPanel(id);
+              return panel && !jumpInProblem(panel, "queued");
             },
             5_000,
-            "your message on the page, waiting for the next reply",
+            "your message in the panel, waiting for the next reply",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? jumpInProblem(page, "queued") : "it is not on screen"}`,
+            `${errorText(error)}: ${panel ? jumpInProblem(panel, "queued") : "it is not on screen"}`,
           );
         }
         const bar = await waitFor(
@@ -1318,6 +1502,14 @@ export async function runDevSmoke(
           throw new Error(`The discussion bar reads "${barText}"`);
         if (!barText.includes("Open discussion"))
           throw new Error("The discussion bar has no Open discussion");
+        // The chat's own message box goes to both while they talk, too.
+        const box = chatComposer(a.id)?.querySelector<HTMLTextAreaElement>(
+          "textarea",
+        );
+        if (box?.placeholder !== "Add something for both of them…")
+          throw new Error(
+            `During the discussion the first chat's message box reads "${box?.placeholder ?? ""}"`,
+          );
         try {
           await waitFor(
             () => !linkProblem(id, a.id, b.id),
@@ -1329,8 +1521,32 @@ export async function runDevSmoke(
             `${errorText(error)}: ${linkProblem(id, a.id, b.id) ?? "linked too late"}`,
           );
         }
-        // The second chat, opened from its sidebar row, shows the relayed
-        // reply with its card; the connector brings the page back.
+        // Shrunk, the panel is a pill with the round and who is replying;
+        // pressing it brings the panel back.
+        discussionPanel(id)
+          ?.querySelector<HTMLElement>("[data-discussion-shrink]")
+          ?.click();
+        const pill = await waitFor(
+          () => discussionPill(id),
+          5_000,
+          "the panel to shrink to a pill",
+        );
+        const pillText = pill.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (
+          !pillText.includes(`Round 1 of ${DISCUSSION_ROUNDS}`) ||
+          !pillText.includes("is replying…")
+        )
+          throw new Error(`The pill reads "${pillText}"`);
+        if (discussionPanel(id))
+          throw new Error("The panel stayed open beside its pill");
+        pill.click();
+        await waitFor(
+          () => discussionPanel(id) && !discussionPill(id),
+          5_000,
+          "the pill to bring the panel back",
+        );
+        // The second chat opens from its sidebar row like any chat,
+        // showing the first chat's reply as a relayed message with its card.
         sidebarDiscussionRow(b.id)?.click();
         await waitFor(
           () =>
@@ -1341,13 +1557,11 @@ export async function runDevSmoke(
           5_000,
           "the relay card on the relayed message",
         );
-        document
-          .querySelector<HTMLElement>(`[data-discussion-link="${id}"]`)
-          ?.click();
+        sidebarDiscussionRow(a.id)?.click();
         await waitFor(
-          () => discussionPage(id),
+          () => chatComposer(a.id),
           5_000,
-          "the connector to bring back the discussion's page",
+          "the first chat to come back from its sidebar row",
         );
 
         const note = `Discussion ended after ${DISCUSSION_ROUNDS} rounds.`;
@@ -1367,24 +1581,6 @@ export async function runDevSmoke(
           5_000,
           "the connector and the bar to go once it ended",
         );
-        try {
-          await waitFor(
-            () => {
-              const page = discussionPage(id);
-              return (
-                page &&
-                !pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note })
-              );
-            },
-            5_000,
-            "the page to show all four replies and the closing note",
-          );
-        } catch (error) {
-          const page = discussionPage(id);
-          throw new Error(
-            `${errorText(error)}: ${page ? pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note }) : "it is not on screen"}`,
-          );
-        }
         // Nothing more arrives after the end, and nothing came twice.
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         const turnsA = relayedTurns(get().sessions, a.id);
@@ -1404,15 +1600,22 @@ export async function runDevSmoke(
           throw new Error("A chat kept working after the discussion ended");
         // Your message rode the next two relays, one to each chat, and each
         // chat's agent received it (the stand-in says so, and agrees).
-        for (const [chat, turn, name] of [
-          [a.id, 2, "first"],
-          [b.id, 3, "second"],
+        const toA = session(a.id)?.blocks.find(
+          (block) => block.role === "user" && block.discussion?.turn === 2,
+        )?.discussion;
+        if (!toA?.added?.after?.includes(JUMP_IN_TEXT))
+          throw new Error(
+            "The first chat's relayed message for turn 2 does not carry your message",
+          );
+        const toB = relayedText(get().sessions, b.id, 3) ?? "";
+        if (!toB.includes(`You added: ${JUMP_IN_TEXT}`))
+          throw new Error(
+            `The second chat's relayed message for turn 3 does not carry your message: "${toB}"`,
+          );
+        for (const [chat, name] of [
+          [a.id, "first"],
+          [b.id, "second"],
         ] as const) {
-          const shown = relayedText(get().sessions, chat, turn) ?? "";
-          if (!shown.includes(`You added: ${JUMP_IN_TEXT}`))
-            throw new Error(
-              `The ${name} chat's relayed message for turn ${turn} does not carry your message: "${shown}"`,
-            );
           const heard = session(chat)?.blocks.some(
             (block) =>
               block.role === "assistant" &&
@@ -1421,61 +1624,77 @@ export async function runDevSmoke(
           if (!heard)
             throw new Error(`The ${name} chat's agent never got your message`);
         }
-        const ended = discussionPage(id);
-        const placed = ended ? jumpInProblem(ended, "sent") : "the page closed";
-        if (placed) throw new Error(`After the end, ${placed}`);
-        const stance = ended?.querySelector<HTMLElement>(
-          '[data-discussion-message="2"] [data-discussion-stance]',
-        );
-        if (stance?.dataset.discussionStance !== "agree")
-          throw new Error(
-            `The first chat's agreeing reply is marked ${stance?.dataset.discussionStance ?? "with nothing"}`,
-          );
-        if (stance.title !== "Agrees")
-          throw new Error(`The agree mark's tooltip reads "${stance.title}"`);
-        // Ended, its connector and bar gone: the second chat's relay card
-        // still opens the page.
-        [
-          ...document.querySelectorAll<HTMLElement>(
-            `.personal-navigation [data-session-card="${b.id}"]`,
-          ),
-        ]
-          .find((row) => row.getClientRects().length > 0)
-          ?.click();
-        const card = await waitFor(
-          () =>
-            chatComposer(b.id) &&
-            document.querySelector<HTMLElement>(
-              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"][data-discussion-open]`,
-            ),
-          5_000,
-          "the second chat's relay card to offer the discussion's page",
-        );
-        card.click();
-        await waitFor(
-          () => discussionPage(id),
-          5_000,
-          "the relay card to open the discussion's page",
-        );
-        // Where they landed: summed up by the stand-in playing the cheapest
-        // model, then built by the first chat through the normal send path.
+        // The panel shows the whole thread: four replies alternating, your
+        // message where the chats read it, the agreeing reply marked, the
+        // closing note, and where they landed.
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !wrapUpProblem(page);
+              const panel = discussionPanel(id);
+              return (
+                panel &&
+                !panelProblem(panel, DISCUSSION_ROUNDS * 2, {
+                  closing: note,
+                }) &&
+                !jumpInProblem(panel, "sent") &&
+                !wrapUpProblem(panel)
+              );
             },
             WRAP_UP_WAIT_MS,
-            "the wrap-up with both lists",
+            "the panel to show the whole discussion and where they landed",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? wrapUpProblem(page) : "the page is not on screen"}`,
+            `${errorText(error)}: ${
+              panel
+                ? (panelProblem(panel, DISCUSSION_ROUNDS * 2, {
+                    closing: note,
+                  }) ??
+                  jumpInProblem(panel, "sent") ??
+                  wrapUpProblem(panel))
+                : "it is not on screen"
+            }`,
           );
         }
-        const build = discussionPage(id)?.querySelector<HTMLElement>(
-          '[data-discussion-build="a"]',
+        const stance = discussionPanel(id)?.querySelector<HTMLElement>(
+          '[data-discussion-message="3"] [data-discussion-stance]',
+        );
+        if (stance?.dataset.discussionStance !== "agree")
+          throw new Error(
+            `The second chat's agreeing reply is marked ${stance?.dataset.discussionStance ?? "with nothing"}`,
+          );
+        // The first chat: the finished card, then where they landed, its
+        // lists kept in the closing note; none in the second chat.
+        try {
+          await waitFor(
+            () => chatComposer(a.id) && !transcriptWrapUpProblem(a.id, id),
+            10_000,
+            "the finished card and where they landed in the first chat",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${transcriptWrapUpProblem(a.id, id) ?? "the first chat is not on screen"}`,
+          );
+        }
+        const kept = session(a.id)?.blocks.find(
+          (block) => block.discussionEnd?.id === id,
+        )?.discussionEnd;
+        if (!kept?.agreed?.includes(SMOKE_WRAP_UP_WORD))
+          throw new Error(
+            "The first chat's closing note did not keep what they agreed on",
+          );
+        if (session(b.id)?.blocks.some((block) => block.discussionEnd))
+          throw new Error("The second chat's transcript shows the wrap-up too");
+        // The message box is back to messaging this chat's agent, and the
+        // wrap-up's button has it build the plan through the normal send path.
+        const field = chatComposer(a.id)?.querySelector<HTMLTextAreaElement>(
+          "textarea",
+        );
+        if (field?.placeholder === "Add something for both of them…")
+          throw new Error("After the end the message box still goes to both");
+        const build = document.querySelector<HTMLElement>(
+          `[data-session-drop="${a.id}"] [data-discussion-wrapup-note="${id}"] [data-discussion-build="a"]`,
         );
         const label = build?.textContent?.trim() ?? "";
         const asked = sentTexts(get().sessions, a.id).length;
@@ -1498,30 +1717,69 @@ export async function runDevSmoke(
           30_000,
           "the build button to send the plan to the first chat",
         );
+        // Closed, the panel comes back from the finished card's Open.
+        discussionPanel(id)
+          ?.querySelector<HTMLElement>("[data-discussion-close]")
+          ?.click();
+        await waitFor(
+          () => !discussionPanel(id) && !discussionPill(id),
+          5_000,
+          "the panel to close",
+        );
+        document
+          .querySelector<HTMLElement>(
+            `[data-session-drop="${a.id}"] [data-discussion-card="${id}"] [data-discussion-card-watch]`,
+          )
+          ?.click();
+        await waitFor(
+          () => {
+            const panel = discussionPanel(id);
+            return (
+              panel &&
+              !panelProblem(panel, DISCUSSION_ROUNDS * 2, { closing: note })
+            );
+          },
+          5_000,
+          "the finished card to open the panel with the whole thread",
+        );
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode; 4 replies relayed once each and shown alternating on one page; ${moved}; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "${label}" sent the plan`;
+        return `started from Discuss mode with a new chat, no tab; one live card in the first chat and its panel open; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
       },
     );
 
-  // The discussion's page stays open beside the chat that started it: a tab
-  // with a chat and a file pane, each with one strip above its content, drawn
-  // as cards and with one tab style. A chat alone in its tab has no strip.
-  if (safe && discussion && get().paneLayout)
+  // A file opened beside a chat: a tab with a chat and a file pane, each with
+  // one strip above its content (the file's tab row is its strip), drawn as
+  // cards and with one tab style. A chat alone in its tab has no strip.
+  const openFile = get().openFile;
+  if (safe && get().paneLayout && openFile)
     await step(
-      "a chat beside a page has one strip each, cards and the shared tabs",
+      "a chat beside a file has one strip each, cards and the shared tabs",
       async () => {
-        const page = await waitFor(
-          () => discussionPage(),
+        get().motion?.showWorkspace?.();
+        await openNewTask(get, config.projectPath);
+        openFile(`${config.projectPath.replace(/\/+$/, "")}/README.md`);
+        const tabs = await waitFor(
+          () =>
+            [
+              ...document.querySelectorAll<HTMLElement>(".aven-surface-tabs"),
+            ].find(
+              (bar) =>
+                bar.getClientRects().length > 0 &&
+                bar.querySelector('[title="Close README.md"]') &&
+                bar
+                  .closest(".workspace-stage-surface")
+                  ?.querySelector("[data-session-drop]"),
+            ),
           5_000,
-          "the discussion's page beside its chat",
+          "README.md beside the chat",
         );
-        let result = paneLayoutProblem(page);
+        let result = paneLayoutProblem(tabs);
         try {
           await waitFor(
             () => {
-              result = paneLayoutProblem(page);
+              result = paneLayoutProblem(tabs);
               return !result.problem;
             },
             3_000,

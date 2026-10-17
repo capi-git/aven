@@ -104,7 +104,12 @@ export type SecondOpinionMeta = {
   kind?: "handoff";
 };
 
-/** A user-side message Aven relayed in a discussion between two chats. */
+/**
+ * A user-side message Aven relayed in a discussion between two chats. The
+ * chat that started it receives even turns and shows the discussion in its
+ * own transcript: the reply as the other agent's message, what the user
+ * added as their own (`added`), and round dividers.
+ */
 export type DiscussionRelayMeta = {
   /** Discussion identity (see `src/lib/discussions.ts`). */
   id: string;
@@ -112,9 +117,42 @@ export type DiscussionRelayMeta = {
   turn: number;
   rounds: number;
   /** The other agent: who said this, or (opening) who this chat talks with. */
-  partner: { harness: HarnessId; model: string; title: string; cwd?: string };
+  partner: {
+    harness: HarnessId;
+    model: string;
+    title: string;
+    cwd?: string;
+    sessionId?: string;
+  };
+  /** This chat when it was sent, for its own name and mascot. */
+  self?: { sessionId: string; harness: HarnessId; model: string };
+  /**
+   * In the chat that started it: what the user added, shown as their own
+   * messages, read before the reply (`before`) or after it (`after`). The
+   * message text is then the reply alone.
+   */
+  added?: { before?: string[]; after?: string[] };
+  /** The reply was already shown here (a continued discussion's last one). */
+  replyShown?: true;
+  /** When a final reply that is never relayed was copied in. */
+  at?: number;
   /** The relayed reply was shortened to the relay limit. */
   truncated?: boolean;
+};
+
+/**
+ * The closing note in the chat that started a discussion that used up its
+ * rounds. Its transcript shows where they landed after the note, read from
+ * the discussion while Aven keeps it; the lists are copied here once summed
+ * up, for when it no longer does. Shown only: never sent to the agent.
+ */
+export type DiscussionWrapUpMeta = {
+  /** Discussion identity (see `src/lib/discussions.ts`). */
+  id: string;
+  /** Turns finished when it ended: the card belongs to this ending. */
+  settled: number;
+  agreed?: string[];
+  open?: string[];
 };
 
 export type ToolPreviewKind = "read" | "write" | "shell" | "search";
@@ -204,6 +242,14 @@ export type Block = {
   secondOpinion?: SecondOpinionMeta;
   /** Relayed by Aven from the other chat in a discussion. */
   discussion?: DiscussionRelayMeta;
+  /** A discussion's closing note in the chat that started it. */
+  discussionEnd?: DiscussionWrapUpMeta;
+  /**
+   * The other agent's last reply, shown in the chat that started the
+   * discussion although it is never relayed there (a system block: shown
+   * only, never sent to the agent).
+   */
+  discussionReply?: DiscussionRelayMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */

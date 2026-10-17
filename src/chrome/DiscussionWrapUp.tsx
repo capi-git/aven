@@ -1,0 +1,190 @@
+import { memo, useState, type CSSProperties } from "react";
+import type {
+  Discussion,
+  DiscussionHost,
+  DiscussionSide,
+} from "../lib/discussions";
+import type { DiscussionVoice } from "../lib/discussionVoices";
+import { spokenName } from "../lib/discussionWrapUp";
+import { Check, ExternalLink } from "./icons";
+import { ProjectMascot } from "./ProjectMascot";
+import "./DiscussionWrapUp.css";
+
+/** What the wrap-up reads from a discussion. */
+export type WrapUpSource = Pick<
+  Discussion,
+  "id" | "ended" | "summary" | "a" | "b"
+>;
+
+/**
+ * Where a finished discussion landed, after its closing note: what the two
+ * agreed on and what is still open, and a button to have either chat build
+ * it. Only a discussion that used up its rounds is summed up; a stopped one
+ * shows just the buttons. The discussion's panel shows it in full; the chat
+ * that started it shows it compact, with a link back to the panel.
+ */
+export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
+  discussion,
+  voices,
+  build,
+  as: Tag = "li",
+  compact = false,
+  onOpen,
+}: {
+  discussion: WrapUpSource;
+  voices: Record<DiscussionSide, DiscussionVoice>;
+  build?: DiscussionHost["build"];
+  /** A list item on the page; a block of its own in a transcript. */
+  as?: "li" | "div";
+  compact?: boolean;
+  /** Opens the discussion's panel. */
+  onOpen?: () => void;
+}) {
+  const [sent, setSent] = useState<DiscussionSide | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const completed = discussion.ended?.kind === "completed";
+  if (!completed && !build) return null;
+  const { summary } = discussion;
+  const summing =
+    summary?.status === "pending" || summary?.status === "running";
+  const done = summary?.status === "done" ? summary : null;
+  const state = !completed
+    ? "stopped"
+    : summing
+      ? "summing"
+      : done
+        ? "done"
+        : "plain";
+  return (
+    <Tag
+      className={`discussion-wrapup${compact ? " discussion-wrapup-compact" : ""}`}
+      data-discussion-wrapup={state}
+      aria-label="Where they landed"
+    >
+      {completed ? (
+        <div className="discussion-wrapup-head">
+          <h3 className="discussion-wrapup-title">Where they landed</h3>
+          {done?.model ? (
+            <span className="discussion-wrapup-model">
+              Summed up by {done.model}
+            </span>
+          ) : null}
+          {onOpen ? (
+            <button
+              type="button"
+              className="discussion-wrapup-open"
+              data-discussion-wrapup-open
+              title="Open the discussion"
+              onClick={onOpen}
+            >
+              Open discussion
+              <ExternalLink className="size-3 shrink-0" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {summing ? (
+        <p className="discussion-wrapup-wait" role="status">
+          Summing up…
+        </p>
+      ) : null}
+      {done ? <WrapUpLists agreed={done.agreed} open={done.open} /> : null}
+      {build ? (
+        <div className="discussion-wrapup-actions">
+          {(["a", "b"] as const).map((side) => {
+            const voice = voices[side];
+            const party = discussion[side];
+            return (
+              <button
+                key={side}
+                type="button"
+                className="discussion-build"
+                data-discussion-build={side}
+                data-sent={sent === side || undefined}
+                style={{ "--discussion-voice": voice.color } as CSSProperties}
+                title={`Send the plan to “${voice.title}”`}
+                onClick={() => {
+                  const refused = build(discussion.id, side);
+                  setProblem(refused);
+                  setSent(refused ? null : side);
+                }}
+              >
+                {sent === side ? (
+                  <Check className="size-3 shrink-0" strokeWidth={2.5} />
+                ) : (
+                  <ProjectMascot
+                    project={voice.sessionId}
+                    name={voice.mascot}
+                    color={voice.color}
+                    className="discussion-build-sprite"
+                  />
+                )}
+                <span className="truncate">
+                  Have {spokenName(party)} build it
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {problem ? (
+        <p className="discussion-wrapup-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </Tag>
+  );
+});
+
+/** Agreed and Still open, side by side (stacked when narrow). */
+export function WrapUpLists({
+  agreed,
+  open,
+}: {
+  agreed: readonly string[];
+  open: readonly string[];
+}) {
+  return (
+    <div className="discussion-wrapup-lists">
+      <WrapUpList
+        kind="agreed"
+        title="Agreed"
+        items={agreed}
+        empty="Nothing settled."
+      />
+      <WrapUpList
+        kind="open"
+        title="Still open"
+        items={open}
+        empty="Nothing left open."
+      />
+    </div>
+  );
+}
+
+function WrapUpList({
+  kind,
+  title,
+  items,
+  empty,
+}: {
+  kind: "agreed" | "open";
+  title: string;
+  items: readonly string[];
+  empty: string;
+}) {
+  return (
+    <section className="discussion-wrapup-list" data-discussion-list={kind}>
+      <h4>{title}</h4>
+      {items.length ? (
+        <ul>
+          {items.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="discussion-wrapup-empty">{empty}</p>
+      )}
+    </section>
+  );
+}

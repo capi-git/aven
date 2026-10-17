@@ -71,7 +71,16 @@ import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
-import { discussionStore } from "./lib/discussions";
+import {
+  captureDiscussionWrapUp,
+  discussionCompanions,
+  discussionStore,
+  keptDiscussionChats,
+} from "./lib/discussions";
+import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
+import { useDiscussionPanel } from "./hooks/useDiscussionPanel";
+import { DiscussionFloat } from "./surfaces/DiscussionPanel";
+import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -284,9 +293,6 @@ import {
   isTerminalTab,
   leaf,
   newRaceWorkspaceTab,
-  newDiscussionTab,
-  newDiscussionWorkspaceTab,
-  showDiscussionInTabs,
   leafIds,
   movePane,
   neighborLeafId,
@@ -2098,6 +2104,8 @@ export default function App({
   }>({ floatingSessionIds: [], focusedSessionIds: new Set() });
   const activityMainViewRef = useRef({ workspaceVisible, visibleSurfaceIds });
   activityMainViewRef.current = { workspaceVisible, visibleSurfaceIds };
+  /** The chats of the discussion open in this window's panel. */
+  const panelChatsRef = useRef<readonly string[]>([]);
   const activityPresentation = useCallback((sessionId: string) => {
     const otherFocused =
       activityWindowBridgeRef.current.focusedSessionIds.has(sessionId);
@@ -2106,6 +2114,8 @@ export default function App({
       tabs: tabsRef.current,
       sessionIds: new Set(sessionsRef.current.map((session) => session.id)),
       floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
+      companions: discussionCompanions(discussionStore().snapshot()),
+      panel: panelChatsRef.current,
     }).has(sessionId);
     return {
       visible: otherFocused || mainVisible,
@@ -2560,11 +2570,43 @@ export default function App({
     });
   }, [tabs]);
 
+  // This window's discussion panel and pills (see `useDiscussionPanel`).
+  const discussionPanel = useDiscussionPanel();
+  // Chats in a discussion this window drives, while it runs or still owes a
+  // closing note, and the two in the open panel. A discussion's partner has
+  // no tab: it plays out in the chat that started it.
+  const discussionList = useDiscussionList();
+  const panelDiscussion = discussionPanel.state.expanded;
+  const panelChats = useMemo(() => {
+    const shown = discussionList.find(
+      (discussion) => discussion.id === panelDiscussion,
+    );
+    return shown ? [shown.a.sessionId, shown.b.sessionId] : [];
+  }, [discussionList, panelDiscussion]);
+  panelChatsRef.current = panelChats;
+  const keptDiscussionKey = useMemo(
+    () =>
+      [
+        ...keptDiscussionChats(discussionList, discussionStore().owner),
+        ...panelChats,
+      ].join("\n"),
+    [discussionList, panelChats],
+  );
+
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
   useEffect(() => {
     const visibleIds = openSessionIds(tabs);
+    // A discussion's chats stay loaded without a tab until it is finished,
+    // so its relays can reach them. Read the store too: a chat started for
+    // a discussion is added in the same step that starts it.
+    const discussions = discussionStore();
+    for (const id of [
+      ...keptDiscussionKey.split("\n"),
+      ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
+    ])
+      if (id) visibleIds.add(id);
     // Inbox owns these panes independently of project tabs. Keep their drafts
     // and attachments mounted when the panel closes or switches items.
     for (const session of sessions) {
@@ -2620,7 +2662,14 @@ export default function App({
           skipForgetSessionIds.current.has(session.id),
       ),
     );
-  }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
+  }, [
+    sessions,
+    tabs,
+    persistSession,
+    liveAgentsEnabled,
+    orchestrationRuns,
+    keptDiscussionKey,
+  ]);
 
   const activateTab = useCallback(
     (id: string, restoreWorkspace = false, paneId?: string) => {
@@ -4105,6 +4154,13 @@ export default function App({
     },
     [refreshHistory, sidebarCwd],
   );
+
+  // A reload brings back a discussion's partner, which has no tab.
+  const loadedSessionIds = useCallback(
+    () => sessionsRef.current.map((session) => session.id),
+    [sessionsRef],
+  );
+  useDiscussionChatsLoaded(ensureOpenSession, loadedSessionIds);
 
   const reopeningClosed = useRef(false);
   const onReopenClosedTab = useCallback(async () => {
@@ -6650,30 +6706,13 @@ export default function App({
     [openSessionBeside],
   );
 
-  /**
-   * A discussion's conversation page: focused where it is already open,
-   * otherwise opened beside the chat that started it (or its partner), or in
-   * a tab of its own when neither chat is in this window's tabs.
-   */
+  /** Watch, Open, the sidebar connector: a discussion in its floating panel. */
+  const openDiscussionPanel = discussionPanel.open;
   const openDiscussionView = useCallback(
     (id: string) => {
-      const discussion = discussionStore().get(id);
-      if (!discussion) return;
-      const file = newDiscussionTab(discussion);
-      const shown = showDiscussionInTabs(tabsRef.current, file);
-      if (shown) {
-        tabsRef.current = shown.tabs;
-        setTabs(shown.tabs);
-        if (shown.tabId !== activeTabIdRef.current) setActiveTabId(shown.tabId);
-      } else {
-        const tab = newDiscussionWorkspaceTab(file);
-        appendTab(tab, discussion.a.cwd);
-        setActiveTabId(tab.id);
-      }
-      setProjectTerminalFocused(false);
-      setComposerFocused(false);
+      if (discussionStore().get(id)) openDiscussionPanel(id);
     },
-    [appendTab],
+    [openDiscussionPanel],
   );
 
   // Two chats discussing a topic, started by the user; relayed at turn end.
@@ -6681,10 +6720,38 @@ export default function App({
     sessions,
     sessionsRef,
     onSubmit,
-    postNote: (sessionId, text) => {
-      enqueueHarnessEvent(sessionId, { type: "status", text });
+    postNote: (sessionId, text, wrapUp) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        ...(wrapUp ? { discussionEnd: wrapUp } : {}),
+      });
       flushHarnessEvents();
     },
+    postReply: (sessionId, text, meta) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        discussionReply: meta,
+      });
+      flushHarnessEvents();
+    },
+    recordWrapUp: (sessionId, wrapUp) => {
+      flushHarnessEvents();
+      setSessions((prev) => {
+        const next = prev.map((session) =>
+          session.id === sessionId
+            ? captureDiscussionWrapUp(session, wrapUp)
+            : session,
+        );
+        return next.some((session, index) => session !== prev[index])
+          ? next
+          : prev;
+      });
+    },
+    // The new chat is not shown: the discussion plays out in the chat that
+    // started it. It stays loaded without a tab while the discussion runs
+    // (see the keep-alive in "Tabs are views") and is listed in the sidebar.
     openPartner: (sourceId, harness, model, title) => {
       const source = sessionsRef.current.find((entry) => entry.id === sourceId);
       if (!source) return undefined;
@@ -6693,10 +6760,28 @@ export default function App({
         ...laneCheckout(source),
         title: formatSessionTitle(harness, title),
       };
-      openSessionBeside(sourceId, session, source.cwd);
+      const next = [...sessionsRef.current, session];
+      sessionsRef.current = next;
+      setSessions(next);
       return session.id;
     },
     openView: openDiscussionView,
+    onStarted: discussionPanel.started,
+    // Where they landed reaches the chat that started it: say so through the
+    // usual notifications when the user is looking elsewhere.
+    onEnded: (discussion) => {
+      const session = sessionsRef.current.find(
+        (entry) => entry.id === discussion.a.sessionId,
+      );
+      if (session)
+        announceActivity(session, {
+          id: `discussion:${discussion.id}:${discussion.settled}`,
+          outcome: "completed",
+          summary: `Discussion with ${discussion.b.model} ended after ${discussion.rounds} ${
+            discussion.rounds === 1 ? "round" : "rounds"
+          }.`,
+        });
+    },
     focusChat: (sessionId) => void onSelectHistorySession(sessionId),
   });
 
@@ -8692,6 +8777,7 @@ export default function App({
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
     paneLayout: true,
+    openFile: (path) => onOpenFile(path),
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
@@ -9516,6 +9602,12 @@ export default function App({
               </LazyViewSlot>
             ) : null}
 
+            <DiscussionFloat
+              panel={discussionPanel}
+              sessions={sessions}
+              host={discussions.host}
+              onOpenFile={onOpenFile}
+            />
             <ApprovalToasts
               notices={hiddenApprovalToasts}
               onFocusSession={onOpenApprovalSession}
@@ -9563,6 +9655,8 @@ function isBlankSession(session: Session | undefined): boolean {
     uncertainSessionAgents(session).length
   )
     return false;
+  // A new chat waiting for its first discussion turn is not a free pane.
+  if (discussionStore().forSession(session.id)) return false;
   return !session.blocks.some((block) => block.role === "user");
 }
 

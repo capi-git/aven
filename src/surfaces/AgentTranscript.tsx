@@ -39,6 +39,7 @@ import {
 import { RememberButton } from "../chrome/RememberButton";
 import { SecondOpinionCard } from "../chrome/SecondOpinionCard";
 import { DiscussionRelayCard } from "../chrome/DiscussionRelayCard";
+import { DiscussionWrapUpNote } from "../chrome/DiscussionWrapUpNote";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
@@ -65,6 +66,7 @@ import {
   hasPendingApproval,
   HARNESS_TITLE,
   type Block,
+  type DiscussionRelayMeta,
   type HarnessId,
   type PlanBuildTarget,
   type ToolPreview,
@@ -87,7 +89,9 @@ import {
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
+import { discussionSpans, isDiscussionAside } from "../lib/discussionChat";
 import "./AgentTranscript.css";
 import {
   activityPhaseTitle,
@@ -510,6 +514,21 @@ function AgentTranscriptComponent({
   }, [followTranscript, rememberScroll, scrollerEl, settleOpened, visible]);
 
   const turns = groupTurns(blocks, managed);
+  // In the chat that started a discussion, its turns fold into one card
+  // after the topic; "Show in chat" unfolds them.
+  const spans = discussionSpans(turns, (turn) => turnUserBlock(turn, managed));
+  const [shownSpans, setShownSpans] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleSpan = useCallback(
+    (key: string) =>
+      setShownSpans((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      }),
+    [],
+  );
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -582,15 +601,70 @@ function AgentTranscriptComponent({
           </div>
         ) : null}
         {visibleTurns.map((turn, turnIndex) => {
-          const isLastTurn = firstVisibleTurn + turnIndex === turns.length - 1;
+          const turnAt = firstVisibleTurn + turnIndex;
+          const isLastTurn = turnAt === turns.length - 1;
           const userBlock = turnUserBlock(turn, managed);
+          const span = spans.get(turnAt);
+          const card = span ? (
+            <DiscussionCard
+              key="discussion-card"
+              id={span.id}
+              meta={span.meta}
+              spanKey={span.key}
+              expanded={shownSpans.has(span.key)}
+              onToggle={toggleSpan}
+              harness={harness}
+              model={model}
+            />
+          ) : null;
+          if (span && !shownSpans.has(span.key)) {
+            // Folded: the topic, the card, and where they landed.
+            if (turnAt !== span.start) return null;
+            const live = span.end === turns.length - 1;
+            return (
+              <div
+                key={turn[0].id}
+                data-discussion-span={span.id}
+                className={`transcript-turn flex min-w-0 flex-col${
+                  live ? " transcript-turn-live" : ""
+                }${
+                  promptAnchor && anchorTurn && live
+                    ? " transcript-turn-anchor"
+                    : ""
+                }`}
+              >
+                {span.topic && userBlock ? (
+                  <div className="flow-root pb-1">
+                    <TranscriptBlock
+                      block={userBlock}
+                      layout={transcriptLayout}
+                      stickyIndex={turnAt + 1}
+                      cwd={cwd}
+                      onOpenFile={onOpenFile}
+                      planHarness={harness}
+                      planModel={model}
+                    />
+                  </div>
+                ) : null}
+                {card}
+                {span.closing ? (
+                  <DiscussionWrapUpNote meta={span.closing} />
+                ) : null}
+              </div>
+            );
+          }
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
           const proposals = turn.filter((block) => block.orchestration);
+          // The other agent's last reply and the closing note end a
+          // discussion after the turn's own footer.
+          const asides = turn.filter(isDiscussionAside);
           // Proposals are turn results, like the changes card. Keep them out
           // of the live work and append them after all of the lead's output.
           const items = groupTurnItems(
-            turn.filter((block) => !block.orchestration),
+            turn.filter(
+              (block) => !block.orchestration && !isDiscussionAside(block),
+            ),
           );
           // Earlier activity groups have already been followed by prose or
           // more work. Only the last one can still be the live group.
@@ -714,57 +788,48 @@ function AgentTranscriptComponent({
               />
             </TurnRow>
           );
-          return (
-            <div
-              key={turn[0].id}
-              className={`transcript-turn flex min-w-0 flex-col${
-                isLastTurn ? " transcript-turn-live" : ""
-              }${
-                promptAnchor && anchorTurn && isLastTurn && userBlock
-                  ? " transcript-turn-anchor"
-                  : ""
-              }`}
-            >
-              {items.flatMap((item, itemIndex) => {
-                const inFold =
-                  !!fold &&
-                  itemIndex >= fold.start &&
-                  itemIndex <= fold.end &&
-                  isFoldableWorkItem(item);
-                if (inFold) {
-                  if (itemIndex !== fold.start) return [];
-                  return [
-                    foldLineRow,
-                    <TurnRow key="work-details" folded={!workOpen}>
-                      {() =>
-                        items
-                          .slice(fold.start, fold.end + 1)
-                          .map((entry, offset) =>
-                            isFoldableWorkItem(entry) ? (
-                              <div
-                                key={turnItemKey(entry)}
-                                className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
-                                  fold.start + offset === fold.end
-                                    ? "zen-fold-tail"
-                                    : ""
-                                }`}
-                              >
-                                {renderItem(entry, fold.start + offset)}
-                              </div>
-                            ) : null,
-                          )
-                      }
-                    </TurnRow>,
-                  ];
-                }
-                const row = (
-                  <div key={turnItemKey(item)} className="flow-root pb-1">
-                    {renderItem(item, itemIndex)}
-                  </div>
-                );
-                if (itemIndex !== foldLineAt) return row;
-                return [foldLineRow, row];
-              })}
+          const rows = items.flatMap((item, itemIndex) => {
+            const inFold =
+              !!fold &&
+              itemIndex >= fold.start &&
+              itemIndex <= fold.end &&
+              isFoldableWorkItem(item);
+            if (inFold) {
+              if (itemIndex !== fold.start) return [];
+              return [
+                foldLineRow,
+                <TurnRow key="work-details" folded={!workOpen}>
+                  {() =>
+                    items
+                      .slice(fold.start, fold.end + 1)
+                      .map((entry, offset) =>
+                        isFoldableWorkItem(entry) ? (
+                          <div
+                            key={turnItemKey(entry)}
+                            className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
+                              fold.start + offset === fold.end
+                                ? "zen-fold-tail"
+                                : ""
+                            }`}
+                          >
+                            {renderItem(entry, fold.start + offset)}
+                          </div>
+                        ) : null,
+                      )
+                  }
+                </TurnRow>,
+              ];
+            }
+            const row = (
+              <div key={turnItemKey(item)} className="flow-root pb-1">
+                {renderItem(item, itemIndex)}
+              </div>
+            );
+            if (itemIndex !== foldLineAt) return row;
+            return [foldLineRow, row];
+          });
+          const footer = (
+            <>
               {foldLineAt >= items.length ? foldLineRow : null}
               {settled &&
                 proposals
@@ -804,6 +869,42 @@ function AgentTranscriptComponent({
                   }
                 />
               ) : null}
+            </>
+          );
+          return (
+            <div
+              key={turn[0].id}
+              className={`transcript-turn flex min-w-0 flex-col${
+                isLastTurn ? " transcript-turn-live" : ""
+              }${
+                promptAnchor && anchorTurn && isLastTurn && userBlock
+                  ? " transcript-turn-anchor"
+                  : ""
+              }`}
+            >
+              {span && turnAt === span.start
+                ? span.topic
+                  ? [rows[0], card, ...rows.slice(1)]
+                  : [card, ...rows]
+                : rows}
+              {footer}
+              {asides.map((block) => (
+                <div
+                  key={block.id}
+                  className="flow-root pb-1"
+                  data-discussion-aside
+                >
+                  <TranscriptBlock
+                    block={block}
+                    layout={transcriptLayout}
+                    stickyIndex={firstVisibleTurn + turnIndex + 1}
+                    cwd={cwd}
+                    onOpenFile={onOpenFile}
+                    planHarness={harness}
+                    planModel={model}
+                  />
+                </div>
+              ))}
             </div>
           );
         })}
@@ -1168,13 +1269,35 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "system") {
-    return (
+    const notice = (
       <div className="personal-transcript-notice px-4 py-2 text-content/50">
         <pre className="min-w-0 whitespace-pre-wrap break-words">
           {block.text}
         </pre>
       </div>
     );
+    // The other agent's last reply, in the chat that started the discussion.
+    if (block.discussionReply)
+      return (
+        <DiscussionPartnerReply
+          meta={block.discussionReply}
+          text={block.text}
+          arrivedAt={block.discussionReply.at}
+          harness={planHarness}
+          model={planModel}
+          cwd={cwd ?? ""}
+          onOpenFile={onOpenFile}
+        />
+      );
+    // A finished discussion's closing note, in the chat that started it.
+    if (block.discussionEnd)
+      return (
+        <>
+          {notice}
+          <DiscussionWrapUpNote meta={block.discussionEnd} />
+        </>
+      );
+    return notice;
   }
 
   if (!text) return null;
@@ -1213,7 +1336,11 @@ function UserMessageBlock({
   const note = block.noteCard;
   const relay = block.discussion;
   const text =
-    card && card.kind !== "handoff" ? "" : visibleUserPrompt(block.text);
+    card && card.kind !== "handoff"
+      ? ""
+      : visibleUserPrompt(
+          relay?.added ? withAdded(block.text, relay) : block.text,
+        );
   const chat = layout === "chat";
   const textOnly =
     Boolean(text) && !block.attachments?.length && !card && !note && !relay;
@@ -1325,6 +1452,20 @@ function UserMessageBlock({
       </div>
     </div>
   );
+}
+
+/**
+ * A relayed message in the chat that started a discussion keeps the reply
+ * alone, with what the user added beside it: shown together, in the order
+ * the agent read them.
+ */
+function withAdded(text: string, relay: DiscussionRelayMeta): string {
+  const added = (entry: string) => `You added: ${entry}`;
+  return [
+    ...(relay.added?.before ?? []).map(added),
+    ...(text ? [text] : []),
+    ...(relay.added?.after ?? []).map(added),
+  ].join("\n\n");
 }
 
 /**
@@ -2468,7 +2609,10 @@ function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
   return turnUserBlock(blocks, managed)?.id;
 }
 
-function turnUserBlock(blocks: Block[], managed = false): Block | undefined {
+function turnUserBlock(
+  blocks: readonly Block[],
+  managed = false,
+): Block | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
     if (block.role === "user" && (managed || !block.internal)) return block;

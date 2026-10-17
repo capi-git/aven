@@ -2,26 +2,8 @@
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { newDiscussionTab, newEditorPane } from "../lib/layout";
+import { newEditorPane, type FilePaneTab } from "../lib/layout";
 import { newSession, type Session } from "../lib/session";
-
-const seen = vi.hoisted(
-  () => [] as { discussionId: string; a?: string; b?: string }[],
-);
-vi.mock("./DiscussionView", () => ({
-  DiscussionView: (props: {
-    discussionId: string;
-    a?: Session;
-    b?: Session;
-  }) => {
-    seen.push({
-      discussionId: props.discussionId,
-      a: props.a?.title,
-      b: props.b?.title,
-    });
-    return null;
-  },
-}));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => []),
   isTauri: () => false,
@@ -30,6 +12,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 
 import { FilePane } from "./FilePane";
+
+/** A discussion's page tab as an earlier version saved it. */
+const page: FilePaneTab = {
+  id: "page",
+  path: "discussion:d1",
+  cwd: "/repo",
+  discussion: { discussionId: "d1", a: "a", b: "b", title: "Cache it?" },
+};
 
 let root: Root;
 let container: HTMLDivElement;
@@ -49,20 +39,12 @@ beforeEach(() => {
     setItem: (key: string, value: string) => values.set(key, value),
     removeItem: (key: string) => values.delete(key),
   });
-  seen.length = 0;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   const noop = () => {};
   props = {
-    pane: newEditorPane(
-      newDiscussionTab({
-        id: "d1",
-        topic: "Cache it?",
-        a: { sessionId: "a", cwd: "/repo" },
-        b: { sessionId: "b" },
-      }),
-    ),
+    pane: newEditorPane(page),
     focused: true,
     dirtyFileIds: new Set(),
     fileErrorCounts: new Map(),
@@ -92,21 +74,27 @@ async function render(next: Partial<ComponentProps<typeof FilePane>> = {}) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
-it("hands the page both chats and re-renders only when one of them changes", async () => {
+it("points an earlier version's discussion page to the panel", async () => {
   await render();
-  expect(seen.at(-1)).toEqual({ discussionId: "d1", a: "a", b: "b" });
-  expect(container.textContent).toContain("Cache it?");
-  const count = seen.length;
+  const moved = container.querySelector("[data-discussion-moved='d1']");
+  expect(moved?.textContent).toContain(
+    "Discussions now open in their own panel.",
+  );
+  // Without a window that drives discussions there is nothing to open.
+  expect(moved?.querySelector("button")).toBeNull();
 
-  // Another chat streams: the page is left alone.
+  const open = vi.fn<(id: string) => void>();
   await render({
-    sessions: [props.sessions[0], props.sessions[1], chat("other", "busy")],
+    discussion: {
+      options: () => ({ candidates: [] }),
+      start: () => null,
+      open,
+    },
   });
-  expect(seen.length).toBe(count);
-
-  // One of its chats changes: the page gets the new one.
-  await render({
-    sessions: [props.sessions[0], chat("b", "b, retitled"), props.sessions[2]],
-  });
-  expect(seen.at(-1)).toEqual({ discussionId: "d1", a: "a", b: "b, retitled" });
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>("[data-discussion-moved='d1'] button")!
+      .click(),
+  );
+  expect(open).toHaveBeenCalledExactlyOnceWith("d1");
 });

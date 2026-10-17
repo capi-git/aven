@@ -19,7 +19,7 @@
  * user's own follow-ups and never steers a running turn.
  *
  * Jumping in: the user can add a message for both chats from the
- * discussion's page. It is stored with the discussion as an interjection
+ * discussion's panel or the starting chat's message box. It is stored with the discussion as an interjection
  * tied to the first turn whose relay has not been sent yet, and rides two
  * relays: that turn's, to the chat speaking next, and the following one, to
  * its partner. Both chats therefore see it exactly once, in order, without
@@ -34,6 +34,7 @@ import {
   sessionNeedsInput,
   type Block,
   type DiscussionRelayMeta,
+  type DiscussionWrapUpMeta,
   type HarnessId,
   type Session,
 } from "./session";
@@ -44,11 +45,6 @@ export const DISCUSSION_MAX_ROUNDS = 6;
 export const DISCUSSION_DEFAULT_ROUNDS = 3;
 /** Longest reply relayed as is; longer replies are shortened, with a note. */
 export const RELAY_CHAR_LIMIT = 8_000;
-/**
- * Finished discussions each window keeps, so their conversation page still
- * shows who took part and how it ended. Their replies stay in the two chats.
- */
-export const DISCUSSION_HISTORY_LIMIT = 20;
 /**
  * Rounds a discussion can reach by continuing it from its page. Starting one
  * offers up to `DISCUSSION_MAX_ROUNDS`.
@@ -84,7 +80,7 @@ export type DiscussionEnding = {
 };
 
 /**
- * A message the user added for both chats from the discussion's page. It is
+ * A message the user added for both chats during a discussion. It is
  * not in either transcript the way replies are, so it is kept here.
  */
 export type DiscussionInterjection = {
@@ -314,10 +310,13 @@ export function relayPrompt(
 
 /**
  * What the receiving transcript shows for this turn's relay: the other
- * chat's reply (or the topic), with the user's own messages around it in
- * the order the agent reads them.
+ * chat's reply (or the topic). The partner chat sees the user's own
+ * messages around it in the order the agent reads them; the chat that
+ * started it shows them as the user's own messages instead (`added` in
+ * `relayBlockMeta`), so its text is the reply alone.
  */
 export function relayDisplayText(discussion: Discussion): string {
+  if (speakingSide(discussion) === "a") return discussion.relay;
   const { carried, fresh } = relayInterjections(discussion);
   const added = (entry: DiscussionInterjection) => `You added: ${entry.text}`;
   return [
@@ -329,10 +328,18 @@ export function relayDisplayText(discussion: Discussion): string {
 
 /** The user-side block this turn adds to the receiving transcript. */
 export function relayBlockMeta(discussion: Discussion): DiscussionRelayMeta {
-  const partner = discussionParty(
-    discussion,
-    otherSide(speakingSide(discussion)),
-  );
+  const side = speakingSide(discussion);
+  const self = discussionParty(discussion, side);
+  const partner = discussionParty(discussion, otherSide(side));
+  const { carried, fresh } = relayInterjections(discussion);
+  const text = (entry: DiscussionInterjection) => entry.text;
+  const added =
+    side === "a" && (carried.length || fresh.length)
+      ? {
+          ...(carried.length ? { before: carried.map(text) } : {}),
+          ...(fresh.length ? { after: fresh.map(text) } : {}),
+        }
+      : null;
   return {
     id: discussion.id,
     turn: discussion.settled,
@@ -342,9 +349,30 @@ export function relayBlockMeta(discussion: Discussion): DiscussionRelayMeta {
       model: partner.model,
       title: partner.title,
       cwd: partner.cwd,
+      sessionId: partner.sessionId,
     },
+    self: {
+      sessionId: self.sessionId,
+      harness: self.harness,
+      model: self.model,
+    },
+    ...(added ? { added } : {}),
     ...(discussion.truncated ? { truncated: true } : {}),
   };
+}
+
+/**
+ * The other chat's last reply, copied into the chat that started the
+ * discussion when it ends: that reply is never relayed there. Shaped like
+ * the relay that would have carried it, at the turn after it.
+ */
+export function finalReplyMeta(
+  discussion: Discussion,
+  truncated: boolean,
+  at: number,
+): DiscussionRelayMeta {
+  const meta = relayBlockMeta({ ...discussion, truncated });
+  return { ...meta, at };
 }
 
 /** The short closing note Aven posts in both chats; no model is asked. */
@@ -364,6 +392,27 @@ export function discussionEndNote(discussion: Discussion): string {
         ? `Discussion stopped after ${plural(done, "round")} of ${discussion.rounds}.`
         : `Discussion stopped during round 1 of ${discussion.rounds}.`;
   }
+}
+
+/**
+ * What the closing note in the chat that started a discussion carries, so
+ * its transcript can show where they landed: only for a discussion that
+ * used up its rounds, with the lists once they are written. Stopped ones
+ * are never summed up, so they get nothing.
+ */
+export function discussionWrapUpMeta(
+  discussion: Discussion,
+): DiscussionWrapUpMeta | undefined {
+  if (discussion.status !== "ended" || discussion.ended?.kind !== "completed")
+    return undefined;
+  const { summary } = discussion;
+  return {
+    id: discussion.id,
+    settled: discussion.settled,
+    ...(summary?.status === "done"
+      ? { agreed: summary.agreed, open: summary.open }
+      : {}),
+  };
 }
 
 // --- Transitions -------------------------------------------------------------
@@ -506,7 +555,7 @@ export function resumeDiscussion(
 }
 
 /**
- * What sending a message from the discussion's page does now:
+ * What sending a message to both chats does now:
  * - `queue`: it goes with the next relay; the turn under way is left alone.
  * - `resume`: the paused discussion continues, with the message.
  * - `extend`: the last reply is under way, so one more round carries it.
@@ -651,6 +700,52 @@ export function discussionReply(
   return reply;
 }
 
+/**
+ * Copy where a discussion landed into the closing note for that ending in
+ * the chat that started it, so the transcript keeps the lists after Aven
+ * stops keeping the discussion. The same session when there is no such
+ * note or it already has them.
+ */
+export function captureDiscussionWrapUp(
+  session: Session,
+  wrapUp: DiscussionWrapUpMeta,
+): Session {
+  if (!wrapUp.agreed || !wrapUp.open) return session;
+  let index = -1;
+  for (let at = session.blocks.length - 1; at >= 0; at -= 1) {
+    const meta = session.blocks[at].discussionEnd;
+    if (meta?.id === wrapUp.id && meta.settled === wrapUp.settled) {
+      index = at;
+      break;
+    }
+  }
+  if (index < 0) return session;
+  const block = session.blocks[index];
+  const saved = block.discussionEnd!;
+  if (
+    sameItems(saved.agreed, wrapUp.agreed) &&
+    sameItems(saved.open, wrapUp.open)
+  )
+    return session;
+  const blocks = session.blocks.slice();
+  blocks[index] = {
+    ...block,
+    discussionEnd: { ...saved, agreed: wrapUp.agreed, open: wrapUp.open },
+  };
+  return { ...session, blocks };
+}
+
+function sameItems(
+  left: readonly string[] | undefined,
+  right: readonly string[],
+): boolean {
+  return (
+    !!left &&
+    left.length === right.length &&
+    left.every((item, index) => item === right[index])
+  );
+}
+
 // --- Readiness -----------------------------------------------------------------
 
 /** Why a chat cannot take a discussion turn, or start or join a discussion. */
@@ -759,6 +854,8 @@ export type DiscussionHost = {
   start(request: DiscussionStartRequest): string | null;
   /** Shows the discussion's conversation page, opening it where needed. */
   open?(id: string): void;
+  /** Shows `side`'s chat in this window, as its sidebar row does. */
+  show?(id: string, side: DiscussionSide): void;
   /**
    * Shows `side`'s chat and sends it, as the user, a message asking it to
    * carry out the plan the discussion landed on. Returns why it could not,
@@ -788,6 +885,8 @@ export type DiscussionAction =
       /** Absent when the chat is gone; the note is then only marked done. */
       sessionId?: string;
       text: string;
+      /** The starting chat's note on a finished discussion: where they landed. */
+      wrapUp?: DiscussionWrapUpMeta;
     }
   | { kind: "recover"; id: string; turn: number; reply: string }
   | { kind: "redeliver"; id: string }
@@ -817,12 +916,15 @@ export function planDiscussions(
         const session = byId.get(discussionParty(discussion, side).sessionId);
         // A note waits for the chat to be idle, so it never splits a reply.
         if (session?.busy) continue;
+        // Only the chat that started it shows where they landed.
+        const wrapUp = side === "a" ? discussionWrapUpMeta(discussion) : null;
         actions.push({
           kind: "note",
           id,
           side,
           ...(session ? { sessionId: session.id } : {}),
           text: discussionEndNote(discussion),
+          ...(wrapUp ? { wrapUp } : {}),
         });
       }
       continue;
@@ -900,6 +1002,52 @@ export function planDiscussions(
     );
   }
   return actions;
+}
+
+// --- Keeping chats loaded ------------------------------------------------------
+
+/**
+ * Discussions whose chats this window keeps loaded without a tab: running
+ * or paused, or ended with a closing note still to post. A finished one
+ * lets them go.
+ */
+export function keptDiscussions(
+  discussions: readonly Discussion[],
+  owner?: string,
+): Discussion[] {
+  return discussions.filter(
+    (discussion) =>
+      !discussion.preview &&
+      (owner === undefined || discussion.owner === owner) &&
+      (discussion.status !== "ended" || (discussion.notes ?? []).length > 0),
+  );
+}
+
+/** The chats `keptDiscussions` keeps loaded. */
+export function keptDiscussionChats(
+  discussions: readonly Discussion[],
+  owner?: string,
+): string[] {
+  return keptDiscussions(discussions, owner).flatMap((discussion) => [
+    discussion.a.sessionId,
+    discussion.b.sessionId,
+  ]);
+}
+
+/**
+ * The chat that started each kept discussion, and its partner: the
+ * starting chat shows the partner's replies, so it on screen shows both.
+ */
+export function discussionCompanions(
+  discussions: readonly Discussion[],
+): Map<string, string[]> {
+  const companions = new Map<string, string[]>();
+  for (const discussion of keptDiscussions(discussions)) {
+    const list = companions.get(discussion.a.sessionId) ?? [];
+    list.push(discussion.b.sessionId);
+    companions.set(discussion.a.sessionId, list);
+  }
+  return companions;
 }
 
 // --- Sidebar -----------------------------------------------------------------
@@ -1095,6 +1243,26 @@ function readSummary(value: unknown): DiscussionSummary | null {
   }
 }
 
+/** A closing note's wrap-up meta as stored with its transcript, or null. */
+export function readDiscussionWrapUpMeta(
+  value: unknown,
+): DiscussionWrapUpMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = text(record.id, 200);
+  const { settled } = record;
+  if (!id || typeof settled !== "number" || !Number.isInteger(settled))
+    return null;
+  if (settled < 0) return null;
+  const agreed = readItems(record.agreed);
+  const open = readItems(record.open);
+  return {
+    id,
+    settled,
+    ...(agreed && open ? { agreed, open } : {}),
+  };
+}
+
 const ENDINGS = new Set(["completed", "stopped", "cancelled"]);
 
 function readEnding(value: unknown): DiscussionEnding | null {
@@ -1150,8 +1318,15 @@ export class DiscussionStore {
       // A summary under way when the window went is written again, once.
       if (discussion.summary?.status === "running") {
         changed = true;
-        return { ...discussion, summary: { status: "pending" } };
+        discussion = { ...discussion, summary: { status: "pending" } };
       }
+      // Finished ones an earlier version kept carry fields they no longer need.
+      if (isHistory(discussion)) {
+        const kept = compactHistory(discussion, discussion.updatedAt);
+        if (JSON.stringify(kept) !== JSON.stringify(discussion)) changed = true;
+        return kept;
+      }
+      if (discussion.summary?.status === "pending") return discussion;
       if (discussion.status !== "active") return discussion;
       changed = true;
       return pauseDiscussion(discussion, RELOAD_REASON, this.now());
@@ -1398,9 +1573,11 @@ export class DiscussionStore {
   }
 
   /**
-   * Both notes posted: the discussion is finished. It stays as history (its
-   * conversation page reads it), without the relay it no longer needs, and
-   * only the newest `DISCUSSION_HISTORY_LIMIT` of this window's are kept.
+   * Both notes posted: the discussion is finished. It stays as history for
+   * as long as the chat that started it exists (`forgetChat`), so its card
+   * and panel can always be opened again. The record stays small: replies
+   * are read from the chats' transcripts, so only who took part, the topic,
+   * what the user added, how it ended and where they landed are kept.
    */
   notePosted(id: string, side: DiscussionSide) {
     const current = this.get(id);
@@ -1414,25 +1591,31 @@ export class DiscussionStore {
       this.remove(id);
       return;
     }
-    const finished: Discussion = {
-      ...current,
-      notes: [],
-      relay: "",
-      updatedAt: Math.max(this.now(), current.updatedAt),
-    };
-    delete finished.truncated;
-    const list = this.list.map((discussion) =>
-      discussion.id === id ? finished : discussion,
+    this.commit(
+      this.list.map((discussion) =>
+        discussion.id === id
+          ? compactHistory(current, Math.max(this.now(), current.updatedAt))
+          : discussion,
+      ),
     );
-    const history = list
-      .filter((discussion) => this.owns(discussion) && isHistory(discussion))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    const dropped = new Set(
-      history
-        .slice(DISCUSSION_HISTORY_LIMIT)
-        .map((discussion) => discussion.id),
-    );
-    this.commit(list.filter((discussion) => !dropped.has(discussion.id)));
+  }
+
+  /**
+   * A chat was deleted. A discussion it started goes with it, wherever it
+   * is driven; one it only answered in is stopped while it runs, and kept
+   * once finished, since the chat that started it holds the replies.
+   */
+  forgetChat(sessionId: string) {
+    for (const discussion of [...this.list]) {
+      if (discussion.a.sessionId === sessionId) {
+        this.adopt(discussion.id);
+        this.remove(discussion.id);
+      } else if (
+        discussion.b.sessionId === sessionId &&
+        discussion.status !== "ended"
+      )
+        this.stop(discussion.id);
+    }
   }
 
   remove(id: string) {
@@ -1533,9 +1716,24 @@ export class DiscussionStore {
   }
 }
 
-/** Finished, with both closing notes posted: kept only for its page. */
+/** Finished, with both closing notes posted: kept only to be shown again. */
 export function isHistory(discussion: Discussion): boolean {
   return discussion.status === "ended" && (discussion.notes ?? []).length === 0;
+}
+
+/** A finished discussion as it is kept: without what only a running one needs. */
+function compactHistory(discussion: Discussion, now: number): Discussion {
+  const kept: Discussion = {
+    ...discussion,
+    notes: [],
+    relay: "",
+    delivered: false,
+    updatedAt: now,
+  };
+  delete kept.truncated;
+  delete kept.reason;
+  delete kept.blockedBy;
+  return kept;
 }
 
 /** Another window wrote this discussion as its own, at least as recently. */

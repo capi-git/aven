@@ -6,7 +6,6 @@ import {
   discussionEndNote,
   discussionReply,
   DiscussionStore,
-  DISCUSSION_HISTORY_LIMIT,
   DISCUSSIONS_KEY,
   isHistory,
   discussionRound,
@@ -99,7 +98,10 @@ describe("relay rules", () => {
         model: "GPT-5",
         title: "Review",
         cwd: "/work/api",
+        sessionId: B.sessionId,
       },
+      // The chat it goes to, for its own name and mascot in its transcript.
+      self: { sessionId: A.sessionId, harness: A.harness, model: A.model },
     });
   });
 
@@ -597,7 +599,7 @@ describe("DiscussionStore", () => {
     expect(new DiscussionStore(storage, "main").get("d1")).toEqual(kept);
   });
 
-  it("keeps only the newest finished discussions", () => {
+  it("keeps finished discussions while their chats exist, however many", () => {
     let clock = 0;
     const store = new DiscussionStore(memoryStorage(), "main", () => clock);
     const finish = (id: string) => {
@@ -613,15 +615,58 @@ describe("DiscussionStore", () => {
       store.notePosted(id, "a");
       store.notePosted(id, "b");
     };
-    for (let index = 0; index < DISCUSSION_HISTORY_LIMIT + 2; index += 1)
-      finish(`d${index}`);
+    // More than the twenty the window once kept.
+    for (let index = 0; index < 22; index += 1) finish(`d${index}`);
     store.start({ id: "live", a: A, b: B, topic: "Still going", rounds: 2 });
     const ids = store.snapshot().map((discussion) => discussion.id);
-    expect(ids).toHaveLength(DISCUSSION_HISTORY_LIMIT + 1);
-    expect(ids).not.toContain("d0");
-    expect(ids).not.toContain("d1");
-    expect(ids).toContain(`d${DISCUSSION_HISTORY_LIMIT + 1}`);
+    expect(ids).toHaveLength(23);
+    expect(ids).toContain("d0");
     expect(ids).toContain("live");
+    // Deleting the chat that started one forgets it; deleting the chat
+    // that answered keeps it, since the starting chat holds the replies.
+    store.forgetChat("d0-a");
+    store.forgetChat("d1-b");
+    const left = store.snapshot().map((discussion) => discussion.id);
+    expect(left).not.toContain("d0");
+    expect(left).toContain("d1");
+    // A running discussion whose partner is deleted stops.
+    store.forgetChat(B.sessionId);
+    expect(store.get("live")?.ended).toEqual({ kind: "stopped" });
+  });
+
+  it("loads the twenty finished discussions an earlier version kept, smaller", () => {
+    const storage = memoryStorage();
+    const old = new DiscussionStore(storage, "main");
+    for (let index = 0; index < 20; index += 1) {
+      const id = `old-${index}`;
+      old.start({
+        id,
+        a: { ...A, sessionId: `${id}-a` },
+        b: { ...B, sessionId: `${id}-b` },
+        topic: "Topic",
+        rounds: 1,
+      });
+      old.stop(id);
+      old.notePosted(id, "a");
+      old.notePosted(id, "b");
+    }
+    // As an earlier version stored them: with a pause reason left behind.
+    const stored = JSON.parse(storage.getItem(DISCUSSIONS_KEY)!) as Record<
+      string,
+      unknown
+    >[];
+    storage.setItem(
+      DISCUSSIONS_KEY,
+      JSON.stringify(stored.map((entry) => ({ ...entry, reason: "Old" }))),
+    );
+    const loaded = new DiscussionStore(storage, "main");
+    expect(loaded.snapshot()).toHaveLength(20);
+    expect(loaded.snapshot().every((entry) => entry.reason === undefined)).toBe(
+      true,
+    );
+    expect(
+      (JSON.parse(storage.getItem(DISCUSSIONS_KEY)!) as unknown[]).length,
+    ).toBe(20);
   });
 
   it("keeps a development preview out of storage", () => {

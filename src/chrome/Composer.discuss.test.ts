@@ -7,6 +7,7 @@ import { codexAdapter } from "../lib/harness/codexAdapter";
 import { claudeAdapter } from "../lib/harness/claudeAdapter";
 import {
   DISCUSSION_ROUNDS_KEY,
+  discussionStore,
   resetDiscussionStore,
   type DiscussionCandidate,
   type DiscussionHost,
@@ -399,5 +400,80 @@ describe("Discuss mode in the composer", () => {
       [],
       expect.anything(),
     );
+  });
+});
+
+describe("the message box while this chat's discussion runs", () => {
+  const party = (sessionId: string, title: string) => ({
+    sessionId,
+    harness: "codex" as const,
+    model: "GPT-5",
+    title,
+    cwd: "/work/site",
+  });
+  function startHere() {
+    discussionStore().start({
+      id: "d1",
+      a: party("a", "Caching"),
+      b: party("b", "Review"),
+      topic: "Cache the lookups?",
+      rounds: 2,
+    });
+  }
+  const added = () =>
+    (discussionStore().get("d1")?.interjections ?? []).map(
+      (entry) => entry.text,
+    );
+
+  it("sends what you write to both chats instead of this agent", async () => {
+    startHere();
+    await render();
+    expect(field().placeholder).toBe("Add something for both of them…");
+    expect(
+      container.querySelector('[aria-label="Send to both"]'),
+    ).not.toBeNull();
+    await type("Keep it under 50 lines.");
+    await press("Enter");
+    expect(added()).toEqual(["Keep it under 50 lines."]);
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    expect(field().value).toBe("");
+  });
+
+  it("resumes a paused discussion with your message", async () => {
+    startHere();
+    discussionStore().pause("d1", "“Review” needs your approval.");
+    await render();
+    expect(field().placeholder).toBe("Add something for both of them…");
+    await type("Go ahead.");
+    await press("Enter");
+    expect(added()).toEqual(["Go ahead."]);
+    expect(discussionStore().get("d1")?.status).toBe("active");
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("goes back to messaging this agent once it has ended", async () => {
+    startHere();
+    await render();
+    await act(async () => discussionStore().stop("d1"));
+    expect(field().placeholder).not.toBe("Add something for both of them…");
+    await type("Now build it.");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      "Now build it.",
+      [],
+      expect.anything(),
+    );
+  });
+
+  it("leaves the other chat's message box as it is", async () => {
+    startHere();
+    props.sessionId = "b";
+    await render();
+    expect(field().placeholder).not.toBe("Add something for both of them…");
+    await type("Hello");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(props.onSubmit).toHaveBeenCalled();
   });
 });

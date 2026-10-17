@@ -9,7 +9,7 @@ import { projectKey } from "./paths";
 
 /**
  * One-shot mascot reactions to a turn's end: a happy hop when it completed, a
- * slump when it failed, a blink when it was stopped. A discussion's page also
+ * slump when it failed, a blink when it was stopped. A discussion's panel also
  * uses a nod and a head-tilt when a reply agrees or pushes back.
  *
  * A reaction plays once per turn end. A window reacts only to ledger entries

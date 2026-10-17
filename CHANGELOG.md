@@ -5,6 +5,8 @@
 ### Changed
 
 - When two panes share a tab, each now has a slim strip at its top in the same style as tabs, with its name, a handle to drag it and a button to close it. The strip sits above the pane's content, so it no longer covers a chat's first message the way the floating controls did. A tab with one pane still has no strip.
+- A discussion now sits in the chat you started it from as one live card: both mascots, "Claude and Codex are discussing", the round, the latest line, and **Watch** and **Stop**. It turns amber with a way to the waiting chat when it needs you, and once done reads "Discussed for 4 rounds" with **Open**, followed by **Where they landed**; **Show in chat** unfolds the raw turns. The conversation plays out in a floating panel inside the window, which opens the first time and then as you last left it: the two agents face each other with the round between them, the replies go back and forth, and its box sends to both. Drag it by its header, resize it from any edge, or shrink it to a pill that shows the round and turns amber with **Needs you**; several discussions stack as pills. Long discussions fold their older rounds, a rail jumps to any round, and a line marks what is new since you looked. Finished discussions stay openable for as long as their chat exists, instead of only the newest twenty. A new chat started for the discussion runs in the background, listed in the sidebar, and the side-by-side page is gone.
+
 ### Removed
 
 - Linear is gone from Aven. The Inbox now shows only GitHub issues and pull requests, without the GitHub | Linear switch, and Settings → Connections no longer has a Linear section. If you had connected Linear, Aven stops using the API key it saved; your GitHub inbox, filters and read marks are unchanged.
