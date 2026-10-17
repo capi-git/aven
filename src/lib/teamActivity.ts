@@ -42,13 +42,20 @@ function plural(count: number, one: string): string {
   return `${count} ${one}${count === 1 ? "" : "s"}`;
 }
 
-/** When the race's latest lane turn ended, so a second "ready" is a new one. */
-function lastEnd(team: TeamRun): number {
+/**
+ * Where a team is, for its notices' ids: the store's mark, the same in
+ * every window (a race's newest lane ending, so a second "ready" after a
+ * retry is a new one; a discussion's settled turns, so each ending is its
+ * own). A race saved before it recorded endings falls back to its loaded
+ * lanes' clocks.
+ */
+function markOf(team: TeamRun): number {
+  if (team.mark) return team.mark;
   let at = 0;
   for (const member of team.members)
     if (member.startedAt != null && member.durationMs != null)
       at = Math.max(at, member.startedAt + member.durationMs);
-  return at;
+  return at || (team.endedAt ?? team.updatedAt);
 }
 
 function needKey(team: TeamRun): string | undefined {
@@ -84,7 +91,7 @@ export function teamActivityEvents(
         events.push({
           sessionId: origin,
           event: {
-            id: `${origin}:team:${team.key}:ended:${team.endedAt ?? team.updatedAt}`,
+            id: `${origin}:team:${team.key}:ended:${markOf(team)}`,
             outcome: "completed",
             summary: `Discussion ended · ${team.progress}`,
             team: marker,
@@ -94,14 +101,14 @@ export function teamActivityEvents(
     }
     if (team.kind === "race" && team.status === "ready") {
       // Agents you stopped yourself, with none finished, are not news.
-      const done = team.members.filter(
-        (member) => member.state === "done",
-      ).length;
+      const finished = team.members.filter((member) => member.state === "done");
+      const done = finished.length;
       if (before.status !== "ready" && done)
         events.push({
-          sessionId: origin,
+          // A race with no chat of its own posts on an agent that finished.
+          sessionId: origin || finished[0].sessionId,
           event: {
-            id: `${origin}:team:${team.key}:ready:${lastEnd(team)}`,
+            id: `${origin || finished[0].sessionId}:team:${team.key}:ready:${markOf(team)}`,
             outcome: "completed",
             summary: `Race ready to compare · ${
               done === team.members.length
@@ -125,7 +132,7 @@ export function teamActivityEvents(
         event: {
           // A race's need dates from its latest lane's end, so a Retry that
           // fails again is a new one.
-          id: `${need.sessionId}:team:${team.key}:${need.kind}:${team.kind === "race" ? lastEnd(team) : need.since}`,
+          id: `${need.sessionId}:team:${team.key}:${need.kind}:${team.kind === "race" ? markOf(team) : need.since}`,
           // A team that stopped for you needs you, as a failure does.
           outcome: "failed",
           summary: `${NEED_LABEL[team.kind]} · ${need.text}`,
@@ -134,6 +141,35 @@ export function teamActivityEvents(
       });
   }
   return { events, seen };
+}
+
+/**
+ * The teams whose notices this window posts, so two windows never post one
+ * twice or post what only one of them can see. Each team has one window
+ * that drives it: a discussion's owner; the window that started a race (or,
+ * for a race saved before races kept that, any window holding one of its
+ * chats); and for a run, the window whose orchestrator holds it, which is
+ * the only kind of run a window's teams include.
+ */
+export function teamsPostedHere(
+  teams: readonly TeamRun[],
+  stores: Pick<TeamStores, "discussions" | "races">,
+  here: { window: string; loaded: ReadonlySet<string> },
+): TeamRun[] {
+  const owners = new Map(
+    stores.discussions.map((discussion) => [discussion.id, discussion.owner]),
+  );
+  const races = new Map(stores.races.map((race) => [race.id, race]));
+  return teams.filter((team) => {
+    if (team.kind === "discuss") return owners.get(team.key) === here.window;
+    if (team.kind === "orchestrate") return true;
+    const race = races.get(team.key);
+    if (race?.window) return race.window === here.window;
+    return [
+      team.origin.sessionId,
+      ...team.members.map((member) => member.sessionId),
+    ].some((id) => id && here.loaded.has(id));
+  });
 }
 
 /**

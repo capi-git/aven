@@ -24,6 +24,7 @@ import { providerShortName } from "./discussionVoices";
 import { raceShortNames } from "./raceNames";
 import type { ReviewerChoice } from "./raceReviewers";
 import {
+  teamAnchor,
   teamIsOpen,
   teamKindOf,
   type TeamKind,
@@ -307,7 +308,10 @@ export function markSeen(
  */
 export function teamPills(
   state: TeamPanelState,
-  teams: readonly Pick<TeamRun, "id" | "status" | "origin" | "preview">[],
+  teams: readonly Pick<
+    TeamRun,
+    "id" | "status" | "origin" | "members" | "preview"
+  >[],
   here: ReadonlySet<string>,
 ): string[] {
   const shown = (id: string) =>
@@ -318,7 +322,7 @@ export function teamPills(
     if (
       !team.preview &&
       teamIsOpen(team) &&
-      here.has(team.origin.sessionId) &&
+      here.has(teamAnchor(team)) &&
       shown(team.id) &&
       !pills.includes(team.id) &&
       !state.dismissed.includes(team.id)

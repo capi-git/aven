@@ -7,6 +7,7 @@
 import type { HarnessId } from "./session";
 import {
   TEAM_KIND_LABEL,
+  teamAnchor,
   teamIsLive,
   teamIsOpen,
   type TeamKind,
@@ -93,7 +94,7 @@ export function groupHomeRunning(
       .map((entry) => entry.startedAt)
       .filter((at): at is number => at !== undefined);
     out.push({
-      id: team.origin.sessionId,
+      id: teamAnchor(team),
       title: team.title,
       cwd: team.project,
       ...(starts.length ? { startedAt: Math.min(...starts) } : {}),
@@ -187,9 +188,10 @@ export function sidebarTeams(teams: readonly TeamRun[]): SidebarTeam[] {
     .filter((team) => team.kind === "race" && teamIsOpen(team))
     .map((team) => ({
       ...teamRowInfo(team),
-      originId: team.origin.sessionId,
+      // A race with no chat of its own folds into its first agent's row.
+      originId: teamAnchor(team),
       memberIds: team.members
         .map((member) => member.sessionId)
-        .filter((id) => id !== team.origin.sessionId),
+        .filter((id) => id !== teamAnchor(team)),
     }));
 }

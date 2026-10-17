@@ -29,7 +29,10 @@ import {
   teamActivityEvents,
   teamEndSummaries,
   teamsNoLongerNeedingYou,
+  teamsPostedHere,
 } from "./teamActivity";
+import type { Discussion } from "./discussions";
+import type { RaceRecord } from "./race";
 import { teamCompanions, type TeamMember, type TeamRun } from "./teamRuns";
 import { homeFinished, homeScope } from "./workspaceHome";
 
@@ -74,6 +77,64 @@ const discussion = (patch: Partial<TeamRun> = {}) =>
     progress: "Round 1 of 2",
     ...patch,
   });
+
+describe("which window posts a team's notices", () => {
+  const race = (patch: Partial<RaceRecord> = {}): RaceRecord => ({
+    id: "r1",
+    project: "/work/site",
+    root: "/work/site",
+    base: "a".repeat(40),
+    prompt: "Fix",
+    createdAt: 0,
+    uncommitted: false,
+    untracked: false,
+    state: "running",
+    lanes: [],
+    ...patch,
+  });
+  const run = team({
+    id: "orchestrate:lead",
+    kind: "orchestrate",
+    key: "lead",
+    origin: { sessionId: "lead" },
+  });
+  const teams = [team({}), discussion(), run];
+  const ids = (
+    stores: Parameters<typeof teamsPostedHere>[1],
+    here: { window: string; loaded: string[] },
+  ) =>
+    teamsPostedHere(teams, stores, {
+      window: here.window,
+      loaded: new Set(here.loaded),
+    }).map((entry) => entry.id);
+
+  it("is the window that drives it", () => {
+    const stores = {
+      discussions: [{ id: "d1", owner: "main" } as Discussion],
+      races: [race({ window: "main" })],
+    };
+    expect(ids(stores, { window: "main", loaded: [] })).toEqual([
+      "race:r1",
+      "discuss:d1",
+      "orchestrate:lead",
+    ]);
+    // Another window, even holding the team's chats, posts only its runs.
+    expect(
+      ids(stores, { window: "workspace-2", loaded: ["chat", "a", "l0"] }),
+    ).toEqual(["orchestrate:lead"]);
+  });
+
+  it("is any window holding a chat of a race saved before races kept one", () => {
+    const stores = { discussions: [], races: [race()] };
+    expect(ids(stores, { window: "workspace-2", loaded: [] })).toEqual([
+      "orchestrate:lead",
+    ]);
+    expect(ids(stores, { window: "workspace-2", loaded: ["l1"] })).toEqual([
+      "race:r1",
+      "orchestrate:lead",
+    ]);
+  });
+});
 
 describe("teamActivityEvents", () => {
   it("posts nothing for what was already there", () => {
@@ -140,6 +201,44 @@ describe("teamActivityEvents", () => {
       team({ status: "ready", members: lanes(400) }),
     ]);
     expect(again.events[0].event.id).toBe("chat:team:r1:ready:400");
+  });
+
+  it("gives a notice the same id in every window, from the shared store", () => {
+    // Window A holds the lanes, with their clocks; window B holds none.
+    const a = team({
+      status: "ready",
+      mark: 700,
+      members: [
+        member("l0", { state: "done", startedAt: 0, durationMs: 650 }),
+        member("l1", { state: "done", startedAt: 0, durationMs: 690 }),
+      ],
+    });
+    const b = team({
+      status: "ready",
+      mark: 700,
+      members: [
+        member("l0", { state: "done" }),
+        member("l1", { state: "done" }),
+      ],
+    });
+    const id = (ready: TeamRun) =>
+      teamActivityEvents(teamActivityEvents(null, [team({})]).seen, [ready])
+        .events[0].event.id;
+    expect(id(a)).toBe("chat:team:r1:ready:700");
+    expect(id(b)).toBe(id(a));
+    // A discussion's ending is keyed by its settled turns, not by when a
+    // window last saw it change.
+    const ended = (updatedAt: number) =>
+      teamActivityEvents(teamActivityEvents(null, [discussion()]).seen, [
+        discussion({
+          status: "finished",
+          mark: 8,
+          updatedAt,
+          endedAt: updatedAt,
+        }),
+      ]).events[0].event.id;
+    expect(ended(40)).toBe("a:team:d1:ended:8");
+    expect(ended(55)).toBe(ended(40));
   });
 
   it("posts nothing for a race whose agents you stopped", () => {

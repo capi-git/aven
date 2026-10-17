@@ -82,6 +82,21 @@ describe("lane states", () => {
     expect(
       raceLaneState("s0", undefined, [entry("s0", "approval", 1)]).label,
     ).toBe("Needs you");
+    // A team's notice posted on the chat ("Race ready") is not how it ended.
+    const notice = {
+      ...entry("s0", "completed", 9),
+      id: "s0:team:r1:ready:8",
+    };
+    expect(
+      raceLaneState("s0", undefined, [notice], { kind: "failed", at: 4 }).kind,
+    ).toBe("failed");
+    expect(raceLaneState("s0", undefined, [notice]).kind).toBe("closed");
+    // The race saw its turn start: working where it is held, not "closed"
+    // because this window doesn't hold it.
+    expect(raceLaneState("s0", undefined, [], null).kind).toBe("working");
+    expect(
+      raceLaneState("s0", undefined, [entry("s0", "completed", 1)], null).kind,
+    ).toBe("working");
   });
 
   it("tells a lane that never started from one that finished", () => {

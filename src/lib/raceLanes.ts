@@ -1,4 +1,4 @@
-import type { ActivityEntry } from "./activity";
+import { isTurnActivity, type ActivityEntry } from "./activity";
 import { wasTurnInterrupted } from "./inFlight";
 import type { RaceLaneEnd, RaceRecord } from "./race";
 import { raceAgentNames } from "./raceNames";
@@ -64,13 +64,18 @@ function fromRecord(
   end: RaceLaneEnd | null | undefined,
 ): RaceLaneState {
   let latest: ActivityEntry | undefined;
+  // Only the chat's own turns: a team's notice on it is not how it ended.
   for (const entry of entries)
     if (
       entry.sessionId === sessionId &&
+      isTurnActivity(sessionId, entry.id) &&
       (!latest || entry.createdAt > latest.createdAt)
     )
       latest = entry;
   if (end && (!latest || end.at >= latest.createdAt)) return state(end.kind);
+  // The race saw this lane's turn start and no ending yet: it is working
+  // in whichever window holds it, not closed because it isn't loaded here.
+  if (end === null) return state("working");
   if (!latest) return state("closed");
   if (latest.outcome === "completed") return state("done");
   if (latest.outcome === "failed") return state("failed");

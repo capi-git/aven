@@ -9,6 +9,8 @@ import {
   orchestrationTeam,
   raceHeadline,
   raceTeam,
+  teamAnchor,
+  teamCompanions,
   teamOf,
   teamRole,
   teamRunsFrom,
@@ -306,10 +308,14 @@ describe("raceTeam", () => {
     expect(team.need).toMatchObject({ sessionId: "chat", kind: "error" });
   });
 
-  it("falls back to the first lane for a race from the palette", () => {
-    expect(raceTeam(race({ origin: undefined }), lookup()).origin).toEqual({
-      sessionId: "l0",
-    });
+  it("has no chat it started from when raced from the palette", () => {
+    const team = raceTeam(race({ origin: undefined }), lookup());
+    // No lane stands in for one: lane 0 is an agent like the others ...
+    expect(team.origin).toEqual({ sessionId: "" });
+    expect(teamRole(team, "l0")).toBe("member");
+    expect(teamCompanions([team]).size).toBe(0);
+    // ... though it is where the race opens from.
+    expect(teamAnchor(team)).toBe("l0");
   });
 
   it("records what a kept race kept, and why", () => {

@@ -228,6 +228,7 @@ import {
   raceLaneStarted,
   raceOriginBlock,
   saveRace,
+  settleInterruptedLanes,
   subscribeRaces,
   updateRace,
   usesRaceCheckout,
@@ -551,6 +552,7 @@ import {
   teamRunsFrom,
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
+import { currentWindowLabel } from "./lib/windowLabel";
 import {
   focusedTeamPopOut,
   subscribeFocusedTeamPopOut,
@@ -559,6 +561,7 @@ import {
   teamActivityEvents,
   teamEndSummaries,
   teamsNoLongerNeedingYou,
+  teamsPostedHere,
   type TeamSeen,
 } from "./lib/teamActivity";
 import {
@@ -589,6 +592,7 @@ import {
   resolveTeamNeedActivity,
   amendTeamEnd,
   isPendingActivity,
+  isTurnActivity,
   type ActivityTeam,
 } from "./lib/activity";
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
@@ -681,6 +685,7 @@ import {
   inFlightSnapshotKey,
   isInFlightSession,
   shouldWriteInFlightSnapshot,
+  wasTurnInterrupted,
 } from "./lib/inFlight";
 import {
   collectWorkspaceSnapshot,
@@ -2288,11 +2293,13 @@ export default function App({
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
       // A race keeps how each lane ended, whether or not its chat stays
-      // loaded or the ledger keeps the entry.
+      // loaded or the ledger keeps the entry. Only the chat's own turn says
+      // that: a team's notice posted on a lane's chat is not its ending.
       if (
-        event.outcome === "completed" ||
-        event.outcome === "failed" ||
-        event.outcome === "stopped"
+        isTurnActivity(session.id, event.id) &&
+        (event.outcome === "completed" ||
+          event.outcome === "failed" ||
+          event.outcome === "stopped")
       )
         raceLaneEnded(session.id, event.outcome);
       if (quietActivityTurns.current?.silences(event.id)) return;
@@ -2430,6 +2437,12 @@ export default function App({
         logError("Race review", error),
       );
   }, [sessionById, teamStores.races]);
+  // A lane cut short by a quit or reload reports no ending: record it, so a
+  // window that doesn't hold it stops reading it as working.
+  useEffect(() => {
+    if (teamStores.races.some((race) => race.state === "running"))
+      settleInterruptedLanes(sessions, wasTurnInterrupted);
+  }, [sessions, teamStores.races]);
 
   // A finished run's result card: the lead's verdict once its last turn
   // ended, and a line per agent from the cheap model (see teamResult).
@@ -2479,9 +2492,14 @@ export default function App({
   }, [teamStores]);
   const seenTeams = useRef<Map<string, TeamSeen> | null>(null);
   useEffect(() => {
-    const { events, seen } = teamActivityEvents(seenTeams.current, teams);
+    // Only the window that drives a team posts its notices.
+    const posted = teamsPostedHere(teams, teamStores, {
+      window: currentWindowLabel(),
+      loaded: new Set(sessionsRef.current.map((session) => session.id)),
+    });
+    const { events, seen } = teamActivityEvents(seenTeams.current, posted);
     seenTeams.current = seen;
-    resolveTeamNeedActivity(teamsNoLongerNeedingYou(teams));
+    resolveTeamNeedActivity(teamsNoLongerNeedingYou(posted));
     for (const { sessionId, event } of events) {
       const team = teams.find((entry) => entry.id === event.team?.id);
       const member =
@@ -2494,7 +2512,7 @@ export default function App({
       });
       if (session) announceActivity(session, event);
     }
-  }, [announceActivity, noticeChat, teams]);
+  }, [announceActivity, noticeChat, teams, teamStores]);
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -8741,6 +8759,9 @@ export default function App({
         laneSessions.map((session) => session.id),
         created,
       ),
+      // Every lane starts at once; this window posts the race's notices.
+      ends: laneSessions.map(() => null),
+      window: currentWindowLabel(),
       ...(origin && originBlock
         ? { origin: { sessionId: origin.id, blockId: originBlock.id } }
         : {}),

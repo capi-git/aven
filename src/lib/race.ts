@@ -122,6 +122,11 @@ export type RaceRecord = {
   ends?: (RaceLaneEnd | null)[];
   /** When Continue with <agent> sent the kept lane its recap. */
   continuedAt?: number;
+  /**
+   * The window that started the race, which alone posts its notices. Absent
+   * from races saved earlier: any window holding one of its chats does.
+   */
+  window?: string;
 };
 
 export const RACE_MIN_LANES = 2;
@@ -326,6 +331,26 @@ export function raceLaneStarted(sessionId: string) {
   if (ends) ends[lane] = null;
   if (ends === race.ends && !race.suggestion && !race.review) return;
   updateRace(race.id, { ends, suggestion: undefined, review: undefined });
+}
+
+/**
+ * Lanes whose turn Aven cut short (it quit, or the page reloaded) and that
+ * no turn end will report: record them as stopped, so a window that does not
+ * hold them stops reading them as working. Each is offered Retry.
+ */
+export function settleInterruptedLanes(
+  sessions: readonly Session[],
+  interrupted: (session: Session) => boolean,
+) {
+  for (const race of read()) {
+    if (race.state !== "running" || !race.ends) continue;
+    race.lanes.forEach((lane, index) => {
+      if (race.ends?.[index] !== null) return;
+      const session = sessions.find((entry) => entry.id === lane.sessionId);
+      if (session && !session.busy && interrupted(session))
+        raceLaneEnded(session.id, "stopped");
+    });
+  }
 }
 
 /** A lane's chat finished a turn: remember how, with the race. */

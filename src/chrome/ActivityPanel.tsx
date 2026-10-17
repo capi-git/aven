@@ -23,7 +23,7 @@ import {
   teamRowInfo,
 } from "../lib/teamGrouping";
 import { teamsNeedingYou } from "../lib/teamAttention";
-import type { TeamNeed, TeamRun } from "../lib/teamRuns";
+import { teamAnchor, type TeamNeed, type TeamRun } from "../lib/teamRuns";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
@@ -297,7 +297,7 @@ export function ActivityPanel({
             {runningRows.map((row) => {
               if (row.kind === "team") {
                 const info = teamRowInfo(row.team);
-                const origin = row.team.origin.sessionId;
+                const origin = teamAnchor(row.team);
                 return (
                   <div
                     className="toolbar-panel-row activity-row"

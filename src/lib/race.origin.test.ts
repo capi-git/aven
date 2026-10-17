@@ -11,6 +11,7 @@ import {
   raceLaneStarted,
   raceOriginBlock,
   saveRace,
+  settleInterruptedLanes,
   updateRace,
   type RaceRecord,
 } from "./race";
@@ -140,4 +141,28 @@ it("keeps how each lane ended with the race, and forgets it for a new turn", () 
   updateRace("r1", { state: "kept" });
   raceLaneEnded("l0", "completed", 70);
   expect(getRace("r1")?.ends?.[0]).toBeNull();
+});
+
+it("records a lane cut short by a quit, which no turn end reports", () => {
+  saveRace(record({ ends: [null, null] }));
+  const lane = (id: string, cut: boolean, busy = false) => ({
+    ...newSession("claude", "/data/races/r1/0"),
+    id,
+    busy,
+    cut,
+  });
+  const sessions = [lane("l0", true), lane("l1", true, true)];
+  settleInterruptedLanes(sessions, (session) =>
+    Boolean((session as { cut?: boolean }).cut),
+  );
+  // The idle, interrupted lane stopped; the one still working is left.
+  expect(getRace("r1")?.ends?.[0]?.kind).toBe("stopped");
+  expect(getRace("r1")?.ends?.[1]).toBeNull();
+  // A lane already recorded, or a race saved before races kept endings,
+  // is left alone.
+  settleInterruptedLanes([lane("l0", true)], () => true);
+  expect(getRace("r1")?.ends?.[0]?.kind).toBe("stopped");
+  saveRace(record({ id: "r2" }));
+  settleInterruptedLanes([lane("l0", true)], () => true);
+  expect(getRace("r2")?.ends).toBeUndefined();
 });

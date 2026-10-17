@@ -75,6 +75,14 @@ function teamFrom(value: unknown): ActivityTeam | undefined {
     ...(team.need === true ? { need: true as const } : {}),
   };
 }
+/**
+ * Whether an entry is a chat's own turn ending (`<chat>:turn:…`), rather
+ * than a notice a team or a run posted on that chat.
+ */
+export function isTurnActivity(sessionId: string, id: string): boolean {
+  return id.startsWith(`${sessionId}:turn:`);
+}
+
 /** A team member's own turn: kept for its chat's status, never listed or counted. */
 export function isMemberActivity(entry: Pick<ActivityEntry, "team">): boolean {
   return entry.team?.member === true;

@@ -35,11 +35,10 @@ import {
   type RaceSuggestion,
 } from "./race";
 import { getSession } from "./sessionStore";
-import { isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { finalReply } from "./replyText";
 import type { Block, HarnessId, Session } from "./session";
 import type { TeamWorkspace } from "./teamWorkspace";
+import { currentWindowLabel } from "./windowLabel";
 
 export { finalReply, replyOpening } from "./replyText";
 
@@ -739,13 +738,7 @@ export function suggestionRunning(
 }
 
 /** The window this code runs in: it alone finishes what it asks. */
-function thisWindow(): string {
-  try {
-    return isTauri() ? getCurrentWindow().label : "main";
-  } catch {
-    return "main";
-  }
-}
+const thisWindow = currentWindowLabel;
 
 /** Suggestions this page asked for and still waits on, by race. */
 const asking = new Set<string>();

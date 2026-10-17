@@ -160,6 +160,12 @@ export type TeamRun = {
   endedAt?: number;
   /** A development preview: shown only, never announced or counted. */
   preview?: true;
+  /**
+   * Where the team is, as every window reads it from the shared store, for
+   * its notices' ids: a discussion's settled turns, a race's newest lane
+   * ending. Two windows posting the same notice then share its id.
+   */
+  mark?: number;
 };
 
 /** What the adapters read besides the stores. */
@@ -336,6 +342,7 @@ export function discussionTeam(
     updatedAt: discussion.updatedAt,
     ...(ended ? { endedAt: discussion.updatedAt } : {}),
     ...(discussion.preview ? { preview: true as const } : {}),
+    mark: discussion.settled,
   };
 }
 
@@ -415,12 +422,19 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
       ...(reply ? { reply } : {}),
     };
   });
-  const origin = race.origin ?? { sessionId: race.lanes[0]?.sessionId ?? "" };
+  // A race started from the palette or Home, or whose chat was deleted,
+  // has no chat it started from; no lane stands in for one. What it needs
+  // is asked of the agent that failed.
+  const origin = race.origin ?? { sessionId: "" };
+  const failed = members.find(
+    (member) => member.state === "failed" || member.state === "interrupted",
+  );
   const { status, need } = teamAttention({
     kind: "race",
     phase: running ? "running" : race.state === "kept" ? "finished" : "stopped",
     members,
-    origin: origin.sessionId,
+    origin:
+      origin.sessionId || failed?.sessionId || members[0]?.sessionId || "",
     since: race.createdAt,
   });
   const headline = raceHeadline(race);
@@ -448,6 +462,7 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
     startedAt: race.createdAt,
     updatedAt: race.finishedAt ?? race.createdAt,
     ...(race.finishedAt != null ? { endedAt: race.finishedAt } : {}),
+    mark: Math.max(0, ...(race.ends ?? []).map((end) => end?.at ?? 0)),
   };
 }
 
@@ -746,12 +761,21 @@ export function teamIsOpen(team: Pick<TeamRun, "status">): boolean {
   return team.status !== "finished" && team.status !== "stopped";
 }
 
+/**
+ * The chat to open for a team, or to post its notices on: the chat it
+ * started from, else (a race with none) its first agent.
+ */
+export function teamAnchor(team: Pick<TeamRun, "origin" | "members">): string {
+  return team.origin.sessionId || team.members[0]?.sessionId || "";
+}
+
 /** Whether this chat started the team, or is one of its members. */
 export function teamRole(
   team: TeamRun,
   sessionId: string,
 ): "origin" | "member" | null {
-  if (team.origin.sessionId === sessionId) return "origin";
+  if (team.origin.sessionId && team.origin.sessionId === sessionId)
+    return "origin";
   return team.members.some((entry) => entry.sessionId === sessionId)
     ? "member"
     : null;
@@ -793,6 +817,7 @@ export function teamCompanions(
   for (const team of teams) {
     if (!teamIsOpen(team)) continue;
     const origin = team.origin.sessionId;
+    if (!origin) continue;
     const list = companions.get(origin) ?? [];
     for (const member of team.members)
       if (member.sessionId !== origin && !list.includes(member.sessionId))
