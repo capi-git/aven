@@ -8,8 +8,9 @@ for one. A memory keeper call (Aven's keeper instructions as the system
 prompt, with every tool turned off) gets fixed memory sections instead, and
 a discussion wrap-up call (the summariser's instructions, no tools) fixed
 lists. Markers in a message make it pretend to start a dev server, echo the
-shared-work note it received, or agree with what the user added to a
-discussion. It never contacts a network or an account.
+shared-work note it received, agree with what the user added to a
+discussion, or write files into its folder as a race lane. It never
+contacts a network or an account.
 Every invocation is logged beside it as evidence that Aven's native spawn
 path ran.
 """
@@ -65,6 +66,28 @@ HOLD_MAX_SECONDS = 20
 def hold_seconds(text):
     requested = HOLD_PATTERN.search(text)
     return min(int(requested.group(1)) / 1000, HOLD_MAX_SECONDS) if requested else 0
+
+
+# "AVEN_SMOKE_RACE" makes the turn work like a race lane's agent: it writes
+# race-claude.txt in its folder (the lane's copy) at once, then one more file
+# every half second while the turn holds, so a keep mid-run always finds a
+# file the overview has not shown yet.
+RACE_WORD = "AVEN_SMOKE_RACE"
+RACE_WRITE_EVERY = 0.5
+
+
+def hold(text):
+    seconds = hold_seconds(text)
+    if RACE_WORD not in text:
+        time.sleep(seconds)
+        return
+    Path("race-claude.txt").write_text("written by the stand-in Claude\n")
+    until = time.time() + seconds
+    count = 0
+    while time.time() < until:
+        time.sleep(RACE_WRITE_EVERY)
+        count += 1
+        Path(f"race-claude-late-{count}.txt").write_text(f"{count}\n")
 
 
 # The memory keeper's instructions start with these words (memoryKeeperPrompt.ts).
@@ -266,7 +289,8 @@ def main():
                 "event": {"type": "message_start", "message": {"id": message_id}},
             })
             # A helper reads a digest that may quote a held message: no hold.
-            time.sleep(0 if helper else hold_seconds(text))
+            if not helper:
+                hold(text)
             if not helper and ECHO_NOTE in text:
                 reply += echoed_note(text)
             for chunk in chunks + [reply]:

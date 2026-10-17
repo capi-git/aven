@@ -454,6 +454,54 @@ class RealAppCheck(unittest.TestCase):
             'AVEN_SMOKE_OK NOTE[none]',
         ])
 
+    def test_stand_in_claude_writes_into_its_folder_as_a_race_lane(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        lane = self.root / 'lane'
+        lane.mkdir()
+        request = {'type': 'user', 'uuid': 'turn-7', 'message': {'role': 'user', 'content': [
+            {'type': 'text', 'text': 'Build it. AVEN_SMOKE_RACE AVEN_SMOKE_FAIL_ONCE AVEN_SMOKE_HOLD 1200'}]}}
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json'], cwd=lane,
+                              input=json.dumps(request) + '\n', capture_output=True, text=True, timeout=10)
+        # Claude never fails on purpose; only the Grok lane does.
+        self.assertEqual(json.loads(chat.stdout.splitlines()[-1])['result'], 'AVEN_SMOKE_OK')
+        names = sorted(path.name for path in lane.iterdir())
+        self.assertEqual(names[-1], 'race-claude.txt')
+        self.assertGreaterEqual(sum(name.startswith('race-claude-late-') for name in names), 1)
+
+    def test_stand_in_grok_fails_a_race_lane_once_then_writes_into_it(self):
+        runner.add_race_stand_in(self.root)
+        stand_in = self.root / 'home/.local/bin/grok'
+        self.assertTrue(os.access(stand_in, os.X_OK))
+        # Aven recognises Grok Build by its help or by naming itself.
+        self.assertIn('Grok Build', stand_in.read_text())
+        lane = self.root / 'lane'
+        lane.mkdir()
+        prompt = 'Build it. AVEN_SMOKE_RACE AVEN_SMOKE_FAIL_ONCE AVEN_SMOKE_HOLD 600'
+
+        def turn():
+            requests = '\n'.join(json.dumps({'jsonrpc': '2.0', **message}) for message in [
+                {'id': 1, 'method': 'initialize', 'params': {'protocolVersion': 1}},
+                {'id': 2, 'method': 'session/new', 'params': {'cwd': str(lane), 'mcpServers': []}},
+                {'id': 3, 'method': 'session/prompt',
+                 'params': {'sessionId': 's', 'prompt': [{'type': 'text', 'text': prompt}]}},
+            ]) + '\n'
+            out = subprocess.run([str(stand_in), '--no-auto-update', 'agent', '--no-leader', 'stdio'],
+                                 cwd=lane, input=requests, capture_output=True, text=True, timeout=10)
+            return [json.loads(line) for line in out.stdout.splitlines()]
+
+        first = turn()
+        self.assertEqual([m.get('id') for m in first], [1, 2, 3])
+        self.assertIn('failed on purpose', first[-1]['error']['message'])
+        self.assertFalse((lane / 'race-grok.txt').exists())
+        second = turn()
+        self.assertEqual(second[-1]['result'], {'stopReason': 'end_turn'})
+        update = next(m for m in second if m.get('method') == 'session/update')
+        self.assertEqual(update['params']['update']['content']['text'], 'AVEN_SMOKE_OK')
+        self.assertTrue((lane / 'race-grok.txt').is_file())
+        # Anything but `agent stdio` does nothing, as updates and probes expect.
+        quiet = subprocess.run([str(stand_in), 'models'], capture_output=True, text=True, timeout=10)
+        self.assertEqual((quiet.returncode, quiet.stdout), (0, ''))
+
     def test_project_gets_one_other_checkout_for_parallel_work(self):
         runner.add_parallel_copy(self.root)
         project = self.root / 'project'

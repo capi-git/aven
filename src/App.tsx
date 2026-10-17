@@ -194,6 +194,7 @@ import {
   getRace,
   installRaceWorkspace,
   isFinishingRaceCheckout,
+  listRaces,
   raceHost,
   racePrompt,
   releaseRaceCheckout,
@@ -263,12 +264,16 @@ import {
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
+  listDir,
   notifyGitChanged,
   pickFolder,
+  readTextFile,
   restoreSessionCheckout,
   type GitFileDiffKind,
   type GitHistoryCommit,
 } from "./lib/fs";
+import { resolveGrokBinary } from "./lib/harness/child";
+import { saveRaceAgentChoice } from "./lib/raceAgents";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -8757,6 +8762,14 @@ export default function App({
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
     paneLayout: true,
+    race: {
+      races: listRaces,
+      listDir,
+      readFile: readTextFile,
+      resolveGrok: resolveGrokBinary,
+      probe: () => probeHarnessAvailability({ force: true }),
+      chooseAgents: saveRaceAgentChoice,
+    },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,

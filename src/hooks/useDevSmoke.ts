@@ -33,7 +33,8 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
-import type { Session } from "../lib/session";
+import type { RaceRecord } from "../lib/race";
+import type { HarnessId, Session } from "../lib/session";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -67,6 +68,21 @@ type Options = DevPerfOptions & {
   sharedWork?: boolean;
   /** Panes are drawn as cards with one bar each and the shared tab style. */
   paneLayout?: boolean;
+  /** Races a message from the message box; the check keeps a lane mid-run. */
+  race?: SmokeRace;
+};
+
+/** What the race check reads and sets outside the page. */
+export type SmokeRace = {
+  races: () => readonly RaceRecord[];
+  listDir: (path: string) => Promise<{ name: string }[]>;
+  readFile: (path: string) => Promise<string>;
+  /** Grok Build, which must be the stand-in before anything is sent. */
+  resolveGrok: () => Promise<{ path: string }>;
+  /** Looks for installed providers again, so the stand-in Grok counts. */
+  probe: () => Promise<void>;
+  /** The agents the next race adds, as the Race menu saves them. */
+  chooseAgents: (harnesses: HarnessId[]) => void;
 };
 
 type SmokeUtilities = {
@@ -102,6 +118,13 @@ const DISCUSSION_ROUNDS = 2;
 const JUMP_IN_TEXT = `Keep it short. ${SMOKE_JUMP_IN_WORD}`;
 /** The stand-in plays the cheapest model; its first call starts a process. */
 const WRAP_UP_WAIT_MS = 60_000;
+/**
+ * The race's task. Each stand-in writes a file into its lane's copy at once,
+ * then another every half second while the turn holds; the stand-in Grok
+ * fails its first try in each copy.
+ */
+const RACE_TEXT =
+  "Build the change. AVEN_SMOKE_RACE AVEN_SMOKE_FAIL_ONCE AVEN_SMOKE_HOLD 20000";
 /** Ports the stand-in pretends two chats' dev servers announce; nothing listens. */
 const FIRST_SERVER_PORT = 5199;
 const SECOND_SERVER_PORT = 5200;
@@ -430,6 +453,335 @@ async function startDiscussionFromComposer(
       cancelable: true,
     }),
   );
+}
+
+function onScreen<T extends Element>(selector: string): T | null {
+  return (
+    [...document.querySelectorAll<T>(selector)].find(
+      (element) => element.getClientRects().length > 0,
+    ) ?? null
+  );
+}
+
+/**
+ * Turn on Race in a chat's agent panel and send the message, the way a
+ * person does. Nothing is sent unless the lanes are exactly the stand-ins.
+ */
+async function startRaceFromComposer(sessionId: string, text: string) {
+  const inBox = <T extends Element>(selector: string) =>
+    chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
+  const inPanel = <T extends Element>(selector: string) =>
+    document
+      .querySelector("[data-agent-panel] [data-race-options]")
+      ?.querySelector<T>(selector) ?? null;
+  const pill = () => inBox<HTMLButtonElement>("[data-agent-pill]");
+  (await waitFor(pill, 5_000, "the chat's agent pill")).click();
+  const toggle = await waitFor(
+    () => inPanel<HTMLButtonElement>('[role="switch"]'),
+    5_000,
+    "Race in the agent panel",
+  );
+  const close = async () => {
+    if (!document.querySelector("[data-agent-panel]")) return;
+    pill()?.click();
+    await waitFor(
+      () => !document.querySelector("[data-agent-panel]"),
+      5_000,
+      "the agent panel to close",
+    );
+  };
+  if (toggle.disabled) {
+    await close();
+    throw new Error(`Race is unavailable: ${toggle.title}`);
+  }
+  if (toggle.getAttribute("aria-checked") !== "true") toggle.click();
+  await waitFor(
+    () => inPanel('[role="switch"]')?.getAttribute("aria-checked") === "true",
+    5_000,
+    "Race to turn on",
+  );
+  const lanes = [
+    ...(document
+      .querySelector("[data-agent-panel] [data-race-options]")
+      ?.querySelectorAll('[role="checkbox"][aria-checked="true"]') ?? []),
+  ].map((lane) => lane.textContent?.trim());
+  await close();
+  if (lanes.join(" + ") !== "Claude Code + Grok Build") {
+    inBox<HTMLButtonElement>('[aria-label="Turn off Race"]')?.click();
+    throw new Error(
+      `The race would go to ${lanes.join(", ") || "no agents"}, not the two stand-ins`,
+    );
+  }
+  const field = inBox<HTMLTextAreaElement>("textarea");
+  if (!field) throw new Error("The message box has no text field");
+  typeInComposer(field, text);
+  await waitFor(
+    () => inBox('[aria-label="Race 2 agents"]'),
+    5_000,
+    "the send button to read Race 2 agents",
+  );
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * A two-lane race from the message box: separate copies, Compare from the
+ * bar above a lane's message box, truthful lane states and Retry, then Keep
+ * one lane while the other still works. The kept files must include one the
+ * overview had not shown yet, the copies must go and both lane chats must
+ * point back at the project.
+ */
+export async function checkRace(
+  get: () => Options,
+  config: DevSmokeConfig,
+  race: SmokeRace,
+): Promise<string> {
+  const grok = await race.resolveGrok();
+  if (!grok.path.startsWith(`${config.binDir}/`))
+    throw new Error(`Grok Build resolved to ${grok.path}, not the stand-in`);
+  await race.probe();
+  race.chooseAgents(["grok"]);
+  get().motion?.showWorkspace?.();
+  const names = async (path: string) =>
+    (await race.listDir(path)).map((entry) => entry.name);
+  const session = (id: string) =>
+    get().sessions.find((entry) => entry.id === id);
+  const before = new Set(race.races().map((entry) => entry.id));
+  const chat = await openNewTask(get, config.projectPath);
+  await startRaceFromComposer(chat.id, RACE_TEXT);
+  const record = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => !before.has(entry.id) && entry.state === "running"),
+    20_000,
+    "the race to start",
+  );
+  const [claude, grokLane] = record.lanes;
+  if (record.lanes.map((lane) => lane.harness).join(" + ") !== "claude + grok")
+    throw new Error(
+      `The race has ${record.lanes.map((lane) => lane.label).join(", ")}`,
+    );
+
+  // Each lane is a chat in the project, working in its own copy.
+  if (
+    claude.path === grokLane.path ||
+    record.lanes.some((lane) => sameProjectPath(lane.path, config.projectPath))
+  )
+    throw new Error("The lanes do not have copies of their own");
+  for (const lane of record.lanes) {
+    const lanes = await waitFor(
+      () => session(lane.sessionId),
+      5_000,
+      `${lane.label}'s chat`,
+    );
+    if (
+      lanes.worktreeCwd !== lane.path ||
+      !sameProjectPath(lanes.cwd, config.projectPath)
+    )
+      throw new Error(`${lane.label}'s chat works in ${lanes.worktreeCwd}`);
+  }
+  await waitForAsync(
+    async () => (await names(claude.path)).includes("race-claude.txt"),
+    20_000,
+    "Claude's lane to write into its copy",
+  );
+
+  // Compare from the slim bar above a lane's message box.
+  const compare = await waitFor(
+    () =>
+      onScreen<HTMLButtonElement>(
+        `[data-race-bar="${record.id}"] [data-race-compare]`,
+      ),
+    10_000,
+    "Compare above a lane's message box",
+  );
+  const bar =
+    compare
+      .closest("[data-race-bar]")
+      ?.querySelector('[role="status"]')
+      ?.textContent?.trim() ?? "";
+  if (!bar.startsWith("Racing · ")) throw new Error(`The bar reads "${bar}"`);
+  compare.click();
+  const opened = await waitFor(
+    () => onScreen<HTMLElement>(`[data-race-view="${record.id}"]`),
+    10_000,
+    "the race overview",
+  );
+  // Looked up again each time, in case the page drew it afresh.
+  const view = () =>
+    onScreen<HTMLElement>(`[data-race-view="${record.id}"]`) ?? opened;
+  const state = (lane: number) =>
+    view()
+      .querySelector(`[data-race-lane="${lane}"] [data-lane-state]`)
+      ?.getAttribute("data-lane-state");
+  try {
+    await waitFor(
+      () => state(1) === "failed" && state(0) === "working",
+      20_000,
+      "Grok's lane to read Failed while Claude's works",
+    );
+  } catch (error) {
+    throw new Error(
+      `${errorText(error)}; the lanes read ${state(0) ?? "nothing"} and ${state(1) ?? "nothing"}`,
+    );
+  }
+  const retry = [
+    ...view().querySelectorAll<HTMLButtonElement>(
+      '[data-race-lane="1"] button',
+    ),
+  ].find((button) => button.textContent?.includes("Retry"));
+  if (!retry) throw new Error("The failed lane offers no Retry");
+  if (
+    [...view().querySelectorAll('[data-race-lane="0"] button')].some((button) =>
+      button.textContent?.includes("Retry"),
+    )
+  )
+    throw new Error("The working lane offers Retry");
+  retry.click();
+  await waitFor(
+    () => state(1) === "working",
+    15_000,
+    "Grok's lane to work again after Retry",
+  );
+  await waitForAsync(
+    async () => (await names(grokLane.path)).includes("race-grok.txt"),
+    15_000,
+    "Grok's lane to write into its copy",
+  );
+  const [claudeFiles, grokFiles, projectFiles] = await Promise.all([
+    names(claude.path),
+    names(grokLane.path),
+    names(config.projectPath),
+  ]);
+  if (
+    claudeFiles.some((name) => name.startsWith("race-grok")) ||
+    grokFiles.some((name) => name.startsWith("race-claude")) ||
+    projectFiles.some((name) => name.startsWith("race-"))
+  )
+    throw new Error("A lane wrote outside its own copy");
+
+  // Keep Claude's lane while Grok's still works, at a moment when Claude has
+  // written a file the overview has not shown: the keep must still take it.
+  await waitFor(
+    () => view().querySelector('[data-race-file="race-claude.txt"]'),
+    15_000,
+    "the overview to list Claude's first file",
+  );
+  const shown = () =>
+    new Set(
+      [...view().querySelectorAll("[data-race-file]")].map((row) =>
+        row.getAttribute("data-race-file"),
+      ),
+    );
+  let unseen: string[] = [];
+  let question = "";
+  let working = 0;
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    if (Date.now() > deadline)
+      throw new Error("Claude never wrote a file the overview had not shown");
+    if (state(1) !== "working")
+      throw new Error(`Grok's lane reads ${state(1)} before the keep`);
+    const listed = shown();
+    unseen = (await names(claude.path)).filter(
+      (name) => name.startsWith("race-claude") && !listed.has(name),
+    );
+    if (!unseen.length) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const keep = [
+      ...view().querySelectorAll<HTMLButtonElement>(
+        '[data-race-lane="0"] button',
+      ),
+    ].find((button) => button.textContent === "Keep this");
+    if (!keep || keep.disabled) throw new Error("Keep this is not available");
+    keep.click();
+    const dialog = await waitFor(
+      () =>
+        document
+          .querySelector<HTMLElement>('[role="dialog"] [data-confirm]')
+          ?.closest<HTMLElement>('[role="dialog"]') ?? null,
+      5_000,
+      "Keep's confirmation",
+    );
+    question = dialog.textContent ?? "";
+    working = view().querySelectorAll(
+      '[data-lane-state="working"], [data-lane-state="waiting"]',
+    ).length;
+    const still = shown();
+    unseen = unseen.filter((name) => !still.has(name));
+    if (unseen.length) {
+      dialog.querySelector<HTMLButtonElement>("[data-confirm]")?.click();
+      break;
+    }
+    // The overview refreshed meanwhile; ask again once Claude writes more.
+    [...dialog.querySelectorAll("button")]
+      .find((button) => button.textContent === "Cancel")
+      ?.click();
+    await waitFor(
+      () => !document.querySelector('[role="dialog"] [data-confirm]'),
+      5_000,
+      "the confirmation to close",
+    );
+  }
+  for (const part of [
+    "Keep Claude Code's version?",
+    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes their copies.`,
+  ])
+    if (!question.includes(part))
+      throw new Error(`Keep asked: ${question || "nothing"}`);
+  const kept = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => entry.id === record.id && entry.state !== "running"),
+    30_000,
+    "the race to finish",
+  );
+  if (kept.state !== "kept" || kept.error)
+    throw new Error(`The race ended ${kept.state}: ${kept.error ?? ""}`);
+
+  for (const name of ["race-claude.txt", ...unseen])
+    await race
+      .readFile(`${config.projectPath}/${name}`)
+      .catch((error: unknown) => {
+        throw new Error(`${name} was not kept: ${errorText(error)}`);
+      });
+  if (
+    (await names(config.projectPath)).some((name) =>
+      name.startsWith("race-grok"),
+    )
+  )
+    throw new Error("Grok's files reached the project");
+  for (const lane of record.lanes)
+    if (
+      await race.listDir(lane.path).then(
+        () => true,
+        () => false,
+      )
+    )
+      throw new Error(`${lane.label}'s copy is still there`);
+  await waitFor(
+    () =>
+      record.lanes.every((lane) => {
+        const current = session(lane.sessionId);
+        return (
+          current &&
+          !current.worktreeCwd &&
+          sameProjectPath(current.cwd, config.projectPath)
+        );
+      }),
+    5_000,
+    "both lane chats to point back at the project",
+  );
+  return `Claude Code and Grok Build in separate copies; Compare from "${bar}"; Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project`;
 }
 
 /** The discussion's conversation page, when it is on screen. */
@@ -1592,6 +1944,15 @@ export async function runDevSmoke(
         );
         return `:${SECOND_SERVER_PORT} flagged beside :${FIRST_SERVER_PORT}; the next turn named :${FIRST_SERVER_PORT}`;
       },
+    );
+
+  // A two-lane race from the message box, with the stand-in Grok as the
+  // second agent: compare, retry its failed lane, and keep Claude's mid-run.
+  const race = get().race;
+  if (safe && race)
+    await step(
+      "a race keeps one lane mid-run, with the files it wrote last",
+      () => checkRace(get, config, race),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
