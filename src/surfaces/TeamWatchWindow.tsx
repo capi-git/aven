@@ -3,9 +3,11 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { IS_MAC } from "../lib/platform";
+import { afterDrawnFrame } from "../lib/windowReveal";
 import type { TeamWatchAct } from "../lib/teamWatch";
 import {
   OWNER_CLOSED_TEXT,
@@ -90,17 +92,27 @@ export function TeamWatchWindow({
     };
   }, [bridge]);
   useWindowTheme(state?.snapshot.theme);
-  // The window appears once it has drawn its first frame.
+  // The window appears once it has drawn its first frame. A busy team (a
+  // race whose agents stream) sends new states faster than two frames, so
+  // the wait is started once and reports whichever state it drew last,
+  // rather than starting over with each one and never showing. A window not
+  // shown yet can count as a hidden document, which gets no animation
+  // frames, so the wait does not depend on them (see `afterDrawnFrame`).
   const revision = state?.revision;
+  const drawn = useRef(revision);
+  drawn.current = revision;
+  const drawing = revision !== undefined;
   useEffect(() => {
-    if (revision === undefined) return;
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
-        void bridge.ready(revision).catch(() => {});
-      });
+    if (!drawing) return;
+    let live = true;
+    void afterDrawnFrame(250).then(() => {
+      if (live && drawn.current !== undefined)
+        void bridge.ready(drawn.current).catch(() => {});
     });
-    return () => cancelAnimationFrame(frame);
-  }, [bridge, revision]);
+    return () => {
+      live = false;
+    };
+  }, [bridge, drawing]);
   const act = useCallback<TeamWatchAct>(
     (action) => bridge.send(action),
     [bridge],

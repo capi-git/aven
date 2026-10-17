@@ -170,6 +170,31 @@ describe("a team's panel in a window of its own", () => {
     expect(container.querySelector("[data-team-pop-out]")).toBeNull();
   });
 
+  it("shows itself even while its team sends a new state every frame", async () => {
+    const host = fakeBridge(state({ team: race, race: {}, can }));
+    let frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      frames[id - 1] = () => {};
+    });
+    await show(host.bridge);
+    // A busy race: a new state arrives before each frame is drawn.
+    for (let revision = 2; revision <= 6; revision += 1) {
+      await act(async () =>
+        host.push(state({ team: race, race: {}, can }, { revision })),
+      );
+      const due = frames;
+      frames = [];
+      for (const callback of due) callback(0);
+    }
+    expect(host.bridge.ready).toHaveBeenCalled();
+    const [shown] = vi.mocked(host.bridge.ready).mock.calls.at(-1)!;
+    expect(shown).toBeGreaterThan(1);
+  });
+
   it("sends each press to its owner and shows a refusal", async () => {
     const host = fakeBridge(state({ team: race, race: {}, can }));
     await show(host.bridge);
