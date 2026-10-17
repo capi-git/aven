@@ -29,3 +29,26 @@ export function runOutcomeActivity(
 export function isRunPausedActivity(entry: Pick<ActivityEntry, "id">): boolean {
   return /:run:[^:]*:paused:\d+$/.test(entry.id);
 }
+
+/**
+ * The turns the orchestrator sent: each worker's, and the lead's hidden
+ * continuations. Their outcomes ("<turn>:completed", "<turn>:failed",
+ * "<turn>:stopped") post nothing; the run posts its own entry. Every such
+ * turn is remembered, not only a chat's latest: the lead's next hidden turn
+ * often starts before the previous one has been announced.
+ */
+export function quietTurns(limit = 200) {
+  const ids = new Set<string>();
+  return {
+    add(turnId: string) {
+      ids.add(turnId);
+      for (const oldest of ids) {
+        if (ids.size <= limit) break;
+        ids.delete(oldest);
+      }
+    },
+    silences(eventId: string): boolean {
+      return ids.has(eventId.slice(0, eventId.lastIndexOf(":")));
+    },
+  };
+}

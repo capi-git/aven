@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { OrchestrationRun } from "./orchestration";
 import {
   isRunPausedActivity,
+  quietTurns,
   runOutcomeActivity,
 } from "./orchestrationActivity";
 
@@ -41,5 +42,25 @@ describe("run outcome activity", () => {
     expect(isRunPausedActivity(event)).toBe(true);
     // An ordinary failed turn is still a failure.
     expect(isRunPausedActivity({ id: "lead:turn:x:failed" })).toBe(false);
+  });
+});
+
+describe("turns the orchestrator sends", () => {
+  it("stay quiet even when the next one starts before the last is announced", () => {
+    const quiet = quietTurns();
+    quiet.add("lead:turn:one");
+    quiet.add("lead:turn:two");
+    expect(quiet.silences("lead:turn:one:completed")).toBe(true);
+    expect(quiet.silences("lead:turn:two:failed")).toBe(true);
+    // Your own turns, and requests that are yours to answer, still post.
+    expect(quiet.silences("lead:turn:mine:completed")).toBe(false);
+    expect(quiet.silences("lead:turn:block-7:approval:a1:3")).toBe(false);
+  });
+
+  it("remembers only the most recent turns", () => {
+    const quiet = quietTurns(2);
+    for (const id of ["a", "b", "c"]) quiet.add(`s:turn:${id}`);
+    expect(quiet.silences("s:turn:a:completed")).toBe(false);
+    expect(quiet.silences("s:turn:c:completed")).toBe(true);
   });
 });

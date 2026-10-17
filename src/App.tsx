@@ -19,7 +19,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
-import { runOutcomeActivity } from "./lib/orchestrationActivity";
+import { quietTurns, runOutcomeActivity } from "./lib/orchestrationActivity";
 import { encodedSidebarRuns } from "./lib/orchestrationSummary";
 import { retainedSessionIds } from "./lib/sessionRetention";
 import { submitManagedTurn } from "./lib/managedSubmission";
@@ -2118,12 +2118,12 @@ export default function App({
   }, []);
   // Turns the orchestrator sends (a worker's, or the lead's hidden
   // continuation) post no Activity entry or banner of their own; the run
-  // posts one when it finishes or pauses. Keyed by chat, the turn ID.
-  const quietActivityTurns = useRef(new Map<string, string>());
+  // posts one when it finishes or pauses.
+  const quietActivityTurns = useRef<ReturnType<typeof quietTurns>>(null);
+  quietActivityTurns.current ??= quietTurns();
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
-      const quiet = quietActivityTurns.current.get(session.id);
-      if (quiet && event.id.startsWith(`${quiet}:`)) return;
+      if (quietActivityTurns.current?.silences(event.id)) return;
       const presentation = activityPresentation(session.id);
       void publishSessionActivity(
         session,
@@ -5741,9 +5741,7 @@ export default function App({
       const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
-      if (options?.managed)
-        quietActivityTurns.current.set(sessionId, activityTurnId);
-      else quietActivityTurns.current.delete(sessionId);
+      if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
