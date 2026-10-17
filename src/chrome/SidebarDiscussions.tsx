@@ -173,7 +173,7 @@ export function useDiscussionLinks(
 
 /**
  * The connector layer: a bracket on the left edge between two rows. With
- * `onOpen`, pressing a bracket opens that discussion's conversation page.
+ * `onOpen`, pressing a bracket shows that discussion in the team panel.
  */
 export function DiscussionLinks({
   layer,

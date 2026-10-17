@@ -246,7 +246,7 @@ describe("useDiscussionBroker", () => {
       { sessionId: "a", text: "Discussion ended after 1 round." },
       { sessionId: "b", text: "Discussion ended after 1 round." },
     ]);
-    // Finished: kept for its conversation page, with nothing left to do.
+    // Finished: kept for the team panel, with nothing left to do.
     expect(store.snapshot()).toEqual([
       expect.objectContaining({ status: "ended", settled: 2, notes: [] }),
     ]);
@@ -279,7 +279,7 @@ describe("useDiscussionBroker", () => {
     expect(sent[3].options.displayText).toBe("Fair.");
   });
 
-  it("opens the conversation page only on request", async () => {
+  it("opens the discussion in the panel only on request", async () => {
     await mount([chat("a", "Caching"), chat("b", "Review")]);
     await act(async () => {
       host.start({

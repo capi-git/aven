@@ -6,7 +6,7 @@ import { ExternalLink, MessageMultiple } from "./icons";
 import { ProjectMark } from "./ProjectMark";
 
 /**
- * Opens a discussion's conversation page from a chat's transcript. Provided
+ * Opens a discussion in the team panel from a chat's transcript. Provided
  * by chat panes in a window that drives discussions; absent elsewhere (Inbox
  * chats, read-only worker transcripts), where relay cards stay plain text.
  */
@@ -20,7 +20,7 @@ const idle = () => () => {};
  * Marks a user-side message Aven relayed in a discussion: who said it (or,
  * on the opening topic, who this chat is talking with) and the round. While
  * the discussion is still known here (running, or kept as history once it
- * ended), pressing the card opens its conversation page.
+ * ended), pressing the card shows it in the team panel.
  */
 export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
   const open = useContext(DiscussionOpenContext);

@@ -1,33 +1,10 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
-import {
-  discussionSideOf,
-  discussionStore,
-  type Discussion,
-} from "../lib/discussions";
+import { discussionStore, type Discussion } from "../lib/discussions";
 
 /** Every window's discussions; changes only when one starts, moves on or ends. */
 export function useDiscussionList(): readonly Discussion[] {
   const store = discussionStore();
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
-}
-
-/**
- * The unfinished discussion `sessionId` is in, if any. Shown wherever the chat
- * is open; stopping or resuming it there moves it to that window.
- */
-export function useSessionDiscussion(sessionId?: string): Discussion | null {
-  const list = useDiscussionList();
-  return useMemo(
-    () =>
-      (sessionId &&
-        list.find(
-          (discussion) =>
-            discussion.status !== "ended" &&
-            discussionSideOf(discussion, sessionId) !== null,
-        )) ||
-      null,
-    [list, sessionId],
-  );
 }
 
 /** Chats in an unfinished discussion, in any window. */
@@ -119,25 +96,6 @@ function useDiscussionFields(
     return next;
   }, [fields, id, store]);
   return useSyncExternalStore(store.subscribe, read, read);
-}
-
-const CHAT_FIELDS = [
-  "status",
-  "settled",
-  "delivered",
-  "interjections",
-  "ended",
-  "rounds",
-  "a",
-  "b",
-] as const;
-
-/**
- * One discussion as a pill or the panel's frame shows it: who is answering,
- * the round, and what the user added.
- */
-export function useDiscussionChat(id: string): Discussion | null {
-  return useDiscussionFields(id, CHAT_FIELDS);
 }
 
 const CARD_FIELDS = [

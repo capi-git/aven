@@ -10216,7 +10216,6 @@ function toTitleTab(
     seenKeys.add(key);
     files.push(
       file.plan?.title?.trim() ||
-        file.discussion?.title ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal

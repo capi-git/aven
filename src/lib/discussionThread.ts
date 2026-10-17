@@ -1,12 +1,12 @@
 /**
- * The conversation page of a discussion: both chats' replies as one thread.
+ * A discussion as the team panel shows it: both chats' replies as one thread.
  *
  * Nothing here is stored twice. The discussion store says who took part, the
  * topic, how many turns have finished and how it ended; each reply is read
  * from the transcript of the chat that wrote it, exactly as the broker reads
  * the reply it relays (`discussionReply`). Only finished turns are shown, so
- * a reply streaming in one chat never changes the thread; the page shows that
- * side typing instead. What the user added from the page is kept with the
+ * a reply streaming in one chat never changes the thread; the panel shows that
+ * side typing instead. What the user added from the panel is kept with the
  * discussion and shown where the chats read it: just before the reply of the
  * turn whose relay first carried it.
  */

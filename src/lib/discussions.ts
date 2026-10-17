@@ -883,9 +883,9 @@ export type DiscussionHost = {
     blocked?: string;
     candidates: DiscussionCandidate[];
   };
-  /** Starts it and opens its conversation page; returns why it could not start, or null. */
+  /** Starts it and shows it in the team panel; returns why it could not start, or null. */
   start(request: DiscussionStartRequest): string | null;
-  /** Shows the discussion's conversation page, opening it where needed. */
+  /** Shows the discussion in this window's team panel. */
   open?(id: string): void;
   /** Shows `side`'s chat in this window, as its sidebar row does. */
   show?(id: string, side: DiscussionSide): void;
@@ -1093,22 +1093,6 @@ export function keptDiscussionChats(
     discussion.a.sessionId,
     discussion.b.sessionId,
   ]);
-}
-
-/**
- * The chat that started each kept discussion, and its partner: the
- * starting chat shows the partner's replies, so it on screen shows both.
- */
-export function discussionCompanions(
-  discussions: readonly Discussion[],
-): Map<string, string[]> {
-  const companions = new Map<string, string[]>();
-  for (const discussion of keptDiscussions(discussions)) {
-    const list = companions.get(discussion.a.sessionId) ?? [];
-    list.push(discussion.b.sessionId);
-    companions.set(discussion.a.sessionId, list);
-  }
-  return companions;
 }
 
 // --- Sidebar -----------------------------------------------------------------

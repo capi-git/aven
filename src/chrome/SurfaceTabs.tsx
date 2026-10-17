@@ -1,10 +1,4 @@
-import {
-  GitCompare,
-  GripVertical,
-  MessageMultiple,
-  Terminal,
-  X,
-} from "./icons";
+import { GitCompare, GripVertical, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import { basename } from "../lib/fs";
@@ -12,7 +6,6 @@ import {
   isAgentTab,
   isChangesTab,
   isCommitTab,
-  isDiscussionTab,
   isPlanTab,
   isReleaseNotesTab,
   isReviewTab,
@@ -88,16 +81,6 @@ export function surfaceTabPresentation(
       label: name,
       iconName: "AGENT",
       tooltip: `${name} — orchestration agent`,
-    };
-  }
-
-  if (isDiscussionTab(file)) {
-    const name = file.discussion.title || "Discussion";
-    return {
-      name,
-      label: name,
-      iconName: "DISCUSSION",
-      tooltip: `Discussion: ${name}`,
     };
   }
 
@@ -269,7 +252,6 @@ export function SurfaceTabs({
           const review = isReviewTab(file) && !changes;
           const terminal = isTerminalTab(file);
           const agent = isAgentTab(file) ? file.agent : null;
-          const discussion = isDiscussionTab(file);
           const { label, iconName, tooltip } = surfaceTabPresentation(file);
           const showStart =
             sortable.draggingId &&
@@ -343,11 +325,6 @@ export function SurfaceTabs({
                     <HarnessIcon
                       harness={agent.harness}
                       className="size-3.5 shrink-0"
-                    />
-                  ) : discussion ? (
-                    <MessageMultiple
-                      className="size-3.5 shrink-0"
-                      strokeWidth={1.75}
                     />
                   ) : changes || commit ? (
                     <GitCompare

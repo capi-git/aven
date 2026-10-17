@@ -344,8 +344,7 @@ export function isVirtualDocumentTab(file: FilePaneTab): boolean {
     isReleaseNotesTab(file) ||
     isCommitTab(file) ||
     isAgentTab(file) ||
-    isRaceTab(file) ||
-    isDiscussionTab(file)
+    isRaceTab(file)
   );
 }
 
@@ -471,7 +470,6 @@ export function isSessionChangesTab(
 
 export function editorTabKey(file: FilePaneTab): string {
   if (file.terminal) return `terminal:${file.id}`;
-  if (file.discussion) return `discussion:${file.discussion.discussionId}`;
   if (file.agent) return `agent:${file.agent.sessionId}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
   if (file.releaseNotes) return `release-notes:${file.releaseNotes.version}`;

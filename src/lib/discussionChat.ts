@@ -42,11 +42,6 @@ export function isDiscussionAside(block: Block): boolean {
   );
 }
 
-/** The round a relayed message opens in the starting chat, 1-based. */
-export function relayRound(meta: DiscussionRelayMeta): number {
-  return Math.floor(meta.turn / 2) + 1;
-}
-
 const voiceCache = new WeakMap<
   DiscussionRelayMeta,
   Record<DiscussionSide, DiscussionVoice>

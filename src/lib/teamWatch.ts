@@ -33,8 +33,6 @@ import {
 } from "./teamRuns";
 
 export const TEAM_PANEL_PREFIX = "aven.teamPanel.";
-/** Where an earlier version kept the discussion-only panel. */
-export const LEGACY_PANEL_PREFIX = "aven.discussionPanel.";
 /** Teams whose seen counts are remembered, newest first. */
 const SEEN_LIMIT = 50;
 /** Teams a window remembers watching or having closed. */
@@ -89,31 +87,30 @@ function readRect(value: unknown): PanelRect | undefined {
     : undefined;
 }
 
-/** A stored id as a team id; the old discussion-only state held bare ids. */
-function teamId(value: unknown, legacy: boolean): string | null {
+/** A stored id, when it is a team id. */
+function teamId(value: unknown): string | null {
   if (typeof value !== "string" || !value || value.length > 240) return null;
-  if (teamKindOf(value)) return value;
-  return legacy ? `discuss:${value}` : null;
+  return teamKindOf(value) ? value : null;
 }
 
-function ids(value: unknown, legacy: boolean): string[] {
+function ids(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const list: string[] = [];
   for (const entry of value) {
-    const id = teamId(entry, legacy);
+    const id = teamId(entry);
     if (id && !list.includes(id)) list.push(id);
   }
   return list;
 }
 
-function readState(raw: string, legacy: boolean): TeamPanelState {
+function readState(raw: string): TeamPanelState {
   const record = JSON.parse(raw) as Record<string, unknown>;
-  const watching = ids(record.watching, legacy).slice(0, WATCH_LIMIT);
-  const expanded = teamId(record.expanded, legacy);
+  const watching = ids(record.watching).slice(0, WATCH_LIMIT);
+  const expanded = teamId(record.expanded);
   const seen: Record<string, number> = {};
   if (record.seen && typeof record.seen === "object")
     for (const [key, count] of Object.entries(record.seen)) {
-      const id = teamId(key, legacy);
+      const id = teamId(key);
       if (id && finite(count) && count >= 0) seen[id] = Math.floor(count);
     }
   const rect = readRect(record.rect);
@@ -122,7 +119,7 @@ function readState(raw: string, legacy: boolean): TeamPanelState {
     mode: record.mode === "pill" ? "pill" : "open",
     watching,
     expanded: expanded && watching.includes(expanded) ? expanded : null,
-    dismissed: ids(record.dismissed, false).slice(0, DISMISSED_LIMIT),
+    dismissed: ids(record.dismissed).slice(0, DISMISSED_LIMIT),
     seen,
     popped: [],
   };
@@ -135,9 +132,7 @@ export function loadTeamPanel(
 ): TeamPanelState {
   try {
     const raw = storage?.getItem(TEAM_PANEL_PREFIX + window);
-    if (raw) return readState(raw, false);
-    const legacy = storage?.getItem(LEGACY_PANEL_PREFIX + window);
-    return legacy ? readState(legacy, true) : EMPTY_TEAM_PANEL;
+    return raw ? readState(raw) : EMPTY_TEAM_PANEL;
   } catch {
     return EMPTY_TEAM_PANEL;
   }

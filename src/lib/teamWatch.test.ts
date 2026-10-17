@@ -5,7 +5,6 @@ import type { TeamMember, TeamRun } from "./teamRuns";
 import {
   closeInPanel,
   EMPTY_TEAM_PANEL,
-  LEGACY_PANEL_PREFIX,
   loadTeamPanel,
   markSeen,
   openInPanel,
@@ -184,29 +183,6 @@ describe("the team panel's state", () => {
       dismissed: [],
       seen: { "discuss:d2": 3 },
       popped: [],
-    });
-  });
-
-  it("carries over the discussion panel an earlier version left", () => {
-    const storage = memoryStorage();
-    storage.setItem(
-      `${LEGACY_PANEL_PREFIX}main`,
-      JSON.stringify({
-        mode: "open",
-        watching: ["d1", "d2"],
-        expanded: "d2",
-        seen: { d1: 3 },
-        rect: { x: 10, y: 50, width: 430, height: 590 },
-      }),
-    );
-    expect(loadTeamPanel(storage, "main")).toEqual({
-      mode: "open",
-      watching: ["discuss:d1", "discuss:d2"],
-      expanded: "discuss:d2",
-      dismissed: [],
-      seen: { "discuss:d1": 3 },
-      popped: [],
-      rect: { x: 10, y: 50, width: 430, height: 590 },
     });
   });
 });

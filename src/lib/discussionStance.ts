@@ -86,7 +86,7 @@ const MIXED =
   /^(?:yes and no|(?:i |we )?(?:partly|partially|half|mostly|somewhat) agree|agree to disagree)\b/;
 
 /** The first sentence or two of a reply, in plain lower-case words. */
-export function replyOpening(text: string): string {
+export function stanceOpening(text: string): string {
   const plain = text
     .replace(/\r\n?/g, "\n")
     // Leading headings, quotes, list marks and emphasis are not words.
@@ -109,7 +109,7 @@ export function replyOpening(text: string): string {
  * but…") or a reply that starts with both counts as neither.
  */
 export function replyStance(text: string): DiscussionStance | null {
-  const opening = replyOpening(text);
+  const opening = stanceOpening(text);
   if (!opening || MIXED.test(opening)) return null;
   const negated = NEGATED_PUSH.test(opening);
   const agrees = AGREE_START.test(opening);

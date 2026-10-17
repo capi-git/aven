@@ -249,7 +249,7 @@ export type SidebarProps = {
    * lanes' mascots and status, and the lanes fold into it.
    */
   teams?: readonly SidebarTeam[];
-  /** Show a discussion's conversation page; its connector opens it. */
+  /** Show a discussion in the team panel; its connector opens it. */
   onOpenDiscussion?: (id: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;

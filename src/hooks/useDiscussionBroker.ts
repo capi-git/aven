@@ -127,8 +127,8 @@ type Options = {
     title: string,
   ) => string | undefined;
   /**
-   * Show a discussion's conversation page beside the chat that started it,
-   * focused: the bar's and the wrap-up's Open discussion, and relay cards.
+   * Show a discussion in this window's team panel: the bar's and the
+   * wrap-up's Open discussion, and relay cards.
    */
   openView?: (id: string) => void;
   /** A discussion started here: open its panel, or a pill. */

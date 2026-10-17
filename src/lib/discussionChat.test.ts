@@ -7,7 +7,6 @@ import {
 } from "./discussionChat";
 import {
   DiscussionStore,
-  discussionCompanions,
   keptDiscussionChats,
   type DiscussionParty,
 } from "./discussions";
@@ -222,17 +221,5 @@ describe("keeping a discussion's chats loaded", () => {
       "chat-a",
       "chat-b",
     ]);
-  });
-
-  it("pairs the starting chat with its partner while kept", () => {
-    const store = new DiscussionStore(memoryStorage(), "main");
-    store.start({ id: "d1", a: A, b: B, topic: "Cache?", rounds: 1 });
-    expect([...discussionCompanions(store.snapshot())]).toEqual([
-      ["chat-a", ["chat-b"]],
-    ]);
-    store.stop("d1");
-    store.notePosted("d1", "a");
-    store.notePosted("d1", "b");
-    expect(discussionCompanions(store.snapshot()).size).toBe(0);
   });
 });

@@ -10,7 +10,6 @@ import {
   isAgentTab,
   isChangesTab,
   isCommitTab,
-  isDiscussionTab,
   isPlanTab,
   isRaceTab,
   isReleaseNotesTab,
@@ -24,7 +23,6 @@ import { isImagePath, isPdfPath } from "../lib/filePreview";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
 import type { EditorNavigationTarget } from "../lib/search";
 import { editorPathsEqual } from "../lib/search";
-import type { DiscussionHost } from "../lib/discussions";
 import { getRace } from "../lib/race";
 import type { PlanBuildTarget, Session } from "../lib/session";
 import { Play } from "../chrome/icons";
@@ -85,8 +83,6 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
-  /** The window's discussions; an old discussion tab opens its panel through it. */
-  discussion?: DiscussionHost;
 };
 
 function FilePaneComponent({
@@ -108,7 +104,6 @@ function FilePaneComponent({
   editorNavigation,
   onPaneDragStart,
   onTerminalMetaChange,
-  discussion,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -216,30 +211,6 @@ function FilePaneComponent({
                       sessions={sessions}
                       visible={presented && file.id === pane.activeFileId}
                     />
-                  ) : isDiscussionTab(file) ? (
-                    // An earlier version's discussion page: discussions now
-                    // open in their floating panel.
-                    <div
-                      className="grid h-full place-items-center px-6 text-center"
-                      data-discussion-moved={file.discussion.discussionId}
-                    >
-                      <div className="flex flex-col items-center gap-3">
-                        <p className="max-w-sm text-ui-label leading-5 text-content/50">
-                          Discussions now open in their own panel.
-                        </p>
-                        {discussion?.open ? (
-                          <button
-                            type="button"
-                            className="rounded-md bg-content/8 px-2.5 py-1.5 text-ui-label text-content/75 hover:bg-content/12 hover:text-content"
-                            onClick={() =>
-                              discussion.open!(file.discussion.discussionId)
-                            }
-                          >
-                            Open the discussion
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -317,8 +288,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.onBuildPlan !== next.onBuildPlan ||
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
-    previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
-    previous.discussion !== next.discussion
+    previous.onTerminalMetaChange !== next.onTerminalMetaChange
   ) {
     return false;
   }
