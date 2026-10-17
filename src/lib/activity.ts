@@ -289,6 +289,34 @@ export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
       : entry,
   );
 }
+/** The longest outcome a team's end entry carries. */
+const TEAM_END_CHARS = 700;
+
+/**
+ * Give a team's end entry ("Run finished", "Race ready to compare",
+ * "Discussion ended") what the team did once that is known: the lead's
+ * verdict and a line per agent, what a race kept, where a discussion
+ * landed. Activity and the memory keeper then say more than a count. Only
+ * the team's newest end entry changes, and only when its words do.
+ */
+export function amendTeamEnd(teamId: string, summary: string) {
+  const text =
+    summary.length > TEAM_END_CHARS
+      ? `${summary.slice(0, TEAM_END_CHARS - 1).trimEnd()}…`
+      : summary;
+  const target = readLedger().entries.find(
+    (entry) =>
+      entry.team?.id === teamId &&
+      !entry.team.member &&
+      !entry.team.need &&
+      entry.outcome === "completed",
+  );
+  if (!target || target.summary === text) return;
+  updateEntries((entry) =>
+    entry === target ? { ...entry, summary: text } : entry,
+  );
+}
+
 /**
  * "Clear finished" empties the visible history. It keeps pending requests
  * when asked, and always keeps team members' quiet entries, which no list

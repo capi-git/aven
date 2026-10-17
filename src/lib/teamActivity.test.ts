@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import { activitySections } from "../chrome/ActivityPanel";
 import {
+  amendTeamEnd,
   getActivitySnapshot,
   recordActivity,
   resolveTeamNeedActivity,
@@ -24,7 +25,11 @@ import {
 } from "./notifications";
 import { memberTurns } from "./orchestrationActivity";
 import { newSession } from "./session";
-import { teamActivityEvents, teamsNoLongerNeedingYou } from "./teamActivity";
+import {
+  teamActivityEvents,
+  teamEndSummaries,
+  teamsNoLongerNeedingYou,
+} from "./teamActivity";
 import { teamCompanions, type TeamMember, type TeamRun } from "./teamRuns";
 import { homeFinished, homeScope } from "./workspaceHome";
 
@@ -438,6 +443,21 @@ it("counts members as seen while their team's chat is on screen", () => {
   expect([...visible].sort()).toEqual(["chat", "l0", "l1"]);
 });
 
+it("stops counting a finished team's members as seen in its chat", () => {
+  const ended = teamCompanions([
+    team({
+      id: "discuss:d1",
+      kind: "discuss",
+      key: "d1",
+      origin: { sessionId: "a" },
+      status: "finished",
+      members: [member("a"), member("b")],
+    }),
+  ]);
+  // "Have Codex build it" after the discussion: that reply is its own news.
+  expect(ended.get("a")).toBeUndefined();
+});
+
 describe("a team's need once it clears", () => {
   beforeEach(() => {
     const data = new Map<string, string>();
@@ -475,5 +495,76 @@ describe("a team's need once it clears", () => {
     )!;
     expect(settled.resolvedAt).toEqual(expect.any(Number));
     expect(settled.readAt).toEqual(expect.any(Number));
+  });
+});
+
+describe("what a finished team did", () => {
+  beforeEach(() => {
+    const data = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, value: string) => void data.set(key, value),
+        removeItem: (key: string) => void data.delete(key),
+      },
+    });
+  });
+
+  it("says it in the team's end entry, for Activity and the memory keeper", () => {
+    const team = { id: "orchestrate:lead", kind: "orchestrate" as const };
+    recordActivity({
+      ...entry("lead:run:p:finished:9"),
+      sessionId: "lead",
+      summary: "Run finished · 2 agents",
+      team,
+    });
+    const [run] = teamEndSummaries({
+      discussions: [],
+      races: [],
+      runs: [
+        {
+          version: 1,
+          leadId: "lead",
+          cwd: "/work/site",
+          status: "finished",
+          allowedHarnesses: ["codex"],
+          maxWorkers: 2,
+          cli: "aven",
+          continuations: 0,
+          requests: {},
+          verdict: "Settings now load lazily.",
+          tasks: [
+            {
+              id: "t1",
+              sessionId: "w1",
+              title: "Split the form",
+              harness: "codex",
+              model: "m",
+              prompt: "",
+              files: [],
+              scopes: [],
+              dependsOn: [],
+              status: "completed",
+              accepted: true,
+              result: "",
+              delivered: true,
+              summary: "Moved the form into SettingsForm.tsx.",
+            },
+          ],
+        },
+      ],
+    });
+    expect(run).toEqual({
+      teamId: "orchestrate:lead",
+      summary:
+        "Run finished · 1 agent · Settings now load lazily. · Split the form: Moved the form into SettingsForm.tsx.",
+    });
+    amendTeamEnd(run.teamId, run.summary);
+    expect(getActivitySnapshot()[0].summary).toBe(run.summary);
+    // The memory keeper's digest carries it.
+    expect(projectTurns(getActivitySnapshot(), "/work/site", 0)).toHaveLength(
+      1,
+    );
   });
 });

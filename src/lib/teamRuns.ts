@@ -733,16 +733,19 @@ export function teamOf(
 }
 
 /**
- * Each team's chat that started it, and its members: that chat on screen
- * shows the team (its card and bar), so its members' replies count as seen
- * there. A lead shows its workers, a race's chat its lanes, a discussion's
- * opening chat its partner.
+ * Each open team's chat that started it, and its members: that chat on
+ * screen shows the team (its card and bar), so its members' replies count
+ * as seen there. A lead shows its workers, a race's chat its lanes, a
+ * discussion's opening chat its partner. Once a team is over its members
+ * are ordinary chats, whose replies (a build you asked for, a follow-up)
+ * are seen only in their own chat.
  */
 export function teamCompanions(
   teams: readonly TeamRun[],
 ): Map<string, string[]> {
   const companions = new Map<string, string[]>();
   for (const team of teams) {
+    if (!teamIsOpen(team)) continue;
     const origin = team.origin.sessionId;
     const list = companions.get(origin) ?? [];
     for (const member of team.members)

@@ -15,7 +15,13 @@
  * user's own action, so it posts nothing.
  */
 import type { SessionActivityEvent } from "./notifications";
-import type { TeamRun, TeamStatus } from "./teamRuns";
+import {
+  raceHeadline,
+  teamIdOf,
+  type TeamRun,
+  type TeamStatus,
+  type TeamStores,
+} from "./teamRuns";
 
 /** What was last seen of a team, to tell a change from a repeat. */
 export type TeamSeen = { status: TeamStatus; need?: string };
@@ -146,4 +152,60 @@ export function teamsNoLongerNeedingYou(
     )
       ids.add(team.id);
   return ids;
+}
+
+/**
+ * What each finished team did, for its end entry (see `amendTeamEnd`): a
+ * run's verdict and a line per agent, what a race kept and why, where a
+ * discussion landed. Teams whose outcome is not known yet are left out.
+ */
+export function teamEndSummaries(
+  stores: TeamStores,
+): { teamId: string; summary: string }[] {
+  const out: { teamId: string; summary: string }[] = [];
+  for (const run of stores.runs) {
+    if (run.status !== "finished" || run.verdict === undefined) continue;
+    const agents = run.tasks
+      .filter((task) => task.summary)
+      .map((task) => `${task.title}: ${task.summary}`);
+    out.push({
+      teamId: teamIdOf("orchestrate", run.leadId),
+      summary: [
+        `Run finished · ${plural(run.tasks.length, "agent")}`,
+        run.verdict,
+        ...agents,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+  for (const race of stores.races) {
+    const headline = race.state === "kept" ? raceHeadline(race) : undefined;
+    if (!headline) continue;
+    const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+    out.push({
+      teamId: teamIdOf("race", race.id),
+      summary: why ? `${headline} — ${why}` : headline,
+    });
+  }
+  for (const discussion of stores.discussions) {
+    const summary = discussion.summary;
+    if (
+      discussion.preview ||
+      discussion.ended?.kind !== "completed" ||
+      summary?.status !== "done"
+    )
+      continue;
+    out.push({
+      teamId: teamIdOf("discuss", discussion.id),
+      summary: [
+        `Discussion ended · ${plural(discussion.rounds, "round")}`,
+        summary.agreed.length ? `Agreed: ${summary.agreed.join("; ")}` : "",
+        summary.open.length ? `Still open: ${summary.open.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+  return out;
 }

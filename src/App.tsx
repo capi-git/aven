@@ -552,6 +552,7 @@ import {
 import { sidebarTeams } from "./lib/teamGrouping";
 import {
   teamActivityEvents,
+  teamEndSummaries,
   teamsNoLongerNeedingYou,
   type TeamSeen,
 } from "./lib/teamActivity";
@@ -581,6 +582,7 @@ import {
   markSessionActivityRead,
   reconcileSessionActivityInputs,
   resolveTeamNeedActivity,
+  amendTeamEnd,
   isPendingActivity,
   type ActivityTeam,
 } from "./lib/activity";
@@ -2361,6 +2363,11 @@ export default function App({
     () =>
       orchestrator.onOutcome((outcome) => {
         const { run } = outcome;
+        // A run that ends during a turn of yours to the lead (wrap up, an
+        // answer, an instruction) is that turn's news: its own end posts
+        // nothing, so the run counts once, with one banner and one cheer.
+        const turn = activityTurnIds.current.get(run.leadId);
+        if (turn) quietActivityTurns.current?.add(turn);
         const lead = noticeChat(run.leadId, {
           harness: run.lead?.harness,
           cwd: run.cwd,
@@ -2436,6 +2443,12 @@ export default function App({
 
   // A team posts one entry per new need and one at its end (see
   // teamActivity); its members' own turns were recorded quietly.
+  // A team's end entry says what it did once that is known, for Activity
+  // and the memory keeper (see teamEndSummaries).
+  useEffect(() => {
+    for (const { teamId, summary } of teamEndSummaries(teamStores))
+      amendTeamEnd(teamId, summary);
+  }, [teamStores]);
   const seenTeams = useRef<Map<string, TeamSeen> | null>(null);
   useEffect(() => {
     const { events, seen } = teamActivityEvents(seenTeams.current, teams);
