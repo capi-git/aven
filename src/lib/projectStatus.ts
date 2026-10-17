@@ -36,15 +36,23 @@ function keyFor(cwd: string | undefined): string | null {
 export function sessionProjectCounts(
   sessions: readonly Pick<
     Session,
-    "cwd" | "busy" | "blocks" | "pendingQuestion" | "liveAgents"
+    | "cwd"
+    | "busy"
+    | "blocks"
+    | "pendingQuestion"
+    | "liveAgents"
+    | "orchestrationLeadId"
   >[],
 ): SessionCounts {
   const counts: SessionCounts = {};
   for (const session of sessions) {
     const key = keyFor(session.cwd);
     if (!key) continue;
-    const approval = hasPendingApproval(session.blocks);
-    const question = session.pendingQuestion;
+    // An orchestration worker's request is its lead's to decide: the worker
+    // still counts as working, never as waiting for you.
+    const managed = !!session.orchestrationLeadId;
+    const approval = !managed && hasPendingApproval(session.blocks);
+    const question = managed ? undefined : session.pendingQuestion;
     const waiting = approval || question != null;
     const running =
       (!!session.busy ||

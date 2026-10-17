@@ -176,11 +176,15 @@ export function sessionTurnActivityId(session: Session): string {
     users[0];
   return `${session.id}:turn:${user?.id ?? "initial"}`;
 }
-/** Each request gets its own identity, including consecutive requests in one turn. */
+/**
+ * Each request gets its own identity, including consecutive requests in one
+ * turn. An orchestration worker's requests are its lead's to decide, so they
+ * are never announced to the user.
+ */
 export function pendingSessionActivityEvents(
   session: Session,
 ): SessionActivityEvent[] {
-  if (session.inboxAsk) return [];
+  if (session.inboxAsk || session.orchestrationLeadId) return [];
   const turn = sessionTurnActivityId(session);
   const events: SessionActivityEvent[] = session.blocks.flatMap((block) =>
     block.approval && !block.approval.decided

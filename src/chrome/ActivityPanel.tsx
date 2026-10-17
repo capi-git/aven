@@ -14,6 +14,7 @@ import {
   type Session,
 } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
+import { isRunPausedActivity } from "../lib/orchestrationActivity";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
   ToolbarPanel,
@@ -44,6 +45,7 @@ export function activitySections(entries: readonly ActivityEntry[]) {
   return { needsYou, finished };
 }
 export function activityOutcomeLabel(entry: ActivityEntry): string {
+  if (isRunPausedActivity(entry)) return "Paused";
   switch (entry.outcome) {
     case "completed":
       return "Finished";

@@ -1,6 +1,6 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
-import { sessionNeedsInput, sessionWorkCwd } from "../lib/session";
+import { sessionNeedsUser, sessionWorkCwd } from "../lib/session";
 import { useBootSplashReady } from "../lib/bootSplash";
 import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";
@@ -889,7 +889,7 @@ export function DetachedWorkspace() {
       terminal: !sessions.length && files.some((f) => f.terminal),
       dirty: files.some((f) => state.dirtyFileIds?.includes(f.id)),
       groupId: tab.groupId,
-      needsInput: sessions.some(sessionNeedsInput),
+      needsInput: sessions.some(sessionNeedsUser),
     };
   });
   const dragMove = (id: string, x: number, y: number) => {

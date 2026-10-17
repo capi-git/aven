@@ -22,11 +22,7 @@ import { isInFlightSession, markTurnInterrupted } from "./inFlight";
 import { isFilesystemTab, type WorkspaceTab } from "./layout";
 import { listenerGroup } from "./listenerGroup";
 import { projectName } from "./paths";
-import {
-  sessionDisplayTitle,
-  sessionNeedsInput,
-  type Session,
-} from "./session";
+import { sessionDisplayTitle, sessionNeedsUser, type Session } from "./session";
 import { shouldPersistSession, upsertSession } from "./sessionStore";
 import {
   hasRestartWork,
@@ -70,7 +66,7 @@ let reported = "";
 
 function agentState(session: Session): AgentWork["state"] | null {
   if (isInFlightSession(session))
-    return sessionNeedsInput(session) ? "waiting" : "working";
+    return sessionNeedsUser(session) ? "waiting" : "working";
   if (session.queuedMessages?.length && session.queueStatus !== "paused")
     return "queued";
   return null;

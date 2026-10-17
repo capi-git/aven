@@ -19,6 +19,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import { runOutcomeActivity } from "./lib/orchestrationActivity";
 import { retainedSessionIds } from "./lib/sessionRetention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
@@ -468,7 +469,7 @@ import {
   HARNESS_TITLE,
   canReplaceSessionTitle,
   formatSessionTitle,
-  sessionNeedsInput,
+  sessionNeedsUser,
   sessionIsWaitingForInput,
   newDefaultSession,
   newSession,
@@ -2070,14 +2071,13 @@ export default function App({
     void refreshHarnessCatalogs([activeHarness]);
   }, [activeHarness]);
 
+  // Chats waiting on the user. A worker's approval or question is its
+  // lead's to decide, so neither the worker nor its lead counts; the lead
+  // asking in its own chat does.
   const nextApprovalSessionIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const session of sessions) {
-      if (sessionNeedsInput(session)) {
-        ids.add(session.id);
-        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
-      }
-    }
+    for (const session of sessions)
+      if (sessionNeedsUser(session)) ids.add(session.id);
     return ids;
   }, [sessions]);
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
@@ -2114,8 +2114,14 @@ export default function App({
       focused: otherFocused || notificationWindowFocusedRef.current,
     };
   }, []);
+  // Turns the orchestrator sends (a worker's, or the lead's hidden
+  // continuation) post no Activity entry or banner of their own; the run
+  // posts one when it finishes or pauses. Keyed by chat, the turn ID.
+  const quietActivityTurns = useRef(new Map<string, string>());
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
+      const quiet = quietActivityTurns.current.get(session.id);
+      if (quiet && event.id.startsWith(`${quiet}:`)) return;
       const presentation = activityPresentation(session.id);
       void publishSessionActivity(
         session,
@@ -2163,6 +2169,19 @@ export default function App({
     announceActivity,
     unresolvedActivitySessions,
   ]);
+
+  // One entry per run outcome, on the lead's chat: "Run finished · 4 agents"
+  // or "Run paused · <reason>", with a banner while you are elsewhere.
+  useEffect(
+    () =>
+      orchestrator.onOutcome((outcome) => {
+        const lead = sessionsRef.current.find(
+          (session) => session.id === outcome.run.leadId,
+        );
+        if (lead) announceActivity(lead, runOutcomeActivity(outcome));
+      }),
+    [announceActivity, sessionsRef],
+  );
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -5720,6 +5739,9 @@ export default function App({
       const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
+      if (options?.managed)
+        quietActivityTurns.current.set(sessionId, activityTurnId);
+      else quietActivityTurns.current.delete(sessionId);
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
@@ -9740,7 +9762,7 @@ function toTitleTab(
     ),
     terminal: hasTerminal && harnesses.length === 0,
     groupId: tab.groupId,
-    needsInput: tabSessions.some(sessionNeedsInput),
+    needsInput: tabSessions.some(sessionNeedsUser),
     race: Boolean(race),
   };
 }
