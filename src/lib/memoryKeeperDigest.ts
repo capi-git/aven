@@ -315,6 +315,8 @@ export function projectTurns(
     if (entry.createdAt <= since) return false;
     if (entry.outcome !== "completed" && entry.outcome !== "failed")
       return false;
+    // A team counts once, by its own entry, not by each member's turn.
+    if (entry.team?.member) return false;
     const owner = memoryProjectFor(entry.cwd);
     return owner != null && projectKey(owner) === key;
   });

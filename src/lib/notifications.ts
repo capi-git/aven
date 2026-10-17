@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "./session";
 import { loadSoundsEnabled } from "./sounds";
-import { recordActivity, type ActivityOutcome } from "./activity";
+import {
+  recordActivity,
+  type ActivityOutcome,
+  type ActivityTeam,
+} from "./activity";
 import { requestsAreUsers } from "./teamAttention";
 
 const KEY = "monocode.notifications";
@@ -111,6 +115,11 @@ export type SessionActivityEvent = {
   outcome: ActivityOutcome;
   summary?: string;
   occurredAt?: number;
+  /**
+   * The team run it belongs to. A member's own turn is recorded already
+   * read, with no banner or sound: its team announces itself instead.
+   */
+  team?: ActivityTeam;
 };
 export type NotificationPreferences = {
   needsInput: boolean;
@@ -299,6 +308,7 @@ export async function publishSessionActivity(
   const turnModel = [...session.blocks]
     .reverse()
     .find((block) => block.role === "user" && block.turnModel)?.turnModel;
+  const member = event.team?.member === true;
   const recorded = recordActivity(
     {
       id: event.id,
@@ -310,10 +320,12 @@ export async function publishSessionActivity(
       harness: turnModel?.harness ?? session.harness,
       model: turnModel?.model ?? session.model,
       createdAt: event.occurredAt,
+      ...(event.team ? { team: event.team } : {}),
     },
-    presentationFocused && sessionVisible,
+    member || (presentationFocused && sessionVisible),
   );
-  if (!recorded.added) return quietResult;
+  if (!recorded.added || member)
+    return { ...quietResult, added: recorded.added };
   const prefs = loadNotificationPreferences();
   const interrupts = activityInterruptionsEnabled(event.outcome, prefs);
   // Only successful completion has a success cue. Failure/stop never reuse it.

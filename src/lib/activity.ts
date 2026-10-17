@@ -3,6 +3,18 @@ import { HARNESSES, type HarnessId } from "./session";
 
 export type ActivityOutcome =
   "completed" | "failed" | "stopped" | "approval" | "question";
+/**
+ * The team run an entry belongs to (see `teamRuns`). A member's own turn
+ * (`member`) is recorded quietly, already read, for its chat's status; the
+ * team posts its own entries instead, one per need (`need`) and one at its
+ * end, so lists and counts leave members out.
+ */
+export type ActivityTeam = {
+  id: string;
+  kind: "discuss" | "race" | "orchestrate";
+  member?: true;
+  need?: true;
+};
 export type ActivityEntry = {
   id: string;
   sessionId: string;
@@ -15,6 +27,7 @@ export type ActivityEntry = {
   createdAt: number;
   readAt: number | null;
   resolvedAt: number | null;
+  team?: ActivityTeam;
 };
 export type ActivityInput = Omit<
   ActivityEntry,
@@ -44,6 +57,28 @@ function timestamp(value: unknown): value is number {
     value <= 8.64e15
   );
 }
+const TEAM_KINDS = new Set(["discuss", "race", "orchestrate"]);
+function teamFrom(value: unknown): ActivityTeam | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const team = value as Record<string, unknown>;
+  if (
+    typeof team.id !== "string" ||
+    !team.id ||
+    team.id.length > 256 ||
+    !TEAM_KINDS.has(String(team.kind))
+  )
+    return undefined;
+  return {
+    id: team.id,
+    kind: team.kind as ActivityTeam["kind"],
+    ...(team.member === true ? { member: true as const } : {}),
+    ...(team.need === true ? { need: true as const } : {}),
+  };
+}
+/** A team member's own turn: kept for its chat's status, never listed or counted. */
+export function isMemberActivity(entry: Pick<ActivityEntry, "team">): boolean {
+  return entry.team?.member === true;
+}
 function entryFrom(value: unknown): ActivityEntry | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -60,7 +95,9 @@ function entryFrom(value: unknown): ActivityEntry | null {
     )
   )
     return null;
+  const team = teamFrom(row.team);
   return {
+    ...(team ? { team } : {}),
     id: row.id.slice(0, 512),
     sessionId: row.sessionId.slice(0, 256),
     outcome: row.outcome as ActivityOutcome,

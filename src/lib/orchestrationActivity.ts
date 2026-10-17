@@ -1,4 +1,4 @@
-import type { ActivityEntry } from "./activity";
+import type { ActivityEntry, ActivityTeam } from "./activity";
 import type { RunOutcome } from "./orchestration";
 import type { SessionActivityEvent } from "./notifications";
 
@@ -15,19 +15,29 @@ export function runOutcomeActivity(
   const count = run.tasks.length;
   const agents = `${count} ${count === 1 ? "agent" : "agents"}`;
   const id = `${run.leadId}:run:${run.proposalId ?? "run"}:${kind}:${at}`;
+  const team = {
+    id: `orchestrate:${run.leadId}`,
+    kind: "orchestrate" as const,
+  };
   return kind === "finished"
-    ? { id, outcome: "completed", summary: `Run finished · ${agents}` }
+    ? { id, outcome: "completed", summary: `Run finished · ${agents}`, team }
     : {
         id,
         // A paused run needs you, as a failure does: it waits for Resume.
         outcome: "failed",
         summary: run.error ? `Run paused · ${run.error}` : "Run paused",
+        team: { ...team, need: true },
       };
 }
 
-/** A paused run's entry, which Activity labels "Paused" rather than "Failed". */
-export function isRunPausedActivity(entry: Pick<ActivityEntry, "id">): boolean {
-  return /:run:[^:]*:paused:\d+$/.test(entry.id);
+/**
+ * A team's need (a paused run or discussion, a race no agent finished),
+ * which Activity labels "Paused" rather than "Failed".
+ */
+export function isRunPausedActivity(
+  entry: Pick<ActivityEntry, "id"> & Partial<Pick<ActivityEntry, "team">>,
+): boolean {
+  return entry.team?.need === true || /:run:[^:]*:paused:\d+$/.test(entry.id);
 }
 
 /**
@@ -49,6 +59,28 @@ export function quietTurns(limit = 200) {
     },
     silences(eventId: string): boolean {
       return ids.has(eventId.slice(0, eventId.lastIndexOf(":")));
+    },
+  };
+}
+
+/**
+ * The turns a team sends its members: a discussion's relays and a race's
+ * lanes. Their outcomes are recorded quietly, already read, with the team
+ * they belong to; the team posts its own entries. Like `quietTurns`, every
+ * such turn is remembered, up to `limit`.
+ */
+export function memberTurns(limit = 200) {
+  const teams = new Map<string, ActivityTeam>();
+  return {
+    add(turnId: string, team: ActivityTeam) {
+      teams.set(turnId, { id: team.id, kind: team.kind, member: true });
+      for (const oldest of teams.keys()) {
+        if (teams.size <= limit) break;
+        teams.delete(oldest);
+      }
+    },
+    teamOf(eventId: string): ActivityTeam | undefined {
+      return teams.get(eventId.slice(0, eventId.lastIndexOf(":")));
     },
   };
 }

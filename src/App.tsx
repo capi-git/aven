@@ -19,7 +19,11 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
-import { quietTurns, runOutcomeActivity } from "./lib/orchestrationActivity";
+import {
+  memberTurns,
+  quietTurns,
+  runOutcomeActivity,
+} from "./lib/orchestrationActivity";
 import { encodedSidebarRuns } from "./lib/orchestrationSummary";
 import { retainedSessionIds } from "./lib/sessionRetention";
 import {
@@ -82,7 +86,6 @@ import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
 import {
   captureDiscussionWrapUp,
-  discussionCompanions,
   discussionStore,
   keptDiscussionChats,
 } from "./lib/discussions";
@@ -528,7 +531,8 @@ import {
   type SessionSummary,
 } from "./lib/sessionStore";
 import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
-import { teamRunsFrom } from "./lib/teamRuns";
+import { teamCompanions, teamRunsFrom } from "./lib/teamRuns";
+import { teamActivityEvents, type TeamSeen } from "./lib/teamActivity";
 import { useTeamStores } from "./hooks/useTeamRuns";
 import { equalChromeData } from "./hooks/useChromeProps";
 import {
@@ -548,6 +552,7 @@ import {
   markSessionActivityRead,
   reconcileSessionActivityInputs,
   isPendingActivity,
+  type ActivityTeam,
 } from "./lib/activity";
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
 import {
@@ -2156,13 +2161,26 @@ export default function App({
   const activityPresentation = useCallback((sessionId: string) => {
     const otherFocused =
       activityWindowBridgeRef.current.focusedSessionIds.has(sessionId);
+    const view = activityMainViewRef.current;
+    // A race's overview on screen shows its lanes, as the discussion panel
+    // shows both of its chats.
+    const surfaces = new Set(view.visibleSurfaceIds);
+    const watched = [...panelChatsRef.current];
+    for (const tab of tabsRef.current) {
+      if (!surfaces.has(tab.id)) continue;
+      for (const pane of tab.editorPanes)
+        for (const file of pane.files)
+          if (file.race)
+            for (const lane of getRace(file.race.raceId)?.lanes ?? [])
+              watched.push(lane.sessionId);
+    }
     const mainVisible = visibleActivitySessionIds({
-      ...activityMainViewRef.current,
+      ...view,
       tabs: tabsRef.current,
       sessionIds: new Set(sessionsRef.current.map((session) => session.id)),
       floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
-      companions: discussionCompanions(discussionStore().snapshot()),
-      panel: panelChatsRef.current,
+      companions: teamCompanions(teamsLatest.current),
+      panel: watched,
     }).has(sessionId);
     return {
       visible: otherFocused || mainVisible,
@@ -2174,13 +2192,19 @@ export default function App({
   // posts one when it finishes or pauses.
   const quietActivityTurns = useRef<ReturnType<typeof quietTurns>>(null);
   quietActivityTurns.current ??= quietTurns();
+  // Turns a team sends its members (a discussion's relays, a race's lanes)
+  // are recorded quietly for their chat's status; the team posts its own
+  // entry per need and at its end.
+  const memberActivityTurns = useRef<ReturnType<typeof memberTurns>>(null);
+  memberActivityTurns.current ??= memberTurns();
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
       if (quietActivityTurns.current?.silences(event.id)) return;
+      const team = memberActivityTurns.current?.teamOf(event.id);
       const presentation = activityPresentation(session.id);
       void publishSessionActivity(
         session,
-        event,
+        team ? { ...event, team } : event,
         presentation.visible,
         presentation.focused,
       ).then((result) => {
@@ -2237,6 +2261,20 @@ export default function App({
       }),
     [announceActivity, sessionsRef],
   );
+
+  // A team posts one entry per new need and one at its end (see
+  // teamActivity); its members' own turns were recorded quietly.
+  const seenTeams = useRef<Map<string, TeamSeen> | null>(null);
+  useEffect(() => {
+    const { events, seen } = teamActivityEvents(seenTeams.current, teams);
+    seenTeams.current = seen;
+    for (const { sessionId, event } of events) {
+      const session = sessionsRef.current.find(
+        (entry) => entry.id === sessionId,
+      );
+      if (session) announceActivity(session, event);
+    }
+  }, [announceActivity, sessionsRef, teams]);
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -5582,6 +5620,11 @@ export default function App({
         planBlockId?: string;
         buildTarget?: PlanBuildTarget;
         managed?: boolean;
+        /**
+         * A turn a team sends its member, such as a race lane's task. Its
+         * outcome is recorded quietly; the team announces itself.
+         */
+        teamMember?: ActivityTeam;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -5807,6 +5850,10 @@ export default function App({
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
       if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
+      const member: ActivityTeam | undefined = options?.discussion
+        ? { id: `discuss:${options.discussion.id}`, kind: "discuss" }
+        : options?.teamMember;
+      if (member) memberActivityTurns.current?.add(activityTurnId, member);
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
@@ -8461,7 +8508,9 @@ export default function App({
     }
     const prompt = racePrompt(request.text, laneSessions.length);
     for (const session of laneSessions)
-      onSubmit(session.id, prompt, request.attachments ?? []);
+      onSubmit(session.id, prompt, request.attachments ?? [], {
+        teamMember: { id: `race:${raceId}`, kind: "race" },
+      });
     return true;
   };
   startRaceRef.current = startRace;
@@ -8661,7 +8710,9 @@ export default function App({
       void ensureOpenSession(record.sessionId).then((session) => {
         if (!session || session.busy || getRace(race.id)?.state !== "running")
           return;
-        onSubmit(session.id, racePrompt(race.prompt, race.lanes.length), []);
+        onSubmit(session.id, racePrompt(race.prompt, race.lanes.length), [], {
+          teamMember: { id: `race:${race.id}`, kind: "race" },
+        });
       });
     },
   };

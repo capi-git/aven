@@ -1,0 +1,109 @@
+/**
+ * A team's own Activity entries. While a team runs, its members' turns post
+ * nothing of their own (they are recorded quietly for their chats' status);
+ * the team posts one entry for each new need and one at its end:
+ *
+ * - "Discussion ended · 4 rounds" once a discussion uses up its rounds.
+ * - "Race ready to compare · 3 agents" once every lane of a race is done.
+ * - "Discussion paused · <reason>" or "Race needs you · <reason>" when a
+ *   team stops for you (a member's own approval or question is already
+ *   posted by that chat).
+ *
+ * An orchestration posts "Run finished" and "Run paused" itself, from the
+ * orchestrator (see `orchestrationActivity`). Stopping or discarding is the
+ * user's own action, so it posts nothing.
+ */
+import type { SessionActivityEvent } from "./notifications";
+import type { TeamRun, TeamStatus } from "./teamRuns";
+
+/** What was last seen of a team, to tell a change from a repeat. */
+export type TeamSeen = { status: TeamStatus; need?: string };
+
+export type TeamActivityEvent = {
+  /** The chat the entry belongs to: where you act on it. */
+  sessionId: string;
+  event: SessionActivityEvent;
+};
+
+function plural(count: number, one: string): string {
+  return `${count} ${one}${count === 1 ? "" : "s"}`;
+}
+
+/** When the race's latest lane turn ended, so a second "ready" is a new one. */
+function lastEnd(team: TeamRun): number {
+  let at = 0;
+  for (const member of team.members)
+    if (member.startedAt != null && member.durationMs != null)
+      at = Math.max(at, member.startedAt + member.durationMs);
+  return at;
+}
+
+function needKey(team: TeamRun): string | undefined {
+  if (team.status !== "needs-you" || !team.need) return undefined;
+  return team.need.kind;
+}
+
+/**
+ * The entries teams post as they change since `previous` (the last call's
+ * `seen`). A team seen for the first time posts nothing: it is where things
+ * stood when this window started watching.
+ */
+export function teamActivityEvents(
+  previous: ReadonlyMap<string, TeamSeen> | null,
+  teams: readonly TeamRun[],
+): { events: TeamActivityEvent[]; seen: Map<string, TeamSeen> } {
+  const seen = new Map<string, TeamSeen>();
+  const events: TeamActivityEvent[] = [];
+  for (const team of teams) {
+    const now: TeamSeen = { status: team.status, need: needKey(team) };
+    seen.set(team.id, now);
+    const before = previous?.get(team.id);
+    if (!before || team.kind === "orchestrate") continue;
+    const marker = { id: team.id, kind: team.kind };
+    const origin = team.origin.sessionId;
+    if (team.kind === "discuss" && team.status === "finished") {
+      if (before.status !== "finished")
+        events.push({
+          sessionId: origin,
+          event: {
+            id: `${origin}:team:${team.key}:ended`,
+            outcome: "completed",
+            summary: `Discussion ended · ${team.progress}`,
+            team: marker,
+          },
+        });
+      continue;
+    }
+    if (team.kind === "race" && team.status === "ready") {
+      if (before.status !== "ready")
+        events.push({
+          sessionId: origin,
+          event: {
+            id: `${origin}:team:${team.key}:ready:${lastEnd(team)}`,
+            outcome: "completed",
+            summary: `Race ready to compare · ${plural(team.members.length, "agent")}`,
+            team: marker,
+          },
+        });
+      continue;
+    }
+    const need = team.need;
+    if (
+      need &&
+      now.need &&
+      now.need !== before.need &&
+      (need.kind === "paused" || need.kind === "error")
+    )
+      events.push({
+        sessionId: need.sessionId,
+        event: {
+          id: `${need.sessionId}:team:${team.key}:${need.kind}:${need.since}`,
+          // A team that stopped for you needs you, as a failure does.
+          outcome: "failed",
+          summary: `${team.kind === "race" ? "Race needs you" : "Discussion paused"} · ${need.text}`,
+          team: { ...marker, need: true },
+        },
+      });
+  }
+  return { events, seen };
+}

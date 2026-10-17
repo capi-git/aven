@@ -21,6 +21,7 @@ describe("run outcome activity", () => {
       id: "lead:run:card:finished:5",
       outcome: "completed",
       summary: "Run finished · 4 agents",
+      team: { id: "orchestrate:lead", kind: "orchestrate" },
     });
     expect(isRunPausedActivity(event)).toBe(false);
   });

@@ -441,7 +441,11 @@ export function homeNeedsYou(
       const at = requested.get(entry.sessionId);
       if (at === undefined || entry.createdAt > at)
         requested.set(entry.sessionId, entry.createdAt);
-    } else if (entry.readAt === null && FINISHED.has(entry.outcome)) {
+    } else if (
+      entry.readAt === null &&
+      FINISHED.has(entry.outcome) &&
+      !entry.team?.member
+    ) {
       const newest = replies.get(entry.sessionId);
       if (!newest || entry.createdAt > newest.createdAt)
         replies.set(entry.sessionId, entry);
@@ -602,7 +606,12 @@ export function homeFinished(
 ): HomeFinished[] {
   const rows: HomeFinished[] = [];
   for (const entry of activity) {
-    if (!FINISHED.has(entry.outcome) || !inHomeScope(scope, entry.cwd))
+    // A team member's own turn is its team's: the team's entry stands for it.
+    if (
+      !FINISHED.has(entry.outcome) ||
+      entry.team?.member ||
+      !inHomeScope(scope, entry.cwd)
+    )
       continue;
     rows.push({
       id: entry.id,

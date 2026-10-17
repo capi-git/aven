@@ -70,7 +70,13 @@ export function newTurnEnds(
   const ids = new Set<string>();
   for (const entry of entries) {
     ids.add(entry.id);
-    if (known.has(entry.id) || !reactionKindFor(entry.outcome)) continue;
+    // A team member's own turn never cheers: its team's end does, once.
+    if (
+      known.has(entry.id) ||
+      entry.team?.member ||
+      !reactionKindFor(entry.outcome)
+    )
+      continue;
     if (Math.abs(now - entry.createdAt) <= REACTION_FRESH_MS) fresh.push(entry);
   }
   known.clear();

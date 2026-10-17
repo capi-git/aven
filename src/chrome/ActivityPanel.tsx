@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   clearActivityHistory,
+  isMemberActivity,
   isPendingActivity,
   markActivityRead,
   markAllActivityRead,
@@ -35,6 +36,8 @@ export function activitySections(entries: readonly ActivityEntry[]) {
   const needsYou: ActivityEntry[] = [];
   const finished: ActivityEntry[] = [];
   for (const entry of entries) {
+    // A team member's own turn is its team's: the team posts its own entry.
+    if (isMemberActivity(entry)) continue;
     if (
       isPendingActivity(entry) ||
       (entry.outcome === "failed" && entry.readAt === null)
@@ -45,6 +48,7 @@ export function activitySections(entries: readonly ActivityEntry[]) {
   return { needsYou, finished };
 }
 export function activityOutcomeLabel(entry: ActivityEntry): string {
+  if (entry.team?.need && entry.team.kind === "race") return "Needs you";
   if (isRunPausedActivity(entry)) return "Paused";
   switch (entry.outcome) {
     case "completed":
@@ -97,7 +101,9 @@ export function ActivityPanel({
       ),
     [sessions],
   );
-  const unread = entries.filter((entry) => entry.readAt === null).length;
+  const unread = entries.filter(
+    (entry) => entry.readAt === null && !isMemberActivity(entry),
+  ).length;
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState("");
   const open = async (
@@ -247,7 +253,7 @@ export function ActivityPanel({
           </section>
         ) : null}
         {section("Finished", finished)}
-        {!entries.length && !running.length ? (
+        {!needsYou.length && !finished.length && !running.length ? (
           <p className="activity-empty">
             Nothing here yet. Finished tasks and requests for your input will
             appear here.

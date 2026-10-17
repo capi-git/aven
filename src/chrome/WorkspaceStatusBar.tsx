@@ -386,7 +386,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
   const activity = useActivity();
   const unreadActivity = activity.filter(
-    (entry) => entry.readAt === null,
+    (entry) => entry.readAt === null && !entry.team?.member,
   ).length;
   const [menu, setMenu] = useState<"queue" | null>(null);
   const showingSettings = !!settingsView;

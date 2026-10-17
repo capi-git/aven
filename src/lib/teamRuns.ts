@@ -616,3 +616,24 @@ export function teamOf(
   }
   return best;
 }
+
+/**
+ * Each team's chat that started it, and its members: that chat on screen
+ * shows the team (its card and bar), so its members' replies count as seen
+ * there. A lead shows its workers, a race's chat its lanes, a discussion's
+ * opening chat its partner.
+ */
+export function teamCompanions(
+  teams: readonly TeamRun[],
+): Map<string, string[]> {
+  const companions = new Map<string, string[]>();
+  for (const team of teams) {
+    const origin = team.origin.sessionId;
+    const list = companions.get(origin) ?? [];
+    for (const member of team.members)
+      if (member.sessionId !== origin && !list.includes(member.sessionId))
+        list.push(member.sessionId);
+    if (list.length) companions.set(origin, list);
+  }
+  return companions;
+}

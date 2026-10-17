@@ -20,11 +20,12 @@ export function dayKey(at: number): string {
 
 /** Days on which the ledger recorded a completed task, oldest first. */
 export function completedDays(
-  entries: readonly Pick<ActivityEntry, "outcome" | "createdAt">[],
+  entries: readonly Pick<ActivityEntry, "outcome" | "createdAt" | "team">[],
 ): string[] {
   const days = new Set<string>();
   for (const entry of entries)
-    if (entry.outcome === "completed") days.add(dayKey(entry.createdAt));
+    if (entry.outcome === "completed" && !entry.team?.member)
+      days.add(dayKey(entry.createdAt));
   return [...days].sort();
 }
 

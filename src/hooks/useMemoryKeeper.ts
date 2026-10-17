@@ -166,7 +166,7 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
       for (const entry of entries) {
         if (known.has(entry.id)) continue;
         known.add(entry.id);
-        if (entry.outcome !== "completed") continue;
+        if (entry.outcome !== "completed" || entry.team?.member) continue;
         if (Math.abs(now - entry.createdAt) > FRESH_TURN_MS) continue;
         const project = memoryProjectFor(entry.cwd);
         if (!project) continue;
