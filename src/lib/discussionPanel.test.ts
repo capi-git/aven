@@ -1,102 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   clampRect,
-  closeInPanel,
   defaultRect,
-  EMPTY_PANEL_STATE,
   firstNewReply,
   foldedRoundCount,
   foldLabel,
-  loadPanelState,
-  markSeen,
   newSinceLabel,
-  openInPanel,
   PANEL_MIN_HEIGHT,
   PANEL_MIN_WIDTH,
-  PANEL_STATE_PREFIX,
   PANEL_TOP_INSET,
-  prunePanel,
   replyCount,
   resizeRect,
-  savePanelState,
-  shrinkPanel,
   threadRounds,
-  watchStarted,
 } from "./discussionPanel";
 import type { DiscussionThreadItem } from "./discussionThread";
 
-function memoryStorage() {
-  const values = new Map<string, string>();
-  return {
-    values,
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => void values.set(key, value),
-  };
-}
-
 const WINDOW = { width: 1400, height: 900 };
-
-describe("the discussion panel's state", () => {
-  it("opens the first discussion as the panel, then as the user last left it", () => {
-    let state = watchStarted(EMPTY_PANEL_STATE, "d1");
-    expect(state).toMatchObject({ watching: ["d1"], expanded: "d1" });
-    state = { ...state, rect: defaultRect(WINDOW) };
-    // Shrunk to a pill: the next one starts as a pill too.
-    state = shrinkPanel(state);
-    expect(state).toMatchObject({ expanded: null, mode: "pill" });
-    state = watchStarted(state, "d2");
-    expect(state).toMatchObject({ watching: ["d2", "d1"], expanded: null });
-    // Opened again: the next one opens as the panel, the other is a pill.
-    state = openInPanel(state, "d1");
-    expect(state).toMatchObject({ expanded: "d1", mode: "open" });
-    state = watchStarted(state, "d3");
-    expect(state).toMatchObject({
-      watching: ["d3", "d2", "d1"],
-      expanded: "d3",
-    });
-  });
-
-  it("closes one discussion without touching the others, and forgets gone ones", () => {
-    let state = openInPanel(openInPanel(EMPTY_PANEL_STATE, "d1"), "d2");
-    state = markSeen(markSeen(state, "d1", 3), "d2", 5);
-    state = closeInPanel(state, "d2");
-    expect(state).toMatchObject({ watching: ["d1"], expanded: null });
-    expect(closeInPanel(state, "nope")).toBe(state);
-    state = prunePanel(state, new Set(["d2"]));
-    expect(state).toMatchObject({ watching: [], seen: { d2: 5 } });
-    expect(prunePanel(state, new Set(["d2"]))).toBe(state);
-  });
-
-  it("is remembered per window, and survives damaged storage", () => {
-    const storage = memoryStorage();
-    const state = {
-      ...markSeen(openInPanel(EMPTY_PANEL_STATE, "d1"), "d1", 2),
-      rect: { x: 40, y: 60, width: 500, height: 600 },
-    };
-    savePanelState(storage, "main", state);
-    expect(storage.values.has(`${PANEL_STATE_PREFIX}main`)).toBe(true);
-    expect(loadPanelState(storage, "main")).toEqual(state);
-    expect(loadPanelState(storage, "window-2")).toEqual(EMPTY_PANEL_STATE);
-    storage.setItem(`${PANEL_STATE_PREFIX}main`, "{not json");
-    expect(loadPanelState(storage, "main")).toEqual(EMPTY_PANEL_STATE);
-    storage.setItem(
-      `${PANEL_STATE_PREFIX}main`,
-      JSON.stringify({
-        watching: ["d1", 4, "d1"],
-        expanded: "gone",
-        mode: "pill",
-        rect: { x: "1" },
-        seen: { d1: -1, d2: 3.7 },
-      }),
-    );
-    expect(loadPanelState(storage, "main")).toEqual({
-      mode: "pill",
-      watching: ["d1"],
-      expanded: null,
-      seen: { d2: 3 },
-    });
-  });
-});
 
 describe("where the panel sits", () => {
   it("first opens in the window's bottom-right corner", () => {

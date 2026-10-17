@@ -11,6 +11,12 @@ export type TeamWorkspace = {
   /** Open a chat, restoring it into a tab when none holds it. */
   openChat(sessionId: string): void;
   /**
+   * Watch a team (`<kind>:<id>`) in the window's floating panel, or bring
+   * its own window forward when it is popped out. Absent where the window
+   * has no panel.
+   */
+  watch?(teamId: string): void;
+  /**
    * Open a chat and send it a message as your own, written from its
    * transcript once it is loaded; the transcript shows `shown` in its place
    * when given. Resolves false when it could not.

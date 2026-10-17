@@ -1,9 +1,5 @@
 import { memo, useState, type CSSProperties } from "react";
-import type {
-  Discussion,
-  DiscussionHost,
-  DiscussionSide,
-} from "../lib/discussions";
+import type { Discussion, DiscussionSide } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
 import { spokenName } from "../lib/discussionWrapUp";
 import { Check, ExternalLink } from "./icons";
@@ -33,7 +29,14 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
 }: {
   discussion: WrapUpSource;
   voices: Record<DiscussionSide, DiscussionVoice>;
-  build?: DiscussionHost["build"];
+  /**
+   * Sends one side the plan; returns why it could not, or null. A panel in
+   * a window of its own answers once the window that drives it has.
+   */
+  build?: (
+    id: string,
+    side: DiscussionSide,
+  ) => string | null | Promise<string | null>;
   /** A list item on the page; a block of its own in a transcript. */
   as?: "li" | "div";
   compact?: boolean;
@@ -104,9 +107,13 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                 style={{ "--discussion-voice": voice.color } as CSSProperties}
                 title={`Send the plan to “${voice.title}”`}
                 onClick={() => {
-                  const refused = build(discussion.id, side);
-                  setProblem(refused);
-                  setSent(refused ? null : side);
+                  const settle = (refused: string | null) => {
+                    setProblem(refused);
+                    setSent(refused ? null : side);
+                  };
+                  const result = build(discussion.id, side);
+                  if (result instanceof Promise) void result.then(settle);
+                  else settle(result);
                 }}
               >
                 {sent === side ? (

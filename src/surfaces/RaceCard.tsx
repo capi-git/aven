@@ -68,7 +68,10 @@ const MEMBER_TONE: Record<
  * first showing and after each lane's turn. No timer: the overview refreshes
  * the numbers while it is open, and both keep them with the race.
  */
-function useRaceStats(race: RaceRecord | undefined, team: TeamRun | null) {
+export function useRaceStats(
+  race: RaceRecord | undefined,
+  team: TeamRun | null,
+) {
   const running = race?.state === "running";
   const key = team?.members.map((member) => member.state).join(" ") ?? "";
   const raceId = race?.id;
@@ -306,6 +309,15 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 onClick={() => workspace.compare(race.id)}
               >
                 Compare
+              </TeamCardButton>
+            ) : null}
+            {teamWorkspace()?.watch ? (
+              <TeamCardButton
+                data-team-watch={team.id}
+                title="Watch the agents in a floating panel"
+                onClick={() => teamWorkspace()?.watch?.(team.id)}
+              >
+                Watch
               </TeamCardButton>
             ) : null}
             {ready && suggestion?.status !== "done" ? (

@@ -7,14 +7,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import { DiscussionWrapUpCard } from "../chrome/DiscussionWrapUp";
-import { ArrowUp, Minus, Play, Square, X } from "../chrome/icons";
-import { useDiscussionChat, useDiscussionList } from "../hooks/useDiscussions";
-import type { DiscussionPanelControls } from "../hooks/useDiscussionPanel";
+import { ArrowUp, Play, Square } from "../chrome/icons";
+import { useDiscussionList } from "../hooks/useDiscussions";
 import {
   discussionRound,
   completedRounds,
@@ -26,18 +24,12 @@ import {
   type DiscussionSide,
 } from "../lib/discussions";
 import {
-  clampRect,
-  defaultRect,
   firstNewReply,
   foldedRoundCount,
   foldLabel,
   newSinceLabel,
   replyCount,
-  resizeRect,
   threadRounds,
-  type PanelEdge,
-  type PanelRect,
-  type Viewport,
 } from "../lib/discussionPanel";
 import {
   arrivedReplies,
@@ -53,12 +45,12 @@ import {
   providerShortName,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
-import { LAYER } from "../lib/layers";
 import {
   MASCOT_REACTION_MS,
   type MascotReactionKind,
 } from "../lib/mascotReactions";
 import { sessionWorkCwd, type Session } from "../lib/session";
+import type { TeamWatchAct, TeamWatchAction } from "../lib/teamWatch";
 import {
   DiscussionMessage,
   DiscussionRound,
@@ -67,25 +59,13 @@ import {
   StanceMark,
   STANCE_REACTION,
 } from "./DiscussionMessages";
+import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
 import "./DiscussionPanel.css";
 
 /** Close enough to the end that new messages keep the view at the bottom. */
 const STICK_PX = 48;
 /** The message box grows to this height, then scrolls. */
 const JUMP_IN_MAX_PX = 120;
-/** A pointer that moves this far is dragging, not clicking. */
-const DRAG_SLOP = 4;
-const EDGES: readonly PanelEdge[] = [
-  "n",
-  "s",
-  "e",
-  "w",
-  "ne",
-  "nw",
-  "se",
-  "sw",
-];
-
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
@@ -113,310 +93,78 @@ export function discussionStatus(
   };
 }
 
-/** The window's size, kept current. */
-function useViewport(): Viewport {
-  const read = () => ({ width: window.innerWidth, height: window.innerHeight });
-  const [viewport, setViewport] = useState<Viewport>(read);
-  useEffect(() => {
-    const update = () => setViewport(read());
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-  return viewport;
-}
-
 /**
- * Follows one pointer from `start` until it is released, as a drag of the
- * panel or one of its edges. `onMove` gets the distance moved; `onEnd`
- * whether it ever moved past the slop.
+ * What the discussion's panel asks for, done in the window that drives it:
+ * stop, resume, add something for both, open a side's chat, have a side
+ * build the plan. Returns why it could not, or null.
  */
-function trackPointer(
-  start: ReactPointerEvent,
-  onMove: (dx: number, dy: number) => void,
-  onEnd: (moved: boolean) => void,
-) {
-  const x = start.clientX;
-  const y = start.clientY;
-  let moved = false;
-  const move = (event: PointerEvent) => {
-    const dx = event.clientX - x;
-    const dy = event.clientY - y;
-    if (!moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
-    moved = true;
-    onMove(dx, dy);
-  };
-  const end = () => {
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", end);
-    window.removeEventListener("pointercancel", end);
-    onEnd(moved);
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", end);
-  window.addEventListener("pointercancel", end);
-}
-
-/**
- * The window's discussions over its workspace: the one being watched as a
- * floating panel, the others as pills. The panel is dragged by its header,
- * resized from its edges, kept inside the window and below its title bar,
- * and remembered for this window (see `useDiscussionPanel`). Both are cut
- * out of a native browser page beneath them, as menus are.
- */
-export function DiscussionFloat({
-  panel,
-  sessions,
-  host,
-  onOpenFile,
-}: {
-  panel: DiscussionPanelControls;
-  /** This window's chats; the panel reads the two it shows. */
-  sessions: readonly Session[];
-  host?: DiscussionHost;
-  onOpenFile?: (path: string) => void;
-}) {
-  const viewport = useViewport();
-  const { state } = panel;
-  const saved = useMemo(
-    () => clampRect(state.rect ?? defaultRect(viewport), viewport),
-    [state.rect, viewport],
-  );
-  const [live, setLive] = useState<PanelRect | null>(null);
-  const rect = live ?? saved;
-  const expanded = state.expanded;
-  const discussion = useDiscussionChat(expanded ?? "");
-  const a = discussion
-    ? sessions.find((session) => session.id === discussion.a.sessionId)
-    : undefined;
-  const b = discussion
-    ? sessions.find((session) => session.id === discussion.b.sessionId)
-    : undefined;
-  const pills = state.watching.filter((id) => id !== expanded);
-
-  const draggedPill = useRef(false);
-  const moveFrom = useCallback(
-    (
-      event: ReactPointerEvent,
-      start: PanelRect,
-      clicked?: () => void,
-      dragged?: () => void,
-    ) => {
-      let last = start;
-      trackPointer(
-        event,
-        (dx, dy) => {
-          last = clampRect(
-            { ...start, x: start.x + dx, y: start.y + dy },
-            viewport,
-          );
-          setLive(last);
-        },
-        (moved) => {
-          setLive(null);
-          if (moved) {
-            panel.move(last);
-            dragged?.();
-          } else clicked?.();
-        },
-      );
-    },
-    [panel, viewport],
-  );
-
-  const onPanelPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    const edge = target.closest<HTMLElement>("[data-edge]")?.dataset.edge as
-      PanelEdge | undefined;
-    if (edge) {
-      event.preventDefault();
-      const start = rect;
-      let last = start;
-      trackPointer(
-        event,
-        (dx, dy) => {
-          last = resizeRect(start, edge, dx, dy, viewport);
-          setLive(last);
-        },
-        (moved) => {
-          setLive(null);
-          if (moved) panel.move(last);
-        },
-      );
-      return;
+export function performDiscussionAction(
+  discussion: Pick<Discussion, "id" | "a" | "b">,
+  host: DiscussionHost | undefined,
+  action: TeamWatchAction,
+): string | null {
+  const store = discussionStore();
+  switch (action.kind) {
+    case "stop":
+      store.stop(discussion.id);
+      return null;
+    case "resume":
+      store.resume(discussion.id);
+      return null;
+    case "jump-in":
+      return store.interject(discussion.id, action.text);
+    case "build":
+      return host?.build
+        ? host.build(discussion.id, action.side)
+        : "This window can't send the plan.";
+    case "open-chat": {
+      const side =
+        discussion.a.sessionId === action.sessionId
+          ? "a"
+          : discussion.b.sessionId === action.sessionId
+            ? "b"
+            : null;
+      if (!side || !host?.show) return "This window can't open that chat.";
+      host.show(discussion.id, side);
+      return null;
     }
-    if (
-      !target.closest("[data-discussion-drag]") ||
-      target.closest("button, a, textarea, input")
-    )
-      return;
-    event.preventDefault();
-    moveFrom(event, rect);
-  };
-
-  // Pills stack at the panel's corner: above it while it is open, in its
-  // place while it is shrunk.
-  const pillAnchor: CSSProperties = {
-    right: Math.max(8, viewport.width - (rect.x + rect.width)),
-    bottom: expanded
-      ? Math.max(8, viewport.height - rect.y + 8)
-      : Math.max(8, viewport.height - (rect.y + rect.height)),
-    zIndex: LAYER.floatingPanel,
-  };
-
-  return (
-    <>
-      {expanded ? (
-        <section
-          className="discussion-float"
-          data-discussion-panel={expanded}
-          data-native-browser-occluded="true"
-          data-dragging={live ? "" : undefined}
-          aria-label="Discussion"
-          style={{
-            left: rect.x,
-            top: rect.y,
-            width: rect.width,
-            height: rect.height,
-            zIndex: LAYER.floatingPanel,
-          }}
-          onPointerDown={onPanelPointerDown}
-        >
-          {EDGES.map((edge) => (
-            <div
-              key={edge}
-              className="discussion-float-edge"
-              data-edge={edge}
-              aria-hidden
-            />
-          ))}
-          <DiscussionPanelContent
-            key={expanded}
-            discussionId={expanded}
-            a={a}
-            b={b}
-            host={host}
-            onOpenFile={onOpenFile}
-            seen={state.seen[expanded]}
-            onSeen={panel.seen}
-            onShrink={panel.shrink}
-            onClose={panel.close}
-          />
-        </section>
-      ) : null}
-      {pills.length ? (
-        <div
-          className="discussion-pills"
-          data-discussion-pills
-          style={pillAnchor}
-        >
-          {pills.map((id) => (
-            <DiscussionPill
-              key={id}
-              id={id}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                moveFrom(event, rect, undefined, () => {
-                  draggedPill.current = true;
-                });
-              }}
-              onRestore={() => {
-                // A drag ends with a click: it only moved the pills.
-                if (draggedPill.current) {
-                  draggedPill.current = false;
-                  return;
-                }
-                panel.restore(id);
-              }}
-            />
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
+    default:
+      return null;
+  }
 }
-
-/**
- * A shrunk discussion: both mascots, the round and what is happening, in
- * amber when it needs you. Pressing it opens the panel again; dragging it
- * moves where the panel and its pills sit.
- */
-export const DiscussionPill = memo(function DiscussionPill({
-  id,
-  onPointerDown,
-  onRestore,
-}: {
-  id: string;
-  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onRestore: () => void;
-}) {
-  const discussion = useDiscussionChat(id);
-  const voices = useMemo(
-    () => (discussion ? discussionVoices(discussion) : null),
-    [discussion],
-  );
-  if (!discussion || !voices) return null;
-  const status = discussionStatus(discussion);
-  const speaking: DiscussionSide = discussion.settled % 2 === 0 ? "a" : "b";
-  const round =
-    discussion.status === "ended"
-      ? `${completedRounds(discussion)} of ${discussion.rounds} rounds`
-      : `Round ${discussionRound(discussion)} of ${discussion.rounds}`;
-  return (
-    <button
-      type="button"
-      className="discussion-pill"
-      data-discussion-pill={id}
-      data-state={status.state}
-      data-native-browser-occluded="true"
-      title="Show the discussion"
-      style={
-        {
-          "--discussion-voice": voices[speaking].color,
-        } as CSSProperties
-      }
-      onPointerDown={onPointerDown}
-      onClick={onRestore}
-    >
-      <span className="discussion-duo" aria-hidden>
-        <DiscussionAvatar voice={voices.a} />
-        <DiscussionAvatar voice={voices.b} />
-      </span>
-      <span>{round}</span>
-      <span className="discussion-pill-status">{status.text}</span>
-    </button>
-  );
-});
 
 /**
  * One discussion in the panel: its header with shrink and close, the two
  * agents facing each other with the round and its track, the thread, and
  * the box that adds something for both. Long threads fold their older
  * rounds and have a rail to jump between rounds; replies that arrived
- * since the user last looked are marked.
+ * since the user last looked are marked. Built here from the two chats'
+ * transcripts; `act` does what its buttons ask (by default, right here).
  */
 export function DiscussionPanelContent({
   discussionId,
   a,
   b,
   host,
+  act,
   onOpenFile,
   seen,
   onSeen,
-  onShrink,
-  onClose,
+  controls,
 }: {
   discussionId: string;
   /** The two chats, as committed; absent when one is not loaded here. */
   a?: Session;
   b?: Session;
   host?: DiscussionHost;
+  /** Performs the panel's actions; the store and `host` by default. */
+  act?: TeamWatchAct;
   onOpenFile?: (path: string) => void;
   /** Replies the user had seen when this opened. */
   seen?: number;
   onSeen?: (id: string, count: number) => void;
-  onShrink?: () => void;
-  onClose?: (id: string) => void;
+  /** The header's shrink, pop-out and close. */
+  controls?: TeamPanelControls;
 }) {
   const list = useDiscussionList();
   const full = useMemo(
@@ -427,20 +175,7 @@ export function DiscussionPanelContent({
     return (
       <div className="discussion-view" data-discussion-view={discussionId}>
         <div className="discussion-float-head">
-          <div className="discussion-float-bar" data-discussion-drag>
-            <span className="discussion-float-title">Discussion</span>
-            {onClose ? (
-              <button
-                type="button"
-                className="discussion-float-control"
-                aria-label="Close"
-                title="Close"
-                onClick={() => onClose(discussionId)}
-              >
-                <X className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
+          <TeamPanelBar title="Discussion" controls={controls} />
         </div>
         <p className="px-6 py-10 text-center text-ui-label leading-5 text-content/45">
           This discussion is no longer available.
@@ -453,11 +188,11 @@ export function DiscussionPanelContent({
       a={a}
       b={b}
       host={host}
+      act={act}
       onOpenFile={onOpenFile}
       seen={seen}
       onSeen={onSeen}
-      onShrink={onShrink}
-      onClose={onClose}
+      controls={controls}
     />
   );
 }
@@ -467,27 +202,22 @@ function PanelBody({
   a,
   b,
   host,
+  act,
   onOpenFile,
   seen,
   onSeen,
-  onShrink,
-  onClose,
+  controls,
 }: {
   discussion: Discussion;
   a?: Session;
   b?: Session;
   host?: DiscussionHost;
+  act?: TeamWatchAct;
   onOpenFile?: (path: string) => void;
   seen?: number;
   onSeen?: (id: string, count: number) => void;
-  onShrink?: () => void;
-  onClose?: (id: string) => void;
+  controls?: TeamPanelControls;
 }) {
-  const { a: partyA, b: partyB } = discussion;
-  const voices = useMemo(
-    () => discussionVoices({ a: partyA, b: partyB }),
-    [partyA, partyB],
-  );
   const thread = useRef<readonly DiscussionThreadItem[]>([]);
   const blocksA = a?.blocks;
   const blocksB = b?.blocks;
@@ -499,14 +229,70 @@ function PanelBody({
     );
     return thread.current;
   }, [discussion, blocksA, blocksB]);
+  const cwdA = a ? sessionWorkCwd(a) : discussion.a.cwd;
+  const cwdB = b ? sessionWorkCwd(b) : discussion.b.cwd;
+  const cwd = useMemo(() => ({ a: cwdA, b: cwdB }), [cwdA, cwdB]);
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const ownAct = useCallback<TeamWatchAct>(
+    (action) => performDiscussionAction(discussion, hostRef.current, action),
+    [discussion],
+  );
+  return (
+    <DiscussionThreadPanel
+      discussion={discussion}
+      items={items}
+      cwd={cwd}
+      act={act ?? ownAct}
+      can={{
+        // Only a window that drives discussions can pass the message on.
+        jumpIn: !!host,
+        build: !!host?.build,
+        openChat: !!host?.show,
+      }}
+      onOpenFile={onOpenFile}
+      seen={seen}
+      onSeen={onSeen}
+      controls={controls}
+    />
+  );
+}
+
+/**
+ * The panel itself, from a discussion and its thread as built: the same
+ * in the window that drives the discussion and in a window of its own,
+ * where `act` sends each press back to that window.
+ */
+export function DiscussionThreadPanel({
+  discussion,
+  items,
+  cwd,
+  act,
+  can,
+  onOpenFile,
+  seen,
+  onSeen,
+  controls,
+}: {
+  discussion: Discussion;
+  items: readonly DiscussionThreadItem[];
+  cwd: Record<DiscussionSide, string>;
+  act: TeamWatchAct;
+  can: { jumpIn: boolean; build: boolean; openChat: boolean };
+  onOpenFile?: (path: string) => void;
+  seen?: number;
+  onSeen?: (id: string, count: number) => void;
+  controls?: TeamPanelControls;
+}) {
+  const { a: partyA, b: partyB } = discussion;
+  const voices = useMemo(
+    () => discussionVoices({ a: partyA, b: partyB }),
+    [partyA, partyB],
+  );
   const typing = typingSide(discussion);
   const cheerId = useEndingCheer(discussion);
   const reactions = useArrivalReactions(items);
   const lastKeys = useMemo(() => lastReplyKeys(items), [items]);
-  const cwd = {
-    a: a ? sessionWorkCwd(a) : partyA.cwd,
-    b: b ? sessionWorkCwd(b) : partyB.cwd,
-  };
   const total = replyCount(items);
   // Where "N new since you looked" goes: fixed when the panel opened.
   const [mark] = useState(() => {
@@ -546,6 +332,15 @@ function PanelBody({
     }
     if (stick.current) element.scrollTop = element.scrollHeight;
   }, [items, typing, paused, discussion.summary, jumpTo, folded]);
+  const build = useMemo(
+    () =>
+      can.build
+        ? (_id: string, side: DiscussionSide) => act({ kind: "build", side })
+        : undefined,
+    [act, can.build],
+  );
+  const show = (side: DiscussionSide) =>
+    void act({ kind: "open-chat", sessionId: discussion[side].sessionId });
 
   let replyIndex = 0;
   const renderItem = (item: DiscussionThreadItem): ReactNode => {
@@ -604,43 +399,18 @@ function PanelBody({
       data-status={discussion.status}
     >
       <div className="discussion-float-head">
-        <div className="discussion-float-bar" data-discussion-drag>
-          <span className="discussion-float-title" title={discussion.topic}>
-            Discussion · “{topicLine(discussion.topic)}”
-          </span>
-          {onShrink ? (
-            <button
-              type="button"
-              className="discussion-float-control"
-              aria-label="Shrink to a pill"
-              title="Shrink to a pill"
-              data-discussion-shrink
-              onClick={onShrink}
-            >
-              <Minus className="size-3.5" />
-            </button>
-          ) : null}
-          {onClose ? (
-            <button
-              type="button"
-              className="discussion-float-control"
-              aria-label="Close"
-              title="Close (the discussion goes on)"
-              data-discussion-close
-              onClick={() => onClose(discussion.id)}
-            >
-              <X className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
+        <TeamPanelBar
+          title={`Discussion · “${topicLine(discussion.topic)}”`}
+          fullTitle={discussion.topic}
+          controls={controls}
+          closeTitle="Close (the discussion goes on)"
+        />
         <div className="discussion-faceoff" data-discussion-cast>
           <Side
             voice={voices.a}
             role={speaking === "a" ? "Replying…" : "Opened the topic"}
             speaking={speaking === "a"}
-            onShow={
-              host?.show ? () => host.show!(discussion.id, "a") : undefined
-            }
+            onShow={can.openChat ? () => show("a") : undefined}
           />
           <div
             className="discussion-versus"
@@ -683,18 +453,16 @@ function PanelBody({
             voice={voices.b}
             role={speaking === "b" ? "Replying…" : "Responding"}
             speaking={speaking === "b"}
-            onShow={
-              host?.show ? () => host.show!(discussion.id, "b") : undefined
-            }
+            onShow={can.openChat ? () => show("b") : undefined}
           />
         </div>
         {!ended ? (
           <div className="discussion-float-actions">
-            {paused && blocked && host?.show ? (
+            {paused && blocked && can.openChat ? (
               <button
                 type="button"
                 className="discussion-action"
-                onClick={() => host.show!(discussion.id, blocked)}
+                onClick={() => show(blocked)}
               >
                 Go to {voices[blocked].name}
               </button>
@@ -703,7 +471,7 @@ function PanelBody({
               <button
                 type="button"
                 className="discussion-action"
-                onClick={() => discussionStore().resume(discussion.id)}
+                onClick={() => void act({ kind: "resume" })}
               >
                 <Play className="size-3" />
                 Resume
@@ -714,7 +482,7 @@ function PanelBody({
               className="discussion-action"
               title="Stop discussion"
               aria-label="Stop discussion"
-              onClick={() => discussionStore().stop(discussion.id)}
+              onClick={() => void act({ kind: "stop" })}
             >
               <Square className="size-2.5" />
               Stop
@@ -788,23 +556,21 @@ function PanelBody({
                 onOpenFile={onOpenFile}
               />
             ))}
-            {paused ? (
-              <PausedRow id={discussion.id} reason={discussion.reason} />
-            ) : null}
+            {paused ? <PausedRow reason={discussion.reason} act={act} /> : null}
             {ended ? (
               <DiscussionWrapUpCard
                 discussion={discussion}
                 voices={voices}
-                build={host?.build}
+                build={build}
               />
             ) : null}
           </ol>
         </div>
       </div>
-      {/* Only a window that drives discussions can pass the message on. */}
-      {discussion.preview || !host ? null : (
+      {discussion.preview || !can.jumpIn ? null : (
         <JumpInBox
           discussion={discussion}
+          act={act}
           onSent={onSent}
           onEscape={onEscape}
         />
@@ -1017,11 +783,11 @@ const ThreadItem = memo(function ThreadItem({
 });
 
 const PausedRow = memo(function PausedRow({
-  id,
   reason,
+  act,
 }: {
-  id: string;
   reason?: string;
+  act: TeamWatchAct;
 }) {
   return (
     <li className="discussion-paused" data-discussion-paused>
@@ -1029,7 +795,7 @@ const PausedRow = memo(function PausedRow({
       <button
         type="button"
         className="discussion-action"
-        onClick={() => discussionStore().resume(id)}
+        onClick={() => void act({ kind: "resume" })}
       >
         <Play className="size-3" />
         Resume
@@ -1060,15 +826,18 @@ const JUMP_IN_SEND: Record<string, string> = {
  */
 const JumpInBox = memo(function JumpInBox({
   discussion,
+  act,
   onSent,
   onEscape,
 }: {
   discussion: Discussion;
+  act: TeamWatchAct;
   onSent: () => void;
   onEscape: () => void;
 }) {
   const [text, setText] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   const plan = jumpInPlan(discussion);
   const blocked = plan.kind === "blocked" ? plan.reason : null;
@@ -1080,13 +849,22 @@ const JumpInBox = memo(function JumpInBox({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, JUMP_IN_MAX_PX)}px`;
   }, [text]);
-  const send = () => {
-    if (!text.trim() || blocked) return;
-    const refused = discussionStore().interject(discussion.id, text);
+  const settle = (refused: string | null) => {
     setProblem(refused);
     if (refused) return;
     setText("");
     onSent();
+  };
+  const send = () => {
+    if (!text.trim() || blocked || sending) return;
+    const result = act({ kind: "jump-in", text });
+    if (!(result instanceof Promise)) return settle(result);
+    // From a window of its own: wait for the window that drives it.
+    setSending(true);
+    void result.then((refused) => {
+      setSending(false);
+      settle(refused);
+    });
   };
   return (
     <form
@@ -1133,7 +911,7 @@ const JumpInBox = memo(function JumpInBox({
         <button
           type="submit"
           className="discussion-jump-send"
-          disabled={!text.trim() || !!blocked}
+          disabled={!text.trim() || !!blocked || sending}
           title={label}
           aria-label={label}
         >

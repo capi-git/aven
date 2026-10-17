@@ -13,6 +13,7 @@ import {
   type OrchestrationRun,
 } from "../lib/orchestration";
 import { raceWorkspace } from "../lib/race";
+import { teamWorkspace } from "../lib/teamWorkspace";
 import {
   TEAM_KIND_LABEL,
   teamIsOpen,
@@ -25,6 +26,7 @@ import { OrchestrationActions } from "./OrchestrationActions";
 import {
   Check,
   ExternalLink,
+  Eye,
   MessageMultiple,
   MessageSquare,
   Pause,
@@ -112,6 +114,31 @@ function memberName(team: TeamRun, sessionId: string): string | undefined {
   return team.members.find((member) => member.sessionId === sessionId)?.label;
 }
 
+/**
+ * The bar's words in two parts: a short label ("Discussing · Paused") and,
+ * when the team waits on you for a reason, that reason in full, which may
+ * take a second line rather than be cut off.
+ */
+export function teamBarParts(
+  team: TeamRun,
+  sessionId: string,
+  options: { partnerTitle?: string } = {},
+): { label: string; reason?: string } {
+  const kind = `${team.preview ? "Preview · " : ""}${TEAM_KIND_LABEL[team.kind]}`;
+  const need = team.need;
+  if (team.status === "needs-you" && need) {
+    if (need.kind === "paused")
+      return { label: `${kind} · Paused`, reason: need.text };
+    if (need.kind === "error") return { label: kind, reason: need.text };
+    return need.sessionId === sessionId
+      ? { label: `${kind} · Needs you`, reason: need.text }
+      : {
+          label: `${kind} · ${memberName(team, need.sessionId) ?? "An agent"} needs you`,
+        };
+  }
+  return { label: teamBarText(team, sessionId, options) };
+}
+
 /** "Discussing · round 2 of 4 · with Codex · GPT-5". */
 export function teamBarText(
   team: TeamRun,
@@ -121,11 +148,8 @@ export function teamBarText(
   const kind = `${team.preview ? "Preview · " : ""}${TEAM_KIND_LABEL[team.kind]}`;
   const need = team.need;
   if (team.status === "needs-you" && need) {
-    if (need.kind === "paused") return `${kind} · Paused · ${need.text}`;
-    if (need.kind === "error") return `${kind} · ${need.text}`;
-    return need.sessionId === sessionId
-      ? `${kind} · Needs you · ${need.text}`
-      : `${kind} · ${memberName(team, need.sessionId) ?? "An agent"} needs you`;
+    const { label, reason } = teamBarParts(team, sessionId, options);
+    return reason ? `${label} · ${reason}` : label;
   }
   if (team.kind === "discuss") {
     const partner = team.members.find(
@@ -178,10 +202,13 @@ export const TeamBar = memo(function TeamBar(props: Props) {
 function Frame({
   team,
   state,
+  tall = false,
   children,
 }: {
   team: Pick<TeamRun, "id" | "kind" | "key">;
   state: string;
+  /** Its words may take two lines (a reason the team waits on you). */
+  tall?: boolean;
   children: ReactNode;
 }) {
   // Each kind keeps its own data attribute, for checks written against it.
@@ -199,7 +226,9 @@ function Frame({
       {...legacy}
     >
       <div
-        className={`team-bar flex h-7 min-w-0 items-center gap-1.5 rounded-lg border bg-content/3 pl-2 pr-0.5 text-ui-label text-content/60 ${
+        className={`team-bar flex min-w-0 items-center gap-1.5 rounded-lg border bg-content/3 pl-2 pr-0.5 text-ui-label text-content/60 ${
+          tall ? "min-h-7 py-1" : "h-7"
+        } ${
           // Waiting on you reads amber; a race ready to compare stays calm.
           state === "paused" || state === "needs-you" || state === "stalled"
             ? "border-amber-400/40"
@@ -308,13 +337,15 @@ function OpenTeamBar({
     team.kind === "discuss"
       ? team.members.find((member) => member.sessionId !== sessionId)
       : undefined;
-  const text = error
-    ? error
+  const parts = error
+    ? { label: error }
     : stalled
-      ? "Orchestrating · The lead stopped without finishing"
+      ? { label: "Orchestrating · The lead stopped without finishing" }
       : team.kind === "orchestrate" && run && team.status === "running"
-        ? runningSummary(run, idle)
-        : teamBarText(team, sessionId, { partnerTitle: partner?.title });
+        ? { label: runningSummary(run, idle) }
+        : teamBarParts(team, sessionId, { partnerTitle: partner?.title });
+  const text = parts.reason ? `${parts.label} · ${parts.reason}` : parts.label;
+  const watch = team.kind !== "discuss" ? teamWorkspace()?.watch : undefined;
   const state = stalled
     ? "stalled"
     : paused
@@ -336,14 +367,28 @@ function OpenTeamBar({
       : undefined;
   const race = team.kind === "race" ? raceWorkspace() : null;
   return (
-    <Frame team={team} state={state}>
+    <Frame team={team} state={state} tall={!!parts.reason}>
       <Mark team={team} sessionId={sessionId} paused={paused} />
       <span
-        className={`min-w-0 flex-1 truncate ${error ? "text-red-400" : ""}`}
+        className={`min-w-0 flex-1 ${
+          parts.reason
+            ? "line-clamp-2 leading-4 [overflow-wrap:anywhere]"
+            : "truncate"
+        } ${error ? "text-red-400" : ""}`}
         title={text}
         role="status"
+        data-team-bar-text
       >
-        {text}
+        {parts.reason ? (
+          <>
+            {parts.label} ·{" "}
+            <span className="text-content/75" data-team-bar-reason>
+              {parts.reason}
+            </span>
+          </>
+        ) : (
+          text
+        )}
       </span>
       {elsewhere && actions ? (
         <button
@@ -391,6 +436,18 @@ function OpenTeamBar({
         >
           <ExternalLink className="size-3" />
           Open discussion
+        </button>
+      ) : null}
+      {watch ? (
+        <button
+          type="button"
+          className={BUTTON}
+          data-team-watch={team.id}
+          title={`Watch the ${team.kind === "race" ? "race" : "run"} in a floating panel`}
+          onClick={() => watch(team.id)}
+        >
+          <Eye className="size-3" />
+          Watch
         </button>
       ) : null}
       {race ? (

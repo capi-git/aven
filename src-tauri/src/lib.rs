@@ -70,6 +70,7 @@ mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+mod team_watch;
 mod turn_shots;
 mod update_restart;
 mod usage_panel;
@@ -276,6 +277,7 @@ pub fn run() {
         .manage(window_transfer::WindowTransferState::new())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
+        .manage(team_watch::TeamWatchState::default())
         .manage(access_panel::AccessPanelState::default())
         .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
@@ -344,6 +346,15 @@ pub fn run() {
             usage_panel::usage_panel_ready,
             usage_panel::usage_panel_action,
             usage_panel::usage_panel_close,
+            team_watch::team_watch_open,
+            team_watch::team_watch_update,
+            team_watch::team_watch_close,
+            team_watch::team_watch_reset,
+            team_watch::team_watch_reply,
+            team_watch::team_watch_get_state,
+            team_watch::team_watch_ready,
+            team_watch::team_watch_action,
+            team_watch::team_watch_dismiss,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
@@ -583,6 +594,7 @@ pub fn run() {
             usage_panel::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
             workspace_menu_panel::window_event(handle, label, event);
+            team_watch::window_event(handle, label, event);
         }
         match event {
             #[cfg(target_os = "macos")]
