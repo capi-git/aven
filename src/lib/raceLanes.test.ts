@@ -129,21 +129,7 @@ describe("race wording", () => {
       raceDiscardQuestion(
         race(),
         [lane("done"), lane("working"), lane("done")],
-        [
-          {
-            files: [1, 2].map((n) => ({
-              path: `${n}.ts`,
-              status: "added" as const,
-              additions: 1,
-              deletions: 0,
-              binary: false,
-            })),
-            additions: 2,
-            deletions: 0,
-          },
-          undefined,
-          undefined,
-        ],
+        [2, 0, undefined],
       ).body,
     ).toBe(
       "This stops 1 agent still working and deletes all 3 copies and the changes in them: Claude Code (2 files). Your project is not changed.",

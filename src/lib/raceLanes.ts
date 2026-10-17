@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "./activity";
 import { wasTurnInterrupted } from "./inFlight";
-import type { RaceDiff, RaceRecord } from "./race";
+import type { RaceRecord } from "./race";
 import {
   HARNESS_TITLE,
   sessionIsWaitingForInput,
@@ -209,16 +209,19 @@ export function raceCombineQuestion(
   };
 }
 
-/** Asked before discarding: what stops and what is deleted. */
+/**
+ * Asked before discarding: what stops and what is deleted. `changedFiles`
+ * holds each lane's number of changed files, where known.
+ */
 export function raceDiscardQuestion(
   race: RaceRecord,
   lanes: readonly RaceLaneState[],
-  diffs: ReadonlyArray<RaceDiff | undefined> = [],
+  changedFiles: ReadonlyArray<number | undefined> = [],
 ): RaceQuestion {
   const working = lanes.filter(raceLaneActive).length;
   const changed = race.lanes
     .map((_, index) => {
-      const files = diffs[index]?.files.length ?? 0;
+      const files = changedFiles[index] ?? 0;
       return files
         ? `${raceLaneName(race, index)} (${plural(files, "file")})`
         : "";

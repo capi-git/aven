@@ -383,7 +383,11 @@ function RaceBody({
             onClick={() =>
               confirm(
                 true,
-                raceDiscardQuestion(race, states, diffs),
+                raceDiscardQuestion(
+                  race,
+                  states,
+                  diffs.map((diff) => diff?.files.length),
+                ),
                 true,
                 () => void finish("Discarding…", null),
               )
