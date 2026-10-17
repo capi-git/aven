@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isEqualOrInside } from "./paths";
-import type { HarnessId, Session } from "./session";
+import type { Attachment, Block, HarnessId, Session } from "./session";
 
 /**
  * A race runs one prompt through several agents, each in its own git
@@ -19,10 +19,32 @@ export type RaceLaneRecord = {
 
 export type RaceState = "running" | "kept" | "discarded";
 
-/** What a kept race brought into the project. */
+/**
+ * What a kept race brought into the project, and why, when the kept lane
+ * is the one the cheap model suggested.
+ */
 export type RaceOutcome =
-  | { kind: "lane"; lane: number; files: number }
+  | { kind: "lane"; lane: number; files: number; why?: string }
   | { kind: "mix"; files: number };
+
+/** One lane's changes as last read: files, lines added and removed. */
+export type RaceLaneStats = {
+  files: number;
+  additions: number;
+  deletions: number;
+};
+
+/**
+ * Which lane the cheap model would keep, and its one-line reason. A failed
+ * suggestion is kept too, so the card can say so instead of asking again.
+ */
+export type RaceSuggestion =
+  | { status: "running"; since: number }
+  | { status: "done"; lane: number; why: string; model: string; at: number }
+  | { status: "failed"; at: number };
+
+/** The chat a race was started from, and the block its card follows. */
+export type RaceOrigin = { sessionId: string; blockId: string };
 
 export type RaceRecord = {
   id: string;
@@ -44,6 +66,15 @@ export type RaceRecord = {
   outcome?: RaceOutcome;
   /** When the race was kept or discarded. */
   finishedAt?: number;
+  /**
+   * The chat the race was started from, which keeps your message and the
+   * race's card. Absent for a race started from the command palette.
+   */
+  origin?: RaceOrigin;
+  /** Each lane's changes as last read, by lane; null until read. */
+  stats?: (RaceLaneStats | null)[];
+  /** The cheap model's pick, once asked for. */
+  suggestion?: RaceSuggestion;
 };
 
 export const RACE_MIN_LANES = 2;
@@ -178,6 +209,46 @@ export function updateRace(id: string, patch: Partial<RaceRecord>) {
   const races = read();
   if (!races.some((race) => race.id === id)) return;
   write(races.map((race) => (race.id === id ? { ...race, ...patch } : race)));
+}
+
+/**
+ * Remember each lane's changes as last read. Writes only when a number
+ * moved, so the overview's refreshes and the card's reads after each lane's
+ * turn do not rewrite the record (and re-render its readers) for nothing.
+ */
+export function noteRaceStats(
+  id: string,
+  stats: ReadonlyArray<RaceDiff | undefined>,
+) {
+  const race = getRace(id);
+  if (!race || race.state !== "running") return;
+  const next = race.lanes.map((_, lane) => {
+    const diff = stats[lane];
+    const before = race.stats?.[lane] ?? null;
+    if (!diff) return before;
+    return {
+      files: diff.files.length,
+      additions: diff.additions,
+      deletions: diff.deletions,
+    };
+  });
+  const same = next.every((entry, lane) => {
+    const before = race.stats?.[lane] ?? null;
+    return (
+      entry === before ||
+      (!!entry &&
+        !!before &&
+        entry.files === before.files &&
+        entry.additions === before.additions &&
+        entry.deletions === before.deletions)
+    );
+  });
+  if (!same) updateRace(id, { stats: next });
+}
+
+/** The race started from this chat's message block, if any. */
+export function raceForBlock(blockId: string): RaceRecord | undefined {
+  return read().find((race) => race.origin?.blockId === blockId);
 }
 
 /** All races, unchanged (the same array) until one is saved. */
@@ -317,10 +388,15 @@ export async function finishRace(
         );
         selection = selectLane([final], 0);
         for (const path of Object.keys(selection)) selection[path] = keep.lane;
+        const suggested = getRace(race.id)?.suggestion;
         outcome = {
           kind: "lane",
           lane: keep.lane,
           files: Object.keys(selection).length,
+          // Why, when you kept the lane the cheap model would have kept.
+          ...(suggested?.status === "done" && suggested.lane === keep.lane
+            ? { why: suggested.why }
+            : {}),
         };
       } else {
         selection = keep.files;
@@ -347,6 +423,27 @@ export async function finishRace(
   } finally {
     finishing.delete(race.id);
   }
+}
+
+/**
+ * Your message in the chat a race was sent from: kept there as you wrote
+ * it, followed by the race's card. Shown only; that chat's agent never gets
+ * it, since the lanes do the work.
+ */
+export function raceOriginBlock(
+  raceId: string,
+  text: string,
+  attachments: readonly Attachment[] = [],
+  at = Date.now(),
+): Block {
+  return {
+    id: crypto.randomUUID(),
+    role: "system",
+    text,
+    startedAt: at,
+    team: { kind: "race", id: raceId },
+    ...(attachments.length ? { attachments: [...attachments] } : {}),
+  };
 }
 
 /** Appended to the prompt each lane receives. */

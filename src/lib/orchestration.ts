@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   HARNESSES,
   sessionDisplayTitle,
+  type Block,
   type HarnessId,
   type Session,
 } from "./session";
 import type { ApprovalDecision, HarnessEvent } from "./harness/types";
 import { pendingApprovalForSession } from "./approvalToast";
+import { displayPath } from "./paths";
 import type { UserQuestionReply } from "./userQuestion";
 import {
   validateOrchestrationSettings,
@@ -33,6 +35,10 @@ export type OrchestrationTask = {
   result: string;
   error?: string;
   delivered: boolean;
+  /** Project files the worker wrote, read from its transcript when it settled. */
+  touched?: string[];
+  /** One line on what it did, from the cheap model once the run finished. */
+  summary?: string;
 };
 export type OrchestrationRun = {
   version: 1;
@@ -49,6 +55,20 @@ export type OrchestrationRun = {
   error?: string;
   continuations: number;
   requests: Record<string, { signature: string; result: unknown }>;
+  /** The plan's title, as its card showed it. */
+  title?: string;
+  /** The lead's provider and model name, for its mascot and label. */
+  lead?: { harness: HarnessId; model: string };
+  /** When the run started, and when it finished or stopped. */
+  startedAt?: number;
+  endedAt?: number;
+  /**
+   * The first line of the lead's last reply once the run finished ("" when
+   * it wrote none), for the result card.
+   */
+  verdict?: string;
+  /** The per-agent summaries' progress (see `teamResult`). */
+  summaries?: "running" | "done" | "failed";
 };
 export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
@@ -217,6 +237,32 @@ export function busyProjectMessage(
   leadTitle = "another chat",
 ): string {
   return `${folderName(run.cwd)} is busy with an orchestration in “${leadTitle}”. Finish or stop it there.`;
+}
+
+/** The most files a task's result row lists. */
+const TOUCHED_LIMIT = 50;
+
+/**
+ * Project files a worker's transcript shows it writing, relative to the
+ * project, in the order it first wrote them. Failed writes are left out.
+ */
+export function filesTouched(blocks: readonly Block[], cwd: string): string[] {
+  const files: string[] = [];
+  const seen = new Set<string>();
+  for (const block of blocks) {
+    const preview = block.tool?.preview;
+    if (block.role !== "tool" || preview?.kind !== "write" || !preview.path)
+      continue;
+    const status = block.tool?.status?.toLowerCase();
+    if (status === "failed" || status === "error" || status === "declined")
+      continue;
+    const path = displayPath(preview.path, cwd);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    files.push(path);
+    if (files.length >= TOUCHED_LIMIT) break;
+  }
+  return files;
 }
 
 const ASSIGNMENT_BLOCK =
@@ -410,8 +456,16 @@ export class Orchestrator {
   private emit() {
     for (const listener of this.listeners) listener();
   }
-  private async commit(run: OrchestrationRun) {
-    const previous = this.run(run.leadId);
+  private async commit(next: OrchestrationRun) {
+    const previous = this.run(next.leadId);
+    // A run is over once it finishes or stops; its card dates it from then.
+    const run =
+      (next.status === "finished" || next.status === "stopped") &&
+      next.endedAt === undefined
+        ? { ...next, endedAt: Date.now() }
+        : next.status === "active" && next.endedAt !== undefined
+          ? { ...next, endedAt: undefined }
+          : next;
     this.runs = [
       ...this.runs.filter((entry) => entry.leadId !== run.leadId),
       run,
@@ -539,6 +593,8 @@ export class Orchestrator {
       proposalId: string;
       allowedModels: OrchestrationChoice[];
       tasks: OrchestrationTask[];
+      title?: string;
+      lead?: OrchestrationRun["lead"];
     },
   ) {
     if (this.starting.has(leadId))
@@ -601,7 +657,13 @@ export class Orchestrator {
       leadId,
       [...new Set(allowedModels.map((choice) => choice.harness))],
       settings.maxWorkers,
-      { proposalId, allowedModels, tasks },
+      {
+        proposalId,
+        allowedModels,
+        tasks,
+        title: proposal.title,
+        lead: { harness: proposal.author.harness, model: proposal.author.name },
+      },
     );
     this.host!.submit(
       leadId,
@@ -625,6 +687,8 @@ export class Orchestrator {
       proposalId: string;
       allowedModels: OrchestrationChoice[];
       tasks: OrchestrationTask[];
+      title?: string;
+      lead?: OrchestrationRun["lead"];
     },
   ) {
     const lead = this.host?.session(leadId);
@@ -693,6 +757,16 @@ export class Orchestrator {
           (previous?.status === "paused" ? previous.tasks : []),
         continuations: 0,
         requests: previous?.status === "paused" ? previous.requests : {},
+        // A resumed run keeps its plan's name, lead and start.
+        ...(approved
+          ? { title: approved.title, lead: approved.lead }
+          : previous?.status === "paused"
+            ? { title: previous.title, lead: previous.lead }
+            : {}),
+        startedAt:
+          !approved && previous?.status === "paused" && previous.startedAt
+            ? previous.startedAt
+            : Date.now(),
       });
     } catch (error) {
       await this.store.disable(leadId);
@@ -1261,12 +1335,16 @@ export class Orchestrator {
   ) {
     const task = this.run(leadId)?.tasks.find((entry) => entry.id === taskId);
     if (!task || task.status !== "running") return;
+    const worker = this.host?.session(task.sessionId);
     await this.patchTask(leadId, taskId, {
       status: outcome.status,
       result: outcome.text.slice(-20_000),
       error: outcome.error,
       delivered: false,
       accepted: false,
+      touched: worker
+        ? filesTouched(worker.blocks, this.run(leadId)?.cwd ?? worker.cwd)
+        : task.touched,
     });
     void this.pump();
     this.sync();
@@ -1375,6 +1453,33 @@ export class Orchestrator {
       ),
     });
     await this.store.disable(leadId);
+  }
+  /** Keep the lead's closing line on a finished run, once. */
+  async noteVerdict(leadId: string, verdict: string) {
+    const run = this.run(leadId);
+    if (!run || run.status !== "finished" || run.verdict !== undefined) return;
+    await this.commit({ ...run, verdict: verdict.slice(0, 240) });
+  }
+  /**
+   * Claim a finished run's per-agent summaries, or record how they went.
+   * Returns false when another call already claimed them.
+   */
+  async noteSummaries(
+    leadId: string,
+    status: "running" | "done" | "failed",
+    lines: Readonly<Record<string, string>> = {},
+  ): Promise<boolean> {
+    const run = this.run(leadId);
+    if (!run || run.status !== "finished") return false;
+    if (status === "running" && run.summaries) return false;
+    await this.commit({
+      ...run,
+      summaries: status,
+      tasks: run.tasks.map((task) =>
+        lines[task.id] ? { ...task, summary: lines[task.id] } : task,
+      ),
+    });
+    return true;
   }
   stopForSession(id: string): Promise<void> | null {
     const run = this.forSession(id);

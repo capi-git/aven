@@ -544,7 +544,21 @@ function sanitizeBlock(block: Block): Block | null {
   if (discussionReply) next.discussionReply = discussionReply;
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
+  const team = block.role === "system" ? sanitizeTeam(block.team) : undefined;
+  if (team) next.team = team;
   return next;
+}
+
+function sanitizeTeam(value: unknown): Block["team"] {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const record = value as Record<string, unknown>;
+  return record.kind === "race" &&
+    typeof record.id === "string" &&
+    record.id.length > 0 &&
+    record.id.length <= 128
+    ? { kind: "race", id: record.id }
+    : undefined;
 }
 
 function sanitizePlan(value: unknown, text: string): PlanBlockMeta | null {

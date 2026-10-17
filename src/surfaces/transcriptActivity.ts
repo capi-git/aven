@@ -195,7 +195,8 @@ export function groupTurns(blocks: Block[], managed = false): Block[][] {
     // message. Dropping it here folds the reply into the turn above, so a
     // supervised run reads as one conversation.
     if (block.internal && !managed) continue;
-    if (block.role === "handoff") {
+    // A handoff, and your message that started a team here, stand alone.
+    if (block.role === "handoff" || block.team) {
       if (current.length > 0) turns.push(current);
       turns.push([block]);
       current = [];

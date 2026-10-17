@@ -212,6 +212,7 @@ import {
   racePrompt,
   releaseRaceCheckout,
   raceLaneFor,
+  raceOriginBlock,
   saveRace,
   usesRaceCheckout,
   type RaceBase,
@@ -1000,6 +1001,7 @@ export default function App({
           own?.harness === session.harness && own.model === session.model
             ? session.modelSettings
             : undefined,
+        origin: session.id,
       });
     },
     [],
@@ -8360,13 +8362,22 @@ export default function App({
       worktreeCwd: created[index].path,
       title: `Race · ${agent.label}`,
     }));
+    // Sent from a chat: your message stays there, followed by the race's
+    // card, and you stay in that chat while the agents work.
+    const origin = request.origin
+      ? sessionsRef.current.find((session) => session.id === request.origin)
+      : undefined;
+    const startedAt = Date.now();
+    const originBlock = origin
+      ? raceOriginBlock(raceId, request.text, request.attachments, startedAt)
+      : undefined;
     saveRace({
       id: raceId,
       project: request.project,
       root: base.root,
       base: base.base,
       prompt: request.text,
-      createdAt: Date.now(),
+      createdAt: startedAt,
       uncommitted: base.uncommitted,
       untracked: base.untracked,
       state: "running",
@@ -8378,6 +8389,9 @@ export default function App({
         path: created[index].path,
         branch: created[index].branch,
       })),
+      ...(origin && originBlock
+        ? { origin: { sessionId: origin.id, blockId: originBlock.id } }
+        : {}),
     });
     const laneTab: WorkspaceTab = {
       ...newTab(laneSessions[0].id),
@@ -8389,18 +8403,29 @@ export default function App({
         sizes: laneSessions.map(() => 1 / laneSessions.length),
       },
     };
-    // The overview opens on request (tab menu), so the agents get the room.
-    setSessions((previous) => [...previous, ...laneSessions]);
+    // The overview opens on request (Compare), so the agents get the room.
+    const withLanes = [
+      ...sessionsRef.current.map((session) =>
+        originBlock && session.id === origin?.id
+          ? { ...session, blocks: [...session.blocks, originBlock] }
+          : session,
+      ),
+      ...laneSessions,
+    ];
+    sessionsRef.current = withLanes;
+    setSessions(withLanes);
     appendTab(laneTab, request.project);
-    setHomeViewOpen(false);
-    leaveExpandedPreview();
-    closeUtilityViews();
-    if (!sameProjectPath(request.project, projectCwdRef.current)) {
-      revealProjectTask(request.project);
-      setProjectCwd(request.project);
-      rememberRecentProject(request.project);
+    if (!origin) {
+      setHomeViewOpen(false);
+      leaveExpandedPreview();
+      closeUtilityViews();
+      if (!sameProjectPath(request.project, projectCwdRef.current)) {
+        revealProjectTask(request.project);
+        setProjectCwd(request.project);
+        rememberRecentProject(request.project);
+      }
+      setActiveTabId(laneTab.id);
     }
-    setActiveTabId(laneTab.id);
     const prompt = racePrompt(request.text, laneSessions.length);
     for (const session of laneSessions)
       onSubmit(session.id, prompt, request.attachments ?? []);

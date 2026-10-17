@@ -797,6 +797,27 @@ const TranscriptTurn = memo(function TranscriptTurn({
   onSecondOpinion,
   onHandoff,
 }: TranscriptTurnProps) {
+  // Your message that started a team here: it stays as you sent it.
+  const teamStart = turn.length === 1 ? turn[0] : undefined;
+  if (teamStart?.team)
+    return (
+      <div
+        data-team-origin={teamStart.team.id}
+        className={`transcript-turn flex min-w-0 flex-col${
+          isLastTurn ? " transcript-turn-live" : ""
+        }`}
+      >
+        <div className="flow-root pb-1">
+          <TranscriptBlock
+            block={{ ...teamStart, role: "user" }}
+            layout={transcriptLayout}
+            stickyIndex={stickyIndex}
+            cwd={cwd}
+            onOpenFile={onOpenFile}
+          />
+        </div>
+      </div>
+    );
   const userBlock = turnUserBlock(turn, managed);
   // A discussion's span starts here: its card, and folded, the whole span.
   const card =

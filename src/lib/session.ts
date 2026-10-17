@@ -155,6 +155,13 @@ export type DiscussionWrapUpMeta = {
   open?: string[];
 };
 
+/**
+ * A team started from this chat (see `src/lib/teamRuns.ts`): the message you
+ * sent, kept where you typed it, followed by the team's card. Shown only:
+ * the chat's own agent never receives it.
+ */
+export type TeamBlockMeta = { kind: "race"; id: string };
+
 export type ToolPreviewKind = "read" | "write" | "shell" | "search";
 
 export type ToolPreviewLineKind = "add" | "del" | "context";
@@ -250,6 +257,8 @@ export type Block = {
    * only, never sent to the agent).
    */
   discussionReply?: DiscussionRelayMeta;
+  /** Your message that started a team here, followed by its card. */
+  team?: TeamBlockMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */

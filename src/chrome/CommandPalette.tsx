@@ -62,6 +62,11 @@ export type PaletteRaceRequest = {
   runtimeMode?: RuntimeMode;
   /** Settings for the first lane, when it continues a chat's model. */
   modelSettings?: Record<string, string>;
+  /**
+   * The chat the race was sent from. Your message and the race's card stay
+   * there, and you stay in it while the agents work in their own tab.
+   */
+  origin?: string;
 };
 
 export type PaletteChatRequest = {
