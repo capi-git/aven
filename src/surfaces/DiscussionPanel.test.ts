@@ -257,16 +257,14 @@ describe("DiscussionPanelContent", () => {
     );
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Stop discussion"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="End discussion"]')!
         .click(),
     );
     expect(store.get("d1")?.status).toBe("ended");
     expect(text("[data-discussion-closing]")).toBe(
       "Discussion stopped during round 1 of 2.",
     );
-    expect(container.querySelector('[aria-label="Stop discussion"]')).toBe(
-      null,
-    );
+    expect(container.querySelector('[aria-label="End discussion"]')).toBe(null);
   });
 
   it("ends with the closing note and one happy hop on each side's last message", async () => {

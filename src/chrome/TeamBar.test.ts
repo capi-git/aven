@@ -49,6 +49,7 @@ import {
   STALLED_AFTER_MS,
   TeamBar,
   teamBarOwnsStop,
+  teamBarTakesBoxStop,
   WRAP_UP_REQUEST,
 } from "./TeamBar";
 
@@ -261,8 +262,8 @@ describe("while discussing", () => {
     expect(text()).toBe(
       "Discussing · round 1 of 3 · with Codex · GPT-5 in “Review”",
     );
-    expect(labels()).toEqual(["Open discussion", "Stop"]);
-    await press("Stop");
+    expect(labels()).toEqual(["Open discussion", "End discussion"]);
+    await press("End discussion");
     expect(discussionStore().get("d1")?.status).toBe("ended");
     expect(bar()).toBeNull();
   });
@@ -319,11 +320,11 @@ describe("while discussing", () => {
     expect(text()).toBe(
       "Discussing · Paused · “Review” is busy with your own turn.",
     );
-    expect(labels()).toEqual(["Go to Codex", "Stop"]);
+    expect(labels()).toEqual(["Go to Codex", "End discussion"]);
     await press("Go to Codex");
     expect(open).toHaveBeenCalledWith("b");
     await show("b");
-    expect(labels()).toEqual(["Resume", "Stop"]);
+    expect(labels()).toEqual(["Resume", "End discussion"]);
   });
 
   it("lets a chat moved here stop or resume another window's discussion", async () => {
@@ -565,9 +566,11 @@ describe("one Stop for one thing", () => {
     store.runs = [run({ tasks: [task("a", { status: "running" })] })];
     const stops = async (id: string) => {
       await show(id);
-      return labels().filter((label) => label?.startsWith("Stop"));
+      return labels().filter(
+        (label) => label?.startsWith("Stop") || label?.startsWith("End"),
+      );
     };
-    expect(await stops("a")).toEqual(["Stop"]);
+    expect(await stops("a")).toEqual(["End discussion"]);
     expect(await stops("lead")).toEqual(["Stop run"]);
     expect(await stops("chat")).toEqual(["Stop all"]);
     expect(await stops("l0")).toEqual([]);
@@ -587,5 +590,11 @@ describe("one Stop for one thing", () => {
     // A race lane keeps its own Stop; the race's chat has nothing of its own.
     expect(teamBarOwnsStop(of("race"), "l0")).toBe(false);
     expect(teamBarOwnsStop(of("race"), "chat")).toBe(false);
+    // The message box gives its Stop only to Stop run: in a discussion it
+    // still interrupts the chat's agent in one step.
+    expect(teamBarTakesBoxStop(of("orchestrate"), "lead")).toBe(true);
+    expect(teamBarTakesBoxStop(of("discuss"), "a")).toBe(false);
+    expect(teamBarTakesBoxStop(of("discuss"), "b")).toBe(false);
+    expect(teamBarTakesBoxStop(of("race"), "chat")).toBe(false);
   });
 });

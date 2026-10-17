@@ -248,8 +248,8 @@ type Props = {
    */
   teamBar?: ReactNode;
   /**
-   * The bar's Stop stops what this box's own Stop would (a lead's run, a
-   * discussion), so the box shows none while busy.
+   * The bar's Stop stops what this box's own Stop would (a lead's run), so
+   * the box shows none while busy.
    */
   stopInBar?: boolean;
   children?: ReactNode;

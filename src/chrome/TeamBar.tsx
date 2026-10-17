@@ -102,6 +102,19 @@ export function teamBarOwnsStop(
   return stop === "discussion" || stop === "run";
 }
 
+/**
+ * Whether the message box gives its Stop to the bar: only for a lead, whose
+ * own Stop would stop the run as Stop run does. A discussion chat keeps the
+ * box's Stop, which interrupts its agent at once, beside the bar's End
+ * discussion, which lets a reply in progress finish.
+ */
+export function teamBarTakesBoxStop(
+  team: TeamRun | null | undefined,
+  sessionId: string,
+): boolean {
+  return !!team && teamBarStop(team, sessionId) === "run";
+}
+
 /** A member as the bar names it: "Codex · GPT-5", or a chat's own title. */
 function memberName(team: TeamRun, sessionId: string): string | undefined {
   return team.members.find((member) => member.sessionId === sessionId)?.label;
@@ -507,14 +520,14 @@ function OpenTeamBar({
               ? "Stop the lead and every agent in this run"
               : stop === "race"
                 ? "Stop every agent still working in this race"
-                : "Stop discussion"
+                : "End the discussion; a reply in progress finishes but is not passed on"
           }
           aria-label={
             stop === "run"
               ? "Stop run"
               : stop === "race"
                 ? "Stop all agents"
-                : "Stop discussion"
+                : "End discussion"
           }
           onClick={() =>
             stop === "discussion"
@@ -533,7 +546,11 @@ function OpenTeamBar({
           }
         >
           <Square className="size-2.5" />
-          {stop === "run" ? "Stop run" : stop === "race" ? "Stop all" : "Stop"}
+          {stop === "run"
+            ? "Stop run"
+            : stop === "race"
+              ? "Stop all"
+              : "End discussion"}
         </button>
       ) : null}
     </Frame>

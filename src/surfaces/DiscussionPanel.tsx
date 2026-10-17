@@ -474,12 +474,12 @@ export function DiscussionThreadPanel({
             <button
               type="button"
               className="discussion-action"
-              title="Stop discussion"
-              aria-label="Stop discussion"
+              title="End the discussion; a reply in progress finishes but is not passed on"
+              aria-label="End discussion"
               onClick={() => void act({ kind: "stop" })}
             >
               <Square className="size-2.5" />
-              Stop
+              End discussion
             </button>
           </div>
         ) : null}

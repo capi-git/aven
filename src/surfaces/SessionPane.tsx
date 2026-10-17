@@ -27,7 +27,11 @@ import {
   useOrchestrationRun,
   useOrchestrationSelector,
 } from "../hooks/useOrchestrationRun";
-import { TeamBar, teamBarOwnsStop } from "../chrome/TeamBar";
+import {
+  TeamBar,
+  teamBarOwnsStop,
+  teamBarTakesBoxStop,
+} from "../chrome/TeamBar";
 import { useTeamOf } from "../hooks/useTeamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -246,9 +250,11 @@ export const SessionPane = memo(function SessionPane({
   const team = useTeamOf(session.inboxAsk ? undefined : session.id, {
     previews: true,
   });
-  // A lead's own Stop would stop the run, and a discussion chat's its
-  // discussion, as the bar's Stop does: the box shows none of its own.
+  // The run status shows no Stop where the bar's does the same. The box
+  // keeps its Stop except for a lead: in a discussion it interrupts this
+  // chat's agent at once, where the bar's End discussion lets it finish.
   const barStops = teamBarOwnsStop(team, session.id);
+  const boxStopInBar = teamBarTakesBoxStop(team, session.id);
   const runLocked = useOrchestrationSelector((runs) =>
     runs.some(
       (run) =>
@@ -644,7 +650,7 @@ export const SessionPane = memo(function SessionPane({
       busy={busy}
       discussion={session.inboxAsk ? undefined : discussion}
       teamBar={teamBar}
-      stopInBar={barStops}
+      stopInBar={boxStopInBar}
     >
       {review}
     </Composer>
