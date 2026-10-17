@@ -243,6 +243,11 @@ type Props = {
    * of the message box (see `TeamBar`).
    */
   teamBar?: ReactNode;
+  /**
+   * The bar's Stop stops what this box's own Stop would (a lead's run), so
+   * the box shows none while busy.
+   */
+  stopInBar?: boolean;
   children?: ReactNode;
 };
 
@@ -574,6 +579,7 @@ function ComposerComponent({
   onAttachmentsChange,
   discussion,
   teamBar,
+  stopInBar = false,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -2185,7 +2191,7 @@ function ComposerComponent({
                 }
                 hasValue={hasValue}
                 onSend={() => submit(ref.current?.value ?? "")}
-                onStop={() => onStop?.()}
+                onStop={stopInBar ? undefined : () => onStop?.()}
               />
             </div>
           </div>
@@ -2305,7 +2311,8 @@ function ComposerAction({
   actionLabel: string;
   hasValue: boolean;
   onSend: () => void;
-  onStop: () => void;
+  /** Absent where the team bar's Stop stops the same thing. */
+  onStop?: () => void;
 }) {
   if (busy) {
     return (
@@ -2321,15 +2328,17 @@ function ComposerAction({
             <ArrowUp className="size-3.5" strokeWidth={2.25} />
           </button>
         ) : null}
-        <button
-          type="button"
-          title="Stop"
-          aria-label="Stop"
-          onClick={onStop}
-          className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
-        >
-          <Square className="size-2.5 fill-current" strokeWidth={0} />
-        </button>
+        {onStop ? (
+          <button
+            type="button"
+            title="Stop"
+            aria-label="Stop"
+            onClick={onStop}
+            className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+          >
+            <Square className="size-2.5 fill-current" strokeWidth={0} />
+          </button>
+        ) : null}
       </>
     );
   }

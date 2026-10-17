@@ -168,6 +168,16 @@ it.each(["codex", "claude"] as const)(
   },
 );
 
+it("leaves Stop to the team bar where both would stop the same run", async () => {
+  props.busy = true;
+  await render();
+  expect(container.querySelector('[aria-label="Stop"]')).not.toBeNull();
+  await act(async () =>
+    root.render(createElement(Composer, { ...props, stopInBar: true })),
+  );
+  expect(container.querySelector('[aria-label="Stop"]')).toBeNull();
+});
+
 it("explains why /compact did nothing while a reply is running", async () => {
   props.busy = true;
   props.compactSupported = true;
