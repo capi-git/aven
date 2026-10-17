@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { memo, useContext, useEffect, useMemo, useState } from "react";
 import { DiscussionHostContext } from "../chrome/DiscussionWrapUpNote";
 import { TeamCard, TeamCardButton, TeamFaces } from "../chrome/TeamCard";
@@ -118,10 +119,10 @@ export function cardView(
  * its Allow button. The discussion around it unfolds by itself while it
  * waits (see `AgentTranscript`).
  */
-function revealApproval(from: HTMLElement) {
-  const approval = from
-    .closest(".agent-transcript")
-    ?.querySelector<HTMLElement>("[data-approval-pending]");
+function revealApproval(transcript: Element | null) {
+  const approval = transcript?.querySelector<HTMLElement>(
+    "[data-approval-pending]",
+  );
   if (!approval) return;
   approval.scrollIntoView({ block: "center" });
   approval.querySelector<HTMLButtonElement>("button")?.focus({
@@ -151,6 +152,7 @@ export const DiscussionCard = memo(function DiscussionCard({
   meta,
   spanKey,
   expanded,
+  approvalPending = false,
   onToggle,
   harness,
   model,
@@ -160,6 +162,8 @@ export const DiscussionCard = memo(function DiscussionCard({
   meta: DiscussionRelayMeta;
   spanKey: string;
   expanded: boolean;
+  /** This chat waits on an approval inside the discussion. */
+  approvalPending?: boolean;
   onToggle: (spanKey: string) => void;
   harness?: HarnessId;
   model?: string;
@@ -211,13 +215,24 @@ export const DiscussionCard = memo(function DiscussionCard({
             <>
               {view.state === "needs-you" && blocked === "a" ? (
                 // This chat is the one waiting: its approval shows below,
-                // the discussion unfolded around it.
-                <TeamCardButton
-                  data-discussion-card-show-approval
-                  onClick={(event) => revealApproval(event.currentTarget)}
-                >
-                  Show approval
-                </TeamCardButton>
+                // the discussion unfolded around it. A question or a turn of
+                // its own is right here; the card's line says which.
+                approvalPending ? (
+                  <TeamCardButton
+                    data-discussion-card-show-approval
+                    onClick={(event) => {
+                      // The card is drawn anew when the span opens, so find
+                      // the transcript first.
+                      const transcript =
+                        event.currentTarget.closest(".agent-transcript");
+                      // Folded by hand: open it first, so Allow is there.
+                      if (!expanded) flushSync(() => onToggle(spanKey));
+                      revealApproval(transcript);
+                    }}
+                  >
+                    Show approval
+                  </TeamCardButton>
+                ) : null
               ) : view.state === "needs-you" && blocked && host.show ? (
                 <TeamCardButton
                   data-discussion-card-goto={blocked}

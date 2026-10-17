@@ -305,6 +305,58 @@ describe("a discussion's card in the chat that started it", () => {
     ).not.toBeNull();
   });
 
+  it("folds on Hide in chat even while open for an approval, and shows no Show approval without one", async () => {
+    startDiscussion();
+    await act(async () =>
+      discussionStore().pause(
+        "d1",
+        "“Caching plan” needs your approval.",
+        "chat-a",
+      ),
+    );
+    const asking: Block[] = [
+      ...midway(),
+      {
+        id: "relay-4",
+        role: "user",
+        text: "Thirty seconds.",
+        startedAt: 4,
+        discussion: meta(4),
+      },
+      {
+        id: "ask",
+        role: "tool",
+        text: "Run npm test",
+        tool: { kind: "shell", status: "pending" },
+        approval: { requestId: 9 },
+      },
+    ];
+    await render(asking, true);
+    expect(one("[data-approval-pending]")).not.toBeNull();
+    await press("[data-discussion-card-toggle]");
+    // Folded as asked, though the approval still waits.
+    expect(one("[data-approval-pending]")).toBeNull();
+    expect(text(one("[data-discussion-card-toggle]"))).not.toBe("Hide in chat");
+    // Show approval opens it again, onto Allow; hide it once more.
+    await press("[data-discussion-card-show-approval]");
+    expect(document.activeElement?.textContent).toBe("Allow");
+    await press("[data-discussion-card-toggle]");
+    expect(one("[data-approval-pending]")).toBeNull();
+    // Decided: it stays folded, not left open.
+    await render(
+      asking.map((block) =>
+        block.id === "ask"
+          ? { ...block, approval: { requestId: 9, decided: "allow" } }
+          : block,
+      ),
+      true,
+    );
+    expect(text(one("[data-discussion-card-toggle]"))).not.toBe("Hide in chat");
+    // Waiting on this chat's own turn, not an approval: no Show approval.
+    await render(midway(), true);
+    expect(one("[data-discussion-card-show-approval]")).toBeNull();
+  });
+
   it("unfolds itself for a jump to a turn inside it", async () => {
     startDiscussion();
     let reveal: ((blockId: string) => boolean) | undefined;

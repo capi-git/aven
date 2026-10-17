@@ -553,15 +553,6 @@ function AgentTranscriptComponent({
   const [shownSpans, setShownSpans] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const toggleSpan = useCallback(
-    (key: string) =>
-      setShownSpans((current) => {
-        const next = new Set(current);
-        if (!next.delete(key)) next.add(key);
-        return next;
-      }),
-    [],
-  );
   // A folded discussion opens by itself while this chat waits on an
   // approval inside it: its Allow and Deny would otherwise be out of reach.
   const askingSpans = useMemo(() => {
@@ -571,6 +562,31 @@ function AgentTranscriptComponent({
         asking.add(span.key);
     return asking;
   }, [spans, turns]);
+  /** Spans you folded while they were open for an approval. */
+  const [foldedAsking, setFoldedAsking] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const spanShownFor = (key: string) =>
+    shownSpans.has(key) || (askingSpans.has(key) && !foldedAsking.has(key));
+  const shownRef = useRef(spanShownFor);
+  shownRef.current = spanShownFor;
+  // "Hide in chat" folds a span even while it is open for an approval, and
+  // one opened only for an approval folds again once it is decided.
+  const toggleSpan = useCallback((key: string) => {
+    const shown = shownRef.current(key);
+    setShownSpans((current) => {
+      const next = new Set(current);
+      if (shown) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setFoldedAsking((current) => {
+      const next = new Set(current);
+      if (shown) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
   const spansRef = useRef(spans);
   spansRef.current = spans;
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
@@ -656,8 +672,7 @@ function AgentTranscriptComponent({
           const turnAt = firstVisibleTurn + turnIndex;
           const isLastTurn = turnAt === turns.length - 1;
           const span = spans.get(turnAt);
-          const spanShown =
-            !!span && (shownSpans.has(span.key) || askingSpans.has(span.key));
+          const spanShown = !!span && spanShownFor(span.key);
           // A folded discussion shows once, at the start of its span.
           if (span && !spanShown && turnAt !== span.start) return null;
           const spanStart = span && turnAt === span.start ? span : undefined;
@@ -697,6 +712,9 @@ function AgentTranscriptComponent({
               discussionTopic={spanStart?.topic}
               discussionClosing={spanStart?.closing}
               discussionExpanded={spanStart ? spanShown : undefined}
+              discussionAsking={
+                spanStart ? askingSpans.has(spanStart.key) : undefined
+              }
               discussionLive={spanLive}
               onToggleDiscussion={toggleSpan}
               cwd={cwd}
@@ -780,6 +798,8 @@ type TranscriptTurnProps = Pick<
   discussionClosing?: DiscussionWrapUpMeta;
   /** "Show in chat" unfolded the span's turns. */
   discussionExpanded?: boolean;
+  /** This chat waits on an approval inside the span. */
+  discussionAsking?: boolean;
   /** The span runs to the chat's last turn. */
   discussionLive?: boolean;
   onToggleDiscussion: (spanKey: string) => void;
@@ -816,6 +836,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   discussionTopic,
   discussionClosing,
   discussionExpanded,
+  discussionAsking,
   discussionLive,
   onToggleDiscussion,
   cwd,
@@ -861,6 +882,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
         meta={discussionMeta}
         spanKey={discussionKey}
         expanded={!!discussionExpanded}
+        approvalPending={!!discussionAsking}
         onToggle={onToggleDiscussion}
         harness={harness}
         model={model}
