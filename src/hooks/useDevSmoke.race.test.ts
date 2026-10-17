@@ -52,6 +52,13 @@ function app(flaws: Flaws = {}) {
   let asking = false;
   let writer: ReturnType<typeof setInterval> | undefined;
   let refresher: ReturnType<typeof setInterval> | undefined;
+  // Cmd+W closes the focused overview.
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== "w" || screen !== "overview") return;
+    screen = "chat";
+    draw();
+  };
+  window.addEventListener("keydown", onKey);
   const state = {
     sessions: [] as Session[],
     floatingSidebarLabel: null,
@@ -281,7 +288,7 @@ function app(flaws: Flaws = {}) {
     if (screen === "chat") document.body.append(composer(`chat-${chats}`));
     else if (screen === "lanes")
       document.body.append(composer("lane-0"), composer("lane-1"));
-    else if (record()?.state === "running") document.body.append(overview());
+    else document.body.append(overview());
     if (panelOpen) document.body.append(panel());
     if (asking) document.body.append(dialog());
   }
@@ -307,7 +314,16 @@ function app(flaws: Flaws = {}) {
       chosen = harnesses;
     },
   };
-  return { state, host, disk, sent, stop: () => clearInterval(writer) };
+  return {
+    state,
+    host,
+    disk,
+    sent,
+    stop: () => {
+      clearInterval(writer);
+      window.removeEventListener("keydown", onKey);
+    },
+  };
 }
 
 async function run(flaws: Flaws = {}) {

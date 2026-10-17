@@ -286,6 +286,9 @@ function RaceBody({
     working,
   ]);
 
+  // Lane chats re-render the overview as they stream; the diff stays put.
+  const diffFiles = useMemo(() => (fileModel ? [fileModel] : []), [fileModel]);
+
   const finish = async (label: string, keep: RaceKeep | null) => {
     if (finishingRef.current) return;
     finishingRef.current = true;
@@ -603,7 +606,7 @@ function RaceBody({
             ) : null}
             <div className="relative min-h-0 flex-1">
               {fileModel ? (
-                <UnifiedDiffView files={[fileModel]} fileLayout="cards" />
+                <UnifiedDiffView files={diffFiles} fileLayout="cards" />
               ) : (
                 <p className="grid h-full place-items-center text-ui-label text-content/40">
                   {rows.length ? "Loading diff…" : ""}
@@ -633,7 +636,7 @@ function RaceBody({
           </p>
         </div>
       )}
-      {pending ? (
+      {pending && running ? (
         <ConfirmDialog
           title={pending.question.title}
           body={pending.question.body}

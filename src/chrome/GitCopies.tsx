@@ -25,7 +25,7 @@ import {
   type GitPr,
   type GitWorktree,
 } from "../lib/fs";
-import { getActivitySnapshot, useActivity } from "../lib/activity";
+import { useActivity } from "../lib/activity";
 import { errorText, logError } from "../lib/errors";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
@@ -914,11 +914,7 @@ export function GitCopies({
       kind: "race",
       group,
       lanes: group.race.lanes.map((lane) =>
-        raceLaneState(
-          lane.sessionId,
-          live?.session(lane.sessionId),
-          entries.length ? entries : getActivitySnapshot(),
-        ),
+        raceLaneState(lane.sessionId, live?.session(lane.sessionId), entries),
       ),
       chat,
     };

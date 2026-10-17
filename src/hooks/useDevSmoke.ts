@@ -781,6 +781,13 @@ export async function checkRace(
     5_000,
     "both lane chats to point back at the project",
   );
+  // Close the finished overview as a person would, leaving only chats.
+  pressShortcut("w");
+  await waitFor(
+    () => !document.querySelector(`[data-race-view="${record.id}"]`),
+    5_000,
+    "Cmd+W to close the overview",
+  );
   return `Claude Code and Grok Build in separate copies; Compare from "${bar}"; Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project`;
 }
 
