@@ -19,7 +19,6 @@ import {
   CodeBlock,
   Streamdown,
   defaultRehypePlugins,
-  parseMarkdownIntoBlocks,
   useIsCodeFenceIncomplete,
   type BlockProps,
   type Components,
@@ -40,6 +39,12 @@ import {
 } from "../lib/inAppLinks";
 import type { OpenFileFn } from "../lib/search";
 import { isAtxHeadingLine } from "../lib/markdownSource";
+import {
+  completeStreamingMarkdown,
+  createStreamingBlockSplitter,
+  hasIncompleteCodeFence,
+  type StreamingBlocks,
+} from "../lib/streamingMarkdown";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -63,7 +68,7 @@ const mermaid = createLazyMermaidPlugin({
   },
 });
 
-const MARKDOWN_PLUGINS = { code: boundedCode, mermaid };
+export const MARKDOWN_PLUGINS = { code: boundedCode, mermaid };
 
 /** Resolve image-only file references before URL hardening normalizes relative URLs. */
 function localImagePaths({ cwd }: { cwd?: string }) {
@@ -117,36 +122,6 @@ function localFileLinks({ cwd }: { cwd?: string }) {
     };
     visit(tree);
   };
-}
-
-const COMPARISON_IMAGE_BLOCK =
-  /^!\[\s*(before|after)\b[^\]\n]*\]\((?:<[^>\n]+>|[^\s)]+)(?:\s+"[^"\n]*")?\)$/i;
-
-function comparisonImage(block: string): "before" | "after" | undefined {
-  const kind = COMPARISON_IMAGE_BLOCK.exec(block.trim())?.[1]?.toLowerCase();
-  return kind === "before" || kind === "after" ? kind : undefined;
-}
-
-/** Streamdown renders blocks separately; keep a Before/After image pair in one. */
-export function comparisonMarkdownBlocks(markdown: string): string[] {
-  const blocks = parseMarkdownIntoBlocks(markdown);
-  const merged: string[] = [];
-  for (let index = 0; index < blocks.length; index++) {
-    const block = blocks[index];
-    let next = index + 1;
-    while (next < blocks.length && !blocks[next].trim()) next++;
-    if (
-      comparisonImage(block) === "before" &&
-      next < blocks.length &&
-      comparisonImage(blocks[next]) === "after"
-    ) {
-      merged.push(`${block.trim()}\n${blocks[next].trim()}`);
-      index = next;
-    } else {
-      merged.push(block);
-    }
-  }
-  return merged;
 }
 
 function imageAlt(node: ElementContent): string | undefined {
@@ -233,6 +208,24 @@ const INBOX_MEDIA_REHYPE_PLUGINS: PluggableList = [
     },
   ],
 ];
+
+export function markdownRehypePlugins(
+  remoteMedia: boolean,
+  cwd: string | undefined,
+  hardBreaks: boolean | undefined,
+): PluggableList {
+  const base: PluggableList = remoteMedia
+    ? INBOX_MEDIA_REHYPE_PLUGINS
+    : [
+        defaultRehypePlugins.raw,
+        [localImagePaths, { cwd }],
+        [localFileLinks, { cwd }],
+        ...MARKDOWN_REHYPE_PLUGINS.slice(1),
+        beforeAfterImages,
+      ];
+  // Hard breaks go last, so nothing after them undoes them.
+  return hardBreaks ? [...base, rehypeHardBreaks] : base;
+}
 
 const FileOpenContext = createContext<{
   cwd?: string;
@@ -574,29 +567,82 @@ function MarkdownImage({
   return <InboxMedia src={url} alt={alt} cwd={cwd} />;
 }
 
-const MARKDOWN_COMPONENTS = {
+export const MARKDOWN_COMPONENTS = {
   a: MarkdownLink,
   code: MarkdownCode,
   img: MarkdownImage,
 } satisfies Components;
 
 /**
- * With dir="auto" Streamdown wraps each block in
+ * Given a direction, Streamdown wraps a block in
  * `<div dir="..." style="display: contents">`. WebKit's triple-click then runs
  * past the block to the end of the reply, because a contents box gives the
  * selection no block boundary to stop at. Keep the per-block direction but put
  * it on a real block box; index.css zeroes its margins so spacing still comes
- * from the block inside it.
+ * from the block inside it. Memoized, so a streamed update renders only the
+ * blocks it changed.
  */
-function DirectionalBlock({ dir, ...props }: BlockProps) {
-  const block = <Block {...props} />;
-  return dir ? (
+const MarkdownBlock = memo(function MarkdownBlock({
+  dir,
+  ...props
+}: BlockProps) {
+  return (
     <div dir={dir} className="agent-markdown-block">
-      {block}
+      <Block {...props} />
     </div>
-  ) : (
-    block
   );
+});
+
+type RenderedBlocks = StreamingBlocks & {
+  /** The last block is a code fence that is still being written. */
+  openFence: boolean;
+};
+
+const RenderedBlocksContext = createContext<RenderedBlocks>({
+  blocks: [],
+  directions: [],
+  openFence: false,
+});
+
+/**
+ * AgentMarkdown splits the message itself (see `streamingMarkdown.ts`), so
+ * Streamdown receives a fixed placeholder that it treats as one block and
+ * renders this in its place. Streamdown still supplies the components,
+ * plugins and context each block renders with; the blocks come from
+ * AgentMarkdown's context, so only the blocks that changed render again.
+ */
+function StreamedBlocks(props: BlockProps) {
+  const { blocks, directions, openFence } = useContext(RenderedBlocksContext);
+  const last = blocks.length - 1;
+  return blocks.map((content, index) => (
+    <MarkdownBlock
+      key={index}
+      {...props}
+      content={content}
+      dir={directions[index]}
+      index={index}
+      isIncomplete={openFence && index === last}
+    />
+  ));
+}
+
+const asOneBlock = (markdown: string) => [markdown];
+
+/**
+ * Streamdown re-renders only when its text changes, not its plugins. Give
+ * each set of rehype plugins its own placeholder so a change still reaches
+ * the blocks.
+ */
+const placeholders = new WeakMap<PluggableList, string>();
+let placeholderCount = 0;
+function placeholderFor(plugins: PluggableList): string {
+  let placeholder = placeholders.get(plugins);
+  if (placeholder === undefined) {
+    placeholderCount += 1;
+    placeholder = `blocks-${placeholderCount}`;
+    placeholders.set(plugins, placeholder);
+  }
+  return placeholder;
 }
 
 export const AgentMarkdown = memo(function AgentMarkdown({
@@ -619,37 +665,42 @@ export const AgentMarkdown = memo(function AgentMarkdown({
 }) {
   const fileOpen = useMemo(() => ({ cwd, onOpenFile }), [cwd, onOpenFile]);
   const remoteMedia = !!allowRemoteMedia;
-  const rehypePlugins = useMemo<PluggableList>(() => {
-    const base: PluggableList = remoteMedia
-      ? INBOX_MEDIA_REHYPE_PLUGINS
-      : [
-          defaultRehypePlugins.raw,
-          [localImagePaths, { cwd }],
-          [localFileLinks, { cwd }],
-          ...MARKDOWN_REHYPE_PLUGINS.slice(1),
-          beforeAfterImages,
-        ];
-    // Hard breaks go last, so nothing after them undoes them.
-    return hardBreaks ? [...base, rehypeHardBreaks] : base;
-  }, [remoteMedia, cwd, hardBreaks]);
+  const rehypePlugins = useMemo(
+    () => markdownRehypePlugins(remoteMedia, cwd, hardBreaks),
+    [remoteMedia, cwd, hardBreaks],
+  );
+  // One splitter per message: while it streams, finished blocks are kept and
+  // only its end is split again.
+  const [splitBlocks] = useState(createStreamingBlockSplitter);
+  const rendered = useMemo<RenderedBlocks>(() => {
+    const split = splitBlocks(completeStreamingMarkdown(text), {
+      streaming: !!streaming,
+      comparisons: !remoteMedia,
+    });
+    const last = split.blocks.at(-1);
+    return {
+      ...split,
+      openFence:
+        !!streaming && last !== undefined && hasIncompleteCodeFence(last),
+    };
+  }, [splitBlocks, text, streaming, remoteMedia]);
   return (
     <RemoteMediaContext.Provider value={remoteMedia}>
       <FileOpenContext.Provider value={fileOpen}>
-        <Streamdown
-          BlockComponent={DirectionalBlock}
-          className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${className ?? ""}`}
-          components={MARKDOWN_COMPONENTS}
-          controls={false}
-          dir="auto"
-          isAnimating={!!streaming}
-          parseMarkdownIntoBlocksFn={
-            remoteMedia ? undefined : comparisonMarkdownBlocks
-          }
-          plugins={MARKDOWN_PLUGINS}
-          rehypePlugins={rehypePlugins}
-        >
-          {text}
-        </Streamdown>
+        <RenderedBlocksContext.Provider value={rendered}>
+          <Streamdown
+            BlockComponent={StreamedBlocks}
+            className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${className ?? ""}`}
+            components={MARKDOWN_COMPONENTS}
+            controls={false}
+            isAnimating={!!streaming}
+            parseMarkdownIntoBlocksFn={asOneBlock}
+            plugins={MARKDOWN_PLUGINS}
+            rehypePlugins={rehypePlugins}
+          >
+            {placeholderFor(rehypePlugins)}
+          </Streamdown>
+        </RenderedBlocksContext.Provider>
       </FileOpenContext.Provider>
     </RemoteMediaContext.Provider>
   );
