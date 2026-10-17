@@ -2500,12 +2500,16 @@ export default function App({
     for (const { teamId, summary } of teamEndSummaries(teamStores))
       amendTeamEnd(teamId, summary);
   }, [teamStores]);
+  const loadedSessionIds = useCallback(
+    () => sessionsRef.current.map((session) => session.id),
+    [sessionsRef],
+  );
   const seenTeams = useRef<Map<string, TeamSeen> | null>(null);
   useEffect(() => {
     // Only the window that drives a team posts its notices.
     const posted = teamsPostedHere(teams, teamStores, {
       window: currentWindowLabel(),
-      loaded: new Set(sessionsRef.current.map((session) => session.id)),
+      loaded: new Set(loadedSessionIds()),
     });
     const { events, seen } = teamActivityEvents(seenTeams.current, posted);
     seenTeams.current = seen;
@@ -2522,7 +2526,7 @@ export default function App({
       });
       if (session) announceActivity(session, event);
     }
-  }, [announceActivity, noticeChat, teams, teamStores]);
+  }, [announceActivity, noticeChat, teams, teamStores, loadedSessionIds]);
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -4533,10 +4537,6 @@ export default function App({
   );
 
   // A reload brings back a discussion's partner, which has no tab.
-  const loadedSessionIds = useCallback(
-    () => sessionsRef.current.map((session) => session.id),
-    [sessionsRef],
-  );
   useDiscussionChatsLoaded(ensureOpenSession, loadedSessionIds);
 
   const reopeningClosed = useRef(false);
