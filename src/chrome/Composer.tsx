@@ -2437,7 +2437,7 @@ function ComposerAction({
             title={actionLabel}
             aria-label={actionLabel}
             onClick={onSend}
-            className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+            className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
             <ArrowUp className="size-3.5" strokeWidth={2.25} />
           </button>
@@ -2448,7 +2448,7 @@ function ComposerAction({
             title="Stop"
             aria-label="Stop"
             onClick={onStop}
-            className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+            className="aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
             <Square className="size-2.5 fill-current" strokeWidth={0} />
           </button>
@@ -2464,7 +2464,7 @@ function ComposerAction({
       aria-label={actionLabel}
       disabled={!hasValue}
       onClick={onSend}
-      className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
+      className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>

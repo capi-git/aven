@@ -51,7 +51,7 @@ export const WRAP_UP_REQUEST =
 export const STALLED_AFTER_MS = 1_500;
 
 const BUTTON =
-  "flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-40";
+  "aven-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-40";
 
 /** "Orchestrating · 2 working", worded as the team's pill and panel word it. */
 export function runningSummary(

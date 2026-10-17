@@ -149,6 +149,32 @@ describe("motion tokens", () => {
   });
 });
 
+describe("pressed buttons", () => {
+  it("press at once on the shared button classes, by scale and without a transition", () => {
+    const press = motionCss.slice(
+      motionCss.indexOf("/* A press shows at once"),
+    );
+    const selectors = press.slice(press.indexOf("*/") + 2, press.indexOf("{"));
+    for (const shared of [
+      ".aven-press",
+      ".settings-button",
+      ".team-card-button",
+      ".discussion-float-control",
+      ".toolbar-panel-icon-button",
+    ])
+      expect(selectors).toContain(`${shared}:active`);
+    expect(press).toContain("scale: var(--aven-press-scale);");
+    // One rule for each: the old per-control press transforms are gone.
+    for (const file of [
+      "src/surfaces/SettingsControls.css",
+      "src/surfaces/WorkspaceHome.css",
+    ])
+      expect(readFileSync(file, "utf8")).not.toMatch(
+        /:active:not\(:disabled\) \{\s*transform: scale/,
+      );
+  });
+});
+
 describe("reduced motion", () => {
   it("follows the system's setting", () => {
     const stop = initMotionPreference();

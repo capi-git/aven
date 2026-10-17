@@ -90,11 +90,12 @@ import { Segmented, Select, Toggle } from "./SettingsControls";
 export const SCHEDULES = "schedules";
 
 // Matches the Inbox detail action row.
-const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
+const ACTION =
+  "aven-press inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
 const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40`;
 const ICON_BUTTON =
-  "grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content";
+  "aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content";
 
 const DAY_FULL_NAMES = [
   "Sunday",

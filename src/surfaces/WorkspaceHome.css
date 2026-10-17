@@ -85,10 +85,6 @@ html.has-chat-background .workspace-home::before {
     transform 120ms ease;
 }
 
-.workspace-home-actions button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
 .workspace-home .workspace-home-actions button:hover:not(:disabled) {
   background: var(--aven-control-hover, var(--aven-hover));
 }

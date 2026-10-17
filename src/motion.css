@@ -171,3 +171,32 @@
 .popover-open[data-popover-side="left"] {
   --popover-shift: 3px;
 }
+
+/* A press shows at once, on the shared button classes, and lets go at
+   once: no transition, so it never replaces a control's own. `scale`
+   composes with any `transform` or `translate` the control already has.
+   Rows and tabs are left out: they are dragged, and a press there starts a
+   drag. */
+.aven-press:active:not(:disabled),
+.settings-button:active:not(:disabled),
+.team-card-button:active:not(:disabled),
+.team-watch-button:active:not(:disabled),
+.discussion-float-control:active:not(:disabled),
+.discussion-action:active:not(:disabled),
+.discussion-pill:active,
+.duplicate-server-action:active:not(:disabled),
+.git-copy-action:active:not(:disabled),
+.git-ship-button:active:not(:disabled),
+.git-clean-action:active:not(:disabled),
+.memory-keeper-action:active:not(:disabled),
+.browser-icon-button:active:not(:disabled),
+.toolbar-panel-icon-button:active:not(:disabled),
+.provider-row-action:active:not(:disabled),
+.agent-panel-usage-action:active:not(:disabled),
+.footer-usage-summary:active,
+.footer-usage-refresh:active:not(:disabled),
+.personal-new-session:active:not(:disabled),
+.personal-view-project-tasks:active:not(:disabled),
+.workspace-home-actions button:active:not(:disabled) {
+  scale: var(--aven-press-scale);
+}
