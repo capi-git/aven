@@ -476,7 +476,7 @@ describe("a race in the team panel", () => {
     expect(pill()).toBeNull();
     await act(async () => panel.open("race:r1"));
     expect(words(view()!.querySelector(".team-watch-status"))).toBe(
-      "Kept Codex · GPT-5 (7 files) · Smaller change.",
+      "Kept Codex's version · 7 files · Smaller change.",
     );
     expect(words(lanes()[1].querySelector(".team-watch-state"))).toBe("Kept");
     expect(view()!.querySelector(".team-watch-actions")).toBeNull();

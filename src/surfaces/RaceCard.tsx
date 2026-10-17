@@ -208,7 +208,7 @@ function ReviewerButton({
  * A race in the chat it was sent from, after your message: one row per
  * lane (mascot, model, state, time, +/−) with Compare while it runs; "Ready
  * to compare" with Suggest a winner once every lane is done; then the result,
- * "Kept Codex · GPT-5's version (7 files)" with why, Review changes and
+ * "Kept Codex's version · 7 files" with why, Review changes and
  * Continue with the agent. Stop all is the bar's, in the message box below.
  */
 export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {

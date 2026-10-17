@@ -42,6 +42,7 @@ import { providerShortName } from "../lib/discussionVoices";
 import { pickerModelsFor } from "../lib/models";
 import type { RaceRecord } from "../lib/race";
 import type { RaceLaneChoice } from "../lib/raceAgents";
+import { raceLaneName } from "../lib/raceLanes";
 import { teamWorkspace } from "../lib/teamWorkspace";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
@@ -1125,7 +1126,7 @@ export async function checkRace(
     "the race's card to become its result",
   );
   const headline = result.querySelector(".team-card-title")?.textContent ?? "";
-  if (!headline.startsWith(`Kept ${claude.label} (`))
+  if (!headline.startsWith(`Kept ${raceLaneName(record, 0)}'s version · `))
     throw new Error(`The result reads "${headline}"`);
   if (
     !buttonNamed(result, "Review changes") ||
@@ -1306,7 +1307,7 @@ export async function checkRaceResult(
     "the race's card to become its result",
   );
   const headline = result.querySelector(".team-card-title")?.textContent ?? "";
-  if (!headline.startsWith(`Kept ${grok.label} (`))
+  if (!headline.startsWith(`Kept ${raceLaneName(record, 1)}'s version · `))
     throw new Error(`The result reads "${headline}"`);
   if (!status().startsWith("Why: ") || !status().includes(SMOKE_WINNER_WORD))
     throw new Error(`The result says "${status()}", not why`);

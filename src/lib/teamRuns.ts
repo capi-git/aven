@@ -24,7 +24,12 @@ import {
   type OrchestrationTask,
 } from "./orchestration";
 import type { RaceRecord } from "./race";
-import { raceLaneState, raceProgress, type RaceLaneKind } from "./raceLanes";
+import {
+  raceLaneState,
+  raceOutcomeText,
+  raceProgress,
+  type RaceLaneKind,
+} from "./raceLanes";
 import { finalReply, replyOpening } from "./replyText";
 import { modelDisplayName } from "./sessionLabels";
 import {
@@ -123,7 +128,7 @@ export type TeamNeed = {
 
 /** How a team ended, for its result card and its one Activity entry. */
 export type TeamResult = {
-  /** "Kept Codex · GPT-5 (7 files)", "Discussed for 4 rounds". */
+  /** "Kept Codex's version · 7 files", "Discussed for 4 rounds". */
   headline: string;
   /** One line on why: the suggested winner's reason, the lead's verdict. */
   why?: string;
@@ -350,19 +355,13 @@ const STOPPED_STATES: ReadonlySet<TeamMemberState> = new Set([
   "interrupted",
 ]);
 
-/** "Kept Codex · GPT-5 (7 files)" or "Kept 3 files from 2 agents". */
+/**
+ * "Kept Codex's version · 7 files", named as the overview and the Keep
+ * question name it, or "Race discarded".
+ */
 export function raceHeadline(race: RaceRecord): string | undefined {
-  const outcome = race.outcome;
   if (race.state === "discarded") return "Race discarded";
-  if (race.state !== "kept" || !outcome) return undefined;
-  if (outcome.kind === "lane") {
-    const lane = race.lanes[outcome.lane];
-    return `Kept ${lane?.label ?? "one agent's version"} (${plural(outcome.files, "file")})`;
-  }
-  const from = new Set(Object.values(race.picks ?? {})).size;
-  return from > 1
-    ? `Kept ${plural(outcome.files, "file")} from ${from} agents`
-    : `Kept ${plural(outcome.files, "file")}`;
+  return raceOutcomeText(race) ?? undefined;
 }
 
 /** A race as a team: one member per lane, started from its origin chat. */

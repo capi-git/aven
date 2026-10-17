@@ -316,12 +316,12 @@ describe("raceTeam", () => {
       finishedAt: 5_000,
       outcome: { kind: "lane", lane: 1, files: 7, why: "Smaller and tested." },
     });
-    expect(raceHeadline(kept)).toBe("Kept Codex · GPT-5 (7 files)");
+    expect(raceHeadline(kept)).toBe("Kept Codex's version · 7 files");
     expect(raceTeam(kept, lookup())).toMatchObject({
       status: "finished",
       endedAt: 5_000,
       result: {
-        headline: "Kept Codex · GPT-5 (7 files)",
+        headline: "Kept Codex's version · 7 files",
         why: "Smaller and tested.",
       },
     });

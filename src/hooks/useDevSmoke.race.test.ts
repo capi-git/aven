@@ -269,7 +269,7 @@ function app(flaws: Flaws = {}) {
     title.className = "team-card-title";
     title.textContent =
       kept && !flaws.noResult
-        ? `Kept Claude Code · Sonnet (${record().outcome?.files} files)`
+        ? `Kept Claude Code's version · ${record().outcome?.files} files`
         : "Claude and Grok are racing";
     card.append(title);
     laneState.forEach((kind, index) => {
@@ -472,7 +472,7 @@ describe("the real-app check's race step", () => {
     const { detail, error, fake } = await run();
     expect(error).toBeUndefined();
     expect(detail).toMatch(
-      /^your message and the card stayed in the chat you raced from, with one Stop all; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card \("Racing · 0 of 2 done"\); Grok read Failed, then Working after Retry; kept Claude's lane mid-run \(stopping 2\) with race-claude-late-\d+\.txt the overview hadn't shown; copies removed, both chats back on the project; the card reads "Kept Claude Code · Sonnet \(\d+ files\)"$/,
+      /^your message and the card stayed in the chat you raced from, with one Stop all; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card \("Racing · 0 of 2 done"\); Grok read Failed, then Working after Retry; kept Claude's lane mid-run \(stopping 2\) with race-claude-late-\d+\.txt the overview hadn't shown; copies removed, both chats back on the project; the card reads "Kept Claude Code's version · \d+ files"$/,
     );
     expect(
       [...fake.disk.get(PROJECT)!].some((name) =>
@@ -673,7 +673,7 @@ function resultApp(flaws: ResultFlaws = {}) {
     const title = document.createElement("span");
     title.className = "team-card-title";
     title.textContent = kept
-      ? `Kept ${grokLabel} (1 file)`
+      ? "Kept Grok Build's version · 1 file"
       : "Ready to compare";
     const line = document.createElement("span");
     line.className = "team-card-status";
@@ -857,7 +857,7 @@ describe("the real-app check's finished race step", () => {
     const { detail, error } = await runResult();
     expect(error).toBeUndefined();
     expect(detail).toBe(
-      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 agents" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok Build · Grok 4.6 (1 file)" with why; Continue with sent it a recap',
+      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 agents" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok Build\'s version · 1 file" with why; Continue with sent it a recap',
     );
   });
 

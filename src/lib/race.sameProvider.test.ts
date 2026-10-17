@@ -165,7 +165,7 @@ it("keeps one of the two, from its own copy, and removes both", async () => {
   const kept = getRace("r1")!;
   expect(kept.state).toBe("kept");
   expect(raceHeadline(kept)).toBe(
-    "Kept Claude Code · Claude Sonnet 5 (1 file)",
+    "Kept Claude Code · Claude Sonnet 5's version · 1 file",
   );
   expect(raceOutcomeText(kept)).toBe(
     "Kept Claude Code · Claude Sonnet 5's version · 1 file",

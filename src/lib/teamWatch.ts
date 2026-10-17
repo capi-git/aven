@@ -5,8 +5,7 @@
  * - Which teams the window watches, which one is open as the panel, which
  *   are popped out into windows of their own, which the user closed, where
  *   the panel sits and what the user has seen. Remembered per window under
- *   `aven.teamPanel.<window>`; the discussion-only state an earlier version
- *   kept under `aven.discussionPanel.<window>` is read once and carried over.
+ *   `aven.teamPanel.<window>`.
  * - What a pill and the panel's header say about a team.
  * - The snapshot a popped-out panel draws (`TeamWatchView`) and the actions
  *   it may send back to the window that owns the team.

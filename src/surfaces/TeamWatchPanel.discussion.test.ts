@@ -359,14 +359,13 @@ describe("a long thread in the panel", () => {
     discussFour(5);
     sessions = [chatA("d1", 6)];
     // Seen up to reply 3 when the user last looked.
-    // As an earlier version left it: discussion ids, under its own key.
     values.set(
-      "aven.discussionPanel.main",
+      "aven.teamPanel.main",
       JSON.stringify({
         mode: "open",
-        watching: ["d1"],
+        watching: ["discuss:d1"],
         expanded: null,
-        seen: { d1: 3 },
+        seen: { "discuss:d1": 3 },
         rect: { x: 300, y: 100, width: 430, height: 590 },
       }),
     );

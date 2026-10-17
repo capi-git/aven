@@ -274,7 +274,7 @@ describe("a race's card in the chat it was sent from", () => {
     });
     await render();
     expect(card()?.dataset.state).toBe("done");
-    expect(text(".team-card-title")).toBe("Kept Codex · GPT-5 (7 files)");
+    expect(text(".team-card-title")).toBe("Kept Codex's version · 7 files");
     expect(text(".team-card-status")).toBe("Why: Smaller change.");
     expect(
       card()?.querySelector('[data-race-card-lane="1"] .team-card-member-state')
