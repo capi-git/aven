@@ -524,7 +524,7 @@ export type TeamWatchAct = (
 ) => string | null | Promise<string | null>;
 
 /** The actions each kind of team takes; anything else is refused. */
-const ACTIONS: Record<TeamKind, readonly TeamWatchActionKind[]> = {
+export const TEAM_ACTIONS: Record<TeamKind, readonly TeamWatchActionKind[]> = {
   discuss: ["stop", "resume", "open-chat", "jump-in", "build", "watch"],
   race: ["stop", "compare", "suggest", "review", "open-chat", "watch"],
   orchestrate: [
@@ -537,7 +537,11 @@ const ACTIONS: Record<TeamKind, readonly TeamWatchActionKind[]> = {
   ],
 };
 
-/** Every action kind a pop-out may send; the host checks the same list. */
+/**
+ * Every action kind a pop-out may send. The host passes on exactly this
+ * list (a native test reads it from here), and it is every kind some team
+ * takes (a test checks that too).
+ */
 export const TEAM_WATCH_ACTION_KINDS: readonly TeamWatchActionKind[] = [
   "stop",
   "resume",
@@ -566,7 +570,7 @@ export function parseTeamWatchAction(
   const kind = record.kind;
   if (
     typeof kind !== "string" ||
-    !ACTIONS[team.kind].includes(kind as TeamWatchActionKind)
+    !TEAM_ACTIONS[team.kind].includes(kind as TeamWatchActionKind)
   )
     return null;
   switch (kind as TeamWatchActionKind) {

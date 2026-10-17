@@ -226,13 +226,17 @@ export function useTeamWatchPerformer({
           );
           return null;
         case "suggest":
-          return later(() =>
-            requestRaceSuggestion(
-              race.id,
-              (id) => live?.session(id),
-              team.members.map((member) => member.stateLabel),
-            ),
-          );
+          // Answered once it starts: the cheap model can take a couple of
+          // minutes, and the race's own view shows it working, then its pick
+          // (in a pop-out too, which would otherwise stop waiting first).
+          if (suggestionRunning(race.suggestion) || reviewRunning(race.review))
+            return "A suggestion is already on its way.";
+          void requestRaceSuggestion(
+            race.id,
+            (id) => live?.session(id),
+            team.members.map((member) => member.stateLabel),
+          ).catch((error: unknown) => logError("Race suggestion", error));
+          return null;
         case "review": {
           // Checked again here: the chat must still be one that may review.
           const choice = live
@@ -271,6 +275,9 @@ export function useTeamWatchPerformer({
         else return later(() => orchestrator.stopRun(run.leadId));
         return null;
       case "resume":
+        // A panel can be a moment behind: only a paused run resumes, never
+        // one that finished or stopped meanwhile, which would start afresh.
+        if (run.status !== "paused") return "This run isn't paused any more.";
         if (team.members[0]?.state === "working")
           return "Wait for the lead to finish its turn, then resume.";
         return later(() =>
@@ -926,13 +933,16 @@ function DiscussionPopOut({
 /**
  * Opens one team's pop-out and keeps it current: the first view opens the
  * window where the panel sat, each change after that is sent once, and
- * Watch brings the window forward. Leaving (the team came back here, or
- * went) closes the window, unless the user already closed it there.
+ * Watch brings the window forward. Changes made while the window is still
+ * opening wait for it, and only the latest is sent: the host drops an
+ * update for a window it has not made yet. Leaving (the team came back
+ * here, or went) closes the window, unless the user already closed it there.
  */
 function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
   const { bridge, theme, shown, closedThere, placeRef, panelRef } = feed;
   const sent = useRef<string | null>(null);
   const opened = useRef(false);
+  const opening = useRef<Promise<unknown> | null>(null);
   const closing = useRef<number | undefined>(undefined);
   if (view) shown.current.set(teamId, view.team);
   else shown.current.delete(teamId);
@@ -954,16 +964,29 @@ function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
         ...rect,
         dpr: window.devicePixelRatio || 1,
       };
-      bridge
+      const open = bridge
         .open(teamId, view ? teamWatchTitle(view.team) : "Team", snapshot, at)
         .catch((error: unknown) => {
           logError("team pop-out", error);
           // It could not open: show it here instead.
           panelRef.current.popIn(teamId);
         });
+      opening.current = open;
+      void open.finally(() => {
+        if (opening.current === open) opening.current = null;
+      });
       return;
     }
-    bridge.update(teamId, snapshot).catch(() => {});
+    const pending = opening.current;
+    if (!pending) {
+      bridge.update(teamId, snapshot).catch(() => {});
+      return;
+    }
+    void pending.then(() => {
+      // A later change has its own turn; only the newest goes out.
+      if (sent.current === json)
+        bridge.update(teamId, snapshot).catch(() => {});
+    });
   }, [bridge, closedThere, panelRef, placeRef, teamId, theme, view]);
   // Watch while it is out: bring its window forward.
   useEffect(() => {

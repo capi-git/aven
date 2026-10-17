@@ -9,6 +9,7 @@ import { IS_MAC } from "../lib/platform";
 import type { TeamWatchAct } from "../lib/teamWatch";
 import {
   OWNER_CLOSED_TEXT,
+  OWNER_HIDDEN_TEXT,
   teamWatchWindow,
   type TeamWatchWindow as Bridge,
   type TeamWatchWindowState,
@@ -45,7 +46,8 @@ function useWindowTheme(
  * even another screen. It owns nothing: it draws what the window that owns
  * the team sends and sends every press back there. ↙ puts it back in that
  * window as the panel; closing it leaves the team there as a pill. If that
- * window closes, this says so and offers only Close.
+ * window is closed while the team still runs there, this says so and can
+ * bring it back; if it goes for good, this says so and offers only Close.
  */
 export function TeamWatchWindow({
   bridge: given,
@@ -107,6 +109,10 @@ export function TeamWatchWindow({
     () => void bridge.dismiss().catch(() => {}),
     [bridge],
   );
+  const showOwner = useCallback(
+    () => void bridge.showOwner().catch(() => {}),
+    [bridge],
+  );
   const controls = useMemo<TeamPanelControls>(
     () =>
       state?.ownerClosed
@@ -151,7 +157,26 @@ export function TeamWatchWindow({
           </div>
         </>
       ) : (
-        <TeamWatchPanelView view={view} act={act} controls={controls} />
+        <>
+          <TeamWatchPanelView view={view} act={act} controls={controls} />
+          {state?.ownerHidden ? (
+            <div
+              className="team-watch-notice team-watch-owner-hidden"
+              role="status"
+              data-owner-hidden
+            >
+              <p>{OWNER_HIDDEN_TEXT}</p>
+              <button
+                type="button"
+                className="team-watch-button"
+                data-team-show-owner
+                onClick={showOwner}
+              >
+                Show it
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );

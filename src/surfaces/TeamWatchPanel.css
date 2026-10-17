@@ -541,6 +541,11 @@ html.team-watch-window #root {
   padding-left: 68px;
   cursor: default;
 }
+/* The owning window was closed while the team still runs there. */
+.team-watch-owner-hidden {
+  flex: none;
+  margin: 0 10px 10px;
+}
 .team-watch-closed {
   display: flex;
   flex: 1;

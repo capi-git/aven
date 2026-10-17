@@ -176,7 +176,10 @@ pub fn hide_window(window: Window) -> Result<(), String> {
     if window.label().starts_with("workspace-detached-") {
         return crate::workspace_window::request_return(window.app_handle(), window.label());
     }
-    window.hide().map_err(|err| err.to_string())
+    window.hide().map_err(|err| err.to_string())?;
+    // A team popped out of it keeps going there; its window says so.
+    crate::team_watch::owner_visibility(window.app_handle(), window.label(), true);
+    Ok(())
 }
 
 /// Finish an idle close. `destroy` skips CloseRequested so the JS handler
@@ -214,12 +217,23 @@ pub fn show_hidden_or_open_new(app: &AppHandle) -> Result<(), String> {
     for window in &windows {
         let _ = window.unminimize();
         let _ = window.show();
+        crate::team_watch::owner_visibility(app, window.label(), false);
     }
     windows
         .first()
         .ok_or_else(|| "missing window".to_string())?
         .set_focus()
         .map_err(|err| err.to_string())
+}
+
+/// Whether any workspace window is on screen (or about to draw itself).
+/// Pop-outs and panels do not count.
+pub fn any_workspace_visible(app: &AppHandle) -> bool {
+    app.windows().into_values().any(|window| {
+        is_workspace_label(window.label())
+            && (window.is_visible().unwrap_or(false)
+                || crate::window_reveal::is_pending(window.label()))
+    })
 }
 
 /// A safety net: no workspace window may stay hidden after launch.

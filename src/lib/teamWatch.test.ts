@@ -10,6 +10,8 @@ import {
   markSeen,
   openInPanel,
   parseTeamWatchAction,
+  TEAM_ACTIONS,
+  TEAM_WATCH_ACTION_KINDS,
   popIn,
   popOut,
   poppedBack,
@@ -324,6 +326,15 @@ describe("what a popped-out panel may ask", () => {
     kind: "discuss",
     origin: { sessionId: "a" },
     members: [member("a"), member("b")],
+  });
+
+  it("lists every action some team takes, and nothing else, for the host", () => {
+    expect(new Set(TEAM_WATCH_ACTION_KINDS)).toEqual(
+      new Set(Object.values(TEAM_ACTIONS).flat()),
+    );
+    expect(TEAM_WATCH_ACTION_KINDS).toHaveLength(
+      new Set(TEAM_WATCH_ACTION_KINDS).size,
+    );
   });
 
   it("takes only the actions each kind of team has", () => {

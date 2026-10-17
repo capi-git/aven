@@ -95,6 +95,7 @@ function fakeBridge(initial: TeamWatchWindowState) {
       return refuse;
     }),
     dismiss: vi.fn(async () => {}),
+    showOwner: vi.fn(async () => {}),
     dispose: vi.fn(),
   };
   return {
@@ -226,6 +227,33 @@ describe("a team's panel in a window of its own", () => {
     expect(container.querySelector("[data-team-pop-in]")).toBeNull();
     await press("[data-team-watch-close]");
     expect(host.bridge.dismiss).toHaveBeenCalled();
+  });
+
+  it("says so when its owning window was closed while the team runs, and brings it back", async () => {
+    const host = fakeBridge(state({ team: race, race: {}, can }));
+    await show(host.bridge);
+    expect(container.querySelector("[data-owner-hidden]")).toBeNull();
+    await act(async () =>
+      host.push(
+        state(
+          { team: race, race: {}, can },
+          { revision: 2, ownerHidden: true },
+        ),
+      ),
+    );
+    expect(words(container.querySelector("[data-owner-hidden] p"))).toBe(
+      "This team's window was closed. The team still runs there.",
+    );
+    // The team is still shown and still acts there.
+    expect(container.querySelectorAll("[data-team-lane]")).toHaveLength(2);
+    await press("[data-team-compare]");
+    expect(host.sent).toEqual([{ kind: "compare" }]);
+    await press("[data-team-show-owner]");
+    expect(host.bridge.showOwner).toHaveBeenCalled();
+    await act(async () =>
+      host.push(state({ team: race, race: {}, can }, { revision: 3 })),
+    );
+    expect(container.querySelector("[data-owner-hidden]")).toBeNull();
   });
 
   it("says so when the team is gone", async () => {

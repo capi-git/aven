@@ -24,7 +24,12 @@ import {
   LiveSessionsContext,
   type LiveSessionStore,
 } from "../lib/liveSessions";
-import { installRaceWorkspace, saveRace, type RaceRecord } from "../lib/race";
+import {
+  getRace,
+  installRaceWorkspace,
+  saveRace,
+  type RaceRecord,
+} from "../lib/race";
 import { newSession, type Session } from "../lib/session";
 import type { TeamWatchRequest, TeamWatchView } from "../lib/teamWatch";
 import type { TeamWatchOwner, TeamWatchSnapshot } from "../lib/teamWatchBridge";
@@ -249,6 +254,51 @@ describe("a team popped out into its own window", () => {
     );
     await settle();
     expect(host.bridge.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a change made while its window opens once it has opened", async () => {
+    let opened!: () => void;
+    host.bridge.open.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (opened = resolve)),
+    );
+    await mount();
+    await popOut();
+    completed("l1");
+    await act(async () =>
+      live.set([chat, lane("l0", false), lane("l1", false)]),
+    );
+    await settle();
+    // The host has no window to update yet: nothing goes out.
+    expect(host.bridge.update).not.toHaveBeenCalled();
+    await act(async () => opened());
+    await settle();
+    expect(host.bridge.update).toHaveBeenCalledTimes(1);
+    expect(
+      (lastSnapshot(host.bridge.update).view as TeamWatchView).team.status,
+    ).toBe("ready");
+  });
+
+  it("answers Suggest a winner once it starts, not when the model replies", async () => {
+    completed("l1");
+    live.set([chat, lane("l0", false), lane("l1", false)]);
+    await mount();
+    await popOut();
+    // Answered at once; the pop-out sees "Suggesting…" in the race's view,
+    // then the pick (here, no model answers, so it says it couldn't).
+    host.press("race:r1", { kind: "suggest" }, "s-1");
+    expect(host.bridge.reply).toHaveBeenLastCalledWith("race:r1", "s-1", null);
+    expect(getRace("r1")?.suggestion?.status).toBe("running");
+    // A second press while it runs is refused, not started again.
+    host.press("race:r1", { kind: "suggest" }, "s-2");
+    expect(host.bridge.reply).toHaveBeenLastCalledWith(
+      "race:r1",
+      "s-2",
+      "A suggestion is already on its way.",
+    );
+    await settle();
+    expect(
+      (lastSnapshot(host.bridge.update).view as TeamWatchView).race?.suggestion,
+    ).toEqual({ status: "failed" });
   });
 
   it("does what the pop-out asks, after checking it against the team", async () => {

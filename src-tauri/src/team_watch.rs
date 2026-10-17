@@ -11,6 +11,9 @@
 //!
 //! - Closing the pop-out tells its owner, which shows the team as a pill
 //!   again. A close the owner asked for is quiet.
+//! - When the owning window is closed while its chats still run (macOS
+//!   hides it), the pop-out says so and can bring it back. Actions that
+//!   show something there bring it back too, so nothing lands unseen.
 //! - When the owning window goes, the pop-out is told so and can only close.
 //! - Its page may only show its own entry point and may not open windows.
 //!
@@ -48,13 +51,15 @@ const MAX_WIDTH: f64 = 900.0;
 const MAX_HEIGHT: f64 = 1_100.0;
 
 /// What a pop-out may ask its owner to do. The owner checks each against
-/// the team as well (`parseTeamWatchAction`).
+/// the team as well (`parseTeamWatchAction`). It must match the page's
+/// `TEAM_WATCH_ACTION_KINDS`, which a test checks.
 const ACTIONS: &[&str] = &[
     "stop",
     "resume",
     "finish",
     "compare",
     "suggest",
+    "review",
     "open-agents",
     "open-chat",
     "jump-in",
@@ -79,6 +84,8 @@ struct PopOut {
     revision: u64,
     /// The owning window closed; nothing here can act any more.
     owner_closed: bool,
+    /// The owning window was closed while its chats run, so it is hidden.
+    owner_hidden: bool,
     /// Shown once its page drew; later snapshots never take focus.
     shown: bool,
     /// Its owner closed it: no need to tell the owner.
@@ -92,6 +99,7 @@ impl PopOut {
             "snapshot": self.snapshot,
             "revision": self.revision,
             "ownerClosed": self.owner_closed,
+            "ownerHidden": self.owner_hidden && !self.owner_closed,
         })
     }
 
@@ -354,6 +362,7 @@ fn open_window(
                 snapshot,
                 revision: 1,
                 owner_closed: false,
+                owner_hidden: !owner.is_visible().unwrap_or(true),
                 shown: false,
                 quiet: false,
             },
@@ -554,14 +563,82 @@ pub async fn team_watch_action(
         )
         .map_err(|error| error.to_string())?;
         if SHOWS_OWNER.contains(&kind.as_str()) {
-            if let Some(window) = app.get_window(&owner_window) {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            show_owner_window(app, &owner_window);
         }
         Ok(())
     })
     .await
+}
+
+/// Bring the owning window back and forward, even when it was closed
+/// while its chats run (hidden), so what an action shows there is seen.
+fn show_owner_window(app: &AppHandle, owner_window: &str) {
+    let Some(window) = app.get_window(owner_window) else {
+        return;
+    };
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    owner_visibility(app, owner_window, false);
+}
+
+/// "Show it" in a pop-out whose owning window was closed while its team
+/// still runs there.
+#[tauri::command]
+pub async fn team_watch_show_owner(caller: Webview) -> Result<(), String> {
+    if !is_team_watch_label(caller.label()) {
+        return Err("Only a team panel can show its window".into());
+    }
+    let app = caller.app_handle().clone();
+    on_main(&app, move || {
+        let app = caller.app_handle();
+        let owner = with_state(app, |entries| {
+            Ok(entries
+                .get(caller.label())
+                .map(|pop| (pop.owner_window.clone(), pop.owner_closed)))
+        })?;
+        match owner {
+            None => Err("This team panel is closed".into()),
+            Some((_, true)) => Err("This team's window was closed.".into()),
+            Some((window, false)) => {
+                show_owner_window(app, &window);
+                Ok(())
+            }
+        }
+    })
+    .await
+}
+
+/// The owning window was hidden by a close while its chats run, or shown
+/// again: its pop-outs say so, or stop saying so.
+pub fn owner_visibility(app: &AppHandle, owner_window: &str, hidden: bool) {
+    let changed = with_state(app, |entries| {
+        Ok(set_owner_hidden(entries, owner_window, hidden))
+    })
+    .unwrap_or_default();
+    for (label, state) in changed {
+        let _ = app.emit_to(EventTarget::webview(label), STATE_EVENT, state);
+    }
+}
+
+/// Marks `owner_window`'s pop-outs hidden or shown, returning each one that
+/// changed with the state its page should now show.
+fn set_owner_hidden(
+    entries: &mut HashMap<String, PopOut>,
+    owner_window: &str,
+    hidden: bool,
+) -> Vec<(String, Value)> {
+    entries
+        .iter_mut()
+        .filter(|(_, pop)| {
+            pop.owner_window == owner_window && !pop.owner_closed && pop.owner_hidden != hidden
+        })
+        .map(|(label, pop)| {
+            pop.owner_hidden = hidden;
+            pop.revision += 1;
+            (label.clone(), pop.display_state())
+        })
+        .collect()
 }
 
 /// The pop-out closes itself; its owner shows the team as a pill again.
@@ -593,6 +670,12 @@ pub fn close_focused(app: &AppHandle) -> bool {
 /// What follows a window going: a pop-out that closed tells its owner, and
 /// an owner that closed tells its pop-outs.
 pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
+    // However a hidden owner comes back (the Dock, a menu, an action), it
+    // is focused once it is on screen again.
+    if matches!(event, WindowEvent::Focused(true)) && !is_team_watch_label(label) {
+        owner_visibility(app, label, false);
+        return;
+    }
     if !matches!(event, WindowEvent::Destroyed) {
         return;
     }
@@ -645,6 +728,7 @@ mod tests {
             snapshot: json!({ "view": null, "theme": {} }),
             revision: 1,
             owner_closed: false,
+            owner_hidden: false,
             shown: false,
             quiet: false,
         }
@@ -837,6 +921,57 @@ mod tests {
         assert_eq!(told[0].1["revision"], json!(2));
         assert!(!entries["team-watch-b"].owner_closed);
         assert!(owner_closed(&mut entries, "main").is_empty());
+    }
+
+    #[test]
+    fn says_when_its_owner_is_hidden_and_back_once_each() {
+        let mut entries = HashMap::new();
+        entries.insert("team-watch-a".to_string(), pop("main", "race:r1"));
+        entries.insert("team-watch-b".to_string(), pop("window-2", "race:r1"));
+        let told = set_owner_hidden(&mut entries, "main", true);
+        assert_eq!(told.len(), 1);
+        assert_eq!(told[0].0, "team-watch-a");
+        assert_eq!(told[0].1["ownerHidden"], json!(true));
+        assert_eq!(told[0].1["ownerClosed"], json!(false));
+        assert_eq!(told[0].1["revision"], json!(2));
+        assert!(!entries["team-watch-b"].owner_hidden);
+        assert!(set_owner_hidden(&mut entries, "main", true).is_empty());
+        let back = set_owner_hidden(&mut entries, "main", false);
+        assert_eq!(back[0].1["ownerHidden"], json!(false));
+        // Once the owner is gone for good, only that is said.
+        set_owner_hidden(&mut entries, "main", true);
+        owner_closed(&mut entries, "main");
+        assert_eq!(
+            entries["team-watch-a"].display_state()["ownerHidden"],
+            json!(false)
+        );
+        assert!(set_owner_hidden(&mut entries, "main", false).is_empty());
+    }
+
+    /// The page's list of actions a pop-out sends, read from its source, is
+    /// exactly the list passed on here: an action added on one side only
+    /// would fail in the pop-out alone.
+    #[test]
+    fn passes_on_exactly_the_actions_the_page_sends() {
+        let source = include_str!("../../src/lib/teamWatch.ts");
+        let start = source
+            .find("export const TEAM_WATCH_ACTION_KINDS")
+            .expect("TEAM_WATCH_ACTION_KINDS is in teamWatch.ts");
+        let list = &source[start..];
+        let list = &list[list.find("= [").unwrap() + 3..list.find("];").unwrap()];
+        let page: Vec<&str> = list
+            .split('"')
+            .enumerate()
+            .filter_map(|(index, part)| (index % 2 == 1).then_some(part))
+            .collect();
+        assert_eq!(page, ACTIONS);
+        for kind in ACTIONS {
+            assert_eq!(validate_action(&json!({ "kind": kind })), Ok(*kind));
+        }
+        assert_eq!(
+            validate_action(&json!({ "kind": "review", "sessionId": "c" })),
+            Ok("review")
+        );
     }
 
     /// The pop-out's capability: it listens for its own events and drags its

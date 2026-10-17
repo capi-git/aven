@@ -357,6 +357,7 @@ pub fn run() {
             team_watch::team_watch_ready,
             team_watch::team_watch_action,
             team_watch::team_watch_dismiss,
+            team_watch::team_watch_show_owner,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
@@ -599,11 +600,13 @@ pub fn run() {
             team_watch::window_event(handle, label, event);
         }
         match event {
+            // A pop-out or panel on screen counts as a visible window, so a
+            // Dock click must also bring back workspaces it would hide.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen {
-                has_visible_windows: false,
+                has_visible_windows,
                 ..
-            } => {
+            } if !has_visible_windows || !window::any_workspace_visible(handle) => {
                 let _ = window::show_hidden_or_open_new(handle);
             }
             tauri::RunEvent::Ready => {

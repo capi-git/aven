@@ -31,6 +31,9 @@ export const TEAM_WATCH_REPLY_EVENT = "team-watch-reply";
 export const TEAM_WATCH_REPLY_MS = 15_000;
 
 export const OWNER_CLOSED_TEXT = "This team's window was closed.";
+/** The owning window was closed while its team still runs there. */
+export const OWNER_HIDDEN_TEXT =
+  "This team's window was closed. The team still runs there.";
 export const NO_ANSWER_TEXT =
   "The window this team runs in didn't answer. Try again there.";
 
@@ -47,6 +50,11 @@ export type TeamWatchWindowState = {
   revision: number;
   /** The owning window closed: nothing here can act any more. */
   ownerClosed: boolean;
+  /**
+   * The owning window was closed while its chats still run, so it is only
+   * hidden: actions still work there, and it can be brought back.
+   */
+  ownerHidden?: boolean;
 };
 
 /** Where the in-window panel sat, so the pop-out opens in its place. */
@@ -71,11 +79,6 @@ export const tauriTeamWatchTransport: TeamWatchTransport = {
       callback(payload as never),
     ),
 };
-
-/** Whether this platform can pop a team out (macOS only for now). */
-export function canPopOut(platformIsMac: boolean): boolean {
-  return platformIsMac;
-}
 
 // --- The owning window -------------------------------------------------------------
 
@@ -137,6 +140,8 @@ export type TeamWatchWindow = {
   send(action: TeamWatchAction): Promise<string | null>;
   /** Close this window; the team goes back to its owner as a pill. */
   dismiss(): Promise<void>;
+  /** Bring back the owning window, closed while its team still runs. */
+  showOwner(): Promise<void>;
   /** Stop listening for replies. */
   dispose(): void;
 };
@@ -207,6 +212,7 @@ export function teamWatchWindow(
       });
     },
     dismiss: () => transport.invoke("team_watch_dismiss"),
+    showOwner: () => transport.invoke("team_watch_show_owner"),
     dispose: () => {
       settleAll(NO_ANSWER_TEXT);
       void replies.then((stop) => stop());

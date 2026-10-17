@@ -343,6 +343,22 @@ describe("an orchestration in the team panel", () => {
     expect(orchestrator.start).toHaveBeenCalledWith("lead", ["codex"], 2);
   });
 
+  it("never resumes a run that ended while its panel still showed Resume", async () => {
+    store.runs = [
+      run({ status: "paused", tasks: [task("a", { status: "cancelled" })] }),
+    ];
+    live.set([chat("lead"), worker("a")]);
+    await mount();
+    await act(async () => panel.open("orchestrate:lead"));
+    // Finished in another window; this panel has not heard yet.
+    store.runs = [{ ...store.runs[0], status: "finished" }];
+    await press("Resume");
+    expect(orchestrator.start).not.toHaveBeenCalled();
+    expect(words(view()!.querySelector(".team-watch-problem"))).toBe(
+      "This run isn't paused any more.",
+    );
+  });
+
   it("offers Finish run once the lead stops without finishing", async () => {
     vi.useFakeTimers();
     store.runs = [
