@@ -1,5 +1,5 @@
-/* Where a discussion landed: a card after its closing note, in full on the
-   discussion's page and compact in the transcript of the chat that started
+/* Where a discussion landed: a card after its closing note, in full in the
+   discussion's panel and compact in the transcript of the chat that started
    it. */
 .discussion-wrapup {
   display: flex;

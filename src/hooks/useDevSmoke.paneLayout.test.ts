@@ -10,12 +10,12 @@ import { paneLayoutProblem } from "./useDevSmoke";
 
 type Box = { left: number; top: number; width: number; height: number };
 
-/** A tab holding a chat beside a discussion's page, measured as on screen. */
+/** A tab holding a chat beside a file, measured as on screen. */
 function layout({
   controlsInRow = false,
   radius = "12px",
   inset = 5,
-  pageTabHeight = 26,
+  fileTabHeight = 26,
 } = {}) {
   document.body.innerHTML = `
     <div data-workspace-stage>
@@ -30,8 +30,8 @@ function layout({
         </div>
         <div data-pane-id="files">
           <div class="aven-surface-tabs"><button class="aven-tab-button"
-            data-page-tab style="border-top-left-radius:6px"></button></div>
-          <div data-discussion-view="d"></div>
+            data-file-tab style="border-top-left-radius:6px"></button></div>
+          <div data-file-body></div>
         </div>
       </div>
       <div data-workspace-header="tab"><button class="aven-tab-button"
@@ -68,11 +68,11 @@ function layout({
     width: 200,
     height: 26,
   });
-  at("[data-page-tab]", {
+  at("[data-file-tab]", {
     left: 513,
     top: 41,
     width: 200,
-    height: pageTabHeight,
+    height: fileTabHeight,
   });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
@@ -85,7 +85,7 @@ function layout({
   ) {
     return [this.getBoundingClientRect()] as unknown as DOMRectList;
   });
-  return document.querySelector<HTMLElement>("[data-discussion-view]")!;
+  return document.querySelector<HTMLElement>("[data-file-body]")!;
 }
 
 afterEach(() => {
@@ -98,7 +98,7 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one bar per pane; cards with 12px corners 5px from the edge; chat and page tabs 26px tall, 6px corners",
+      "one bar per pane; cards with 12px corners 5px from the edge; chat and file tabs 26px tall, 6px corners",
     );
   });
 
@@ -112,8 +112,8 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ inset: 0 })).problem).toBe(
       "the card is 0px from the workspace edge",
     );
-    expect(paneLayoutProblem(layout({ pageTabHeight: 32 })).problem).toBe(
-      "the chat's tab is 26px tall, 6px corners and the page's is 32px tall, 6px corners",
+    expect(paneLayoutProblem(layout({ fileTabHeight: 32 })).problem).toBe(
+      "the chat's tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
     );
   });
 });

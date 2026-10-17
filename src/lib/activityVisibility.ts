@@ -2,9 +2,10 @@ import { leafIds, type WorkspaceTab } from "./layout";
 
 /**
  * Both split levels matter: a retained offscreen tab or floating placeholder
- * is not a transcript. A discussion shows its partner's replies in the chat
- * that started it (`companions`: that chat → its partners), and its page
- * shows both chats', so either on screen counts as showing those chats.
+ * is not a transcript. A discussion's partner has no tab of its own: the
+ * chat that started it shows its replies on its card (`companions`: that
+ * chat → its partners), and the open discussion panel shows both chats'
+ * (`panel`), so either on screen counts as showing them.
  */
 export function visibleActivitySessionIds({
   workspaceVisible,
@@ -13,6 +14,7 @@ export function visibleActivitySessionIds({
   sessionIds,
   floatingSessionIds,
   companions,
+  panel = [],
 }: {
   workspaceVisible: boolean;
   visibleSurfaceIds: readonly string[];
@@ -20,6 +22,8 @@ export function visibleActivitySessionIds({
   sessionIds: ReadonlySet<string>;
   floatingSessionIds: readonly string[];
   companions?: ReadonlyMap<string, readonly string[]>;
+  /** The chats of the discussion open in this window's panel. */
+  panel?: readonly string[];
 }): Set<string> {
   const visible = new Set<string>();
   if (!workspaceVisible) return visible;
@@ -34,17 +38,8 @@ export function visibleActivitySessionIds({
   };
   for (const tab of tabs) {
     if (!surfaces.has(tab.id)) continue;
-    for (const id of leafIds(tab.layout)) {
-      show(id);
-      const pane = tab.editorPanes.find((entry) => entry.id === id);
-      const page = pane?.files.find(
-        (file) => file.id === pane.activeFileId,
-      )?.discussion;
-      if (page) {
-        show(page.a);
-        show(page.b);
-      }
-    }
+    for (const id of leafIds(tab.layout)) show(id);
   }
+  for (const id of panel) show(id);
   return visible;
 }

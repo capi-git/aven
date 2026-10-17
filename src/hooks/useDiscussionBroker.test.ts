@@ -39,6 +39,9 @@ let notes: { sessionId: string; text: string }[];
 let wrapUps: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
 /** Where they landed, copied into a note once written. */
 let recorded: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Discussions this window started, and those that used up their rounds. */
+let started: string[];
+let endedIds: string[];
 /** The other chat's last reply, copied into the starting chat. */
 let replies: { sessionId: string; text: string; meta: DiscussionRelayMeta }[];
 let host: DiscussionHost;
@@ -128,6 +131,8 @@ function Harness({ initial }: { initial: Session[] }) {
     },
     openPartner: openPartner as never,
     openView,
+    onStarted: (id) => started.push(id),
+    onEnded: (discussion) => endedIds.push(discussion.id),
     focusChat: (sessionId) => focused.push(sessionId),
     summarise,
   });
@@ -180,6 +185,8 @@ beforeEach(() => {
   wrapUps = [];
   recorded = [];
   replies = [];
+  started = [];
+  endedIds = [];
   summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
   openPartner = vi.fn();
@@ -778,6 +785,12 @@ describe("useDiscussionBroker's wrap-up", () => {
     });
   });
 
+  it("opens the panel when one starts, and says so when it used up its rounds", async () => {
+    const id = await complete();
+    expect(started).toEqual([id]);
+    expect(endedIds).toEqual([id]);
+  });
+
   it("copies nothing when the discussion was stopped", async () => {
     await mount([chat("a", "Caching"), chat("b", "Review")]);
     await act(async () => {
@@ -792,6 +805,7 @@ describe("useDiscussionBroker's wrap-up", () => {
     await act(async () => store.stop(store.snapshot()[0].id));
     await finish("b", "Too late.");
     expect(replies).toEqual([]);
+    expect(endedIds).toEqual([]);
   });
 
   it("puts the lists in the note itself when they are written first", async () => {

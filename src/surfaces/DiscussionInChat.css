@@ -1,7 +1,162 @@
-/* A discussion in the chat that started it. The other agent's messages and
-   the round dividers sit in a column with the transcript's own gutters, so
-   the message's side (right for the other agent) comes from the shared
-   discussion styles. */
+/* A discussion in the chat that started it: one live card after the topic.
+   Both mascots sit on tiles tinted with their colours, linked by three
+   dots; the round shows as a live badge, in amber when it needs you. */
+.discussion-card-row {
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}
+.discussion-card {
+  --discussion-voice: var(--color-content);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 680px;
+  padding: 12px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 12px;
+  background: var(
+    --aven-glass-card,
+    color-mix(in srgb, var(--color-content) 4%, transparent)
+  );
+  color: var(--color-content);
+}
+.discussion-card[data-state="needs-you"] {
+  border-color: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 45%,
+    transparent
+  );
+}
+.discussion-card-duo {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+.discussion-card-tile .discussion-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+.discussion-card-link {
+  width: 18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.discussion-card[data-state="live"] .discussion-card-link {
+  animation: discussion-card-link 1.6s steps(3, end) infinite;
+}
+@keyframes discussion-card-link {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+.discussion-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.discussion-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+.discussion-card-title {
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discussion-card-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--discussion-voice) 80%, var(--color-content));
+  white-space: nowrap;
+}
+.discussion-card-badge[data-discussion-card-badge="live"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--discussion-voice);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--discussion-voice) 22%, transparent);
+}
+.discussion-card-badge[data-discussion-card-badge="needs-you"] {
+  color: var(--color-amber-400, #e2a03f);
+}
+.discussion-card-line {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discussion-card-toggle {
+  margin-top: 2px;
+  border-radius: 4px;
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+}
+.discussion-card-toggle:hover {
+  color: var(--color-content);
+}
+.discussion-card-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+.discussion-card-button {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 7px;
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 7%, transparent)
+  );
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+  white-space: nowrap;
+}
+.discussion-card-button:hover {
+  background: var(--aven-hover);
+}
+.discussion-card-button[data-variant="ghost"] {
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.discussion-card-button:focus-visible,
+.discussion-card-toggle:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
+
+/* The other agent's last reply, when the turns are unfolded in the chat. */
 .discussion-chat-messages {
   display: flex;
   flex-direction: column;
@@ -9,65 +164,19 @@
   padding: 4px 16px 10px;
   font-family: var(--font-sans);
 }
-.discussion-chat-messages > .discussion-round {
-  margin: 6px 0 0;
+
+@container (max-width: 520px) {
+  .discussion-card {
+    flex-wrap: wrap;
+  }
+  .discussion-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
-/* This chat's own turns: its mascot and name above, and a quiet rail in its
-   colour in the gutter beside the work and the reply. */
-.discussion-chat-own {
-  --discussion-voice: var(--color-content);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.discussion-chat-own::before {
-  content: "";
-  position: absolute;
-  top: 34px;
-  bottom: 4px;
-  left: 6px;
-  width: 2px;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--discussion-voice) 30%, transparent);
-  pointer-events: none;
-}
-.discussion-chat-speaker {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 6px 16px 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-ui-caption);
-  line-height: 16px;
-}
-.discussion-chat-speaker .discussion-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-}
-.discussion-chat-speaker-name {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: color-mix(in srgb, var(--discussion-voice) 55%, var(--color-content));
-}
-
-/* The end of the chat while it runs: the other agent typing, then what the
-   user added that waits for the next reply. */
-.discussion-chat-tail {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.discussion-chat-note {
-  margin: -12px 16px 10px auto;
-  padding: 0 4px;
-  font-family: var(--font-sans);
-  font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
-  text-align: right;
+@media (prefers-reduced-motion: reduce) {
+  .discussion-card[data-state="live"] .discussion-card-link {
+    animation: none;
+  }
 }

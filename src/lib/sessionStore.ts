@@ -5,7 +5,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
-import { readDiscussionWrapUpMeta } from "./discussions";
+import { discussionStore, readDiscussionWrapUpMeta } from "./discussions";
 import { normalizeProjectPath } from "./recents";
 import type {
   Block,
@@ -399,6 +399,12 @@ export async function deleteSession(sessionId: string): Promise<void> {
     deletedSessionIds.delete(sessionId);
     pendingSessionSnapshots.clear();
     throw error;
+  }
+  // A discussion it started is kept only as long as the chat is.
+  try {
+    discussionStore().forgetChat(sessionId);
+  } catch {
+    // The chat is gone; a discussion left behind only shows as finished.
   }
 }
 

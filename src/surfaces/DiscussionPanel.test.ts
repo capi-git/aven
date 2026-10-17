@@ -18,7 +18,7 @@ vi.mock("./AgentMarkdown", () => ({
   },
 }));
 
-import { DiscussionView } from "./DiscussionView";
+import { DiscussionPanelContent } from "./DiscussionPanel";
 
 const A: DiscussionParty = {
   sessionId: "a",
@@ -81,7 +81,7 @@ function answer(turn: number, reply: string, rounds: number) {
 async function render() {
   await act(async () =>
     root.render(
-      createElement(DiscussionView, {
+      createElement(DiscussionPanelContent, {
         discussionId: "d1",
         a: sessions.a,
         b: sessions.b,
@@ -120,7 +120,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("DiscussionView", () => {
+describe("DiscussionPanelContent", () => {
   it("shows both sides as a conversation with the topic first", async () => {
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     answer(0, "Yes, briefly.", 2);
@@ -138,7 +138,13 @@ describe("DiscussionView", () => {
     expect(cast.textContent).toContain("Claude · Sonnet 5");
     expect(cast.textContent).toContain("Opened the topic");
     expect(cast.textContent).toContain("Codex · GPT-5");
-    expect(cast.textContent).toContain("Responding");
+    // The side answering now glows and says so.
+    expect(cast.textContent).toContain("Replying…");
+    expect(
+      container.querySelector<HTMLElement>(
+        "[data-discussion-cast] [data-speaking]",
+      )?.dataset.side,
+    ).toBe("b");
     const [avatarA, avatarB] = all("[data-discussion-cast] .discussion-avatar");
     expect(avatarA.dataset.mascot).not.toBe(avatarB.dataset.mascot);
     expect(avatarA.style.getPropertyValue("--discussion-voice")).toBe(
@@ -186,9 +192,7 @@ describe("DiscussionView", () => {
     );
     expect(typing.querySelector("svg.mascot-active")).not.toBeNull();
     expect(all("[data-discussion-message] svg.mascot-active")).toHaveLength(0);
-    expect(text("[data-discussion-header] [role='status']")).toBe(
-      "Round 2 of 2 · Codex · GPT-5 is replying…",
-    );
+    expect(text("[data-discussion-cast] [role='status']")).toBe("Round 2 of 2");
   });
 
   it("folds a long reply behind Show more", async () => {
@@ -301,27 +305,6 @@ describe("DiscussionView", () => {
   });
 });
 
-it("takes the keyboard when its pane is focused", async () => {
-  discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
-  const field = document.createElement("textarea");
-  document.body.append(field);
-  field.focus();
-  await act(async () =>
-    root.render(
-      createElement(DiscussionView, {
-        discussionId: "d1",
-        a: sessions.a,
-        b: sessions.b,
-        focused: true,
-      }),
-    ),
-  );
-  expect(document.activeElement).toBe(
-    container.querySelector(".discussion-scroll"),
-  );
-  field.remove();
-});
-
 /** The window that drives discussions; the message box needs one. */
 const HOST: DiscussionHost = {
   options: () => ({ candidates: [] }),
@@ -331,7 +314,7 @@ const HOST: DiscussionHost = {
 async function renderWith(host?: DiscussionHost) {
   await act(async () =>
     root.render(
-      createElement(DiscussionView, {
+      createElement(DiscussionPanelContent, {
         discussionId: "d1",
         a: sessions.a,
         b: sessions.b,
@@ -387,7 +370,7 @@ const order = () =>
             : `${item.dataset.side}: ${item.querySelector("[data-markdown]")?.textContent}`,
   );
 
-describe("DiscussionView: the cast", () => {
+describe("DiscussionPanelContent: the cast", () => {
   it("opens either side's chat from its name or mascot", async () => {
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     const show = vi.fn<(id: string, side: "a" | "b") => void>();
@@ -415,11 +398,11 @@ describe("DiscussionView: the cast", () => {
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     await renderWith(undefined);
     expect(container.querySelector("[data-discussion-party]")).toBeNull();
-    expect(container.querySelectorAll(".discussion-party")).toHaveLength(2);
+    expect(container.querySelectorAll(".discussion-side")).toHaveLength(2);
   });
 });
 
-describe("DiscussionView: jumping in", () => {
+describe("DiscussionPanelContent: jumping in", () => {
   it("sends with Enter, adds a line with Shift+Enter and leaves with Escape", async () => {
     const store = discussionStore();
     store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
@@ -509,7 +492,7 @@ describe("DiscussionView: jumping in", () => {
       "you(queued): And eviction?",
       "typing a",
     ]);
-    expect(text("[data-discussion-header] [role='status']")).toContain(
+    expect(text("[data-discussion-cast] [role='status']")).toContain(
       "Round 2 of 2",
     );
   });
@@ -534,7 +517,7 @@ describe("DiscussionView: jumping in", () => {
   });
 });
 
-describe("DiscussionView: stance and reactions", () => {
+describe("DiscussionPanelContent: stance and reactions", () => {
   it("marks replies that agree or push back, subtly", async () => {
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     answer(0, "Yes, briefly.", 2);
@@ -613,7 +596,7 @@ describe("DiscussionView: stance and reactions", () => {
   });
 });
 
-describe("DiscussionView: where they landed", () => {
+describe("DiscussionPanelContent: where they landed", () => {
   function host() {
     return {
       options: () => ({ candidates: [] }),

@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visibleActivitySessionIds } from "./activityVisibility";
-import {
-  leaf,
-  newDiscussionTab,
-  newFileTab,
-  newTab,
-  openEditorTab,
-  showDiscussionInTabs,
-} from "./layout";
+import { leaf, newTab } from "./layout";
 
 const split = {
   ...newTab("a"),
@@ -67,34 +60,22 @@ describe("Activity transcript visibility", () => {
       ),
     ).toBe(false);
   });
-  it("counts a discussion's page on screen as showing both of its chats", () => {
-    // The page beside "a"; the partner "c" waits in a tab behind it.
-    const page = showDiscussionInTabs(
-      [{ ...newTab("a"), id: "tab1" }, other],
-      newDiscussionTab({
-        id: "d1",
-        topic: "Topic",
-        a: { sessionId: "a", cwd: "/work" },
-        b: { sessionId: "c" },
-      }),
-    )!.tabs;
-    const shown = { ...base, tabs: page, sessionIds: new Set(["a", "c"]) };
-    expect([...visibleActivitySessionIds(shown)].sort()).toEqual(["a", "c"]);
-    // Another file in front of the page in its pane hides it.
-    const covered = page.map((tab) =>
-      tab.id === "tab1"
-        ? openEditorTab(tab, newFileTab("/work/notes.md", "/work"))
-        : tab,
-    );
-    expect([...visibleActivitySessionIds({ ...shown, tabs: covered })]).toEqual(
-      ["a"],
-    );
-    // A page in a tab behind shows nothing.
+  it("counts the open discussion panel as showing both of its chats", () => {
+    const shown = {
+      ...base,
+      sessionIds: new Set(["a", "b", "c", "d"]),
+      panel: ["c", "d"],
+    };
+    expect([...visibleActivitySessionIds(shown)].sort()).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+    // Covered by Home, Settings or a full browser, it shows nothing.
     expect(
-      visibleActivitySessionIds({ ...shown, visibleSurfaceIds: ["tab2"] }).has(
-        "a",
-      ),
-    ).toBe(false);
+      visibleActivitySessionIds({ ...shown, workspaceVisible: false }).size,
+    ).toBe(0);
   });
   it("excludes floating placeholders and editor/terminal leaves", () => {
     expect([

@@ -1,23 +1,23 @@
 /**
- * A discussion as it plays out in the chat that started it (side A).
+ * A discussion in the chat that started it (side A).
  *
- * That chat receives every relay on an even turn, so its transcript already
- * holds the whole conversation: the topic, its own replies, and the other
- * chat's replies as relayed messages, with what the user added kept on each
- * relay (`added`). The other chat's last reply, never relayed, is copied in
- * when the discussion ends (`discussionReply`). Everything here reads one
- * message at a time from its own marks; nothing scans the transcript or the
- * discussion store while it renders.
+ * That chat receives every relay on an even turn, so its transcript holds
+ * the whole conversation: the topic, its own replies, and the other chat's
+ * replies as relayed messages, with what the user added kept on each relay
+ * (`added`). The other chat's last reply, never relayed, is copied in when
+ * the discussion ends (`discussionReply`). The transcript folds that span
+ * into one live card after the topic (`discussionSpans`); everything here
+ * reads each message's own marks, never the discussion store.
  */
-import {
-  speakingSide,
-  type Discussion,
-  type DiscussionParty,
-  type DiscussionSide,
-} from "./discussions";
+import type { DiscussionParty, DiscussionSide } from "./discussions";
 import { discussionVoices, type DiscussionVoice } from "./discussionVoices";
 import { resolveModel } from "./models";
-import type { Block, DiscussionRelayMeta, HarnessId } from "./session";
+import type {
+  Block,
+  DiscussionRelayMeta,
+  DiscussionWrapUpMeta,
+  HarnessId,
+} from "./session";
 
 /**
  * A relayed message in the chat that started the discussion: the topic
@@ -54,7 +54,7 @@ const voiceCache = new WeakMap<
 
 /**
  * Both sides' voices for a relayed message: this chat (A) and the other
- * one (B), with the same mascots the discussion's page uses. Messages from
+ * one (B), with the same mascots the discussion's panel uses. Messages from
  * before both sides were recorded fall back to this chat's own model. The
  * same object for the same message, so components keyed on it stay put.
  */
@@ -89,40 +89,64 @@ export function relayVoices(
 }
 
 /**
- * The last relay the starting chat has received: the turn its latest relay
- * carried. A discussion that used up its rounds counts its copied-in last
- * reply as one more.
+ * A discussion's span in the chat that started it: the turns from its topic
+ * (or, for a discussion continued after something else, its next relay) to
+ * its closing note, which fold into one card.
  */
-export function lastStartingChatRelay(discussion: Discussion): number {
-  const { settled } = discussion;
-  if (discussion.status === "ended" && discussion.ended?.kind === "completed")
-    return settled;
-  if (speakingSide(discussion) === "a")
-    return discussion.delivered ? settled : settled - 2;
-  return settled - 1;
-}
-
-export type PendingJumpIn = {
+export type DiscussionSpan = {
+  /** Stable while the span grows: the discussion and its first turn. */
+  key: string;
   id: string;
-  text: string;
-  /** Waiting for a relay, or never passed on because it ended first. */
-  state: "queued" | "unsent";
+  /** The relay that opens the span. */
+  meta: DiscussionRelayMeta;
+  /** Turn indexes, inclusive. */
+  start: number;
+  end: number;
+  /** It opens with the topic, which stays shown as the user's message. */
+  topic: boolean;
+  /** The closing note's wrap-up, once it ended after its rounds. */
+  closing?: DiscussionWrapUpMeta;
 };
 
 /**
- * What the user added that the starting chat does not show yet: a message
- * appears there with the relay that carries it to that chat (on the turn
- * it was added for, or the next one), so until then it waits at the end of
- * the transcript.
+ * The discussion spans in a chat's turns, by each turn index they cover. A
+ * span is a run of turns each opened by a relay of the same discussion to
+ * this chat; anything else the chat did in between ends it. Linear in the
+ * turns, and only a span's last turn is read for its closing note.
  */
-export function pendingJumpIns(discussion: Discussion): PendingJumpIn[] {
-  const shown = lastStartingChatRelay(discussion);
-  const ended = discussion.status === "ended";
-  return (discussion.interjections ?? [])
-    .filter((entry) => entry.turn + (entry.turn % 2) > shown)
-    .map((entry) => ({
-      id: entry.id,
-      text: entry.text,
-      state: ended ? "unsent" : "queued",
-    }));
+export function discussionSpans(
+  turns: readonly (readonly Block[])[],
+  userBlock: (turn: readonly Block[]) => Block | undefined,
+): Map<number, DiscussionSpan> {
+  const spans = new Map<number, DiscussionSpan>();
+  let current: DiscussionSpan | null = null;
+  const close = () => {
+    if (!current) return;
+    for (const block of turns[current.end]) {
+      const end = block.role === "system" ? block.discussionEnd : undefined;
+      if (end?.id === current.id) current.closing = end;
+    }
+    for (let index = current.start; index <= current.end; index += 1)
+      spans.set(index, current);
+    current = null;
+  };
+  turns.forEach((turn, index) => {
+    const meta = startingChatRelay(userBlock(turn));
+    if (current && meta?.id === current.id && index === current.end + 1) {
+      current.end = index;
+      return;
+    }
+    close();
+    if (meta)
+      current = {
+        key: `${meta.id}:${index}`,
+        id: meta.id,
+        meta,
+        start: index,
+        end: index,
+        topic: meta.turn === 0,
+      };
+  });
+  close();
+  return spans;
 }

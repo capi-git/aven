@@ -7,12 +7,21 @@ import { DiscussionOpenContext } from "./DiscussionRelayCard";
 import { DiscussionWrapUpCard, WrapUpLists } from "./DiscussionWrapUp";
 
 /**
- * Has a chat build what a discussion landed on, as the page's buttons do.
+ * Has a chat build what a discussion landed on, as the panel's buttons do.
  * Provided by chat panes in a window that drives discussions; absent
  * elsewhere, where the card has no buttons.
  */
 export const DiscussionBuildContext =
   createContext<DiscussionHost["build"]>(undefined);
+
+/**
+ * The window's discussions, for a discussion's card in the chat that
+ * started it: watch it, open the chat it waits for. Absent where the window
+ * can't act on discussions.
+ */
+export const DiscussionHostContext = createContext<DiscussionHost | undefined>(
+  undefined,
+);
 
 /**
  * Gives a chat's transcript the window's discussion actions: relay cards
@@ -27,11 +36,13 @@ export function DiscussionActions({
   children?: ReactNode;
 }) {
   return (
-    <DiscussionOpenContext.Provider value={host?.open}>
-      <DiscussionBuildContext.Provider value={host?.build}>
-        {children}
-      </DiscussionBuildContext.Provider>
-    </DiscussionOpenContext.Provider>
+    <DiscussionHostContext.Provider value={host}>
+      <DiscussionOpenContext.Provider value={host?.open}>
+        <DiscussionBuildContext.Provider value={host?.build}>
+          {children}
+        </DiscussionBuildContext.Provider>
+      </DiscussionOpenContext.Provider>
+    </DiscussionHostContext.Provider>
   );
 }
 

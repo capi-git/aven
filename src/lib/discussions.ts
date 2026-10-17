@@ -19,7 +19,7 @@
  * user's own follow-ups and never steers a running turn.
  *
  * Jumping in: the user can add a message for both chats from the
- * discussion's page. It is stored with the discussion as an interjection
+ * discussion's panel or the starting chat's message box. It is stored with the discussion as an interjection
  * tied to the first turn whose relay has not been sent yet, and rides two
  * relays: that turn's, to the chat speaking next, and the following one, to
  * its partner. Both chats therefore see it exactly once, in order, without
@@ -45,11 +45,6 @@ export const DISCUSSION_MAX_ROUNDS = 6;
 export const DISCUSSION_DEFAULT_ROUNDS = 3;
 /** Longest reply relayed as is; longer replies are shortened, with a note. */
 export const RELAY_CHAR_LIMIT = 8_000;
-/**
- * Finished discussions each window keeps, so their conversation page still
- * shows who took part and how it ended. Their replies stay in the two chats.
- */
-export const DISCUSSION_HISTORY_LIMIT = 20;
 /**
  * Rounds a discussion can reach by continuing it from its page. Starting one
  * offers up to `DISCUSSION_MAX_ROUNDS`.
@@ -85,7 +80,7 @@ export type DiscussionEnding = {
 };
 
 /**
- * A message the user added for both chats from the discussion's page. It is
+ * A message the user added for both chats during a discussion. It is
  * not in either transcript the way replies are, so it is kept here.
  */
 export type DiscussionInterjection = {
@@ -560,7 +555,7 @@ export function resumeDiscussion(
 }
 
 /**
- * What sending a message from the discussion's page does now:
+ * What sending a message to both chats does now:
  * - `queue`: it goes with the next relay; the turn under way is left alone.
  * - `resume`: the paused discussion continues, with the message.
  * - `extend`: the last reply is under way, so one more round carries it.
@@ -1323,8 +1318,15 @@ export class DiscussionStore {
       // A summary under way when the window went is written again, once.
       if (discussion.summary?.status === "running") {
         changed = true;
-        return { ...discussion, summary: { status: "pending" } };
+        discussion = { ...discussion, summary: { status: "pending" } };
       }
+      // Finished ones an earlier version kept carry fields they no longer need.
+      if (isHistory(discussion)) {
+        const kept = compactHistory(discussion, discussion.updatedAt);
+        if (JSON.stringify(kept) !== JSON.stringify(discussion)) changed = true;
+        return kept;
+      }
+      if (discussion.summary?.status === "pending") return discussion;
       if (discussion.status !== "active") return discussion;
       changed = true;
       return pauseDiscussion(discussion, RELOAD_REASON, this.now());
@@ -1571,9 +1573,11 @@ export class DiscussionStore {
   }
 
   /**
-   * Both notes posted: the discussion is finished. It stays as history (its
-   * conversation page reads it), without the relay it no longer needs, and
-   * only the newest `DISCUSSION_HISTORY_LIMIT` of this window's are kept.
+   * Both notes posted: the discussion is finished. It stays as history for
+   * as long as the chat that started it exists (`forgetChat`), so its card
+   * and panel can always be opened again. The record stays small: replies
+   * are read from the chats' transcripts, so only who took part, the topic,
+   * what the user added, how it ended and where they landed are kept.
    */
   notePosted(id: string, side: DiscussionSide) {
     const current = this.get(id);
@@ -1587,25 +1591,31 @@ export class DiscussionStore {
       this.remove(id);
       return;
     }
-    const finished: Discussion = {
-      ...current,
-      notes: [],
-      relay: "",
-      updatedAt: Math.max(this.now(), current.updatedAt),
-    };
-    delete finished.truncated;
-    const list = this.list.map((discussion) =>
-      discussion.id === id ? finished : discussion,
+    this.commit(
+      this.list.map((discussion) =>
+        discussion.id === id
+          ? compactHistory(current, Math.max(this.now(), current.updatedAt))
+          : discussion,
+      ),
     );
-    const history = list
-      .filter((discussion) => this.owns(discussion) && isHistory(discussion))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    const dropped = new Set(
-      history
-        .slice(DISCUSSION_HISTORY_LIMIT)
-        .map((discussion) => discussion.id),
-    );
-    this.commit(list.filter((discussion) => !dropped.has(discussion.id)));
+  }
+
+  /**
+   * A chat was deleted. A discussion it started goes with it, wherever it
+   * is driven; one it only answered in is stopped while it runs, and kept
+   * once finished, since the chat that started it holds the replies.
+   */
+  forgetChat(sessionId: string) {
+    for (const discussion of [...this.list]) {
+      if (discussion.a.sessionId === sessionId) {
+        this.adopt(discussion.id);
+        this.remove(discussion.id);
+      } else if (
+        discussion.b.sessionId === sessionId &&
+        discussion.status !== "ended"
+      )
+        this.stop(discussion.id);
+    }
   }
 
   remove(id: string) {
@@ -1706,9 +1716,24 @@ export class DiscussionStore {
   }
 }
 
-/** Finished, with both closing notes posted: kept only for its page. */
+/** Finished, with both closing notes posted: kept only to be shown again. */
 export function isHistory(discussion: Discussion): boolean {
   return discussion.status === "ended" && (discussion.notes ?? []).length === 0;
+}
+
+/** A finished discussion as it is kept: without what only a running one needs. */
+function compactHistory(discussion: Discussion, now: number): Discussion {
+  const kept: Discussion = {
+    ...discussion,
+    notes: [],
+    relay: "",
+    delivered: false,
+    updatedAt: now,
+  };
+  delete kept.truncated;
+  delete kept.reason;
+  delete kept.blockedBy;
+  return kept;
 }
 
 /** Another window wrote this discussion as its own, at least as recently. */

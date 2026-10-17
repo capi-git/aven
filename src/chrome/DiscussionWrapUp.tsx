@@ -20,8 +20,8 @@ export type WrapUpSource = Pick<
  * Where a finished discussion landed, after its closing note: what the two
  * agreed on and what is still open, and a button to have either chat build
  * it. Only a discussion that used up its rounds is summed up; a stopped one
- * shows just the buttons. The discussion's page shows it in full; the chat
- * that started it shows it compact, with a link back to the page.
+ * shows just the buttons. The discussion's panel shows it in full; the chat
+ * that started it shows it compact, with a link back to the panel.
  */
 export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   discussion,
@@ -37,7 +37,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   /** A list item on the page; a block of its own in a transcript. */
   as?: "li" | "div";
   compact?: boolean;
-  /** Opens the discussion's page. */
+  /** Opens the discussion's panel. */
   onOpen?: () => void;
 }) {
   const [sent, setSent] = useState<DiscussionSide | null>(null);

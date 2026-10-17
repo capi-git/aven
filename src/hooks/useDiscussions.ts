@@ -92,6 +92,35 @@ export function useDiscussionWrapUp(id: string): DiscussionWrapUpView | null {
   return useSyncExternalStore(store.subscribe, read, read);
 }
 
+/**
+ * Some fields of one discussion, by id, or null once it is gone. The value
+ * changes only when one of `fields` does, so a component that reads a few
+ * of them does not re-render as the rest of that discussion, or any other
+ * discussion, changes. `fields` must be a constant.
+ */
+function useDiscussionFields(
+  id: string,
+  fields: readonly (keyof Discussion)[],
+): Discussion | null {
+  const store = discussionStore();
+  const last = useRef<Discussion | null>(null);
+  const read = useCallback(() => {
+    const next = store.get(id) ?? null;
+    const previous = last.current;
+    if (
+      previous === next ||
+      (previous &&
+        next &&
+        previous.id === next.id &&
+        fields.every((field) => previous[field] === next[field]))
+    )
+      return previous;
+    last.current = next;
+    return next;
+  }, [fields, id, store]);
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
 const CHAT_FIELDS = [
   "status",
   "settled",
@@ -104,27 +133,31 @@ const CHAT_FIELDS = [
 ] as const;
 
 /**
- * One discussion as the chat that started it shows it at its end: who is
- * answering and what the user added. Its value changes only when those do,
- * not as the discussion's other fields or other discussions change.
+ * One discussion as a pill or the panel's frame shows it: who is answering,
+ * the round, and what the user added.
  */
 export function useDiscussionChat(id: string): Discussion | null {
-  const store = discussionStore();
-  const last = useRef<Discussion | null>(null);
-  const read = useCallback(() => {
-    const next = store.get(id) ?? null;
-    const previous = last.current;
-    if (
-      previous === next ||
-      (previous &&
-        next &&
-        CHAT_FIELDS.every((field) => previous[field] === next[field]))
-    )
-      return previous;
-    last.current = next;
-    return next;
-  }, [id, store]);
-  return useSyncExternalStore(store.subscribe, read, read);
+  return useDiscussionFields(id, CHAT_FIELDS);
+}
+
+const CARD_FIELDS = [
+  "status",
+  "settled",
+  "rounds",
+  "relay",
+  "reason",
+  "blockedBy",
+  "ended",
+  "a",
+  "b",
+] as const;
+
+/**
+ * One discussion as its card in the chat that started it shows it: the
+ * round, the latest reply, why it waits, and how it ended.
+ */
+export function useDiscussionCard(id: string): Discussion | null {
+  return useDiscussionFields(id, CARD_FIELDS);
 }
 
 /**

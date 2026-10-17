@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  discussionSpans,
   isDiscussionAside,
-  lastStartingChatRelay,
-  pendingJumpIns,
   relayVoices,
   startingChatRelay,
 } from "./discussionChat";
@@ -10,8 +9,6 @@ import {
   DiscussionStore,
   discussionCompanions,
   keptDiscussionChats,
-  relayBlockMeta,
-  type Discussion,
   type DiscussionParty,
 } from "./discussions";
 import { discussionVoices } from "./discussionVoices";
@@ -54,18 +51,6 @@ function relay(turn: number): DiscussionRelayMeta {
     },
     self: { sessionId: A.sessionId, harness: A.harness, model: A.model },
   };
-}
-
-/** Turn `turn` of a two-round discussion, its relay sent or not. */
-function at(turn: number, delivered: boolean): Discussion {
-  const store = new DiscussionStore(memoryStorage(), "main");
-  store.start({ id: "d1", a: A, b: B, topic: "Cache?", rounds: 2 });
-  for (let settled = 0; settled < turn; settled += 1) {
-    store.markDelivered("d1");
-    store.settle("d1", settled, { status: "completed", text: `r${settled}` });
-  }
-  if (delivered) store.markDelivered("d1");
-  return store.get("d1")!;
 }
 
 describe("a discussion in the chat that started it", () => {
@@ -125,43 +110,55 @@ describe("a discussion in the chat that started it", () => {
     ).toBe("Claude · Sonnet 5");
   });
 
-  it("counts the relays the starting chat has received", () => {
-    expect(lastStartingChatRelay(at(0, false))).toBe(-2);
-    expect(lastStartingChatRelay(at(0, true))).toBe(0);
-    expect(lastStartingChatRelay(at(1, true))).toBe(0);
-    expect(lastStartingChatRelay(at(2, false))).toBe(0);
-    expect(lastStartingChatRelay(at(2, true))).toBe(2);
-    // Ended after its rounds: the copied-in last reply counts.
-    expect(lastStartingChatRelay(at(4, false))).toBe(4);
-  });
-
-  it("keeps what the user added at the end until a relay brings it to this chat", () => {
-    const store = new DiscussionStore(memoryStorage(), "main", () => 1);
-    store.start({ id: "d1", a: A, b: B, topic: "Cache?", rounds: 2 });
-    store.markDelivered("d1");
-    store.settle("d1", 0, { status: "completed", text: "By URL." });
-    store.markDelivered("d1");
-    // B answers; the user adds something: it goes to A with B's reply.
-    store.interject("d1", "Keep it small.");
-    expect(pendingJumpIns(store.get("d1")!)).toEqual([
-      { id: expect.any(String), text: "Keep it small.", state: "queued" },
-    ]);
-    store.settle("d1", 1, { status: "completed", text: "How long?" });
-    // The relay to A carries it, so A's transcript now shows it there.
-    expect(relayBlockMeta(store.get("d1")!).added).toEqual({
-      after: ["Keep it small."],
+  it("finds each discussion's span of turns, from its topic to its end", () => {
+    const user = (id: string, discussion?: DiscussionRelayMeta): Block => ({
+      id,
+      role: "user",
+      text: id,
+      ...(discussion ? { discussion } : {}),
     });
-    store.markDelivered("d1");
-    expect(pendingJumpIns(store.get("d1")!)).toEqual([]);
-    // Added while A answers: it reaches B first, and A with B's next reply.
-    store.interject("d1", "And errors?");
-    expect(pendingJumpIns(store.get("d1")!).map((entry) => entry.text)).toEqual(
-      ["And errors?"],
-    );
-    store.stop("d1");
-    expect(pendingJumpIns(store.get("d1")!)).toEqual([
-      { id: expect.any(String), text: "And errors?", state: "unsent" },
-    ]);
+    const reply = (id: string): Block => ({
+      id,
+      role: "assistant",
+      text: id,
+    });
+    const turns: Block[][] = [
+      [user("before"), reply("before-reply")],
+      [user("topic", relay(0)), reply("a0")],
+      [user("relay2", relay(2)), reply("a2")],
+      [
+        user("relay4", relay(4)),
+        reply("a4"),
+        {
+          id: "note",
+          role: "system",
+          text: "Discussion ended after 2 rounds.",
+          discussionEnd: { id: "d1", settled: 4 },
+        },
+      ],
+      [user("build"), reply("built")],
+      // Continued after something else: a span of its own, without a topic.
+      [user("relay6", { ...relay(6), rounds: 4 }), reply("a6")],
+      // A relay in the other chat is never folded.
+      [user("partner", relay(1)), reply("b1")],
+    ];
+    const spans = discussionSpans(turns, (turn) => turn[0]);
+    const first = spans.get(1)!;
+    expect(first).toMatchObject({
+      key: "d1:1",
+      id: "d1",
+      start: 1,
+      end: 3,
+      topic: true,
+      closing: { id: "d1", settled: 4 },
+    });
+    expect(spans.get(2)).toBe(first);
+    expect(spans.get(3)).toBe(first);
+    expect(spans.has(0)).toBe(false);
+    expect(spans.has(4)).toBe(false);
+    expect(spans.get(5)).toMatchObject({ start: 5, end: 5, topic: false });
+    expect(spans.get(5)?.closing).toBeUndefined();
+    expect(spans.has(6)).toBe(false);
   });
 });
 

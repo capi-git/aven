@@ -89,14 +89,9 @@ import {
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
-import {
-  DiscussionChatRound,
-  DiscussionChatTail,
-  DiscussionOwnTurn,
-  DiscussionPartnerReply,
-} from "./DiscussionInChat";
+import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
-import { isDiscussionAside, startingChatRelay } from "../lib/discussionChat";
+import { discussionSpans, isDiscussionAside } from "../lib/discussionChat";
 import "./AgentTranscript.css";
 import {
   activityPhaseTitle,
@@ -519,26 +514,20 @@ function AgentTranscriptComponent({
   }, [followTranscript, rememberScroll, scrollerEl, settleOpened, visible]);
 
   const turns = groupTurns(blocks, managed);
-  // While a discussion this chat started runs, its end shows the other
-  // agent typing and what the user added: read from the last turn only.
-  const discussionTail =
-    startingChatRelay(turnUserBlock(turns[turns.length - 1] ?? [], managed))
-      ?.id ?? null;
-  const tailStickyIndex = turns.length + 1;
-  const renderJumpIn = useCallback(
-    (key: string, text: string, note: string) => (
-      <div key={key} data-discussion-jump-in={key}>
-        <AddedMessage
-          id={key}
-          text={text}
-          layout={transcriptLayout}
-          stickyIndex={tailStickyIndex}
-          cwd={cwd}
-        />
-        <p className="discussion-chat-note">{note}</p>
-      </div>
-    ),
-    [cwd, tailStickyIndex, transcriptLayout],
+  // In the chat that started a discussion, its turns fold into one card
+  // after the topic; "Show in chat" unfolds them.
+  const spans = discussionSpans(turns, (turn) => turnUserBlock(turn, managed));
+  const [shownSpans, setShownSpans] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleSpan = useCallback(
+    (key: string) =>
+      setShownSpans((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      }),
+    [],
   );
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
@@ -612,13 +601,61 @@ function AgentTranscriptComponent({
           </div>
         ) : null}
         {visibleTurns.map((turn, turnIndex) => {
-          const isLastTurn = firstVisibleTurn + turnIndex === turns.length - 1;
+          const turnAt = firstVisibleTurn + turnIndex;
+          const isLastTurn = turnAt === turns.length - 1;
           const userBlock = turnUserBlock(turn, managed);
+          const span = spans.get(turnAt);
+          const card = span ? (
+            <DiscussionCard
+              key="discussion-card"
+              id={span.id}
+              meta={span.meta}
+              spanKey={span.key}
+              expanded={shownSpans.has(span.key)}
+              onToggle={toggleSpan}
+              harness={harness}
+              model={model}
+            />
+          ) : null;
+          if (span && !shownSpans.has(span.key)) {
+            // Folded: the topic, the card, and where they landed.
+            if (turnAt !== span.start) return null;
+            const live = span.end === turns.length - 1;
+            return (
+              <div
+                key={turn[0].id}
+                data-discussion-span={span.id}
+                className={`transcript-turn flex min-w-0 flex-col${
+                  live ? " transcript-turn-live" : ""
+                }${
+                  promptAnchor && anchorTurn && live
+                    ? " transcript-turn-anchor"
+                    : ""
+                }`}
+              >
+                {span.topic && userBlock ? (
+                  <div className="flow-root pb-1">
+                    <TranscriptBlock
+                      block={userBlock}
+                      layout={transcriptLayout}
+                      stickyIndex={turnAt + 1}
+                      cwd={cwd}
+                      onOpenFile={onOpenFile}
+                      planHarness={harness}
+                      planModel={model}
+                    />
+                  </div>
+                ) : null}
+                {card}
+                {span.closing ? (
+                  <DiscussionWrapUpNote meta={span.closing} />
+                ) : null}
+              </div>
+            );
+          }
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
           const proposals = turn.filter((block) => block.orchestration);
-          // In the chat that started a discussion, this chat's turn in it.
-          const speaker = startingChatRelay(userBlock);
           // The other agent's last reply and the closing note end a
           // discussion after the turn's own footer.
           const asides = turn.filter(isDiscussionAside);
@@ -845,24 +882,12 @@ function AgentTranscriptComponent({
                   : ""
               }`}
             >
-              {speaker ? (
-                <>
-                  {rows[0]}
-                  <DiscussionOwnTurn
-                    meta={speaker}
-                    harness={harness}
-                    model={model}
-                  >
-                    {rows.slice(1)}
-                    {footer}
-                  </DiscussionOwnTurn>
-                </>
-              ) : (
-                <>
-                  {rows}
-                  {footer}
-                </>
-              )}
+              {span && turnAt === span.start
+                ? span.topic
+                  ? [rows[0], card, ...rows.slice(1)]
+                  : [card, ...rows]
+                : rows}
+              {footer}
               {asides.map((block) => (
                 <div
                   key={block.id}
@@ -883,9 +908,6 @@ function AgentTranscriptComponent({
             </div>
           );
         })}
-        {discussionTail ? (
-          <DiscussionChatTail id={discussionTail} renderJumpIn={renderJumpIn} />
-        ) : null}
       </div>
       {onAddToChat ? (
         <TranscriptSelectionMenu
@@ -1162,20 +1184,6 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planModel?: string;
 }) {
   if (block.role === "user") {
-    const relay = startingChatRelay(block);
-    if (relay)
-      return (
-        <DiscussionRelayRows
-          block={block}
-          meta={relay}
-          layout={layout}
-          stickyIndex={stickyIndex}
-          cwd={cwd}
-          harness={planHarness}
-          model={planModel}
-          onOpenFile={onOpenFile}
-        />
-      );
     return (
       <UserMessageBlock
         block={block}
@@ -1309,114 +1317,16 @@ const TranscriptBlock = memo(function TranscriptBlock({
   );
 });
 
-/**
- * A relayed message in the chat that started a discussion: the topic as the
- * user's own message, or the other agent's reply as its message on the
- * right, with what the user added around it as their own messages, and the
- * divider of the round it opens.
- */
-function DiscussionRelayRows({
-  block,
-  meta,
-  layout,
-  stickyIndex,
-  cwd,
-  harness,
-  model,
-  onOpenFile,
-}: {
-  block: Block;
-  meta: DiscussionRelayMeta;
-  layout: TranscriptLayout;
-  stickyIndex: number;
-  cwd?: string;
-  harness?: HarnessId;
-  model?: string;
-  onOpenFile?: (path: string) => void;
-}) {
-  const added = (when: "before" | "after") =>
-    (meta.added?.[when] ?? []).map((text, index) => (
-      <AddedMessage
-        key={`${when}-${index}`}
-        id={`${block.id}:${when}:${index}`}
-        text={text}
-        layout={layout}
-        stickyIndex={stickyIndex}
-        cwd={cwd}
-      />
-    ));
-  if (meta.turn === 0)
-    return (
-      <>
-        <UserMessageBlock
-          block={block}
-          layout={layout}
-          stickyIndex={stickyIndex}
-          cwd={cwd}
-        />
-        <DiscussionChatRound meta={meta} />
-        {added("after")}
-      </>
-    );
-  return (
-    <div data-prompt-anchor={block.id} data-discussion-relay-turn={meta.turn}>
-      {added("before")}
-      {meta.replyShown || !block.text.trim() ? null : (
-        <DiscussionPartnerReply
-          meta={meta}
-          text={block.text}
-          arrivedAt={block.startedAt}
-          harness={harness}
-          model={model}
-          cwd={cwd ?? ""}
-          onOpenFile={onOpenFile}
-        />
-      )}
-      <DiscussionChatRound meta={meta} />
-      {added("after")}
-    </div>
-  );
-}
-
-/** Something the user added to a discussion, as their own message. */
-function AddedMessage({
-  id,
-  text,
-  layout,
-  stickyIndex,
-  cwd,
-}: {
-  id: string;
-  text: string;
-  layout: TranscriptLayout;
-  stickyIndex: number;
-  cwd?: string;
-}) {
-  const block = useMemo<Block>(() => ({ id, role: "user", text }), [id, text]);
-  return (
-    <UserMessageBlock
-      block={block}
-      layout={layout}
-      stickyIndex={stickyIndex}
-      cwd={cwd}
-      anchor={false}
-    />
-  );
-}
-
 function UserMessageBlock({
   block,
   layout,
   stickyIndex,
   cwd,
-  anchor = true,
 }: {
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
   cwd?: string;
-  /** Listed in the prompt outline; not for messages that are not blocks. */
-  anchor?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -1426,7 +1336,11 @@ function UserMessageBlock({
   const note = block.noteCard;
   const relay = block.discussion;
   const text =
-    card && card.kind !== "handoff" ? "" : visibleUserPrompt(block.text);
+    card && card.kind !== "handoff"
+      ? ""
+      : visibleUserPrompt(
+          relay?.added ? withAdded(block.text, relay) : block.text,
+        );
   const chat = layout === "chat";
   const textOnly =
     Boolean(text) && !block.attachments?.length && !card && !note && !relay;
@@ -1477,7 +1391,7 @@ function UserMessageBlock({
 
   return (
     <div
-      data-prompt-anchor={anchor ? block.id : undefined}
+      data-prompt-anchor={block.id}
       data-message-layout={layout}
       className={`personal-user-message ${
         chat ? "flex justify-end pt-1.5 pr-4 pb-4 pl-14" : "p-1.5 pb-3"
@@ -1538,6 +1452,20 @@ function UserMessageBlock({
       </div>
     </div>
   );
+}
+
+/**
+ * A relayed message in the chat that started a discussion keeps the reply
+ * alone, with what the user added beside it: shown together, in the order
+ * the agent read them.
+ */
+function withAdded(text: string, relay: DiscussionRelayMeta): string {
+  const added = (entry: string) => `You added: ${entry}`;
+  return [
+    ...(relay.added?.before ?? []).map(added),
+    ...(text ? [text] : []),
+    ...(relay.added?.after ?? []).map(added),
+  ].join("\n\n");
 }
 
 /**
@@ -2681,7 +2609,10 @@ function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
   return turnUserBlock(blocks, managed)?.id;
 }
 
-function turnUserBlock(blocks: Block[], managed = false): Block | undefined {
+function turnUserBlock(
+  blocks: readonly Block[],
+  managed = false,
+): Block | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
     if (block.role === "user" && (managed || !block.internal)) return block;

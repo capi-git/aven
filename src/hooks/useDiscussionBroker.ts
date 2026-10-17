@@ -125,6 +125,10 @@ type Options = {
    * focused: the bar's and the wrap-up's Open discussion, and relay cards.
    */
   openView?: (id: string) => void;
+  /** A discussion started here: open its panel, or a pill. */
+  onStarted?: (id: string) => void;
+  /** A discussion used up its rounds: where they landed is on its way. */
+  onEnded?: (discussion: Discussion) => void;
   store?: DiscussionStore;
 };
 
@@ -175,6 +179,8 @@ export function useDiscussionBroker({
   postReply,
   openPartner,
   openView,
+  onStarted,
+  onEnded,
   focusChat,
   summarise = runDiscussionWrapUp,
   store: given,
@@ -193,6 +199,8 @@ export function useDiscussionBroker({
     postReply,
     openPartner,
     openView,
+    onStarted,
+    onEnded,
     focusChat,
     summarise,
   });
@@ -204,6 +212,8 @@ export function useDiscussionBroker({
     postReply,
     openPartner,
     openView,
+    onStarted,
+    onEnded,
     focusChat,
     summarise,
   };
@@ -248,6 +258,7 @@ export function useDiscussionBroker({
             capped.text,
             finalReplyMeta(ended, capped.truncated, Date.now()),
           );
+        latest.current.onEnded?.(ended);
       }
     },
     [store],
@@ -498,8 +509,9 @@ export function useDiscussionBroker({
             : undefined;
           if (!partner) return "Couldn't open a new chat.";
         }
+        let started: Discussion;
         try {
-          store.start({
+          started = store.start({
             a: discussionParty(source),
             b: discussionParty(partner),
             topic,
@@ -509,7 +521,8 @@ export function useDiscussionBroker({
         } catch (error) {
           return errorText(error);
         }
-        // The discussion plays out in this chat; its page opens on request.
+        // The card in this chat stands for it; its panel opens, or a pill.
+        latest.current.onStarted?.(started.id);
         return null;
       },
       open(id) {

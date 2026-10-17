@@ -5,6 +5,11 @@
  * one place instead of by whichever stray `z-50` was written last.
  */
 export const LAYER = {
+  /**
+   * Floating panels over the workspace, such as a discussion's: above panes,
+   * below every menu and dialog.
+   */
+  floatingPanel: 60,
   /** Anchored menus, dropdowns, and pickers. */
   popover: 80,
   /** A flyout hung off an open popover. */
