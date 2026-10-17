@@ -763,6 +763,13 @@ function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
   return source.worktreeCwd ? { worktreeCwd: source.worktreeCwd } : {};
 }
 
+/** A turn Aven cut short (a quit) that it is about to continue by itself. */
+function willAutoContinue(session: Session | undefined): boolean {
+  return (
+    !!session && canAutoContinue(session) && isLiveHarness(session.harness)
+  );
+}
+
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   if (a.size !== b.size) return false;
   for (const value of a) {
@@ -2434,15 +2441,23 @@ export default function App({
         (race) => race.state === "running" && race.review?.status === "running",
       )
     )
-      void reconcileRaceReviews((id) => sessionById.get(id)).catch((error) =>
-        logError("Race review", error),
-      );
+      void reconcileRaceReviews(
+        (id) => sessionById.get(id),
+        undefined,
+        undefined,
+        undefined,
+        (id) => willAutoContinue(sessionById.get(id)),
+      ).catch((error) => logError("Race review", error));
   }, [sessionById, teamStores.races]);
-  // A lane cut short by a quit or reload reports no ending: record it, so a
-  // window that doesn't hold it stops reading it as working.
+  // A lane cut short by a quit or reload, and not about to carry on,
+  // reports no ending: record it, so a window that doesn't hold it stops
+  // reading it as working.
   useEffect(() => {
     if (teamStores.races.some((race) => race.state === "running"))
-      settleInterruptedLanes(sessions, wasTurnInterrupted);
+      settleInterruptedLanes(
+        sessions,
+        (session) => wasTurnInterrupted(session) && !willAutoContinue(session),
+      );
   }, [sessions, teamStores.races]);
 
   // A finished run's result card: the lead's verdict once its last turn

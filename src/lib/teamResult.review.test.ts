@@ -236,6 +236,76 @@ it("settles a review asked before a reload from what its chat replied", async ()
   });
 });
 
+it("waits for a review cut short by a quit, and reads the pick it goes on to give", async () => {
+  saveRace(
+    race({
+      review: {
+        ...reviewer,
+        role: "reviewer",
+        status: "running",
+        since: 1_000,
+        window: "main",
+      },
+    }),
+  );
+  const cut: Block[] = [
+    { id: "ask", role: "user", text: "Compare them", startedAt: 1_200 },
+    { id: "a", role: "assistant", text: "Lane 1 is shorter, but" },
+    { id: "x", role: "system", text: "Turn interrupted" },
+  ];
+  // Idle after the quit, but about to be continued: left alone.
+  await reconcileRaceReviews(
+    () => ({ busy: false, blocks: cut }),
+    undefined,
+    REVIEW_STALE_MS,
+    "main",
+    () => true,
+  );
+  expect(getRace("r1")?.review?.status).toBe("running");
+  // Continued: the pick after "Continue from where you left off" counts.
+  const continued: Block[] = [
+    ...cut,
+    {
+      id: "c",
+      role: "user",
+      text: "Continue from where you left off.",
+      startedAt: 2_000,
+    },
+    { id: "b", role: "assistant", text: "Winner: 2\nWhy: It adds a test." },
+  ];
+  await reconcileRaceReviews(
+    () => ({ busy: false, blocks: continued }),
+    undefined,
+    REVIEW_STALE_MS,
+    "main",
+  );
+  expect(getRace("r1")?.suggestion).toMatchObject({ status: "done", lane: 1 });
+});
+
+it("leaves another window's review to it, even with a copy of its chat here", async () => {
+  saveRace(
+    race({
+      review: {
+        ...reviewer,
+        role: "reviewer",
+        status: "running",
+        since: 1_000,
+        window: "workspace-2",
+      },
+    }),
+  );
+  await reconcileRaceReviews(
+    () => ({
+      busy: false,
+      blocks: [{ id: "old", role: "user", text: "Earlier", startedAt: 10 }],
+    }),
+    undefined,
+    REVIEW_STALE_MS,
+    "main",
+  );
+  expect(getRace("r1")?.review?.status).toBe("running");
+});
+
 it("fails a review whose comparison never reached its closed chat", async () => {
   saveRace(
     race({

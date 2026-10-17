@@ -35,6 +35,7 @@ import {
   type RaceSuggestion,
 } from "./race";
 import { getSession } from "./sessionStore";
+import { CONTINUE_PROMPT } from "./inFlight";
 import { finalReply } from "./replyText";
 import type { Block, HarnessId, Session } from "./session";
 import type { TeamWorkspace } from "./teamWorkspace";
@@ -451,8 +452,14 @@ export function reviewReply(
       (block.startedAt ?? 0) >= since,
   );
   if (start < 0) return undefined;
+  // "Continue from where you left off" after a quit carries on the same
+  // review; only a message of the user's own starts another turn.
   const next = blocks.findIndex(
-    (block, index) => index > start && block.role === "user" && !block.internal,
+    (block, index) =>
+      index > start &&
+      block.role === "user" &&
+      !block.internal &&
+      block.text.trim() !== CONTINUE_PROMPT,
   );
   return blocks
     .slice(start + 1, next < 0 ? blocks.length : next)
@@ -474,6 +481,8 @@ export async function reconcileRaceReviews(
   load: (id: string) => Promise<readonly Block[]> = savedBlocks,
   now = Date.now(),
   window = thisWindow(),
+  /** The chat's turn was cut short and is about to be continued. */
+  continues: (id: string) => boolean = () => false,
 ): Promise<void> {
   for (const race of listRaces()) {
     const review = race.review;
@@ -481,12 +490,14 @@ export async function reconcileRaceReviews(
     const key = reviewKey(race.id, review);
     if (hearing.has(key) || reconciling.has(key)) continue;
     if (now - review.since < REVIEW_SEND_GRACE_MS) continue;
+    // Another window's review is that window's to settle, even with a copy
+    // of its chat here, which may be stale.
+    if (review.window && review.window !== window) continue;
     const loaded = chat(review.sessionId);
     if (loaded) {
       if (loaded.busy || loaded.queuedMessages?.length) continue;
-    } else if (review.window && review.window !== window) {
-      // Another window's review, with its chat there: that window hears it.
-      continue;
+      // Cut short by a quit, and about to carry on: its pick comes later.
+      if (continues(review.sessionId)) continue;
     }
     // A chat at work stays loaded, so one that is not loaded here is done.
     reconciling.add(key);
