@@ -153,6 +153,12 @@ export type Discussion = {
   summary?: DiscussionSummary;
   /** Development preview: shown only, never relays or persists. */
   preview?: true;
+  /**
+   * Moved here from the window that started it (resumed, stopped or joined
+   * from another window). It never loads a chat that isn't open here: the
+   * window it came from may still hold that chat, and both would save it.
+   */
+  adopted?: true;
   startedAt: number;
   updatedAt: number;
 };
@@ -967,7 +973,7 @@ export function planDiscussions(
       for (const side of discussion.notes ?? []) {
         const chat = discussionParty(discussion, side).sessionId;
         const session = byId.get(chat);
-        if (!session && !unavailable.has(chat)) {
+        if (!session && !unavailable.has(chat) && !discussion.adopted) {
           actions.push({ kind: "load", id, sessionId: chat });
           continue;
         }
@@ -1000,14 +1006,21 @@ export function planDiscussions(
     if (!a || !b) {
       const missing = !a ? discussion.a : discussion.b;
       actions.push(
-        unavailable.has(missing.sessionId)
+        discussion.adopted
           ? {
               kind: "pause",
               id,
-              reason: `“${missing.title}” couldn't be opened. Open it from the sidebar to continue.`,
+              reason: `“${missing.title}” isn't open in this window. Open it here to continue.`,
               blockedBy: missing.sessionId,
             }
-          : { kind: "load", id, sessionId: missing.sessionId },
+          : unavailable.has(missing.sessionId)
+            ? {
+                kind: "pause",
+                id,
+                reason: `“${missing.title}” couldn't be opened. Open it from the sidebar to continue.`,
+                blockedBy: missing.sessionId,
+              }
+            : { kind: "load", id, sessionId: missing.sessionId },
       );
       continue;
     }
@@ -1237,6 +1250,7 @@ export function readDiscussion(value: unknown): Discussion | null {
     ...(status === "ended" ? { notes: notes ?? [] } : {}),
     ...(interjections.length ? { interjections } : {}),
     ...(summary ? { summary } : {}),
+    ...(record.adopted === true ? { adopted: true as const } : {}),
     startedAt: Number(record.startedAt) || 0,
     updatedAt: Number(record.updatedAt) || 0,
   };
@@ -1480,9 +1494,10 @@ export class DiscussionStore {
   adopt(id: string) {
     const current = this.get(id);
     if (!current || this.owns(current)) return;
-    const adopted = {
+    const adopted: Discussion = {
       ...current,
       owner: this.owner,
+      adopted: true,
       updatedAt: Math.max(this.now(), current.updatedAt + 1),
     };
     this.commit(

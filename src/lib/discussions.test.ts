@@ -382,6 +382,37 @@ describe("planning the broker's work", () => {
     ]);
   });
 
+  it("never loads a chat into a window that took the discussion over", () => {
+    // Resumed from a second window: the chat may still be open in the first.
+    expect(
+      planDiscussions(
+        [{ ...fresh(), adopted: true }],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(),
+      ),
+    ).toEqual([
+      {
+        kind: "pause",
+        id: "d1",
+        reason: "“Review” isn't open in this window. Open it here to continue.",
+        blockedBy: "chat-b",
+      },
+    ]);
+    // Taking one over marks it so, and it reads back so.
+    const storage = memoryStorage();
+    const main = new DiscussionStore(storage, "main");
+    main.start({ id: "d2", a: A, b: B, topic: "Cache?", rounds: 1 });
+    main.pause("d2", "Its window reloaded or closed. Resume to continue.");
+    const other = new DiscussionStore(storage, "window-2");
+    other.resume("d2");
+    expect(other.get("d2")).toMatchObject({ owner: "window-2", adopted: true });
+    expect(new DiscussionStore(storage, "window-2").get("d2")?.adopted).toBe(
+      true,
+    );
+  });
+
   it("says when the chat it paused for is free again", () => {
     const paused = pauseDiscussion(
       fresh(),

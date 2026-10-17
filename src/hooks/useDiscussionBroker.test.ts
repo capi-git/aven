@@ -1060,6 +1060,19 @@ describe("useDiscussionBroker's wrap-up", () => {
     expect(focused).toEqual(["b"]);
   });
 
+  it("sends the plan once, however often Build is pressed while it loads", async () => {
+    const id = await complete();
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      await Promise.all([host.build!(id, "b"), host.build!(id, "b")]);
+    });
+    expect(messages.map((message) => message.sessionId)).toEqual(["b"]);
+  });
+
   it("says why it can't build when the chat is gone or refuses", async () => {
     const id = await complete();
     await act(async () =>

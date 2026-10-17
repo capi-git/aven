@@ -231,6 +231,8 @@ export function useDiscussionBroker({
   /** Chats being loaded for a discussion, and those that could not be. */
   const loading = useRef(new Set<string>());
   const unavailable = useRef(new Set<string>());
+  /** "Have … build it" sends under way, by discussion and side. */
+  const building = useRef(new Set<string>());
   /** Loads a parked chat once; resolves it, or null when it can't be. */
   const load = useCallback(
     async (sessionId: string): Promise<Session | null> => {
@@ -609,23 +611,33 @@ export function useDiscussionBroker({
         const discussion = store.get(id);
         if (!discussion) return "This discussion is no longer available.";
         const party = partyOf(discussion, side);
-        // A new partner has no tab, and is parked once the discussion ends.
-        const session = await load(party.sessionId);
-        if (!session) return `Couldn't open “${party.title}”.`;
-        const { onSubmit, focusChat } = latest.current;
-        focusChat?.(session.id);
-        let accepted: void | boolean = false;
+        // A second press while the first loads the chat sends nothing more.
+        const key = `${id}:${side}`;
+        if (building.current.has(key)) return null;
+        building.current.add(key);
         try {
-          accepted = onSubmit(
-            session.id,
-            discussionBuildMessage(discussion, side),
-            [],
-            { followUpBehavior: "queue" },
-          );
-        } catch (error) {
-          logError("Discussion build", error);
+          // A new partner has no tab, and is parked once the discussion ends.
+          const session = await load(party.sessionId);
+          if (!session) return `Couldn't open “${party.title}”.`;
+          const { onSubmit, focusChat } = latest.current;
+          focusChat?.(session.id);
+          let accepted: void | boolean = false;
+          try {
+            accepted = onSubmit(
+              session.id,
+              discussionBuildMessage(discussion, side),
+              [],
+              { followUpBehavior: "queue" },
+            );
+          } catch (error) {
+            logError("Discussion build", error);
+          }
+          return accepted === false
+            ? `Couldn't send to “${party.title}”.`
+            : null;
+        } finally {
+          building.current.delete(key);
         }
-        return accepted === false ? `Couldn't send to “${party.title}”.` : null;
       },
     }),
     [load, store],
