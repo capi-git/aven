@@ -4,15 +4,22 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { HARNESS_TITLE, type Block } from "../lib/session";
-import type {
-  OrchestrationChoice,
-  ProposedTask,
+import {
+  withoutProposedTask,
+  type OrchestrationChoice,
+  type OrchestrationProposal,
+  type ProposedTask,
 } from "../lib/orchestrationPlan";
-import { orchestrator } from "../lib/orchestration";
+import {
+  orchestrator,
+  type OrchestrationRun,
+  type OrchestrationTask,
+} from "../lib/orchestration";
+import { orchestrationStatusWord } from "../lib/orchestrationSummary";
+import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import { resizeComposer } from "../lib/composerResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
@@ -276,24 +283,54 @@ function InstructionsField({
   );
 }
 
+/** A task's write scope as a person reads it: "." is the whole project. */
+export function scopeLabel(path: string): string {
+  return path === "." || path === "./" ? "Whole project" : path;
+}
+
+/** The card's footer: the run's state, or where the plan stands. */
+export function proposalStatusText(
+  proposal: OrchestrationProposal,
+  run: OrchestrationRun | undefined,
+  superseded: boolean,
+): string {
+  if (run) return orchestrationStatusWord(run.status);
+  if (superseded && ["ready", "invalid", "starting"].includes(proposal.status))
+    return "Replaced by a newer plan";
+  return {
+    planning: "",
+    ready: "Waiting for you to confirm",
+    invalid: "",
+    starting: "Starting…",
+    approved: "Started",
+    discarded: "Discarded",
+  }[proposal.status];
+}
+
+const TASK_STATUS: Record<OrchestrationTask["status"], string> = {
+  queued: "Queued",
+  running: "Working",
+  cancelling: "Stopping",
+  completed: "Done",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
 export function OrchestrationPreview({
   block,
   busy,
+  superseded = false,
 }: {
   block: Block;
   busy?: boolean;
+  /** A newer proposal exists in this chat, so this one can no longer start. */
+  superseded?: boolean;
 }) {
   const actions = useContext(OrchestrationActions);
-  const runs = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
-  );
   const proposal = block.orchestration!;
-  const run = runs.find(
-    (entry) =>
-      entry.leadId === proposal.leadId && entry.proposalId === block.id,
-  );
+  // Only this lead's run: other runs' saves do not re-render the card.
+  const leadRun = useOrchestrationRun(proposal.leadId);
+  const run = leadRun?.proposalId === block.id ? leadRun : undefined;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -305,7 +342,13 @@ export function OrchestrationPreview({
         .catch((reason: unknown) => setError(String(reason)));
   }, [actions, proposal.leadId]);
   const editable =
-    proposal.status === "ready" && !run && !pending && !busy && !!actions;
+    proposal.status === "ready" &&
+    !superseded &&
+    !run &&
+    !pending &&
+    !busy &&
+    !!actions;
+  const runOpen = run?.status === "active" || run?.status === "paused";
   const planning = proposal.status === "planning";
   const starting = pending || proposal.status === "starting";
   const visible = showAll ? proposal.tasks : proposal.tasks.slice(0, 3);
@@ -328,6 +371,20 @@ export function OrchestrationPreview({
         task.id === id ? { ...task, ...patch } : task,
       ),
     });
+  };
+  const remove = (id: string) => {
+    setError(undefined);
+    try {
+      const tasks = withoutProposedTask(proposal, id);
+      setExpanded((prev) => prev.filter((entry) => entry !== id));
+      actions?.update(proposal.leadId, block.id, { ...proposal, tasks });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  const statusOf = (task: ProposedTask) => {
+    const live = run?.tasks.find((entry) => entry.assignmentId === task.id);
+    return live ? TASK_STATUS[live.status] : undefined;
   };
   const secondary =
     "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-ui-caption text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35";
@@ -372,7 +429,7 @@ export function OrchestrationPreview({
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {!run && proposal.status === "invalid" && (
+          {!run && !superseded && proposal.status === "invalid" && (
             <button
               className={secondary}
               disabled={busy || !actions}
@@ -381,18 +438,31 @@ export function OrchestrationPreview({
               Try again
             </button>
           )}
-          {!run && ["ready", "starting"].includes(proposal.status) && (
+          {editable && actions?.discard && (
             <button
-              className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
-              disabled={!editable}
-              onClick={() =>
-                void perform(() => actions!.confirm(proposal.leadId, block.id))
-              }
+              className={secondary}
+              title="Drop this plan without starting it"
+              onClick={() => actions.discard?.(proposal.leadId, block.id)}
             >
-              <Play className="size-3" strokeWidth={1.75} />
-              {starting ? "Starting…" : "Confirm & start"}
+              Discard plan
             </button>
           )}
+          {!run &&
+            !superseded &&
+            ["ready", "starting"].includes(proposal.status) && (
+              <button
+                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+                disabled={!editable}
+                onClick={() =>
+                  void perform(() =>
+                    actions!.confirm(proposal.leadId, block.id),
+                  )
+                }
+              >
+                <Play className="size-3" strokeWidth={1.75} />
+                {starting ? "Starting…" : "Confirm & start"}
+              </button>
+            )}
           {run && (
             <button
               className={secondary}
@@ -408,6 +478,18 @@ export function OrchestrationPreview({
               }
             >
               View agents
+            </button>
+          )}
+          {runOpen && (
+            <button
+              className={secondary}
+              disabled={pending}
+              title="Stop the lead and every agent in this run"
+              onClick={() =>
+                void perform(() => orchestrator.stopRun(proposal.leadId))
+              }
+            >
+              Stop run
             </button>
           )}
         </div>
@@ -449,6 +531,14 @@ export function OrchestrationPreview({
                       {task.title}
                     </span>
                   </button>
+                  {statusOf(task) && (
+                    <span
+                      className="shrink-0 text-ui-caption text-content/50"
+                      data-orchestration-task-status
+                    >
+                      {statusOf(task)}
+                    </span>
+                  )}
                   <div className="max-w-[60%] min-w-0">
                     {editable ? (
                       <AssignmentModel
@@ -480,6 +570,23 @@ export function OrchestrationPreview({
                       </span>
                     )}
                   </div>
+                  {!!task.files.length && (
+                    <ul
+                      aria-label={`Files for ${task.title}`}
+                      className="flex w-full min-w-0 flex-wrap gap-1 pb-0.5 pl-5.5"
+                    >
+                      {task.files.map((path) => (
+                        <li
+                          key={path}
+                          title={path}
+                          data-orchestration-scope
+                          className="max-w-full truncate rounded bg-content/6 px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
+                        >
+                          {scopeLabel(path)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 {open && (
                   <div className="space-y-2.5 px-3 pb-3 pl-8 text-ui-caption leading-4 text-content/45">
@@ -522,6 +629,21 @@ export function OrchestrationPreview({
                           )
                           .join(", ")}
                       </p>
+                    )}
+                    {editable && (
+                      <button
+                        type="button"
+                        className={`${secondary} -ml-2.5`}
+                        disabled={proposal.tasks.length < 2}
+                        title={
+                          proposal.tasks.length < 2
+                            ? "A plan needs at least one task. Discard the plan instead."
+                            : "Leave this task out. Tasks that waited for it no longer do."
+                        }
+                        onClick={() => remove(task.id)}
+                      >
+                        Remove task
+                      </button>
                     )}
                   </div>
                 )}
@@ -594,14 +716,8 @@ export function OrchestrationPreview({
             )}
             <WorkerHelp />
           </div>
-          <span>
-            {run?.status ??
-              (proposal.status === "approved"
-                ? "Approved"
-                : proposal.status === "ready"
-                  ? "Awaiting confirmation"
-                  : "")}{" "}
-            · Shared project folder
+          <span data-orchestration-status>
+            {proposalStatusText(proposal, run, superseded)}
           </span>
         </div>
       )}

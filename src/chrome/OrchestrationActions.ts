@@ -36,4 +36,8 @@ export const OrchestrationActions = createContext<{
   open(sessionId: string): void;
   /** Open every worker of a run as tabs beside the lead, not sidebar rows. */
   openAgents?(workers: OrchestrationWorkerDetail[]): void;
+  /** A loaded chat's title as the sidebar shows it, to name a run's lead. */
+  title?(sessionId: string): string | undefined;
+  /** Drop a plan that was never started; it stays in the chat, read-only. */
+  discard?(leadId: string, blockId: string): void;
 } | null>(null);

@@ -667,14 +667,19 @@ describe("orchestration composer and card", () => {
     }
     await act(async () => root.render(createElement(Card)));
     expect(container.textContent).toContain("UI worker");
-    // A blocked agent expands itself so its model is visible, but the
-    // approval still belongs to the lead, not to this card.
-    expect(
-      container.querySelector(
-        '[data-orchestration-agent="worker"] [aria-expanded="true"]',
-      ),
-    ).not.toBeNull();
+    // The lead decides: the row says so in a neutral colour, without an
+    // alert mark, and does not unfold itself to get your attention.
+    const row = container.querySelector<HTMLElement>(
+      '[data-orchestration-agent="worker"]',
+    )!;
+    expect(row.dataset.leadDeciding).toBe("true");
+    expect(row.textContent).toContain("Lead deciding");
+    expect(row.querySelector('[aria-expanded="true"]')).toBeNull();
+    expect(row.innerHTML).not.toContain("amber");
+    expect(container.textContent).not.toContain("Needs input");
+    await click(row.querySelector("button")!);
     expect(container.textContent).toContain("Worker Two");
+    expect(container.textContent).toContain("The lead decides.");
     expect(button("Allow")).toBeUndefined();
     expect(button("Deny")).toBeUndefined();
     expect(container.textContent).not.toContain("Which check should I run?");

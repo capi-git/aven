@@ -1,7 +1,11 @@
-import { useContext, useEffect, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import { findModel } from "../lib/models";
 import { orchestrator } from "../lib/orchestration";
 import {
+  orchestrationEnded,
+  orchestrationFoldedLine,
+  orchestrationProgress,
   orchestrationTaskLabel,
   type OrchestrationSummary,
 } from "../lib/orchestrationSummary";
@@ -14,29 +18,38 @@ import { TerminalSpinner } from "./TerminalSpinner";
 export function OrchestrationSidebarAgents({
   leadId,
   summary,
+  endedAt,
+  now = Date.now(),
 }: {
   leadId: string;
   summary: OrchestrationSummary;
+  /** When the lead last did anything; an ended run's folded line dates it. */
+  endedAt?: number;
+  now?: number;
 }) {
   const workers = useContext(OrchestrationWorkers);
-  const runs = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
-  );
+  // Only this lead's run: another run's save does not re-render this card.
+  const run = useOrchestrationRun(leadId);
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
   // Rows expand independently, so several agents can be watched side by side.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  // A run that is over folds to one line until it is opened.
+  const ended = orchestrationEnded(summary);
+  const [unfolded, setUnfolded] = useState(false);
   // Revealing a worker from its toast opens that row without closing others.
   const revealed = workers.selectedId;
+  const tasks = useRef(summary.tasks);
+  tasks.current = summary.tasks;
   useEffect(() => {
-    if (revealed)
-      setExpanded((current) =>
-        current.has(revealed) ? current : new Set(current).add(revealed),
-      );
+    if (!revealed) return;
+    if (tasks.current.some((task) => task.sessionId === revealed))
+      setUnfolded(true);
+    setExpanded((current) =>
+      current.has(revealed) ? current : new Set(current).add(revealed),
+    );
   }, [revealed]);
   const toggle = (sessionId: string, isOpen: boolean) => {
     setExpanded((current) => {
@@ -47,8 +60,6 @@ export function OrchestrationSidebarAgents({
     });
     if (isOpen && revealed === sessionId) workers.inspect(null);
   };
-  // A saved run has no live entry, so the card stays read-only after a reload.
-  const run = runs.find((entry) => entry.leadId === leadId);
   const perform = async (operation: () => Promise<void>) => {
     setPending(true);
     setError(undefined);
@@ -60,24 +71,63 @@ export function OrchestrationSidebarAgents({
       setPending(false);
     }
   };
-  const done = summary.tasks.filter(
-    (task) => task.status === "completed",
-  ).length;
   const action =
     "rounded px-1.5 py-0.5 text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-35";
   // Sits inside an already-lit row, so it needs its own surface to read as a
   // button rather than as another line of text.
   const solidAction =
     "rounded bg-content/15 px-1.5 py-0.5 text-ui-caption text-content/75 hover:bg-content/25 hover:text-content disabled:opacity-35";
+  if (ended && !unfolded)
+    return (
+      <div
+        className="relative mt-1.5"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          data-orchestration-folded
+          aria-expanded={false}
+          aria-label="Show this run's agents"
+          onClick={() => setUnfolded(true)}
+          className="-mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-ui-caption text-content/45 hover:bg-content/10 hover:text-content/70"
+        >
+          <ChevronRight className="size-3 shrink-0" strokeWidth={1.75} />
+          <span className="min-w-0 flex-1 truncate">
+            {orchestrationFoldedLine(summary, endedAt, now)}
+          </span>
+        </button>
+      </div>
+    );
   return (
     <div className="relative mt-1.5">
-      <div className="mb-0.5 px-0.5 flex items-center justify-between text-ui-caption text-content/45">
-        <span>
-          {summary.tasks.length}{" "}
-          {summary.tasks.length === 1 ? "agent" : "agents"}
-        </span>
-        <span className="tabular-nums">
-          {done}/{summary.tasks.length} done
+      <div className="mb-0.5 px-0.5 flex items-center justify-between gap-2 text-ui-caption text-content/45">
+        {ended ? (
+          <button
+            type="button"
+            aria-expanded
+            aria-label="Fold this run to one line"
+            className="-ml-1 flex min-w-0 items-center gap-1 rounded px-1 hover:bg-content/10 hover:text-content/70"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setUnfolded(false);
+            }}
+          >
+            <ChevronDown className="size-3 shrink-0" strokeWidth={1.75} />
+            <span className="truncate">
+              {summary.tasks.length}{" "}
+              {summary.tasks.length === 1 ? "agent" : "agents"}
+            </span>
+          </button>
+        ) : (
+          <span>
+            {summary.tasks.length}{" "}
+            {summary.tasks.length === 1 ? "agent" : "agents"}
+          </span>
+        )}
+        <span className="truncate tabular-nums" data-orchestration-progress>
+          {orchestrationProgress(summary)}
         </span>
       </div>
       {/*
@@ -95,12 +145,14 @@ export function OrchestrationSidebarAgents({
         onClick={(event) => event.stopPropagation()}
       >
         {summary.tasks.map((task) => {
-          // Something waiting on an answer opens itself; it cannot be missed.
-          const open = expanded.has(task.sessionId) || !!task.needsInput;
+          const open = expanded.has(task.sessionId);
           const live = run?.tasks.find(
             (entry) => entry.sessionId === task.sessionId,
           );
           const label = orchestrationTaskLabel(task, summary);
+          // The lead answers an agent's approvals and questions. That is
+          // its work, not a call for you, so it reads in a neutral colour.
+          const deciding = label === "Lead deciding";
           const working =
             summary.live && task.status === "running" && !task.needsInput;
           // A saved provider model may not be in this window's catalog yet.
@@ -110,6 +162,7 @@ export function OrchestrationSidebarAgents({
             <div
               key={task.sessionId}
               data-orchestration-agent={task.sessionId}
+              data-lead-deciding={deciding || undefined}
               // Expanding lights the whole row, header and detail together.
               className={`rounded-md ${open ? "bg-content/10" : ""}`}
             >
@@ -147,16 +200,18 @@ export function OrchestrationSidebarAgents({
                 </span>
                 <span
                   className={`flex shrink-0 items-center gap-1 text-ui-caption ${
-                    task.needsInput || task.status === "failed"
+                    task.status === "failed"
                       ? "text-amber-400"
-                      : working
-                        ? "text-accent"
-                        : task.status === "completed"
-                          ? "text-emerald-400"
-                          : "text-content/45"
+                      : deciding
+                        ? "text-content/55"
+                        : working
+                          ? "text-accent"
+                          : task.status === "completed"
+                            ? "text-emerald-400"
+                            : "text-content/45"
                   }`}
                 >
-                  {task.needsInput || task.status === "failed" ? (
+                  {task.status === "failed" ? (
                     <CircleAlert className="size-3" strokeWidth={1.75} />
                   ) : working ? (
                     <TerminalSpinner className="inline-block w-3 select-none text-center text-ui-caption leading-none text-accent" />
@@ -179,6 +234,11 @@ export function OrchestrationSidebarAgents({
                     />
                     <span className="min-w-0 truncate">{model}</span>
                   </p>
+                  {deciding && (
+                    <p className="text-ui-caption text-content/45">
+                      It asked for an approval or an answer. The lead decides.
+                    </p>
+                  )}
                   {live?.error && (
                     <p className="text-ui-caption text-red-400">{live.error}</p>
                   )}
@@ -226,25 +286,35 @@ export function OrchestrationSidebarAgents({
           {error ?? run?.error}
         </p>
       )}
-      {/* Stopping a run belongs to the composer, which stops the lead and its
-          agents together. Resume has no other home, so it stays. */}
-      {run?.status === "paused" && (
-        <div className="-mr-1.5 mt-0.5 flex items-center justify-end">
+      {/* A run that is open can always be stopped here, even while nothing
+          is running; Resume brings a paused run back. */}
+      {(run?.status === "active" || run?.status === "paused") && (
+        <div className="-mr-1.5 mt-0.5 flex items-center justify-end gap-0.5">
+          {run.status === "paused" && (
+            <button
+              type="button"
+              className={action}
+              disabled={pending}
+              onClick={() =>
+                void perform(() =>
+                  orchestrator.start(
+                    leadId,
+                    run.allowedHarnesses,
+                    run.maxWorkers,
+                  ),
+                )
+              }
+            >
+              Resume
+            </button>
+          )}
           <button
             type="button"
             className={action}
             disabled={pending}
-            onClick={() =>
-              void perform(() =>
-                orchestrator.start(
-                  leadId,
-                  run.allowedHarnesses,
-                  run.maxWorkers,
-                ),
-              )
-            }
+            onClick={() => void perform(() => orchestrator.stopRun(leadId))}
           >
-            Resume
+            Stop run
           </button>
         </div>
       )}

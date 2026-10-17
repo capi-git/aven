@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { runOutcomeActivity } from "./lib/orchestrationActivity";
+import { encodedSidebarRuns } from "./lib/orchestrationSummary";
 import { retainedSessionIds } from "./lib/sessionRetention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
@@ -27,6 +28,7 @@ import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
 import {
   adoptLateProposal,
   completeOrchestrationProposal,
+  latestProposalId,
   orchestrationPlanningPrompt,
   proposalBlock,
   validateOrchestrationSettings,
@@ -7448,6 +7450,14 @@ export default function App({
     () => ({
       open: onOpenApprovalSession,
       openAgents: queueWorkerPanes,
+      title: (sessionId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === sessionId,
+        );
+        return session
+          ? sessionDisplayTitle(session.title, session.harness)
+          : undefined;
+      },
       update: (
         leadId: string,
         blockId: string,
@@ -7463,6 +7473,7 @@ export default function App({
           !session ||
           session.busy ||
           proposal?.status !== "ready" ||
+          latestProposalId(session.blocks) !== blockId ||
           confirmingOrchestration.current.has(leadId)
         )
           return;
@@ -7493,6 +7504,11 @@ export default function App({
             throw new Error(
               "Wait for the proposal to finish before confirming.",
             );
+          // An older card describes a plan the lead has since replaced.
+          if (latestProposalId(session.blocks) !== blockId)
+            throw new Error(
+              "Replaced by a newer plan. Confirm the newest plan in this chat instead.",
+            );
           if (
             session.harness !== proposal.author.harness ||
             session.model !== proposal.author.model
@@ -7521,6 +7537,25 @@ export default function App({
         } finally {
           confirmingOrchestration.current.delete(leadId);
         }
+      },
+      discard: (leadId: string, blockId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === leadId,
+        );
+        const proposal = session?.blocks.find(
+          (block) => block.id === blockId,
+        )?.orchestration;
+        if (
+          !session ||
+          proposal?.status !== "ready" ||
+          confirmingOrchestration.current.has(leadId)
+        )
+          return;
+        const discarded = updateOrchestrationCard(leadId, blockId, {
+          ...proposal,
+          status: "discarded",
+        });
+        if (discarded) void upsertSession(discarded).catch(console.error);
       },
       retry: (leadId: string, blockId: string) => {
         const session = sessionsRef.current.find(
@@ -8670,6 +8705,7 @@ export default function App({
         orchestrator.cancelTask(leadId, taskId),
       startOrchestration: (...args: Parameters<typeof orchestrator.start>) =>
         orchestrator.start(...args),
+      stopOrchestration: (leadId: string) => orchestrator.stopRun(leadId),
       inspectWorker: (sessionId: string | null) =>
         orchestrationWorkers.inspect(sessionId),
       openWorkerDetails: orchestrationWorkers.openDetails
@@ -8680,7 +8716,8 @@ export default function App({
     },
     extra: () => ({
       orchestration: {
-        runs: encodeSidebarValue(orchestrator.snapshot()),
+        // States and task rows only: never prompts, results or receipts.
+        runs: encodedSidebarRuns(orchestrator.snapshot(), encodeSidebarValue),
         agentsByLead: encodeSidebarValue(orchestrationWorkers.agentsByLead),
         selectedId: orchestrationWorkers.selectedId,
         details: !!orchestrationWorkers.openDetails,

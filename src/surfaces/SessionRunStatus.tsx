@@ -16,6 +16,11 @@ import "./SessionRunStatus.css";
 type Props = {
   session: Session;
   visible: boolean;
+  /**
+   * Another bar above the message box stops this chat's work, as the run
+   * bar does for an orchestration's lead; one Stop is enough.
+   */
+  stopElsewhere?: boolean;
   onStop: (sessionId: string) => void;
   onOpenTerminal?: (sessionId: string) => void;
 };
@@ -26,7 +31,12 @@ export const SessionRunStatus = memo(function SessionRunStatus(props: Props) {
   return props.visible ? <VisibleRunStatus {...props} /> : null;
 });
 
-function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
+function VisibleRunStatus({
+  session,
+  stopElsewhere = false,
+  onStop,
+  onOpenTerminal,
+}: Props) {
   const entries = useActivity();
   const status = sessionRunStatus(session, entries);
   if (!status) return null;
@@ -102,7 +112,7 @@ function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
         durationMs={status.durationMs}
         running={running}
       />
-      {status.canStop ? (
+      {status.canStop && !stopElsewhere ? (
         <button
           type="button"
           className="session-run-stop"

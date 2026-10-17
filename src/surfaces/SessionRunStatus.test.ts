@@ -14,12 +14,13 @@ let host: HTMLDivElement;
 let session: Session;
 const stop = vi.fn();
 const openTerminal = vi.fn();
-async function render(visible = true) {
+async function render(visible = true, stopElsewhere = false) {
   await act(async () =>
     root.render(
       createElement(SessionRunStatus, {
         session,
         visible,
+        stopElsewhere,
         onStop: stop,
         onOpenTerminal: openTerminal,
       }),
@@ -72,6 +73,14 @@ afterEach(async () => {
 });
 
 describe("persistent agent run status", () => {
+  it("leaves Stop to the run bar for an orchestration's lead", async () => {
+    await render(true, true);
+    expect(state()).toBe("working");
+    expect(host.querySelector('[aria-label="Stop agent"]')).toBeNull();
+    await render(true, false);
+    expect(host.querySelector('[aria-label="Stop agent"]')).not.toBeNull();
+  });
+
   it("shows inspectable child activity after the main reply and updates through completion", async () => {
     session = {
       ...session,
