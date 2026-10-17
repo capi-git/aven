@@ -20,6 +20,7 @@ Aven brings agent conversations, your project and a browser into one window. Use
 - **Comment on a page:** click Edit page, select an element and add a comment beside it. **Add to chat** puts your comment and an element screenshot in the draft for review before sending.
 - **Run agents on a schedule:** Automations start agents at set times while your computer is awake and Aven is open, with ready-made examples to start from.
 - **Guide agents:** review approvals, queue follow-ups, inspect changes, and coordinate a lead with workers through [orchestration](docs/ORCHESTRATION.md).
+- **See where work stands:** every chat shows one word in the sidebar (Needs you, Working, Review or Shipped), and each project's board, opened like a browser tab, sorts its chats into those columns with the button each one needs.
 - **Save context:** Notes for Markdown notes, and Inbox for GitHub issues and pull requests from connected projects.
 - **Make it yours:** dark and light themes, workspace colors, translucent surfaces and optional chat backgrounds.
 
