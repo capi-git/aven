@@ -115,7 +115,7 @@ export function teamAttention(input: {
   members: readonly TeamMember[];
   origin: string;
   since: number;
-  pause?: { reason?: string; sessionId?: string };
+  pause?: { reason?: string; sessionId?: string; quiet?: true };
   /**
    * When a running orchestration's lead stopped without finishing, with
    * nothing else left to move the run on.
@@ -148,6 +148,7 @@ export function teamAttention(input: {
         text: input.pause?.reason ?? "Paused",
         since,
         ...(input.pause?.sessionId ? { blocking: true as const } : {}),
+        ...(input.pause?.quiet ? { quiet: true as const } : {}),
       },
     };
   if (phase === "running" && input.stalledSince !== undefined)
@@ -186,10 +187,15 @@ export function teamAttention(input: {
   return { status: "running" };
 }
 
-/** Teams waiting on you, newest need first. A ready race is not one. */
+/**
+ * Teams waiting on you, newest need first. A ready race is not one, nor a
+ * run paused long ago (see `quietPause`).
+ */
 export function teamsNeedingYou(teams: readonly TeamRun[]): TeamRun[] {
   return teams
-    .filter((team) => team.status === "needs-you" && team.need)
+    .filter(
+      (team) => team.status === "needs-you" && team.need && !team.need.quiet,
+    )
     .sort((a, b) => (b.need?.since ?? 0) - (a.need?.since ?? 0));
 }
 

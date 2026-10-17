@@ -14,7 +14,9 @@ import {
   teamRunsFrom,
   teamSessionIds,
   type TeamLookup,
+  QUIET_PAUSE_AFTER_MS,
 } from "./teamRuns";
+import { teamNeedSessionIds, teamsNeedingYou } from "./teamAttention";
 
 const party = (sessionId: string, harness: "claude" | "codex") => ({
   sessionId,
@@ -467,7 +469,11 @@ describe("orchestrationTeam", () => {
 
   it("needs you when paused or when the lead asks", () => {
     const paused = orchestrationTeam(
-      run({ status: "paused", error: "Aven closed while the run was going." }),
+      run({
+        status: "paused",
+        error: "Aven closed while the run was going.",
+        pausedAt: Date.now() - 60_000,
+      }),
       lookup(),
     );
     expect(paused.status).toBe("needs-you");
@@ -476,11 +482,28 @@ describe("orchestrationTeam", () => {
       kind: "paused",
       text: "Aven closed while the run was going.",
     });
+    expect(teamsNeedingYou([paused])).toEqual([paused]);
     const asking = orchestrationTeam(
       run(),
       lookup([session("lead", {}, [approval])]),
     );
     expect(asking.need).toMatchObject({ sessionId: "lead", kind: "approval" });
+  });
+
+  it("waits quietly when it paused long ago, or before pauses were dated", () => {
+    const old = Date.now() - QUIET_PAUSE_AFTER_MS - 1;
+    for (const pausedAt of [old, undefined]) {
+      const team = orchestrationTeam(
+        run({ status: "paused", error: "Stopped by you.", pausedAt }),
+        lookup(),
+      );
+      // Its own card and bar still say why, with Resume ...
+      expect(team.status).toBe("needs-you");
+      expect(team.need).toMatchObject({ kind: "paused", quiet: true });
+      // ... but the Dock, Home and Activity don't count it.
+      expect(teamsNeedingYou([team])).toEqual([]);
+      expect(teamNeedSessionIds([team]).size).toBe(0);
+    }
   });
 
   it("ends with the lead's verdict", () => {

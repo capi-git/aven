@@ -80,6 +80,11 @@ export type OrchestrationRun = {
   startedAt?: number;
   endedAt?: number;
   /**
+   * When it paused, while it is paused. A run paused long ago, or before
+   * runs kept this, waits quietly: it is not counted as needing you.
+   */
+  pausedAt?: number;
+  /**
    * The first line of the lead's last reply once the run finished ("" when
    * it wrote none), for the result card.
    */
@@ -109,6 +114,11 @@ export type RunOutcome = {
 export type OrchestrationHost = {
   session(id: string): Session | undefined;
   sessions(): Session[];
+  /**
+   * Load a saved chat that is not open here, without a tab, so a run whose
+   * lead was loaded at start-up can be resumed from anywhere.
+   */
+  load?(id: string): Promise<Session | null | undefined>;
   choices(): { harness: HarnessId; models: { id: string; name: string }[] }[];
   createWorker(run: OrchestrationRun, task: OrchestrationTask): Promise<void>;
   submit(
@@ -581,7 +591,16 @@ export class Orchestrator {
         : next.status === "active" && next.endedAt !== undefined
           ? { ...next, endedAt: undefined }
           : next;
-    const run = withoutStaleMarks(dated);
+    // Likewise only pausing dates a pause.
+    const pausing =
+      !!previous && previous.status !== "paused" && next.status === "paused";
+    const run = withoutStaleMarks(
+      pausing
+        ? { ...dated, pausedAt: Date.now() }
+        : dated.status !== "paused" && dated.pausedAt !== undefined
+          ? { ...dated, pausedAt: undefined }
+          : dated,
+    );
     this.runs = [
       ...this.runs.filter((entry) => entry.leadId !== run.leadId),
       run,
@@ -708,6 +727,7 @@ export class Orchestrator {
           run.status === "active"
             ? "Aven closed while the run was going. Check the files, then resume or stop the run."
             : run.error,
+        ...(interrupted ? { pausedAt: Date.now() } : {}),
       });
       // It was running when Aven closed: say once that it paused, as any
       // run that pauses does.
@@ -824,8 +844,12 @@ export class Orchestrator {
       lead?: OrchestrationRun["lead"];
     },
   ) {
-    const lead = this.host?.session(leadId);
-    if (!lead || lead.busy)
+    const lead =
+      this.host?.session(leadId) ??
+      (await this.host?.load?.(leadId).catch(() => null)) ??
+      undefined;
+    if (!lead) throw new Error("Open the lead's chat to resume the run");
+    if (lead.busy)
       throw new Error("Wait for the lead's current turn to finish");
     if (lead.queuedMessages?.length)
       throw new Error(

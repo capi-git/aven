@@ -7559,10 +7559,13 @@ export default function App({
     if (next.activeTabId !== activeTabId) setActiveTabId(next.activeTabId);
   }, [tabs, activeTabId, orchestrationRuns]);
 
+  const ensureOpenSessionRef = useRef(ensureOpenSession);
+  ensureOpenSessionRef.current = ensureOpenSession;
   useLayoutEffect(() => {
     orchestrator.bind({
       session: (id) => sessionsRef.current.find((session) => session.id === id),
       sessions: () => sessionsRef.current,
+      load: (id) => ensureOpenSessionRef.current(id),
       choices: orchestrationWorkerChoices,
       createWorker: async (run, task) => {
         await invoke("control_attach_worker", {

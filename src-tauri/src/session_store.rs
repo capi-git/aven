@@ -872,10 +872,15 @@ fn index_orchestration(conn: &Connection, lead: &str, run: &Value) -> rusqlite::
 }
 
 /// Leads whose saved run is still open: running or paused, or with an
-/// agent still working. Read from the small per-lead summaries.
+/// agent still working. Read from the small per-lead summaries. An
+/// archived lead's run is left alone: it loads when its chat is opened.
 pub(crate) fn open_orchestration_leads(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let rows = conn
-        .prepare("SELECT lead_id, summary FROM orchestration_sidebar")?
+        .prepare(
+            "SELECT o.lead_id, o.summary FROM orchestration_sidebar o
+             LEFT JOIN sessions s ON s.id = o.lead_id
+             WHERE COALESCE(s.archived, 0) = 0",
+        )?
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
@@ -1713,6 +1718,17 @@ mod tests {
         let mut open = open_orchestration_leads(&conn).unwrap();
         open.sort();
         assert_eq!(open, ["paused", "running", "stopping"]);
+        // An archived lead's paused run waits until its chat is opened.
+        conn.execute(
+            "INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title,
+               created_at, updated_at, archived)
+             VALUES ('paused', '/repo', 'claude', 'm', 'local', 'Lead', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+        let mut open = open_orchestration_leads(&conn).unwrap();
+        open.sort();
+        assert_eq!(open, ["running", "stopping"]);
     }
 
     #[test]

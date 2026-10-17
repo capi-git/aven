@@ -145,6 +145,38 @@ describe("local orchestration", () => {
     expect(f.lead.queuedMessages[0].text).toBe("Do this first");
   });
 
+  it("loads a lead with no tab when its run is resumed from elsewhere", async () => {
+    const f = setup();
+    await f.start();
+    // Aven quits mid-run. At start-up the run is loaded and paused, but its
+    // lead chat, which had no tab, is not.
+    const lead = f.sessions.splice(0, 1)[0];
+    lead.busy = false;
+    const restored = new Orchestrator(f.store);
+    restored.bind({ ...f.host, load: undefined });
+    await restored.hydrate("lead");
+    expect(restored.run("lead")!.status).toBe("paused");
+    // Cut short just now, so it counts as needing you.
+    expect(restored.run("lead")!.pausedAt).toBeGreaterThan(Date.now() - 5_000);
+    // A run saved paused before pauses were dated stays undated, and quiet.
+    const older = new Orchestrator(f.store);
+    older.bind(f.host);
+    f.saved.set("lead", { ...f.saved.get("lead")!, pausedAt: undefined });
+    await older.hydrate("lead");
+    expect(older.run("lead")!.pausedAt).toBeUndefined();
+    await expect(restored.start("lead", ["codex"], 2)).rejects.toThrow(
+      "Open the lead's chat to resume the run",
+    );
+    const load = vi.fn(async (id: string) => {
+      f.sessions.push(lead);
+      return id === "lead" ? lead : null;
+    });
+    restored.bind({ ...f.host, load });
+    await restored.start("lead", ["codex"], 2);
+    expect(load).toHaveBeenCalledWith("lead");
+    expect(restored.run("lead")!.status).toBe("active");
+  });
+
   it("stops and forgets a deleted lead without persisting it again", async () => {
     const f = setup();
     await f.start();

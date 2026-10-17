@@ -119,6 +119,11 @@ export type TeamNeed = {
   /** When it started waiting, as far as the store knows. */
   since: number;
   /**
+   * It waits, but not on you now: a run paused long ago. Its own card, bar
+   * and panel still say so; nothing counts it as needing you.
+   */
+  quiet?: true;
+  /**
    * `sessionId` is the chat the team waits on (its request, or the chat a
    * discussion paused for), not only where to act: other chats offer a way
    * there instead of Resume.
@@ -531,6 +536,18 @@ export function orchestrationProgressText(
   return runActivityText(run, leadBusy);
 }
 
+/** A pause this old no longer counts as waiting on you. */
+export const QUIET_PAUSE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A run paused long ago, or before runs kept when they paused, which Aven
+ * loads at start-up so it is never lost: it waits where it is, but is not
+ * counted in the Dock, Home or Activity as needing you.
+ */
+export function quietPause(pausedAt: number | undefined, now = Date.now()) {
+  return pausedAt === undefined || now - pausedAt > QUIET_PAUSE_AFTER_MS;
+}
+
 /** An orchestration as a team: the lead, then one member per worker. */
 export function orchestrationTeam(
   run: OrchestrationRun,
@@ -619,7 +636,13 @@ export function orchestrationTeam(
     members: [lead, ...workers],
     origin: run.leadId,
     since: run.startedAt ?? 0,
-    pause: { reason: run.error, sessionId: run.leadId },
+    pause: {
+      reason: run.error,
+      sessionId: run.leadId,
+      ...(run.status === "paused" && quietPause(run.pausedAt)
+        ? { quiet: true as const }
+        : {}),
+    },
     ...(run.stalledAt !== undefined ? { stalledSince: run.stalledAt } : {}),
   });
   const title =
