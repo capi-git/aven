@@ -552,6 +552,10 @@ import {
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
 import {
+  focusedTeamPopOut,
+  subscribeFocusedTeamPopOut,
+} from "./lib/teamWatchBridge";
+import {
   teamActivityEvents,
   teamEndSummaries,
   teamsNoLongerNeedingYou,
@@ -2227,9 +2231,12 @@ export default function App({
   activityMainViewRef.current = { workspaceVisible, visibleSurfaceIds };
   /** The chats of the discussion open in this window's panel. */
   const panelChatsRef = useRef<readonly string[]>([]);
+  /** The chats of the team whose pop-out has focus. */
+  const popOutChatsRef = useRef<readonly string[]>([]);
   const activityPresentation = useCallback((sessionId: string) => {
     const otherFocused =
-      activityWindowBridgeRef.current.focusedSessionIds.has(sessionId);
+      activityWindowBridgeRef.current.focusedSessionIds.has(sessionId) ||
+      popOutChatsRef.current.includes(sessionId);
     const view = activityMainViewRef.current;
     // A race's overview on screen shows its lanes, as the discussion panel
     // shows both of its chats.
@@ -2904,7 +2911,43 @@ export default function App({
         discussion.b.sessionId,
       ]);
   }, [discussionList, panelDiscussions]);
-  panelChatsRef.current = panelChats;
+  // On screen here: only the discussion open in this window's panel. A
+  // popped-out team is on screen in its own window, and counts as seen only
+  // while that window has focus.
+  const expandedDiscussion =
+    teamWatch.state.expanded &&
+    teamKindOf(teamWatch.state.expanded) === "discuss"
+      ? teamKeyOf(teamWatch.state.expanded)
+      : null;
+  panelChatsRef.current = useMemo(
+    () =>
+      discussionList
+        .filter((discussion) => discussion.id === expandedDiscussion)
+        .flatMap((discussion) => [
+          discussion.a.sessionId,
+          discussion.b.sessionId,
+        ]),
+    [discussionList, expandedDiscussion],
+  );
+  const focusedPopOut = useSyncExternalStore(
+    subscribeFocusedTeamPopOut,
+    focusedTeamPopOut,
+    () => null,
+  );
+  const focusedPopOutTeam =
+    focusedPopOut && teamWatch.state.popped.includes(focusedPopOut)
+      ? teams.find((team) => team.id === focusedPopOut)
+      : undefined;
+  popOutChatsRef.current = useMemo(
+    () =>
+      focusedPopOutTeam
+        ? [
+            focusedPopOutTeam.origin.sessionId,
+            ...focusedPopOutTeam.members.map((member) => member.sessionId),
+          ]
+        : [],
+    [focusedPopOutTeam],
+  );
   const keptDiscussionKey = useMemo(
     () =>
       [

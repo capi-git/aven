@@ -32,7 +32,11 @@ import {
 } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
 import type { TeamWatchRequest, TeamWatchView } from "../lib/teamWatch";
-import type { TeamWatchOwner, TeamWatchSnapshot } from "../lib/teamWatchBridge";
+import {
+  focusedTeamPopOut,
+  type TeamWatchOwner,
+  type TeamWatchSnapshot,
+} from "../lib/teamWatchBridge";
 import { TeamWatchFloat } from "./TeamWatchPanel";
 
 const record: RaceRecord = {
@@ -85,6 +89,7 @@ const completed = (sessionId: string) =>
 function fakeBridge() {
   let onAction: ((request: TeamWatchRequest) => void) | undefined;
   let onClosed: ((team: string) => void) | undefined;
+  let onFocus: ((team: string, focused: boolean) => void) | undefined;
   const bridge = {
     open: vi.fn(async () => {}),
     update: vi.fn(async () => {}),
@@ -103,12 +108,21 @@ function fakeBridge() {
         onClosed = undefined;
       };
     }),
+    onFocus: vi.fn(
+      async (callback: (team: string, focused: boolean) => void) => {
+        onFocus = callback;
+        return () => {
+          onFocus = undefined;
+        };
+      },
+    ),
   } satisfies TeamWatchOwner;
   return {
     bridge,
     press: (team: string, action: unknown, requestId = "req-1") =>
       onAction?.({ team, requestId, action }),
     closeThere: (team: string) => onClosed?.(team),
+    focusThere: (team: string, focused: boolean) => onFocus?.(team, focused),
   };
 }
 
@@ -347,6 +361,18 @@ describe("a team popped out into its own window", () => {
     expect(pill()).not.toBeNull();
     // That window is already gone: nothing to close.
     expect(host.bridge.close).not.toHaveBeenCalled();
+  });
+
+  it("hears which pop-out has focus, until it loses it or closes", async () => {
+    await mount();
+    await popOut();
+    await act(async () => host.focusThere("race:r1", true));
+    expect(focusedTeamPopOut()).toBe("race:r1");
+    await act(async () => host.focusThere("race:r1", false));
+    expect(focusedTeamPopOut()).toBeNull();
+    await act(async () => host.focusThere("race:r1", true));
+    await act(async () => host.closeThere("race:r1"));
+    expect(focusedTeamPopOut()).toBeNull();
   });
 
   it("brings its window forward on Watch rather than taking it back", async () => {

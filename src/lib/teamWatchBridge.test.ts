@@ -4,10 +4,14 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: vi.fn() }));
 
 import {
+  focusedTeamPopOut,
+  noteTeamPopOutFocus,
   NO_ANSWER_TEXT,
   OWNER_CLOSED_TEXT,
+  subscribeFocusedTeamPopOut,
   TEAM_WATCH_ACTION_EVENT,
   TEAM_WATCH_CLOSED_EVENT,
+  TEAM_WATCH_FOCUS_EVENT,
   TEAM_WATCH_REPLY_EVENT,
   TEAM_WATCH_STATE_EVENT,
   teamWatchOwner,
@@ -81,8 +85,14 @@ describe("the owning window's side", () => {
     const owner = teamWatchOwner(host.transport);
     const requests: unknown[] = [];
     const closed: string[] = [];
+    const focus: [string, boolean][] = [];
     const stop = await owner.onAction((request) => requests.push(request));
     await owner.onClosed((team) => closed.push(team));
+    await owner.onFocus((team, focused) => focus.push([team, focused]));
+    host.emit(TEAM_WATCH_FOCUS_EVENT, { team: "race:r1", focused: true });
+    host.emit(TEAM_WATCH_FOCUS_EVENT, { team: "race:r1", focused: "yes" });
+    host.emit(TEAM_WATCH_FOCUS_EVENT, null);
+    expect(focus).toEqual([["race:r1", true]]);
     host.emit(TEAM_WATCH_ACTION_EVENT, {
       team: "race:r1",
       requestId: "a-1",
@@ -103,6 +113,29 @@ describe("the owning window's side", () => {
       action: {},
     });
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("which pop-out has focus", () => {
+  it("follows focus moving between pop-outs in either order", () => {
+    const heard = vi.fn();
+    const stop = subscribeFocusedTeamPopOut(heard);
+    noteTeamPopOutFocus("race:r1", true);
+    expect(focusedTeamPopOut()).toBe("race:r1");
+    // B gains focus before A says it lost it.
+    noteTeamPopOutFocus("discuss:d1", true);
+    noteTeamPopOutFocus("race:r1", false);
+    expect(focusedTeamPopOut()).toBe("discuss:d1");
+    // A loses it after B has it, then B loses it to the owner.
+    noteTeamPopOutFocus("race:r1", true);
+    noteTeamPopOutFocus("discuss:d1", false);
+    expect(focusedTeamPopOut()).toBe("race:r1");
+    noteTeamPopOutFocus("race:r1", false);
+    expect(focusedTeamPopOut()).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(4);
+    noteTeamPopOutFocus("race:r1", false);
+    expect(heard).toHaveBeenCalledTimes(4);
+    stop();
   });
 });
 

@@ -10,7 +10,9 @@
  *
  * When the owning window closes, the pop-out says so instead of drawing a
  * team it can no longer act on. When the pop-out closes, the owner shows
- * the team as a pill again.
+ * the team as a pill again. While a pop-out has focus, its owner counts the
+ * team's chats as on screen, so their Activity is read there and raises no
+ * banner; while it does not, they are not on screen in the owner.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -26,6 +28,7 @@ export const TEAM_WATCH_STATE_EVENT = "team-watch-state";
 export const TEAM_WATCH_ACTION_EVENT = "team-watch-action";
 export const TEAM_WATCH_CLOSED_EVENT = "team-watch-closed";
 export const TEAM_WATCH_REPLY_EVENT = "team-watch-reply";
+export const TEAM_WATCH_FOCUS_EVENT = "team-watch-focus";
 
 /** How long a pop-out waits for its owner to answer an action. */
 export const TEAM_WATCH_REPLY_MS = 15_000;
@@ -97,6 +100,10 @@ export type TeamWatchOwner = {
   reply(team: string, requestId: string, error: string | null): Promise<void>;
   onAction(callback: (request: TeamWatchRequest) => void): Promise<() => void>;
   onClosed(callback: (team: string) => void): Promise<() => void>;
+  /** A pop-out of this window gained or lost focus. */
+  onFocus(
+    callback: (team: string, focused: boolean) => void,
+  ): Promise<() => void>;
 };
 
 export function teamWatchOwner(
@@ -124,7 +131,43 @@ export function teamWatchOwner(
             : undefined;
         if (typeof team === "string") callback(team);
       }),
+    onFocus: (callback) =>
+      transport.listen<unknown>(TEAM_WATCH_FOCUS_EVENT, (payload) => {
+        if (!payload || typeof payload !== "object") return;
+        const { team, focused } = payload as {
+          team?: unknown;
+          focused?: unknown;
+        };
+        if (typeof team === "string" && typeof focused === "boolean")
+          callback(team, focused);
+      }),
   };
+}
+
+/**
+ * The team whose pop-out has focus, as its owner heard last. Its chats are
+ * on screen there, while the owner's own window is not focused.
+ */
+let focusedPopOut: string | null = null;
+const focusListeners = new Set<() => void>();
+
+export function focusedTeamPopOut(): string | null {
+  return focusedPopOut;
+}
+
+export function subscribeFocusedTeamPopOut(listener: () => void) {
+  focusListeners.add(listener);
+  return () => {
+    focusListeners.delete(listener);
+  };
+}
+
+/** Focus moving between pop-outs can arrive in either order. */
+export function noteTeamPopOutFocus(team: string, focused: boolean) {
+  const next = focused ? team : focusedPopOut === team ? null : focusedPopOut;
+  if (next === focusedPopOut) return;
+  focusedPopOut = next;
+  for (const listener of focusListeners) listener();
 }
 
 // --- The pop-out -------------------------------------------------------------------

@@ -70,6 +70,7 @@ import {
   type TeamWatchView,
 } from "../lib/teamWatch";
 import {
+  noteTeamPopOutFocus,
   teamWatchOwner,
   type TeamWatchOwner,
   type TeamWatchPlace,
@@ -882,8 +883,10 @@ function PopOuts({
       }),
       bridge.onClosed((team) => {
         closedThere.current.add(team);
+        noteTeamPopOutFocus(team, false);
         panelRef.current.poppedBack(team);
       }),
+      bridge.onFocus(noteTeamPopOutFocus),
     ];
     return () => {
       for (const stop of stops) void stop.then((unlisten) => unlisten());

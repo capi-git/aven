@@ -78,6 +78,7 @@ function fakePopOuts(): TeamWatchOwner {
     reply: vi.fn(async () => {}),
     // The check never acts from a pop-out, so nothing listens here.
     onAction: vi.fn(async () => () => {}),
+    onFocus: vi.fn(async () => () => {}),
     onClosed: vi.fn(async (callback: (team: string) => void) => {
       closeThere = callback;
       return () => {};

@@ -34,6 +34,8 @@ const STATE_EVENT: &str = "team-watch-state";
 const ACTION_EVENT: &str = "team-watch-action";
 const CLOSED_EVENT: &str = "team-watch-closed";
 const REPLY_EVENT: &str = "team-watch-reply";
+/// Tells an owner when one of its pop-outs gains or loses focus.
+const FOCUS_EVENT: &str = "team-watch-focus";
 const ENTRY: &str = "index.html?teamWatch=1";
 const LABEL_PREFIX: &str = "team-watch-";
 
@@ -676,6 +678,17 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
         owner_visibility(app, label, false);
         return;
     }
+    // A focused pop-out shows its team's chats, so its owner counts them as
+    // on screen rather than its own window's focus.
+    if let WindowEvent::Focused(focused) = event {
+        let notice = with_state(app, |entries| Ok(focus_notice(entries, label, *focused)))
+            .ok()
+            .flatten();
+        if let Some((owner, payload)) = notice {
+            let _ = app.emit_to(EventTarget::webview(owner), FOCUS_EVENT, payload);
+        }
+        return;
+    }
     if !matches!(event, WindowEvent::Destroyed) {
         return;
     }
@@ -698,6 +711,20 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
     for (child, state) in orphans {
         let _ = app.emit_to(EventTarget::webview(child), STATE_EVENT, state);
     }
+}
+
+/// The owner to tell, and what, when the pop-out `label` gains or loses
+/// focus; nothing for an orphaned pop-out or any other window.
+fn focus_notice(
+    entries: &HashMap<String, PopOut>,
+    label: &str,
+    focused: bool,
+) -> Option<(String, Value)> {
+    let pop = entries.get(label).filter(|pop| !pop.owner_closed)?;
+    Some((
+        pop.owner.clone(),
+        json!({ "team": pop.team, "focused": focused }),
+    ))
 }
 
 /// Marks every pop-out of `owner_window` as orphaned, returning each with
@@ -946,6 +973,27 @@ mod tests {
             json!(false)
         );
         assert!(set_owner_hidden(&mut entries, "main", false).is_empty());
+    }
+
+    #[test]
+    fn tells_only_its_own_owner_when_a_pop_out_takes_focus() {
+        let mut entries = HashMap::new();
+        entries.insert("team-watch-a".to_string(), pop("main", "discuss:d1"));
+        assert_eq!(
+            focus_notice(&entries, "team-watch-a", true),
+            Some((
+                "main".to_string(),
+                json!({ "team": "discuss:d1", "focused": true })
+            ))
+        );
+        assert_eq!(
+            focus_notice(&entries, "team-watch-a", false).map(|(_, payload)| payload),
+            Some(json!({ "team": "discuss:d1", "focused": false }))
+        );
+        assert_eq!(focus_notice(&entries, "main", true), None);
+        assert_eq!(focus_notice(&entries, "team-watch-b", true), None);
+        owner_closed(&mut entries, "main");
+        assert_eq!(focus_notice(&entries, "team-watch-a", true), None);
     }
 
     /// The page's list of actions a pop-out sends, read from its source, is
