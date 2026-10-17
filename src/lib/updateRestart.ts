@@ -23,7 +23,7 @@ import { isFilesystemTab, type WorkspaceTab } from "./layout";
 import { listenerGroup } from "./listenerGroup";
 import { projectName } from "./paths";
 import { sessionDisplayTitle, type Session } from "./session";
-import { sessionNeedsUser } from "./teamAttention";
+import { sessionNeedsUser, type LeadDecided } from "./teamAttention";
 import { shouldPersistSession, upsertSession } from "./sessionStore";
 import {
   hasRestartWork,
@@ -65,9 +65,12 @@ const STOP_SETTLE_MS = 10_000;
 const changes = new Set<() => void>();
 let reported = "";
 
-function agentState(session: Session): AgentWork["state"] | null {
+function agentState(
+  session: Session,
+  leadDecided: LeadDecided,
+): AgentWork["state"] | null {
   if (isInFlightSession(session))
-    return sessionNeedsUser(session) ? "waiting" : "working";
+    return sessionNeedsUser(session, leadDecided) ? "waiting" : "working";
   if (session.queuedMessages?.length && session.queueStatus !== "paused")
     return "queued";
   return null;
@@ -97,8 +100,9 @@ function unsavedFiles(
 /** The work in this window a restart would interrupt. */
 export function ownRestartWork(workspace: LiveWorkspace): WindowWork {
   const sessions = workspace.sessions();
+  const leadDecided = workspace.leadDecided();
   const states = new Map(
-    sessions.map((session) => [session.id, agentState(session)]),
+    sessions.map((session) => [session.id, agentState(session, leadDecided)]),
   );
   const agents = sessions.flatMap((session): AgentWork[] => {
     const state = states.get(session.id);
@@ -232,16 +236,15 @@ export async function stopUpdateRestartWork(
   const workspace = currentWorkspace();
   if (!workspace) return;
   workspace.flush();
+  const working = (session: Session) =>
+    agentState(session, workspace.leadDecided()) !== null;
   const ids = workspace
     .sessions()
-    .filter((session) => agentState(session) !== null)
+    .filter(working)
     .map((session) => session.id);
   if (ids.length === 0) return;
   workspace.stopSessions(ids);
-  await settled(
-    () => !workspace.sessions().some((session) => agentState(session) !== null),
-    timeoutMs,
-  );
+  await settled(() => !workspace.sessions().some(working), timeoutMs);
 }
 
 export type UpdateRestartOptions = {

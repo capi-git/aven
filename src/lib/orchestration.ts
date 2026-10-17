@@ -9,6 +9,8 @@ import {
 } from "./session";
 import type { ApprovalDecision, HarnessEvent } from "./harness/types";
 import { pendingApprovalForSession } from "./approvalToast";
+import { logError } from "./errors";
+import { pendingRequestKey } from "./teamAttention";
 import { displayPath } from "./paths";
 import type { UserQuestionReply } from "./userQuestion";
 import {
@@ -44,6 +46,11 @@ export type OrchestrationTask = {
   role?: AgentRoleId;
   /** Its worker's first turn carried the role. */
   roleSent?: true;
+  /**
+   * The worker's pending request (`pendingRequestKey`) that its lead left
+   * unanswered, which Aven handed to you. Cleared once it is answered.
+   */
+  escalated?: string;
 };
 export type OrchestrationRun = {
   version: 1;
@@ -74,6 +81,11 @@ export type OrchestrationRun = {
   verdict?: string;
   /** The per-agent summaries' progress (see `teamResult`). */
   summaries?: "running" | "done" | "failed";
+  /**
+   * When Aven saw that the lead stopped without finishing, with nothing
+   * else left to move the run on (`runStalled`). Only while it is active.
+   */
+  stalledAt?: number;
 };
 export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
@@ -145,6 +157,34 @@ export function scopesOverlap(a: string[], b: string[]): boolean {
 }
 const activeTask = (task: OrchestrationTask) =>
   task.status === "running" || task.status === "cancelling";
+
+/**
+ * A run's stall and a task's unanswered request only mean anything while
+ * the run is active and that agent is working.
+ */
+function withoutStaleMarks(run: OrchestrationRun): OrchestrationRun {
+  const stalled = run.stalledAt !== undefined && run.status !== "active";
+  const tasks = run.tasks.some(
+    (task) =>
+      task.escalated !== undefined &&
+      (run.status !== "active" || !activeTask(task)),
+  );
+  if (!stalled && !tasks) return run;
+  const next = { ...run };
+  if (stalled) delete next.stalledAt;
+  if (tasks)
+    next.tasks = run.tasks.map((task) => {
+      if (
+        task.escalated === undefined ||
+        (run.status === "active" && activeTask(task))
+      )
+        return task;
+      const rest = { ...task };
+      delete rest.escalated;
+      return rest;
+    });
+  return next;
+}
 export const sameCheckout = (a: string, b: string) =>
   a.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() ===
   b.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
@@ -156,6 +196,17 @@ const folderName = (path: string) =>
   "This project";
 /** The latest a finished lead keeps control when its reply never goes out. */
 const REVOKE_AFTER_FINISH_MS = 10_000;
+/**
+ * How long an idle lead with nothing left to do waits before the run says
+ * it stopped without finishing: long enough for Aven to wake it with new
+ * results, which would otherwise look the same for a moment.
+ */
+export const LEAD_STALLED_AFTER_MS = 1_500;
+/**
+ * How long the lead may sit idle with an agent's approval or question it
+ * was told about before Aven hands that request to you.
+ */
+export const UNANSWERED_AFTER_MS = 15_000;
 /** What the user should do after Aven paused a run and stopped its agents. */
 const PAUSED_NEXT =
   "Aven paused the run and stopped its agents. Check the files, then resume or stop the run.";
@@ -421,6 +472,11 @@ export class Orchestrator {
   private host: OrchestrationHost | null = null;
   private outcomeListeners = new Set<(outcome: RunOutcome) => void>();
   private revokeAfterReply = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Waits before a stalled run or an unanswered request is raised to you. */
+  private leadTimers = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; token: string }
+  >();
   constructor(private readonly store: Storage = storage) {}
   bind(host: OrchestrationHost) {
     this.host = host;
@@ -491,13 +547,14 @@ export class Orchestrator {
   private async commit(next: OrchestrationRun) {
     const previous = this.run(next.leadId);
     // A run is over once it finishes or stops; its card dates it from then.
-    const run =
+    const dated =
       (next.status === "finished" || next.status === "stopped") &&
       next.endedAt === undefined
         ? { ...next, endedAt: Date.now() }
         : next.status === "active" && next.endedAt !== undefined
           ? { ...next, endedAt: undefined }
           : next;
+    const run = withoutStaleMarks(dated);
     this.runs = [
       ...this.runs.filter((entry) => entry.leadId !== run.leadId),
       run,
@@ -515,6 +572,13 @@ export class Orchestrator {
       await saved;
     } catch (error) {
       const current = this.run(run.leadId)!;
+      // A run that is over has nothing left to stop (stopping one stops its
+      // agents itself), so a finished run's verdict or summaries that fail
+      // to save must not turn it back into a paused one.
+      if (current.status === "finished" || current.status === "stopped") {
+        logError("Couldn't save the orchestration run", error);
+        throw error;
+      }
       const running = current.tasks.filter(activeTask);
       this.runs = this.runs.map((entry) =>
         entry.leadId === run.leadId
@@ -1667,6 +1731,8 @@ export class Orchestrator {
             ]
               .filter(Boolean)
               .join("\n\n");
+            // Finish run or Stop run may have ended it while this was saved.
+            if (this.run(run.leadId)?.status !== "active") return;
             this.host!.submit(run.leadId, body, (outcome) => {
               if (outcome.status !== "completed") {
                 void this.pause(
@@ -1692,6 +1758,144 @@ export class Orchestrator {
           }
         })();
       }, 0);
+    }
+    this.watchLeads();
+  }
+  /** The lead has nothing to do and Aven is not about to wake it. */
+  private leadIdle(run: OrchestrationRun): boolean {
+    const lead = this.host?.session(run.leadId);
+    return !!lead && leadIsIdle(lead) && !this.waking.has(run.leadId);
+  }
+  /** Only you can move the run on now (`runStalled`), as far as Aven knows. */
+  private stalled(run: OrchestrationRun): boolean {
+    return (
+      !this.waking.has(run.leadId) &&
+      runStalled(run, this.host?.session(run.leadId))
+    );
+  }
+  /**
+   * A working agent's request the lead was told about, while the lead sits
+   * idle without answering it: its key, or undefined.
+   */
+  private unansweredRequest(
+    run: OrchestrationRun,
+    task: OrchestrationTask,
+  ): string | undefined {
+    if (run.status !== "active" || !activeTask(task)) return undefined;
+    const worker = this.host?.session(task.sessionId);
+    const key = worker && pendingRequestKey(worker);
+    const pending = key && this.pendingInput(task);
+    if (!pending || !this.leadIdle(run)) return undefined;
+    const told = this.announced.get(run.leadId);
+    return told?.has(`${task.id}:${pending.requestId}`) ? key : undefined;
+  }
+  /** Start, keep or cancel one wait; a new `token` starts it again. */
+  private after(
+    key: string,
+    token: string | undefined,
+    ms: number,
+    fire: () => void,
+  ) {
+    const current = this.leadTimers.get(key);
+    if (current && current.token === token) return;
+    if (current) clearTimeout(current.timer);
+    if (token === undefined) {
+      this.leadTimers.delete(key);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.leadTimers.delete(key);
+      fire();
+    }, ms);
+    this.leadTimers.set(key, { timer, token });
+  }
+  /** Change an active run's marks, built on its latest state. */
+  private mark(
+    leadId: string,
+    patch: (run: OrchestrationRun) => OrchestrationRun,
+  ) {
+    const run = this.run(leadId);
+    if (!run || run.status !== "active") return;
+    void this.commit(patch(run)).catch((error) =>
+      logError("Couldn't save the orchestration run", error),
+    );
+  }
+  /**
+   * Raise what only you can now move on, once the lead has been idle a
+   * moment: a run whose lead stopped without finishing, and an agent's
+   * request the lead was told about and left unanswered. Each is marked on
+   * the run, so every view of the team says it needs you, and cleared once
+   * it no longer holds.
+   */
+  private watchLeads() {
+    for (const run of this.runs) {
+      if (run.status !== "active") continue;
+      const leadId = run.leadId;
+      const stalled = this.stalled(run);
+      if (run.stalledAt !== undefined && !stalled)
+        this.mark(leadId, (current) => {
+          const next = { ...current };
+          delete next.stalledAt;
+          return next;
+        });
+      this.after(
+        `${leadId}:stalled`,
+        stalled && run.stalledAt === undefined ? "stalled" : undefined,
+        LEAD_STALLED_AFTER_MS,
+        () => {
+          const current = this.run(leadId);
+          if (
+            current?.status === "active" &&
+            current.stalledAt === undefined &&
+            this.stalled(current)
+          )
+            this.mark(leadId, (latest) => ({
+              ...latest,
+              stalledAt: Date.now(),
+            }));
+        },
+      );
+      for (const task of run.tasks) {
+        const worker = this.host?.session(task.sessionId);
+        const pending = worker ? pendingRequestKey(worker) : undefined;
+        if (task.escalated !== undefined && task.escalated !== pending)
+          this.mark(leadId, (current) => ({
+            ...current,
+            tasks: current.tasks.map((entry) => {
+              if (entry.id !== task.id) return entry;
+              const next = { ...entry };
+              delete next.escalated;
+              return next;
+            }),
+          }));
+        const unanswered = this.unansweredRequest(run, task);
+        this.after(
+          `${leadId}:${task.id}:unanswered`,
+          unanswered !== undefined && unanswered !== task.escalated
+            ? unanswered
+            : undefined,
+          UNANSWERED_AFTER_MS,
+          () => {
+            const current = this.run(leadId);
+            const latest = current?.tasks.find((entry) => entry.id === task.id);
+            if (
+              !current ||
+              !latest ||
+              latest.escalated === unanswered ||
+              this.unansweredRequest(current, latest) !== unanswered
+            )
+              return;
+            this.mark(leadId, (newest) => ({
+              ...newest,
+              tasks: newest.tasks.map((entry) =>
+                entry.id === task.id
+                  ? { ...entry, escalated: unanswered }
+                  : entry,
+              ),
+            }));
+          },
+        );
+      }
     }
   }
   observe(id: string, event: HarnessEvent) {

@@ -6,7 +6,11 @@ import {
   type ActivityOutcome,
   type ActivityTeam,
 } from "./activity";
-import { requestsAreUsers } from "./teamAttention";
+import {
+  NO_LEAD_DECIDED,
+  requestsAreUsers,
+  type LeadDecided,
+} from "./teamAttention";
 
 const KEY = "monocode.notifications";
 
@@ -189,12 +193,14 @@ export function sessionTurnActivityId(session: Session): string {
 /**
  * Each request gets its own identity, including consecutive requests in one
  * turn. Only requests that are the user's are announced (see
- * `teamAttention`): an orchestration worker's are its lead's to decide.
+ * `teamAttention`): an orchestration worker's are its lead's to decide
+ * while its run is open.
  */
 export function pendingSessionActivityEvents(
   session: Session,
+  leadDecided: LeadDecided,
 ): SessionActivityEvent[] {
-  if (session.inboxAsk || !requestsAreUsers(session)) return [];
+  if (session.inboxAsk || !requestsAreUsers(session, leadDecided)) return [];
   const turn = sessionTurnActivityId(session);
   const events: SessionActivityEvent[] = session.blocks.flatMap((block) =>
     block.approval && !block.approval.decided
@@ -373,7 +379,7 @@ export async function notifySession(
           ? "question"
           : "approval"
         : event;
-  const pending = pendingSessionActivityEvents(session).find(
+  const pending = pendingSessionActivityEvents(session, NO_LEAD_DECIDED).find(
     (item) => item.outcome === outcome,
   );
   const result = await publishSessionActivity(

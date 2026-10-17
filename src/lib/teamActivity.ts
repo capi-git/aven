@@ -10,7 +10,8 @@
  *   posted by that chat).
  *
  * An orchestration posts "Run finished" and "Run paused" itself, from the
- * orchestrator (see `orchestrationActivity`). Stopping or discarding is the
+ * orchestrator (see `orchestrationActivity`); the team posts only "Run needs
+ * you · The lead stopped without finishing". Stopping or discarding is the
  * user's own action, so it posts nothing.
  */
 import type { SessionActivityEvent } from "./notifications";
@@ -23,6 +24,12 @@ export type TeamActivityEvent = {
   /** The chat the entry belongs to: where you act on it. */
   sessionId: string;
   event: SessionActivityEvent;
+};
+
+const NEED_LABEL: Record<TeamRun["kind"], string> = {
+  discuss: "Discussion paused",
+  race: "Race needs you",
+  orchestrate: "Run needs you",
 };
 
 function plural(count: number, one: string): string {
@@ -58,7 +65,10 @@ export function teamActivityEvents(
     const now: TeamSeen = { status: team.status, need: needKey(team) };
     seen.set(team.id, now);
     const before = previous?.get(team.id);
-    if (!before || team.kind === "orchestrate") continue;
+    if (!before) continue;
+    // A run's pauses are the orchestrator's to announce; only a lead that
+    // stopped without finishing is the team's.
+    if (team.kind === "orchestrate" && team.need?.kind !== "error") continue;
     const marker = { id: team.id, kind: team.kind };
     const origin = team.origin.sessionId;
     if (team.kind === "discuss" && team.status === "finished") {
@@ -97,13 +107,35 @@ export function teamActivityEvents(
       events.push({
         sessionId: need.sessionId,
         event: {
-          id: `${need.sessionId}:team:${team.key}:${need.kind}:${need.since}`,
+          // A race's need dates from its latest lane's end, so a Retry that
+          // fails again is a new one.
+          id: `${need.sessionId}:team:${team.key}:${need.kind}:${team.kind === "race" ? lastEnd(team) : need.since}`,
           // A team that stopped for you needs you, as a failure does.
           outcome: "failed",
-          summary: `${team.kind === "race" ? "Race needs you" : "Discussion paused"} · ${need.text}`,
+          summary: `${NEED_LABEL[team.kind]} · ${need.text}`,
           team: { ...marker, need: true },
         },
       });
   }
   return { events, seen };
+}
+
+/**
+ * The teams that no longer need you themselves: not waiting on you, or
+ * waiting only on a member's own request (which that chat announces). Their
+ * earlier "needs you" entries are settled (see `resolveTeamNeedActivity`).
+ */
+export function teamsNoLongerNeedingYou(
+  teams: readonly TeamRun[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const team of teams)
+    if (
+      team.status !== "needs-you" ||
+      !team.need ||
+      team.need.kind === "approval" ||
+      team.need.kind === "question"
+    )
+      ids.add(team.id);
+  return ids;
 }

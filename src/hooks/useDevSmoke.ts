@@ -47,6 +47,7 @@ import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
 import { isInFlightSession } from "../lib/inFlight";
 import type { OrchestrationRun } from "../lib/orchestration";
+import { leadDecidedIds } from "../lib/teamAttention";
 import {
   homeLiveSessions,
   homeNeedsYou,
@@ -1583,9 +1584,13 @@ function needsYouProblem(
       .map((entry) => `"${entry.summary}"`)
       .join(", ")}), so a banner would too`;
   const sessions = get().sessions;
+  const run = get().orchestration?.run(leadId);
   const live = homeLiveSessions(
     sessions,
     new Set(sessions.filter(isInFlightSession).map((session) => session.id)),
+    leadDecidedIds(run ? [run] : [], (id) =>
+      sessions.find((session) => session.id === id),
+    ),
   );
   const home = homeNeedsYou(
     live,

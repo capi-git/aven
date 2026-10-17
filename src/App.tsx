@@ -28,8 +28,10 @@ import { encodedSidebarRuns } from "./lib/orchestrationSummary";
 import { retainedSessionIds } from "./lib/sessionRetention";
 import {
   attentionSessionIds,
+  leadDecidedIds,
   sessionNeedsUser,
   teamNeedSessionIds,
+  type LeadDecided,
 } from "./lib/teamAttention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
@@ -532,7 +534,11 @@ import {
   upsertSession,
   type SessionSummary,
 } from "./lib/sessionStore";
-import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
+import {
+  setDockLeadDecided,
+  setDockTeamNeeds,
+  syncDockBadge,
+} from "./lib/dockBadge";
 import {
   teamCompanions,
   teamIdOf,
@@ -541,7 +547,11 @@ import {
   teamRunsFrom,
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
-import { teamActivityEvents, type TeamSeen } from "./lib/teamActivity";
+import {
+  teamActivityEvents,
+  teamsNoLongerNeedingYou,
+  type TeamSeen,
+} from "./lib/teamActivity";
 import { leadVerdict, summarizeRun } from "./lib/teamResult";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
@@ -562,6 +572,7 @@ import {
   useActivity,
   markSessionActivityRead,
   reconcileSessionActivityInputs,
+  resolveTeamNeedActivity,
   isPendingActivity,
   type ActivityTeam,
 } from "./lib/activity";
@@ -2144,6 +2155,16 @@ export default function App({
     () => new Map(sessions.map((session) => [session.id, session])),
     [sessions],
   );
+  // Workers whose approvals and questions their lead decides right now:
+  // those of a run that is still open, unless the lead left one to you.
+  const nextLeadDecided = useMemo(
+    () => leadDecidedIds(orchestrationRuns, (id) => sessionById.get(id)),
+    [orchestrationRuns, sessionById],
+  );
+  const leadDecidedRef = useRef(nextLeadDecided);
+  if (!setsEqual(leadDecidedRef.current, nextLeadDecided))
+    leadDecidedRef.current = nextLeadDecided;
+  const leadDecided = leadDecidedRef.current;
   const nextTeams = useMemo(
     () =>
       teamRunsFrom(teamStores, {
@@ -2170,8 +2191,8 @@ export default function App({
     teamNeedIdsRef.current = nextTeamNeedIds;
   const teamNeedIds = teamNeedIdsRef.current;
   const nextApprovalSessionIds = useMemo(
-    () => attentionSessionIds(sessions, teams),
-    [sessions, teams],
+    () => attentionSessionIds(sessions, teams, leadDecided),
+    [sessions, teams, leadDecided],
   );
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
   if (!setsEqual(approvalSessionIdsRef.current, nextApprovalSessionIds)) {
@@ -2267,7 +2288,7 @@ export default function App({
         !unresolvedActivitySessions.has(session.id)
       )
         continue;
-      const events = pendingSessionActivityEvents(session);
+      const events = pendingSessionActivityEvents(session, leadDecided);
       const ids = events.map((event) => event.id);
       const signature = JSON.stringify(ids);
       if (observedActivityInputs.current.get(session.id) === signature)
@@ -2282,6 +2303,7 @@ export default function App({
     approvalSessionIds,
     announceActivity,
     unresolvedActivitySessions,
+    leadDecided,
   ]);
 
   // One entry per run outcome, on the lead's chat: "Run finished · 4 agents"
@@ -2333,6 +2355,7 @@ export default function App({
   useEffect(() => {
     const { events, seen } = teamActivityEvents(seenTeams.current, teams);
     seenTeams.current = seen;
+    resolveTeamNeedActivity(teamsNoLongerNeedingYou(teams));
     for (const { sessionId, event } of events) {
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
@@ -2386,14 +2409,22 @@ export default function App({
   );
 
   const hiddenApprovalToasts = useMemo(
-    () => hiddenApprovalNotices(sessions, activeTabId, tabs, composerFocused),
-    [sessions, activeTabId, tabs, composerFocused],
+    () =>
+      hiddenApprovalNotices(
+        sessions,
+        activeTabId,
+        tabs,
+        composerFocused,
+        leadDecided,
+      ),
+    [sessions, activeTabId, tabs, composerFocused, leadDecided],
   );
 
   useEffect(() => {
     setDockTeamNeeds(teamNeedIds);
+    setDockLeadDecided(leadDecided);
     syncDockBadge(sessions);
-  }, [sessions, teamNeedIds]);
+  }, [sessions, teamNeedIds, leadDecided]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -2451,6 +2482,7 @@ export default function App({
         stopSessions: (ids) => {
           for (const id of ids) stopSessionRef.current(id);
         },
+        leadDecided: () => leadDecidedRef.current,
       },
     );
     void getCurrentWindow()
@@ -7802,7 +7834,7 @@ export default function App({
   );
 
   const nextTitleTabs: TitleTab[] = deckProjectTabs.map((tab) =>
-    toTitleTab(tab, sessions, dirtyFiles),
+    toTitleTab(tab, sessions, dirtyFiles, leadDecided),
   );
   tabProjectsRef.current = new Map(
     nextTitleTabs.map((tab) => [tab.id, tab.project]),
@@ -8847,6 +8879,7 @@ export default function App({
     sessions,
     activity: activityEntries,
     projectPaths: profiles.profileProjects.map((project) => project.path),
+    leadDecided,
   });
   const homeShown =
     (profileHome || homeViewOpen || view.order.length === 0) &&
@@ -8868,6 +8901,7 @@ export default function App({
     projects: profiles.profileProjects,
     standaloneCwds,
     teams,
+    leadDecided,
   });
   const sidebarProps: Omit<
     SidebarProps,
@@ -9992,6 +10026,7 @@ function toTitleTab(
   tab: WorkspaceTab,
   sessions: Session[],
   dirtyFiles: Set<string>,
+  leadDecided: LeadDecided,
 ): TitleTab {
   const paneIds = leafIds(tab.layout);
   const multiPane = paneIds.length > 1;
@@ -10114,7 +10149,9 @@ function toTitleTab(
     ),
     terminal: hasTerminal && harnesses.length === 0,
     groupId: tab.groupId,
-    needsInput: tabSessions.some(sessionNeedsUser),
+    needsInput: tabSessions.some((session) =>
+      sessionNeedsUser(session, leadDecided),
+    ),
     race: Boolean(race),
   };
 }

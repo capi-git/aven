@@ -4,34 +4,100 @@
  * sidebar's amber rows, the bar, the card and the Dock badge.
  *
  * - A member's approval or question is yours to answer, except an
- *   orchestration worker's: its lead decides those ("Lead deciding"), and
- *   only the lead asking in its own chat counts as needing you.
- * - A paused team needs you, with its plain reason and the chat to open.
+ *   orchestration worker's while its run is open: its lead decides those
+ *   ("Lead deciding"), and only the lead asking in its own chat counts as
+ *   needing you. Once the run finishes or stops, a worker is an ordinary
+ *   chat again. A request the lead left unanswered is handed to you.
+ * - A paused team needs you, with its plain reason and the chat to open, as
+ *   does a run whose lead stopped without finishing.
  * - A race whose lanes are all done is ready to compare: calm, not amber.
  *   One where no lane finished needs you.
  */
+import type { OrchestrationRun } from "./orchestration";
 import { hasPendingApproval, type Session } from "./session";
 import type { TeamMember, TeamNeed, TeamRun, TeamStatus } from "./teamRuns";
 
-type Asker = Pick<
-  Session,
-  "blocks" | "pendingQuestion" | "orchestrationLeadId"
->;
+type Asker = Pick<Session, "id" | "blocks" | "pendingQuestion">;
 
 /**
- * Whether this chat's own requests are yours to answer. An orchestration
- * worker's approvals and questions go to its lead instead.
+ * The orchestration workers whose approvals and questions their lead
+ * decides right now (see `leadDecidedIds`). Everything else's are yours.
  */
-export function requestsAreUsers(
-  session: Pick<Session, "orchestrationLeadId">,
+export type LeadDecided = ReadonlySet<string>;
+
+export const NO_LEAD_DECIDED: LeadDecided = new Set();
+
+/**
+ * A run whose workers' requests are its lead's: one that is running or
+ * paused, or that still has an agent working. A finished or stopped run's
+ * workers are ordinary chats again.
+ */
+export function runManagesWorkers(
+  run: Pick<OrchestrationRun, "status" | "tasks">,
 ): boolean {
-  return !session.orchestrationLeadId;
+  return (
+    run.status === "active" ||
+    run.status === "paused" ||
+    run.tasks.some(
+      (task) => task.status === "running" || task.status === "cancelling",
+    )
+  );
+}
+
+/**
+ * Which request a chat is waiting on, as one key ("approval:7",
+ * "question:3"), so a request handed to you is told apart from the next.
+ */
+export function pendingRequestKey(
+  session: Pick<Session, "blocks" | "pendingQuestion">,
+): string | undefined {
+  if (session.pendingQuestion)
+    return `question:${session.pendingQuestion.requestId}`;
+  for (let index = session.blocks.length - 1; index >= 0; index--) {
+    const approval = session.blocks[index].approval;
+    if (approval && !approval.decided) return `approval:${approval.requestId}`;
+  }
+  return undefined;
+}
+
+/**
+ * The workers whose current request is their lead's to decide: every
+ * worker of a run that manages them, except one whose request Aven handed
+ * to you because the lead left it unanswered (`escalated`).
+ */
+export function leadDecidedIds(
+  runs: readonly Pick<OrchestrationRun, "status" | "tasks">[],
+  session: (
+    id: string,
+  ) => Pick<Session, "blocks" | "pendingQuestion"> | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const run of runs) {
+    if (!runManagesWorkers(run)) continue;
+    for (const task of run.tasks) {
+      const worker = task.escalated ? session(task.sessionId) : undefined;
+      if (worker && pendingRequestKey(worker) === task.escalated) continue;
+      ids.add(task.sessionId);
+    }
+  }
+  return ids;
+}
+
+/** Whether this chat's own requests are yours to answer. */
+export function requestsAreUsers(
+  session: Pick<Session, "id">,
+  leadDecided: LeadDecided,
+): boolean {
+  return !leadDecided.has(session.id);
 }
 
 /** Input that is the user's to give: an approval or question of theirs. */
-export function sessionNeedsUser(session: Asker): boolean {
+export function sessionNeedsUser(
+  session: Asker,
+  leadDecided: LeadDecided,
+): boolean {
   return (
-    requestsAreUsers(session) &&
+    requestsAreUsers(session, leadDecided) &&
     (hasPendingApproval(session.blocks) || session.pendingQuestion != null)
   );
 }
@@ -50,14 +116,18 @@ export function teamAttention(input: {
   origin: string;
   since: number;
   pause?: { reason?: string; sessionId?: string };
+  /**
+   * When a running orchestration's lead stopped without finishing, with
+   * nothing else left to move the run on.
+   */
+  stalledSince?: number;
 }): { status: TeamStatus; need?: TeamNeed } {
   const { kind, phase, members, origin, since } = input;
   if (phase === "finished") return { status: "finished" };
   if (phase === "stopped") return { status: "stopped" };
-  // Workers never reach here as needs-you: their requests are the lead's.
-  const asking = members.find(
-    (member) => member.state === "needs-you" && member.role !== "worker",
-  );
+  // A worker is only ever needs-you once its lead left the request to you;
+  // until then it is "lead-deciding".
+  const asking = members.find((member) => member.state === "needs-you");
   if (asking)
     return {
       status: "needs-you",
@@ -78,6 +148,16 @@ export function teamAttention(input: {
         text: input.pause?.reason ?? "Paused",
         since,
         ...(input.pause?.sessionId ? { blocking: true as const } : {}),
+      },
+    };
+  if (phase === "running" && input.stalledSince !== undefined)
+    return {
+      status: "needs-you",
+      need: {
+        sessionId: origin,
+        kind: "error",
+        text: "The lead stopped without finishing",
+        since: input.stalledSince,
       },
     };
   if (kind === "race") {
@@ -125,15 +205,23 @@ export function teamNeedSessionIds(teams: readonly TeamRun[]): Set<string> {
 }
 
 /**
- * Every chat waiting on you: its own approval or question (never an
- * orchestration worker's), or a team that needs you there.
+ * Every chat waiting on you: its own approval or question (never that of an
+ * orchestration worker its lead decides for), or a team that needs you
+ * there. A worker shows in the sidebar under its lead, so a worker asking
+ * you marks its lead too (`withLeads`); the Dock counts each request once.
  */
 export function attentionSessionIds(
-  sessions: readonly (Asker & { id: string })[],
-  teams: readonly TeamRun[] = [],
+  sessions: readonly (Asker & Partial<Pick<Session, "orchestrationLeadId">>)[],
+  teams: readonly TeamRun[],
+  leadDecided: LeadDecided,
+  { withLeads = true }: { withLeads?: boolean } = {},
 ): Set<string> {
   const ids = teamNeedSessionIds(teams);
   for (const session of sessions)
-    if (sessionNeedsUser(session)) ids.add(session.id);
+    if (sessionNeedsUser(session, leadDecided)) {
+      ids.add(session.id);
+      if (withLeads && session.orchestrationLeadId)
+        ids.add(session.orchestrationLeadId);
+    }
   return ids;
 }

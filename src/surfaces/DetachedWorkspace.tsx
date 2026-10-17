@@ -1,7 +1,8 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
 import { sessionWorkCwd } from "../lib/session";
-import { sessionNeedsUser } from "../lib/teamAttention";
+import { leadDecidedIds, sessionNeedsUser } from "../lib/teamAttention";
+import { orchestrator } from "../lib/orchestration";
 import { useBootSplashReady } from "../lib/bootSplash";
 import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";
@@ -18,6 +19,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -836,6 +838,13 @@ export function DetachedWorkspace() {
     envelope?.state.sessions,
     report,
   ]);
+  // This window's own runs: a worker's request is its lead's only while a
+  // run this window knows is open.
+  const runs = useSyncExternalStore(
+    orchestrator.subscribe,
+    orchestrator.snapshot,
+    orchestrator.snapshot,
+  );
   if (!envelope)
     return (
       <main className="detached-workspace">
@@ -843,6 +852,10 @@ export function DetachedWorkspace() {
       </main>
     );
   const { state } = envelope;
+  const leadDecided = leadDecidedIds(
+    runs,
+    (id) => state.sessions.find((entry) => entry.session.id === id)?.session,
+  );
   const updateTab = (id: string, fn: (tab: WorkspaceTab) => WorkspaceTab) =>
     change((s) => ({
       ...s,
@@ -890,7 +903,9 @@ export function DetachedWorkspace() {
       terminal: !sessions.length && files.some((f) => f.terminal),
       dirty: files.some((f) => state.dirtyFileIds?.includes(f.id)),
       groupId: tab.groupId,
-      needsInput: sessions.some(sessionNeedsUser),
+      needsInput: sessions.some((session) =>
+        sessionNeedsUser(session, leadDecided),
+      ),
     };
   });
   const dragMove = (id: string, x: number, y: number) => {

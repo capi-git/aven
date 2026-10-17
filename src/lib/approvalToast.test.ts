@@ -6,6 +6,7 @@ import {
   pendingApprovalForSession,
 } from "./approvalToast";
 import { newSession, type Block } from "./session";
+import { NO_LEAD_DECIDED } from "./teamAttention";
 
 function block(role: Block["role"], approval?: Block["approval"]): Block {
   return {
@@ -30,14 +31,26 @@ describe("pendingApprovalForSession", () => {
     const leadTab = newTab("lead");
     const otherTab = newTab("unrelated");
     const tabs = [leadTab, otherTab];
+    const deciding = new Set(["worker"]);
     for (const active of [leadTab, otherTab])
-      expect(hiddenApprovalNotices([worker], active.id, tabs, true)).toEqual(
-        [],
-      );
-    // The same approval on an ordinary session still reaches the user.
+      expect(
+        hiddenApprovalNotices([worker], active.id, tabs, true, deciding),
+      ).toEqual([]);
+    // Once its run is over, the same approval reaches the user, as an
+    // ordinary session's does.
+    expect(
+      hiddenApprovalNotices(
+        [worker],
+        otherTab.id,
+        tabs,
+        true,
+        NO_LEAD_DECIDED,
+      )[0].sessionId,
+    ).toBe("worker");
     const solo = { ...worker, orchestrationLeadId: undefined };
     expect(
-      hiddenApprovalNotices([solo], otherTab.id, tabs, true)[0].sessionId,
+      hiddenApprovalNotices([solo], otherTab.id, tabs, true, NO_LEAD_DECIDED)[0]
+        .sessionId,
     ).toBe("worker");
   });
   it("returns the latest undecided approval", () => {
@@ -107,6 +120,7 @@ describe("hiddenApprovalNotices", () => {
         visibleTab.id,
         [visibleTab, hiddenTab],
         true,
+        NO_LEAD_DECIDED,
       ).map((notice) => notice.sessionId),
     ).toEqual([hidden.id]);
   });
@@ -122,9 +136,13 @@ describe("hiddenApprovalNotices", () => {
     };
 
     expect(
-      hiddenApprovalNotices([left, right], tab.id, [tab], true).map(
-        (notice) => notice.sessionId,
-      ),
+      hiddenApprovalNotices(
+        [left, right],
+        tab.id,
+        [tab],
+        true,
+        NO_LEAD_DECIDED,
+      ).map((notice) => notice.sessionId),
     ).toEqual([left.id]);
   });
 });

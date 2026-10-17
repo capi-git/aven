@@ -43,7 +43,9 @@ export function activitySections(entries: readonly ActivityEntry[]) {
     if (isMemberActivity(entry)) continue;
     if (
       isPendingActivity(entry) ||
-      (entry.outcome === "failed" && entry.readAt === null)
+      (entry.outcome === "failed" &&
+        entry.readAt === null &&
+        entry.resolvedAt === null)
     )
       needsYou.push(entry);
     else finished.push(entry);
@@ -51,7 +53,12 @@ export function activitySections(entries: readonly ActivityEntry[]) {
   return { needsYou, finished };
 }
 export function activityOutcomeLabel(entry: ActivityEntry): string {
-  if (entry.team?.need && entry.team.kind === "race") return "Needs you";
+  // A race no agent finished, or a run whose lead stopped without finishing.
+  if (
+    entry.team?.need &&
+    (entry.team.kind === "race" || /:team:.*:error:\d+$/.test(entry.id))
+  )
+    return "Needs you";
   if (isRunPausedActivity(entry)) return "Paused";
   switch (entry.outcome) {
     case "completed":

@@ -10,6 +10,7 @@ import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
 import { groupHomeRunning } from "../lib/teamGrouping";
+import { NO_LEAD_DECIDED, type LeadDecided } from "../lib/teamAttention";
 import type { TeamRun } from "../lib/teamRuns";
 import {
   homeFinished,
@@ -73,6 +74,7 @@ export function useWorkspaceHomeData({
   projects,
   standaloneCwds,
   teams = NO_TEAMS,
+  leadDecided = NO_LEAD_DECIDED,
 }: {
   enabled: boolean;
   sessions: readonly Session[];
@@ -86,10 +88,15 @@ export function useWorkspaceHomeData({
   standaloneCwds: readonly string[];
   /** Discussions, races and orchestrations, for the teams that need you. */
   teams?: readonly TeamRun[];
+  /** Workers whose requests their lead decides (see `teamAttention`). */
+  leadDecided?: LeadDecided;
 }): WorkspaceHomeData {
   const next = useMemo(
-    () => (enabled ? homeLiveSessions(sessions, inFlightIds) : EMPTY_LIVE),
-    [enabled, sessions, inFlightIds],
+    () =>
+      enabled
+        ? homeLiveSessions(sessions, inFlightIds, leadDecided)
+        : EMPTY_LIVE,
+    [enabled, sessions, inFlightIds, leadDecided],
   );
   const stable = useRef(next);
   if (stable.current !== next && !equalChromeData(stable.current, next))

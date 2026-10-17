@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   dispatchableTask,
+  LEAD_STALLED_AFTER_MS,
   Orchestrator,
   runStalled,
+  UNANSWERED_AFTER_MS,
   scopesOverlap,
   visibleUserPrompt,
   workerTurnPrompt,
@@ -12,6 +14,8 @@ import {
   shellPath,
 } from "./orchestration";
 import { newSession } from "./session";
+import { leadDecidedIds, sessionNeedsUser } from "./teamAttention";
+import { orchestrationTeam } from "./teamRuns";
 import type { OrchestrationProposal } from "./orchestrationPlan";
 
 function setup() {
@@ -1116,5 +1120,187 @@ describe("a run the lead left open", () => {
     await paused.manager.stopRun("lead");
     expect(pauses).toHaveLength(1);
     expect(pauses[0]).toMatch(/^paused:“Task” changed a file outside/);
+  });
+});
+
+describe("what only you can move on", () => {
+  const team = (f: ReturnType<typeof setup>) =>
+    orchestrationTeam(f.manager.run("lead")!, {
+      session: (id) => f.sessions.find((session) => session.id === id),
+      activity: [],
+    });
+
+  it("says the run needs you once its lead stopped without finishing", async () => {
+    vi.useFakeTimers();
+    const f = setup();
+    await f.start();
+    f.lead.busy = false;
+    f.manager.sync();
+    // Aven may still wake it with results; wait a moment first.
+    expect(team(f).status).toBe("running");
+    await vi.advanceTimersByTimeAsync(LEAD_STALLED_AFTER_MS);
+    expect(f.manager.run("lead")!.stalledAt).toEqual(expect.any(Number));
+    expect(team(f)).toMatchObject({
+      status: "needs-you",
+      need: {
+        sessionId: "lead",
+        kind: "error",
+        text: "The lead stopped without finishing",
+      },
+    });
+    // The lead working again clears it.
+    f.lead.busy = true;
+    f.manager.sync();
+    expect(f.manager.run("lead")!.stalledAt).toBeUndefined();
+    expect(team(f).status).toBe("running");
+    // A run that is over keeps no stall.
+    f.lead.busy = false;
+    f.manager.sync();
+    await vi.advanceTimersByTimeAsync(LEAD_STALLED_AFTER_MS);
+    await f.manager.finishRun("lead");
+    expect(f.manager.run("lead")!.stalledAt).toBeUndefined();
+  });
+
+  it("hands you an agent's request the lead was told about and left unanswered", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const worker = f.sessions.find(
+      (session) => session.id === f.tasks()[0].sessionId,
+    )!;
+    worker.orchestrationLeadId = "lead";
+    worker.busy = true;
+    worker.blocks = [
+      {
+        id: "ask",
+        role: "approval",
+        text: "rm -rf build",
+        approval: { requestId: 7 },
+      },
+    ];
+    const deciding = () =>
+      leadDecidedIds(f.manager.snapshot(), (id) =>
+        f.sessions.find((session) => session.id === id),
+      );
+    vi.useFakeTimers();
+    // The lead is told once it is free.
+    f.lead.busy = false;
+    f.manager.sync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.host.submit).toHaveBeenCalledTimes(2);
+    expect(f.host.submit).toHaveBeenLastCalledWith(
+      "lead",
+      expect.stringContaining("blocked waiting on you"),
+      expect.any(Function),
+    );
+    // While it works, the request stays its own to decide.
+    await vi.advanceTimersByTimeAsync(UNANSWERED_AFTER_MS * 2);
+    expect(f.tasks()[0].escalated).toBeUndefined();
+    expect(sessionNeedsUser(worker, deciding())).toBe(false);
+    // It ends its turn without answering.
+    f.completions.get("lead")!({ status: "completed", text: "Hmm." });
+    expect(team(f).members[1].state).toBe("lead-deciding");
+    await vi.advanceTimersByTimeAsync(UNANSWERED_AFTER_MS - 1);
+    expect(f.tasks()[0].escalated).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.tasks()[0].escalated).toBe("approval:7");
+    // Now it is yours: the chat asks you, and the run needs you there.
+    expect(sessionNeedsUser(worker, deciding())).toBe(true);
+    expect(team(f)).toMatchObject({
+      status: "needs-you",
+      need: { sessionId: worker.id, kind: "approval", blocking: true },
+    });
+    expect(team(f).members[1]).toMatchObject({
+      state: "needs-you",
+      asking: { kind: "approval" },
+    });
+    // Once answered, the agent's next request is the lead's again.
+    worker.blocks = [
+      { ...worker.blocks[0], approval: { requestId: 7, decided: "allow" } },
+    ];
+    f.manager.sync();
+    expect(f.tasks()[0].escalated).toBeUndefined();
+    worker.blocks = [
+      ...worker.blocks,
+      {
+        id: "ask2",
+        role: "approval",
+        text: "npm install",
+        approval: { requestId: 8 },
+      },
+    ];
+    expect(sessionNeedsUser(worker, deciding())).toBe(false);
+  });
+
+  it("never hands you a request while the lead is busy deciding", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const worker = f.sessions.find(
+      (session) => session.id === f.tasks()[0].sessionId,
+    )!;
+    worker.busy = true;
+    worker.blocks = [
+      {
+        id: "ask",
+        role: "approval",
+        text: "rm -rf build",
+        approval: { requestId: 7 },
+      },
+    ];
+    vi.useFakeTimers();
+    f.lead.busy = false;
+    f.manager.sync();
+    await vi.advanceTimersByTimeAsync(0);
+    f.completions.get("lead")!({ status: "completed", text: "Checking." });
+    await vi.advanceTimersByTimeAsync(UNANSWERED_AFTER_MS / 2);
+    // The user messages the lead: it is working again.
+    f.lead.busy = true;
+    f.manager.sync();
+    await vi.advanceTimersByTimeAsync(UNANSWERED_AFTER_MS * 2);
+    expect(f.tasks()[0].escalated).toBeUndefined();
+  });
+
+  it("keeps a finished run finished when saving its verdict fails", async () => {
+    const f = setup();
+    await f.start();
+    f.lead.busy = false;
+    await f.manager.finishRun("lead");
+    f.store.save.mockRejectedValueOnce(new Error("disk full"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stops = vi.mocked(f.host.stop).mock.calls.length;
+    await expect(f.manager.noteVerdict("lead", "Done.")).rejects.toThrow(
+      "disk full",
+    );
+    expect(f.manager.run("lead")!.status).toBe("finished");
+    expect(vi.mocked(f.host.stop).mock.calls).toHaveLength(stops);
+    errors.mockRestore();
+  });
+
+  it("sends no continuation to a run that ended while it was saved", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Done",
+    });
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    let release!: () => void;
+    f.store.save.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    f.lead.busy = false;
+    f.manager.sync();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const finishing = f.manager.finishRun("lead");
+    release();
+    await finishing;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(f.manager.run("lead")!.status).toBe("finished");
+    expect(f.host.submit).toHaveBeenCalledTimes(1);
   });
 });

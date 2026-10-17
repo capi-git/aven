@@ -87,7 +87,9 @@ describe("inbox sessions", () => {
     expect(liveAgentsFromSessions([session], new Set([session.id]))).toEqual(
       [],
     );
-    expect(hiddenApprovalNotices([session], "", [], true)).toEqual([]);
+    expect(hiddenApprovalNotices([session], "", [], true, new Set())).toEqual(
+      [],
+    );
   });
 
   it("omits Ask from workspace snapshots and restart recovery", () => {

@@ -23,6 +23,7 @@ import {
   type ProjectTerminalDock,
 } from "./projectTerminal";
 import { sessionWorkCwd, type Session } from "./session";
+import { NO_LEAD_DECIDED, type LeadDecided } from "./teamAttention";
 import { restoreSessionCheckout } from "./fs";
 import { sessionChildHarnesses } from "./handoff";
 import {
@@ -82,6 +83,8 @@ export type LiveWorkspace = {
   dirtyFileIds: () => ReadonlySet<string>;
   /** Stop these sessions as the Stop button would. */
   stopSessions: (ids: string[]) => void;
+  /** Workers whose requests their lead decides (see `teamAttention`). */
+  leadDecided: () => LeadDecided;
 };
 
 let liveWorkspace: LiveWorkspace | null = null;
@@ -102,7 +105,9 @@ export function setQuitWorkspace(
   projectTerminals: () => ProjectTerminalDock[],
   flush: () => void,
   saveBrowserState: () => void = () => {},
-  extras: Partial<Pick<LiveWorkspace, "dirtyFileIds" | "stopSessions">> = {},
+  extras: Partial<
+    Pick<LiveWorkspace, "dirtyFileIds" | "stopSessions" | "leadDecided">
+  > = {},
 ): () => void {
   liveWorkspace = {
     sessions,
@@ -114,6 +119,7 @@ export function setQuitWorkspace(
     saveBrowserState,
     dirtyFileIds: extras.dirtyFileIds ?? (() => new Set<string>()),
     stopSessions: extras.stopSessions ?? (() => {}),
+    leadDecided: extras.leadDecided ?? (() => NO_LEAD_DECIDED),
   };
   bootingResumed = null;
   return () => {

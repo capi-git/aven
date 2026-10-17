@@ -2,6 +2,7 @@ import type { ActivityEntry } from "./activity";
 import { projectKey } from "./paths";
 import { hasPendingApproval, type Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
+import { requestsAreUsers, type LeadDecided } from "./teamAttention";
 import { isBlockingQuestion } from "./userQuestion";
 
 /** What is happening in one project, at a glance. Zero counts mean nothing. */
@@ -36,21 +37,17 @@ function keyFor(cwd: string | undefined): string | null {
 export function sessionProjectCounts(
   sessions: readonly Pick<
     Session,
-    | "cwd"
-    | "busy"
-    | "blocks"
-    | "pendingQuestion"
-    | "liveAgents"
-    | "orchestrationLeadId"
+    "id" | "cwd" | "busy" | "blocks" | "pendingQuestion" | "liveAgents"
   >[],
+  leadDecided: LeadDecided,
 ): SessionCounts {
   const counts: SessionCounts = {};
   for (const session of sessions) {
     const key = keyFor(session.cwd);
     if (!key) continue;
-    // An orchestration worker's request is its lead's to decide: the worker
+    // A request an orchestration worker's lead decides for it: the worker
     // still counts as working, never as waiting for you.
-    const managed = !!session.orchestrationLeadId;
+    const managed = !requestsAreUsers(session, leadDecided);
     const approval = !managed && hasPendingApproval(session.blocks);
     const question = managed ? undefined : session.pendingQuestion;
     const waiting = approval || question != null;

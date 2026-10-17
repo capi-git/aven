@@ -10,6 +10,7 @@ import { activitySections } from "../chrome/ActivityPanel";
 import {
   getActivitySnapshot,
   recordActivity,
+  resolveTeamNeedActivity,
   type ActivityEntry,
 } from "./activity";
 import { visibleActivitySessionIds } from "./activityVisibility";
@@ -23,7 +24,7 @@ import {
 } from "./notifications";
 import { memberTurns } from "./orchestrationActivity";
 import { newSession } from "./session";
-import { teamActivityEvents } from "./teamActivity";
+import { teamActivityEvents, teamsNoLongerNeedingYou } from "./teamActivity";
 import { teamCompanions, type TeamMember, type TeamRun } from "./teamRuns";
 import { homeFinished, homeScope } from "./workspaceHome";
 
@@ -179,6 +180,89 @@ describe("teamActivityEvents", () => {
       }),
     ]);
     expect(events).toEqual([]);
+  });
+
+  it("posts once when a run's lead stopped without finishing", () => {
+    const run = (patch: Partial<TeamRun> = {}) =>
+      team({
+        id: "orchestrate:lead",
+        kind: "orchestrate",
+        key: "lead",
+        origin: { sessionId: "lead" },
+        ...patch,
+      });
+    const start = teamActivityEvents(null, [run()]);
+    const stalled = run({
+      status: "needs-you",
+      need: {
+        sessionId: "lead",
+        kind: "error",
+        text: "The lead stopped without finishing",
+        since: 30,
+      },
+    });
+    const first = teamActivityEvents(start.seen, [stalled]);
+    expect(first.events).toEqual([
+      {
+        sessionId: "lead",
+        event: {
+          id: "lead:team:lead:error:30",
+          outcome: "failed",
+          summary: "Run needs you · The lead stopped without finishing",
+          team: { id: "orchestrate:lead", kind: "orchestrate", need: true },
+        },
+      },
+    ]);
+    expect(teamActivityEvents(first.seen, [stalled]).events).toEqual([]);
+    // Its pauses are the orchestrator's to announce.
+    const paused = run({
+      status: "needs-you",
+      need: { sessionId: "lead", kind: "paused", text: "Paused", since: 1 },
+    });
+    expect(teamActivityEvents(start.seen, [paused]).events).toEqual([]);
+  });
+
+  it("posts a race's second need after a retry that fails again", () => {
+    const lanes = (end: number) => [
+      member("l0", { state: "failed", startedAt: 100, durationMs: end - 100 }),
+      member("l1", { state: "stopped" }),
+    ];
+    const need = {
+      sessionId: "chat",
+      kind: "error" as const,
+      text: "No agent finished. Retry one or discard the race.",
+      // A race's need is dated from when it was created.
+      since: 1,
+    };
+    const start = teamActivityEvents(null, [team({})]);
+    const first = teamActivityEvents(start.seen, [
+      team({ status: "needs-you", need, members: lanes(200) }),
+    ]);
+    expect(first.events).toHaveLength(1);
+    const retried = teamActivityEvents(first.seen, [team({})]);
+    const again = teamActivityEvents(retried.seen, [
+      team({ status: "needs-you", need, members: lanes(500) }),
+    ]);
+    expect(again.events.map((entry) => entry.event.id)).toEqual([
+      "chat:team:r1:error:500",
+    ]);
+    expect(again.events[0].event.id).not.toBe(first.events[0].event.id);
+  });
+
+  it("names the teams whose need has cleared", () => {
+    const asking = team({
+      id: "race:r2",
+      status: "needs-you",
+      need: { sessionId: "l1", kind: "approval", text: "Approve", since: 2 },
+    });
+    const paused = discussion({
+      status: "needs-you",
+      need: { sessionId: "b", kind: "paused", text: "Paused", since: 2 },
+    });
+    expect([...teamsNoLongerNeedingYou([team({}), asking, paused])]).toEqual([
+      "race:r1",
+      "race:r2",
+    ]);
   });
 });
 
@@ -339,4 +423,44 @@ it("counts members as seen while their team's chat is on screen", () => {
     panel: [],
   });
   expect([...visible].sort()).toEqual(["chat", "l0", "l1"]);
+});
+
+describe("a team's need once it clears", () => {
+  beforeEach(() => {
+    const data = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, value: string) => void data.set(key, value),
+        removeItem: (key: string) => void data.delete(key),
+      },
+    });
+  });
+
+  it("leaves Needs you once the team no longer needs you", () => {
+    const team = { id: "orchestrate:lead", kind: "orchestrate" as const };
+    recordActivity({
+      ...entry("lead:run:p:paused:5"),
+      sessionId: "lead",
+      outcome: "failed",
+      summary: "Run paused · The lead's turn ended.",
+      team: { ...team, need: true },
+    });
+    recordActivity({
+      ...entry("other:turn:1:failed"),
+      sessionId: "other",
+      outcome: "failed",
+    });
+    const needs = () =>
+      activitySections(getActivitySnapshot()).needsYou.map((item) => item.id);
+    expect(needs()).toEqual(["other:turn:1:failed", "lead:run:p:paused:5"]);
+    resolveTeamNeedActivity(new Set(["orchestrate:lead"]));
+    expect(needs()).toEqual(["other:turn:1:failed"]);
+    const settled = getActivitySnapshot().find(
+      (item) => item.id === "lead:run:p:paused:5",
+    )!;
+    expect(settled.resolvedAt).toEqual(expect.any(Number));
+    expect(settled.readAt).toEqual(expect.any(Number));
+  });
 });

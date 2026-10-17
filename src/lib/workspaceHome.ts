@@ -12,7 +12,11 @@ import {
 import { isActiveSessionAgent } from "./sessionAgents";
 import { summaryFromSession } from "./sessionHistory";
 import type { SessionSummary } from "./sessionStore";
-import { requestsAreUsers, teamsNeedingYou } from "./teamAttention";
+import {
+  requestsAreUsers,
+  teamsNeedingYou,
+  type LeadDecided,
+} from "./teamAttention";
 import type { TeamRowInfo } from "./teamGrouping";
 import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
@@ -48,6 +52,12 @@ export type HomeLiveSession = {
   doing?: string;
   /** Paused on an approval or a question, with what it asks. */
   waiting?: { kind: "approval" | "question"; detail: string };
+  /**
+   * An orchestration worker whose requests are yours (its run is over, or
+   * its lead left one to you): listed while it works or asks, never in
+   * Recent, which leaves workers out as saved history does.
+   */
+  worker?: true;
 };
 
 /** A row in Recent sessions, from saved history and loaded sessions. */
@@ -228,10 +238,14 @@ export function currentActivity(session: Session): string {
  * busy or with background agents, unless an approval or blocking question
  * pauses it.
  */
-function applyActivity(row: HomeLiveSession, session: Session) {
+function applyActivity(
+  row: HomeLiveSession,
+  session: Session,
+  leadDecided: LeadDecided,
+) {
   // A worker's approval or question is its lead's to decide, not yours: the
   // lead's row keeps working ("Lead deciding") instead of asking for you.
-  const managed = !requestsAreUsers(session);
+  const managed = !requestsAreUsers(session, leadDecided);
   const approval = managed ? undefined : pendingApproval(session.blocks);
   const question = managed ? undefined : session.pendingQuestion;
   const deciding =
@@ -271,22 +285,26 @@ function applyActivity(row: HomeLiveSession, session: Session) {
 /**
  * One pass over the loaded sessions. Only sessions in `inFlight` (the app's
  * busy set, which already includes leads of busy workers) are inspected for
- * approvals and questions. Inbox discussions are left out; orchestration
- * workers count toward their lead.
+ * approvals and questions. Inbox discussions are left out. An orchestration
+ * worker counts toward its lead while the lead decides for it
+ * (`leadDecided`); otherwise it is a chat of its own that asks you itself.
  */
 export function homeLiveSessions(
   sessions: readonly Session[],
   inFlight: ReadonlySet<string>,
+  leadDecided: LeadDecided,
 ): HomeLiveSession[] {
   const rows: HomeLiveSession[] = [];
   const byId = new Map<string, HomeLiveSession>();
   const workers: Session[] = [];
   for (const session of sessions) {
     if (session.inboxAsk) continue;
-    if (session.orchestrationLeadId) {
+    const worker = !!session.orchestrationLeadId;
+    if (worker && leadDecided.has(session.id)) {
       if (inFlight.has(session.id)) workers.push(session);
       continue;
     }
+    if (worker && !inFlight.has(session.id)) continue;
     const row: HomeLiveSession = {
       id: session.id,
       cwd: session.cwd,
@@ -297,13 +315,14 @@ export function homeLiveSessions(
     const turn = turnOf(session.blocks);
     if (turn.activeAt !== undefined) row.activeAt = turn.activeAt;
     if (!turn.hasUser) row.empty = true;
-    if (inFlight.has(session.id)) applyActivity(row, session);
+    if (worker) row.worker = true;
+    if (inFlight.has(session.id)) applyActivity(row, session, leadDecided);
     rows.push(row);
     byId.set(session.id, row);
   }
   for (const worker of workers) {
     const lead = byId.get(worker.orchestrationLeadId!);
-    if (lead) applyActivity(lead, worker);
+    if (lead) applyActivity(lead, worker, leadDecided);
   }
   return rows;
 }
@@ -398,7 +417,7 @@ export function homeRecentSessions(
     });
   }
   for (const session of live) {
-    if (!inHomeScope(scope, session.cwd)) continue;
+    if (session.worker || !inHomeScope(scope, session.cwd)) continue;
     const saved = rows.get(session.id);
     if (session.empty && !session.running && !saved) continue;
     rows.set(session.id, {
@@ -446,6 +465,7 @@ export function homeNeedsYou(
         requested.set(entry.sessionId, entry.createdAt);
     } else if (
       entry.readAt === null &&
+      entry.resolvedAt === null &&
       FINISHED.has(entry.outcome) &&
       !entry.team?.member
     ) {

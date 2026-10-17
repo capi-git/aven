@@ -8,6 +8,7 @@ import {
   type ProjectStatusMap,
 } from "../lib/projectStatus";
 import type { Session } from "../lib/session";
+import type { LeadDecided } from "../lib/teamAttention";
 import { useProjectsDiffFiles } from "./useProjectDiffStats";
 
 /**
@@ -20,19 +21,27 @@ export function useProjectStatus({
   sessions,
   activity,
   projectPaths,
+  leadDecided,
   enabled = true,
 }: {
   sessions: readonly Session[];
   activity: readonly ActivityEntry[];
   /** Projects listed in the sidebar, whose changed files are counted. */
   projectPaths: readonly string[];
+  /** Workers whose requests their lead decides (see `teamAttention`). */
+  leadDecided: LeadDecided;
   enabled?: boolean;
 }): ProjectStatusMap {
   const files = useProjectsDiffFiles(projectPaths, enabled);
   const unread = useMemo(() => unreadProjectCounts(activity), [activity]);
   const next = useMemo(
-    () => mergeProjectStatus(sessionProjectCounts(sessions), unread, files),
-    [sessions, unread, files],
+    () =>
+      mergeProjectStatus(
+        sessionProjectCounts(sessions, leadDecided),
+        unread,
+        files,
+      ),
+    [sessions, leadDecided, unread, files],
   );
   const stable = useRef(next);
   if (stable.current !== next && !sameProjectStatus(stable.current, next))

@@ -503,6 +503,9 @@ function workerDetail(member: TeamMember, over: boolean): string {
     return member.asking
       ? `${model} · Lead deciding: ${member.asking.text}`
       : `${model} · its lead is deciding a request`;
+  // A request the lead left unanswered, which is now yours.
+  if (member.state === "needs-you" && member.asking)
+    return `${model} · Needs you: ${member.asking.text}`;
   if (member.state === "working" && member.doing)
     return `${model} · ${member.doing}`;
   if (member.state === "queued" && member.waiting)

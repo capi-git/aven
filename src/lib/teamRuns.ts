@@ -33,7 +33,7 @@ import {
   type HarnessId,
   type Session,
 } from "./session";
-import { teamAttention } from "./teamAttention";
+import { pendingRequestKey, teamAttention } from "./teamAttention";
 import { currentActivity } from "./workspaceHome";
 
 export type TeamKind = "discuss" | "race" | "orchestrate";
@@ -458,9 +458,13 @@ function workerState(
       };
     case "running":
     case "cancelling":
-      // A worker's approval or question is its lead's to decide, not yours.
+      // A worker's approval or question is its lead's to decide, not yours,
+      // until the lead leaves it unanswered and Aven hands it to you.
       if (session && ownRequest(session))
-        return { state: "lead-deciding", stateLabel: "Lead deciding" };
+        return task.escalated !== undefined &&
+          task.escalated === pendingRequestKey(session)
+          ? { state: "needs-you", stateLabel: "Needs you" }
+          : { state: "lead-deciding", stateLabel: "Lead deciding" };
       return task.status === "cancelling"
         ? { state: "working", stateLabel: "Stopping" }
         : { state: "working", stateLabel: "Working" };
@@ -553,8 +557,9 @@ export function orchestrationTeam(
       look.detail && run.status === "active"
         ? taskWaitingReason(run, task)
         : undefined;
+    // What it asks: the lead's to decide (detail only), or yours.
     const asking =
-      look.detail && state === "lead-deciding"
+      state === "needs-you" || (look.detail && state === "lead-deciding")
         ? ownRequest(session)
         : undefined;
     const files = look.detail
@@ -589,6 +594,7 @@ export function orchestrationTeam(
     origin: run.leadId,
     since: run.startedAt ?? 0,
     pause: { reason: run.error, sessionId: run.leadId },
+    ...(run.stalledAt !== undefined ? { stalledSince: run.stalledAt } : {}),
   });
   const title =
     run.title ||

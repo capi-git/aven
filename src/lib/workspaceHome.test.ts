@@ -113,6 +113,7 @@ describe("homeLiveSessions", () => {
         session({ id: "skip", blocks: [user(1), approval("Old")] }),
       ],
       new Set(["run", "ask"]),
+      new Set(),
     );
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
     expect(byId.run).toMatchObject({
@@ -142,6 +143,7 @@ describe("homeLiveSessions", () => {
         }),
       ],
       new Set(["s"]),
+      new Set(),
     );
     expect(row).toMatchObject({
       running: true,
@@ -163,6 +165,7 @@ describe("homeLiveSessions", () => {
         session({ id: "new", blocks: [] }),
       ],
       new Set(["lead", "worker"]),
+      new Set(["worker"]),
     );
     expect(rows.map((row) => row.id)).toEqual(["lead", "new"]);
     expect(rows[0]).toMatchObject({ running: true, startedAt: 3_000 });
@@ -179,15 +182,53 @@ describe("homeLiveSessions", () => {
         blocks: [user(3_000), approval()],
       }),
     ];
-    const [lead] = homeLiveSessions(sessions, new Set(["worker"]));
+    const deciding = new Set(["worker"]);
+    const [lead] = homeLiveSessions(sessions, new Set(["worker"]), deciding);
     expect(lead.waiting).toBeUndefined();
     expect(lead).toMatchObject({ running: true, doing: "Lead deciding" });
     expect(homeNeedsYou([lead], [], scope)).toEqual([]);
     // The project counts it as working, never as waiting for you.
-    expect(sessionProjectCounts(sessions)[APP]).toEqual({
+    expect(sessionProjectCounts(sessions, deciding)[APP]).toEqual({
       running: 1,
       waiting: 0,
     });
+  });
+
+  it("lists a former worker's request as its own, never as Lead deciding", () => {
+    // Its run is over, so no lead decides for it: it asks you itself.
+    const sessions = [
+      session({ id: "lead", blocks: [user(2_000)] }),
+      session({
+        id: "worker",
+        title: "Fix the tests",
+        orchestrationLeadId: "lead",
+        busy: true,
+        blocks: [user(3_000), approval()],
+      }),
+    ];
+    const rows = homeLiveSessions(sessions, new Set(["worker"]), new Set());
+    const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+    expect(byId.lead.doing).toBeUndefined();
+    expect(byId.lead.running).toBeUndefined();
+    expect(byId.worker).toMatchObject({
+      worker: true,
+      waiting: { kind: "approval", detail: "Run npm test" },
+    });
+    expect(homeNeedsYou(rows, [], scope).map((item) => item.id)).toEqual([
+      "worker",
+    ]);
+    // Recent leaves workers out, as saved history does.
+    expect(homeRecentSessions([], rows, scope).map((row) => row.id)).toEqual([
+      "lead",
+    ]);
+    expect(sessionProjectCounts(sessions, new Set())[APP]).toEqual({
+      running: 0,
+      waiting: 1,
+    });
+    // An idle former worker is not listed at all.
+    expect(
+      homeLiveSessions(sessions, new Set(), new Set()).map((row) => row.id),
+    ).toEqual(["lead"]);
   });
 
   it("dates each session by its latest timed turn, never by a guess", () => {
@@ -206,6 +247,7 @@ describe("homeLiveSessions", () => {
         session({ id: "untimed", blocks: [steer] }),
       ],
       new Set(["running", "steered"]),
+      new Set(),
     );
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
     expect(byId.done.activeAt).toBe(1_500);
@@ -234,8 +276,12 @@ describe("homeLiveSessions", () => {
       }),
       session({ id: "5", cwd: SITE }),
     ];
-    const rows = homeLiveSessions(sessions, new Set(["1", "2", "3", "4"]));
-    const counts = sessionProjectCounts(sessions);
+    const rows = homeLiveSessions(
+      sessions,
+      new Set(["1", "2", "3", "4"]),
+      new Set(),
+    );
+    const counts = sessionProjectCounts(sessions, new Set());
     for (const path of [APP, SITE]) {
       const mine = rows.filter((row) => row.cwd === path);
       expect({

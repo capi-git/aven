@@ -269,6 +269,26 @@ export function reconcileSessionActivityInputs(
       : entry,
   );
 }
+/**
+ * A team's "needs you" entries ("Run paused", "Discussion paused", "Race
+ * needs you") once the team no longer needs you: resolved and read, so they
+ * leave Activity's and Home's "Needs you" wherever the need was settled.
+ */
+export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
+  if (!teamIds.size) return;
+  const now = Date.now();
+  updateEntries((entry) =>
+    entry.team?.need &&
+    teamIds.has(entry.team.id) &&
+    (entry.resolvedAt === null || entry.readAt === null)
+      ? {
+          ...entry,
+          resolvedAt: entry.resolvedAt ?? now,
+          readAt: entry.readAt ?? now,
+        }
+      : entry,
+  );
+}
 export function clearActivityHistory({
   keepPending = false,
 }: { keepPending?: boolean } = {}) {
