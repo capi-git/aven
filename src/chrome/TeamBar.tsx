@@ -199,7 +199,12 @@ function Frame({
       {...legacy}
     >
       <div
-        className="team-bar flex h-7 min-w-0 items-center gap-1.5 rounded-lg border border-content/10 bg-content/3 pl-2 pr-0.5 text-ui-label text-content/60"
+        className={`team-bar flex h-7 min-w-0 items-center gap-1.5 rounded-lg border bg-content/3 pl-2 pr-0.5 text-ui-label text-content/60 ${
+          // Waiting on you reads amber; a race ready to compare stays calm.
+          state === "paused" || state === "needs-you" || state === "stalled"
+            ? "border-amber-400/40"
+            : "border-content/10"
+        }`}
         data-state={state}
       >
         {children}
