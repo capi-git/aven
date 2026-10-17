@@ -77,6 +77,9 @@ export function highlightFromFinishedLines(
   const end = code.lastIndexOf("\n");
   if (end < 0) return { result: highlighter.codeToTokens(code, options) };
   const text = code.slice(0, end);
+  // A full run splits lines on "\r\n" too; tokenizing up to a CRLF's "\r"
+  // would leave it on the last finished line, and in copied code.
+  const lines = text.endsWith("\r") ? text.slice(0, -1) : text;
   let tokens: ThemedToken[][];
   let state: GrammarState | undefined;
   if (finished && finished.text === text) {
@@ -84,7 +87,7 @@ export function highlightFromFinishedLines(
     state = finished.state;
   } else {
     const start = finished ? finished.text.length + 1 : 0;
-    const added = highlighter.codeToTokens(text.slice(start), {
+    const added = highlighter.codeToTokens(lines.slice(start), {
       ...options,
       grammarState: finished?.state,
     });

@@ -265,6 +265,45 @@ describe("highlighting a streamed code block", () => {
     }
   }, 60_000);
 
+  it("leaves no carriage return on finished lines with Windows line endings", async () => {
+    const highlighter = await shiki.createHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: ["typescript"],
+      engine: createJavaScriptRegexEngine({ forgiving: true }),
+    });
+    const options = {
+      lang: "typescript" as BundledLanguage,
+      themes: { light: "github-light", dark: "github-dark" },
+    };
+    const strip = ({ grammarState: _state, ...result }: HighlightResult) =>
+      result;
+    const source = STREAMED_CODE.typescript.split("\n").join("\r\n");
+    let finished:
+      ReturnType<typeof highlightFromFinishedLines>["finished"] | undefined;
+    for (let length = 0; length <= source.length; length += 1) {
+      const code = source.slice(0, length);
+      const step = highlightFromFinishedLines(
+        highlighter,
+        code,
+        options,
+        finished && code.startsWith(`${finished.text}\n`)
+          ? { key: "typescript", ...finished }
+          : undefined,
+      );
+      if (step.finished) finished = step.finished;
+      const label = JSON.stringify(code);
+      expect(strip(step.result), label).toEqual(
+        strip(highlighter.codeToTokens(code, options)),
+      );
+      // Only a line still being written can end in one, as in a full run.
+      const done = step.result.tokens.slice(0, -1).flat();
+      expect(
+        done.some((token) => token.content.includes("\r")),
+        label,
+      ).toBe(false);
+    }
+  }, 60_000);
+
   it("tokenizes only the lines a streamed update added", async () => {
     const plugin = createBoundedCodePlugin();
     const highlighter = await shiki.createHighlighter({
