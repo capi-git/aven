@@ -43,6 +43,7 @@ import {
 import {
   discussionVoices,
   providerShortName,
+  voiceName,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
 import {
@@ -87,10 +88,12 @@ export function discussionStatus(
       ? { state: "done", text: "Done" }
       : { state: "stopped", text: "Stopped" };
   const party = discussion.settled % 2 === 0 ? discussion.a : discussion.b;
-  return {
-    state: "replying",
-    text: `${providerShortName(party.harness)} is replying…`,
-  };
+  // Two chats of one provider are told apart by their model.
+  const name =
+    discussion.a.harness === discussion.b.harness
+      ? voiceName(party)
+      : providerShortName(party.harness);
+  return { state: "replying", text: `${name} is replying…` };
 }
 
 /**
@@ -467,16 +470,7 @@ export function DiscussionThreadPanel({
                 Go to {voices[blocked].name}
               </button>
             ) : null}
-            {paused ? (
-              <button
-                type="button"
-                className="discussion-action"
-                onClick={() => void act({ kind: "resume" })}
-              >
-                <Play className="size-3" />
-                Resume
-              </button>
-            ) : null}
+            {/* Resume sits with the reason, at the end of the thread. */}
             <button
               type="button"
               className="discussion-action"

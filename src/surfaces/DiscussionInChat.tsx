@@ -11,6 +11,7 @@ import {
   type DiscussionSide,
 } from "../lib/discussions";
 import { replyStance } from "../lib/discussionStance";
+import { clip } from "../lib/memoryKeeperSafety";
 import {
   discussionVoices,
   providerShortName,
@@ -97,8 +98,11 @@ export function cardView(
   const settled = discussion.settled;
   const writer: DiscussionSide = (settled - 1) % 2 === 0 ? "a" : "b";
   const speaker: DiscussionSide = settled % 2 === 0 ? "a" : "b";
+  // A glimpse, not the reply: its first lines as plain text.
   const latest =
-    settled > 0 ? discussion.relay.trim().split(/\s+/).join(" ") : "";
+    settled > 0
+      ? clip(discussion.relay.trim().split(/\s+/).join(" "), 240)
+      : "";
   return {
     state: "live",
     title: `${pair} are discussing`,

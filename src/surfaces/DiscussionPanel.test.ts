@@ -18,7 +18,7 @@ vi.mock("./AgentMarkdown", () => ({
   },
 }));
 
-import { DiscussionPanelContent } from "./DiscussionPanel";
+import { DiscussionPanelContent, discussionStatus } from "./DiscussionPanel";
 
 const A: DiscussionParty = {
   sessionId: "a",
@@ -703,4 +703,22 @@ describe("DiscussionPanelContent: where they landed", () => {
     await renderWith(undefined);
     expect(container.querySelector("[data-discussion-wrapup]")).toBeNull();
   });
+});
+
+it("tells two chats of one provider apart by model while one replies", () => {
+  const party = (sessionId: string, model: string) => ({
+    sessionId,
+    harness: "claude" as const,
+    model,
+    title: sessionId,
+    cwd: "/work",
+  });
+  expect(
+    discussionStatus({
+      status: "active",
+      settled: 1,
+      a: party("a", "Opus 5.5"),
+      b: party("b", "Sonnet 5"),
+    }).text,
+  ).toBe("Claude · Sonnet 5 is replying…");
 });

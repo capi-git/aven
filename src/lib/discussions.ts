@@ -1359,8 +1359,9 @@ function readAll(storage: DiscussionStorage | undefined): Discussion[] {
   }
 }
 
+/** Why a discussion paused for no one chat; shown after "Paused". */
 export const RELOAD_REASON =
-  "Paused when its window reloaded or closed. Resume to continue.";
+  "Its window reloaded or closed. Resume to continue.";
 
 /**
  * Discussions for every window, shared through `aven.discussions`. A window

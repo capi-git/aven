@@ -24,6 +24,7 @@ vi.mock("../lib/orchestration", async (importOriginal) => ({
 import {
   DiscussionStore,
   discussionStore,
+  RELOAD_REASON,
   resetDiscussionStore,
   type DiscussionParty,
 } from "../lib/discussions";
@@ -289,11 +290,11 @@ describe("while discussing", () => {
   it("shows the pause reason with Resume in either chat", async () => {
     const discussions = discussionStore();
     discussions.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 2 });
-    discussions.pause("d1", "Paused when its window reloaded.");
+    discussions.pause("d1", RELOAD_REASON);
     await show("b");
     expect(state()).toBe("paused");
     expect(text()).toBe(
-      "Discussing · Paused · Paused when its window reloaded.",
+      "Discussing · Paused · Its window reloaded or closed. Resume to continue.",
     );
     await press("Resume");
     expect(discussions.get("d1")?.status).toBe("active");

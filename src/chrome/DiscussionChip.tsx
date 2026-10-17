@@ -328,7 +328,7 @@ function DiscussionMenu({
           icon={Plus}
           title="New chat with…"
           disabledTitle="No providers are available for a new chat"
-          description="Start a new chat with the model you choose. Only the discussion opens beside this one."
+          description="Start a new chat with the model you choose. It talks in the background, listed in the sidebar, without a tab of its own."
           menuLabel="Choose the model for the new chat"
           onPick={(pickedHarness, pickedModel) =>
             onPick({ kind: "new", harness: pickedHarness, model: pickedModel })

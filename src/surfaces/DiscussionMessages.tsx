@@ -133,7 +133,7 @@ export const DiscussionMessage = memo(function DiscussionMessage({
         ) : (
           <p className="discussion-bubble discussion-bubble-missing">
             {text === null
-              ? `“${voice.title}” isn't open in this window, so its reply can't be shown here.`
+              ? `“${voice.title}” was closed, so its reply can't be shown here.`
               : "No reply text."}
           </p>
         )}
