@@ -18,6 +18,8 @@ import { HarnessIcon } from "./HarnessIcon";
 import { TeamMiniFaces } from "./TeamCard";
 import { useTeamRuns } from "../hooks/useTeamRuns";
 import { groupRunningChats, teamRowInfo } from "../lib/teamGrouping";
+import { teamsNeedingYou } from "../lib/teamAttention";
+import type { TeamNeed, TeamRun } from "../lib/teamRuns";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
@@ -35,12 +37,66 @@ export type ActivityPanelProps = {
   theme?: ToolbarPanelTheme;
   onClose?: () => void;
 };
-export function activitySections(entries: readonly ActivityEntry[]) {
+/**
+ * A team waiting on you as a row of its own, for a need with no entry to
+ * show (one already there when Aven started, or whose entry was read).
+ */
+function liveNeedRow(team: TeamRun, need: TeamNeed): ActivityEntry {
+  return {
+    id: `live:${team.id}`,
+    sessionId: need.sessionId,
+    outcome: "failed",
+    title: team.title,
+    summary: need.text,
+    cwd: team.project,
+    harness:
+      team.members.find((member) => member.sessionId === need.sessionId)
+        ?.harness ??
+      team.members[0]?.harness ??
+      "claude",
+    model: "",
+    createdAt: need.since,
+    // Nothing to mark read: it stays while the team waits on you.
+    readAt: need.since,
+    resolvedAt: null,
+    team: { id: team.id, kind: team.kind, need: true },
+  };
+}
+
+/**
+ * Activity's two lists. "Needs you" holds pending requests, unread
+ * failures, and every team that waits on you itself (paused, stalled, a
+ * race no agent finished) for as long as it waits, read or not, as the
+ * Dock, the sidebar and Home count it.
+ */
+export function activitySections(
+  entries: readonly ActivityEntry[],
+  teams: readonly TeamRun[] = [],
+) {
   const needsYou: ActivityEntry[] = [];
   const finished: ActivityEntry[] = [];
+  const waiting = new Map<string, { team: TeamRun; need: TeamNeed }>();
+  for (const team of teamsNeedingYou(teams))
+    if (
+      team.need &&
+      team.need.kind !== "approval" &&
+      team.need.kind !== "question"
+    )
+      waiting.set(team.id, { team, need: team.need });
+  const shown = new Set<string>();
   for (const entry of entries) {
     // A team member's own turn is its team's: the team posts its own entry.
     if (isMemberActivity(entry)) continue;
+    const team = entry.team?.need ? entry.team.id : undefined;
+    if (team && waiting.has(team) && entry.resolvedAt === null) {
+      // Its newest entry, read or not, stands for it while it waits.
+      if (shown.has(team)) finished.push(entry);
+      else {
+        shown.add(team);
+        needsYou.push(entry);
+      }
+      continue;
+    }
     if (
       isPendingActivity(entry) ||
       (entry.outcome === "failed" &&
@@ -50,16 +106,16 @@ export function activitySections(entries: readonly ActivityEntry[]) {
       needsYou.push(entry);
     else finished.push(entry);
   }
+  for (const [id, { team, need }] of waiting)
+    if (!shown.has(id)) needsYou.push(liveNeedRow(team, need));
+  needsYou.sort((a, b) => b.createdAt - a.createdAt);
   return { needsYou, finished };
 }
 export function activityOutcomeLabel(entry: ActivityEntry): string {
-  // A race no agent finished, or a run whose lead stopped without finishing.
-  if (
-    entry.team?.need &&
-    (entry.team.kind === "race" || /:team:.*:error:\d+$/.test(entry.id))
-  )
-    return "Needs you";
-  if (isRunPausedActivity(entry)) return "Paused";
+  // A team waiting on you (paused, stalled, a race no agent finished) reads
+  // as Home and the sidebar word it; the summary says why.
+  if (isRunPausedActivity(entry))
+    return entry.resolvedAt === null ? "Needs you" : "Was waiting on you";
   switch (entry.outcome) {
     case "completed":
       return "Finished";
@@ -97,9 +153,11 @@ export function ActivityPanel({
   onClose,
 }: ActivityPanelProps) {
   const entries = useActivity();
+  // A team runs as one row: its chats fold into the one it started from.
+  const teams = useTeamRuns();
   const { needsYou, finished } = useMemo(
-    () => activitySections(entries),
-    [entries],
+    () => activitySections(entries, teams),
+    [entries, teams],
   );
   const running = useMemo(
     () =>
@@ -111,8 +169,6 @@ export function ActivityPanel({
       ),
     [sessions],
   );
-  // A team runs as one row: its chats fold into the one it started from.
-  const teams = useTeamRuns();
   const runningRows = useMemo(
     () => groupRunningChats(running, teams),
     [running, teams],

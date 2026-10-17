@@ -149,9 +149,9 @@ export function useWorkspaceHomeData({
     useMemo(
       () =>
         enabled
-          ? homeProjects(ordered, recent, activity, live, index)
+          ? homeProjects(ordered, recent, activity, live, index, teams)
           : EMPTY.projects,
-      [enabled, ordered, recent, activity, live, index],
+      [enabled, ordered, recent, activity, live, index, teams],
     ),
   );
   const finished = useStable(

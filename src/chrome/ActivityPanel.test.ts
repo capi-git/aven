@@ -2,8 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ActivityPanel, type ActivityPanelProps } from "./ActivityPanel";
 import {
+  ActivityPanel,
+  activityOutcomeLabel,
+  activitySections,
+  type ActivityPanelProps,
+} from "./ActivityPanel";
+import {
+  type ActivityEntry,
   getActivitySnapshot,
   recordActivity,
   type ActivityOutcome,
@@ -13,6 +19,7 @@ import {
   LiveSessionsContext,
 } from "../lib/liveSessions";
 import { saveRace } from "../lib/race";
+import type { TeamRun } from "../lib/teamRuns";
 import { newSession } from "../lib/session";
 
 let host: HTMLDivElement;
@@ -283,5 +290,57 @@ describe("Activity panel", () => {
     expect(getActivitySnapshot().map((entry) => entry.id)).toEqual([
       "Question",
     ]);
+  });
+});
+
+describe("teams waiting on you", () => {
+  const paused = (since: number): TeamRun => ({
+    id: "discuss:d1",
+    kind: "discuss",
+    key: "d1",
+    origin: { sessionId: "a" },
+    project: "/tmp/project",
+    title: "Cache the lookups?",
+    status: "needs-you",
+    progress: "Round 1 of 2",
+    need: {
+      sessionId: "b",
+      kind: "paused",
+      text: "Paused when its window reloaded.",
+      since,
+    },
+    members: [],
+    startedAt: 0,
+    updatedAt: 0,
+  });
+  const entry = (patch: Partial<ActivityEntry>): ActivityEntry => ({
+    id: "b:team:d1:paused:5",
+    sessionId: "b",
+    outcome: "failed",
+    title: "Review",
+    summary: "Discussion paused · Paused when its window reloaded.",
+    cwd: "/tmp/project",
+    harness: "codex",
+    model: "",
+    createdAt: 5,
+    readAt: null,
+    resolvedAt: null,
+    team: { id: "discuss:d1", kind: "discuss", need: true },
+    ...patch,
+  });
+
+  it("lists one while it waits, read or not, as the Dock and Home count it", () => {
+    const read = entry({ readAt: 6 });
+    expect(activitySections([read], [paused(5)]).needsYou).toEqual([read]);
+    // Already waiting when Aven started: no entry, still listed.
+    const [live] = activitySections([], [paused(5)]).needsYou;
+    expect(live).toMatchObject({
+      sessionId: "b",
+      title: "Cache the lookups?",
+      summary: "Paused when its window reloaded.",
+    });
+    expect(activityOutcomeLabel(live)).toBe("Needs you");
+    // Once it no longer waits, its entry is history.
+    expect(activitySections([read], []).needsYou).toEqual([]);
   });
 });

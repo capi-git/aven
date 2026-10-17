@@ -182,3 +182,21 @@ describe("describeProjectStatus", () => {
     expect(describeProjectStatus(undefined)).toBe("");
   });
 });
+
+describe("a team waiting on you", () => {
+  it("counts its chat as waiting in its project, once", () => {
+    const counts = sessionProjectCounts(
+      [session({ id: "a", busy: true })],
+      NO_LEAD_DECIDED,
+      [
+        { sessionId: "b", project: SITE },
+        { sessionId: "b", project: SITE },
+        { sessionId: "a", project: APP },
+      ],
+    );
+    expect(counts).toEqual({
+      [APP]: { running: 1, waiting: 1 },
+      [SITE]: { running: 0, waiting: 1 },
+    });
+  });
+});

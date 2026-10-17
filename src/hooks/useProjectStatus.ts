@@ -4,11 +4,15 @@ import {
   mergeProjectStatus,
   sameProjectStatus,
   sessionProjectCounts,
+  teamNeedPlaces,
   unreadProjectCounts,
   type ProjectStatusMap,
 } from "../lib/projectStatus";
 import type { Session } from "../lib/session";
 import type { LeadDecided } from "../lib/teamAttention";
+import type { TeamRun } from "../lib/teamRuns";
+
+const NO_TEAMS: readonly TeamRun[] = [];
 import { useProjectsDiffFiles } from "./useProjectDiffStats";
 
 /**
@@ -22,6 +26,7 @@ export function useProjectStatus({
   activity,
   projectPaths,
   leadDecided,
+  teams = NO_TEAMS,
   enabled = true,
 }: {
   sessions: readonly Session[];
@@ -30,18 +35,21 @@ export function useProjectStatus({
   projectPaths: readonly string[];
   /** Workers whose requests their lead decides (see `teamAttention`). */
   leadDecided: LeadDecided;
+  /** Teams, for those waiting on you themselves. */
+  teams?: readonly TeamRun[];
   enabled?: boolean;
 }): ProjectStatusMap {
   const files = useProjectsDiffFiles(projectPaths, enabled);
   const unread = useMemo(() => unreadProjectCounts(activity), [activity]);
+  const needs = useMemo(() => teamNeedPlaces(teams), [teams]);
   const next = useMemo(
     () =>
       mergeProjectStatus(
-        sessionProjectCounts(sessions, leadDecided),
+        sessionProjectCounts(sessions, leadDecided, needs),
         unread,
         files,
       ),
-    [sessions, leadDecided, unread, files],
+    [sessions, leadDecided, needs, unread, files],
   );
   const stable = useRef(next);
   if (stable.current !== next && !sameProjectStatus(stable.current, next))

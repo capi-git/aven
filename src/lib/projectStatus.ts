@@ -2,7 +2,12 @@ import type { ActivityEntry } from "./activity";
 import { projectKey } from "./paths";
 import { hasPendingApproval, type Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
-import { requestsAreUsers, type LeadDecided } from "./teamAttention";
+import {
+  requestsAreUsers,
+  teamsNeedingYou,
+  type LeadDecided,
+} from "./teamAttention";
+import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
 
 /** What is happening in one project, at a glance. Zero counts mean nothing. */
@@ -40,8 +45,15 @@ export function sessionProjectCounts(
     "id" | "cwd" | "busy" | "blocks" | "pendingQuestion" | "liveAgents"
   >[],
   leadDecided: LeadDecided,
+  /**
+   * Teams waiting on you themselves (paused, stalled, a race no agent
+   * finished): each one's chat counts as waiting in its project, as its
+   * sidebar row and the Dock count it.
+   */
+  teamNeeds: readonly { sessionId: string; project: string }[] = [],
 ): SessionCounts {
   const counts: SessionCounts = {};
+  const waitingIds = new Set<string>();
   for (const session of sessions) {
     const key = keyFor(session.cwd);
     if (!key) continue;
@@ -59,9 +71,29 @@ export function sessionProjectCounts(
     if (!waiting && !running) continue;
     const entry = (counts[key] ??= { running: 0, waiting: 0 });
     if (running) entry.running += 1;
-    if (waiting) entry.waiting += 1;
+    if (waiting) {
+      entry.waiting += 1;
+      waitingIds.add(session.id);
+    }
+  }
+  for (const need of teamNeeds) {
+    const key = keyFor(need.project);
+    if (!key || waitingIds.has(need.sessionId)) continue;
+    waitingIds.add(need.sessionId);
+    (counts[key] ??= { running: 0, waiting: 0 }).waiting += 1;
   }
   return counts;
+}
+
+/** The teams waiting on you themselves, by the chat and project they wait in. */
+export function teamNeedPlaces(
+  teams: readonly TeamRun[],
+): { sessionId: string; project: string }[] {
+  return teamsNeedingYou(teams).flatMap((team) =>
+    team.need && team.need.kind !== "approval" && team.need.kind !== "question"
+      ? [{ sessionId: team.need.sessionId, project: team.project }]
+      : [],
+  );
 }
 
 const FINISHED = new Set(["completed", "failed", "stopped"]);

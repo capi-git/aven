@@ -617,6 +617,36 @@ describe("homeProjects", () => {
   });
 });
 
+describe("homeProjects with a team waiting on you", () => {
+  it("opens the tile to the chat the team waits in, saying why", () => {
+    const [card] = homeProjects([{ path: SITE }], [], [], [], undefined, [
+      {
+        id: "discuss:d1",
+        kind: "discuss",
+        key: "d1",
+        origin: { sessionId: "a" },
+        project: SITE,
+        title: "Cache the lookups?",
+        status: "needs-you",
+        progress: "Round 1 of 2",
+        need: {
+          sessionId: "b",
+          kind: "paused",
+          text: "“Review” isn't open in this window.",
+          since: 3,
+        },
+        members: [],
+        startedAt: 0,
+        updatedAt: 0,
+      },
+    ]);
+    expect(card).toMatchObject({
+      resumeId: "b",
+      asking: "“Review” isn't open in this window.",
+    });
+  });
+});
+
 describe("homeProjects with live sessions", () => {
   it("opens to what waits on the user, then what is at work, then the latest", () => {
     const recent = homeRecentSessions(

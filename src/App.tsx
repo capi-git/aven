@@ -9011,6 +9011,7 @@ export default function App({
     activity: activityEntries,
     projectPaths: profiles.profileProjects.map((project) => project.path),
     leadDecided,
+    teams,
   });
   const homeShown =
     (profileHome || homeViewOpen || view.order.length === 0) &&

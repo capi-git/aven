@@ -565,6 +565,7 @@ export function homeProjects(
   activity: readonly ActivityEntry[],
   live: readonly HomeLiveSession[] = [],
   index: HomeSessionIndex = NO_INDEX,
+  teams: readonly TeamRun[] = [],
 ): HomeProject[] {
   const timeOf = (session: HomeLiveSession) =>
     index.at.get(session.id) ?? session.updatedAt;
@@ -589,6 +590,15 @@ export function homeProjects(
         working.set(key, session);
     }
   }
+  // A team waiting on you itself asks from its chat, as a request would.
+  const teamAsks = new Map<string, { id: string; text: string }>();
+  for (const team of teamsNeedingYou(teams)) {
+    const need = team.need;
+    if (!need || need.kind === "approval" || need.kind === "question") continue;
+    const key = projectKey(team.project);
+    if (!waiting.has(key) && !teamAsks.has(key))
+      teamAsks.set(key, { id: need.sessionId, text: clip(need.text) });
+  }
   const lastEvent = new Map<string, number>();
   for (const entry of activity) {
     if (!entry.cwd) continue;
@@ -600,6 +610,7 @@ export function homeProjects(
     const key = projectKey(project.path);
     const recentSession = latest.get(key);
     const asking = waiting.get(key);
+    const teamAsk = asking ? undefined : teamAsks.get(key);
     const doing = working.get(key);
     const opens = asking ?? doing ?? recentSession;
     const branch = branches.get(key);
@@ -611,9 +622,20 @@ export function homeProjects(
       name: basename(project.path),
       ...(branch ? { branch } : {}),
       ...(lastActivity > 0 ? { lastActivity } : {}),
-      ...(opens ? { resumeId: opens.id, resumeTitle: opens.title } : {}),
+      ...(teamAsk
+        ? {
+            resumeId: teamAsk.id,
+            resumeTitle: index.title.get(teamAsk.id) ?? opens?.title ?? "",
+          }
+        : opens
+          ? { resumeId: opens.id, resumeTitle: opens.title }
+          : {}),
       ...(doing?.doing ? { doing: doing.doing } : {}),
-      ...(asking?.waiting ? { asking: asking.waiting.detail } : {}),
+      ...(asking?.waiting
+        ? { asking: asking.waiting.detail }
+        : teamAsk
+          ? { asking: teamAsk.text }
+          : {}),
     };
   });
 }
