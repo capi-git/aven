@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { HARNESSES, type HarnessId, type Session } from "./session";
+import {
+  HARNESSES,
+  sessionDisplayTitle,
+  type HarnessId,
+  type Session,
+} from "./session";
 import type { ApprovalDecision, HarnessEvent } from "./harness/types";
 import { pendingApprovalForSession } from "./approvalToast";
 import type { UserQuestionReply } from "./userQuestion";
@@ -49,6 +54,15 @@ export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
   text: string;
   error?: string;
+};
+/**
+ * How a run ended or stopped for the user: once per change, so Activity and
+ * a banner can carry one entry for the whole run instead of one per turn.
+ * Stopping is the user's own action, so it is not announced.
+ */
+export type RunOutcome = {
+  kind: "finished" | "paused";
+  run: OrchestrationRun;
 };
 export type OrchestrationHost = {
   session(id: string): Session | undefined;
@@ -111,6 +125,97 @@ export const sameCheckout = (a: string, b: string) =>
   b.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+/** The folder's own name, as the sidebar names a project. */
+const folderName = (path: string) =>
+  path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ||
+  "This project";
+/** What the user should do after Aven paused a run and stopped its agents. */
+const PAUSED_NEXT =
+  "Aven paused the run and stopped its agents. Check the files, then resume or stop the run.";
+
+/**
+ * A queued task can start once every task it depends on was accepted. One
+ * that waits on a cancelled or unreviewed task never starts by itself.
+ */
+export function dispatchableTask(
+  run: OrchestrationRun,
+  task: OrchestrationTask,
+): boolean {
+  return (
+    task.status === "queued" &&
+    task.dependsOn.every(
+      (id) => run.tasks.find((entry) => entry.id === id)?.accepted,
+    )
+  );
+}
+
+/**
+ * An active run that nothing will move forward: the lead is idle with no
+ * message waiting, no agent is working, no queued task can start, and every
+ * result already reached the lead. Aven only wakes the lead for new results
+ * or blocked agents, so such a run would otherwise hold the project forever.
+ */
+export function runStalled(
+  run: OrchestrationRun,
+  lead: Session | undefined,
+): boolean {
+  return !!lead && leadIsIdle(lead) && runWaitsOnLead(run);
+}
+
+/** The lead is not working, has nothing queued and is not asking you. */
+export function leadIsIdle(
+  lead: Pick<Session, "busy" | "queuedMessages" | "pendingQuestion" | "blocks">,
+): boolean {
+  return (
+    !lead.busy &&
+    !lead.queuedMessages?.length &&
+    !lead.pendingQuestion &&
+    !lead.blocks.some((block) => block.approval && !block.approval.decided)
+  );
+}
+
+/**
+ * An active run in which no agent is working, no queued task can start and
+ * every result already reached the lead: only the lead can move it on.
+ */
+export function runWaitsOnLead(run: OrchestrationRun): boolean {
+  return (
+    run.status === "active" &&
+    !run.tasks.some(
+      (task) =>
+        activeTask(task) ||
+        dispatchableTask(run, task) ||
+        (!task.delivered && task.status !== "queued"),
+    )
+  );
+}
+
+/**
+ * The run that keeps a chat from working in its project: another chat's run
+ * that is active, or still has agents working, in the same folder. A run's
+ * own lead and workers are never blocked by it here.
+ */
+export function blockingRunFor(
+  runs: readonly OrchestrationRun[],
+  sessionId: string,
+  cwd: string,
+): OrchestrationRun | undefined {
+  return runs.find(
+    (run) =>
+      (run.status === "active" || run.tasks.some(activeTask)) &&
+      run.leadId !== sessionId &&
+      !run.tasks.some((task) => task.sessionId === sessionId) &&
+      sameCheckout(run.cwd, cwd),
+  );
+}
+
+/** “<project> is busy …”, naming the chat the run can be finished in. */
+export function busyProjectMessage(
+  run: OrchestrationRun,
+  leadTitle = "another chat",
+): string {
+  return `${folderName(run.cwd)} is busy with an orchestration in “${leadTitle}”. Finish or stop it there.`;
+}
 
 const ASSIGNMENT_BLOCK =
   /(?:\r?\n[ \t]*)*<(aven_assignment|monocode_assignment)\b[^>]*>[\s\S]*?<\/\1>/gi;
@@ -234,6 +339,7 @@ export class Orchestrator {
     { signature: string; promise: Promise<unknown> }
   >();
   private host: OrchestrationHost | null = null;
+  private outcomeListeners = new Set<(outcome: RunOutcome) => void>();
   constructor(private readonly store: Storage = storage) {}
   bind(host: OrchestrationHost) {
     this.host = host;
@@ -244,6 +350,33 @@ export class Orchestrator {
       this.listeners.delete(listener);
     };
   };
+  /** Called once when an active run finishes or pauses. */
+  onOutcome(listener: (outcome: RunOutcome) => void) {
+    this.outcomeListeners.add(listener);
+    return () => {
+      this.outcomeListeners.delete(listener);
+    };
+  }
+  private announce(
+    previous: OrchestrationRun | undefined,
+    next: OrchestrationRun,
+  ) {
+    if (previous?.status !== "active") return;
+    const kind =
+      next.status === "finished"
+        ? "finished"
+        : next.status === "paused"
+          ? "paused"
+          : null;
+    if (!kind) return;
+    for (const listener of this.outcomeListeners) {
+      try {
+        listener({ kind, run: next });
+      } catch (error) {
+        console.error("Orchestration outcome listener failed", error);
+      }
+    }
+  }
   snapshot = () => this.runs;
   /** Display-only renderers, such as the macOS floating sidebar, show another window's runs. */
   mirror(runs: OrchestrationRun[]) {
@@ -264,11 +397,13 @@ export class Orchestrator {
     for (const listener of this.listeners) listener();
   }
   private async commit(run: OrchestrationRun) {
+    const previous = this.run(run.leadId);
     this.runs = [
       ...this.runs.filter((entry) => entry.leadId !== run.leadId),
       run,
     ];
     this.emit();
+    this.announce(previous, run);
     const saved = this.saves
       .catch(() => undefined)
       .then(async () => {
@@ -286,7 +421,7 @@ export class Orchestrator {
           ? {
               ...entry,
               status: "paused",
-              error: `Could not save run: ${messageOf(error)}`,
+              error: `Aven couldn't save the run's progress (${messageOf(error)}). ${PAUSED_NEXT}`,
               tasks: entry.tasks.map((task) =>
                 activeTask(task) ? { ...task, status: "cancelling" } : task,
               ),
@@ -294,6 +429,7 @@ export class Orchestrator {
           : entry,
       );
       this.emit();
+      this.announce(current, this.run(run.leadId)!);
       // Keep the checkout reserved until processes have stopped, even if the
       // database is unavailable. Recovery never repeats an interrupted turn.
       await Promise.allSettled(
@@ -313,7 +449,7 @@ export class Orchestrator {
                             accepted: false,
                             delivered: true,
                             error:
-                              "Stopped because run history could not be saved. Review files before retrying.",
+                              "Stopped because Aven couldn't save the run. Check the files before retrying.",
                           }
                         : task,
                     ),
@@ -365,14 +501,15 @@ export class Orchestrator {
                 ...task,
                 status: "failed",
                 accepted: false,
-                error: "Interrupted. Review the shared files before retrying.",
+                error:
+                  "Stopped when Aven closed. Check the files before retrying.",
                 delivered: false,
               }
             : { ...task, delivered: task.accepted || task.status === "queued" },
         ),
         error:
           run.status === "active"
-            ? "Run interrupted. Review the files, then resume."
+            ? "Aven closed while the run was going. Check the files, then resume or stop the run."
             : run.error,
       });
     } catch (error) {
@@ -459,8 +596,9 @@ export class Orchestrator {
         if (outcome.status !== "completed")
           void this.pause(
             leadId,
-            outcome.error ??
-              "The lead was interrupted. Its agents were stopped; review and resume the run.",
+            outcome.error
+              ? `The lead's turn ended with an error: ${outcome.error} ${PAUSED_NEXT}`
+              : `The lead's turn ended before it finished. ${PAUSED_NEXT}`,
           ).catch(console.error);
       },
     );
@@ -484,7 +622,7 @@ export class Orchestrator {
       );
     if (lead.worktreeCwd)
       throw new Error(
-        "Start orchestration in a regular project session; this session uses a worktree",
+        "Start the Orchestrator in a chat that works in the project folder, not in a separate copy",
       );
     if (!Number.isInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 4)
       throw new Error("Choose 1 to 4 workers");
@@ -502,13 +640,15 @@ export class Orchestrator {
           sameCheckout(session.worktreeCwd ?? session.cwd, lead.cwd),
       )
     )
-      throw new Error("Stop other running sessions in this checkout first");
+      throw new Error("Stop the other chats working in this project first");
     const previous = this.run(leadId);
     if (
       previous?.status === "active" ||
       (approved && previous?.status === "paused")
     )
-      throw new Error("Stop the current run before starting another proposal");
+      throw new Error(
+        "Finish or stop the current run before starting this plan",
+      );
     if (previous?.tasks.some(activeTask))
       throw new Error("Stop active workers before changing the run");
     const [canonicalRoot] = await this.store.scopes(lead.cwd, ["."]);
@@ -553,23 +693,31 @@ export class Orchestrator {
       own.leadId !== id &&
       (own.status === "active" || own.tasks.some(activeTask))
     )
-      return "This worker is managed by the orchestrator. Send instructions through its lead or stop the run first.";
-    const other = this.runs.find(
-      (run) =>
-        (run.status === "active" || run.tasks.some(activeTask)) &&
-        run.leadId !== id &&
-        sameCheckout(run.cwd, session.worktreeCwd ?? session.cwd),
-    );
-    if (other)
-      return "This checkout has an active orchestrator. Stop that run before starting independent work.";
+      return `This agent works for the lead in “${this.leadTitle(own) ?? "another chat"}”. Send it instructions there, or stop the run.`;
+    const other = this.blockingRun(id);
+    if (other) return this.busyMessage(other);
     if (own?.status === "paused")
-      return "Resume or stop orchestration before sending the lead another turn.";
+      return "The run is paused. Resume or stop it before sending the lead a message.";
     if (
       own?.status === "active" &&
       !sameCheckout(own.cwd, session.worktreeCwd ?? session.cwd)
     )
-      return "Return the lead to its original project or stop orchestration first.";
+      return `This chat's run works in ${folderName(own.cwd)}. Switch back to that project, or stop the run first.`;
     return null;
+  }
+  /** The run that keeps this chat from working in its project, if any. */
+  blockingRun(id: string): OrchestrationRun | undefined {
+    const session = this.host?.session(id);
+    if (!session) return undefined;
+    return blockingRunFor(this.runs, id, session.worktreeCwd ?? session.cwd);
+  }
+  busyMessage(run: OrchestrationRun): string {
+    return busyProjectMessage(run, this.leadTitle(run));
+  }
+  /** The lead chat's title as the sidebar shows it, if it is loaded. */
+  leadTitle(run: OrchestrationRun): string | undefined {
+    const lead = this.host?.session(run.leadId);
+    return lead ? sessionDisplayTitle(lead.title, lead.harness) : undefined;
   }
   prompt(id: string, prompt: string): string {
     const run = this.run(id);
@@ -1168,12 +1316,40 @@ export class Orchestrator {
         ? {
             ...stopped,
             error: saveError
-              ? `Run stopped; could not save history: ${messageOf(saveError)}`
+              ? `The run stopped, but Aven couldn't save it: ${messageOf(saveError)}`
               : undefined,
           }
         : entry,
     );
     this.emit();
+    await this.store.disable(leadId);
+  }
+  /**
+   * The user ends a run the lead left open. Nothing is running, so nothing is
+   * stopped: finished work stays as it is, and tasks that never started are
+   * cancelled. Use stopRun while agents or the lead are still working.
+   */
+  async finishRun(leadId: string) {
+    const run = this.run(leadId);
+    if (!run || (run.status !== "active" && run.status !== "paused")) return;
+    if (run.tasks.some(activeTask))
+      throw new Error(
+        "Agents are still working. Wait for them, or stop the run instead.",
+      );
+    if (this.host?.session(leadId)?.busy)
+      throw new Error(
+        "The lead is still working. Wait for it, or stop the run instead.",
+      );
+    await this.commit({
+      ...run,
+      status: "finished",
+      error: undefined,
+      tasks: run.tasks.map((task) =>
+        task.status === "queued"
+          ? { ...task, status: "cancelled", accepted: false, delivered: true }
+          : { ...task, delivered: true },
+      ),
+    });
     await this.store.disable(leadId);
   }
   stopForSession(id: string): Promise<void> | null {
@@ -1290,7 +1466,7 @@ export class Orchestrator {
             if (current.continuations >= 20) {
               await this.pause(
                 run.leadId,
-                "Automatic continuation limit reached. Its agents were stopped; review and resume the run.",
+                `The lead checked in 20 times without finishing. ${PAUSED_NEXT}`,
               );
               return;
             }
@@ -1337,8 +1513,9 @@ export class Orchestrator {
               if (outcome.status !== "completed") {
                 void this.pause(
                   run.leadId,
-                  outcome.error ??
-                    "Lead continuation was interrupted. Its agents were stopped; review and resume.",
+                  outcome.error
+                    ? `The lead's turn ended with an error: ${outcome.error} ${PAUSED_NEXT}`
+                    : `The lead's turn ended before it finished. ${PAUSED_NEXT}`,
                   (current) => ({
                     ...current,
                     tasks: current.tasks.map((task) =>
@@ -1397,7 +1574,7 @@ export class Orchestrator {
         await this.commit({
           ...this.run(run.leadId)!,
           status: "paused",
-          error: `${task.title} reported a write outside its assignment: ${path}. Review the shared files before resuming.`,
+          error: `“${task.title}” changed a file outside the files it was given (${path}). ${PAUSED_NEXT}`,
         });
         await Promise.all(
           this.run(run.leadId)!
