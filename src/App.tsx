@@ -9557,6 +9557,7 @@ export default function App({
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
+    board: true,
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),

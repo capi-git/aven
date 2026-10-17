@@ -10,7 +10,8 @@ a discussion wrap-up call (the summariser's instructions, no tools) fixed
 lists, a race judge call a pick of the second lane with its reason, and a
 run summary call one line per worker. Markers in a message make it pretend to start a dev server, echo the
 shared-work note it received, agree with what the user added to a
-discussion, or write files into its folder as a race lane. Asked to plan an
+discussion, write files into its folder as a race lane, or edit one file
+through its Write tool. Asked to plan an
 orchestration that carries the orchestration marker, it proposes two tasks;
 as a worker it can ask its lead a question; as the lead it supervises
 through Aven's control command, the same way a real lead does. It never
@@ -244,6 +245,50 @@ def emit_dev_server(session, turn, port):
     })
 
 
+# "AVEN_SMOKE_EDIT <name>" makes the turn edit one file in its folder through
+# the Write tool, before any hold, the way an agent's edit reaches Aven: the
+# tool call first, then the write, then its result. The project board's check
+# watches the chat move from Working to Review once the turn ends.
+EDIT_PATTERN = re.compile(r"AVEN_SMOKE_EDIT ([\w.-]+)")
+# Time for Aven to snapshot the file before the stand-in writes it.
+EDIT_SETTLE_SECONDS = 0.8
+
+
+def emit_edit(session, turn, name):
+    path = os.path.abspath(name)
+    content = "edited by the stand-in Claude\n"
+    tool_id = "toolu_edit_" + turn[:8]
+    emit({
+        "type": "assistant",
+        "session_id": session,
+        "message": {
+            "id": "msg_edit_" + turn[:8],
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "id": tool_id,
+                "name": "Write",
+                "input": {"file_path": path, "content": content},
+            }],
+        },
+    })
+    time.sleep(EDIT_SETTLE_SECONDS)
+    Path(path).write_text(content)
+    emit({
+        "type": "user",
+        "session_id": session,
+        "message": {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": f"File created successfully at: {path}",
+            }],
+        },
+    })
+    log({"pid": os.getpid(), "edited": path})
+
+
 def echoed_note(text):
     found = NOTE_PATTERN.search(text)
     body = " | ".join(line.strip() for line in found.group(1).splitlines()) if found else "none"
@@ -468,6 +513,9 @@ def main():
             server = None if helper else DEV_SERVER_PATTERN.search(text)
             if server:
                 emit_dev_server(session, turn, int(server.group(1)))
+            edit = None if helper else EDIT_PATTERN.search(text)
+            if edit:
+                emit_edit(session, turn, edit.group(1))
             requested = STREAM_PATTERN.search(text)
             chunks = stream_text(int(requested.group(1))) if requested else []
             code = CODE_PATTERN.search(text)
