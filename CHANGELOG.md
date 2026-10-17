@@ -10,6 +10,8 @@
 - The race overview shows the first lines of each agent's last reply, and **Suggest a winner** once no agent is working.
 - An orchestration's plan card turns into the run's card once you confirm it: the lead and each agent with what it is doing, then, when the run ends, the lead's one-line verdict and a row per agent (title, model, Accepted, Cancelled or Failed, the files it touched, and a line on what it did from the cheapest model), with **Review changes** and **Open agents**. **Show plan** unfolds the plan it started from.
 - The plan card shows each task's files as small chips, and before you start you can **Remove task** (tasks that waited for it no longer do) or **Discard plan**.
+- Races and orchestrations can be watched in the same floating panel as discussions. **Watch** on a race's or a run's card, or in its bar, opens it. A race shows its agents as columns, side by side when the panel is wide: each with its mascot, model, state and clock, what it is doing, the lines and files it changed, the first lines of its last reply once it stopped, and **Needs you · Go to chat** when it waits on you, with **Compare**, **Stop all** and, once every agent is done, **Suggest a winner**. A run shows the lead, then each agent with its task, model and state, what it is doing, waiting for or asking its lead, and the files it touched, with **Open agents** and **Stop run**; when it is paused, or the lead stopped without finishing, it says why first, with **Resume** or **Finish run**. Every running team in the window gets a pill of its own, stacked, amber when it needs you; closing a team's panel hides its pill until you watch it again.
+- On a Mac, ↗ in the panel's header opens it in a small window of its own that you can move anywhere, even to another screen. It only shows the team: what you press there is done in the window the team runs in, ↙ puts it back there, and closing it leaves the team there as a pill. If that window closes first, the small window says so. ⌘W closes it.
 
 ### Changed
 
@@ -36,6 +38,7 @@
 
 ### Fixed
 
+- The bar in a chat's message box no longer cuts off why a team is paused or waiting on you (such as "“Rollout” is busy with another turn."): the reason wraps to a second line.
 - A run whose lead ended without finishing no longer holds the project with no way out.
 - Closing the lead's tab no longer strands an orchestration's results or stops its run: the lead stays loaded while its run is running or paused.
 - Finished agent turns no longer linger as unread on Home and in the unread count.

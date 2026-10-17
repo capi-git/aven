@@ -20,6 +20,8 @@ After your message, the race's card follows it, in the same family as a discussi
 
 The chat you raced from and each lane's chat have the bar in their message box, "Racing · 1 of 2 done" or "Racing · Ready to compare · 2 of 2 done", with **Compare**. In the chat you raced from it also has **Stop all** while an agent works; a lane's chat keeps its own Stop, which stops that agent alone.
 
+**Watch** on the card or in the bar opens the race in the floating team panel: one column per agent, side by side when the panel is wide, each with its state and clock, what it is doing, its changes, the first lines of its last reply once it stopped and a way to its chat when it needs you, with **Compare**, **Stop all** and **Suggest a winner**. A running race also gets a pill of its own there. On a Mac the panel can be popped out into a window of its own, for another screen. See "The team panel" in [ORCHESTRATION.md](ORCHESTRATION.md).
+
 Each lane's turns are recorded quietly, so its chat's state still reads right, and post nothing of their own to Activity; the race posts one entry, "Race ready to compare · 3 agents", on the chat you raced from when every agent is done (again after a Retry), with a banner when you are elsewhere, and "Race needs you" when none finished. Keeping or discarding is your own action and posts nothing. While the chat you raced from or the overview is on screen, the lanes' replies count as seen. In the sidebar, a running race is one row: the chat you raced from shows the agents' mascots and "1 of 2 done", and the lane chats fold into it until the race is kept or discarded.
 
 ## Where the copies live
