@@ -41,7 +41,6 @@ import {
 } from "./ModelSettings";
 import { PanelSection } from "./PanelSection";
 import { Popover } from "./Popover";
-import { RaceOptions, type RaceProps } from "./RaceOptions";
 import "./AgentPill.css";
 
 type Props = {
@@ -54,8 +53,6 @@ type Props = {
   busy: boolean;
   /** Cmd+. and the menu command open this pill's panel. */
   hotkeys: boolean;
-  /** Absent where the chat can't race. */
-  race?: RaceProps;
   onModelChange: (harness: HarnessId, model: string) => void;
   onModelSettingsChange?: (settings: Record<string, string>) => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -162,7 +159,8 @@ function noResize() {
 /**
  * The composer's one control for who answers and how: the provider mark, the
  * model and its effort. It opens a single panel with the model list, the
- * model's settings, access and Race. Full access stays visible on the pill.
+ * model's settings and access. Full access stays visible on the pill. Race
+ * is a mode of the message box, in its + menu.
  *
  * Memoized with stable props, so typing in the composer never renders it.
  */
@@ -174,7 +172,6 @@ export const AgentPill = memo(function AgentPill({
   showAccess,
   busy,
   hotkeys,
-  race,
   onModelChange,
   onModelSettingsChange,
   onRuntimeModeChange,
@@ -219,7 +216,7 @@ export const AgentPill = memo(function AgentPill({
   ]
     .filter(Boolean)
     .join(" · ");
-  const hasSide = settings.length > 0 || showAccess || Boolean(race);
+  const hasSide = settings.length > 0 || showAccess;
   // Follows the window only while the panel is open.
   const subscribeResize = useCallback(
     (onChange: () => void) => {
@@ -350,7 +347,6 @@ export const AgentPill = memo(function AgentPill({
                     />
                   </PanelSection>
                 ) : null}
-                {race ? <RaceOptions {...race} /> : null}
               </div>
             ) : null}
           </div>

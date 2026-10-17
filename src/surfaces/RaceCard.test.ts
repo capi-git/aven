@@ -274,6 +274,29 @@ describe("a race's card in the chat it was sent from", () => {
     expect(message.text).toContain("Fixed it.");
   });
 
+  it("names two models of one provider apart", async () => {
+    saveRace({
+      ...record,
+      lanes: [
+        { ...record.lanes[0], label: "Claude Code · Opus 4.6" },
+        {
+          ...record.lanes[1],
+          harness: "claude",
+          label: "Claude Code · Claude Sonnet 5",
+        },
+      ],
+    });
+    await render();
+    expect(text(".team-card-title")).toBe(
+      "Claude Opus 4.6 and Claude Sonnet 5 are racing",
+    );
+    expect(
+      [...card()!.querySelectorAll(".team-card-member-name")].map(
+        (name) => name.textContent,
+      ),
+    ).toEqual(["Claude Code · Opus 4.6", "Claude Code · Claude Sonnet 5"]);
+  });
+
   it("reads discarded and forgotten races plainly", async () => {
     saveRace({ ...record, state: "discarded", finishedAt: 80_000 });
     await render();

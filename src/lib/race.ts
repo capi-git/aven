@@ -493,6 +493,46 @@ export const raceHost = {
     invoke<void>("race_cleanup", { root, lanes }),
 };
 
+/**
+ * One copy per lane, in lane order. A lane's copy and branch are named by
+ * its place in the race (its slot), never by its provider, so two models of
+ * one provider each get their own. If one cannot be made, the copies made
+ * so far are removed and the error is thrown.
+ */
+export async function createRaceLanes(
+  base: Pick<RaceBase, "root" | "base">,
+  raceId: string,
+  count: number,
+): Promise<{ path: string; branch: string }[]> {
+  const created: { path: string; branch: string }[] = [];
+  try {
+    for (let slot = 0; slot < count; slot++)
+      created.push(
+        await raceHost.createLane(base.root, raceId, slot, base.base),
+      );
+  } catch (error) {
+    void raceHost.cleanup(base.root, created).catch(() => {});
+    throw error;
+  }
+  return created;
+}
+
+/** The race's record of each lane: its agent, its chat and its copy. */
+export function raceLaneRecords(
+  agents: readonly { harness: HarnessId; model: string; label: string }[],
+  sessionIds: readonly string[],
+  copies: readonly { path: string; branch: string }[],
+): RaceLaneRecord[] {
+  return agents.map((agent, index) => ({
+    sessionId: sessionIds[index],
+    harness: agent.harness,
+    model: agent.model,
+    label: agent.label,
+    path: copies[index].path,
+    branch: copies[index].branch,
+  }));
+}
+
 /** Which lane each changed file is kept from; absent means not kept. */
 export type RaceSelection = Record<string, number>;
 

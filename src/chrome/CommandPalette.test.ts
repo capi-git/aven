@@ -191,6 +191,37 @@ it("offers a race of the chosen agent against another, started with Option-Enter
   expect(props.onStartChat).not.toHaveBeenCalled();
 });
 
+it("races two models of the chosen agent's provider, named apart", async () => {
+  const saved = new Map([
+    [
+      "aven.raceLanes.v2",
+      JSON.stringify([{ harness: "claude", model: "claude:sonnet-5" }]),
+    ],
+  ]);
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => void saved.set(key, value),
+    removeItem: (key: string) => void saved.delete(key),
+  });
+  await type("fix the redirect loop");
+  expect(text()).toContain(
+    "Race it: Claude Code · Opus 5.5 vs Claude Code · Claude Sonnet 5",
+  );
+  await key("Enter", { altKey: true });
+  expect(props.onStartRace).toHaveBeenCalledWith({
+    text: "fix the redirect loop",
+    agents: [
+      props.agents[0],
+      {
+        harness: "claude",
+        model: "claude:sonnet-5",
+        label: "Claude Code · Claude Sonnet 5",
+      },
+    ],
+    project: "~",
+  });
+});
+
 it("reopens with the text of a race that couldn't start", async () => {
   await act(async () => root.unmount());
   root = createRoot(document.createElement("div"));

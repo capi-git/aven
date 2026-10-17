@@ -212,6 +212,7 @@ import type {
   PaletteRaceRequest,
 } from "./chrome/CommandPalette";
 import {
+  createRaceLanes,
   getRace,
   installRaceWorkspace,
   isFinishingRaceCheckout,
@@ -220,6 +221,7 @@ import {
   racePrompt,
   releaseRaceCheckout,
   raceLaneFor,
+  raceLaneRecords,
   raceOriginBlock,
   saveRace,
   usesRaceCheckout,
@@ -295,7 +297,7 @@ import {
   type GitHistoryCommit,
 } from "./lib/fs";
 import { resolveGrokBinary } from "./lib/harness/child";
-import { saveRaceAgentChoice } from "./lib/raceAgents";
+import { saveRaceLaneChoice } from "./lib/raceAgents";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -8470,14 +8472,10 @@ export default function App({
       });
       return false;
     }
-    const created: { path: string; branch: string }[] = [];
+    let created: { path: string; branch: string }[];
     try {
-      for (const [slot] of request.agents.entries())
-        created.push(
-          await raceHost.createLane(base.root, raceId, slot, base.base),
-        );
+      created = await createRaceLanes(base, raceId, request.agents.length);
     } catch (error) {
-      void raceHost.cleanup(base.root, created).catch(() => {});
       void message(String(error), {
         title: "Can't start a race",
         kind: "error",
@@ -8515,14 +8513,11 @@ export default function App({
       uncommitted: base.uncommitted,
       untracked: base.untracked,
       state: "running",
-      lanes: request.agents.map((agent, index) => ({
-        sessionId: laneSessions[index].id,
-        harness: agent.harness,
-        model: agent.model,
-        label: agent.label,
-        path: created[index].path,
-        branch: created[index].branch,
-      })),
+      lanes: raceLaneRecords(
+        request.agents,
+        laneSessions.map((session) => session.id),
+        created,
+      ),
       ...(origin && originBlock
         ? { origin: { sessionId: origin.id, blockId: originBlock.id } }
         : {}),
@@ -9052,7 +9047,7 @@ export default function App({
       readFile: readTextFile,
       resolveGrok: resolveGrokBinary,
       probe: () => probeHarnessAvailability({ force: true }),
-      chooseAgents: saveRaceAgentChoice,
+      chooseAgents: saveRaceLaneChoice,
     },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,

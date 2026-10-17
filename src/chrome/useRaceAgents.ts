@@ -16,7 +16,6 @@ import {
   raceAgentChoiceSnapshot,
   resolveRaceAgents,
   subscribeRaceAgentChoice,
-  withRaceModels,
 } from "../lib/raceAgents";
 import type { HarnessId } from "../lib/session";
 
@@ -24,9 +23,10 @@ const zero = () => 0;
 const empty = () => "";
 
 /**
- * The agents a composer can race, with this chat's agent and model first and
- * the others on the model picked for them in the Race menu. Kept current as
- * agents are installed or hidden and as catalogs load.
+ * The agents a composer can race: every installed agent once, this chat's
+ * agent and model first, and the lanes the next race uses (this chat's
+ * agent, then the ones saved in the Race chip, any provider and model). Kept
+ * current as agents are installed or hidden and as catalogs load.
  */
 export function useRaceAgents(
   enabled: boolean,
@@ -49,8 +49,8 @@ export function useRaceAgents(
     raceAgentChoiceSnapshot,
     empty,
   );
-  const available = useMemo(() => {
-    if (!enabled) return [];
+  const { installedAgents, available } = useMemo(() => {
+    if (!enabled) return { installedAgents: [], available: [] };
     const agents = availablePaletteAgents();
     const own = agents.find((agent) => agent.harness === harness) ?? {
       harness,
@@ -69,15 +69,20 @@ export function useRaceAgents(
       model,
       label: `${own.label.split(" · ")[0]} · ${modelName}`,
     };
-    return [
-      first,
-      ...withRaceModels(agents.filter((agent) => agent.harness !== harness)),
-    ];
+    return {
+      installedAgents: agents,
+      available: [
+        first,
+        ...agents.filter((agent) => agent.harness !== harness),
+      ],
+    };
     // The snapshots are change markers for the stores read above.
-  }, [enabled, harness, model, installed, catalog, visible, choice]);
+  }, [enabled, harness, model, installed, catalog, visible]);
   const lanes = useMemo(
-    () => (available.length ? resolveRaceAgents(available, available[0]) : []),
-    [available],
+    () =>
+      available.length ? resolveRaceAgents(installedAgents, available[0]) : [],
+    // `choice` marks a change to the saved lanes.
+    [available, installedAgents, choice],
   );
   return { available, lanes };
 }

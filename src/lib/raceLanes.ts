@@ -1,11 +1,8 @@
 import type { ActivityEntry } from "./activity";
 import { wasTurnInterrupted } from "./inFlight";
 import type { RaceRecord } from "./race";
-import {
-  HARNESS_TITLE,
-  sessionIsWaitingForInput,
-  type Session,
-} from "./session";
+import { raceAgentNames } from "./raceNames";
+import { sessionIsWaitingForInput, type Session } from "./session";
 import { sessionRunStatus } from "./sessionRunStatus";
 
 /**
@@ -154,10 +151,12 @@ export function raceProgress(lanes: readonly RaceLaneState[]): string {
   return parts.join(" · ");
 }
 
-/** "Claude Code": a race has at most one lane per provider. */
+/**
+ * "Claude Code", or "Claude Code · Opus 4.6" when another lane races a
+ * second model of the same provider.
+ */
 export function raceLaneName(race: RaceRecord, lane: number): string {
-  const record = race.lanes[lane];
-  return record ? HARNESS_TITLE[record.harness] : "this agent";
+  return race.lanes[lane] ? raceAgentNames(race.lanes)[lane] : "this agent";
 }
 
 export type RaceQuestion = { title: string; body: string; confirm: string };

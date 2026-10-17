@@ -140,10 +140,11 @@ import {
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
-import type { RaceProps } from "./RaceOptions";
+import { RaceChip } from "./RaceChip";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
+import { nextRaceAgent } from "../lib/raceAgents";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import {
   consumeOrchestratorCommand,
@@ -624,8 +625,11 @@ function ComposerComponent({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
+  // Race mode: sending gives the message to the lanes the chip shows.
   const [raceOn, setRaceOn] = useState(false);
-  // This chat's agent races on the chat's model unless the Race menu picks
+  const [raceMenuOpen, setRaceMenuOpen] = useState(false);
+  const [raceError, setRaceError] = useState<string | null>(null);
+  // This chat's agent races on the chat's model unless the Race chip picks
   // another one for it; changing the chat's model starts over.
   const [raceModel, setRaceModel] = useState<string>();
   useEffect(() => setRaceModel(undefined), [harness, model]);
@@ -634,12 +638,25 @@ function ComposerComponent({
     harness,
     raceModel ?? model,
   );
-  // A card is consumed by a normal send; a race would leave it attached.
-  const raceBlocked =
-    inboxCard || noteCard || handoffCard
-      ? "Send or remove the attached card before racing"
-      : undefined;
-  const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
+  const raceReady = raceLanes.length >= RACE_MIN_LANES;
+  /** Turn Race mode on, with the dropdown open when it can't race yet. */
+  const startRaceMode = useCallback(
+    (openMenu = false) => {
+      setRaceOn(true);
+      setPlanSelected(false);
+      setOrchestrationSelected(false);
+      setDiscussSelected(false);
+      setDiscussMenuOpen(false);
+      setRaceError(null);
+      setRaceMenuOpen(openMenu || !raceReady);
+    },
+    [raceReady],
+  );
+  const stopRaceMode = useCallback(() => {
+    setRaceOn(false);
+    setRaceMenuOpen(false);
+    setRaceError(null);
+  }, []);
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   // Discuss mode: sending starts a discussion with the message as its topic.
   const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
@@ -670,6 +687,7 @@ function ComposerComponent({
       setPlanSelected(false);
       setOrchestrationSelected(false);
       setRaceOn(false);
+      setRaceMenuOpen(false);
       setDiscussError(null);
       // Nobody to talk to yet: the dropdown offers a new chat.
       setDiscussMenuOpen(openMenu || !pick);
@@ -710,43 +728,16 @@ function ComposerComponent({
   // A typed /orchestrator works like choosing Orchestrator, where it exists.
   const draftOrchestrating =
     !hideTopBar && !draftPlanning && consumeOrchestratorCommand(draft).matched;
-  // Plan mode and Orchestrator are exclusive with Race; a typed /plan wins.
+  // Race, Plan mode, Orchestrator and Discuss are exclusive; a typed /plan
+  // or /orchestrator wins over Race.
   const raceActive =
     raceOn &&
-    raceReady &&
+    !!onRace &&
     !draftPlanning &&
     !draftOrchestrating &&
     !planSelected &&
     !orchestrationSelected &&
     !discussActive;
-  const changeRaceActive = useCallback((on: boolean) => {
-    setRaceOn(on);
-    if (!on) return;
-    setPlanSelected(false);
-    setOrchestrationSelected(false);
-    setDiscussSelected(false);
-  }, []);
-  const raceOptions = useMemo<RaceProps | undefined>(
-    () =>
-      onRace
-        ? {
-            active: raceActive,
-            available: raceAvailable,
-            lanes: raceLanes,
-            disabledReason: raceBlocked,
-            onActiveChange: changeRaceActive,
-            onFirstModelChange: setRaceModel,
-          }
-        : undefined,
-    [
-      changeRaceActive,
-      onRace,
-      raceActive,
-      raceAvailable,
-      raceBlocked,
-      raceLanes,
-    ],
-  );
   const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
@@ -986,10 +977,6 @@ function ComposerComponent({
   }, [busy, runnerEnabled]);
 
   useEffect(() => {
-    if (!raceReady) setRaceOn(false);
-  }, [raceReady]);
-
-  useEffect(() => {
     if (!mentionOpen) return;
     let cancelled = false;
     // A new list rebuilds the `@` index; let typing take priority over it.
@@ -1189,19 +1176,26 @@ function ComposerComponent({
       if (planCommand) {
         setPlanSelected(true);
         setOrchestrationSelected(false);
+        stopRaceMode();
         setDiscussSelected(false);
       }
       if (orchestratorCommand) {
         setOrchestrationSelected(true);
         setPlanSelected(false);
-        setRaceOn(false);
+        stopRaceMode();
         setDiscussSelected(false);
       }
       // The rest of the message becomes the discussion's topic.
       if (discussCommand) startDiscussMode();
       el.focus();
     },
-    [rememberUsedSkills, startDiscussMode, syncHasValue, updateDraft],
+    [
+      rememberUsedSkills,
+      startDiscussMode,
+      stopRaceMode,
+      syncHasValue,
+      updateDraft,
+    ],
   );
 
   const pickSkill = useCallback(
@@ -1350,6 +1344,21 @@ function ComposerComponent({
     };
   }, [addAttachments, attachmentsSupported, enabled]);
 
+  /** Why sending would not start the race, or null. */
+  const raceReason = (task: string): string | null => {
+    // A card is consumed by a normal send; a race would leave it attached.
+    if (inboxCard || noteCard || handoffCard)
+      return "Send or remove the attached card before racing.";
+    if (raceLanes.length < RACE_MIN_LANES)
+      return raceAvailable.some((agent) =>
+        nextRaceAgent(raceAvailable, raceLanes, agent.harness),
+      )
+        ? "Add another agent or model above to race."
+        : "Install or enable another agent to race.";
+    if (!task.trim()) return "Type the task in the message box, then send.";
+    return null;
+  };
+
   /** Why sending would not start the discussion yet, or null. */
   const discussReason = (topic: string): string | null =>
     !discussPick
@@ -1473,10 +1482,16 @@ function ComposerComponent({
       raceActive &&
       onRace &&
       !command.planning &&
-      !orchestratorCommand.matched &&
-      text
+      !orchestratorCommand.matched
     ) {
-      setRaceOn(false);
+      // Race mode never sends normally: it says what's missing instead.
+      const reason = raceReason(text);
+      if (reason) {
+        setRaceError(reason);
+        setRaceMenuOpen(true);
+        return;
+      }
+      stopRaceMode();
       setPlusOpen(false);
       setSlash(null);
       setMention(null);
@@ -1498,6 +1513,8 @@ function ComposerComponent({
         updateDraft(value);
         updateAttachments(files);
         syncHasValue(value, files);
+        // As it was: the error said why, so sending can race again.
+        setRaceOn(true);
       });
       return;
     }
@@ -1977,7 +1994,7 @@ function ComposerComponent({
                     onClick={() => {
                       setPlanSelected((selected) => !selected);
                       setOrchestrationSelected(false);
-                      setRaceOn(false);
+                      stopRaceMode();
                       stopDiscussMode();
                       setPlusOpen(false);
                       ref.current?.focus();
@@ -2004,7 +2021,7 @@ function ComposerComponent({
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
-                        setRaceOn(false);
+                        stopRaceMode();
                         stopDiscussMode();
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -2049,6 +2066,36 @@ function ComposerComponent({
                       ) : null}
                     </button>
                   ) : null}
+                  {onRace ? (
+                    <button
+                      type="button"
+                      aria-pressed={raceActive}
+                      data-composer-race
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setPlusOpen(false);
+                        if (raceActive) stopRaceMode();
+                        else startRaceMode();
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <Race
+                        className="mt-0.5 size-4 shrink-0 text-accent"
+                        strokeWidth={1.75}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-ui-body">Race</span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
+                          Give this message to several agents, each in its own
+                          copy
+                        </span>
+                      </span>
+                      {raceActive ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  ) : null}
                 </Popover>
               ) : null}
             </div>
@@ -2086,21 +2133,22 @@ function ComposerComponent({
               </button>
             ) : null}
             {raceActive ? (
-              <button
-                type="button"
-                title="Turn off Race"
-                aria-label="Turn off Race"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  setRaceOn(false);
+              <RaceChip
+                available={raceAvailable}
+                lanes={raceLanes}
+                onFirstModelChange={setRaceModel}
+                reason={raceError ?? raceReason(draft)}
+                open={raceMenuOpen}
+                onOpenChange={(open) => {
+                  setRaceMenuOpen(open);
+                  if (!open) setRaceError(null);
+                }}
+                onTurnOff={() => {
+                  stopRaceMode();
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
-              >
-                <Race className="size-3.5" strokeWidth={1.75} />
-                Race · {raceLanes.length}
-                <X className="size-3" />
-              </button>
+                onDone={() => ref.current?.focus()}
+              />
             ) : null}
             {discussActive && discussion && sessionId ? (
               <DiscussionChip
@@ -2158,7 +2206,6 @@ function ComposerComponent({
                 showAccess={harnessDescriptor(harness).supportsAccessMode}
                 busy={busy}
                 hotkeys={hotkeys && enabled}
-                race={raceOptions}
                 onModelChange={onModelChange}
                 onModelSettingsChange={onModelSettingsChange}
                 onRuntimeModeChange={onRuntimeModeChange}
@@ -2182,7 +2229,9 @@ function ComposerComponent({
                   jumpInId
                     ? "Send to both"
                     : raceActive
-                      ? `Race ${raceLanes.length} agents`
+                      ? raceReady
+                        ? `Race ${raceLanes.length} agents`
+                        : "Choose agents to race"
                       : queueSubmission
                         ? "Queue message"
                         : busy

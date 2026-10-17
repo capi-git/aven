@@ -337,6 +337,29 @@ describe("while racing", () => {
     expect(labels()).toEqual(["Compare"]);
   });
 
+  it("names a lane by its model when two models of one provider race", async () => {
+    saveRace({
+      ...race,
+      lanes: [
+        race.lanes[0],
+        {
+          ...race.lanes[1],
+          harness: "claude",
+          label: "Claude Code · Sonnet 5",
+        },
+      ],
+    });
+    live.set([
+      lane("l0", false),
+      {
+        ...lane("l1", true),
+        pendingQuestion: { requestId: 1, title: "Which file?", questions: [] },
+      },
+    ]);
+    await show("chat");
+    expect(labels()).toContain("Go to Claude Code · Sonnet 5");
+  });
+
   it("goes away once the race is kept, and never shows in other chats", async () => {
     await show("other");
     expect(bar()).toBeNull();

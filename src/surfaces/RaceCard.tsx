@@ -15,11 +15,7 @@ import {
   type TeamCardTone,
 } from "../chrome/TeamCard";
 import { useTeamRun } from "../hooks/useTeamRuns";
-import {
-  memberVoice,
-  providerShortName,
-  teamMascots,
-} from "../lib/discussionVoices";
+import { memberVoice, teamMascots } from "../lib/discussionVoices";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import {
   getRace,
@@ -36,6 +32,7 @@ import {
   requestRaceSuggestion,
   suggestionRunning,
 } from "../lib/teamResult";
+import { raceAgentNames, raceShortNames } from "../lib/raceNames";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import { teamWorkspace } from "../lib/teamWorkspace";
 
@@ -126,9 +123,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       />
     );
   const workspace = raceWorkspace();
-  const names = listNames(
-    team.members.map((member) => providerShortName(member.harness)),
-  );
+  const names = listNames(raceShortNames(team.members));
   const kept = race.state === "kept";
   const over = race.state !== "running";
   const ready = team.status === "ready";
@@ -294,9 +289,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 onClick={() => workspace.openChat(team.need!.sessionId)}
               >
                 Go to{" "}
-                {team.members
-                  .find((member) => member.sessionId === team.need?.sessionId)
-                  ?.label.split(" · ")[0] ?? "chat"}
+                {raceAgentNames(team.members)[
+                  team.members.findIndex(
+                    (member) => member.sessionId === team.need?.sessionId,
+                  )
+                ] ?? "chat"}
               </TeamCardButton>
             ) : null}
             {workspace ? (

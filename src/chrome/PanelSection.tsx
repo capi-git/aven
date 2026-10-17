@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 
-/** A titled group inside the agent panel: Reasoning, Access, Race and so on. */
+/** A titled group inside the agent panel: Reasoning, Access and so on. */
 export function PanelSection({
   title,
   note,

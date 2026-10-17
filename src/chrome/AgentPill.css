@@ -358,17 +358,6 @@ html.theme-light
   color: #a54d1f;
 }
 
-.agent-race-lane {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-right: 2px;
-  border-radius: 8px;
-}
-.agent-race-lane:hover {
-  background: var(--toolbar-panel-hover);
-}
-
 /* A narrow window stacks the columns and scrolls the panel as one. The pill
    decides from the window's width (`agentPanelLayout`), not a container
    query: WebKit measures containers after interface zoom. */

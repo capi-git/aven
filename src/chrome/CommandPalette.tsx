@@ -48,7 +48,8 @@ import {
   Terminal,
   Zap,
 } from "./icons";
-import { resolveRaceAgents, withRaceModels } from "../lib/raceAgents";
+import { resolveRaceAgents } from "../lib/raceAgents";
+import { raceAgentNames } from "../lib/raceNames";
 import type { Attachment, RuntimeMode } from "../lib/session";
 
 export type PaletteProject = { path: string; name: string };
@@ -163,10 +164,8 @@ function CommandPaletteBody({
   const newChat = offersNewChat(mode, text) && agents.length > 0;
   const agent = agents[agentIndex] ?? agents[0];
   const target = targets[targetIndex] ?? project;
-  // The chosen agent plus the agents and models saved in the Race menu.
-  const raceAgents = agent
-    ? resolveRaceAgents(withRaceModels(agents), agent)
-    : [];
+  // The chosen agent plus the agents and models saved in the Race chip.
+  const raceAgents = agent ? resolveRaceAgents(agents, agent) : [];
   const canRace = newChat && !!onStartRace && raceAgents.length >= 2;
 
   useEffect(() => {
@@ -462,10 +461,7 @@ function CommandPaletteBody({
                     >
                       <Race className="size-4 shrink-0 text-content/60" />
                       <span className="min-w-0 flex-1 truncate text-content">
-                        Race it:{" "}
-                        {raceAgents
-                          .map((item) => item.label.split(" · ")[0])
-                          .join(" vs ")}
+                        Race it: {raceAgentNames(raceAgents).join(" vs ")}
                       </span>
                       <span className="shrink-0 text-ui-caption text-content/40">
                         separate copies · ⌥↵

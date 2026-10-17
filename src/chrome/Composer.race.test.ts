@@ -9,6 +9,8 @@ import {
   resetHarnessModelOverlays,
   setHarnessModels,
 } from "../lib/models";
+import { loadRaceLaneChoice } from "../lib/raceAgents";
+import { resetDiscussionStore, type DiscussionHost } from "../lib/discussions";
 import { HARNESS_TITLE } from "../lib/session";
 import { Composer } from "./Composer";
 
@@ -25,7 +27,7 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [] }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-// The model list has its own tests; this file is about the Race section.
+// The model list has its own tests; this file is about Race mode.
 vi.mock("./ModelPicker", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ModelPicker")>()),
   ModelChooser: () => null,
@@ -46,9 +48,11 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
   });
   agents.list = agents.all;
   registerHarness(codexAdapter);
+  resetDiscussionStore("main");
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -73,6 +77,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   resetHarnessModelOverlays();
+  resetDiscussionStore();
   container.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -81,42 +86,73 @@ afterEach(async () => {
 async function render() {
   await act(async () => root.render(createElement(Composer, props)));
 }
-const pill = () =>
-  container.querySelector<HTMLButtonElement>("[data-agent-pill]")!;
-const panel = () =>
-  document.body.querySelector<HTMLElement>("[data-agent-panel]");
-const raceSection = () =>
-  document.body.querySelector<HTMLElement>("[data-race-options]")!;
-const raceSwitch = () =>
-  raceSection().querySelector<HTMLButtonElement>('[role="switch"]')!;
-const raceChip = () =>
+const plusButton = () =>
+  container.querySelector<HTMLButtonElement>(
+    '[aria-label="Add files or choose a mode"]',
+  )!;
+const plusMenu = () =>
+  document.body.querySelector<HTMLElement>("[data-composer-plus]");
+const raceEntry = () =>
+  plusMenu()?.querySelector<HTMLButtonElement>("[data-composer-race]") ?? null;
+const chip = () => container.querySelector<HTMLElement>("[data-race-chip]");
+const chipLabel = () =>
+  chip()?.querySelector("[data-race-chip-label]")?.textContent;
+const chipToggle = () =>
+  chip()!.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+const turnOff = () =>
   container.querySelector<HTMLButtonElement>('[aria-label="Turn off Race"]');
-const lane = (name: string) =>
-  [
-    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
-  ].find((item) => item.textContent?.includes(name))!;
+const menu = () => document.body.querySelector<HTMLElement>("[data-race-menu]");
+const reason = () =>
+  menu()?.querySelector("[data-race-reason]")?.textContent ?? null;
+const laneLabels = () =>
+  [...(menu()?.querySelectorAll("[data-race-lane-choice]") ?? [])].map((row) =>
+    row.getAttribute("data-race-lane-label"),
+  );
+const add = (harness: string) =>
+  menu()!.querySelector<HTMLButtonElement>(`[data-race-add="${harness}"]`)!;
 const field = () => container.querySelector("textarea")!;
 const sendButton = () =>
   container.querySelector<HTMLButtonElement>(".composer-send")!;
 
-async function openPanel() {
-  if (!panel()) await act(async () => pill().click());
+async function openPlus() {
+  if (!plusMenu()) await act(async () => plusButton().click());
+}
+async function pickMode(name: string) {
+  await openPlus();
+  const entry = [
+    ...plusMenu()!.querySelectorAll<HTMLButtonElement>("[aria-pressed]"),
+  ].find((item) => item.textContent?.includes(name))!;
+  await act(async () => entry.click());
 }
 async function turnRaceOn() {
-  await openPanel();
-  await act(async () => raceSwitch().click());
+  await openPlus();
+  await act(async () => raceEntry()!.click());
+}
+async function openChip() {
+  if (!menu()) await act(async () => chipToggle().click());
+}
+async function closeChip() {
+  if (menu()) await act(async () => chipToggle().click());
+}
+async function send() {
+  await act(async () => sendButton().click());
 }
 
-it("races the message across this chat's agent and another instead of sending it", async () => {
+it("starts from the + menu and races the message instead of sending it", async () => {
   await render();
-  await turnRaceOn();
-  expect(raceSwitch().getAttribute("aria-checked")).toBe("true");
-  expect(raceChip()?.textContent).toContain("Race · 2");
-  const send = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Race 2 agents"]',
-  );
-  expect(send).not.toBeNull();
-  await act(async () => send!.click());
+  await openPlus();
+  expect(raceEntry()?.textContent).toContain("Race");
+  expect(raceEntry()?.getAttribute("aria-pressed")).toBe("false");
+  await act(async () => raceEntry()!.click());
+  expect(plusMenu()).toBeNull();
+  expect(chipLabel()).toBe("Race · Codex gpt-5 · Claude Opus");
+  // Two agents can race, so the dropdown stays closed until asked.
+  expect(menu()).toBeNull();
+  expect(sendButton().getAttribute("aria-label")).toBe("Race 2 agents");
+  await openPlus();
+  expect(raceEntry()?.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => plusButton().click());
+  await send();
   expect(props.onSubmit).not.toHaveBeenCalled();
   expect(props.onRace).toHaveBeenCalledWith(
     "Fix the login loop",
@@ -127,67 +163,151 @@ it("races the message across this chat's agent and another instead of sending it
     ],
   );
   // Race is one-shot: the next message sends normally.
-  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
-  expect(raceChip()).toBeNull();
+  expect(chip()).toBeNull();
+  expect(sendButton().getAttribute("aria-label")).toBe("Send");
 });
 
-it("adds a third agent from the Race section", async () => {
+it("adds a third agent from the chip's dropdown and remembers it", async () => {
   await render();
-  await openPanel();
-  // Two agents is the minimum, so the second one can't be unticked yet.
-  expect(lane("Claude").disabled).toBe(true);
-  await act(async () => lane("Cursor").click());
-  expect(lane("Claude").disabled).toBe(false);
-  await act(async () => raceSwitch().click());
-  expect(
-    container.querySelector('[aria-label="Race 3 agents"]'),
-  ).not.toBeNull();
+  await turnRaceOn();
+  await openChip();
+  expect(laneLabels()).toEqual(["Codex · gpt-5", "Claude Code · Opus"]);
+  const leaveOut = () =>
+    menu()!.querySelector<HTMLButtonElement>(
+      '[aria-label="Stop racing Claude Code · Opus"]',
+    )!;
+  // Two agents is the minimum, so the second one can't be left out yet.
+  expect(leaveOut().disabled).toBe(true);
+  await act(async () => add("cursor").click());
+  expect(laneLabels()).toEqual([
+    "Codex · gpt-5",
+    "Claude Code · Opus",
+    "Cursor · Composer",
+  ]);
+  expect(chipLabel()).toBe(
+    "Race · Codex gpt-5 · Claude Opus · Cursor Composer",
+  );
+  expect(sendButton().getAttribute("aria-label")).toBe("Race 3 agents");
+  expect(loadRaceLaneChoice()).toEqual([
+    { harness: "claude", model: "opus" },
+    { harness: "cursor", model: "composer" },
+  ]);
+  await act(async () => leaveOut().click());
+  expect(laneLabels()).toEqual(["Codex · gpt-5", "Cursor · Composer"]);
+});
+
+it("races two models of one provider when only that provider is installed", async () => {
+  agents.list = agents.all.filter((agent) => agent.harness === "codex");
+  // Codex lists its models at run time.
+  setHarnessModels("codex", [
+    { id: "gpt-5", harness: "codex", name: "GPT-5" },
+    { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
+  ]);
+  await render();
+  await turnRaceOn();
+  // One lane can't race: the dropdown opens by itself and says why.
+  expect(menu()).not.toBeNull();
+  expect(reason()).toBe("Add another agent or model above to race.");
+  expect(sendButton().getAttribute("aria-label")).toBe("Choose agents to race");
+  await act(async () => add("codex").click());
+  expect(laneLabels()).toEqual(["Codex · GPT-5", "Codex · GPT-5 Mini"]);
+  expect(chipLabel()).toBe("Race · Codex GPT-5 · Codex GPT-5 Mini");
+  // Every Codex model is racing now.
+  expect(add("codex").disabled).toBe(true);
+  await closeChip();
+  await send();
+  expect(props.onRace).toHaveBeenCalledWith(
+    "Fix the login loop",
+    [],
+    [
+      expect.objectContaining({ harness: "codex", model: "gpt-5" }),
+      {
+        harness: "codex",
+        model: "gpt-5-mini",
+        label: `${HARNESS_TITLE.codex} · GPT-5 Mini`,
+      },
+    ],
+  );
+});
+
+it("explains why it can't race and never sends the message normally", async () => {
+  agents.list = agents.all.filter((agent) => agent.harness === "codex");
+  await render();
+  await turnRaceOn();
+  expect(reason()).toBe("Install or enable another agent to race.");
+  await closeChip();
+  await send();
+  expect(props.onRace).not.toHaveBeenCalled();
+  expect(props.onSubmit).not.toHaveBeenCalled();
+  expect(menu()?.querySelector('[role="alert"]')?.textContent).toBe(
+    "Install or enable another agent to race.",
+  );
+  expect(field().value).toBe("Fix the login loop");
+});
+
+it("asks for the task before racing an empty message", async () => {
+  props.initialDraft = undefined;
+  await render();
+  await turnRaceOn();
+  await openChip();
+  expect(reason()).toBe("Type the task in the message box, then send.");
+});
+
+it("says to send or remove an attached card first", async () => {
+  props.noteCard = { id: "n1", slug: "plan", title: "Plan", body: "Steps" };
+  await render();
+  await turnRaceOn();
+  await openChip();
+  expect(reason()).toBe("Send or remove the attached card before racing.");
+  await closeChip();
+  await send();
+  expect(props.onRace).not.toHaveBeenCalled();
+  expect(props.onSubmit).not.toHaveBeenCalled();
 });
 
 it("turns Race off from its chip beside the + button", async () => {
   await render();
   await turnRaceOn();
-  await act(async () => raceChip()!.click());
-  expect(raceChip()).toBeNull();
-  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
+  await act(async () => turnOff()!.click());
+  expect(chip()).toBeNull();
   expect(sendButton().getAttribute("aria-label")).toBe("Send");
   expect(document.activeElement).toBe(field());
 });
 
-it("hides Race when the chat does not offer it", async () => {
+it("hides Race when the chat does not offer it, and the agent panel has none", async () => {
   props.onRace = undefined;
   await render();
-  await openPanel();
-  expect(panel()).not.toBeNull();
-  expect(document.body.querySelector("[data-race-options]")).toBeNull();
+  await openPlus();
+  expect(raceEntry()).toBeNull();
+  await act(async () => plusButton().click());
+  props.onRace = vi.fn();
+  await render();
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("[data-agent-pill]")!.click(),
+  );
+  expect(document.body.querySelector("[data-agent-panel]")).not.toBeNull();
+  expect(
+    document.body.querySelector("[data-agent-panel] [data-race-options]"),
+  ).toBeNull();
 });
 
-it("puts the message back when the race can't start", async () => {
+it("puts the message and Race mode back when the race can't start", async () => {
   props.onRace = vi.fn(async () => false);
   await render();
   await turnRaceOn();
-  await act(async () => sendButton().click());
+  await send();
   expect(props.onRace).toHaveBeenCalledOnce();
   expect(field().value).toBe("Fix the login loop");
-  expect(sendButton().getAttribute("aria-label")).toBe("Send");
+  expect(chip()).not.toBeNull();
+  expect(sendButton().getAttribute("aria-label")).toBe("Race 2 agents");
 });
 
 it("keeps Race and Plan mode exclusive, so a plan is never raced", async () => {
   await render();
   await turnRaceOn();
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>(
-        '[aria-label="Add files or choose a mode"]',
-      )!
-      .click(),
-  );
-  const plan = [
-    ...document.body.querySelectorAll<HTMLButtonElement>("[aria-pressed]"),
-  ].find((item) => item.textContent?.includes("Plan mode"))!;
-  await act(async () => plan.click());
-  expect(raceChip()).toBeNull();
-  await act(async () => sendButton().click());
+  await pickMode("Plan mode");
+  expect(chip()).toBeNull();
+  await send();
   expect(props.onRace).not.toHaveBeenCalled();
   expect(props.onSubmit).toHaveBeenCalledWith(
     "Fix the login loop",
@@ -196,39 +316,79 @@ it("keeps Race and Plan mode exclusive, so a plan is never raced", async () => {
   );
 });
 
-it("turns Race off when fewer than two agents remain", async () => {
+it("lets a typed /plan win over Race mode", async () => {
+  props.initialDraft = "/plan Fix the login loop";
   await render();
   await turnRaceOn();
-  expect(raceSwitch().getAttribute("aria-checked")).toBe("true");
-  agents.list = agents.all.filter((agent) => agent.harness === "codex");
-  // Any catalog or availability change re-reads the installed agents.
-  await act(async () => setHarnessModels("claude", pickerModelsFor("claude")));
-  expect(raceSwitch().disabled).toBe(true);
-  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
-  expect(raceSection().textContent).toContain(
-    "Install or enable a second agent to race",
+  await send();
+  expect(props.onRace).not.toHaveBeenCalled();
+  expect(props.onSubmit).toHaveBeenCalledWith(
+    "Fix the login loop",
+    [],
+    expect.objectContaining({ intent: "plan" }),
   );
-  expect(raceChip()).toBeNull();
-  expect(sendButton().getAttribute("aria-label")).toBe("Send");
+});
+
+it("keeps Race, Orchestrator and Discuss exclusive", async () => {
+  const discussion: DiscussionHost = {
+    options: () => ({
+      candidates: [
+        {
+          sessionId: "b",
+          title: "Review",
+          harness: "claude",
+          model: "Opus",
+          cwd: "/work/site",
+        },
+      ],
+    }),
+    start: vi.fn(() => null),
+  };
+  props.hideTopBar = false;
+  props.sessionId = "a";
+  props.cwd = "/work/site";
+  props.discussion = discussion;
+  await render();
+  await turnRaceOn();
+  expect(chip()).not.toBeNull();
+  await pickMode("Orchestrator");
+  expect(chip()).toBeNull();
+  const orchestrator = () =>
+    container.querySelector('[aria-label="Turn off Orchestrator mode"]');
+  expect(orchestrator()).not.toBeNull();
+  await turnRaceOn();
+  expect(chip()).not.toBeNull();
+  expect(orchestrator()).toBeNull();
+  await pickMode("Discuss");
+  expect(chip()).toBeNull();
+  const discuss = () => container.querySelector("[data-discussion-chip]");
+  expect(discuss()).not.toBeNull();
+  await turnRaceOn();
+  expect(discuss()).toBeNull();
+  await send();
+  expect(discussion.start).not.toHaveBeenCalled();
+  expect(props.onRace).toHaveBeenCalledOnce();
 });
 
 it("races each agent on the model picked for it", async () => {
   const pick = pickerModelsFor("claude").find((model) => model.id !== "opus")!;
   await render();
-  await openPanel();
-  const chip = raceSection().querySelector<HTMLButtonElement>(
-    `[aria-label^="${HARNESS_TITLE.claude} model:"]`,
-  )!;
-  await act(async () => chip.click());
+  await turnRaceOn();
+  await openChip();
+  const modelButton = () =>
+    menu()!.querySelector<HTMLButtonElement>(
+      `[aria-label^="${HARNESS_TITLE.claude} model:"]`,
+    )!;
+  await act(async () => modelButton().click());
   const option = [
-    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ].find((item) => item.textContent === pick.name)!;
   await act(async () => option.click());
-  expect(chip.getAttribute("aria-label")).toBe(
+  expect(modelButton().getAttribute("aria-label")).toBe(
     `${HARNESS_TITLE.claude} model: ${pick.name}`,
   );
-  await turnRaceOn();
-  await act(async () => sendButton().click());
+  await closeChip();
+  await send();
   expect(props.onRace).toHaveBeenCalledWith(
     "Fix the login loop",
     [],
@@ -249,25 +409,25 @@ it("lets this chat's agent race on another of its models", async () => {
     { id: "gpt-5", harness: "codex", name: "GPT-5" },
     { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
   ]);
-  const pick = pickerModelsFor("codex").find((model) => model.id !== "gpt-5")!;
   await render();
-  await openPanel();
-  const chip = raceSection().querySelector<HTMLButtonElement>(
+  await turnRaceOn();
+  await openChip();
+  const modelButton = menu()!.querySelector<HTMLButtonElement>(
     `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
   )!;
-  expect(chip.disabled).toBe(false);
-  await act(async () => chip.click());
+  expect(modelButton.disabled).toBe(false);
+  await act(async () => modelButton.click());
   const option = [
-    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
-  ].find((item) => item.textContent === pick.name)!;
+    ...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((item) => item.textContent === "GPT-5 Mini")!;
   await act(async () => option.click());
-  await turnRaceOn();
-  await act(async () => sendButton().click());
+  await closeChip();
+  await send();
   expect(props.onRace).toHaveBeenCalledWith(
     "Fix the login loop",
     [],
     [
-      expect.objectContaining({ harness: "codex", model: pick.id }),
+      expect.objectContaining({ harness: "codex", model: "gpt-5-mini" }),
       expect.objectContaining({ harness: "claude" }),
     ],
   );
@@ -277,13 +437,17 @@ it("lets this chat's agent race on another of its models", async () => {
 
 it("offers the model in use while a provider's list is still loading", async () => {
   await render();
-  await openPanel();
-  const chip = raceSection().querySelector<HTMLButtonElement>(
-    `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
-  )!;
-  await act(async () => chip.click());
+  await turnRaceOn();
+  await openChip();
+  await act(async () =>
+    menu()!
+      .querySelector<HTMLButtonElement>(
+        `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
+      )!
+      .click(),
+  );
   const options = [
-    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ];
   expect(options.map((item) => item.textContent)).toContain("gpt-5");
   expect(
@@ -291,4 +455,12 @@ it("offers the model in use while a provider's list is still loading", async () 
       .find((item) => item.textContent === "gpt-5")
       ?.getAttribute("aria-selected"),
   ).toBe("true");
+});
+
+it("offers no role for racing agents, so their comparison stays fair", async () => {
+  await render();
+  await turnRaceOn();
+  await openChip();
+  expect(menu()!.querySelector("[data-role-picker]")).toBeNull();
+  expect(menu()!.textContent).not.toMatch(/Reviewer|Skeptic|Tester|Designer/);
 });

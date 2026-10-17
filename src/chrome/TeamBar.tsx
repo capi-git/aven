@@ -487,8 +487,12 @@ function memberLabel(
 ): string | undefined {
   const member = members.find((entry) => entry.sessionId === sessionId);
   if (!member) return undefined;
-  // "Codex · GPT-5" reads long on a button; the provider is enough.
-  return member.label.split(" · ")[0];
+  // "Codex · GPT-5" reads long on a button; the provider is enough, unless
+  // another member races a second model of it.
+  const shared = members.some(
+    (entry) => entry !== member && entry.harness === member.harness,
+  );
+  return shared ? member.label : member.label.split(" · ")[0];
 }
 
 /** Another chat's run holds this project: say so, and offer the way there. */

@@ -38,7 +38,9 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
 import { providerShortName } from "../lib/discussionVoices";
+import { pickerModelsFor } from "../lib/models";
 import type { RaceRecord } from "../lib/race";
+import type { RaceLaneChoice } from "../lib/raceAgents";
 import { teamWorkspace } from "../lib/teamWorkspace";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
@@ -103,8 +105,8 @@ export type SmokeRace = {
   resolveGrok: () => Promise<{ path: string }>;
   /** Looks for installed providers again, so the stand-in Grok counts. */
   probe: () => Promise<void>;
-  /** The agents the next race adds, as the Race menu saves them. */
-  chooseAgents: (harnesses: HarnessId[]) => void;
+  /** The lanes the next race adds, as the Race chip saves them. */
+  chooseAgents: (lanes: RaceLaneChoice[]) => void;
 };
 
 type SmokeUtilities = {
@@ -676,61 +678,77 @@ function firstOnScreen<T extends Element>(selector: string): T | null {
 }
 
 /**
- * Turn on Race in a chat's agent panel and send the message, the way a
- * person does. Nothing is sent unless the lanes are exactly the stand-ins.
+ * Turn on Race from a chat's + menu and send the message, the way a person
+ * does: the chip names the lanes and its dropdown lists them. Nothing is
+ * sent unless the lanes' providers are exactly `providers`, in order, each
+ * named apart. Returns the lanes' labels.
  */
-async function startRaceFromComposer(sessionId: string, text: string) {
+async function startRaceFromComposer(
+  sessionId: string,
+  text: string,
+  providers: readonly HarnessId[],
+): Promise<string[]> {
+  // Everything is looked up again after each press: the box re-renders.
   const inBox = <T extends Element>(selector: string) =>
     chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
-  const inPanel = <T extends Element>(selector: string) =>
-    document
-      .querySelector("[data-agent-panel] [data-race-options]")
-      ?.querySelector<T>(selector) ?? null;
-  const pill = () => inBox<HTMLButtonElement>("[data-agent-pill]");
-  (await waitFor(pill, 5_000, "the chat's agent pill")).click();
-  const toggle = await waitFor(
-    () => inPanel<HTMLButtonElement>('[role="switch"]'),
+  const plus = await waitFor(
+    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
     5_000,
-    "Race in the agent panel",
+    "the chat's + menu",
   );
-  const close = async () => {
-    if (!document.querySelector("[data-agent-panel]")) return;
-    pill()?.click();
-    await waitFor(
-      () => !document.querySelector("[data-agent-panel]"),
-      5_000,
-      "the agent panel to close",
-    );
-  };
-  if (toggle.disabled) {
-    await close();
-    throw new Error(`Race is unavailable: ${toggle.title}`);
-  }
-  if (toggle.getAttribute("aria-checked") !== "true") toggle.click();
-  await waitFor(
-    () => inPanel('[role="switch"]')?.getAttribute("aria-checked") === "true",
+  plus.click();
+  const menu = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
     5_000,
-    "Race to turn on",
+    "the + menu",
+  );
+  const item = menu.querySelector<HTMLElement>("[data-composer-race]");
+  if (!item?.textContent?.includes("Race")) {
+    inBox<HTMLButtonElement>(
+      '[aria-label="Add files or choose a mode"]',
+    )?.click();
+    throw new Error("The + menu does not offer Race");
+  }
+  item.click();
+  const toggle = () => inBox<HTMLElement>("[data-race-chip] [aria-haspopup]");
+  await waitFor(toggle, 5_000, "the Race chip in the message box");
+  const label = inBox("[data-race-chip-label]")?.textContent ?? "";
+  // Two agents can race, so the dropdown opens only when asked.
+  if (!document.querySelector("[data-race-menu]")) toggle()?.click();
+  const dropdown = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-race-menu]"),
+    5_000,
+    "the Race chip's dropdown",
   );
   const lanes = [
-    ...(document
-      .querySelector("[data-agent-panel] [data-race-options]")
-      ?.querySelectorAll('[role="checkbox"][aria-checked="true"]') ?? []),
-  ].map((lane) => lane.textContent?.trim());
-  await close();
-  if (lanes.join(" + ") !== "Claude Code + Grok Build") {
+    ...dropdown.querySelectorAll<HTMLElement>("[data-race-lane-choice]"),
+  ].map((row) => row.dataset.raceLaneLabel ?? "");
+  toggle()?.click();
+  await waitFor(
+    () => !document.querySelector("[data-race-menu]"),
+    5_000,
+    "the dropdown to close",
+  );
+  const expected = providers.map((harness) => HARNESS_TITLE[harness]);
+  const named = lanes.map((lane) => lane.split(" · ")[0]);
+  if (
+    named.join(" + ") !== expected.join(" + ") ||
+    new Set(lanes).size !== lanes.length ||
+    !label.startsWith("Race · ") ||
+    label.split(" · ").length !== lanes.length + 1
+  ) {
     inBox<HTMLButtonElement>('[aria-label="Turn off Race"]')?.click();
     throw new Error(
-      `The race would go to ${lanes.join(", ") || "no agents"}, not the two stand-ins`,
+      `The race would go to ${lanes.join(", ") || "no agents"} ("${label}"), not ${expected.join(" + ")}`,
     );
   }
   const field = inBox<HTMLTextAreaElement>("textarea");
   if (!field) throw new Error("The message box has no text field");
   typeInComposer(field, text);
   await waitFor(
-    () => inBox('[aria-label="Race 2 agents"]'),
+    () => inBox(`[aria-label="Race ${lanes.length} agents"]`),
     5_000,
-    "the send button to read Race 2 agents",
+    `the send button to read Race ${lanes.length} agents`,
   );
   field.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -739,6 +757,7 @@ async function startRaceFromComposer(sessionId: string, text: string) {
       cancelable: true,
     }),
   );
+  return lanes;
 }
 
 /**
@@ -759,7 +778,7 @@ export async function checkRace(
   if (!grok.path.startsWith(`${config.binDir}/`))
     throw new Error(`Grok Build resolved to ${grok.path}, not the stand-in`);
   await race.probe();
-  race.chooseAgents(["grok"]);
+  race.chooseAgents([{ harness: "grok" }]);
   get().motion?.showWorkspace?.();
   const names = async (path: string) =>
     (await race.listDir(path)).map((entry) => entry.name);
@@ -768,7 +787,7 @@ export async function checkRace(
   const before = new Set(race.races().map((entry) => entry.id));
   const chat = await openNewTask(get, config.projectPath);
   const since = Date.now();
-  await startRaceFromComposer(chat.id, RACE_TEXT);
+  await startRaceFromComposer(chat.id, RACE_TEXT, ["claude", "grok"]);
   const record = await waitFor(
     () =>
       race
@@ -1076,11 +1095,13 @@ export async function checkRace(
 const RESULT_RACE_TEXT = "Choose one. AVEN_SMOKE_RACE AVEN_SMOKE_HOLD 1500";
 
 /**
- * A race that runs to its end: the card reads Ready to compare and Activity
- * holds one "Race ready to compare" entry, the lanes' turns recorded
- * quietly; Suggest a winner shows the stand-in judge's pick and reason;
- * keeping that lane (Grok's) turns the card into the result with why, and
- * Continue with sends that lane's chat a recap of its work.
+ * A race that runs to its end, with a second model of the chat's own
+ * provider as a third lane: each lane has its own copy and branch and is
+ * named apart; the card reads Ready to compare and Activity holds one "Race
+ * ready to compare" entry, the lanes' turns recorded quietly; Suggest a
+ * winner shows the stand-in judge's pick and reason; keeping that lane
+ * (Grok's) turns the card into the result with why, and Continue with sends
+ * that lane's chat a recap of its work.
  */
 export async function checkRaceResult(
   get: () => Options,
@@ -1090,8 +1111,20 @@ export async function checkRaceResult(
   get().motion?.showWorkspace?.();
   const before = new Set(race.races().map((entry) => entry.id));
   const chat = await openNewTask(get, config.projectPath);
+  const other = pickerModelsFor("claude").find(
+    (model) => model.id !== chat.model,
+  );
+  if (!other) throw new Error("Claude offers no second model to race");
+  race.chooseAgents([
+    { harness: "grok" },
+    { harness: "claude", model: other.id },
+  ]);
   const since = Date.now();
-  await startRaceFromComposer(chat.id, RESULT_RACE_TEXT);
+  const labels = await startRaceFromComposer(chat.id, RESULT_RACE_TEXT, [
+    "claude",
+    "grok",
+    "claude",
+  ]);
   const record = await waitFor(
     () =>
       race
@@ -1101,6 +1134,27 @@ export async function checkRaceResult(
     "the second race to start",
   );
   const grok = record.lanes[1];
+  // Two models of one provider: a copy, a branch and a name each.
+  const twins = [record.lanes[0], record.lanes[2]];
+  if (
+    record.lanes.map((lane) => lane.label).join(" + ") !== labels.join(" + ") ||
+    twins[1].model !== other.id ||
+    twins[0].model === twins[1].model ||
+    new Set(record.lanes.map((lane) => lane.path)).size !== 3 ||
+    new Set(record.lanes.map((lane) => lane.branch)).size !== 3
+  )
+    throw new Error(
+      `The race has ${record.lanes.map((lane) => `${lane.label} in ${lane.path}`).join(", ")}`,
+    );
+  for (const lane of twins)
+    await waitForAsync(
+      async () =>
+        (await race.listDir(lane.path))
+          .map((entry) => entry.name)
+          .includes("race-claude.txt"),
+      20_000,
+      `${lane.label} to write into its own copy`,
+    );
   const card = () =>
     chatPane(chat.id)?.querySelector<HTMLElement>(
       `[data-race-card="${record.id}"]`,
@@ -1124,14 +1178,19 @@ export async function checkRaceResult(
     throw new Error(`The bar reads "${bar}"`);
   if (stopsIn(chatPane(chat.id)!).length)
     throw new Error("A ready race still offers Stop");
+  const names = [
+    ...(card()?.querySelectorAll(".team-card-member-name") ?? []),
+  ].map((name) => name.textContent ?? "");
+  if (names.join(" + ") !== labels.join(" + "))
+    throw new Error(`The card names the agents ${names.join(", ")}`);
   const lanes = record.lanes.map((lane) => lane.sessionId);
   const told = () =>
     teamEntriesProblem(
       [chat.id, ...lanes],
       since,
       chat.id,
-      "Race ready to compare · 2 agents",
-      2,
+      "Race ready to compare · 3 agents",
+      3,
     );
   try {
     await waitFor(() => !told(), 10_000, "one Race ready to compare entry");
@@ -1228,7 +1287,7 @@ export async function checkRaceResult(
     20_000,
     "the kept agent's turn to end",
   );
-  return `the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 2 agents" entry, both lanes' turns quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
+  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 agents" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
 }
 
 /** A chat's pane on screen. */
