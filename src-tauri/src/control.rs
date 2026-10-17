@@ -47,6 +47,18 @@ struct Inner {
     pending: HashMap<String, Pending>,
     workers: HashMap<String, String>,
     active: HashMap<String, ActiveTurn>,
+    /// The window whose page loaded each lead's run, running or not: one
+    /// window holds a run at a time.
+    holds: HashMap<String, String>,
+}
+
+/// What a window may do with a saved run it asks to load (`claim`).
+#[derive(Debug, PartialEq, Eq)]
+enum Claim {
+    /// Load it; the window named, which held it paused, lets it go.
+    Load(Option<String>),
+    /// Another live window is running it: leave it to that window.
+    Refuse,
 }
 impl Inner {
     fn ensure_owner(&self, window: &str, session: &str) -> Result<(), String> {
@@ -120,14 +132,51 @@ impl Inner {
             .is_some_and(|grant| grant.window != label)
     }
 
-    /// See `control_page_loaded`: this window's revoked leads, then the
-    /// saved open runs no other window is running.
-    fn page_loaded(&mut self, label: &str, saved: Vec<String>) -> Vec<String> {
+    /// Whether another window that is still open holds this lead's run.
+    fn held_elsewhere(&self, lead: &str, label: &str, live: &dyn Fn(&str) -> bool) -> bool {
+        self.holds
+            .get(lead)
+            .is_some_and(|window| window != label && live(window))
+    }
+
+    /// `label` asks to load a lead's saved run. A run another live window
+    /// is running stays there; one it holds paused moves here, and that
+    /// window is told to let it go, so no run is held twice.
+    fn claim(&mut self, lead: &str, label: &str, live: &dyn Fn(&str) -> bool) -> Claim {
+        if self
+            .grants
+            .get(lead)
+            .is_some_and(|grant| grant.window != label && live(&grant.window))
+        {
+            return Claim::Refuse;
+        }
+        let previous = self.holds.insert(lead.to_string(), label.to_string());
+        Claim::Load(previous.filter(|window| window != label && live(window)))
+    }
+
+    /// See `control_page_loaded`: this window's revoked leads and the runs
+    /// its earlier page held, then the saved open runs no other open window
+    /// holds.
+    fn page_loaded(
+        &mut self,
+        label: &str,
+        saved: Vec<String>,
+        live: &dyn Fn(&str) -> bool,
+    ) -> Vec<String> {
         let saved: Vec<String> = saved
             .into_iter()
-            .filter(|lead| !self.granted_elsewhere(lead, label))
+            .filter(|lead| {
+                !self.granted_elsewhere(lead, label) && !self.held_elsewhere(lead, label, live)
+            })
             .collect();
         let mut leads = self.reset_window(label);
+        leads.extend(
+            self.holds
+                .iter()
+                .filter(|(_, window)| *window == label)
+                .map(|(lead, _)| lead.clone()),
+        );
+        self.holds.retain(|_, window| window != label);
         leads.extend(saved);
         leads.sort();
         leads.dedup();
@@ -159,6 +208,7 @@ impl Inner {
         ids
     }
     fn close_window(&mut self, label: &str) -> Vec<String> {
+        self.holds.retain(|_, window| window != label);
         let ids = self.window_sessions(label);
         self.grants.retain(|id, _| !ids.contains(id));
         self.workers.retain(|id, _| !ids.contains(id));
@@ -396,6 +446,10 @@ pub fn control_enable(
     }) {
         return Err("This checkout already has an orchestrator in another session".into());
     }
+    // The window that starts or resumes a run holds it from then on.
+    inner
+        .holds
+        .insert(session_id.clone(), window.label().to_string());
     inner.grants.insert(
         session_id.clone(),
         Grant {
@@ -444,17 +498,29 @@ pub fn control_page_loaded(
     store: State<'_, crate::session_store::SessionStore>,
 ) -> Result<Vec<String>, String> {
     let window = owning_window(&webview)?;
+    // Unreadable history loads nothing extra, but the revoke below still
+    // happens: a reloaded page never leaves its old grants behind.
     let saved = if window.label() == "main" {
-        let conn = store.lock_conn()?;
-        crate::session_store::open_orchestration_leads(&conn).map_err(|error| error.to_string())?
+        store
+            .lock_conn()
+            .and_then(|conn| {
+                crate::session_store::open_orchestration_leads(&conn)
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap_or_else(|error| {
+                eprintln!("[aven] Couldn't read open runs: {error}");
+                Vec::new()
+            })
     } else {
         Vec::new()
     };
+    let app = window.app_handle().clone();
+    let live = |label: &str| app.get_window(label).is_some();
     let mut inner = host
         .inner
         .lock()
         .map_err(|_| "Control service unavailable")?;
-    Ok(inner.page_loaded(window.label(), saved))
+    Ok(inner.page_loaded(window.label(), saved, &live))
 }
 
 #[tauri::command]
@@ -639,12 +705,33 @@ fn save_control_state(
     Ok(())
 }
 
+/// A window's page let go of a run another window now holds.
+const RUN_RELEASED_EVENT: &str = "control-run-released";
+
 #[tauri::command]
 pub fn control_load(
+    webview: Webview,
+    host: State<'_, ControlHost>,
     store: State<'_, crate::session_store::SessionStore>,
     lead_id: String,
 ) -> Result<Option<String>, String> {
     use rusqlite::OptionalExtension;
+    let window = owning_window(&webview)?;
+    let app = window.app_handle().clone();
+    let live = |label: &str| app.get_window(label).is_some();
+    let claim = host
+        .inner
+        .lock()
+        .map_err(|_| "Control service unavailable")?
+        .claim(&lead_id, window.label(), &live);
+    match claim {
+        // Another window is running it; its chat there shows the run.
+        Claim::Refuse => return Ok(None),
+        Claim::Load(Some(previous)) => {
+            let _ = app.emit_to(previous.as_str(), RUN_RELEASED_EVENT, &lead_id);
+        }
+        Claim::Load(None) => {}
+    }
     store
         .lock_conn()?
         .query_row(
@@ -856,14 +943,56 @@ mod tests {
         inner
             .grants
             .insert("theirs".into(), grant("window-2", "theirs", "/b"));
+        inner.holds.insert("held".into(), "window-2".into());
+        inner.holds.insert("left".into(), "window-3".into());
+        inner.holds.insert("paused-here".into(), "main".into());
+        let live = |label: &str| label != "window-3";
         let leads = inner.page_loaded(
             "main",
-            vec!["mine".into(), "theirs".into(), "tabless".into()],
+            vec![
+                "mine".into(),
+                "theirs".into(),
+                "tabless".into(),
+                "held".into(),
+                "left".into(),
+            ],
+            &live,
         );
-        // Another window's running run is that window's to keep.
-        assert_eq!(leads, ["mine", "tabless"]);
+        // Another open window's run, running or paused, is that window's to
+        // keep; one a closed window held, and this page's own, load here.
+        assert_eq!(leads, ["left", "mine", "paused-here", "tabless"]);
         assert!(!inner.grants.contains_key("mine"));
         assert!(inner.grants.contains_key("theirs"));
+        assert!(!inner.holds.contains_key("paused-here"));
+    }
+
+    #[test]
+    fn one_window_holds_a_run_at_a_time() {
+        let mut inner = Inner::default();
+        let live = |label: &str| label != "gone";
+        assert_eq!(inner.claim("lead", "main", &live), Claim::Load(None));
+        assert_eq!(inner.claim("lead", "main", &live), Claim::Load(None));
+        // Opened in another window while paused: it moves, and main lets go.
+        assert_eq!(
+            inner.claim("lead", "window-2", &live),
+            Claim::Load(Some("main".into()))
+        );
+        assert_eq!(inner.holds["lead"], "window-2");
+        // Running in window-2: another window leaves it there.
+        inner
+            .grants
+            .insert("lead".into(), grant("window-2", "lead", "/project"));
+        assert_eq!(inner.claim("lead", "main", &live), Claim::Refuse);
+        assert_eq!(inner.holds["lead"], "window-2");
+        // A closed window's grant or hold refuses nothing.
+        inner
+            .grants
+            .insert("lead".into(), grant("gone", "lead", "/project"));
+        inner.holds.insert("lead".into(), "gone".into());
+        assert_eq!(inner.claim("lead", "main", &live), Claim::Load(None));
+        // Closing a window lets go of what it held.
+        inner.close_window("main");
+        assert!(!inner.holds.contains_key("lead"));
     }
 
     #[test]

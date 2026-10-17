@@ -27,6 +27,7 @@ import {
   useOrchestrationRun,
   useOrchestrationSelector,
 } from "../hooks/useOrchestrationRun";
+import { isDetachedWorkspace } from "../lib/workspaceTransfers";
 import {
   TeamBar,
   teamBarOwnsStop,
@@ -264,7 +265,10 @@ export const SessionPane = memo(function SessionPane({
     ),
   );
   useEffect(() => {
-    if (!session.inboxAsk)
+    // Only the window that holds a chat's runs loads them. A detached
+    // workspace shows chats the main window runs; loading a live run there
+    // would pause it and save that over the real one.
+    if (!session.inboxAsk && !isDetachedWorkspace())
       void orchestrator.hydrate(session.id).catch(console.error);
   }, [session.id, session.inboxAsk]);
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);

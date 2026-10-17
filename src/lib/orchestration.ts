@@ -1654,6 +1654,41 @@ export class Orchestrator {
     return this.cancelTask(run.leadId, task.id);
   }
   /** Drain control writes before the database removes a lead or one of its workers. */
+  private pageLoad: Promise<void> | undefined;
+  /**
+   * Load the runs this page should hold (see `control_page_loaded`), once
+   * per page: a hot reload of the app's code in development re-runs its
+   * effects, but must not revoke a live run's access again.
+   */
+  loadPageRuns(
+    pageLoaded: () => Promise<string[]>,
+    onError: (error: unknown) => void = console.error,
+  ): Promise<void> {
+    this.pageLoad ??= pageLoaded()
+      .then((leads) =>
+        Promise.all(leads.map((lead) => this.hydrate(lead).catch(onError))),
+      )
+      .then(() => undefined, onError);
+    return this.pageLoad;
+  }
+
+  /**
+   * Another window now holds this lead's run: its chat opened there while
+   * the run was paused. Let go of it here, without saving, so no run is
+   * held, and counted as needing you, in two windows. A run still going
+   * here is kept.
+   */
+  release(leadId: string) {
+    const run = this.run(leadId);
+    if (!run || run.status === "active" || run.tasks.some(activeTask)) return;
+    this.runs = this.runs.filter((entry) => entry.leadId !== leadId);
+    this.loaded.delete(leadId);
+    this.persisted.delete(leadId);
+    this.blocked.delete(leadId);
+    this.announced.delete(leadId);
+    this.emit();
+  }
+
   deleteSession(id: string, remove: () => Promise<void>): Promise<void> {
     const result = this.actions
       .catch(() => undefined)

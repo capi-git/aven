@@ -177,6 +177,43 @@ describe("local orchestration", () => {
     expect(restored.run("lead")!.status).toBe("active");
   });
 
+  it("lets go of a paused run another window now holds, but not a running one", async () => {
+    const f = setup();
+    await f.start();
+    // Still running here: kept.
+    f.manager.release("lead");
+    expect(f.manager.run("lead")?.status).toBe("active");
+    // Paused (Aven quit), then its chat opened in another window.
+    const restored = new Orchestrator(f.store);
+    restored.bind(f.host);
+    await restored.hydrate("lead");
+    expect(restored.run("lead")?.status).toBe("paused");
+    const saves = f.store.save.mock.calls.length;
+    restored.release("lead");
+    expect(restored.run("lead")).toBeUndefined();
+    expect(restored.snapshot()).toEqual([]);
+    // Nothing is written over what the other window now holds.
+    expect(f.store.save.mock.calls.length).toBe(saves);
+    // Its chat opened here again: loaded afresh.
+    await restored.hydrate("lead");
+    expect(restored.run("lead")?.status).toBe("paused");
+  });
+
+  it("loads a page's runs once, however often its effects run", async () => {
+    const f = setup();
+    await f.start();
+    const restored = new Orchestrator(f.store);
+    restored.bind(f.host);
+    const pageLoaded = vi.fn(async () => ["lead"]);
+    await Promise.all([
+      restored.loadPageRuns(pageLoaded),
+      restored.loadPageRuns(pageLoaded),
+    ]);
+    await restored.loadPageRuns(pageLoaded);
+    expect(pageLoaded).toHaveBeenCalledTimes(1);
+    expect(restored.run("lead")?.status).toBe("paused");
+  });
+
   it("stops and forgets a deleted lead without persisting it again", async () => {
     const f = setup();
     await f.start();

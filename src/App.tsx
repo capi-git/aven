@@ -2419,17 +2419,10 @@ export default function App({
   // earlier page held, and in the main window every open run whose lead has
   // no tab.
   useEffect(() => {
-    void invoke<string[]>("control_page_loaded")
-      .then((leads) =>
-        Promise.all(
-          leads.map((lead) =>
-            orchestrator
-              .hydrate(lead)
-              .catch((error) => logError("Couldn't load a run", error)),
-          ),
-        ),
-      )
-      .catch((error) => logError("Couldn't load open runs", error));
+    void orchestrator.loadPageRuns(
+      () => invoke<string[]>("control_page_loaded"),
+      (error) => logError("Couldn't load open runs", error),
+    );
   }, []);
 
   // A suggested winner this window asked for before a reload, or one that
@@ -7762,6 +7755,16 @@ export default function App({
   useEffect(() => {
     orchestrator.sync();
   }, [sessions]);
+
+  // Another window opened a paused run's lead and now holds the run.
+  useEffect(() => {
+    const listening = listen<string>("control-run-released", ({ payload }) => {
+      if (typeof payload === "string") orchestrator.release(payload);
+    });
+    return () => {
+      void listening.then((unlisten) => unlisten());
+    };
+  }, []);
 
   useEffect(() => {
     const listening = listen<{

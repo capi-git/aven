@@ -13,6 +13,7 @@ import { SessionPane } from "./SessionPane";
 import type { Attachment, Session } from "../lib/session";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import { requestAddToChat } from "../lib/quoteDraft";
+import { orchestrator } from "../lib/orchestration";
 
 const mock = vi.hoisted(() => ({
   composer: vi.fn(),
@@ -117,6 +118,25 @@ describe("session pane draft and header ownership", () => {
     props = { ...props, inSplit, session: { ...props.session, ...session } };
     await act(async () => root.render(createElement(SessionPane, props)));
   }
+
+  it("loads a lead's run in the window that holds it, never in a detached one", async () => {
+    const hydrate = vi
+      .spyOn(orchestrator, "hydrate")
+      .mockResolvedValue(undefined);
+    await render();
+    expect(hydrate).toHaveBeenCalledWith("one");
+    hydrate.mockClear();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    window.history.replaceState({}, "", "/?workspaceWindow=window-2");
+    try {
+      await render({ id: "two" });
+      expect(hydrate).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState({}, "", "/");
+      hydrate.mockRestore();
+    }
+  });
 
   it("keeps optional questions in the composer without pausing transcript activity", async () => {
     const question = { requestId: 7, questions: [], blocking: false };
