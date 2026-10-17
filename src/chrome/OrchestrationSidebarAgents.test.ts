@@ -87,6 +87,8 @@ describe("the sidebar's run card", () => {
       "[data-orchestration-folded]",
     );
     expect(folded?.textContent).toBe("Finished · 4 agents · 2h ago");
+    // Named by what it shows, so a screen reader hears it too.
+    expect(folded?.hasAttribute("aria-label")).toBe(false);
     expect(rows()).toHaveLength(0);
     await act(async () => folded!.click());
     expect(rows()).toHaveLength(4);
@@ -95,9 +97,7 @@ describe("the sidebar's run card", () => {
       host.querySelector("[data-orchestration-progress]")?.textContent,
     ).toBe("3 done · 1 cancelled");
     await act(async () =>
-      host
-        .querySelector<HTMLElement>('[aria-label="Fold this run to one line"]')!
-        .click(),
+      host.querySelector<HTMLElement>("[data-orchestration-fold]")!.click(),
     );
     expect(rows()).toHaveLength(0);
   });

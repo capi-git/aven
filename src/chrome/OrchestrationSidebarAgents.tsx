@@ -91,7 +91,9 @@ export function OrchestrationSidebarAgents({
           type="button"
           data-orchestration-folded
           aria-expanded={false}
-          aria-label="Show this run's agents"
+          // Its line is its name; the hint is a description, so a screen
+          // reader hears how the run ended too.
+          title="Show this run's agents"
           onClick={() => setUnfolded(true)}
           className="-mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-ui-caption text-content/45 hover:bg-content/10 hover:text-content/70"
         >
@@ -109,7 +111,8 @@ export function OrchestrationSidebarAgents({
           <button
             type="button"
             aria-expanded
-            aria-label="Fold this run to one line"
+            data-orchestration-fold
+            title="Fold this run to one line"
             className="-ml-1 flex min-w-0 items-center gap-1 rounded px-1 hover:bg-content/10 hover:text-content/70"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {

@@ -110,7 +110,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-accent) 22%, transparent);
 }
 .team-card-badge[data-tone="needs-you"] {
-  color: var(--color-amber-400);
+  color: var(--aven-needs-you);
 }
 .team-card-badge[data-tone="ready"] {
   color: color-mix(in srgb, var(--color-accent) 70%, var(--color-content));
@@ -193,7 +193,7 @@ button.team-card-member-open:hover {
   color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
 }
 .team-card-member-state[data-tone="needs-you"] {
-  color: var(--color-amber-400);
+  color: var(--aven-needs-you);
 }
 .team-card-member-state[data-tone="done"] {
   color: var(--color-content);
@@ -332,7 +332,7 @@ button.team-card-member-open:hover {
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .sidebar-team-badge[data-needs-you] {
-  color: var(--color-amber-400);
+  color: var(--aven-needs-you);
 }
 .sidebar-team-badge .team-mini-faces .discussion-avatar {
   width: 15px;

@@ -1,4 +1,6 @@
+import type { KeyboardEvent } from "react";
 import { AGENT_ROLES, agentRole, type AgentRoleId } from "../lib/agentRoles";
+import { isImeComposition } from "../lib/keyboard";
 
 /**
  * The role an agent was brought in with, as a small badge beside its name.
@@ -25,7 +27,9 @@ export function RoleBadge({
 
 /**
  * Choose a role for an agent brought into a team, or none. Each choice shows
- * its instruction on hover. The menu it sits in moves focus between them.
+ * its instruction on hover. As a radio group it is one Tab stop, the chosen
+ * role, and ← and → choose the one beside it; a menu it sits in still moves
+ * through every choice with ↑ and ↓.
  */
 export function RolePicker({
   value,
@@ -52,12 +56,26 @@ export function RolePicker({
         hint: role.instruction,
       })),
     ];
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    if (isImeComposition(event.nativeEvent)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const at = choices.findIndex((choice) => choice.id === value);
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const next = (at + step + choices.length) % choices.length;
+    onChange(choices[next].id);
+    event.currentTarget
+      .querySelectorAll<HTMLElement>("[data-role-choice]")
+      [next]?.focus();
+  };
   return (
     <div
       role="radiogroup"
       aria-label={label}
       data-role-picker
       className={`flex flex-wrap gap-0.5 ${className}`}
+      onKeyDown={onKeyDown}
     >
       {choices.map((choice) => {
         const selected = choice.id === value;
@@ -67,6 +85,7 @@ export function RolePicker({
             type="button"
             role="radio"
             aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
             title={choice.hint}
             data-role-choice={choice.id ?? "none"}
             onClick={() => onChange(choice.id)}

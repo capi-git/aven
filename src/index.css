@@ -61,6 +61,8 @@
     var(--color-content)
   );
   --aven-shadow: 0 14px 42px #0003;
+  /* Text that says a team needs you. */
+  --aven-needs-you: var(--color-amber-400, #e2a03f);
 }
 
 html {
@@ -78,6 +80,12 @@ html.theme-light {
   --color-skill: #a07c10;
   --color-mention: #0284c7;
   --color-markdown-heading: #be185d;
+  /* Plain amber is too pale to read on a light background. */
+  --aven-needs-you: color-mix(
+    in srgb,
+    var(--color-content) 45%,
+    var(--color-amber-400, #e2a03f)
+  );
   color-scheme: light;
 }
 

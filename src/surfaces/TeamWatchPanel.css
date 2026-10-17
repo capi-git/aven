@@ -89,7 +89,7 @@
   -webkit-line-clamp: 2;
 }
 .team-watch-status[data-tone="needs-you"] {
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
 }
 
 .team-watch-body {
@@ -206,7 +206,7 @@
   color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
 }
 .team-watch-state[data-tone="needs-you"] {
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
 }
 .team-watch-state[data-tone="done"] {
   color: var(--color-content);
@@ -233,7 +233,7 @@
   color: color-mix(in srgb, var(--discussion-voice) 70%, var(--color-content));
 }
 .team-watch-asking {
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
 }
 .team-watch-numbers {
   display: flex;
@@ -276,7 +276,7 @@
     transparent
   );
   font-size: var(--text-ui-label);
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
   white-space: nowrap;
 }
 .team-watch-needs:hover {
