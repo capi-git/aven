@@ -114,6 +114,7 @@
   bottom: 0;
   height: 2px;
   border-radius: 1px;
+  z-index: 1;
   background: color-mix(in srgb, #34d399 80%, var(--color-content));
   opacity: 0;
   pointer-events: none;
