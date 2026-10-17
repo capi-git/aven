@@ -29,7 +29,6 @@ vi.mock("../lib/platform", async (original) => ({
 vi.mock("@tauri-apps/api/core", async (original) => ({
   ...(await original<typeof import("@tauri-apps/api/core")>()),
   invoke: vi.fn(async (command: string) => {
-    if (command === "linear_status") return { connected: false };
     if (command === "notification_permission") return "unsupported";
     return undefined;
   }),
@@ -479,7 +478,6 @@ describe("settings navigation", () => {
     for (const [label, category, id] of [
       ["Version", "General", "setting-version"],
       ["Memory saver", "Browser", "setting-memory-saver"],
-      ["Linear API key", "Connections", "setting-linear-api-key"],
       ["Agent connections", "Connections", "setting-agent-connections"],
       ["Accent colour", "Appearance", "setting-accent-colour"],
       ["Chat background", "Appearance", "setting-chat-background"],

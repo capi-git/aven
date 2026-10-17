@@ -1,6 +1,5 @@
 import {
   ArrowDownCircle,
-  Check,
   ImagePlus,
   Loader,
   RefreshCw,
@@ -53,7 +52,6 @@ import {
   saveDefaultRuntimeMode,
   subscribeDefaultRuntimeMode,
 } from "../lib/runtimeMode";
-import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
 import { WindowControls } from "../chrome/WindowControls";
 import { useSetting } from "../hooks/useSetting";
@@ -149,18 +147,6 @@ import {
   saveSessionSidebarFilters,
 } from "../lib/sessionFilters";
 import type { SessionSummary } from "../lib/sessionStore";
-import { clearInboxCache } from "../lib/githubTasks";
-import {
-  disconnectLinear,
-  LINEAR_CHANGE_EVENT,
-  linearConnected,
-  listLinearTeams,
-  loadHiddenLinearTeamIds,
-  notifyLinearChange,
-  saveHiddenLinearTeamIds,
-  saveLinearToken,
-  type LinearTeam,
-} from "../lib/linear";
 import { loadTabGroupLabels, resolveTabGroupLabel } from "../lib/tabGroups";
 import {
   filterKeybindings,
@@ -925,191 +911,16 @@ function AutosaveRow() {
   );
 }
 
-/** Agent connections come from each provider; Linear is Aven's own. */
 function ConnectionsPage({ cwd }: { cwd: string }) {
   return (
-    <>
-      <SettingsGroup
-        title={SETTINGS.agentConnections.label}
-        id={SETTINGS.agentConnections.id}
-        description={SETTINGS.agentConnections.row.description}
-        scope="Project"
-      >
-        <ProviderConnections cwd={cwd} />
-      </SettingsGroup>
-      <SettingsGroup
-        title="Linear"
-        description="Bring Linear issues into your inbox."
-        scope="Device"
-      >
-        <div id={SETTINGS.linearApiKey.id} tabIndex={-1}>
-          <LinearSettings />
-        </div>
-      </SettingsGroup>
-    </>
-  );
-}
-
-function LinearSettings() {
-  const [token, setToken] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [teams, setTeams] = useState<LinearTeam[]>([]);
-  const [hiddenTeamIds, setHiddenTeamIds] = useState(loadHiddenLinearTeamIds);
-
-  const loadTeams = useCallback(async () => {
-    try {
-      const next = await listLinearTeams();
-      setTeams(next);
-    } catch {
-      setTeams([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void linearConnected().then((status) => {
-      if (cancelled) return;
-      setConnected(status.connected);
-      if (status.connected) void loadTeams();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadTeams]);
-
-  // The inbox filter menu writes the same list, so follow it while both are mounted.
-  useEffect(() => {
-    const onChange = () => setHiddenTeamIds(loadHiddenLinearTeamIds());
-    window.addEventListener(LINEAR_CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(LINEAR_CHANGE_EVENT, onChange);
-  }, []);
-
-  const onSave = async () => {
-    if (!token.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await saveLinearToken(token);
-      setToken("");
-      setConnected(true);
-      clearInboxCache();
-      notifyLinearChange();
-      await loadTeams();
-    } catch (err: unknown) {
-      setConnected(false);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onDisconnect = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await disconnectLinear();
-      setConnected(false);
-      setTeams([]);
-      clearInboxCache();
-      notifyLinearChange();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleTeam = (id: string) => {
-    const next = new Set(hiddenTeamIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    const ids = [...next];
-    setHiddenTeamIds(ids);
-    saveHiddenLinearTeamIds(ids);
-    clearInboxCache();
-  };
-
-  return (
-    <>
-      <Row
-        label={
-          <span className="flex items-center gap-2">
-            <InboxProviderMark provider="linear" className="size-4 shrink-0" />
-            API key
-          </span>
-        }
-        description="Create a personal API key in Linear → Settings → Security & Access. Disconnect deletes it."
-      >
-        {connected ? (
-          <SecondaryButton onClick={() => void onDisconnect()} disabled={busy}>
-            Disconnect
-          </SecondaryButton>
-        ) : (
-          <div className="flex items-center gap-2">
-            <label className="flex h-7 w-52 shrink-0 items-center rounded-md border border-content/10 px-2 focus-within:border-content/20">
-              <input
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void onSave();
-                }}
-                placeholder="lin_api_…"
-                aria-label={SETTINGS.linearApiKey.label}
-                autoComplete="off"
-                spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-              />
-            </label>
-            <SecondaryButton
-              onClick={() => void onSave()}
-              disabled={busy || !token.trim()}
-            >
-              {busy ? "Saving" : "Connect"}
-            </SecondaryButton>
-          </div>
-        )}
-      </Row>
-      {error ? (
-        <p className="pb-2 text-ui-label text-red-400/90">{error}</p>
-      ) : null}
-      {connected && teams.length > 0 ? (
-        <div className="border-b border-content/5 py-4">
-          <div className="text-ui-body font-medium text-content">
-            Linear Teams
-          </div>
-          <p className="mt-1 text-ui-label leading-relaxed text-content/45">
-            Unchecked teams stay out of the inbox.
-          </p>
-          <div className="mt-3 flex flex-col gap-0.5 -mx-2">
-            {teams.map((team) => {
-              const checked = !hiddenTeamIds.includes(team.id);
-              return (
-                <button
-                  key={team.id}
-                  type="button"
-                  onClick={() => toggleTeam(team.id)}
-                  className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content hover:bg-content/5"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {team.name}
-                    {team.key ? (
-                      <span className="ml-1.5 text-content/40">{team.key}</span>
-                    ) : null}
-                  </span>
-                  {checked ? (
-                    <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </>
+    <SettingsGroup
+      title={SETTINGS.agentConnections.label}
+      id={SETTINGS.agentConnections.id}
+      description={SETTINGS.agentConnections.row.description}
+      scope="Project"
+    >
+      <ProviderConnections cwd={cwd} />
+    </SettingsGroup>
   );
 }
 
