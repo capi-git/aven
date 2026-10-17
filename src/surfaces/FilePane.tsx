@@ -123,23 +123,29 @@ function FilePaneComponent({
     (isChangesTab(activeFile) ||
       (diffViewer === "unified" && isReviewTab(activeFile)));
   const commitReview = !!activeFile && isCommitTab(activeFile);
+  // A board alone in its tab is named by that tab, like a browser page, so
+  // it draws no strip of its own. Beside other panes it has one like any.
+  const bareBoard =
+    !onPaneDragStart && pane.files.length === 1 && isBoardTab(pane.files[0]);
 
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(pane.id)}
     >
-      <SurfaceTabs
-        files={pane.files}
-        activeFileId={pane.activeFileId}
-        dirtyFileIds={dirtyFileIds}
-        fileErrorCounts={fileErrorCounts}
-        onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
-        onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
-        onReorder={(ids) => onReorderFiles(pane.id, ids)}
-        onPaneDragStart={onPaneDragStart}
-        paneFocused={focused}
-      />
+      {bareBoard ? null : (
+        <SurfaceTabs
+          files={pane.files}
+          activeFileId={pane.activeFileId}
+          dirtyFileIds={dirtyFileIds}
+          fileErrorCounts={fileErrorCounts}
+          onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
+          onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
+          onReorder={(ids) => onReorderFiles(pane.id, ids)}
+          onPaneDragStart={onPaneDragStart}
+          paneFocused={focused}
+        />
+      )}
       <div className="relative min-h-0 flex-1">
         <SurfaceBoundary
           label="diff"
