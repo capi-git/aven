@@ -42,29 +42,39 @@ export function createChatRecordStore<T extends ChatRecord>({
   /** A saved record, checked; null drops it. */
   parse: (value: unknown) => T | null;
 }): ChatRecordStore<T> {
+  // Parsed once per storage, then kept: every render of the workspace reads
+  // the snapshot. This window's writes replace it directly; another window's
+  // arrive as a `storage` event, which drops it to be read again.
   let cache: {
-    raw: string | null;
+    storage: Storage | null;
     records: Readonly<Record<string, T>>;
   } | null = null;
+  let watching = false;
   const listeners = new Set<() => void>();
 
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== key) return;
+    cache = null;
+    for (const listener of [...listeners]) listener();
+  };
+
   const read = (): Readonly<Record<string, T>> => {
-    let raw: string | null = null;
-    try {
-      raw = storage()?.getItem(key) ?? null;
-    } catch {
-      raw = null;
+    const store = storage();
+    if (cache && cache.storage === store) return cache.records;
+    if (!watching && typeof window !== "undefined") {
+      watching = true;
+      window.addEventListener("storage", onStorage);
     }
-    if (cache && cache.raw === raw) return cache.records;
     let records: Record<string, T> = {};
     try {
+      const raw = store?.getItem(key);
       const parsed: unknown = raw ? JSON.parse(raw) : null;
       const list =
         parsed &&
         typeof parsed === "object" &&
         (parsed as { version?: unknown }).version === 1 &&
         Array.isArray((parsed as { records?: unknown }).records)
-          ? ((parsed as { records: unknown[] }).records ?? [])
+          ? (parsed as { records: unknown[] }).records
           : [];
       for (const entry of list) {
         const record = parse(entry);
@@ -74,7 +84,7 @@ export function createChatRecordStore<T extends ChatRecord>({
       records = {};
     }
     cache = {
-      raw,
+      storage: store,
       records: Object.keys(records).length
         ? records
         : (NONE as Record<string, T>),
@@ -82,22 +92,12 @@ export function createChatRecordStore<T extends ChatRecord>({
     return cache.records;
   };
 
-  const onStorage = (event: StorageEvent) => {
-    if (event.key !== null && event.key !== key) return;
-    cache = null;
-    for (const listener of [...listeners]) listener();
-  };
-
   return {
     snapshot: read,
     subscribe(listener) {
       listeners.add(listener);
-      if (listeners.size === 1 && typeof window !== "undefined")
-        window.addEventListener("storage", onStorage);
       return () => {
         listeners.delete(listener);
-        if (listeners.size === 0 && typeof window !== "undefined")
-          window.removeEventListener("storage", onStorage);
       };
     },
     update(change) {
@@ -107,24 +107,16 @@ export function createChatRecordStore<T extends ChatRecord>({
       const kept = Object.values(next)
         .sort((a, b) => b.at - a.at)
         .slice(0, limit);
-      const raw = JSON.stringify({ version: 1, records: kept });
-      let saved: string | null = null;
+      const store = storage();
       try {
-        storage()?.setItem(key, raw);
-        saved = storage()?.getItem(key) ?? null;
+        store?.setItem(key, JSON.stringify({ version: 1, records: kept }));
       } catch {
-        // Storage full or unavailable: the records still work this session,
-        // kept against what storage still holds.
-        try {
-          saved = storage()?.getItem(key) ?? null;
-        } catch {
-          saved = null;
-        }
+        // Storage full or unavailable: the records still work this session.
       }
       const records: Record<string, T> = {};
       for (const record of kept) records[record.sessionId] = record;
       cache = {
-        raw: saved,
+        storage: store,
         records: kept.length ? records : (NONE as Record<string, T>),
       };
       for (const listener of [...listeners]) listener();
