@@ -22,6 +22,7 @@ import { LiveSessionsContext } from "../lib/liveSessions";
 import { MOD } from "../lib/platform";
 import type { PrCheck } from "../lib/prChecks";
 import type { HarnessId } from "../lib/session";
+import { recordShip } from "../lib/shippedChats";
 import {
   defaultShipScope,
   loadShipMode,
@@ -252,6 +253,13 @@ export function ShipFlow({
       });
       onMessageChange("");
       setPhase({ kind: "done", result });
+      // The chats it carried read Shipped, with this commit or pull request.
+      void recordShip({
+        cwd,
+        requestedId: sessionId,
+        result,
+        sessions: live?.list() ?? [],
+      }).catch((error) => logError("record ship", error));
     } catch (error) {
       logError("ship", error);
       setPhase({
