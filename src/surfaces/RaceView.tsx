@@ -6,21 +6,43 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { HarnessIcon } from "../chrome/HarnessIcon";
-import { AlertCircle, Check, LoaderCircle } from "../chrome/icons";
+import {
+  AlertCircle,
+  Check,
+  LoaderCircle,
+  Pause,
+  RotateCcw,
+  Square,
+} from "../chrome/icons";
+import { useActivity } from "../lib/activity";
 import {
   getRace,
   finishRace,
   raceFileRows,
   raceHost,
   raceWorkspace,
-  selectLane,
   subscribeRaces,
+  updateRace,
   type RaceDiff,
+  type RaceKeep,
   type RaceRecord,
   type RaceSelection,
 } from "../lib/race";
-import { sessionIsWaitingForInput, type Session } from "../lib/session";
+import {
+  raceCombineQuestion,
+  raceDiscardQuestion,
+  raceKeepQuestion,
+  raceLaneActive,
+  raceLaneCanRetry,
+  raceLaneSeconds,
+  raceLaneState,
+  raceOutcomeText,
+  type RaceLaneState,
+  type RaceQuestion,
+} from "../lib/raceLanes";
+import type { Session } from "../lib/session";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
@@ -48,28 +70,50 @@ export function RaceView({ raceId, sessions, visible }: Props) {
   return <RaceBody race={race} sessions={sessions} visible={visible} />;
 }
 
-function laneStatus(session: Session | undefined) {
-  if (!session) return { label: "Closed", tone: "muted" as const };
-  if (sessionIsWaitingForInput(session))
-    return { label: "Needs you", tone: "warn" as const };
-  if (session.busy) return { label: "Working", tone: "busy" as const };
-  return { label: "Done", tone: "done" as const };
-}
-
-function laneSeconds(
-  session: Session | undefined,
-  race: RaceRecord,
-  now: number,
-) {
-  const turn = session?.blocks.find((block) => block.role === "user");
-  if (turn?.durationMs != null && !session?.busy)
-    return Math.round(turn.durationMs / 1000);
-  return Math.max(0, Math.round((now - race.createdAt) / 1000));
-}
-
 function clock(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
+
+function LaneStatus({ state, now }: { state: RaceLaneState; now: number }) {
+  const seconds = raceLaneSeconds(state, now);
+  const Icon =
+    state.kind === "working"
+      ? LoaderCircle
+      : state.kind === "done"
+        ? Check
+        : state.kind === "failed" || state.kind === "interrupted"
+          ? AlertCircle
+          : state.kind === "waiting"
+            ? Pause
+            : state.kind === "stopped"
+              ? Square
+              : null;
+  const strong =
+    state.kind === "done" ||
+    state.kind === "waiting" ||
+    state.kind === "failed" ||
+    state.kind === "interrupted";
+  return (
+    <span
+      data-lane-state={state.kind}
+      className={`flex shrink-0 items-center gap-1 text-ui-label ${strong ? "text-content" : "text-content/55"}`}
+    >
+      {Icon ? (
+        <Icon
+          className={`size-3 ${state.kind === "working" ? "animate-spin" : ""}`}
+        />
+      ) : null}
+      {state.label}
+      {seconds != null ? ` · ${clock(seconds)}` : ""}
+    </span>
+  );
+}
+
+type Pending = {
+  question: RaceQuestion;
+  danger: boolean;
+  run: () => void;
+};
 
 function RaceBody({
   race,
@@ -80,16 +124,25 @@ function RaceBody({
   sessions: readonly Session[];
   visible: boolean;
 }) {
-  const lanes = race.lanes.map((lane) => ({
-    lane,
-    session: sessions.find((session) => session.id === lane.sessionId),
-  }));
+  const entries = useActivity();
+  const lanes = race.lanes.map((lane) => {
+    const session = sessions.find((entry) => entry.id === lane.sessionId);
+    return {
+      lane,
+      session,
+      state: raceLaneState(lane.sessionId, session, entries),
+    };
+  });
+  const states = lanes.map(({ state }) => state);
   const running = race.state === "running";
+  const anyActive = states.some(raceLaneActive);
   const anyBusy = lanes.some(({ session }) => session?.busy);
-  const busyKey = lanes.map(({ session }) => (session?.busy ? 1 : 0)).join("");
+  const stateKey = states.map((state) => state.kind).join(" ");
   const [diffs, setDiffs] = useState<(RaceDiff | undefined)[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selection, setSelection] = useState<RaceSelection>({});
+  const [selection, setSelection] = useState<RaceSelection>(
+    () => race.picks ?? {},
+  );
   const [focus, setFocus] = useState<{ path: string; lane: number } | null>(
     null,
   );
@@ -97,16 +150,22 @@ function RaceBody({
   const finishingRef = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [pending, setPending] = useState<Pending | null>(null);
 
+  // Saving picks rewrites the record; refreshes follow only the copies.
+  const raceId = race.id;
+  const base = race.base;
+  const lanesKey = race.lanes.map((lane) => lane.path).join("\n");
   const refresh = useCallback(() => {
-    if (race.state !== "running" || working || finishingRef.current) return;
+    if (getRace(raceId)?.state !== "running" || working || finishingRef.current)
+      return;
     void Promise.all(
-      race.lanes.map((lane) =>
-        raceHost.diff(lane.path, race.base).catch(() => undefined),
-      ),
+      lanesKey
+        .split("\n")
+        .map((path) => raceHost.diff(path, base).catch(() => undefined)),
     )
       .then((next) => {
-        if (finishingRef.current || getRace(race.id)?.state !== "running")
+        if (finishingRef.current || getRace(raceId)?.state !== "running")
           return;
         setDiffs(next);
         setLoadError(
@@ -114,10 +173,10 @@ function RaceBody({
         );
       })
       .catch((error: unknown) => {
-        if (!finishingRef.current && getRace(race.id)?.state === "running")
+        if (!finishingRef.current && getRace(raceId)?.state === "running")
           setLoadError(String(error));
       });
-  }, [race, working]);
+  }, [working, raceId, lanesKey, base]);
 
   // Reload when a lane starts or finishes, and periodically while one works.
   useEffect(() => {
@@ -129,7 +188,7 @@ function RaceBody({
       refresh();
     }, REFRESH_WHILE_RUNNING_MS);
     return () => window.clearInterval(timer);
-  }, [visible, running, working, busyKey, anyBusy, refresh]);
+  }, [visible, running, working, stateKey, anyBusy, refresh]);
 
   const rows = useMemo(() => raceFileRows(diffs), [diffs]);
   const current =
@@ -137,36 +196,43 @@ function RaceBody({
   // `current` is rebuilt every render; the diff follows only its file and lane.
   const currentPath = current?.path;
   const currentLane = current?.lane;
+  const currentStats =
+    currentLane === undefined
+      ? undefined
+      : diffs[currentLane]?.files.find((file) => file.path === currentPath);
+  // A refresh rebuilds every list; fetch the file again only when it changed.
+  const statsKey = currentStats
+    ? `${currentStats.status}:${currentStats.additions}:${currentStats.deletions}:${currentStats.binary}`
+    : "";
+  const statsRef = useRef(currentStats);
+  statsRef.current = currentStats;
+  const lanePath =
+    currentLane === undefined ? undefined : race.lanes[currentLane]?.path;
 
   const [fileModel, setFileModel] = useState<UnifiedDiffFileModel | null>(null);
   useEffect(() => {
+    const stats = statsRef.current;
     if (
       currentPath === undefined ||
       currentLane === undefined ||
       !visible ||
       !running ||
       working ||
-      finishingRef.current
+      finishingRef.current ||
+      !lanePath ||
+      !stats
     ) {
-      setFileModel(null);
-      return;
-    }
-    const lane = race.lanes[currentLane];
-    const stats = diffs[currentLane]?.files.find(
-      (file) => file.path === currentPath,
-    );
-    if (!lane || !stats) {
       setFileModel(null);
       return;
     }
     let cancelled = false;
     void raceHost
-      .fileDiff(lane.path, race.base, currentPath)
+      .fileDiff(lanePath, base, currentPath)
       .then((result) => {
         if (
           cancelled ||
           finishingRef.current ||
-          getRace(race.id)?.state !== "running"
+          getRace(raceId)?.state !== "running"
         )
           return;
         const unreadable =
@@ -193,7 +259,7 @@ function RaceBody({
         if (
           !cancelled &&
           !finishingRef.current &&
-          getRace(race.id)?.state === "running"
+          getRace(raceId)?.state === "running"
         )
           setFileModel({
             id: `${currentLane}:${currentPath}`,
@@ -208,9 +274,19 @@ function RaceBody({
     return () => {
       cancelled = true;
     };
-  }, [currentPath, currentLane, diffs, race, visible, running, working]);
+  }, [
+    currentPath,
+    currentLane,
+    statsKey,
+    lanePath,
+    raceId,
+    base,
+    visible,
+    running,
+    working,
+  ]);
 
-  const finish = async (label: string, keep: RaceSelection | null) => {
+  const finish = async (label: string, keep: RaceKeep | null) => {
     if (finishingRef.current) return;
     finishingRef.current = true;
     setWorking(label);
@@ -225,11 +301,44 @@ function RaceBody({
     }
   };
 
-  const selectedCount = Object.keys(selection).length;
+  /** Ask first when the action can't be undone and agents would be cut off. */
+  const confirm = (
+    ask: boolean,
+    question: RaceQuestion,
+    danger: boolean,
+    run: () => void,
+  ) => {
+    if (!ask) {
+      run();
+      return;
+    }
+    setPending({ question, danger, run });
+  };
+
+  // Picks are saved with the race, so reopening the overview keeps them.
+  const pick = (path: string, lane: number) => {
+    const next = { ...selection };
+    if (next[path] === lane) delete next[path];
+    else next[path] = lane;
+    setSelection(next);
+    updateRace(race.id, { picks: next });
+  };
+
+  // Picks for files no lane changes any more are not offered.
+  const picked = Object.fromEntries(
+    Object.entries(selection).filter(([path, lane]) =>
+      rows.some((row) => row.path === path && row.lanes.includes(lane)),
+    ),
+  );
+  const selectedCount = Object.keys(picked).length;
   const disabled = !running || !!working;
+  const outcome = raceOutcomeText(race);
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-ui-body">
+    <div
+      className="flex h-full min-h-0 flex-col text-ui-body"
+      data-race-view={race.id}
+    >
       <header className="flex items-center gap-3 border-b border-content/10 px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="truncate text-content">{race.prompt}</div>
@@ -271,7 +380,14 @@ function RaceBody({
           <button
             type="button"
             disabled={disabled}
-            onClick={() => void finish("Discarding…", null)}
+            onClick={() =>
+              confirm(
+                true,
+                raceDiscardQuestion(race, states, diffs),
+                true,
+                () => void finish("Discarding…", null),
+              )
+            }
             className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
           >
             Discard race
@@ -292,12 +408,12 @@ function RaceBody({
           gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))`,
         }}
       >
-        {lanes.map(({ lane, session }, index) => {
-          const status = laneStatus(session);
+        {lanes.map(({ lane, state }, index) => {
           const diff = diffs[index];
           return (
             <section
               key={lane.sessionId}
+              data-race-lane={index}
               className="flex min-w-0 flex-col gap-1.5 border-r border-content/10 px-4 py-3 last:border-r-0"
             >
               <div className="flex min-w-0 items-center gap-2">
@@ -308,18 +424,7 @@ function RaceBody({
                 <span className="min-w-0 flex-1 truncate text-content">
                   {lane.label}
                 </span>
-                {running ? (
-                  <span
-                    className={`flex shrink-0 items-center gap-1 text-ui-label ${status.tone === "done" ? "text-content" : status.tone === "warn" ? "text-content" : "text-content/55"}`}
-                  >
-                    {status.tone === "busy" ? (
-                      <LoaderCircle className="size-3 animate-spin" />
-                    ) : status.tone === "done" ? (
-                      <Check className="size-3" />
-                    ) : null}
-                    {status.label} · {clock(laneSeconds(session, race, now))}
-                  </span>
-                ) : null}
+                {running ? <LaneStatus state={state} now={now} /> : null}
               </div>
               {running ? (
                 <div className="text-ui-label text-content/55">
@@ -335,7 +440,7 @@ function RaceBody({
                   )}
                 </div>
               ) : null}
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => raceWorkspace()?.openChat(lane.sessionId)}
@@ -343,12 +448,29 @@ function RaceBody({
                 >
                   Open chat
                 </button>
+                {running && raceLaneCanRetry(state) ? (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    title="Send the race's task to this agent again"
+                    onClick={() => raceWorkspace()?.retry(race, index)}
+                    className="flex items-center gap-1 rounded-md border border-content/15 px-2 py-0.5 text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
+                  >
+                    <RotateCcw className="size-3" />
+                    Retry
+                  </button>
+                ) : null}
                 {running ? (
                   <button
                     type="button"
                     disabled={disabled || !diff?.files.length}
                     onClick={() =>
-                      void finish("Keeping…", selectLane(diffs, index))
+                      confirm(
+                        anyActive,
+                        raceKeepQuestion(race, index, states),
+                        false,
+                        () => void finish("Keeping…", { lane: index }),
+                      )
                     }
                     className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
                   >
@@ -373,12 +495,15 @@ function RaceBody({
             <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
               {rows.length === 0 ? (
                 <p className="px-2 py-3 text-ui-label text-content/45">
-                  {anyBusy ? "No changes yet." : "No agent changed any files."}
+                  {anyActive
+                    ? "No changes yet."
+                    : "No agent changed any files."}
                 </p>
               ) : null}
               {rows.map((row) => (
                 <div
                   key={row.path}
+                  data-race-file={row.path}
                   onClick={() =>
                     setFocus({
                       path: row.path,
@@ -396,7 +521,7 @@ function RaceBody({
                   <span className="flex shrink-0 gap-0.5">
                     {race.lanes.map((lane, index) => {
                       const touched = row.lanes.includes(index);
-                      const chosen = selection[row.path] === index;
+                      const chosen = picked[row.path] === index;
                       return (
                         <button
                           key={lane.sessionId}
@@ -411,13 +536,7 @@ function RaceBody({
                           onClick={(event) => {
                             event.stopPropagation();
                             setFocus({ path: row.path, lane: index });
-                            setSelection((previous) => {
-                              const next = { ...previous };
-                              if (next[row.path] === index)
-                                delete next[row.path];
-                              else next[row.path] = index;
-                              return next;
-                            });
+                            pick(row.path, index);
                           }}
                           className={`grid size-5 place-items-center rounded border ${chosen ? "border-content bg-content text-background-base" : "border-content/15"} ${touched ? "" : "opacity-25"}`}
                         >
@@ -436,7 +555,14 @@ function RaceBody({
               <button
                 type="button"
                 disabled={disabled || selectedCount === 0}
-                onClick={() => void finish("Keeping…", selection)}
+                onClick={() =>
+                  confirm(
+                    anyActive,
+                    raceCombineQuestion(race, selectedCount, states),
+                    false,
+                    () => void finish("Keeping…", { files: picked }),
+                  )
+                }
                 className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
               >
                 {working ??
@@ -490,6 +616,11 @@ function RaceBody({
               ? "Changes kept in your project"
               : "Your project is unchanged"}
           </p>
+          {outcome ? (
+            <p className="text-ui-label text-content/70" data-race-outcome>
+              {outcome}
+            </p>
+          ) : null}
           <p className="break-all font-mono text-ui-label text-content/60">
             {race.project}
           </p>
@@ -498,6 +629,20 @@ function RaceBody({
           </p>
         </div>
       )}
+      {pending ? (
+        <ConfirmDialog
+          title={pending.question.title}
+          body={pending.question.body}
+          confirmLabel={pending.question.confirm}
+          danger={pending.danger}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { run } = pending;
+            setPending(null);
+            run();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -19,6 +19,11 @@ export type RaceLaneRecord = {
 
 export type RaceState = "running" | "kept" | "discarded";
 
+/** What a kept race brought into the project. */
+export type RaceOutcome =
+  | { kind: "lane"; lane: number; files: number }
+  | { kind: "mix"; files: number };
+
 export type RaceRecord = {
   id: string;
   project: string;
@@ -33,32 +38,74 @@ export type RaceRecord = {
   lanes: RaceLaneRecord[];
   state: RaceState;
   error?: string;
+  /** Per-file choices made so far, so reopening the overview keeps them. */
+  picks?: RaceSelection;
+  /** Set once kept. */
+  outcome?: RaceOutcome;
+  /** When the race was kept or discarded. */
+  finishedAt?: number;
 };
 
 export const RACE_MIN_LANES = 2;
 export const RACE_MAX_LANES = 4;
+/** Finished races kept for reopening; running ones are always kept. */
+export const RACE_FINISHED_KEPT = 20;
 
 const STORAGE_KEY = "aven.races.v1";
 const CHANGE_EVENT = "aven:races-changed";
-let cache: { raw: string | null; races: RaceRecord[] } | null = null;
+
+/**
+ * Parsed once per storage, then kept in memory: every chat pane, tab title
+ * and recent-projects check asks about races on each render. Writes here
+ * replace the copy directly; another window's writes arrive as a `storage`
+ * event and are read again.
+ */
+let cache: { storage: Storage | null; races: RaceRecord[] } | null = null;
+let listening = false;
+
+function currentStorage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetOnOtherWindowsWrite() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  window.addEventListener("storage", (event) => {
+    if (!event.key || event.key === STORAGE_KEY) cache = null;
+  });
+}
 
 function read(): RaceRecord[] {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch {
-    raw = null;
-  }
-  if (cache && cache.raw === raw) return cache.races;
+  const storage = currentStorage();
+  if (cache && cache.storage === storage) return cache.races;
+  forgetOnOtherWindowsWrite();
   let races: RaceRecord[] = [];
   try {
+    const raw = storage?.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
     if (Array.isArray(parsed)) races = parsed.filter(isRaceRecord);
   } catch {
     races = [];
   }
-  cache = { raw, races };
+  cache = { storage, races };
   return races;
+}
+
+/** Running races and the newest finished ones, in their saved order. */
+export function pruneRaces(races: readonly RaceRecord[]): RaceRecord[] {
+  const finished = races
+    .filter((race) => race.state !== "running")
+    .sort(
+      (a, b) =>
+        (b.finishedAt ?? b.createdAt) - (a.finishedAt ?? a.createdAt) ||
+        b.createdAt - a.createdAt,
+    );
+  const kept = new Set(finished.slice(0, RACE_FINISHED_KEPT));
+  return races.filter((race) => race.state === "running" || kept.has(race));
 }
 
 function isRaceRecord(value: unknown): value is RaceRecord {
@@ -81,13 +128,15 @@ function isRaceRecord(value: unknown): value is RaceRecord {
   );
 }
 
-function write(races: RaceRecord[]) {
+function write(next: RaceRecord[]) {
+  const races = pruneRaces(next);
+  const storage = currentStorage();
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(races));
+    storage?.setItem(STORAGE_KEY, JSON.stringify(races));
   } catch {
     // Storage full or unavailable: the in-memory race still works this session.
   }
-  cache = null;
+  cache = { storage, races };
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
@@ -131,6 +180,11 @@ export function updateRace(id: string, patch: Partial<RaceRecord>) {
   write(races.map((race) => (race.id === id ? { ...race, ...patch } : race)));
 }
 
+/** All races, unchanged (the same array) until one is saved. */
+export function racesSnapshot(): readonly RaceRecord[] {
+  return read();
+}
+
 export function subscribeRaces(listener: () => void) {
   const onStorage = (event: StorageEvent) => {
     if (!event.key || event.key === STORAGE_KEY) {
@@ -157,6 +211,14 @@ export function isLiveRaceWorktree(path: string | undefined): boolean {
       race.state === "running" &&
       race.lanes.some((lane) => isEqualOrInside(path, lane.path)),
   );
+}
+
+/** Each lane folder and the commit its race started from. */
+export function raceLaneBases(): Record<string, string> {
+  const bases: Record<string, string> = {};
+  for (const race of read())
+    for (const lane of race.lanes) bases[lane.path] = race.base;
+  return bases;
 }
 
 /** The project a Race lane folder, or a path inside one, was copied from. */
@@ -216,10 +278,17 @@ export function isFinishingRaceCheckout(path: string): boolean {
   );
 }
 
+/**
+ * What to keep: one lane's whole result, or the files picked per lane. A
+ * whole lane is read again once its agent has stopped, so files it wrote
+ * after the overview last refreshed are kept too.
+ */
+export type RaceKeep = { lane: number } | { files: RaceSelection };
+
 /** Stop every writer before reading its final diff or deleting its checkout. */
 export async function finishRace(
   race: RaceRecord,
-  keep: RaceSelection | null,
+  keep: RaceKeep | null,
 ): Promise<void> {
   if (finishing.has(race.id))
     throw new Error("This race is already finishing.");
@@ -230,13 +299,38 @@ export async function finishRace(
     throw new Error(
       "The race workspace is unavailable. Reopen it and try again.",
     );
-  const choices = keep ? raceChoices(race, keep) : [];
-  if (keep && !choices.length)
+  if (keep && "files" in keep && !raceChoices(race, keep.files).length)
     throw new Error("Choose at least one file to keep.");
+  if (keep && "lane" in keep && !race.lanes[keep.lane])
+    throw new Error("That agent is no longer part of this race.");
   finishing.add(race.id);
   try {
     await host.settle(race);
-    if (keep) await raceHost.apply(race.root, race.base, choices);
+    let outcome: RaceOutcome | undefined;
+    if (keep) {
+      let selection: RaceSelection;
+      if ("lane" in keep) {
+        // Read after the agents stopped: the last refresh can be seconds old.
+        const final = await raceHost.diff(
+          race.lanes[keep.lane].path,
+          race.base,
+        );
+        selection = selectLane([final], 0);
+        for (const path of Object.keys(selection)) selection[path] = keep.lane;
+        outcome = {
+          kind: "lane",
+          lane: keep.lane,
+          files: Object.keys(selection).length,
+        };
+      } else {
+        selection = keep.files;
+        outcome = { kind: "mix", files: Object.keys(selection).length };
+      }
+      const choices = raceChoices(race, selection);
+      if (!choices.length)
+        throw new Error("This agent's copy has no changes to keep.");
+      await raceHost.apply(race.root, race.base, choices);
+    }
     let cleanupError: string | undefined;
     try {
       await raceHost.cleanup(race.root, race.lanes);
@@ -246,6 +340,8 @@ export async function finishRace(
     updateRace(race.id, {
       state: keep ? "kept" : "discarded",
       error: cleanupError,
+      outcome,
+      finishedAt: Date.now(),
     });
     await host.release(race);
   } finally {
@@ -355,7 +451,12 @@ export type RaceWorkspace = {
   stop: (sessionIds: string[]) => void;
   settle: (race: RaceRecord) => Promise<void>;
   release: (race: RaceRecord) => Promise<void>;
+  /** Open the chat, restoring it into a tab when none holds it. */
   openChat: (sessionId: string) => void;
+  /** Show the race's overview, from wherever the user is. */
+  compare: (raceId: string) => void;
+  /** Send the race's task to one lane's chat again, in its copy. */
+  retry: (race: RaceRecord, lane: number) => void;
 };
 
 let workspace: RaceWorkspace | null = null;
