@@ -7,7 +7,9 @@ import {
   SMOKE_HEARD_WORD,
   SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
+  SMOKE_ORCHESTRATE_WORD,
   SMOKE_REPLY,
+  SMOKE_STALL_WORD,
   SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
@@ -34,6 +36,15 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
 import type { Session } from "../lib/session";
+import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
+import { isInFlightSession } from "../lib/inFlight";
+import type { OrchestrationRun } from "../lib/orchestration";
+import {
+  homeLiveSessions,
+  homeNeedsYou,
+  homeScope,
+  isWaitingAttention,
+} from "../lib/workspaceHome";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -67,6 +78,11 @@ type Options = DevPerfOptions & {
   sharedWork?: boolean;
   /** Panes are drawn as cards with one bar each and the shared tab style. */
   paneLayout?: boolean;
+  /** The orchestrator's runs, as the check drives one from a chat. */
+  orchestration?: {
+    run: (leadId: string) => OrchestrationRun | undefined;
+    submissionError: (sessionId: string) => string | null;
+  };
 };
 
 type SmokeUtilities = {
@@ -430,6 +446,168 @@ async function startDiscussionFromComposer(
       cancelable: true,
     }),
   );
+}
+
+/** A chat's pane on screen. */
+function chatPane(sessionId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-session-drop="${sessionId}"]`,
+      ),
+    ].find((pane) => pane.getClientRects().length > 0) ?? null
+  );
+}
+
+function buttonNamed(
+  scope: Element | null | undefined,
+  label: string,
+): HTMLButtonElement | null {
+  return (
+    [...(scope?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null
+  );
+}
+
+/** The newest proposal card in a lead's chat. */
+function proposalCard(sessionId: string): HTMLElement | null {
+  return (
+    [
+      ...(chatPane(sessionId)?.querySelectorAll<HTMLElement>(
+        "[data-orchestration-review]",
+      ) ?? []),
+    ].at(-1) ?? null
+  );
+}
+
+/**
+ * Ask for an orchestration the way a person does: the chat's + menu turns
+ * on Orchestrator, and sending the message asks the lead for a plan.
+ */
+async function startOrchestrationFromComposer(
+  sessionId: string,
+  request: string,
+) {
+  const inBox = <T extends Element>(selector: string) =>
+    chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
+  const plus = await waitFor(
+    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
+    5_000,
+    "the chat's + menu",
+  );
+  plus.click();
+  const menu = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
+    5_000,
+    "the + menu",
+  );
+  const item = menu.querySelector<HTMLElement>("[data-composer-orchestrator]");
+  if (!item?.textContent?.includes("Orchestrator")) {
+    plus.click();
+    throw new Error("The + menu does not offer Orchestrator");
+  }
+  item.click();
+  await waitFor(
+    () => inBox('[aria-label="Turn off Orchestrator mode"]'),
+    5_000,
+    "the Orchestrator chip in the message box",
+  );
+  const field = inBox<HTMLTextAreaElement>("textarea");
+  if (!field) throw new Error("The message box has no text field");
+  typeInComposer(field, request);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** Wait for the lead's plan and press Confirm & start; the run's tasks. */
+async function confirmProposal(
+  get: () => Options,
+  leadId: string,
+): Promise<{ card: HTMLElement; scopes: number }> {
+  const card = await waitFor(
+    () => {
+      const found = proposalCard(leadId);
+      const confirm = buttonNamed(found, "Confirm & start");
+      return confirm && !confirm.disabled && found;
+    },
+    90_000,
+    "the lead's plan with Confirm & start",
+  );
+  const scopes = card.querySelectorAll("[data-orchestration-scope]").length;
+  if (scopes < 2)
+    throw new Error(`The plan shows ${scopes} file chips, not one per task`);
+  buttonNamed(card, "Confirm & start")!.click();
+  await waitFor(
+    () => get().orchestration?.run(leadId)?.status === "active",
+    20_000,
+    "the run to start",
+  );
+  return { card, scopes };
+}
+
+/** Why something asks you to answer a worker the lead decides for, or null. */
+function needsYouProblem(
+  get: () => Options,
+  leadId: string,
+  workerId: string,
+  since: number,
+  projectPath: string,
+): string | null {
+  const ids = new Set([leadId, workerId]);
+  const asked = getActivitySnapshot().filter(
+    (entry) =>
+      ids.has(entry.sessionId) &&
+      entry.createdAt >= since &&
+      (entry.outcome === "approval" || entry.outcome === "question"),
+  );
+  if (asked.length)
+    return `Activity asks you to answer it (${asked
+      .map((entry) => `"${entry.summary}"`)
+      .join(", ")}), so a banner would too`;
+  const sessions = get().sessions;
+  const live = homeLiveSessions(
+    sessions,
+    new Set(sessions.filter(isInFlightSession).map((session) => session.id)),
+  );
+  const home = homeNeedsYou(
+    live,
+    getActivitySnapshot(),
+    homeScope([{ path: projectPath }], []),
+  ).filter((item) => ids.has(item.id) && isWaitingAttention(item));
+  if (home.length) return "Home's Needs you lists the worker's question";
+  if (
+    document.querySelector(
+      `[data-session-card="${leadId}"][data-needs-approval]`,
+    )
+  )
+    return "The lead's sidebar card asks for your input";
+  return null;
+}
+
+function runEntries(
+  leadId: string,
+  workerIds: ReadonlySet<string>,
+  since: number,
+): { finished: ActivityEntry[]; noisy: ActivityEntry[] } {
+  const entries = getActivitySnapshot().filter(
+    (entry) => entry.createdAt >= since,
+  );
+  const finished = entries.filter(
+    (entry) =>
+      entry.sessionId === leadId && entry.summary.startsWith("Run finished"),
+  );
+  const noisy = entries.filter(
+    (entry) =>
+      workerIds.has(entry.sessionId) ||
+      (entry.sessionId === leadId && !finished.includes(entry)),
+  );
+  return { finished, noisy };
 }
 
 /** The discussion's conversation page, when it is on screen. */
@@ -1593,6 +1771,173 @@ export async function runDevSmoke(
         return `:${SECOND_SERVER_PORT} flagged beside :${FIRST_SERVER_PORT}; the next turn named :${FIRST_SERVER_PORT}`;
       },
     );
+
+  // An orchestration, asked for from a chat's + menu. The stand-in lead
+  // plans two tasks; one worker asks its lead a question, which the lead
+  // answers while nothing asks you; the lead accepts both and finishes. The
+  // run posts one "Run finished" entry and the card reads Finished.
+  const orchestration = get().orchestration;
+  let firstLeadId: string | undefined;
+  if (safe && orchestration)
+    await step(
+      "an orchestration runs its agents and posts one Run finished",
+      async () => {
+        get().motion?.showWorkspace?.();
+        const lead = await openNewTask(get, config.projectPath);
+        firstLeadId = lead.id;
+        await waitFor(
+          () => chatComposer(lead.id),
+          5_000,
+          "the new chat's message box",
+        );
+        await startOrchestrationFromComposer(
+          lead.id,
+          `Write two notes. ${SMOKE_ORCHESTRATE_WORD}`,
+        );
+        const since = Date.now();
+        const { scopes } = await confirmProposal(get, lead.id);
+        const asking = await waitFor(
+          () =>
+            get().sessions.find(
+              (session) =>
+                session.orchestrationLeadId === lead.id &&
+                session.pendingQuestion,
+            ),
+          60_000,
+          "a worker to ask its lead",
+        );
+        const asked = needsYouProblem(
+          get,
+          lead.id,
+          asking.id,
+          since,
+          config.projectPath,
+        );
+        if (asked) throw new Error(asked);
+        const row = document.querySelector(
+          `[data-orchestration-agent="${asking.id}"]`,
+        );
+        if (row && !row.hasAttribute("data-lead-deciding"))
+          throw new Error(
+            `The sidebar shows the waiting worker as "${row.textContent}"`,
+          );
+        await waitFor(
+          () => orchestration.run(lead.id)?.status === "finished",
+          90_000,
+          "the lead to finish the run",
+        );
+        await waitFor(
+          () => !get().sessions.find((session) => session.id === lead.id)?.busy,
+          30_000,
+          "the lead's last turn to end",
+        );
+        // The lead must have seen its own finish call succeed.
+        const said =
+          [
+            ...(get().sessions.find((session) => session.id === lead.id)
+              ?.blocks ?? []),
+          ]
+            .reverse()
+            .find(
+              (block) =>
+                block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+            )?.text ?? "";
+        if (!said.includes("Both notes are written"))
+          throw new Error(`The lead's finish call failed: ${said}`);
+        // Anything a hidden turn would post lands as that turn settles.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        const workers = new Set(
+          orchestration.run(lead.id)!.tasks.map((task) => task.sessionId),
+        );
+        const { finished, noisy } = runEntries(lead.id, workers, since);
+        if (finished.length !== 1)
+          throw new Error(
+            `Activity has ${finished.length} "Run finished" entries, not one`,
+          );
+        if (noisy.length)
+          throw new Error(
+            `Activity also has ${noisy
+              .map(
+                (entry) =>
+                  `"${entry.summary}" for ${entry.sessionId === lead.id ? "the lead" : "a worker"}`,
+              )
+              .join(", ")}`,
+          );
+        await waitFor(
+          () =>
+            proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
+              ?.textContent === "Finished",
+          5_000,
+          "the card to read Finished",
+        );
+        return `${workers.size} agents, ${scopes} file chips; a worker's question went to the lead and nowhere else; one "${finished[0].summary}" entry; the card reads Finished`;
+      },
+    );
+
+  // The lead reads the results and stops without finishing. The bar above
+  // its message box says so and offers Finish run, which ends the run; while
+  // it runs, other chats in the project are told plainly where it is.
+  if (safe && orchestration)
+    await step("a run the lead leaves open offers Finish run", async () => {
+      get().motion?.showWorkspace?.();
+      const lead = await openNewTask(get, config.projectPath);
+      await waitFor(
+        () => chatComposer(lead.id),
+        5_000,
+        "the new chat's message box",
+      );
+      await startOrchestrationFromComposer(
+        lead.id,
+        `Write two notes. ${SMOKE_ORCHESTRATE_WORD} ${SMOKE_STALL_WORD}`,
+      );
+      await confirmProposal(get, lead.id);
+      const other =
+        firstLeadId ??
+        get().sessions.find(
+          (session) =>
+            session.id !== lead.id &&
+            !session.orchestrationLeadId &&
+            sameProjectPath(session.cwd, config.projectPath),
+        )?.id;
+      const refused = other ? orchestration.submissionError(other) : null;
+      if (other && !refused?.includes("is busy with an orchestration in “"))
+        throw new Error(
+          `Another chat in the project is told: ${refused ?? "nothing"}`,
+        );
+      const bar = await waitFor(
+        () => {
+          const found = chatPane(lead.id)?.querySelector<HTMLElement>(
+            `[data-orchestration-bar="${lead.id}"]`,
+          );
+          return found?.querySelector('[data-state="stalled"]') && found;
+        },
+        90_000,
+        "the bar to say the lead stopped without finishing",
+      );
+      const said = bar.textContent ?? "";
+      if (!said.includes("The lead stopped without finishing"))
+        throw new Error(`The bar reads "${said}"`);
+      const finish = buttonNamed(bar, "Finish run");
+      if (!finish || !buttonNamed(bar, "Ask the lead to wrap up"))
+        throw new Error(
+          `The bar offers ${[...bar.querySelectorAll("button")].map((button) => `"${button.textContent?.trim()}"`).join(", ")}`,
+        );
+      finish.click();
+      await waitFor(
+        () => orchestration.run(lead.id)?.status === "finished",
+        10_000,
+        "Finish run to end the run",
+      );
+      await waitFor(
+        () =>
+          !chatPane(lead.id)?.querySelector("[data-orchestration-bar]") &&
+          proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
+            ?.textContent === "Finished",
+        5_000,
+        "the bar to go and the card to read Finished",
+      );
+      return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run`;
+    });
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.

@@ -206,7 +206,7 @@ def launch():
 
 
 SMOKE_MARKER = '.aven-smoke'
-SMOKE_TIMEOUT = 240
+SMOKE_TIMEOUT = 360
 
 
 def prepare_smoke_folder():

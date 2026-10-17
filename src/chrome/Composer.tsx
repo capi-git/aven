@@ -1955,6 +1955,7 @@ function ComposerComponent({
                     <button
                       type="button"
                       aria-pressed={orchestrationSelected}
+                      data-composer-orchestrator
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);

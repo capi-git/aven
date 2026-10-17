@@ -8766,6 +8766,10 @@ export default function App({
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
     paneLayout: true,
+    orchestration: {
+      run: (leadId) => orchestrator.run(leadId),
+      submissionError: (sessionId) => orchestrator.submissionError(sessionId),
+    },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,

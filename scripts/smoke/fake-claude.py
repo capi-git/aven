@@ -9,13 +9,18 @@ prompt, with every tool turned off) gets fixed memory sections instead, and
 a discussion wrap-up call (the summariser's instructions, no tools) fixed
 lists. Markers in a message make it pretend to start a dev server, echo the
 shared-work note it received, or agree with what the user added to a
-discussion. It never contacts a network or an account.
+discussion. Asked to plan an orchestration that carries the orchestration
+marker, it proposes two tasks; as a worker it can ask its lead a question;
+as the lead it supervises through Aven's control command, the same way a
+real lead does. It never contacts a network or an account.
 Every invocation is logged beside it as evidence that Aven's native spawn
 path ran.
 """
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 import time
 import uuid
@@ -168,6 +173,130 @@ def echoed_note(text):
     return " NOTE[" + body + "]"
 
 
+# Orchestration (see useDevSmoke.ts). The planning prompt starts with these
+# words (orchestrationPlan.ts); the check's request carries ORCHESTRATE.
+PLANNING_SIGNATURE = "Prepare an orchestration proposal for the user to review in Aven."
+ORCHESTRATE = "AVEN_SMOKE_ORCHESTRATE"
+# The lead leaves the run open: it reads the results and never calls finish.
+STALL = "AVEN_SMOKE_STALL"
+# A worker asks its lead a question before it answers.
+ASK_LEAD = "AVEN_SMOKE_ASK_LEAD"
+# What the lead says once its finish call succeeded.
+FINISHED_WORDS = "Both notes are written."
+# How long the lead waits before it answers, so the check can look at a
+# worker that waits on its lead.
+LEAD_DECIDES_SECONDS = 2.5
+MODELS_PATTERN = re.compile(r"<available_models>\s*(.*?)\s*</available_models>", re.S)
+REQUEST_PATTERN = re.compile(r"<user_request>\s*(.*?)\s*</user_request>", re.S)
+CONTROL_PATTERN = re.compile(r"Run `(.+?) control --help`")
+ASKED_PATTERN = re.compile(r"(\S+) — [^\n]*? needs an answer \(requestId (\d+)\)")
+
+
+def proposal_reply(text):
+    """Two tasks with separate files, on the first Claude model offered."""
+    try:
+        choices = json.loads(MODELS_PATTERN.search(text).group(1))
+    except (AttributeError, ValueError):
+        choices = []
+    choice = next((c for c in choices if c.get("harness") == "claude"), None) or (
+        choices[0] if choices else {"harness": "claude", "model": "claude:sonnet-5"})
+    request = REQUEST_PATTERN.search(text)
+    request = request.group(1) if request else ""
+    stall = STALL in request
+    tasks = []
+    for index, name in enumerate(["a", "b"]):
+        markers = [STALL] if stall else ([ASK_LEAD] if index == 0 else [])
+        tasks.append({
+            "id": f"note-{name}",
+            "title": f"Write note {name.upper()}",
+            "prompt": " ".join([f"Write notes/{name}.md.", *markers]),
+            "harness": choice["harness"],
+            "model": choice["model"],
+            "files": [f"notes/{name}.md"],
+            "dependsOn": [],
+        })
+    proposal = {
+        "title": "Write two notes",
+        "summary": "Two workers each write one note.",
+        "tasks": tasks,
+    }
+    return f"{REPLY} Here is the plan.\n<aven_proposal>{json.dumps(proposal)}</aven_proposal>"
+
+
+def control(text, action, payload):
+    """One call to Aven's control command, as a lead's shell would make it."""
+    found = CONTROL_PATTERN.search(text)
+    if not found:
+        return None
+    command = shlex.split(found.group(1)) + ["control", action, "--json", json.dumps(payload)]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired) as error:
+        result = {"ok": False, "error": str(error)}
+    log({"pid": os.getpid(), "control": action, "ok": result.get("ok")})
+    return result
+
+
+def lead_turn(text):
+    """Answer a waiting worker, accept finished work, and finish when done."""
+    if STALL in text:
+        return f"{REPLY} I read the results."
+    for task_id, request_id in ASKED_PATTERN.findall(text):
+        time.sleep(LEAD_DECIDES_SECONDS)
+        control(text, "answer", {"taskId": task_id, "requestId": int(request_id), "skip": True})
+    listed = control(text, "list", {}) or {}
+    tasks = ((listed.get("result") or {}).get("run") or {}).get("tasks") or []
+    for task in tasks:
+        if task.get("status") == "completed" and not task.get("accepted"):
+            control(text, "review", {"taskId": task["id"]})
+            task["accepted"] = True
+    if tasks and all(t.get("accepted") or t.get("status") == "cancelled" for t in tasks):
+        done = control(text, "finish", {}) or {}
+        # The check reads this: a lead must see its own finish succeed.
+        if done.get("ok"):
+            return f"{REPLY} {FINISHED_WORDS}"
+        return f"{REPLY} Finish failed: {done.get('error')}"
+    return f"{REPLY} Still supervising."
+
+
+QUESTION = {
+    "questions": [{
+        "question": "Which title should the note use?",
+        "header": "Title",
+        "options": [
+            {"label": "Short", "description": "One word"},
+            {"label": "Long", "description": "A sentence"},
+        ],
+        "multiSelect": False,
+    }],
+}
+
+
+def ask_lead(session, turn):
+    """Ask through AskUserQuestion and wait until Aven answers for the lead."""
+    request_id = "smoke_ask_" + turn[:8]
+    emit({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "input": QUESTION,
+            "tool_use_id": "toolu_ask_" + turn[:8],
+        },
+    })
+    for line in sys.stdin:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        response = message.get("response") or {}
+        if message.get("type") == "control_response" and response.get("request_id") == request_id:
+            log({"pid": os.getpid(), "askedLead": turn, "answered": True})
+            return
+
+
 def stream_text(chunks):
     return [STREAM_LINES[index % len(STREAM_LINES)] for index in range(chunks)]
 
@@ -259,6 +388,15 @@ def main():
             reply = KEEPER_REPLY if keeper else WRAP_UP_REPLY if wrap_up else REPLY
             if not helper and JUMP_IN_PATTERN.search(text):
                 reply = f"Agreed, that works. {REPLY} {HEARD_WORD}"
+            if not helper and PLANNING_SIGNATURE in text and ORCHESTRATE in text:
+                reply = proposal_reply(text)
+            elif not helper and "<aven_assignment>" in text:
+                if ASK_LEAD in text:
+                    ask_lead(session, turn)
+                if STALL in text:
+                    reply = f"{REPLY} {STALL}"
+            elif not helper and "<aven_orchestration>" in text:
+                reply = lead_turn(text)
             message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",
