@@ -17,6 +17,7 @@ import {
   useActivateWorkspaceTheme,
   defaultWorkspaceTheme,
 } from "../lib/workspaceThemes";
+import { initMotionPreference, playMotion } from "../lib/motion";
 
 vi.mock("../lib/platform", async (original) => ({
   ...(await original<typeof import("../lib/platform")>()),
@@ -36,11 +37,12 @@ vi.mock("../lib/sounds", async (original) => ({
   playCue: vi.fn(),
 }));
 
-const SIX_CONTROLS = [
+const APPEARANCE_CONTROLS = [
   "Theme",
   "Accent colour",
   "Interface scale",
   "Glass",
+  "Reduce motion",
   "Chat background",
   "Use for all workspaces",
 ];
@@ -164,7 +166,7 @@ describe("workspace appearance settings", () => {
       )
       ?.getAttribute("aria-label");
 
-  it("shows exactly six controls without scope chips, the header pill or the dark/light note", async () => {
+  it("shows exactly its seven controls without scope chips, the header pill or the dark/light note", async () => {
     await mount();
     const controls = Array.from(
       container.querySelectorAll<HTMLElement>(
@@ -177,7 +179,7 @@ describe("workspace appearance settings", () => {
           control.querySelector(".settings-row-label")?.textContent ??
           control.querySelector(".text-ui-body")?.textContent,
       ),
-    ).toEqual(SIX_CONTROLS);
+    ).toEqual(APPEARANCE_CONTROLS);
     for (const control of controls)
       expect(
         control.querySelector(".settings-row-description, p")?.textContent,
@@ -398,5 +400,30 @@ describe("workspace appearance settings", () => {
     expect(loadChatBackgroundScope()).toBe("all");
     expect(glass().value).toBe("48");
     expect(checkedAccent()).toBe("Aven blue");
+  });
+
+  it("turns every animation off with Reduce motion, and keeps it through Restore defaults", async () => {
+    const stop = initMotionPreference();
+    await mount();
+    const reduce = container.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Reduce motion"]',
+    )!;
+    expect(reduce.getAttribute("aria-checked")).toBe("false");
+    expect(document.documentElement.getAttribute("data-motion")).toBe("full");
+
+    await click(reduce);
+    expect(reduce.getAttribute("aria-checked")).toBe("true");
+    expect(storage.get("aven.reduceMotion")).toBe("1");
+    expect(document.documentElement.getAttribute("data-motion")).toBe("reduce");
+    expect(playMotion(document.createElement("div"), "fade")).toBe(false);
+
+    await click(buttonWithText("Restore defaults"));
+    expect(reduce.getAttribute("aria-checked")).toBe("true");
+    expect(document.documentElement.getAttribute("data-motion")).toBe("reduce");
+
+    await click(reduce);
+    expect(document.documentElement.getAttribute("data-motion")).toBe("full");
+    stop();
+    document.documentElement.removeAttribute("data-motion");
   });
 });

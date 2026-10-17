@@ -11,19 +11,30 @@ import { preventFileDropNavigation } from "./lib/attachments";
 import { watchWindowResize } from "./lib/windowResizeFlag";
 import { loadDevSmoke } from "./lib/devSmoke";
 import { revealWindow } from "./lib/windowReveal";
+import { initMotionPreference } from "./lib/motion";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
+import "./motion.css";
 
 // Shell webviews use DOM drops so WebKit resolves file promises and targets.
 // Keep an unhandled file drop from navigating away from Aven.
 window.addEventListener("dragover", preventFileDropNavigation);
 window.addEventListener("drop", preventFileDropNavigation);
 const stopWatchingWindowResize = watchWindowResize();
+let stopWatchingMotion: (() => void) | undefined;
+/**
+ * Every window, panel and pop-out follows one reduced-motion switch. Read
+ * after the real-app check has swapped storage, like the other settings.
+ */
+function watchMotion() {
+  stopWatchingMotion ??= initMotionPreference();
+}
 import.meta.hot?.dispose(() => {
   window.removeEventListener("dragover", preventFileDropNavigation);
   window.removeEventListener("drop", preventFileDropNavigation);
   stopWatchingWindowResize();
+  stopWatchingMotion?.();
 });
 
 const rootOptions = {
@@ -53,7 +64,10 @@ function BootGate({ children }: { children: React.ReactNode }) {
 if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
   // The workspace owns the sidebar's state; this webview only renders it.
   void loadDevSmoke()
-    .then(() => import("./surfaces/FloatingSidebarWindow"))
+    .then(() => {
+      watchMotion();
+      return import("./surfaces/FloatingSidebarWindow");
+    })
     .then(({ FloatingSidebarWindow }) => {
       ReactDOM.createRoot(
         document.getElementById("root") as HTMLElement,
@@ -65,6 +79,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
   new URLSearchParams(window.location.search).has("workspaceMenuPanel")
 ) {
   // Controlled menu only: never restore an App, workspace, or harness here.
+  watchMotion();
   void import("./surfaces/WorkspaceMenuPanelWindow")
     .then(({ WorkspaceMenuPanelWindow }) => {
       ReactDOM.createRoot(
@@ -75,6 +90,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
     .catch(showStartupFailure);
 } else if (new URLSearchParams(window.location.search).has("accessPanel")) {
   // Access is a controlled popup. The workspace owns harnesses and defaults.
+  watchMotion();
   void import("./surfaces/AccessPanelWindow")
     .then(({ AccessPanelWindow }) => {
       ReactDOM.createRoot(
@@ -85,6 +101,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
     .catch(showStartupFailure);
 } else if (new URLSearchParams(window.location.search).has("usagePanel")) {
   // Usage is a transient controlled view. Never restore an App or a harness here.
+  watchMotion();
   void import("./surfaces/UsagePanelWindow")
     .then(({ UsagePanelWindow }) => {
       ReactDOM.createRoot(
@@ -96,6 +113,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
 } else if (new URLSearchParams(window.location.search).has("teamWatch")) {
   // A team's panel popped out: it draws what its owning window sends and
   // owns no chats, so never restore an App, workspace or harness here.
+  watchMotion();
   void import("./surfaces/TeamWatchWindow")
     .then(({ TeamWatchWindow }) => {
       ReactDOM.createRoot(
@@ -105,6 +123,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
     })
     .catch(showStartupFailure);
 } else if (new URLSearchParams(window.location.search).has("workspaceWindow")) {
+  watchMotion();
   void import("./surfaces/DetachedWorkspace")
     .then(({ DetachedWorkspace }) => {
       ReactDOM.createRoot(
@@ -124,6 +143,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
 
 function startWorkspace() {
   initAppearance();
+  watchMotion();
   initSounds();
   syncBrowserEngineOptions();
   // Read the saved workspace while the interface bundle downloads and

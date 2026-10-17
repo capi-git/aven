@@ -263,28 +263,44 @@ describe("panel popover material", () => {
 });
 
 describe("popover stylesheet", () => {
-  const index = readFileSync("src/index.css", "utf8");
+  const motion = readFileSync("src/motion.css", "utf8");
   const mac = readFileSync("src/macos-theme.css", "utf8");
   const rule = (css: string, selector: string) => {
     const at = css.indexOf(`${selector} {`);
     if (at < 0) throw new Error(`Missing rule ${selector}`);
     return css.slice(at, css.indexOf("}", at));
   };
+  const token = (name: string) =>
+    Number(new RegExp(`${name}: (\\d+)ms`).exec(rule(motion, ":root"))?.[1]);
 
   it("opens quickly, gently and without an empty-frame first frame", () => {
-    const open = rule(index, ".popover-open");
-    const duration = Number(/popover-open (\d+)ms/.exec(open)?.[1]);
-    expect(duration).toBeGreaterThanOrEqual(100);
-    expect(duration).toBeLessThanOrEqual(120);
-    const keyframes = index.slice(index.indexOf("@keyframes popover-open"));
-    const from = keyframes.slice(0, keyframes.indexOf("to {"));
+    const open = rule(motion, ".popover-open");
+    expect(open).toContain(
+      "animation: popover-open var(--aven-motion-fast) var(--aven-ease-out)",
+    );
+    expect(token("--aven-motion-fast")).toBeGreaterThanOrEqual(100);
+    expect(token("--aven-motion-fast")).toBeLessThanOrEqual(120);
+    const keyframes = motion.slice(motion.indexOf("@keyframes popover-open"));
+    const from = keyframes.slice(0, keyframes.indexOf("}"));
     expect(Number(/opacity: ([\d.]+)/.exec(from)?.[1])).toBeGreaterThan(0);
+    // Reduce motion zeroes the duration.
+    expect(rule(motion, ':root[data-motion="reduce"]')).toContain(
+      "--aven-motion-fast: 0ms;",
+    );
+  });
+
+  it("springs its frame in by scale alone, so it is solid from the first frame", () => {
+    expect(
+      rule(motion, ".aven-popover-frame,\n.modal-panel,\n.discussion-float"),
+    ).toContain(
+      "animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring)",
+    );
+    const pop = motion.slice(motion.indexOf("@keyframes aven-pop"));
+    const from = pop.slice(0, pop.indexOf("}"));
     expect(Number(/scale\(([\d.]+)\)/.exec(from)?.[1])).toBeGreaterThanOrEqual(
-      0.98,
+      0.97,
     );
-    expect(index).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\.popover-open \{\s*animation: none;/,
-    );
+    expect(from).not.toContain("opacity");
   });
 
   it("gives a dark panel popover a solid frame, never a see-through one", () => {

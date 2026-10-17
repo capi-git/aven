@@ -219,7 +219,7 @@ export function ModalPanel({
         onMouseDown={(event) => event.stopPropagation()}
         className={`modal-panel flex flex-col overflow-hidden rounded-2xl ${className ?? ""}`}
       >
-        <header className="flex shrink-0 items-start gap-2 px-4 pt-3">
+        <header className="modal-panel-content flex shrink-0 items-start gap-2 px-4 pt-3">
           <div className="min-w-0 flex-1 pt-0.5">
             <h2
               id={titleId}
@@ -248,7 +248,7 @@ export function ModalPanel({
         </header>
         <div
           ref={lockOverscroll}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-none"
+          className="modal-panel-content min-h-0 flex-1 overflow-y-auto overscroll-none"
         >
           {children}
         </div>
