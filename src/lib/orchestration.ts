@@ -547,9 +547,16 @@ export class Orchestrator {
   private async commit(next: OrchestrationRun) {
     const previous = this.run(next.leadId);
     // A run is over once it finishes or stops; its card dates it from then.
+    // Only that change dates it: a run read back from an earlier version
+    // without a date stays undated, rather than "just finished".
+    const ending =
+      !!previous &&
+      previous.status !== "finished" &&
+      previous.status !== "stopped";
     const dated =
       (next.status === "finished" || next.status === "stopped") &&
-      next.endedAt === undefined
+      next.endedAt === undefined &&
+      ending
         ? { ...next, endedAt: Date.now() }
         : next.status === "active" && next.endedAt !== undefined
           ? { ...next, endedAt: undefined }
@@ -657,8 +664,12 @@ export class Orchestrator {
         await this.store.disable(id);
       }
       const interrupted = run.status === "active";
+      // Summaries cut short by a reload are asked for again, within their
+      // window, rather than left "running" for ever.
+      const { summaries, ...saved } = run;
       await this.commit({
-        ...run,
+        ...saved,
+        ...(summaries && summaries !== "running" ? { summaries } : {}),
         status: run.status === "active" ? "paused" : run.status,
         tasks: run.tasks.map((task) =>
           activeTask(task)
@@ -1375,12 +1386,10 @@ export class Orchestrator {
             break;
           }
           // The role is said once, in the worker's first turn; a later
-          // correction from the lead is sent as it is.
+          // correction from the lead is sent as it is. It counts as said
+          // only once that turn went out (below).
           const role = task.role && !task.roleSent ? task.role : undefined;
-          await this.patchTask(run.leadId, task.id, {
-            status: "running",
-            ...(role ? { roleSent: true } : {}),
-          });
+          await this.patchTask(run.leadId, task.id, { status: "running" });
           try {
             if (
               !this.host
@@ -1402,11 +1411,18 @@ export class Orchestrator {
             )
               continue;
             const prompt = workerTurnPrompt(task.prompt, task.files, role);
+            // A turn refused outright settles while it is being sent.
+            let sending = true;
+            let refused = false;
             this.host.submit(task.sessionId, prompt, (outcome) => {
+              if (sending) refused = true;
               void this.settle(run.leadId, task.id, outcome).catch(
                 console.error,
               );
             });
+            sending = false;
+            if (role && !refused)
+              await this.patchTask(run.leadId, task.id, { roleSent: true });
           } catch (error) {
             await this.settle(run.leadId, task.id, {
               status: "failed",

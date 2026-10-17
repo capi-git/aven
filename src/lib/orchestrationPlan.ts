@@ -168,19 +168,30 @@ export function validateProposedTasks(
 }
 
 /**
- * The plan without one task. Tasks that waited for it no longer do, since it
- * will not run; the rest of the graph is checked again. A plan keeps at
- * least one task: discard it instead.
+ * The plan without one task. Tasks that waited for it now wait for what it
+ * waited for, since it will not run: with A → B → C, removing B leaves C
+ * after A, never beside it. The rest of the graph is checked again. A plan
+ * keeps at least one task: discard it instead.
  */
 export function withoutProposedTask(
   proposal: Pick<OrchestrationProposal, "tasks" | "settings">,
   taskId: string,
 ): ProposedTask[] {
+  const removed = proposal.tasks.find((task) => task.id === taskId);
+  const inherited = removed?.dependsOn ?? [];
   const rest = proposal.tasks
     .filter((task) => task.id !== taskId)
     .map((task) =>
       task.dependsOn.includes(taskId)
-        ? { ...task, dependsOn: task.dependsOn.filter((id) => id !== taskId) }
+        ? {
+            ...task,
+            dependsOn: [
+              ...new Set([
+                ...task.dependsOn.filter((id) => id !== taskId),
+                ...inherited,
+              ]),
+            ],
+          }
         : task,
     );
   if (!rest.length)

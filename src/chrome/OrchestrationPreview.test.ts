@@ -284,5 +284,9 @@ describe("the proposal card", () => {
     expect(
       proposalStatusText(plan({ status: "discarded" }), undefined, false),
     ).toBe("Discarded");
+    // Its run was replaced by a newer one from this chat.
+    expect(
+      proposalStatusText(plan({ status: "approved" }), undefined, true),
+    ).toBe("Ran earlier · replaced by a newer run");
   });
 });

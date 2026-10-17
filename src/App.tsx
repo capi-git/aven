@@ -2418,9 +2418,17 @@ export default function App({
     for (const run of teamStores.runs) {
       if (run.status !== "finished") continue;
       const lead = sessionById.get(run.leadId);
+      // The reply of the turn the run ended in. A run from an earlier
+      // version has no end to match, so it keeps no verdict rather than a
+      // line from a later conversation.
       if (run.verdict === undefined && lead && !lead.busy)
         void orchestrator
-          .noteVerdict(run.leadId, leadVerdict(lead.blocks))
+          .noteVerdict(
+            run.leadId,
+            run.endedAt === undefined
+              ? ""
+              : leadVerdict(lead.blocks, run.endedAt),
+          )
           .catch(console.error);
       // Only a run that just finished here: an older one is not summed up
       // again each time Aven reopens it.

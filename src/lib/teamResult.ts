@@ -695,10 +695,23 @@ export async function summarizeRun(
 
 /**
  * The lead's verdict: the first sentence of its last reply, past any
- * headings, cleaned.
+ * headings, cleaned. With `endedAt`, the reply of the turn the run ended
+ * in, never one from a later conversation with the lead.
  */
-export function leadVerdict(blocks: readonly Block[]): string {
-  const reply = finalReply(blocks);
+export function leadVerdict(
+  blocks: readonly Block[],
+  endedAt?: number,
+): string {
+  const after =
+    endedAt === undefined
+      ? -1
+      : blocks.findIndex(
+          (block) =>
+            block.role === "user" &&
+            !block.internal &&
+            (block.startedAt ?? 0) > endedAt,
+        );
+  const reply = finalReply(after < 0 ? blocks : blocks.slice(0, after));
   if (!reply) return "";
   const line =
     reply

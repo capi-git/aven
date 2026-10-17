@@ -397,6 +397,19 @@ describe("what each agent did", () => {
   });
 });
 
+describe("the lead's verdict", () => {
+  it("comes from the turn the run ended in, never a later one", () => {
+    const blocks: Block[] = [
+      { id: "u1", role: "user", text: "Wrap up", startedAt: 100 },
+      { id: "a1", role: "assistant", text: "All four tasks pass review." },
+      { id: "u2", role: "user", text: "Unrelated", startedAt: 900 },
+      { id: "a2", role: "assistant", text: "Here is a poem." },
+    ];
+    expect(leadVerdict(blocks, 500)).toBe("All four tasks pass review.");
+    expect(leadVerdict(blocks)).toBe("Here is a poem.");
+  });
+});
+
 describe("a suggested winner", () => {
   it("reads a closed lane's reply from its saved chat", async () => {
     saveRace(race());

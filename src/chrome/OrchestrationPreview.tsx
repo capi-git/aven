@@ -300,6 +300,10 @@ export function proposalStatusText(
   if (run) return orchestrationStatusWord(run.status);
   if (superseded && ["ready", "invalid", "starting"].includes(proposal.status))
     return "Replaced by a newer plan";
+  // It ran, and this chat has started another run since: its result is
+  // that run's history, which the chat keeps only for its latest run.
+  if (proposal.status === "approved" && superseded)
+    return "Ran earlier · replaced by a newer run";
   return {
     planning: "",
     ready: "Waiting for you to confirm",

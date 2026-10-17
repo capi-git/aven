@@ -297,6 +297,30 @@ describe("local orchestration", () => {
     );
   });
 
+  it("marks a worker's role sent only once its first turn went out", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    vi.mocked(f.host.createWorker).mockRejectedValueOnce(
+      new Error("Lead connection is inactive"),
+    );
+    const card = proposal();
+    // "types" starts first; "ui" waits for it.
+    card.tasks[1] = { ...card.tasks[1], role: "tester" };
+    await f.manager.startApproved("lead", "card", card);
+    const types = () => f.tasks()[1];
+    await vi.waitFor(() => expect(types().status).toBe("failed"));
+    expect(types().roleSent).toBeUndefined();
+    // The lead retries it: the worker gets its role then.
+    await f.call("message", { taskId: types().id, text: "Try again." });
+    const sent = () =>
+      vi
+        .mocked(f.host.submit)
+        .mock.calls.filter(([id]) => id === types().sessionId)
+        .map(([, prompt]) => visibleUserPrompt(String(prompt)));
+    await vi.waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toMatch(/^Your role for this task: Tester\./);
+  });
+
   it("never launches a partial plan when one assignment has invalid scopes", async () => {
     const f = setup();
     f.lead.busy = false;
@@ -638,6 +662,8 @@ describe("local orchestration", () => {
     expect(restored.run("lead")?.status).toBe("paused");
     expect(restored.run("lead")?.tasks[0].status).toBe("failed");
     expect(f.host.submit).toHaveBeenCalledTimes(1);
+    // A run read back is never "just finished": summaries cut short by a
+    // reload are asked for again.
     // Said once, as any pause is, so Activity and the Dock agree.
     expect(outcomes).toEqual([
       "paused:Aven closed while the run was going. Check the files, then resume or stop the run.",
@@ -1317,5 +1343,30 @@ describe("what only you can move on", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(f.manager.run("lead")!.status).toBe("finished");
     expect(f.host.submit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a run read back from storage", () => {
+  it("stays undated and asks for summaries cut short again", async () => {
+    const f = setup();
+    f.saved.set("old", {
+      version: 1,
+      leadId: "old",
+      cwd: "/repo",
+      status: "finished",
+      allowedHarnesses: ["codex"],
+      maxWorkers: 2,
+      cli: "aven",
+      tasks: [],
+      continuations: 0,
+      requests: {},
+      summaries: "running",
+    });
+    await f.manager.hydrate("old");
+    const run = f.manager.run("old")!;
+    // Not "just finished": it is never summed up again or given a verdict
+    // from a later conversation.
+    expect(run.endedAt).toBeUndefined();
+    expect(run.summaries).toBeUndefined();
   });
 });

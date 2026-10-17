@@ -412,6 +412,18 @@ describe("editing a plan before it starts", () => {
     ]);
   });
 
+  it("keeps a chain in order when a task in its middle is removed", () => {
+    const chain = {
+      settings: draft.settings,
+      tasks: [task("a"), task("b", ["a"]), task("c", ["b"])],
+    };
+    // C waited for B, which waited for A: it now waits for A.
+    expect(withoutProposedTask(chain, "b")).toEqual([
+      task("a"),
+      task("c", ["a"]),
+    ]);
+  });
+
   it("keeps at least one task: the plan is discarded instead", () => {
     expect(() =>
       withoutProposedTask({ ...plan, tasks: [task("a")] }, "a"),
