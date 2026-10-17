@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import { activitySections } from "../chrome/ActivityPanel";
 import {
+  ACTIVITY_STORAGE_KEY,
   amendTeamEnd,
   getActivitySnapshot,
   recordActivity,
@@ -677,5 +678,29 @@ describe("what a finished team did", () => {
     expect(projectTurns(getActivitySnapshot(), "/work/site", 0)).toHaveLength(
       1,
     );
+  });
+
+  it("keeps a long summary at the length an entry reads back, and writes it once", () => {
+    const team = { id: "orchestrate:lead", kind: "orchestrate" as const };
+    recordActivity({
+      ...entry("lead:run:p:finished:9"),
+      sessionId: "lead",
+      summary: "Run finished · 2 agents",
+      team,
+    });
+    const writes = vi.spyOn(globalThis.localStorage, "setItem");
+    const long = `Run finished · 2 agents · ${"Moved the form. ".repeat(40)}`;
+    amendTeamEnd(team.id, long);
+    expect(writes).toHaveBeenCalledTimes(1);
+    const kept = getActivitySnapshot()[0].summary;
+    expect(kept).toHaveLength(240);
+    expect(kept.endsWith("…")).toBe(true);
+    // Read back, here or by another window, it matches: no rewrite.
+    const raw = globalThis.localStorage.getItem(ACTIVITY_STORAGE_KEY);
+    if (raw) globalThis.localStorage.setItem(ACTIVITY_STORAGE_KEY, `${raw} `);
+    writes.mockClear();
+    amendTeamEnd(team.id, long);
+    expect(getActivitySnapshot()[0].summary).toBe(kept);
+    expect(writes).not.toHaveBeenCalled();
   });
 });

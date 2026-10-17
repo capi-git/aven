@@ -87,6 +87,9 @@ export function isTurnActivity(sessionId: string, id: string): boolean {
 export function isMemberActivity(entry: Pick<ActivityEntry, "team">): boolean {
   return entry.team?.member === true;
 }
+/** The longest summary an entry keeps. */
+const SUMMARY_CHARS = 240;
+
 function entryFrom(value: unknown): ActivityEntry | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -111,7 +114,7 @@ function entryFrom(value: unknown): ActivityEntry | null {
     outcome: row.outcome as ActivityOutcome,
     harness: row.harness as HarnessId,
     title: (row.title as string).slice(0, 180),
-    summary: (row.summary as string).slice(0, 240),
+    summary: (row.summary as string).slice(0, SUMMARY_CHARS),
     cwd: (row.cwd as string).slice(0, 2048),
     model: (row.model as string).slice(0, 256),
     createdAt: row.createdAt,
@@ -297,8 +300,12 @@ export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
       : entry,
   );
 }
-/** The longest outcome a team's end entry carries. */
-const TEAM_END_CHARS = 700;
+/**
+ * The longest outcome a team's end entry carries: what an entry keeps when
+ * read back, so an amended entry reads back unchanged and is never written
+ * again, here or by another window.
+ */
+const TEAM_END_CHARS = SUMMARY_CHARS;
 
 /**
  * Give a team's end entry ("Run finished", "Race ready to compare",
