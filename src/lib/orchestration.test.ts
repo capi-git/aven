@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  dispatchableTask,
   Orchestrator,
+  runStalled,
   scopesOverlap,
   visibleUserPrompt,
   workerTurnPrompt,
@@ -464,7 +466,9 @@ describe("local orchestration", () => {
     });
     await vi.waitFor(() => expect(f.tasks()[0].status).toBe("cancelled"));
     expect(f.manager.run("lead")!.status).toBe("paused");
-    expect(f.manager.run("lead")!.error).toContain("outside its assignment");
+    expect(f.manager.run("lead")!.error).toBe(
+      "“Task” changed a file outside the files it was given (src/a/../b/file.ts). Aven paused the run and stopped its agents. Check the files, then resume or stop the run.",
+    );
   });
   it("keeps overlapping work queued when native termination is unconfirmed", async () => {
     const f = setup();
@@ -900,7 +904,165 @@ describe("local orchestration", () => {
       id: "other",
       busy: false,
     });
-    expect(f.manager.submissionError("other")).toContain("active orchestrator");
+    f.lead.title = "claude · Build settings";
+    // Plain words: which project, which chat holds it, and what to do there.
+    expect(f.manager.submissionError("other")).toBe(
+      "repo is busy with an orchestration in “Build settings”. Finish or stop it there.",
+    );
+    expect(f.manager.blockingRun("other")?.leadId).toBe("lead");
+    expect(f.manager.blockingRun("lead")).toBeUndefined();
     expect(f.manager.submissionError("lead")).toBeNull();
+  });
+});
+
+describe("a run the lead left open", () => {
+  const settle = (f: ReturnType<typeof setup>, index = 0) =>
+    f.completions.get(f.tasks()[index].sessionId)!({
+      status: "completed",
+      text: "Done",
+    });
+
+  it("is stalled once the lead is idle and nothing can move it forward", async () => {
+    const f = setup();
+    await f.start();
+    const first = (await f.delegate(["a"])) as { taskId: string };
+    await f.delegate(["b"], { dependsOn: [first.taskId] });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const run = () => f.manager.run("lead")!;
+    // An agent is working.
+    f.lead.busy = false;
+    expect(runStalled(run(), f.lead)).toBe(false);
+    f.lead.busy = true;
+    settle(f);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    // A result has not reached the lead yet: Aven will wake it.
+    f.lead.busy = false;
+    expect(runStalled(run(), f.lead)).toBe(false);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    expect(run().tasks[0].delivered).toBe(true);
+    // The lead is reading the result.
+    expect(runStalled(run(), f.lead)).toBe(false);
+    f.completions.get("lead")!({ status: "completed", text: "All good." });
+    // It ended its turn without accepting the first task, so the second can
+    // never start and nothing will wake the lead again.
+    expect(f.lead.busy).toBe(false);
+    expect(dispatchableTask(run(), run().tasks[1])).toBe(false);
+    expect(runStalled(run(), f.lead)).toBe(true);
+    // A message waiting for the lead, or a question it asked you, will move it.
+    f.lead.queuedMessages = [{ id: "q", text: "Wrap up", attachments: [] }];
+    expect(runStalled(run(), f.lead)).toBe(false);
+    f.lead.queuedMessages = [];
+    // Accepting the first task lets the second one start.
+    expect(
+      dispatchableTask(run(), {
+        ...run().tasks[1],
+        dependsOn: [],
+      }),
+    ).toBe(true);
+    await f.call("review", { taskId: first.taskId });
+    await vi.waitFor(() => expect(run().tasks[1].status).toBe("running"));
+    expect(runStalled(run(), f.lead)).toBe(false);
+  });
+
+  it("is never stalled while paused, finished or without its lead", async () => {
+    const f = setup();
+    await f.start();
+    f.lead.busy = false;
+    const run = f.manager.run("lead")!;
+    expect(runStalled(run, f.lead)).toBe(true);
+    expect(runStalled(run, undefined)).toBe(false);
+    for (const status of ["paused", "finished", "stopped"] as const)
+      expect(runStalled({ ...run, status }, f.lead)).toBe(false);
+  });
+
+  it("lets the user finish it, cancelling work that never started", async () => {
+    const f = setup();
+    await f.start();
+    const first = (await f.delegate(["a"])) as { taskId: string };
+    await f.delegate(["b"], { dependsOn: [first.taskId] });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    await expect(f.manager.finishRun("lead")).rejects.toThrow(
+      "Agents are still working",
+    );
+    settle(f);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    f.lead.busy = true;
+    await expect(f.manager.finishRun("lead")).rejects.toThrow(
+      "The lead is still working",
+    );
+    f.lead.busy = false;
+    await f.manager.finishRun("lead");
+    const run = f.manager.run("lead")!;
+    expect(run.status).toBe("finished");
+    expect(run.tasks.map((task) => task.status)).toEqual([
+      "completed",
+      "cancelled",
+    ]);
+    expect(f.saved.get("lead")?.status).toBe("finished");
+    expect(f.store.disable).toHaveBeenCalledWith("lead");
+    // The project is free again.
+    f.sessions.push({
+      ...newSession("claude", "/repo"),
+      id: "other",
+      busy: false,
+    });
+    expect(f.manager.submissionError("other")).toBeNull();
+  });
+
+  it("answers the lead's finish before revoking its control", async () => {
+    vi.useFakeTimers();
+    const f = setup();
+    await f.start();
+    expect(await f.call("finish")).toEqual({ finished: true });
+    // Revoking first would drop this very call's reply.
+    expect(f.store.disable).not.toHaveBeenCalled();
+    f.manager.replied("lead");
+    expect(f.store.disable).toHaveBeenCalledWith("lead");
+    // Without a reply, access still goes soon after.
+    const late = setup();
+    await late.start();
+    await late.call("finish");
+    expect(late.store.disable).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(late.store.disable).toHaveBeenCalledWith("lead");
+  });
+
+  it("announces a finished or paused run once, and never a stopped one", async () => {
+    const f = setup();
+    const outcomes: string[] = [];
+    f.manager.onOutcome(({ kind, run }) =>
+      outcomes.push(`${kind}:${run.tasks.length}`),
+    );
+    await f.start();
+    const task = (await f.delegate(["a"])) as { taskId: string };
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    settle(f);
+    await vi.waitFor(() => expect(f.tasks()[0].status).toBe("completed"));
+    await f.call("review", { taskId: task.taskId });
+    await f.call("finish");
+    // A save of the finished run does not announce it again.
+    await f.manager.finishRun("lead");
+    expect(outcomes).toEqual(["finished:1"]);
+
+    const paused = setup();
+    const pauses: string[] = [];
+    paused.manager.onOutcome(({ kind, run }) =>
+      pauses.push(`${kind}:${run.error}`),
+    );
+    await paused.start();
+    await paused.delegate(["src/a"]);
+    await vi.waitFor(() => expect(paused.host.submit).toHaveBeenCalledTimes(1));
+    paused.manager.observe(paused.tasks()[0].sessionId, {
+      type: "tool.started",
+      callId: "edit",
+      title: "Edit",
+      preview: { kind: "write", path: "/tmp/scratch.txt" },
+    });
+    await vi.waitFor(() =>
+      expect(paused.manager.run("lead")!.status).toBe("paused"),
+    );
+    await paused.manager.stopRun("lead");
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0]).toMatch(/^paused:“Task” changed a file outside/);
   });
 });

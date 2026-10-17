@@ -2,14 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- An orchestration's lead chat has a slim bar above its message box while its run is open: "Orchestrating · 2 working · 1 waiting", or "Paused" with the reason, with **Resume**, **Stop run** and **Open agents**. When the lead stops without finishing, the bar says "The lead stopped without finishing" and offers **Finish run** (tasks that never started are cancelled) and **Ask the lead to wrap up**. **Stop run** is also on the plan card and the sidebar card whenever a run is running or paused, not only while a turn runs.
+- The plan card shows each task's files as small chips, and before you start you can **Remove task** (tasks that waited for it no longer do) or **Discard plan**.
+
 ### Changed
 
 - When two panes share a tab, each now has a slim strip at its top in the same style as tabs, with its name, a handle to drag it and a button to close it. The strip sits above the pane's content, so it no longer covers a chat's first message the way the floating controls did. A tab with one pane still has no strip.
 - A discussion now sits in the chat you started it from as one live card: both mascots, "Claude and Codex are discussing", the round, the latest line, and **Watch** and **Stop**. It turns amber with a way to the waiting chat when it needs you, and once done reads "Discussed for 4 rounds" with **Open**, followed by **Where they landed**; **Show in chat** unfolds the raw turns. The conversation plays out in a floating panel inside the window, which opens the first time and then as you last left it: the two agents face each other with the round between them, the replies go back and forth, and its box sends to both. Drag it by its header, resize it from any edge, or shrink it to a pill that shows the round and turns amber with **Needs you**; several discussions stack as pills. Long discussions fold their older rounds, a rail jumps to any round, and a line marks what is new since you looked. Finished discussions stay openable for as long as their chat exists, instead of only the newest twenty. A new chat started for the discussion runs in the background, listed in the sidebar, and the side-by-side page is gone.
+- An agent's approval or question in an orchestration is its lead's to decide. The agent shows "Lead deciding" in a neutral colour, and you no longer get a banner, an Activity "Needs approval" entry, an amber lead or a Home "Needs you" row for it. The lead asking you in its own chat still does.
+- A run posts one Activity entry, "Run finished · 4 agents" or "Run paused" with its reason, with a banner when you are elsewhere. Agents' turns and the lead's behind-the-scenes turns no longer post their own "Finished" entries or banners.
+- Orchestration messages use plain words. Other chats in the project say "<project> is busy with an orchestration in “<chat>”. Finish or stop it there." with **Go to lead**; the plan card reads Running, Paused, Finished or Stopped; pauses say what happened and what to do next.
+- A finished run's sidebar card folds to one line, such as "Finished · 4 agents · 2h ago", and opens when you click it. Its count leaves cancelled tasks out: "3 done · 1 cancelled".
+- Long orchestrations are lighter on the workspace: each chat and card redraws only for its own run, and the floating sidebar receives a short summary of each run instead of every prompt and result.
 
 ### Removed
 
 - Linear is gone from Aven. The Inbox now shows only GitHub issues and pull requests, without the GitHub | Linear switch, and Settings → Connections no longer has a Linear section. If you had connected Linear, Aven stops using the API key it saved; your GitHub inbox, filters and read marks are unchanged.
+
+### Fixed
+
+- A run whose lead ended without finishing no longer holds the project with no way out.
+- Closing the lead's tab no longer strands an orchestration's results or stops its run: the lead stays loaded while its run is running or paused.
+- Finished agent turns no longer linger as unread on Home and in the unread count.
+- An older plan card can no longer start a plan that a newer one replaced; it reads "Replaced by a newer plan".
+- An orchestration's lead no longer sees its own successful finish reported as "Lead connection was revoked".
 
 ## [0.1.144] - 2026-10-16
 

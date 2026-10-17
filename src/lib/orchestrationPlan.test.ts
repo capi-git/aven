@@ -3,13 +3,15 @@ import {
   adoptLateProposal,
   completeOrchestrationProposal,
   hideProposalMarkup,
+  latestProposalId,
   orchestrationPlanningPrompt,
   proposalBlock,
   restoreOrchestrationProposal,
   validateProposedTasks,
+  withoutProposedTask,
   type OrchestrationProposal,
 } from "./orchestrationPlan";
-import { newSession } from "./session";
+import { newSession, type Block } from "./session";
 import { sanitizeSessionForPersist } from "./sessionStore";
 import { stopStreaming } from "./harness/apply";
 
@@ -361,5 +363,56 @@ describe("orchestration proposals", () => {
     expect(hideProposalMarkup("a < b")).toBe("a < b");
     expect(hideProposalMarkup("Use <")).toBe("Use <");
     expect(hideProposalMarkup("Use <a")).toBe("Use <a");
+  });
+});
+
+describe("editing a plan before it starts", () => {
+  const task = (id: string, dependsOn: string[] = []) => ({
+    id,
+    title: `Task ${id}`,
+    prompt: "Do it",
+    harness: "codex" as const,
+    model: "codex:test",
+    files: [id],
+    dependsOn,
+  });
+  const plan = {
+    settings: draft.settings,
+    tasks: [task("a"), task("b", ["a"]), task("c", ["a", "b"])],
+  };
+
+  it("removes a task and drops it from the tasks that waited for it", () => {
+    expect(withoutProposedTask(plan, "a")).toEqual([
+      task("b"),
+      task("c", ["b"]),
+    ]);
+    expect(withoutProposedTask(plan, "c")).toEqual([
+      task("a"),
+      task("b", ["a"]),
+    ]);
+  });
+
+  it("keeps at least one task: the plan is discarded instead", () => {
+    expect(() =>
+      withoutProposedTask({ ...plan, tasks: [task("a")] }, "a"),
+    ).toThrow("Discard the plan instead");
+  });
+
+  it("finds the newest proposal card in a chat", () => {
+    const card = (id: string): Block => ({
+      id,
+      role: "plan",
+      text: "",
+      orchestration: { ...draft, status: "ready" },
+    });
+    expect(
+      latestProposalId([
+        card("old"),
+        { id: "u", role: "user", text: "Plan again" },
+        card("new"),
+        { id: "r", role: "assistant", text: "Here it is" },
+      ]),
+    ).toBe("new");
+    expect(latestProposalId([])).toBeUndefined();
   });
 });

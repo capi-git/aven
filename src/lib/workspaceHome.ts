@@ -221,8 +221,13 @@ export function currentActivity(session: Session): string {
  * pauses it.
  */
 function applyActivity(row: HomeLiveSession, session: Session) {
-  const approval = pendingApproval(session.blocks);
-  const question = session.pendingQuestion;
+  // A worker's approval or question is its lead's to decide, not yours: the
+  // lead's row keeps working ("Lead deciding") instead of asking for you.
+  const managed = !!session.orchestrationLeadId;
+  const approval = managed ? undefined : pendingApproval(session.blocks);
+  const question = managed ? undefined : session.pendingQuestion;
+  const deciding =
+    managed && (!!pendingApproval(session.blocks) || !!session.pendingQuestion);
   if ((approval || question) && !row.waiting) {
     row.waiting = approval
       ? {
@@ -246,7 +251,8 @@ function applyActivity(row: HomeLiveSession, session: Session) {
     !!session.busy || (session.liveAgents?.some(isActiveSessionAgent) ?? false);
   if (working && !approval && !isBlockingQuestion(question)) {
     row.running = true;
-    if (row.doing === undefined) row.doing = currentActivity(session);
+    if (row.doing === undefined)
+      row.doing = deciding ? "Lead deciding" : currentActivity(session);
     if (row.startedAt === undefined) {
       const startedAt = turnOf(session.blocks).startedAt;
       if (startedAt !== undefined) row.startedAt = startedAt;

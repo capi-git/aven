@@ -54,6 +54,7 @@ import { visibleUserPrompt } from "../lib/orchestration";
 import {
   hideProposalMarkup,
   lateProposalCardIndex,
+  latestProposalId,
 } from "../lib/orchestrationPlan";
 import { playCue } from "../lib/sounds";
 import { legacyTaskListFromText } from "../lib/taskList";
@@ -230,6 +231,8 @@ function AgentTranscriptComponent({
     (block) =>
       block.role === "handoff" && block.handoff?.status === "preparing",
   );
+  // Only the newest proposal can start; older cards read as replaced.
+  const newestProposalId = useMemo(() => latestProposalId(blocks), [blocks]);
   const proposalReplyIds = useMemo(() => {
     const ids = new Set<string>();
     const cardIndex = busy ? lateProposalCardIndex(blocks) : -1;
@@ -840,7 +843,11 @@ function AgentTranscriptComponent({
                       className="px-4 pt-1 pb-2"
                       data-orchestration-result
                     >
-                      <OrchestrationPreview block={block} busy={!!busy} />
+                      <OrchestrationPreview
+                        block={block}
+                        busy={!!busy}
+                        superseded={block.id !== newestProposalId}
+                      />
                     </div>
                   ))}
               {durationMs != null && settled ? (

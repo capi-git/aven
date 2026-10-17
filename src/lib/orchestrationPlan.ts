@@ -26,7 +26,9 @@ export type OrchestrationProposal = {
   request: string;
   author: OrchestrationChoice;
   settings: OrchestrationSettings;
-  status: "planning" | "ready" | "invalid" | "starting" | "approved";
+  /** `discarded`: the user dropped the plan; it stays in the chat, read-only. */
+  status:
+    "planning" | "ready" | "invalid" | "starting" | "approved" | "discarded";
   title: string;
   summary: string;
   tasks: ProposedTask[];
@@ -158,6 +160,39 @@ export function validateProposedTasks(
   };
   tasks.forEach((task) => visit(task.id));
   return tasks;
+}
+
+/**
+ * The plan without one task. Tasks that waited for it no longer do, since it
+ * will not run; the rest of the graph is checked again. A plan keeps at
+ * least one task: discard it instead.
+ */
+export function withoutProposedTask(
+  proposal: Pick<OrchestrationProposal, "tasks" | "settings">,
+  taskId: string,
+): ProposedTask[] {
+  const rest = proposal.tasks
+    .filter((task) => task.id !== taskId)
+    .map((task) =>
+      task.dependsOn.includes(taskId)
+        ? { ...task, dependsOn: task.dependsOn.filter((id) => id !== taskId) }
+        : task,
+    );
+  if (!rest.length)
+    throw new Error(
+      "A plan needs at least one task. Discard the plan instead.",
+    );
+  return validateProposedTasks(rest, proposal.settings);
+}
+
+/**
+ * The newest proposal card in a chat. Only it can be confirmed: an older
+ * card describes a plan the lead has since replaced.
+ */
+export function latestProposalId(blocks: readonly Block[]): string | undefined {
+  for (let index = blocks.length - 1; index >= 0; index--)
+    if (blocks[index].orchestration) return blocks[index].id;
+  return undefined;
 }
 
 export function orchestrationPlanningPrompt(

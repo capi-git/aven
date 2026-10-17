@@ -19,12 +19,16 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import { quietTurns, runOutcomeActivity } from "./lib/orchestrationActivity";
+import { encodedSidebarRuns } from "./lib/orchestrationSummary";
+import { retainedSessionIds } from "./lib/sessionRetention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
 import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
 import {
   adoptLateProposal,
   completeOrchestrationProposal,
+  latestProposalId,
   orchestrationPlanningPrompt,
   proposalBlock,
   validateOrchestrationSettings,
@@ -473,7 +477,7 @@ import {
   HARNESS_TITLE,
   canReplaceSessionTitle,
   formatSessionTitle,
-  sessionNeedsInput,
+  sessionNeedsUser,
   sessionIsWaitingForInput,
   newDefaultSession,
   newSession,
@@ -2074,14 +2078,13 @@ export default function App({
     void refreshHarnessCatalogs([activeHarness]);
   }, [activeHarness]);
 
+  // Chats waiting on the user. A worker's approval or question is its
+  // lead's to decide, so neither the worker nor its lead counts; the lead
+  // asking in its own chat does.
   const nextApprovalSessionIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const session of sessions) {
-      if (sessionNeedsInput(session)) {
-        ids.add(session.id);
-        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
-      }
-    }
+    for (const session of sessions)
+      if (sessionNeedsUser(session)) ids.add(session.id);
     return ids;
   }, [sessions]);
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
@@ -2122,8 +2125,14 @@ export default function App({
       focused: otherFocused || notificationWindowFocusedRef.current,
     };
   }, []);
+  // Turns the orchestrator sends (a worker's, or the lead's hidden
+  // continuation) post no Activity entry or banner of their own; the run
+  // posts one when it finishes or pauses.
+  const quietActivityTurns = useRef<ReturnType<typeof quietTurns>>(null);
+  quietActivityTurns.current ??= quietTurns();
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
+      if (quietActivityTurns.current?.silences(event.id)) return;
       const presentation = activityPresentation(session.id);
       void publishSessionActivity(
         session,
@@ -2171,6 +2180,19 @@ export default function App({
     announceActivity,
     unresolvedActivitySessions,
   ]);
+
+  // One entry per run outcome, on the lead's chat: "Run finished · 4 agents"
+  // or "Run paused · <reason>", with a banner while you are elsewhere.
+  useEffect(
+    () =>
+      orchestrator.onOutcome((outcome) => {
+        const lead = sessionsRef.current.find(
+          (session) => session.id === outcome.run.leadId,
+        );
+        if (lead) announceActivity(lead, runOutcomeActivity(outcome));
+      }),
+    [announceActivity, sessionsRef],
+  );
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -2597,42 +2619,20 @@ export default function App({
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
   useEffect(() => {
-    const visibleIds = openSessionIds(tabs);
-    // A discussion's chats stay loaded without a tab until it is finished,
-    // so its relays can reach them. Read the store too: a chat started for
-    // a discussion is added in the same step that starts it.
+    // Inbox chats, a discussion's chats until it is finished, the lead of a
+    // running or paused orchestration and its workers stay loaded without a
+    // tab (see retainedSessionIds). Read the discussion store too: a chat
+    // started for a discussion is added in the same step that starts it.
     const discussions = discussionStore();
-    for (const id of [
-      ...keptDiscussionKey.split("\n"),
-      ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
-    ])
-      if (id) visibleIds.add(id);
-    // Inbox owns these panes independently of project tabs. Keep their drafts
-    // and attachments mounted when the panel closes or switches items.
-    for (const session of sessions) {
-      if (session.inboxAsk) visibleIds.add(session.id);
-      // A managed assignment may be finished while its native children keep
-      // working. Its lead remains the navigation target for those workers.
-      if (
-        session.orchestrationLeadId &&
-        (isInFlightSession(session) || uncertainSessionAgents(session).length)
-      )
-        visibleIds.add(session.orchestrationLeadId);
-    }
-    // Internal workers stay attached to the lead, even while idle between
-    // turns. They must not be discarded merely because they have no tab.
-    for (const session of sessions) {
-      if (
-        session.orchestrationLeadId &&
-        (visibleIds.has(session.orchestrationLeadId) ||
-          orchestrationRuns.some(
-            (run) =>
-              run.leadId === session.orchestrationLeadId &&
-              ["active", "paused"].includes(run.status),
-          ))
-      )
-        visibleIds.add(session.id);
-    }
+    const visibleIds = retainedSessionIds(
+      sessions,
+      openSessionIds(tabs),
+      orchestrationRuns,
+      [
+        ...keptDiscussionKey.split("\n"),
+        ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
+      ],
+    );
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
@@ -5761,6 +5761,7 @@ export default function App({
       const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
+      if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
@@ -7384,6 +7385,8 @@ export default function App({
               },
             }),
         )
+        // Only now may a finished lead's control access go.
+        .finally(() => orchestrator.replied(payload.sessionId))
         .catch(console.error);
     });
     return () => {
@@ -7496,6 +7499,14 @@ export default function App({
     () => ({
       open: onOpenApprovalSession,
       openAgents: queueWorkerPanes,
+      title: (sessionId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === sessionId,
+        );
+        return session
+          ? sessionDisplayTitle(session.title, session.harness)
+          : undefined;
+      },
       update: (
         leadId: string,
         blockId: string,
@@ -7511,6 +7522,7 @@ export default function App({
           !session ||
           session.busy ||
           proposal?.status !== "ready" ||
+          latestProposalId(session.blocks) !== blockId ||
           confirmingOrchestration.current.has(leadId)
         )
           return;
@@ -7541,6 +7553,11 @@ export default function App({
             throw new Error(
               "Wait for the proposal to finish before confirming.",
             );
+          // An older card describes a plan the lead has since replaced.
+          if (latestProposalId(session.blocks) !== blockId)
+            throw new Error(
+              "Replaced by a newer plan. Confirm the newest plan in this chat instead.",
+            );
           if (
             session.harness !== proposal.author.harness ||
             session.model !== proposal.author.model
@@ -7569,6 +7586,25 @@ export default function App({
         } finally {
           confirmingOrchestration.current.delete(leadId);
         }
+      },
+      discard: (leadId: string, blockId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === leadId,
+        );
+        const proposal = session?.blocks.find(
+          (block) => block.id === blockId,
+        )?.orchestration;
+        if (
+          !session ||
+          proposal?.status !== "ready" ||
+          confirmingOrchestration.current.has(leadId)
+        )
+          return;
+        const discarded = updateOrchestrationCard(leadId, blockId, {
+          ...proposal,
+          status: "discarded",
+        });
+        if (discarded) void upsertSession(discarded).catch(console.error);
       },
       retry: (leadId: string, blockId: string) => {
         const session = sessionsRef.current.find(
@@ -8718,6 +8754,7 @@ export default function App({
         orchestrator.cancelTask(leadId, taskId),
       startOrchestration: (...args: Parameters<typeof orchestrator.start>) =>
         orchestrator.start(...args),
+      stopOrchestration: (leadId: string) => orchestrator.stopRun(leadId),
       inspectWorker: (sessionId: string | null) =>
         orchestrationWorkers.inspect(sessionId),
       openWorkerDetails: orchestrationWorkers.openDetails
@@ -8728,7 +8765,8 @@ export default function App({
     },
     extra: () => ({
       orchestration: {
-        runs: encodeSidebarValue(orchestrator.snapshot()),
+        // States and task rows only: never prompts, results or receipts.
+        runs: encodedSidebarRuns(orchestrator.snapshot(), encodeSidebarValue),
         agentsByLead: encodeSidebarValue(orchestrationWorkers.agentsByLead),
         selectedId: orchestrationWorkers.selectedId,
         details: !!orchestrationWorkers.openDetails,
@@ -8778,6 +8816,10 @@ export default function App({
     sharedWork: true,
     paneLayout: true,
     openFile: (path) => onOpenFile(path),
+    orchestration: {
+      run: (leadId) => orchestrator.run(leadId),
+      submissionError: (sessionId) => orchestrator.submissionError(sessionId),
+    },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
@@ -9819,7 +9861,7 @@ function toTitleTab(
     ),
     terminal: hasTerminal && harnesses.length === 0,
     groupId: tab.groupId,
-    needsInput: tabSessions.some(sessionNeedsInput),
+    needsInput: tabSessions.some(sessionNeedsUser),
     race: Boolean(race),
   };
 }

@@ -17,7 +17,17 @@ import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
 import { PaneNameStrip } from "../chrome/PaneNameStrip";
 import { ProviderMarks } from "../chrome/ProviderMarks";
-import { orchestrator, sameCheckout } from "../lib/orchestration";
+import {
+  leadIsIdle,
+  orchestrator,
+  sameCheckout,
+  type OrchestrationRun,
+} from "../lib/orchestration";
+import {
+  useOrchestrationRun,
+  useOrchestrationSelector,
+} from "../hooks/useOrchestrationRun";
+import { OrchestrationBar } from "../chrome/OrchestrationBar";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
@@ -81,6 +91,10 @@ import {
 } from "../lib/appearance";
 import type { PaletteAgent } from "../lib/commandPalette";
 import type { DiscussionHost } from "../lib/discussions";
+
+const NO_RUNS: readonly OrchestrationRun[] = [];
+const runIsOpen = (run: OrchestrationRun) =>
+  run.status === "active" || run.status === "paused";
 
 type Props = {
   session: Session;
@@ -220,15 +234,20 @@ export const SessionPane = memo(function SessionPane({
   const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(
     session.id,
   );
-  const orchestrationRuns = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
+  // Only what this pane shows: another run's save re-renders nothing here.
+  const runsCwd = sessionWorkCwd(session);
+  const managed = useOrchestrationSelector((runs) =>
+    runs.some((run) => runIsOpen(run) && sameCheckout(run.cwd, runsCwd)),
   );
-  const managed = orchestrationRuns.some(
-    (run) =>
-      (run.status === "active" || run.status === "paused") &&
-      sameCheckout(run.cwd, sessionWorkCwd(session)),
+  const ownRun = useOrchestrationRun(session.id);
+  const leadsOpenRun = !!ownRun && runIsOpen(ownRun);
+  const runLocked = useOrchestrationSelector((runs) =>
+    runs.some(
+      (run) =>
+        runIsOpen(run) &&
+        (run.leadId === session.id ||
+          run.tasks.some((task) => task.sessionId === session.id)),
+    ),
   );
   useEffect(() => {
     if (!session.inboxAsk)
@@ -502,14 +521,11 @@ export const SessionPane = memo(function SessionPane({
     },
     [onModelChange, sessionId],
   );
-  const reviewUndoBlocked =
-    reviewUndoLocked ||
-    orchestrationRuns.some(
-      (run) =>
-        (run.status === "active" || run.status === "paused") &&
-        (run.leadId === sessionId ||
-          run.tasks.some((task) => task.sessionId === sessionId)),
-    );
+  const reviewUndoBlocked = reviewUndoLocked || runLocked;
+  const submitText = useCallback(
+    (id: string, text: string) => void onSubmit(id, text, []),
+    [onSubmit],
+  );
   const busy = !!session.busy;
   const review = useMemo(
     () =>
@@ -729,13 +745,26 @@ export const SessionPane = memo(function SessionPane({
           <SessionRunStatus
             session={sessionWithManagedAgents(
               session,
-              orchestrationRuns,
+              ownRun ? [ownRun] : NO_RUNS,
               workerAgents,
             )}
             visible={visible}
+            stopElsewhere={leadsOpenRun}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
+          {/* Lined up with the bars inside the message box. */}
+          {!session.inboxAsk ? (
+            <div className="px-1.5">
+              <OrchestrationBar
+                sessionId={session.id}
+                cwd={runsCwd}
+                idle={leadIsIdle(session)}
+                onSubmit={submitText}
+                onStop={onStop}
+              />
+            </div>
+          ) : null}
           {composer}
         </div>
       ) : null}

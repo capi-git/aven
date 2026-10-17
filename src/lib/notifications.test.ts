@@ -12,7 +12,7 @@ import {
   setWindowFocused,
   probeNotificationPermission,
 } from "./notifications";
-import { newSession, type Session } from "./session";
+import { newSession, sessionNeedsUser, type Session } from "./session";
 
 import { invoke } from "@tauri-apps/api/core";
 import { getActivitySnapshot } from "./activity";
@@ -414,5 +414,23 @@ describe("Activity delivery policy", () => {
       ],
     };
     expect(pendingSessionActivityEvents(next)[0].id).not.toBe(events[0].id);
+  });
+  it("never announces an orchestration worker's request: its lead decides", () => {
+    const blocks: Session["blocks"] = [
+      { id: "u1", role: "user", text: "Do it" },
+      {
+        id: "a1",
+        role: "approval",
+        text: "Run tests",
+        approval: { requestId: 1 },
+      },
+    ];
+    const worker = chat({ id: "worker", orchestrationLeadId: "lead", blocks });
+    expect(pendingSessionActivityEvents(worker)).toEqual([]);
+    expect(sessionNeedsUser(worker)).toBe(false);
+    // The lead asking in its own chat is the user's to answer.
+    const lead = chat({ id: "lead", blocks });
+    expect(pendingSessionActivityEvents(lead)).toHaveLength(1);
+    expect(sessionNeedsUser(lead)).toBe(true);
   });
 });

@@ -169,6 +169,27 @@ describe("homeLiveSessions", () => {
     expect(rows[1].empty).toBe(true);
   });
 
+  it("keeps a lead working, not waiting, while it decides a worker's request", () => {
+    const sessions = [
+      session({ id: "lead", blocks: [user(2_000)] }),
+      session({
+        id: "worker",
+        orchestrationLeadId: "lead",
+        busy: true,
+        blocks: [user(3_000), approval()],
+      }),
+    ];
+    const [lead] = homeLiveSessions(sessions, new Set(["worker"]));
+    expect(lead.waiting).toBeUndefined();
+    expect(lead).toMatchObject({ running: true, doing: "Lead deciding" });
+    expect(homeNeedsYou([lead], [], scope)).toEqual([]);
+    // The project counts it as working, never as waiting for you.
+    expect(sessionProjectCounts(sessions)[APP]).toEqual({
+      running: 1,
+      waiting: 0,
+    });
+  });
+
   it("dates each session by its latest timed turn, never by a guess", () => {
     const steer = {
       id: "steer",

@@ -2786,6 +2786,8 @@ function SessionCard({
           <OrchestrationSidebarAgents
             leadId={session.id}
             summary={session.orchestration}
+            endedAt={session.updatedAt}
+            now={now}
           />
           {onArchive ? (
             <div className="flex justify-end">
