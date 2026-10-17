@@ -539,9 +539,18 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     typeof (value.race as { raceId?: unknown }).raceId === "string"
       ? { raceId: (value.race as { raceId: string }).raceId }
       : undefined;
+  const board =
+    value.board &&
+    typeof value.board === "object" &&
+    typeof (value.board as { project?: unknown }).project === "string" &&
+    (value.board as { project: string }).project
+      ? { project: (value.board as { project: string }).project }
+      : undefined;
   const hasDiscussion = "discussion" in value && value.discussion != null;
   const discussion = sanitizeDiscussion(value.discussion);
   if (hasDiscussion && !discussion) return null;
+  // A board that names no project is no tab at all, not a file named Board.
+  if ("board" in value && value.board != null && !board) return null;
   if (hasReleaseNotes && !releaseNotes) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
@@ -585,6 +594,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
     ...(race ? { race } : {}),
+    ...(board ? { board } : {}),
     ...(discussion ? { discussion } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(value.review === true ? { review: true } : {}),

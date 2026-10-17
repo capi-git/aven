@@ -263,6 +263,8 @@ export type SidebarProps = {
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
+  /** Open the project's board tab. */
+  onOpenBoard?: (path: string) => void;
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   /** The macOS floating sidebar resolves this in its workspace window. */
@@ -396,6 +398,7 @@ function SidebarComponent({
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
+  onOpenBoard,
   onOpenProject,
   onRemoveProject,
   onNew,
@@ -1980,6 +1983,11 @@ function SidebarComponent({
                                   onNew();
                                 }
                               : undefined
+                        }
+                        onOpenBoard={
+                          onOpenBoard
+                            ? () => onOpenBoard(project.path)
+                            : undefined
                         }
                         onMove={onMoveProject}
                         onRemove={onRemoveProject}

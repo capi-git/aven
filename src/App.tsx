@@ -193,6 +193,7 @@ import {
 import {
   installDevPreviewOpener,
   observeAgentPreviewEvent,
+  openDevPreview,
   previewBelongsTo,
   previewTabMatch,
   publishDevPreviewTabs,
@@ -276,7 +277,7 @@ import {
 } from "./chrome/WorkspaceActionDialog";
 import { BranchPicker } from "./chrome/BranchPicker";
 import { AddProjectMenu } from "./chrome/AddProjectMenu";
-import { installInAppLinks } from "./lib/inAppLinks";
+import { installInAppLinks, openInAppUrl } from "./lib/inAppLinks";
 import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
@@ -325,6 +326,9 @@ import {
   isTerminalTab,
   leaf,
   newRaceWorkspaceTab,
+  newBoardWorkspaceTab,
+  boardTabFor,
+  isBoardTab,
   leafIds,
   movePane,
   neighborLeafId,
@@ -729,6 +733,7 @@ import {
 } from "./lib/streamFlush";
 import { LiveSessionsContext } from "./lib/liveSessions";
 import {
+  requestShip,
   subscribeOpenChatRequests,
   subscribeShipRequests,
 } from "./lib/shipRequest";
@@ -736,6 +741,11 @@ import { forgetChatReview, useChatReviews } from "./lib/chatReview";
 import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
 import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
 import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
+import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
+import {
+  installWorkBoardActions,
+  type WorkBoardActions,
+} from "./lib/workBoardFeed";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -847,7 +857,8 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.terminal === other.terminal &&
       tab.groupId === other.groupId &&
       tab.needsInput === other.needsInput &&
-      tab.race === other.race
+      tab.race === other.race &&
+      tab.board === other.board
     );
   });
 }
@@ -1107,6 +1118,23 @@ export default function App({
     watch: () => {},
     send: async () => false,
   });
+  // What a project board's buttons do, kept current below and installed once.
+  const boardActionsRef = useRef<WorkBoardActions | null>(null);
+  useEffect(
+    () =>
+      installWorkBoardActions({
+        openChat: (...args) => boardActionsRef.current?.openChat(...args),
+        allow: (...args) => boardActionsRef.current?.allow(...args),
+        review: (...args) => boardActionsRef.current?.review(...args),
+        ship: (...args) => boardActionsRef.current?.ship(...args),
+        watch: (...args) => boardActionsRef.current?.watch(...args),
+        compare: (...args) => boardActionsRef.current?.compare(...args),
+        preview: (...args) => boardActionsRef.current?.preview(...args),
+        openCommit: (...args) => boardActionsRef.current?.openCommit(...args),
+        openUrl: (...args) => boardActionsRef.current?.openUrl(...args),
+      }),
+    [],
+  );
   useEffect(
     () =>
       installTeamWorkspace({
@@ -8734,9 +8762,22 @@ export default function App({
       ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
     : [];
   const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
+  const boardProject =
+    looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+      ? projectCwd
+      : null;
   const paletteCommands = [
     ...PALETTE_COMMANDS.filter(
-      (command) => command.id !== "open_notes" || notesEnabled,
+      (command) =>
+        (command.id !== "open_notes" || notesEnabled) &&
+        (command.id !== "open_board" || boardProject),
+    ).map((command) =>
+      command.id === "open_board" && boardProject && labelsForPalette
+        ? {
+            ...command,
+            label: `Open board for ${projectDisplayName(boardProject, labelsForPalette)}`,
+          }
+        : command,
     ),
     ...DEV_PALETTE_COMMANDS,
   ];
@@ -8756,6 +8797,7 @@ export default function App({
       new_chat: () => void run.onNew(),
       new_terminal: run.onNewTerminal,
       new_browser_tab: onNewBrowserTab,
+      open_board: () => onOpenBoard(),
       open_search: run.onOpenSearch,
       go_to_file: run.onGoToFile,
       find_in_project: run.onFindInProject,
@@ -8990,6 +9032,78 @@ export default function App({
     appendTab(overview, race.project);
     setActiveTabId(overview.id);
   };
+  /**
+   * The project's board (the current project unless named), opened as a
+   * workspace tab, or brought forward when one is already open.
+   */
+  const openBoard = (path?: string) => {
+    const project = normalizeProjectPath(path ?? projectCwdRef.current);
+    if (!looksLikeProject(project) || isProjectlessCwd(project)) return;
+    flushSync(() => {
+      setHomeViewOpen(false);
+      closeUtilityViews();
+      leaveExpandedPreview();
+      if (!sameProjectPath(project, projectCwdRef.current)) {
+        revealProjectTask(project);
+        profilesRef.current.selectProjectProfile(project);
+        setProjectCwd(project);
+      }
+    });
+    setComposerFocused(false);
+    const existing = boardTabFor(tabsRef.current, project, sameProjectPath);
+    if (existing) {
+      activateTab(existing.id);
+      return;
+    }
+    const board = newBoardWorkspaceTab(project);
+    appendTab(board, project);
+    viewRef.current.focus(project, board.id);
+    setActiveTabId(board.id);
+  };
+  const openBoardRef = useRef(openBoard);
+  openBoardRef.current = openBoard;
+  const onOpenBoard = useCallback(
+    (path?: string) => openBoardRef.current(path),
+    [],
+  );
+  const onOpenDiffRef = useRef(onOpenDiff);
+  onOpenDiffRef.current = onOpenDiff;
+  const onOpenCommitRef = useRef(onOpenCommit);
+  onOpenCommitRef.current = onOpenCommit;
+  /** Open a chat, then run `then` once its tab is the active one. */
+  const inChat = (sessionId: string, then: () => void) =>
+    void onOpenApprovalSession(sessionId).then((opened) => {
+      if (opened) requestAnimationFrame(then);
+    });
+  boardActionsRef.current = {
+    openChat: (id) => void onOpenApprovalSession(id),
+    allow: (id, requestId) => onApproval(id, requestId, "allow"),
+    review: (id, cwd) =>
+      inChat(id, () =>
+        onOpenDiffRef.current(undefined, { sessionId: id, cwd }),
+      ),
+    ship: (id, cwd) => {
+      // A chat in the project's own folder ships from beside the board; one
+      // in another copy opens first, so the Changes panel shows its copy.
+      if (sameProjectPath(cwd, sidebarCwdRef.current)) requestShip(cwd, id);
+      else inChat(id, () => requestShip(cwd, id));
+    },
+    watch: (teamId) => openTeamPanel(teamId),
+    compare: (raceId) => showRaceOverview(raceId),
+    preview: (key) => void openDevPreview(key),
+    openCommit: (id, _cwd, commit) =>
+      inChat(id, () =>
+        onOpenCommitRef.current({
+          ...commit,
+          parents: [],
+          author: "",
+          timestamp: 0,
+          refs: [],
+          head: false,
+        }),
+      ),
+    openUrl: (url) => void openInAppUrl(url),
+  };
   const openRaceOverview = (tabId: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === tabId);
     const race = tab
@@ -9215,6 +9329,26 @@ export default function App({
     teams,
     leadDecided,
   });
+  // The project boards on screen read the chats as small rows (workBoard).
+  const boardOnScreen =
+    workspaceVisible &&
+    tabs.some(
+      (tab) =>
+        visibleSurfaceIds.includes(tab.id) &&
+        tab.editorPanes.some((pane) =>
+          pane.files.some(
+            (file) => file.id === pane.activeFileId && isBoardTab(file),
+          ),
+        ),
+    );
+  useWorkBoardPublisher({
+    enabled: boardOnScreen,
+    sessions,
+    inFlightIds: busySessionIds,
+    leadDecided,
+    statuses: chatStatus,
+    teams,
+  });
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -9300,6 +9434,7 @@ export default function App({
     workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
+    onOpenBoard,
     onOpenProject: pickProject,
     onRemoveProject,
     onNew,
@@ -9528,6 +9663,7 @@ export default function App({
                           void onSelectHistorySession(id);
                         }}
                         onNewProjectTask={onNewProjectTask}
+                        onOpenBoard={onOpenBoard}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
                         onLoadProjects={(paths) => {
@@ -9733,6 +9869,20 @@ export default function App({
                                         );
                                         onNewBrowserTab();
                                       }}
+                                      onOpenBoard={
+                                        looksLikeProject(projectCwd) &&
+                                        !isProjectlessCwd(projectCwd)
+                                          ? () => {
+                                              workspaceViews.change((view) =>
+                                                selectWorkspaceView(
+                                                  view,
+                                                  owner,
+                                                ),
+                                              );
+                                              onOpenBoard();
+                                            }
+                                          : undefined
+                                      }
                                       onNewView={
                                         members.length > 1 ||
                                         visibleSurfaceIds.length > 1
@@ -10431,6 +10581,8 @@ function toTitleTab(
     pane.files.some(isTerminalTab),
   );
   const focusedFile = focusedFileTab(tab);
+  const board =
+    tabSessions.length === 0 && !!focusedFile && isBoardTab(focusedFile);
 
   return {
     id: tab.id,
@@ -10465,6 +10617,7 @@ function toTitleTab(
       sessionNeedsUser(session, leadDecided),
     ),
     race: Boolean(race),
+    board,
   };
 }
 

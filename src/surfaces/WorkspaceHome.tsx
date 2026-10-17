@@ -18,6 +18,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe,
+  Kanban,
   MessageSquare,
   MoreHorizontal,
   Plus,
@@ -124,6 +125,8 @@ export type WorkspaceHomeProps = {
   onProject: (path: string) => void;
   onSession: (id: string) => void;
   onNewProjectTask?: (path: string) => void;
+  /** Open a project's board. */
+  onOpenBoard?: (path: string) => void;
   onAddProject: () => void;
   /** Asks for the projects' saved sessions, for Resume and last activity. */
   onLoadProjects?: (paths: readonly string[]) => void;
@@ -212,6 +215,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onProject,
   onSession,
   onNewProjectTask,
+  onOpenBoard,
   onAddProject,
   onLoadProjects,
 }: WorkspaceHomeProps) {
@@ -338,6 +342,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                 onSession={onSession}
                 onProject={onProject}
                 onNewProjectTask={onNewProjectTask}
+                onOpenBoard={onOpenBoard}
               />
             ))}
             <li className="workspace-home-agent-add">
@@ -947,6 +952,7 @@ type AgentTileProps = {
   onSession: (id: string) => void;
   onProject: (path: string) => void;
   onNewProjectTask?: (path: string) => void;
+  onOpenBoard?: (path: string) => void;
 };
 
 /**
@@ -962,6 +968,7 @@ const AgentTile = memo(
     onSession,
     onProject,
     onNewProjectTask,
+    onOpenBoard,
   }: AgentTileProps) {
     const appearance = useProjectAppearance(project.path);
     const now = useMinuteClock();
@@ -1087,6 +1094,17 @@ const AgentTile = memo(
               <Plus size={13} />
             </button>
           ) : null}
+          {onOpenBoard ? (
+            <button
+              type="button"
+              className="workspace-home-agent-board"
+              aria-label={`Open ${name} board`}
+              title={`Open ${name} board`}
+              onClick={() => onOpenBoard(project.path)}
+            >
+              <Kanban size={13} />
+            </button>
+          ) : null}
           <button
             ref={moreRef}
             type="button"
@@ -1116,6 +1134,7 @@ const AgentTile = memo(
     a.onSession === b.onSession &&
     a.onProject === b.onProject &&
     a.onNewProjectTask === b.onNewProjectTask &&
+    a.onOpenBoard === b.onOpenBoard &&
     equalChromeData(a.project, b.project) &&
     equalChromeData(a.status, b.status),
 );

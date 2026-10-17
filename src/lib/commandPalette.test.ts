@@ -57,6 +57,20 @@ describe("palette commands", () => {
     ).toContain("new_scheduled_agent");
   });
 
+  it("opens the project's board, also by what it shows", () => {
+    expect(rankPaletteCommands(PALETTE_COMMANDS, "board")[0].id).toBe(
+      "open_board",
+    );
+    expect(rankPaletteCommands(PALETTE_COMMANDS, "kanban")[0].id).toBe(
+      "open_board",
+    );
+    expect(
+      rankPaletteCommands(PALETTE_COMMANDS, "shipped").map(
+        (command) => command.id,
+      ),
+    ).toContain("open_board");
+  });
+
   it("has unique ids", () => {
     const ids = PALETTE_COMMANDS.map((command) => command.id);
     expect(new Set(ids).size).toBe(ids.length);

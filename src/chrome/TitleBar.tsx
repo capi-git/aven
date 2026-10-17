@@ -8,6 +8,7 @@ import {
   Flag,
   Globe,
   Inbox,
+  Kanban,
   PanelLeft,
   PanelRight,
   Pin,
@@ -113,6 +114,8 @@ export type Tab = {
   needsInput?: boolean;
   /** The tab holds one race's agents; `title` is the race prompt. */
   race?: boolean;
+  /** The tab is a project's board. */
+  board?: boolean;
   dirty?: boolean;
   terminal?: boolean;
 };
@@ -153,6 +156,8 @@ export type TitleBarProps = {
   ) => void;
   onUnsplit?: () => void;
   onNewBrowser?: () => void;
+  /** Open (or bring forward) the current project's board. */
+  onOpenBoard?: () => void;
   onSurfaceDragMove?: (
     id: string,
     x: number,
@@ -456,6 +461,14 @@ function TitleTabItem({
                 harnesses={tab.harnesses}
                 busyHarnesses={tab.busyHarnesses}
                 dimmed={!active}
+              />
+            ) : tab.board ? (
+              <Kanban
+                className={`personal-title-tab-board size-3.5 shrink-0 ${
+                  active ? "text-content" : "text-content/55"
+                }`}
+                strokeWidth={1.75}
+                aria-hidden
               />
             ) : tab.terminal || !fileIcon ? (
               <Terminal
@@ -1043,6 +1056,7 @@ function TitleBarComponent({
   onSplitTab,
   onUnsplit,
   onNewBrowser,
+  onOpenBoard,
   onSurfaceDragMove,
   onSurfaceDragEnd,
   groupId,
@@ -2314,6 +2328,18 @@ function TitleBarComponent({
                   className="personal-title-browser-plus absolute size-2"
                   strokeWidth={1.75}
                 />
+              </button>
+            ) : null}
+            {onOpenBoard ? (
+              <button
+                type="button"
+                aria-label="Open board"
+                title="Open this project's board"
+                data-tauri-drag-region="false"
+                className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={onOpenBoard}
+              >
+                <Kanban className="size-3.5" strokeWidth={1.75} />
               </button>
             ) : null}
           </div>

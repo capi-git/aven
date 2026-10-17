@@ -8,6 +8,7 @@ import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import {
   isAgentTab,
+  isBoardTab,
   isChangesTab,
   isCommitTab,
   isPlanTab,
@@ -55,6 +56,9 @@ const WorkingTreeDiff = retryableLazy(() =>
 );
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
+);
+const WorkBoard = retryableLazy(() =>
+  import("./WorkBoard").then((module) => module.WorkBoard),
 );
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
@@ -209,6 +213,11 @@ function FilePaneComponent({
                     <RaceView
                       raceId={file.race.raceId}
                       sessions={sessions}
+                      visible={presented && file.id === pane.activeFileId}
+                    />
+                  ) : isBoardTab(file) ? (
+                    <WorkBoard
+                      project={file.board.project}
                       visible={presented && file.id === pane.activeFileId}
                     />
                   ) : isTerminalTab(file) ? (

@@ -1,9 +1,11 @@
-import { GitCompare, GripVertical, Terminal, X } from "./icons";
+import { GitCompare, GripVertical, Kanban, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import { basename } from "../lib/fs";
 import {
+  BOARD_TAB_TITLE,
   isAgentTab,
+  isBoardTab,
   isChangesTab,
   isCommitTab,
   isPlanTab,
@@ -71,6 +73,15 @@ export function surfaceTabPresentation(
       label: "Session Changes",
       iconName: "CHANGES",
       tooltip: "Changes captured for this session only",
+    };
+  }
+
+  if (isBoardTab(file)) {
+    return {
+      name: BOARD_TAB_TITLE,
+      label: BOARD_TAB_TITLE,
+      iconName: "BOARD",
+      tooltip: `Board · ${file.board.project}`,
     };
   }
 
@@ -252,6 +263,7 @@ export function SurfaceTabs({
           const review = isReviewTab(file) && !changes;
           const terminal = isTerminalTab(file);
           const agent = isAgentTab(file) ? file.agent : null;
+          const board = isBoardTab(file);
           const { label, iconName, tooltip } = surfaceTabPresentation(file);
           const showStart =
             sortable.draggingId &&
@@ -326,6 +338,8 @@ export function SurfaceTabs({
                       harness={agent.harness}
                       className="size-3.5 shrink-0"
                     />
+                  ) : board ? (
+                    <Kanban className="size-3.5 shrink-0" strokeWidth={1.75} />
                   ) : changes || commit ? (
                     <GitCompare
                       className="size-3.5 shrink-0"

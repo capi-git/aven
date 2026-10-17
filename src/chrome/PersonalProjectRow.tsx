@@ -22,6 +22,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  Kanban,
   MoreHorizontal,
   Plus,
 } from "./icons";
@@ -42,6 +43,8 @@ type Props = {
   onSelect: () => void;
   onToggle: () => void;
   onNew?: () => void;
+  /** Open the project's board, from the menu or the icon shown on hover. */
+  onOpenBoard?: () => void;
   onMove?: (path: string, profileId: string) => void;
   onRemove?: (path: string, options: { purgeData: boolean }) => void;
   onPinnedChange?: () => void;
@@ -58,6 +61,7 @@ export function PersonalProjectRow({
   onSelect,
   onToggle,
   onNew,
+  onOpenBoard,
   onMove,
   onRemove,
   onPinnedChange,
@@ -94,6 +98,9 @@ export function PersonalProjectRow({
   const isPinned = pinned.some((item) => sameProjectPath(item, path));
   const items: ExplorerMenuItem[] = [
     { kind: "item", id: "open", label: "Open project" },
+    ...(onOpenBoard
+      ? [{ kind: "item" as const, id: "board", label: "Open board" }]
+      : []),
     {
       kind: "item",
       id: "pin",
@@ -197,6 +204,17 @@ export function PersonalProjectRow({
             <ChevronRight className="size-3" />
           )}
         </button>
+        {onOpenBoard ? (
+          <button
+            type="button"
+            className="personal-project-row-action personal-project-board"
+            aria-label={`Open ${label} board`}
+            title={`Open ${label} board`}
+            onClick={onOpenBoard}
+          >
+            <Kanban className="size-3.5" />
+          </button>
+        ) : null}
         {onNew ? (
           <button
             type="button"
@@ -236,6 +254,7 @@ export function PersonalProjectRow({
           onPick={(id) => {
             setMenu(null);
             if (id === "open") onSelect();
+            else if (id === "board") onOpenBoard?.();
             else if (id === "customize") setCustomizing(true);
             else if (id === "memory") setEditingMemory(true);
             else if (id === "reveal") void revealPath(path);
