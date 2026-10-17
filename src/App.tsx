@@ -19,6 +19,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import { retainedSessionIds } from "./lib/sessionRetention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
 import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
@@ -2565,33 +2566,13 @@ export default function App({
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
   useEffect(() => {
-    const visibleIds = openSessionIds(tabs);
-    // Inbox owns these panes independently of project tabs. Keep their drafts
-    // and attachments mounted when the panel closes or switches items.
-    for (const session of sessions) {
-      if (session.inboxAsk) visibleIds.add(session.id);
-      // A managed assignment may be finished while its native children keep
-      // working. Its lead remains the navigation target for those workers.
-      if (
-        session.orchestrationLeadId &&
-        (isInFlightSession(session) || uncertainSessionAgents(session).length)
-      )
-        visibleIds.add(session.orchestrationLeadId);
-    }
-    // Internal workers stay attached to the lead, even while idle between
-    // turns. They must not be discarded merely because they have no tab.
-    for (const session of sessions) {
-      if (
-        session.orchestrationLeadId &&
-        (visibleIds.has(session.orchestrationLeadId) ||
-          orchestrationRuns.some(
-            (run) =>
-              run.leadId === session.orchestrationLeadId &&
-              ["active", "paused"].includes(run.status),
-          ))
-      )
-        visibleIds.add(session.id);
-    }
+    // Inbox chats, the lead of a running or paused orchestration and its
+    // workers stay loaded without a tab (see retainedSessionIds).
+    const visibleIds = retainedSessionIds(
+      sessions,
+      openSessionIds(tabs),
+      orchestrationRuns,
+    );
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
