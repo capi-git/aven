@@ -697,10 +697,11 @@ describe("useDiscussionBroker with the user jumping in", () => {
     expect(ref().some((session) => session.id === "b")).toBe(true);
   });
 
-  it("pauses for a partner that can't be brought back", async () => {
+  it("pauses for a partner that can't be brought back, and tries again on Resume", async () => {
     const id = await start(1);
     await finish("a", "Yes, briefly.");
     await finish("b", "Agreed.");
+    const b = ref().find((session) => session.id === "b")!;
     await act(async () =>
       setSessions((list) => list.filter((session) => session.id !== "b")),
     );
@@ -716,6 +717,16 @@ describe("useDiscussionBroker with the user jumping in", () => {
       reason:
         "“Review” couldn't be opened. Open it from the sidebar to continue.",
     });
+    // It can be opened again (unarchived, say): Resume tries once more.
+    parked.set("b", b);
+    await act(async () => {
+      store.resume(id);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(store.get(id)?.status).toBe("active");
+    expect(ref().some((session) => session.id === "b")).toBe(true);
   });
 
   it("copies the partner's last reply in when its turn ended before a reload", async () => {

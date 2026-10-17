@@ -408,6 +408,17 @@ export async function deleteSession(sessionId: string): Promise<void> {
   }
 }
 
+/** Chats archived or unarchived in this window since it opened. */
+const archivedHere = new Map<string, boolean>();
+
+/**
+ * Whether a chat was archived here, as far as this window knows: what it
+ * did itself, else `saved` (its history row). A team never loads one back.
+ */
+export function chatIsArchived(sessionId: string, saved?: boolean): boolean {
+  return archivedHere.get(sessionId) ?? !!saved;
+}
+
 export async function setSessionArchived(
   sessionId: string,
   archived: boolean,
@@ -415,6 +426,7 @@ export async function setSessionArchived(
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_set_archived", { sessionId, archived }),
   );
+  archivedHere.set(sessionId, archived);
   // The finished discussions it started are put away with it.
   if (archived)
     try {

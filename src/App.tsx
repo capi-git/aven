@@ -534,6 +534,7 @@ import {
   replaceInFlightSessions,
   saveWorkspaceSnapshot,
   setSessionArchived,
+  chatIsArchived,
   setSessionPinned,
   shouldPersistSession,
   upsertSession,
@@ -7169,7 +7170,15 @@ export default function App({
     focusChat: (sessionId) => void onSelectHistorySession(sessionId),
     // A new partner has no tab: it is parked once the discussion ends, and
     // loaded again when the discussion continues or is asked to build.
-    loadChat: ensureOpenSession,
+    // An archived chat is never brought back to relay to: its discussion
+    // paused when it was archived, and stays paused until it is unarchived.
+    loadChat: (id) =>
+      chatIsArchived(
+        id,
+        historyRef.current.find((row) => row.id === id)?.archived,
+      )
+        ? Promise.resolve(null)
+        : ensureOpenSession(id),
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.

@@ -778,8 +778,22 @@ describe("keeping discussions", () => {
     });
     store.forgetArchived("a");
     expect(store.get("done")).toBeUndefined();
-    // A running one is left to finish.
-    expect(store.get("live")).toBeDefined();
+    // A running one pauses, saying why, rather than bring the chat back.
+    expect(store.get("live")).toMatchObject({
+      status: "paused",
+      reason:
+        "“a” was archived. Unarchive it to continue, or end the discussion.",
+    });
+    // Archiving the other chat does the same.
+    store.start({
+      id: "other",
+      a: party("d"),
+      b: party("e"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.forgetArchived("e");
+    expect(store.get("other")?.status).toBe("paused");
     expect(() =>
       store.start({
         a: party("x"),

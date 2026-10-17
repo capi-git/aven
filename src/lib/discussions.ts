@@ -1343,6 +1343,11 @@ function readAll(storage: DiscussionStorage | undefined): Discussion[] {
   }
 }
 
+/** Why a discussion paused when one of its chats was archived. */
+export function archivedReason(title: string): string {
+  return `“${title || "A chat"}” was archived. Unarchive it to continue, or end the discussion.`;
+}
+
 /** Why a discussion paused for no one chat; shown after "Paused". */
 export const RELOAD_REASON =
   "Its window reloaded or closed. Resume to continue.";
@@ -1686,10 +1691,19 @@ export class DiscussionStore {
   }
 
   /**
-   * A chat was archived: the finished discussions it started go, as its
-   * other history is put away. Ones still running are left to finish.
+   * A chat was archived. A discussion it is in that is still going pauses
+   * and says so, rather than bring the chat back to relay to it; the
+   * finished discussions it started go, as its other history is put away.
    */
   forgetArchived(sessionId: string) {
+    for (const discussion of [...this.list]) {
+      const side = discussionSideOf(discussion, sessionId);
+      if (!side || discussion.status === "ended" || discussion.preview)
+        continue;
+      const name = (side === "a" ? discussion.a : discussion.b).title;
+      this.adopt(discussion.id);
+      this.pause(discussion.id, archivedReason(name));
+    }
     const gone = new Set(
       this.list
         .filter(

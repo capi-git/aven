@@ -403,8 +403,22 @@ export function useDiscussionBroker({
   );
 
   const rerun = useRef(() => {});
+  /** Each discussion's status as last planned, to see a Resume. */
+  const lastStatus = useRef(new Map<string, Discussion["status"]>());
   const run = useCallback(() => {
     const { sessionsRef, postNote, loadChat } = latest.current;
+    // A chat that couldn't be loaded is tried again when its discussion is
+    // resumed: it may have been unarchived, or opened, since.
+    for (const discussion of store.snapshot()) {
+      if (
+        lastStatus.current.get(discussion.id) === "paused" &&
+        discussion.status === "active"
+      ) {
+        unavailable.current.delete(discussion.a.sessionId);
+        unavailable.current.delete(discussion.b.sessionId);
+      }
+      lastStatus.current.set(discussion.id, discussion.status);
+    }
     const actions = planDiscussions(
       store.snapshot(),
       store.owner,
