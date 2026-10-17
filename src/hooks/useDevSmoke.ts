@@ -1059,7 +1059,7 @@ export async function checkRace(
   }
   for (const part of [
     "Keep Claude Code's version?",
-    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes their copies.`,
+    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes both copies`,
   ])
     if (!question.includes(part))
       throw new Error(`Keep asked: ${question || "nothing"}`);

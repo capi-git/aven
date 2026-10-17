@@ -70,6 +70,13 @@ export type RaceReview = {
 /** The chat a race was started from, and the block its card follows. */
 export type RaceOrigin = { sessionId: string; blockId: string };
 
+/**
+ * How a lane's latest turn ended, kept with the race: a lane whose chat is
+ * not loaded is otherwise known only from the activity ledger, which
+ * "Clear finished" and its size limit empty.
+ */
+export type RaceLaneEnd = { kind: "done" | "failed" | "stopped"; at: number };
+
 export type RaceRecord = {
   id: string;
   project: string;
@@ -101,6 +108,8 @@ export type RaceRecord = {
   suggestion?: RaceSuggestion;
   /** The chat asked to review the race, if one was. */
   review?: RaceReview;
+  /** How each lane's latest turn ended, by lane; null while it works. */
+  ends?: (RaceLaneEnd | null)[];
 };
 
 export const RACE_MIN_LANES = 2;
@@ -272,9 +281,45 @@ export function noteRaceStats(
   if (!same) updateRace(id, { stats: next });
 }
 
-/** The race started from this chat's message block, if any. */
-export function raceForBlock(blockId: string): RaceRecord | undefined {
-  return read().find((race) => race.origin?.blockId === blockId);
+/** The running race whose lane this chat is, and that lane's index. */
+function runningLane(
+  sessionId: string,
+): { race: RaceRecord; lane: number } | undefined {
+  for (const race of read()) {
+    if (race.state !== "running") continue;
+    const lane = race.lanes.findIndex((item) => item.sessionId === sessionId);
+    if (lane >= 0) return { race, lane };
+  }
+  return undefined;
+}
+
+/**
+ * A lane's chat starts a turn (Retry, or a message of yours): its earlier
+ * ending no longer holds, and neither does a suggested winner or a review
+ * that judged the results it is now changing.
+ */
+export function raceLaneStarted(sessionId: string) {
+  const found = runningLane(sessionId);
+  if (!found) return;
+  const { race, lane } = found;
+  const ends = race.ends?.[lane] ? [...race.ends] : race.ends;
+  if (ends) ends[lane] = null;
+  if (ends === race.ends && !race.suggestion && !race.review) return;
+  updateRace(race.id, { ends, suggestion: undefined, review: undefined });
+}
+
+/** A lane's chat finished a turn: remember how, with the race. */
+export function raceLaneEnded(
+  sessionId: string,
+  outcome: "completed" | "failed" | "stopped",
+  at = Date.now(),
+) {
+  const found = runningLane(sessionId);
+  if (!found) return;
+  const { race, lane } = found;
+  const ends = race.lanes.map((_, index) => race.ends?.[index] ?? null);
+  ends[lane] = { kind: outcome === "completed" ? "done" : outcome, at };
+  updateRace(race.id, { ends });
 }
 
 /** All races, unchanged (the same array) until one is saved. */

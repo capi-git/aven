@@ -222,8 +222,10 @@ import {
   raceHost,
   racePrompt,
   releaseRaceCheckout,
+  raceLaneEnded,
   raceLaneFor,
   raceLaneRecords,
+  raceLaneStarted,
   raceOriginBlock,
   saveRace,
   usesRaceCheckout,
@@ -2255,6 +2257,14 @@ export default function App({
   memberActivityTurns.current ??= memberTurns();
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
+      // A race keeps how each lane ended, whether or not its chat stays
+      // loaded or the ledger keeps the entry.
+      if (
+        event.outcome === "completed" ||
+        event.outcome === "failed" ||
+        event.outcome === "stopped"
+      )
+        raceLaneEnded(session.id, event.outcome);
       if (quietActivityTurns.current?.silences(event.id)) return;
       const team = memberActivityTurns.current?.teamOf(event.id);
       const presentation = activityPresentation(session.id);
@@ -5952,6 +5962,7 @@ export default function App({
       const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
+      raceLaneStarted(sessionId);
       if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
       const member: ActivityTeam | undefined = options?.discussion
         ? { id: `discuss:${options.discussion.id}`, kind: "discuss" }
@@ -8811,9 +8822,17 @@ export default function App({
       void ensureOpenSession(record.sessionId).then((session) => {
         if (!session || session.busy || getRace(race.id)?.state !== "running")
           return;
-        onSubmit(session.id, racePrompt(race.prompt, race.lanes.length), [], {
-          teamMember: { id: `race:${race.id}`, kind: "race" },
-        });
+        // The task as the lane first got it, with its attachments: its
+        // first message carries them.
+        const first = session.blocks.find(
+          (block) => block.role === "user" && !block.internal,
+        );
+        onSubmit(
+          session.id,
+          racePrompt(race.prompt, race.lanes.length),
+          first?.attachments ?? [],
+          { teamMember: { id: `race:${race.id}`, kind: "race" } },
+        );
       });
     },
   };

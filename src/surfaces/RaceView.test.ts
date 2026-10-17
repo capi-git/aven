@@ -227,6 +227,13 @@ async function confirmDialog() {
   await act(async () => confirm.click());
 }
 
+/** Keep a lane, confirming that the other agents' changes go with it. */
+async function keepThis(view: HTMLElement) {
+  await act(async () => button(view, "Keep this").click());
+  expect(dialog()?.textContent).toContain("with the other agents' changes");
+  await confirmDialog();
+}
+
 it("shows each lane's status and changes and explains what was copied", async () => {
   const view = await render([ended("s0", "completed"), session("s1", true)]);
   const text = view.textContent ?? "";
@@ -262,7 +269,7 @@ it("keeps a lane working during an optional question while blocking questions wa
 
 it("keeps one lane: applies its files, stops the lanes and removes the copies", async () => {
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(host.invoke).toHaveBeenCalledWith("race_apply", {
     root: "/work/site",
     base: record.base,
@@ -337,7 +344,8 @@ it.each([
     );
     const view = await render([session("s0"), session("s1")]);
     await act(async () => button(view, action).click());
-    if (action === "Discard race") await confirmDialog();
+    // Keeping one deletes the other's changes, so it asks too.
+    await confirmDialog();
     const cleanupIndex = host.invoke.mock.calls.findIndex(
       ([command]) => command === "race_cleanup",
     );
@@ -410,7 +418,7 @@ it("ignores a refresh that fails after the copies have been removed", async () =
 it("keeps copies available when a writer cannot be stopped", async () => {
   settle.mockRejectedValue(new Error("Could not stop the provider"));
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(view.textContent).toContain("Could not stop the provider");
   expect(host.invoke).not.toHaveBeenCalledWith("race_apply", expect.anything());
   expect(host.invoke).not.toHaveBeenCalledWith(
@@ -430,7 +438,7 @@ it("releases chats after a successful keep even when a copy cannot be removed", 
     },
   );
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
   expect(view.textContent).toContain("Some race copies could not be removed");
@@ -446,7 +454,7 @@ it("leaves the race running and explains a conflicting keep", async () => {
     },
   );
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(view.textContent).toContain("conflict with edits in your project");
   expect(host.invoke).not.toHaveBeenCalledWith(
     "race_cleanup",
@@ -487,7 +495,7 @@ it("keeps the files a lane wrote after the overview last refreshed", async () =>
   await act(async () => button(view, "Keep this").click());
   expect(dialog()?.textContent).toContain("Keep Claude Code's version?");
   expect(dialog()?.textContent).toContain(
-    "Claude Code is still working; you get what it has written so far. This stops 2 agents still working and deletes their copies.",
+    "Claude Code is still working; you get what it has written so far. This stops 2 agents still working and deletes both copies, with the other agents' changes: Codex (1 file).",
   );
   await confirmDialog();
   expect(host.invoke).toHaveBeenCalledWith("race_apply", {
@@ -506,7 +514,7 @@ it("asks before keeping while another agent still works, and not once all are do
     "Keep Claude Code's version?",
   );
   expect(dialog()?.textContent).toContain(
-    "This stops 1 agent still working and deletes their copies.",
+    "This stops 1 agent still working and deletes both copies, with the other agents' changes: Codex (1 file).",
   );
   const cancel = [...dialog()!.querySelectorAll("button")].find(
     (entry) => entry.textContent === "Cancel",
@@ -553,7 +561,7 @@ it("shows each lane's real outcome, stops its clock at its own end and offers Re
   expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: "r1" }), 1);
 });
 
-it("tells a stopped lane from a working one and offers no Retry for either", async () => {
+it("tells a stopped lane from a working one and offers Retry only for the stopped one", async () => {
   const stopped = await render([
     ended("s0", "stopped", 7),
     workingFor("s1", 75),
@@ -565,7 +573,7 @@ it("tells a stopped lane from a working one and offers no Retry for either", asy
   expect(second.querySelector("[data-lane-state]")?.textContent).toBe(
     "Working · 1:15",
   );
-  expect(first.textContent).not.toContain("Retry");
+  expect(first.textContent).toContain("Retry");
   expect(second.textContent).not.toContain("Retry");
 });
 
@@ -691,7 +699,7 @@ it("shows each lane's last reply, and records why when you keep the suggested la
   ).not.toBeNull();
   // Already suggested: not offered again.
   expect(view.querySelector("[data-race-suggest]")).toBeNull();
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(getRace("r1")?.outcome).toMatchObject({
     kind: "lane",
     lane: 0,

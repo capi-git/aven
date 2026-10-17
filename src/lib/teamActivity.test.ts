@@ -113,7 +113,8 @@ describe("teamActivityEvents", () => {
       event: {
         id: "chat:team:r1:ready:80",
         outcome: "completed",
-        summary: "Race ready to compare · 3 agents",
+        // One of the three failed: not "3 agents".
+        summary: "Race ready to compare · 2 of 3 done",
       },
     });
     const retried = teamActivityEvents(ready.seen, [team({})]);
@@ -122,6 +123,18 @@ describe("teamActivityEvents", () => {
       team({ status: "ready", members: lanes(400) }),
     ]);
     expect(again.events[0].event.id).toBe("chat:team:r1:ready:400");
+  });
+
+  it("posts nothing for a race whose agents you stopped", () => {
+    const start = teamActivityEvents(null, [team({})]);
+    const stopped = team({
+      status: "ready",
+      members: [
+        member("l0", { state: "stopped" }),
+        member("l1", { state: "stopped" }),
+      ],
+    });
+    expect(teamActivityEvents(start.seen, [stopped]).events).toEqual([]);
   });
 
   it("posts one entry per need, in the chat to open", () => {

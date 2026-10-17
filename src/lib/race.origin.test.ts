@@ -7,7 +7,8 @@ import { groupTurns } from "../surfaces/transcriptActivity";
 import {
   getRace,
   noteRaceStats,
-  raceForBlock,
+  raceLaneEnded,
+  raceLaneStarted,
   raceOriginBlock,
   saveRace,
   updateRace,
@@ -62,7 +63,6 @@ it("keeps your message in the chat the race started from", () => {
     sessionId: "chat",
     blockId: block.id,
   });
-  expect(raceForBlock(block.id)?.id).toBe("r1");
 });
 
 it("saves the message with the chat, as a turn of its own", () => {
@@ -120,4 +120,24 @@ it("remembers lane changes only when they move", () => {
   noteRaceStats("r1", [{ ...diff, additions: 9 }, undefined]);
   expect(getRace("r1")?.stats?.[0]?.additions).toBe(3);
   window.removeEventListener("aven:races-changed", listener);
+});
+
+it("keeps how each lane ended with the race, and forgets it for a new turn", () => {
+  saveRace(record({ suggestion: { status: "failed", at: 5 } }));
+  raceLaneEnded("l1", "completed", 50);
+  expect(getRace("r1")?.ends).toEqual([null, { kind: "done", at: 50 }]);
+  raceLaneEnded("l0", "failed", 60);
+  expect(getRace("r1")?.ends).toEqual([
+    { kind: "failed", at: 60 },
+    { kind: "done", at: 50 },
+  ]);
+  // A retried lane: its ending, and the suggestion that judged it, go.
+  raceLaneStarted("l0");
+  expect(getRace("r1")?.ends).toEqual([null, { kind: "done", at: 50 }]);
+  expect(getRace("r1")?.suggestion).toBeUndefined();
+  // Not a lane, or a race that is over: nothing changes.
+  raceLaneEnded("chat", "completed");
+  updateRace("r1", { state: "kept" });
+  raceLaneEnded("l0", "completed", 70);
+  expect(getRace("r1")?.ends?.[0]).toBeNull();
 });

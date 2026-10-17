@@ -289,12 +289,19 @@ export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
       : entry,
   );
 }
+/**
+ * "Clear finished" empties the visible history. It keeps pending requests
+ * when asked, and always keeps team members' quiet entries, which no list
+ * shows but which say how a closed chat's last turn ended.
+ */
 export function clearActivityHistory({
   keepPending = false,
 }: { keepPending?: boolean } = {}) {
   const current = readLedger();
   const entries = keepPending
-    ? current.entries.filter(isPendingActivity)
+    ? current.entries.filter(
+        (entry) => isPendingActivity(entry) || isMemberActivity(entry),
+      )
     : EMPTY;
   if (entries.length !== current.entries.length)
     writeLedger({ ...current, entries });

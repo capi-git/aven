@@ -96,7 +96,10 @@ export type TeamMember = {
 export type TeamStatus =
   | "running"
   | "needs-you"
-  /** A race whose lanes are all done: calm, waiting to be compared. */
+  /**
+   * A race with no agent working, where one finished or you stopped them:
+   * calm, waiting for you to compare, retry or discard.
+   */
   | "ready"
   | "finished"
   | "stopped";
@@ -364,8 +367,13 @@ export function raceHeadline(race: RaceRecord): string | undefined {
 /** A race as a team: one member per lane, started from its origin chat. */
 export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
   const running = race.state === "running";
-  const laneStates = race.lanes.map((lane) =>
-    raceLaneState(lane.sessionId, look.session(lane.sessionId), look.activity),
+  const laneStates = race.lanes.map((lane, index) =>
+    raceLaneState(
+      lane.sessionId,
+      look.session(lane.sessionId),
+      look.activity,
+      race.ends?.[index],
+    ),
   );
   const members = race.lanes.map((lane, index): TeamMember => {
     const session = look.session(lane.sessionId);

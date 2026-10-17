@@ -39,7 +39,7 @@ import {
 } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
 import { installTeamWorkspace } from "../lib/teamWorkspace";
-import { RaceCard } from "./RaceCard";
+import { RaceCard, readyText } from "./RaceCard";
 
 const record: RaceRecord = {
   id: "r1",
@@ -392,5 +392,19 @@ describe("a race's card in the chat it was sent from", () => {
     window.dispatchEvent(new StorageEvent("storage", { key: "aven.races.v1" }));
     await render();
     expect(text(".team-card-status")).toBe("This race is no longer kept.");
+  });
+});
+
+describe("a race no agent works in", () => {
+  it("says how its agents ended", () => {
+    expect(readyText([{ state: "done" }, { state: "done" }])).toBe(
+      "Every agent is done. Compare their changes and keep one.",
+    );
+    expect(readyText([{ state: "done" }, { state: "failed" }])).toBe(
+      "No agent is working now. Compare their changes and keep one, or retry the others.",
+    );
+    expect(readyText([{ state: "stopped" }, { state: "stopped" }])).toBe(
+      "Every agent was stopped. Retry one, compare what they wrote, or discard the race.",
+    );
   });
 });

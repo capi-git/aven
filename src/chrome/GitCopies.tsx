@@ -913,8 +913,13 @@ export function GitCopies({
     return {
       kind: "race",
       group,
-      lanes: group.race.lanes.map((lane) =>
-        raceLaneState(lane.sessionId, live?.session(lane.sessionId), entries),
+      lanes: group.race.lanes.map((lane, index) =>
+        raceLaneState(
+          lane.sessionId,
+          live?.session(lane.sessionId),
+          entries,
+          group.race.ends?.[index],
+        ),
       ),
       chat,
     };

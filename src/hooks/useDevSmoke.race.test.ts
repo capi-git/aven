@@ -390,7 +390,7 @@ function app(flaws: Flaws = {}) {
     element.setAttribute("role", "dialog");
     const working = laneState.filter((kind) => kind === "working").length;
     element.append(
-      `Keep Claude Code's version? This stops ${working} agents still working and deletes their copies.`,
+      `Keep Claude Code's version? This stops ${working} agents still working and deletes both copies, with the other agents' changes: Grok Build (1 file).`,
       button("Cancel", () => {
         asking = false;
         draw();

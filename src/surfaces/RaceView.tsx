@@ -34,6 +34,7 @@ import {
 import {
   raceCombineQuestion,
   raceDiscardQuestion,
+  raceKeepAsks,
   raceKeepQuestion,
   raceLaneActive,
   raceLaneCanRetry,
@@ -135,12 +136,17 @@ function RaceBody({
   visible: boolean;
 }) {
   const entries = useActivity();
-  const lanes = race.lanes.map((lane) => {
+  const lanes = race.lanes.map((lane, index) => {
     const session = sessions.find((entry) => entry.id === lane.sessionId);
     return {
       lane,
       session,
-      state: raceLaneState(lane.sessionId, session, entries),
+      state: raceLaneState(
+        lane.sessionId,
+        session,
+        entries,
+        race.ends?.[index],
+      ),
     };
   });
   const states = lanes.map(({ state }) => state);
@@ -554,14 +560,15 @@ function RaceBody({
                   <button
                     type="button"
                     disabled={disabled || !diff?.files.length}
-                    onClick={() =>
+                    onClick={() => {
+                      const changed = diffs.map((entry) => entry?.files.length);
                       confirm(
-                        anyActive,
-                        raceKeepQuestion(race, index, states),
+                        raceKeepAsks(race, index, states, changed),
+                        raceKeepQuestion(race, index, states, changed),
                         false,
                         () => void finish("Keeping…", { lane: index }),
-                      )
-                    }
+                      );
+                    }}
                     className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
                   >
                     Keep this

@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "./activity";
 import { wasTurnInterrupted } from "./inFlight";
-import type { RaceRecord } from "./race";
+import type { RaceLaneEnd, RaceRecord } from "./race";
 import { raceAgentNames } from "./raceNames";
 import { sessionIsWaitingForInput, type Session } from "./session";
 import { sessionRunStatus } from "./sessionRunStatus";
@@ -54,10 +54,14 @@ function latestTurn(session: Session) {
   return undefined;
 }
 
-/** A chat that is not loaded: only its recorded outcomes are known. */
-function fromLedger(
+/**
+ * A chat that is not loaded: only its recorded outcomes are known, from the
+ * ledger or, newer or when the ledger was cleared, from the race itself.
+ */
+function fromRecord(
   sessionId: string,
   entries: readonly ActivityEntry[],
+  end: RaceLaneEnd | null | undefined,
 ): RaceLaneState {
   let latest: ActivityEntry | undefined;
   for (const entry of entries)
@@ -66,6 +70,7 @@ function fromLedger(
       (!latest || entry.createdAt > latest.createdAt)
     )
       latest = entry;
+  if (end && (!latest || end.at >= latest.createdAt)) return state(end.kind);
   if (!latest) return state("closed");
   if (latest.outcome === "completed") return state("done");
   if (latest.outcome === "failed") return state("failed");
@@ -77,8 +82,10 @@ export function raceLaneState(
   sessionId: string,
   session: Session | undefined,
   entries: readonly ActivityEntry[],
+  /** How the race recorded the lane's latest turn ending. */
+  end?: RaceLaneEnd | null,
 ): RaceLaneState {
-  if (!session) return fromLedger(sessionId, entries);
+  if (!session) return fromRecord(sessionId, entries, end);
   const turn = latestTurn(session);
   const startedAt = turn?.block.startedAt;
   const timing = {
@@ -119,8 +126,18 @@ export function raceLaneActive(lane: RaceLaneState): boolean {
   return lane.kind === "working" || lane.kind === "waiting";
 }
 
+/**
+ * Any lane that is not working and did not finish can be sent its task
+ * again: one that failed, was cut short, was stopped, or whose chat is
+ * closed with no outcome known.
+ */
 export function raceLaneCanRetry(lane: RaceLaneState): boolean {
-  return lane.kind === "failed" || lane.kind === "interrupted";
+  return (
+    lane.kind === "failed" ||
+    lane.kind === "interrupted" ||
+    lane.kind === "stopped" ||
+    lane.kind === "closed"
+  );
 }
 
 /** Seconds on the lane's clock, or null when it has none to show. */
@@ -171,22 +188,64 @@ function stopsAgents(working: number): string {
     : "This ";
 }
 
-/** Asked before keeping one lane while any agent is still working. */
+/** The other agents whose changes keeping `lane` deletes, by name. */
+function othersChanged(
+  race: RaceRecord,
+  lane: number,
+  changedFiles: ReadonlyArray<number | undefined>,
+): string[] {
+  return race.lanes
+    .map((_, index) => {
+      const files = index === lane ? 0 : (changedFiles[index] ?? 0);
+      return files
+        ? `${raceLaneName(race, index)} (${plural(files, "file")})`
+        : "";
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Whether keeping one lane asks first: an agent is still working, or
+ * another agent's changes, finished or not, would be deleted with its copy.
+ */
+export function raceKeepAsks(
+  race: RaceRecord,
+  lane: number,
+  lanes: readonly RaceLaneState[],
+  changedFiles: ReadonlyArray<number | undefined> = [],
+): boolean {
+  return (
+    lanes.some(raceLaneActive) ||
+    othersChanged(race, lane, changedFiles).length > 0
+  );
+}
+
+/**
+ * Asked before keeping one lane (see `raceKeepAsks`): what stops, and
+ * every copy deleted with the other agents' changes. `changedFiles` holds
+ * each lane's number of changed files, where known.
+ */
 export function raceKeepQuestion(
   race: RaceRecord,
   lane: number,
   lanes: readonly RaceLaneState[],
+  changedFiles: ReadonlyArray<number | undefined> = [],
 ): RaceQuestion {
   const name = raceLaneName(race, lane);
   const working = lanes.filter(raceLaneActive).length;
   const own = lanes[lane] && raceLaneActive(lanes[lane]);
+  const lost = othersChanged(race, lane, changedFiles);
   return {
     title: `Keep ${name}'s version?`,
     body: [
       own
         ? `${name} is still working; you get what it has written so far.`
         : "",
-      `${stopsAgents(working)}deletes their copies.`,
+      `${stopsAgents(working)}deletes ${allCopies(race.lanes.length)}${
+        lost.length
+          ? `, with the other agents' changes: ${listNames(lost)}`
+          : ""
+      }.`,
     ]
       .filter(Boolean)
       .join(" "),

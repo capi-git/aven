@@ -10,8 +10,8 @@
  *   chat again. A request the lead left unanswered is handed to you.
  * - A paused team needs you, with its plain reason and the chat to open, as
  *   does a run whose lead stopped without finishing.
- * - A race whose lanes are all done is ready to compare: calm, not amber.
- *   One where no lane finished needs you.
+ * - A race with no agent working is ready to compare: calm, not amber.
+ *   One where an agent failed and none finished needs you.
  */
 import type { OrchestrationRun } from "./orchestration";
 import { hasPendingApproval, type Session } from "./session";
@@ -164,8 +164,14 @@ export function teamAttention(input: {
     const active = members.some(
       (member) => member.state === "working" || member.state === "queued",
     );
+    // An agent that failed, with none finished, needs you. Agents you
+    // stopped, or whose chats closed with no outcome known, are yours to
+    // compare, retry or discard, calmly.
+    const failed = members.some(
+      (member) => member.state === "failed" || member.state === "interrupted",
+    );
     if (!active)
-      return members.some((member) => member.state === "done")
+      return members.some((member) => member.state === "done") || !failed
         ? { status: "ready" }
         : {
             status: "needs-you",

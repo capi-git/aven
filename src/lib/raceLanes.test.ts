@@ -3,7 +3,9 @@ import type { ActivityEntry } from "./activity";
 import type { RaceRecord } from "./race";
 import {
   raceDiscardQuestion,
+  raceKeepAsks,
   raceKeepQuestion,
+  raceLaneCanRetry,
   raceLaneSeconds,
   raceLaneState,
   raceOutcomeText,
@@ -60,6 +62,16 @@ const entry = (
 describe("lane states", () => {
   it("reads a chat that is not loaded from its latest recorded outcome", () => {
     expect(raceLaneState("s0", undefined, []).kind).toBe("closed");
+    // Kept with the race: a cleared ledger still knows it finished.
+    expect(
+      raceLaneState("s0", undefined, [], { kind: "done", at: 4 }).kind,
+    ).toBe("done");
+    expect(
+      raceLaneState("s0", undefined, [entry("s0", "failed", 9)], {
+        kind: "done",
+        at: 4,
+      }).kind,
+    ).toBe("failed");
     expect(
       raceLaneState("s0", undefined, [
         entry("s0", "completed", 1),
@@ -116,9 +128,29 @@ describe("race wording", () => {
       ]),
     ).toEqual({
       title: "Keep Claude Code's version?",
-      body: "This stops 2 agents still working and deletes their copies.",
+      body: "This stops 2 agents still working and deletes all 3 copies.",
       confirm: "Keep Claude Code's version",
     });
+  });
+
+  it("says keeping deletes a finished agent's work, and asks only then", () => {
+    const done = [lane("done"), lane("done")];
+    expect(raceKeepQuestion(race(2), 0, done, [2, 3]).body).toBe(
+      "This deletes both copies, with the other agents' changes: Codex (3 files).",
+    );
+    expect(raceKeepAsks(race(2), 0, done, [2, 3])).toBe(true);
+    // Nothing else changed and nothing works: nothing to lose.
+    expect(raceKeepAsks(race(2), 0, done, [2, 0])).toBe(false);
+    expect(raceKeepAsks(race(2), 0, [lane("done"), lane("working")])).toBe(
+      true,
+    );
+  });
+
+  it("offers Retry for any agent that stopped without finishing", () => {
+    for (const kind of ["failed", "interrupted", "stopped", "closed"] as const)
+      expect(raceLaneCanRetry(lane(kind))).toBe(true);
+    for (const kind of ["done", "working", "waiting", "unstarted"] as const)
+      expect(raceLaneCanRetry(lane(kind))).toBe(false);
   });
 
   it("names what discarding deletes", () => {

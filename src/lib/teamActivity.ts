@@ -85,13 +85,21 @@ export function teamActivityEvents(
       continue;
     }
     if (team.kind === "race" && team.status === "ready") {
-      if (before.status !== "ready")
+      // Agents you stopped yourself, with none finished, are not news.
+      const done = team.members.filter(
+        (member) => member.state === "done",
+      ).length;
+      if (before.status !== "ready" && done)
         events.push({
           sessionId: origin,
           event: {
             id: `${origin}:team:${team.key}:ready:${lastEnd(team)}`,
             outcome: "completed",
-            summary: `Race ready to compare · ${plural(team.members.length, "agent")}`,
+            summary: `Race ready to compare · ${
+              done === team.members.length
+                ? plural(done, "agent")
+                : `${done} of ${team.members.length} done`
+            }`,
             team: marker,
           },
         });

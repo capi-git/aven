@@ -273,6 +273,17 @@ describe("teamAttention", () => {
       status: "needs-you",
       need: { sessionId: "chat", kind: "error" },
     });
+    // Agents you stopped, or whose chats closed with no outcome known, are
+    // yours to compare, retry or discard: calm, not "needs you".
+    expect(
+      teamAttention({
+        kind: "race",
+        phase: "running",
+        members: [member("l0", "stopped"), member("l1", "stopped")],
+        origin: "chat",
+        since: 0,
+      }),
+    ).toEqual({ status: "ready" });
     // Lanes that have not started yet are still on their way.
     expect(
       teamAttention({

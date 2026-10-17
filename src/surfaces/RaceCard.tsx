@@ -55,6 +55,16 @@ function plural(count: number, one: string): string {
   return `${count} ${one}${count === 1 ? "" : "s"}`;
 }
 
+/** What a race with no agent working says, by how its agents ended. */
+export function readyText(members: readonly Pick<TeamMember, "state">[]) {
+  const done = members.filter((member) => member.state === "done").length;
+  if (done === members.length)
+    return "Every agent is done. Compare their changes and keep one.";
+  if (done)
+    return "No agent is working now. Compare their changes and keep one, or retry the others.";
+  return "Every agent was stopped. Retry one, compare what they wrote, or discard the race.";
+}
+
 const MEMBER_TONE: Record<
   TeamMember["state"],
   "live" | "needs-you" | "done" | "failed" | "muted"
@@ -274,7 +284,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 : suggestion?.status === "failed" && ready
                   ? "Couldn't suggest a winner. Compare their changes to choose."
                   : ready
-                    ? "Every agent is done. Compare their changes and keep one."
+                    ? readyText(team.members)
                     : "Each agent works in its own copy. Your project is unchanged until you keep one.";
   const continueAt = continueLane(race);
   const continueWith =
