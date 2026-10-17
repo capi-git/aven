@@ -7,7 +7,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { WorkspaceTab } from "./layout";
 import type { WorkspaceReturnPlacement } from "./workspaceArrangement";
-import { leafIds, newFileTab, openEditorTab } from "./layout";
+import {
+  BOARD_STAYS_MESSAGE,
+  holdsBoard,
+  leafIds,
+  newFileTab,
+  openEditorTab,
+} from "./layout";
 import { browserIdForTab } from "./personalWorkspace";
 import {
   resolveWorkspaceView,
@@ -185,6 +191,16 @@ export const nativeWorkspaceWindow = {
   listen: <T>(name: string, receive: (value: T) => void) =>
     getCurrentWebview().listen<T>(name, (e) => receive(e.payload)),
 };
+/**
+ * Why these tabs cannot move to a workspace window, or null. A project's
+ * board reads the main window's chats and acts through it, so it stays.
+ */
+export function detachProblem(
+  state: Pick<DetachedWorkspaceState, "tabs">,
+): string | null {
+  return state.tabs.some(holdsBoard) ? BOARD_STAYS_MESSAGE : null;
+}
+
 export function detachedSessionIds(state: DetachedWorkspaceState): string[] {
   const leaves = new Set(state.tabs.flatMap((tab) => leafIds(tab.layout)));
   return state.sessions
@@ -765,6 +781,8 @@ export function useDetachedWorkspaces(options: Options) {
       target?: string,
       point?: WorkspaceDropPoint,
     ) => {
+      const refused = detachProblem(input);
+      if (refused) throw new Error(refused);
       await ready.current;
       if (target && busyTargets.current.has(target))
         throw new Error(

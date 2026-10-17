@@ -153,6 +153,8 @@ import { WorkConflictMark } from "./WorkConflictMark";
 import { MotionList } from "./MotionList";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
+import type { ChatStatusWord } from "../lib/chatStatus";
+import { ChatStatusPill } from "./ChatStatusPill";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -181,6 +183,11 @@ export type SidebarProps = {
    * read "Needs you".
    */
   teamNeedIds?: ReadonlySet<string>;
+  /**
+   * Each chat's one-word status (see `chatStatus`), shown as a pill on its
+   * row; chats with none are left out.
+   */
+  chatStatus?: Readonly<Record<string, ChatStatusWord>>;
   activeSessionId?: string;
   /** Open tabs, including blank ones not yet in history. */
   openSessions?: readonly SessionSummary[];
@@ -258,6 +265,8 @@ export type SidebarProps = {
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
+  /** Open the project's board tab. */
+  onOpenBoard?: (path: string) => void;
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   /** The macOS floating sidebar resolves this in its workspace window. */
@@ -296,6 +305,10 @@ const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
 /** Rows whose amber comes from their team needing you (see `teamNeedIds`). */
 const TeamNeeds = createContext<ReadonlySet<string>>(NO_TEAM_NEEDS);
+const NO_CHAT_STATUS: Readonly<Record<string, ChatStatusWord>> = {};
+/** Each row's one-word status (see `chatStatus`). */
+const ChatStatuses =
+  createContext<Readonly<Record<string, ChatStatusWord>>>(NO_CHAT_STATUS);
 const NO_CONFLICTS: WorkConflictMap = {};
 
 /** Personal is the default home for every project, so it cannot be deleted. */
@@ -383,9 +396,11 @@ function SidebarComponent({
   onOpenDiscussion,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
+  chatStatus = NO_CHAT_STATUS,
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
+  onOpenBoard,
   onOpenProject,
   onRemoveProject,
   onNew,
@@ -1033,6 +1048,15 @@ function SidebarComponent({
     const talk = talks.get(sessionId);
     return talk && !discussionLinks.linked.has(sessionId) ? (
       <DiscussionTalkBadge talk={talk} />
+    ) : null;
+  };
+  /** A plain row's one-word status, if it has one. */
+  const plainStatus = (sessionId: string) => {
+    const word = chatStatus[sessionId];
+    return word ? (
+      <span className="personal-task-status">
+        <ChatStatusPill word={word} />
+      </span>
     ) : null;
   };
   /** The races this row stands for: their lanes' mascots and status. */
@@ -1856,6 +1880,7 @@ function SidebarComponent({
                                   <WorkConflictMark
                                     conflict={workConflicts[session.id]}
                                   />
+                                  {plainStatus(session.id)}
                                 </button>
                               ))
                             ),
@@ -1981,6 +2006,11 @@ function SidebarComponent({
                                 }
                               : undefined
                         }
+                        onOpenBoard={
+                          onOpenBoard
+                            ? () => onOpenBoard(project.path)
+                            : undefined
+                        }
                         onMove={onMoveProject}
                         onRemove={onRemoveProject}
                         onPinnedChange={() =>
@@ -2083,9 +2113,11 @@ function SidebarComponent({
                                     {session.pinned ? (
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
-                                    <span className="personal-task-status">
-                                      {formatRelative(session.updatedAt, now)}
-                                    </span>
+                                    {plainStatus(session.id) ?? (
+                                      <span className="personal-task-status">
+                                        {formatRelative(session.updatedAt, now)}
+                                      </span>
+                                    )}
                                   </button>
                                 ))
                               ),
@@ -2232,7 +2264,9 @@ function SidebarComponent({
       style={{ "--nav-width": `${resize.width}px` } as CSSProperties}
     >
       <TeamNeeds.Provider value={teamNeedIds}>
-        {sidebarContent}
+        <ChatStatuses.Provider value={chatStatus}>
+          {sidebarContent}
+        </ChatStatuses.Provider>
       </TeamNeeds.Provider>
     </div>
   );
@@ -2255,6 +2289,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "busySessionIds",
   "approvalSessionIds",
   "teamNeedIds",
+  "chatStatus",
   "loadedProjectPaths",
   "projectHistoryErrors",
   "unseenFinishedIds",
@@ -2620,7 +2655,12 @@ function SessionCard({
       : done
         ? "text-emerald-400"
         : "text-content/45";
-  const status = (
+  const word = useContext(ChatStatuses)[session.id];
+  const status = word ? (
+    <span className="personal-task-status flex shrink-0 items-center">
+      <ChatStatusPill word={word} />
+    </span>
+  ) : (
     <span
       className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
       title={

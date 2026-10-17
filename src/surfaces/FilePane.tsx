@@ -7,7 +7,9 @@ import {
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import {
+  BOARD_STAYS_MESSAGE,
   isAgentTab,
+  isBoardTab,
   isChangesTab,
   isCommitTab,
   isPlanTab,
@@ -56,6 +58,9 @@ const WorkingTreeDiff = retryableLazy(() =>
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
 );
+const WorkBoard = retryableLazy(() =>
+  import("./WorkBoard").then((module) => module.WorkBoard),
+);
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
 const surfaceFallback = <div aria-busy="true" className="h-full w-full" />;
@@ -83,6 +88,11 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  /**
+   * This window runs the workspace that boards read and act through. A
+   * workspace window does not, so a board there only says where it lives.
+   */
+  boards?: boolean;
 };
 
 function FilePaneComponent({
@@ -104,6 +114,7 @@ function FilePaneComponent({
   editorNavigation,
   onPaneDragStart,
   onTerminalMetaChange,
+  boards = true,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -119,23 +130,29 @@ function FilePaneComponent({
     (isChangesTab(activeFile) ||
       (diffViewer === "unified" && isReviewTab(activeFile)));
   const commitReview = !!activeFile && isCommitTab(activeFile);
+  // A board alone in its tab is named by that tab, like a browser page, so
+  // it draws no strip of its own. Beside other panes it has one like any.
+  const bareBoard =
+    !onPaneDragStart && pane.files.length === 1 && isBoardTab(pane.files[0]);
 
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(pane.id)}
     >
-      <SurfaceTabs
-        files={pane.files}
-        activeFileId={pane.activeFileId}
-        dirtyFileIds={dirtyFileIds}
-        fileErrorCounts={fileErrorCounts}
-        onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
-        onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
-        onReorder={(ids) => onReorderFiles(pane.id, ids)}
-        onPaneDragStart={onPaneDragStart}
-        paneFocused={focused}
-      />
+      {bareBoard ? null : (
+        <SurfaceTabs
+          files={pane.files}
+          activeFileId={pane.activeFileId}
+          dirtyFileIds={dirtyFileIds}
+          fileErrorCounts={fileErrorCounts}
+          onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
+          onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
+          onReorder={(ids) => onReorderFiles(pane.id, ids)}
+          onPaneDragStart={onPaneDragStart}
+          paneFocused={focused}
+        />
+      )}
       <div className="relative min-h-0 flex-1">
         <SurfaceBoundary
           label="diff"
@@ -211,6 +228,20 @@ function FilePaneComponent({
                       sessions={sessions}
                       visible={presented && file.id === pane.activeFileId}
                     />
+                  ) : isBoardTab(file) ? (
+                    boards ? (
+                      <WorkBoard
+                        project={file.board.project}
+                        visible={presented && file.id === pane.activeFileId}
+                      />
+                    ) : (
+                      <p
+                        className="grid h-full place-items-center text-ui-body text-content/45"
+                        data-board-elsewhere
+                      >
+                        {BOARD_STAYS_MESSAGE}
+                      </p>
+                    )
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -288,7 +319,8 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.onBuildPlan !== next.onBuildPlan ||
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
-    previous.onTerminalMetaChange !== next.onTerminalMetaChange
+    previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
+    previous.boards !== next.boards
   ) {
     return false;
   }

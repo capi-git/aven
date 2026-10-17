@@ -9,6 +9,7 @@ import {
   LiveSessionsContext,
 } from "../lib/liveSessions";
 import { newSession, type Session } from "../lib/session";
+import { shippedChatsSnapshot } from "../lib/shippedChats";
 import { ShipFlow } from "./ShipFlow";
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +28,22 @@ vi.mock("@tauri-apps/api/core", () => ({
       throw reason;
     }
     if (command === "git_pr_create") return "https://github.com/o/r/pull/12\n";
+    if (command === "git_history")
+      return {
+        head: "4c19b02aa",
+        commits: [
+          {
+            sha: "4c19b02aa",
+            shortSha: "4c19b02",
+            parents: [],
+            author: "",
+            timestamp: 1,
+            subject: "Add the ship flow",
+            refs: [],
+            head: true,
+          },
+        ],
+      };
     if (command === "git_pr_checks")
       return {
         number: 12,
@@ -213,9 +230,19 @@ describe("ShipFlow", () => {
       "git_commit",
       "git_push",
       "git_pr_create",
+      // The chat it carried reads Shipped, naming the commit it made.
+      "git_history",
       "git_pr_checks",
     ]);
     expect(localStorage.getItem("aven.shipMode")).toBe("pr");
+    expect(shippedChatsSnapshot().s1).toMatchObject({
+      sessionId: "s1",
+      project: "/repo",
+      cwd: "/repo",
+      commit: { sha: "4c19b02aa", shortSha: "4c19b02" },
+      pr: { number: 12, url: "https://github.com/o/r/pull/12" },
+      pushed: true,
+    });
     expect(container.textContent).toContain("Shipped");
     expect(container.textContent).toContain("Opened PR #12");
     expect(container.textContent).toContain("1 of 2 checks running");

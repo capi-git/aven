@@ -97,6 +97,8 @@ type Options = DevPerfOptions & {
   };
   /** Races a message from the message box; the check keeps a lane mid-run. */
   race?: SmokeRace;
+  /** The title bar opens the project's board, which the check watches. */
+  board?: boolean;
 };
 
 /** What the race check reads and sets outside the page. */
@@ -1367,6 +1369,108 @@ export async function checkRaceResult(
     "the kept agent's turn to end",
   );
   return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
+}
+
+/** The file the board check's turn edits, in the check's project. */
+export const BOARD_EDIT_FILE = "aven-board-check.txt";
+const BOARD_COLUMN_IDS = ["needs-you", "working", "review", "shipped"];
+
+/** The project's board on screen, if it is. */
+function boardOnScreen(project: string): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>("[data-work-board]")].find(
+      (board) =>
+        sameProjectPath(board.dataset.workBoard ?? "", project) &&
+        board.getClientRects().length > 0,
+    ) ?? null
+  );
+}
+
+/** A chat's card on the project's board on screen, and its column. */
+function boardCard(
+  project: string,
+  sessionId: string,
+): { card: HTMLElement; column: string | undefined } | null {
+  const card = boardOnScreen(project)?.querySelector<HTMLElement>(
+    `[data-board-card="chat:${sessionId}"]`,
+  );
+  return card
+    ? {
+        card,
+        column: card.closest<HTMLElement>("[data-board-column]")?.dataset
+          .boardColumn,
+      }
+    : null;
+}
+
+/**
+ * Open the project's board from the title bar's button while a new chat's
+ * turn edits a file: the board must show its four columns, the chat's card
+ * under Working while the turn runs and under Ready to review, naming the
+ * file, once it ends; pressing the card must open the chat.
+ */
+export async function checkBoard(
+  get: () => Options,
+  project: string,
+): Promise<string> {
+  get().motion?.showWorkspace?.();
+  const chat = await openNewTask(get, project);
+  const reply = await startHeldTurn(
+    get,
+    chat.id,
+    // Held long enough for the board to open and show it at work.
+    `Write the board note. AVEN_SMOKE_EDIT ${BOARD_EDIT_FILE} AVEN_SMOKE_HOLD 8000`,
+  );
+  const open = await waitFor(
+    () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Open board"]',
+        ),
+      ].find((button) => button.getClientRects().length > 0),
+    5_000,
+    "the title bar's Open board button",
+  );
+  open.click();
+  const board = await waitFor(
+    () => boardOnScreen(project),
+    5_000,
+    "the project's board",
+  );
+  const columns = [
+    ...board.querySelectorAll<HTMLElement>("[data-board-column]"),
+  ].map((column) => column.dataset.boardColumn);
+  if (columns.join() !== BOARD_COLUMN_IDS.join())
+    throw new Error(`The board's columns are ${columns.join(", ")}`);
+  await waitFor(
+    () => boardCard(project, chat.id)?.column === "working",
+    10_000,
+    "the chat's card under Working",
+  );
+  await reply();
+  const { card } = await waitFor(
+    () => {
+      const found = boardCard(project, chat.id);
+      return found?.column === "review" && found;
+    },
+    15_000,
+    "the chat's card to move to Ready to review",
+  );
+  const line = card.textContent ?? "";
+  if (!line.includes(BOARD_EDIT_FILE))
+    throw new Error(`The review card reads "${line}"`);
+  const buttons = [...card.querySelectorAll(".work-board-action")]
+    .map((button) => button.textContent?.trim())
+    .filter(Boolean);
+  if (!buttons.includes("Review") || !buttons.includes("Ship it"))
+    throw new Error(`The review card offers ${buttons.join(", ")}`);
+  card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
+  await waitFor(
+    () => chatPane(chat.id) && !boardOnScreen(project),
+    5_000,
+    "the card to open its chat",
+  );
+  return `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat`;
 }
 
 /** A chat's pane on screen. */
@@ -3356,6 +3460,15 @@ export async function runDevSmoke(
     await step(
       "a finished race is ready to compare, suggests a winner and continues with it",
       () => checkRaceResult(get, config, race),
+    );
+
+  // The project's board, opened from the title bar like a browser tab: a
+  // chat's card moves from Working to Ready to review once a turn that
+  // edits a file ends, and pressing the card opens the chat.
+  if (safe && get().board)
+    await step(
+      "the board follows a chat from Working to Review and opens it",
+      () => checkBoard(get, config.projectPath),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens

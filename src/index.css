@@ -63,6 +63,8 @@
   --aven-shadow: 0 14px 42px #0003;
   /* Text that says a team needs you. */
   --aven-needs-you: var(--color-amber-400, #e2a03f);
+  /* Text that says a chat's changes wait for review. */
+  --aven-review: var(--color-emerald-400, #34d399);
 }
 
 html {
@@ -85,6 +87,11 @@ html.theme-light {
     in srgb,
     var(--color-content) 45%,
     var(--color-amber-400, #e2a03f)
+  );
+  --aven-review: color-mix(
+    in srgb,
+    var(--color-content) 40%,
+    var(--color-emerald-500, #10b981)
   );
   color-scheme: light;
 }

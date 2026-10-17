@@ -75,6 +75,8 @@ export type FilePaneTab = {
   agent?: AgentTabSource;
   /** A race's comparison view. */
   race?: RaceTabSource;
+  /** A project's board of chats by where their work stands. */
+  board?: BoardTabSource;
   /** An earlier version's discussion page; see `DiscussionTabSource`. */
   discussion?: DiscussionTabSource;
   terminal?: boolean;
@@ -344,7 +346,8 @@ export function isVirtualDocumentTab(file: FilePaneTab): boolean {
     isReleaseNotesTab(file) ||
     isCommitTab(file) ||
     isAgentTab(file) ||
-    isRaceTab(file)
+    isRaceTab(file) ||
+    isBoardTab(file)
   );
 }
 
@@ -376,6 +379,59 @@ export function newRaceWorkspaceTab(
     editorPanes: [pane],
     terminalPanes: [],
   };
+}
+
+/** A project's board, opened like a browser tab and kept with the workspace. */
+export type BoardTabSource = { project: string };
+
+/** The board tab's label; the tab's project accent says whose board it is. */
+export const BOARD_TAB_TITLE = "Board";
+
+export function isBoardTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { board: BoardTabSource } {
+  return !!file.board;
+}
+
+/** A workspace tab holding one project's board. */
+export function newBoardWorkspaceTab(project: string): WorkspaceTab {
+  const pane = newEditorPane({
+    id: crypto.randomUUID(),
+    path: BOARD_TAB_TITLE,
+    cwd: project,
+    board: { project },
+  });
+  return {
+    kind: "session",
+    id: crypto.randomUUID(),
+    layout: leaf(pane.id),
+    focusedId: pane.id,
+    editorPanes: [pane],
+    terminalPanes: [],
+  };
+}
+
+/** Boards follow the main window's chats, so they never move to another. */
+export const BOARD_STAYS_MESSAGE = "Boards stay in the main window.";
+
+/** Whether a workspace tab holds a project's board. */
+export function holdsBoard(tab: Pick<WorkspaceTab, "editorPanes">): boolean {
+  return tab.editorPanes.some((pane) => pane.files.some(isBoardTab));
+}
+
+/** The workspace tab already showing `project`'s board, if any. */
+export function boardTabFor(
+  tabs: readonly WorkspaceTab[],
+  project: string,
+  same: (a: string, b: string) => boolean,
+): WorkspaceTab | undefined {
+  return tabs.find((tab) =>
+    tab.editorPanes.some((pane) =>
+      pane.files.some(
+        (file) => !!file.board && same(file.board.project, project),
+      ),
+    ),
+  );
 }
 
 /**
@@ -471,6 +527,7 @@ export function isSessionChangesTab(
 export function editorTabKey(file: FilePaneTab): string {
   if (file.terminal) return `terminal:${file.id}`;
   if (file.agent) return `agent:${file.agent.sessionId}`;
+  if (file.board) return `board:${file.board.project}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
   if (file.releaseNotes) return `release-notes:${file.releaseNotes.version}`;
   if (file.commit) return `commit:${file.cwd}:${file.commit.sha}`;
