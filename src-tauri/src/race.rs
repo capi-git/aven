@@ -144,15 +144,16 @@ impl ScratchIndex {
         } else {
             worktree.join(&reported)
         };
+        // Owned before the copy, so a copy that fails part-way is removed too.
         let scratch =
-            std::env::temp_dir().join(format!("aven-race-index-{}", uuid::Uuid::new_v4()));
+            Self(std::env::temp_dir().join(format!("aven-race-index-{}", uuid::Uuid::new_v4())));
         // Git replaces an index by renaming a finished file over it, so this
         // copy is never half-written even while the agent runs git.
         if own.is_file() {
-            std::fs::copy(&own, &scratch)
+            std::fs::copy(&own, &scratch.0)
                 .map_err(|e| format!("Could not read the race copy's changes: {e}"))?;
         }
-        Ok(Self(scratch))
+        Ok(scratch)
     }
 }
 
