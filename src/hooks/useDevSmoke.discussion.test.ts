@@ -32,7 +32,9 @@ vi.mock("../lib/devSmokeReveal", async (original) => ({
   }),
 }));
 
+import { recordActivity } from "../lib/activity";
 import {
+  memoryStorage,
   SMOKE_HEARD_WORD,
   SMOKE_REPLY,
   SMOKE_WRAP_UP_WORD,
@@ -48,6 +50,10 @@ const ROUNDS = 2;
 const JUMP_PLACEHOLDER = "Add something for both of them…";
 
 type Flaws = {
+  /** The card has a Stop of its own beside the bar's. */
+  cardStop?: boolean;
+  /** Each relayed turn posts its own Finished entry. */
+  loudRelays?: boolean;
   /** The chat's + menu has no Discuss (the host never reached it). */
   noEntry?: boolean;
   /** Choosing Discuss shows no chip. */
@@ -302,11 +308,46 @@ function app(flaws: Flaws = {}) {
             { id: `reply-${turn}`, role: "assistant", text },
           ],
         });
+        // A relayed turn is its discussion's: recorded quietly, already read.
+        recordActivity(
+          {
+            id: `${target}:turn:relay-${turn}:completed`,
+            sessionId: target,
+            outcome: "completed",
+            title: title(target),
+            summary: text,
+            cwd: PROJECT,
+            harness: "claude",
+            model: "Sonnet",
+            ...(flaws.loudRelays
+              ? {}
+              : {
+                  team: {
+                    id: "discuss:d1",
+                    kind: "discuss" as const,
+                    member: true as const,
+                  },
+                }),
+          },
+          !flaws.loudRelays,
+        );
         if (turn + 1 < ROUNDS * 2) {
           relay(turn + 1);
           return;
         }
         ended = true;
+        // The discussion posts one entry of its own, on the chat it began in.
+        recordActivity({
+          id: `${a}:team:d1:ended`,
+          sessionId: a,
+          outcome: "completed",
+          title: title(a),
+          summary: `Discussion ended · ${ROUNDS} rounds`,
+          cwd: PROJECT,
+          harness: "claude",
+          model: "Opus",
+          team: { id: "discuss:d1", kind: "discuss" },
+        });
         for (const id of [a, b]) {
           const shows = id === a || flaws.partnerCard;
           update(id, {
@@ -349,12 +390,14 @@ function app(flaws: Flaws = {}) {
     const done = ended && !flaws.stillLive;
     const card = flaws.noChatCard
       ? ""
-      : `<div data-discussion-card="d1" data-state="${done ? "done" : "live"}">${avatars}<span class="discussion-card-title">${
+      : `<div data-discussion-card="d1" data-state="${done ? "done" : "live"}">${avatars}<span class="team-card-title">${
           done
             ? `Discussed for ${ROUNDS} rounds`
             : "Opus and Sonnet are discussing"
         }</span><button data-discussion-card-watch>${done ? "Open" : "Watch"}</button>${
-          done ? "" : "<button data-discussion-card-stop>Stop</button>"
+          done || !flaws.cardStop
+            ? ""
+            : "<button data-discussion-card-stop>Stop</button>"
         }</div>`;
     const turns = flaws.turnsDrawn
       ? session(id)
@@ -472,7 +515,7 @@ function app(flaws: Flaws = {}) {
     const bar = active
       ? `<div data-discussion-bar="d1">Discussing with Sonnet in “Chat” round ${
           Math.floor(active.turn / 2) + 1
-        } of ${ROUNDS} <button>Open discussion</button> <button>Stop</button></div>`
+        } of ${ROUNDS} <button>Open discussion</button> <button data-team-stop="discussion">Stop</button></div>`
       : "";
     const chip = discussMode
       ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with ${
@@ -640,6 +683,8 @@ async function check(
   flaws?: Flaws,
   extra: { noHost?: boolean } = {},
 ): Promise<{ steps: SmokeStep[]; state: ReturnType<typeof app> }> {
+  // The Activity ledger, fresh for each run of the check.
+  vi.stubGlobal("localStorage", memoryStorage());
   const state = app(flaws);
   const options = extra.noHost ? { ...state, discussion: undefined } : state;
   const run = runDevSmoke(config, () => options);
@@ -780,6 +825,18 @@ describe("the real-app check's discussion step", () => {
     );
     expect(await failure({ boxToAgent: true })).toBe(
       'During the discussion the first chat\'s message box reads "Message"',
+    );
+  });
+
+  it("fails when the card keeps a Stop of its own beside the bar's", async () => {
+    expect(await failure({ cardStop: true })).toContain(
+      "the card has a Stop of its own",
+    );
+  });
+
+  it("fails when each relayed turn posts its own entry", async () => {
+    expect(await failure({ loudRelays: true })).toMatch(
+      /^Activity holds 5 entries for the team \("Discussion ended · 2 rounds", .*\), not one "Discussion ended · 2 rounds"$/,
     );
   });
 

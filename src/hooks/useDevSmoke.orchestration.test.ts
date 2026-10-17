@@ -60,6 +60,10 @@ type Flaws = {
   noFinish?: boolean;
   /** The lead's own finish call is answered with an error. */
   finishFails?: boolean;
+  /** The lead's message box keeps its own Stop beside the bar's Stop run. */
+  twoStops?: boolean;
+  /** The result has no line on what each agent did. */
+  noSummary?: boolean;
 };
 
 /**
@@ -177,7 +181,7 @@ function app(flaws: Flaws = {}) {
       tasks: workers.map((sessionId) => ({ sessionId, status: "running" })),
     } as unknown as OrchestrationRun);
     card.status = "Running";
-    draw();
+    update(leadId, { busy: true });
     if (card.stall) {
       setTimeout(() => {
         for (const id of workers) update(id, { busy: false });
@@ -203,6 +207,7 @@ function app(flaws: Flaws = {}) {
         entry(`${workers[1]}:done`, workers[1], SMOKE_REPLY);
       setRun(leadId, { status: "finished" });
       update(leadId, {
+        busy: false,
         blocks: [
           ...session(leadId).blocks,
           {
@@ -224,8 +229,28 @@ function app(flaws: Flaws = {}) {
   function draw() {
     const pane = (id: string) => {
       const card = cards.get(id);
+      const run = runs.get(id);
+      // Once finished, the plan card is the run's result.
+      const result =
+        card?.status === "Finished" && run?.status === "finished"
+          ? ` data-orchestration-ended="finished"><span class="team-card-status">${
+              session(id).blocks.at(-1)?.text.replace(`${SMOKE_REPLY} `, "") ??
+              ""
+            }</span>${run.tasks
+              .map(
+                (task) =>
+                  `<li data-orchestration-agent="${task.sessionId}" data-orchestration-task-status="Accepted">Worker${
+                    flaws.noSummary
+                      ? ""
+                      : " · Wrote its note. AVEN_SMOKE_SUMMARY"
+                  }</li>`,
+              )
+              .join(
+                "",
+              )}<button>Review changes</button><button>Open agents</button`
+          : "";
       const review = card
-        ? `<div data-orchestration-review>${
+        ? `<div data-orchestration-review${result}>${
             flaws.noChips
               ? ""
               : `<ul><li data-orchestration-scope>notes/a.md</li><li data-orchestration-scope>notes/b.md</li></ul>`
@@ -236,17 +261,23 @@ function app(flaws: Flaws = {}) {
           }<span data-orchestration-status>${card.status}</span></div>`
         : "";
       const bar =
-        stalled.has(id) && runs.get(id)?.status === "active"
+        stalled.has(id) && run?.status === "active"
           ? `<div data-orchestration-bar="${id}"><div data-state="stalled">The lead stopped without finishing${
               flaws.noFinish ? "" : "<button data-finish>Finish run</button>"
-            }<button>Ask the lead to wrap up</button><button>Stop run</button></div></div>`
+            }<button>Ask the lead to wrap up</button><button data-team-stop="run">Stop run</button></div></div>`
+          : run?.status === "active"
+            ? `<div data-orchestration-bar="${id}"><div data-state="running"><span role="status">Orchestrating · 2 working</span><button data-team-stop="run">Stop run</button></div></div>`
+            : "";
+      const ownStop =
+        flaws.twoStops && session(id).busy
+          ? `<button aria-label="Stop"></button>`
           : "";
       const chip = orchestrate
         ? `<button aria-label="Turn off Orchestrator mode"></button>`
         : "";
       const composer =
         id === focused
-          ? `${bar}<div data-composer><textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button>${chip}</div>`
+          ? `<div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button>${chip}${ownStop}</div>`
           : "";
       return `<div data-session-drop="${id}"${id === focused ? "" : " hidden"}>${review}${composer}</div>`;
     };
@@ -359,7 +390,7 @@ describe("the real-app check's orchestration steps", () => {
       [STALL_STEP, true],
     ]);
     expect(named(steps, RUN_STEP)?.detail).toBe(
-      '2 agents, 2 file chips; a worker\'s question went to the lead and nowhere else; one "Run finished · 2 agents" entry; the card reads Finished',
+      "2 agents, 2 file chips; one Stop run, in the bar; a worker's question went to the lead and nowhere else; one \"Run finished · 2 agents\" entry; the card became the result, with the lead's verdict and a line per agent",
     );
     expect(named(steps, STALL_STEP)?.detail).toBe(
       '"project is busy with an orchestration in “Chat 3”. Finish or stop it there."; the bar offered Finish run, which ended the run',
@@ -396,6 +427,18 @@ describe("the real-app check's orchestration steps", () => {
   it("fails when the lead's own finish call reports a failure", async () => {
     expect(await failure({ finishFails: true })).toBe(
       `The lead's finish call failed: ${SMOKE_REPLY} Finish failed: Lead connection was revoked`,
+    );
+  });
+
+  it("fails when the lead's chat offers a second Stop", async () => {
+    expect(await failure({ twoStops: true })).toBe(
+      "Timed out waiting for one Stop run, in the bar, while the lead works: the lead's message box has a Stop of its own",
+    );
+  });
+
+  it("fails when the result says nothing of what each agent did", async () => {
+    expect(await failure({ noSummary: true })).toBe(
+      "Timed out waiting for the result card with what each agent did: the agents have no line on what they did",
     );
   });
 
