@@ -28,6 +28,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readAgentRole, roleBrief, type AgentRoleId } from "./agentRoles";
+import { logError } from "./errors";
 import { isPreparingHandoff } from "./handoff";
 import {
   HARNESS_TITLE,
@@ -41,6 +42,14 @@ import {
 } from "./session";
 
 export const DISCUSSIONS_KEY = "aven.discussions";
+/**
+ * Finished discussions each window keeps to open again, newest first. A
+ * finished one also goes when the chat that started it is deleted or
+ * archived (`forgetChat`, `forgetArchived`).
+ */
+export const DISCUSSION_HISTORY_LIMIT = 100;
+/** The longest topic a discussion keeps; a longer one is not started. */
+export const DISCUSSION_TOPIC_LIMIT = 16_000;
 export const DISCUSSION_MIN_ROUNDS = 1;
 export const DISCUSSION_MAX_ROUNDS = 6;
 export const DISCUSSION_DEFAULT_ROUNDS = 3;
@@ -1365,6 +1374,8 @@ export class DiscussionStore {
   private readonly listeners = new Set<() => void>();
   /** This window's discussions as last written, to notice removals elsewhere. */
   private persisted = new Set<string>();
+  /** What this window last wrote, so an unchanged save writes nothing. */
+  private written: string | null | undefined;
 
   constructor(
     private readonly storage: DiscussionStorage | undefined,
@@ -1440,6 +1451,11 @@ export class DiscussionStore {
       if (this.forSession(party.sessionId))
         throw new Error(`“${party.title}” is already in a discussion.`);
     if (!input.topic.trim()) throw new Error("Add a topic to discuss.");
+    // A longer one would not be read back after a reload.
+    if (input.topic.length > DISCUSSION_TOPIC_LIMIT)
+      throw new Error(
+        `A discussion's topic can be up to ${DISCUSSION_TOPIC_LIMIT.toLocaleString("en-US")} characters. Shorten it to start.`,
+      );
     const discussion = createDiscussion({
       id: input.id ?? crypto.randomUUID(),
       owner: this.owner,
@@ -1684,6 +1700,25 @@ export class DiscussionStore {
     }
   }
 
+  /**
+   * A chat was archived: the finished discussions it started go, as its
+   * other history is put away. Ones still running are left to finish.
+   */
+  forgetArchived(sessionId: string) {
+    const gone = new Set(
+      this.list
+        .filter(
+          (discussion) =>
+            discussion.a.sessionId === sessionId &&
+            this.owns(discussion) &&
+            isHistory(discussion),
+        )
+        .map((discussion) => discussion.id),
+    );
+    if (gone.size)
+      this.commit(this.list.filter((discussion) => !gone.has(discussion.id)));
+  }
+
   remove(id: string) {
     const current = this.get(id);
     if (!current || !this.owns(current)) return;
@@ -1736,7 +1771,7 @@ export class DiscussionStore {
   }
 
   private commit(list: readonly Discussion[]) {
-    this.list = list;
+    this.list = keepRecentHistory(list, this.owner);
     this.save();
     this.emit();
   }
@@ -1762,9 +1797,13 @@ export class DiscussionStore {
       }
       for (const discussion of mine.values())
         written.push(yielded.get(discussion.id) ?? discussion);
-      if (written.length)
-        this.storage.setItem(DISCUSSIONS_KEY, JSON.stringify(written));
-      else this.storage.removeItem(DISCUSSIONS_KEY);
+      const raw = written.length ? JSON.stringify(written) : null;
+      // Unchanged since this window last wrote it: nothing to write.
+      if (raw !== this.written) {
+        if (raw) this.storage.setItem(DISCUSSIONS_KEY, raw);
+        else this.storage.removeItem(DISCUSSIONS_KEY);
+        this.written = raw;
+      }
       this.persisted = new Set(
         [...mine.keys()].filter((id) => !yielded.has(id)),
       );
@@ -1772,14 +1811,45 @@ export class DiscussionStore {
         this.list = this.list.map(
           (discussion) => yielded.get(discussion.id) ?? discussion,
         );
-    } catch {
-      // Storage full or unavailable: the discussion still runs in this window.
+    } catch (error) {
+      // Storage full or unavailable: the discussion still runs in this
+      // window, but would not survive a reload.
+      this.written = undefined;
+      logError("Couldn't save discussions", error);
     }
   }
 
   private emit() {
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * `list` with only this window's newest `DISCUSSION_HISTORY_LIMIT`
+ * finished discussions: running ones, those with a note still to post and
+ * other windows' are left alone.
+ */
+export function keepRecentHistory(
+  list: readonly Discussion[],
+  owner: string,
+  limit = DISCUSSION_HISTORY_LIMIT,
+): readonly Discussion[] {
+  const history = list.filter(
+    (discussion) => discussion.owner === owner && isHistory(discussion),
+  );
+  if (history.length <= limit) return list;
+  const kept = new Set(
+    [...history]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, limit)
+      .map((discussion) => discussion.id),
+  );
+  return list.filter(
+    (discussion) =>
+      discussion.owner !== owner ||
+      !isHistory(discussion) ||
+      kept.has(discussion.id),
+  );
 }
 
 /** Finished, with both closing notes posted: kept only to be shown again. */

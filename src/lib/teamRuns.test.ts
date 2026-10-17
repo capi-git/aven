@@ -525,6 +525,26 @@ describe("teamOf", () => {
     );
   });
 
+  it("leaves finished discussions' chats and an ended run's agents unwatched", () => {
+    const ended = teamSessionIds({
+      discussions: stores.discussions.map((discussion) => ({
+        ...discussion,
+        status: "ended" as const,
+      })),
+      races: [],
+      runs: stores.runs.map((run) => ({
+        ...run,
+        status: "finished" as const,
+        tasks: run.tasks.map((task) => ({
+          ...task,
+          status: "completed" as const,
+        })),
+      })),
+    });
+    // The lead still names an old run that has no title.
+    expect(ended).toEqual(["lead"]);
+  });
+
   it("finds a chat's team, open ones first", () => {
     expect(teamOf("a", teams)?.id).toBe("discuss:d2");
     expect(teamOf("l1", teams)?.id).toBe("race:r1");

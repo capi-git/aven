@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  DISCUSSION_HISTORY_LIMIT,
   discussionStore,
   resetDiscussionStore,
   type DiscussionParty,
@@ -129,7 +130,7 @@ it("opens its discussion's page while it runs and after it has ended", async () 
   expect(open).toHaveBeenCalledTimes(2);
 });
 
-it("stays openable however many finish after it, until its chat is deleted", async () => {
+it("stays openable while among the newest kept, until its chat is deleted", async () => {
   // Each finished discussion is newer than the one before.
   let clock = 1_000;
   vi.spyOn(Date, "now").mockImplementation(() => (clock += 1));
@@ -155,9 +156,20 @@ it("stays openable however many finish after it, until its chat is deleted", asy
   });
   expect(store.get("d1")).toBeDefined();
   expect(link()).not.toBeNull();
-  // The chat that started it is deleted: the discussion goes with it.
-  await act(async () => store.forgetChat("d1-a"));
+  // History is bounded: once enough newer ones finished, the oldest goes.
+  await act(async () => {
+    for (let index = 25; index < DISCUSSION_HISTORY_LIMIT; index += 1)
+      finish(`later-${index}`);
+  });
   expect(store.get("d1")).toBeUndefined();
+  expect(store.get("later-0")).toBeDefined();
+  expect(
+    store.snapshot().filter((discussion) => discussion.status === "ended"),
+  ).toHaveLength(DISCUSSION_HISTORY_LIMIT);
+  // Deleting the chat that started one takes it too.
+  await act(async () => store.forgetChat("later-0-a"));
+  expect(store.get("later-0")).toBeUndefined();
+  // d1's card, its discussion no longer kept, is plain text.
   expect(link()).toBeNull();
   expect(container.querySelector("button")).toBeNull();
   expect(container.querySelector("[data-discussion-relay='d1']")).not.toBe(

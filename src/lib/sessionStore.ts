@@ -415,6 +415,13 @@ export async function setSessionArchived(
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_set_archived", { sessionId, archived }),
   );
+  // The finished discussions it started are put away with it.
+  if (archived)
+    try {
+      discussionStore().forgetArchived(sessionId);
+    } catch {
+      // Best effort: a discussion left behind only shows as finished.
+    }
 }
 
 export async function setSessionPinned(

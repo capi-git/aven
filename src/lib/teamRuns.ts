@@ -672,10 +672,17 @@ export function teamRunsFrom(
   ];
 }
 
-/** The chats a store record involves, without reading any session. */
+/**
+ * The chats whose sessions a team's view reads, without reading any. A
+ * finished discussion and a run's workers once it is over read none (their
+ * view comes from the record alone), so a former member streaming a reply
+ * never rebuilds the teams. A race keeps its lanes, at most twenty finished
+ * ones, whose cards show how each lane's turns went.
+ */
 export function teamSessionIds(stores: TeamStores): string[] {
   const ids = new Set<string>();
   for (const discussion of stores.discussions) {
+    if (discussion.status === "ended") continue;
     ids.add(discussion.a.sessionId);
     ids.add(discussion.b.sessionId);
   }
@@ -685,7 +692,12 @@ export function teamSessionIds(stores: TeamStores): string[] {
   }
   for (const run of stores.runs) {
     ids.add(run.leadId);
-    for (const task of run.tasks) ids.add(task.sessionId);
+    const over =
+      (run.status === "finished" || run.status === "stopped") &&
+      !run.tasks.some(
+        (task) => task.status === "running" || task.status === "cancelling",
+      );
+    if (!over) for (const task of run.tasks) ids.add(task.sessionId);
   }
   return [...ids];
 }

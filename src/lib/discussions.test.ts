@@ -5,6 +5,7 @@ import {
   createDiscussion,
   discussionEndNote,
   discussionReply,
+  DISCUSSION_TOPIC_LIMIT,
   DiscussionStore,
   DISCUSSIONS_KEY,
   isHistory,
@@ -739,5 +740,89 @@ describe("sidebar data", () => {
       paused: false,
     });
     expect(talks.get("chat-b")?.speaking).toBe(true);
+  });
+});
+
+describe("keeping discussions", () => {
+  it("puts away finished ones a chat started when it is archived, and refuses a topic too long to keep", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    };
+    const store = new DiscussionStore(storage, "main");
+    const party = (sessionId: string) => ({
+      sessionId,
+      harness: "claude" as const,
+      model: "Opus",
+      title: sessionId,
+      cwd: "/work",
+    });
+    store.start({
+      id: "done",
+      a: party("a"),
+      b: party("b"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.stop("done");
+    store.notePosted("done", "a");
+    store.notePosted("done", "b");
+    store.start({
+      id: "live",
+      a: party("a"),
+      b: party("c"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.forgetArchived("a");
+    expect(store.get("done")).toBeUndefined();
+    // A running one is left to finish.
+    expect(store.get("live")).toBeDefined();
+    expect(() =>
+      store.start({
+        a: party("x"),
+        b: party("y"),
+        topic: "x".repeat(DISCUSSION_TOPIC_LIMIT + 1),
+        rounds: 1,
+      }),
+    ).toThrow("can be up to 16,000 characters");
+  });
+
+  it("says when it couldn't save, instead of failing quietly", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new DiscussionStore(
+      {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("QuotaExceededError");
+        },
+        removeItem: () => {},
+      },
+      "main",
+    );
+    store.start({
+      a: {
+        sessionId: "a",
+        harness: "claude",
+        model: "M",
+        title: "a",
+        cwd: "/w",
+      },
+      b: {
+        sessionId: "b",
+        harness: "claude",
+        model: "M",
+        title: "b",
+        cwd: "/w",
+      },
+      topic: "T",
+      rounds: 1,
+    });
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining("Couldn't save discussions: QuotaExceededError"),
+    );
+    errors.mockRestore();
   });
 });
