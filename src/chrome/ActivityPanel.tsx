@@ -233,6 +233,15 @@ export function ActivityPanel({
                   {HARNESS_TITLE[entry.harness]}
                 </span>
                 <span className="activity-summary">{entry.summary}</span>
+                {entry.detail ? (
+                  <span
+                    className="activity-summary"
+                    data-activity-detail
+                    title={entry.detail}
+                  >
+                    {entry.detail}
+                  </span>
+                ) : null}
               </span>
               <time
                 className="activity-time"

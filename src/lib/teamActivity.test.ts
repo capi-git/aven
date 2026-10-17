@@ -19,7 +19,7 @@ import {
 import { visibleActivitySessionIds } from "./activityVisibility";
 import { completedDays } from "./activityStreak";
 import { newTurnEnds } from "./mascotReactions";
-import { projectTurns } from "./memoryKeeperDigest";
+import { projectTurns, recentWorkDigest } from "./memoryKeeperDigest";
 import {
   probeNotificationPermission,
   publishSessionActivity,
@@ -193,8 +193,8 @@ describe("teamActivityEvents", () => {
       event: {
         id: "chat:team:r1:ready:80",
         outcome: "completed",
-        // One of the three failed: not "3 agents".
-        summary: "Race ready to compare · 2 of 3 done",
+        // Worded as the race's bar and pill word it.
+        summary: "Race ready to compare · 2 of 3 done · 1 failed",
       },
     });
     const retried = teamActivityEvents(ready.seen, [team({})]);
@@ -681,14 +681,21 @@ describe("what a finished team did", () => {
     });
     expect(run).toEqual({
       teamId: "orchestrate:lead",
-      summary:
-        "Run finished · 1 agent · Settings now load lazily. · Split the form: Moved the form into SettingsForm.tsx.",
+      detail:
+        "Settings now load lazily. · Split the form: Moved the form into SettingsForm.tsx.",
     });
-    amendTeamEnd(run.teamId, run.summary);
-    expect(getActivitySnapshot()[0].summary).toBe(run.summary);
+    amendTeamEnd(run.teamId, run.detail);
+    // The entry's words stay short; what it did is its detail.
+    expect(getActivitySnapshot()[0]).toMatchObject({
+      summary: "Run finished · 2 agents",
+      detail: run.detail,
+    });
     // The memory keeper's digest carries it.
     expect(projectTurns(getActivitySnapshot(), "/work/site", 0)).toHaveLength(
       1,
+    );
+    expect(recentWorkDigest(getActivitySnapshot(), "/work/site", 0)).toContain(
+      "Split the form: Moved the form into SettingsForm.tsx.",
     );
   });
 
@@ -701,10 +708,11 @@ describe("what a finished team did", () => {
       team,
     });
     const writes = vi.spyOn(globalThis.localStorage, "setItem");
-    const long = `Run finished · 2 agents · ${"Moved the form. ".repeat(40)}`;
+    const long = "Moved the form. ".repeat(40);
     amendTeamEnd(team.id, long);
     expect(writes).toHaveBeenCalledTimes(1);
-    const kept = getActivitySnapshot()[0].summary;
+    expect(getActivitySnapshot()[0].summary).toBe("Run finished · 2 agents");
+    const kept = getActivitySnapshot()[0].detail!;
     expect(kept).toHaveLength(240);
     expect(kept.endsWith("…")).toBe(true);
     // Read back, here or by another window, it matches: no rewrite.
@@ -712,7 +720,7 @@ describe("what a finished team did", () => {
     if (raw) globalThis.localStorage.setItem(ACTIVITY_STORAGE_KEY, `${raw} `);
     writes.mockClear();
     amendTeamEnd(team.id, long);
-    expect(getActivitySnapshot()[0].summary).toBe(kept);
+    expect(getActivitySnapshot()[0].detail).toBe(kept);
     expect(writes).not.toHaveBeenCalled();
   });
 });

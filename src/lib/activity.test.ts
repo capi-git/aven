@@ -9,6 +9,7 @@ import {
   markSessionActivityRead,
   recordActivity,
   reconcileSessionActivityInputs,
+  retractActivityTurn,
   subscribeActivity,
   type ActivityInput,
 } from "./activity";
@@ -84,6 +85,17 @@ describe("durable Activity", () => {
     // A finished turn is never announced twice.
     recordActivity(row("t:completed"));
     expect(recordActivity(row("t:completed")).added).toBe(false);
+  });
+
+  it("takes back a planning turn's entry once a run starts from its plan", () => {
+    recordActivity(row("lead:turn:plan:completed"));
+    recordActivity(row("lead:turn:other:completed"));
+    retractActivityTurn("lead:turn:plan");
+    expect(getActivitySnapshot().map((entry) => entry.id)).toEqual([
+      "lead:turn:other:completed",
+    ]);
+    // Never recorded again.
+    expect(recordActivity(row("lead:turn:plan:completed")).added).toBe(false);
   });
 
   it("resolves only obsolete inputs from the specified session without marking them read", () => {

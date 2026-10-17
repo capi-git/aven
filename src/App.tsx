@@ -599,6 +599,7 @@ import {
   amendTeamEnd,
   isPendingActivity,
   isTurnActivity,
+  retractActivityTurn,
   type ActivityTeam,
 } from "./lib/activity";
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
@@ -1808,6 +1809,8 @@ export default function App({
   const agentRuntimeEpoch = useRef(new Map<string, number>());
   const stoppedAgentRuntimes = useRef(new Set<string>());
   const activityTurnIds = useRef(new Map<string, string>());
+  /** The planning turn each plan card came from, by the card's id. */
+  const proposalTurns = useRef(new Map<string, string>());
   const failedActivityTurns = useRef(new Map<string, string>());
   const lastPersisted = useRef(new Map<string, string>());
   const lastBoundProvider = useRef(new Map<string, string>());
@@ -2514,8 +2517,8 @@ export default function App({
   // A team's end entry says what it did once that is known, for Activity
   // and the memory keeper (see teamEndSummaries).
   useEffect(() => {
-    for (const { teamId, summary } of teamEndSummaries(teamStores))
-      amendTeamEnd(teamId, summary);
+    for (const { teamId, detail } of teamEndSummaries(teamStores))
+      amendTeamEnd(teamId, detail);
   }, [teamStores]);
   const loadedSessionIds = useCallback(
     () => sessionsRef.current.map((session) => session.id),
@@ -6179,6 +6182,14 @@ export default function App({
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
+      if (proposalId) {
+        proposalTurns.current.set(proposalId, activityTurnId);
+        // Keep the map small: only recent plans are confirmed.
+        if (proposalTurns.current.size > 50)
+          proposalTurns.current.delete(
+            proposalTurns.current.keys().next().value!,
+          );
+      }
       let proposalDraft: OrchestrationProposal | undefined = proposalId
         ? {
             version: 1,
@@ -8035,6 +8046,13 @@ export default function App({
             ...proposal,
             status: "approved",
           });
+          // The turn that wrote the plan is the run's start now, not news of
+          // its own: the run posts one entry when it finishes or pauses.
+          const planning = proposalTurns.current.get(blockId);
+          if (planning) {
+            quietActivityTurns.current?.add(planning);
+            retractActivityTurn(planning);
+          }
         } catch (error) {
           if (proposal)
             updateOrchestrationCard(leadId, blockId, {

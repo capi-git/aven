@@ -28,6 +28,12 @@ export type ActivityEntry = {
   readAt: number | null;
   resolvedAt: number | null;
   team?: ActivityTeam;
+  /**
+   * What a team did, once known, under its short end entry: a run's
+   * verdict and a line per agent, what a race kept and why, where a
+   * discussion landed (see `amendTeamEnd`).
+   */
+  detail?: string;
 };
 export type ActivityInput = Omit<
   ActivityEntry,
@@ -107,8 +113,13 @@ function entryFrom(value: unknown): ActivityEntry | null {
   )
     return null;
   const team = teamFrom(row.team);
+  const detail =
+    typeof row.detail === "string" && row.detail
+      ? row.detail.slice(0, SUMMARY_CHARS)
+      : undefined;
   return {
     ...(team ? { team } : {}),
+    ...(detail ? { detail } : {}),
     id: row.id.slice(0, 512),
     sessionId: row.sessionId.slice(0, 256),
     outcome: row.outcome as ActivityOutcome,
@@ -318,24 +329,26 @@ export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
   );
 }
 /**
- * The longest outcome a team's end entry carries: what an entry keeps when
+ * The longest detail a team's end entry carries: what an entry keeps when
  * read back, so an amended entry reads back unchanged and is never written
  * again, here or by another window.
  */
 const TEAM_END_CHARS = SUMMARY_CHARS;
 
 /**
- * Give a team's end entry ("Run finished", "Race ready to compare",
- * "Discussion ended") what the team did once that is known: the lead's
- * verdict and a line per agent, what a race kept, where a discussion
- * landed. Activity and the memory keeper then say more than a count. Only
- * the team's newest end entry changes, and only when its words do.
+ * Give a team's end entry ("Run finished · 4 agents", "Race ready to
+ * compare · 3 agents", "Discussion ended · 2 rounds") what the team did
+ * once that is known, as its detail: the lead's verdict and a line per
+ * agent, what a race kept, where a discussion landed. The entry's own words
+ * stay as short as any other; Activity shows the detail beneath them and
+ * the memory keeper reads it. Only the team's newest end entry changes, and
+ * only when its detail does.
  */
-export function amendTeamEnd(teamId: string, summary: string) {
+export function amendTeamEnd(teamId: string, detail: string) {
   const text =
-    summary.length > TEAM_END_CHARS
-      ? `${summary.slice(0, TEAM_END_CHARS - 1).trimEnd()}…`
-      : summary;
+    detail.length > TEAM_END_CHARS
+      ? `${detail.slice(0, TEAM_END_CHARS - 1).trimEnd()}…`
+      : detail;
   const target = readLedger().entries.find(
     (entry) =>
       entry.team?.id === teamId &&
@@ -343,10 +356,25 @@ export function amendTeamEnd(teamId: string, summary: string) {
       !entry.team.need &&
       entry.outcome === "completed",
   );
-  if (!target || target.summary === text) return;
+  if (!target || !text || target.detail === text) return;
   updateEntries((entry) =>
-    entry === target ? { ...entry, summary: text } : entry,
+    entry === target ? { ...entry, detail: text } : entry,
   );
+}
+
+/**
+ * A turn's entries no longer stand on their own: the plan a run then
+ * started from, which the run's own entries speak for. They leave the
+ * ledger and are never recorded again.
+ */
+export function retractActivityTurn(turnId: string) {
+  const current = readLedger();
+  const prefix = `${turnId}:`;
+  const entries = current.entries.filter(
+    (entry) => !entry.id.startsWith(prefix),
+  );
+  if (entries.length !== current.entries.length)
+    writeLedger({ ...current, entries });
 }
 
 /**
