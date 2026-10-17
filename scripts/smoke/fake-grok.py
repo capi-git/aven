@@ -49,6 +49,8 @@ def prompt_text(params):
 
 
 def fail_once(folder):
+    # One folder can be named two ways (/var and /private/var on macOS).
+    folder = os.path.realpath(folder)
     failed = set(json.loads(FAILED.read_text())) if FAILED.is_file() else set()
     if folder in failed:
         return False
@@ -97,7 +99,8 @@ def main():
             emit({"id": ident, "result": {"sessionId": session}})
         elif method == "session/prompt":
             text = prompt_text(params)
-            log({"pid": os.getpid(), "turn": True, "race": "AVEN_SMOKE_RACE" in text})
+            log({"pid": os.getpid(), "turn": True, "race": "AVEN_SMOKE_RACE" in text,
+                 "failOnce": "AVEN_SMOKE_FAIL_ONCE" in text, "folder": folder})
             if "AVEN_SMOKE_RACE" in text:
                 if "AVEN_SMOKE_FAIL_ONCE" in text and fail_once(folder):
                     emit({"id": ident, "error": {

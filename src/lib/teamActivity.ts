@@ -4,7 +4,8 @@
  * the team posts one entry for each new need and one at its end:
  *
  * - "Discussion ended · 4 rounds" once a discussion uses up its rounds.
- * - "Race ready to compare · 3 agents" once every lane of a race is done.
+ * - "Race ready to compare · 3 of 3 done" once every lane of a race has
+ *   stopped, worded as its bar and pill word it.
  * - "Discussion paused · <reason>" or "Race needs you · <reason>" when a
  *   team stops for you (a member's own approval or question is already
  *   posted by that chat).
@@ -38,10 +39,6 @@ const NEED_LABEL: Record<TeamRun["kind"], string> = {
   orchestrate: "Run needs you",
 };
 
-function plural(count: number, one: string): string {
-  return `${count} ${one}${count === 1 ? "" : "s"}`;
-}
-
 /**
  * Where a team is, for its notices' ids: the store's mark, the same in
  * every window (a race's newest lane ending, so a second "ready" after a
@@ -56,6 +53,21 @@ function markOf(team: TeamRun): number {
     if (member.startedAt != null && member.durationMs != null)
       at = Math.max(at, member.startedAt + member.durationMs);
   return at || (team.endedAt ?? team.updatedAt);
+}
+
+/**
+ * How a ready race's agents ended, as its bar and pill say it (see
+ * `raceProgress`): "3 of 3 done", "2 of 3 done · 1 failed".
+ */
+function readyProgress(members: TeamRun["members"]): string {
+  const count = (state: TeamRun["members"][number]["state"]) =>
+    members.filter((member) => member.state === state).length;
+  return [
+    `${count("done")} of ${members.length} done`,
+    ...(["failed", "interrupted", "stopped"] as const)
+      .filter((state) => count(state))
+      .map((state) => `${count(state)} ${state}`),
+  ].join(" · ");
 }
 
 function needKey(team: TeamRun): string | undefined {
@@ -110,11 +122,7 @@ export function teamActivityEvents(
           event: {
             id: `${origin || finished[0].sessionId}:team:${team.key}:ready:${markOf(team)}`,
             outcome: "completed",
-            summary: `Race ready to compare · ${
-              done === team.members.length
-                ? plural(done, "agent")
-                : `${done} of ${team.members.length} done`
-            }`,
+            summary: `Race ready to compare · ${readyProgress(team.members)}`,
             team: marker,
           },
         });
@@ -193,29 +201,23 @@ export function teamsNoLongerNeedingYou(
 }
 
 /**
- * What each finished team did, for its end entry (see `amendTeamEnd`): a
- * run's verdict and a line per agent, what a race kept and why, where a
- * discussion landed. Teams whose outcome is not known yet are left out.
+ * What each finished team did, for its end entry's detail (see
+ * `amendTeamEnd`): a run's verdict and a line per agent, what a race kept
+ * and why, where a discussion landed. Teams whose outcome is not known yet
+ * are left out.
  */
 export function teamEndSummaries(
   stores: TeamStores,
-): { teamId: string; summary: string }[] {
-  const out: { teamId: string; summary: string }[] = [];
+): { teamId: string; detail: string }[] {
+  const out: { teamId: string; detail: string }[] = [];
   for (const run of stores.runs) {
     if (run.status !== "finished" || run.verdict === undefined) continue;
     const agents = run.tasks
       .filter((task) => task.summary)
       .map((task) => `${task.title}: ${task.summary}`);
-    out.push({
-      teamId: teamIdOf("orchestrate", run.leadId),
-      summary: [
-        `Run finished · ${plural(run.tasks.length, "agent")}`,
-        run.verdict,
-        ...agents,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    });
+    const detail = [run.verdict, ...agents].filter(Boolean).join(" · ");
+    if (detail)
+      out.push({ teamId: teamIdOf("orchestrate", run.leadId), detail });
   }
   for (const race of stores.races) {
     const headline = race.state === "kept" ? raceHeadline(race) : undefined;
@@ -223,7 +225,7 @@ export function teamEndSummaries(
     const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
     out.push({
       teamId: teamIdOf("race", race.id),
-      summary: why ? `${headline} — ${why}` : headline,
+      detail: why ? `${headline} — ${why}` : headline,
     });
   }
   for (const discussion of stores.discussions) {
@@ -234,16 +236,14 @@ export function teamEndSummaries(
       summary?.status !== "done"
     )
       continue;
-    out.push({
-      teamId: teamIdOf("discuss", discussion.id),
-      summary: [
-        `Discussion ended · ${plural(discussion.rounds, "round")}`,
-        summary.agreed.length ? `Agreed: ${summary.agreed.join("; ")}` : "",
-        summary.open.length ? `Still open: ${summary.open.join("; ")}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    });
+    const detail = [
+      summary.agreed.length ? `Agreed: ${summary.agreed.join("; ")}` : "",
+      summary.open.length ? `Still open: ${summary.open.join("; ")}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (detail)
+      out.push({ teamId: teamIdOf("discuss", discussion.id), detail });
   }
   return out;
 }

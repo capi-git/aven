@@ -337,7 +337,7 @@ export function recentWorkDigest(
     .slice(0, limit)
     .reverse();
   const lines = turns.map((entry) => {
-    const what = [entry.title, entry.summary]
+    const what = [entry.title, entry.summary, entry.detail ?? ""]
       .map((part) => part.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .join(": ");
