@@ -19,6 +19,7 @@ import {
   QUIET_PAUSE_AFTER_MS,
 } from "./teamRuns";
 import { teamNeedSessionIds, teamsNeedingYou } from "./teamAttention";
+import { teamRowInfo } from "./teamGrouping";
 
 const party = (sessionId: string, harness: "claude" | "codex") => ({
   sessionId,
@@ -496,20 +497,26 @@ describe("orchestrationTeam", () => {
     expect(asking.need).toMatchObject({ sessionId: "lead", kind: "approval" });
   });
 
-  it("waits quietly when it paused long ago, or before pauses were dated", () => {
+  it("waits quietly when it paused long ago", () => {
     const old = Date.now() - QUIET_PAUSE_AFTER_MS - 1;
-    for (const pausedAt of [old, undefined]) {
-      const team = orchestrationTeam(
-        run({ status: "paused", error: "Stopped by you.", pausedAt }),
-        lookup(),
-      );
-      // Its own card and bar still say why, with Resume ...
-      expect(team.status).toBe("needs-you");
-      expect(team.need).toMatchObject({ kind: "paused", quiet: true });
-      // ... but the Dock, Home and Activity don't count it.
-      expect(teamsNeedingYou([team])).toEqual([]);
-      expect(teamNeedSessionIds([team]).size).toBe(0);
-    }
+    const team = orchestrationTeam(
+      run({ status: "paused", error: "Stopped by you.", pausedAt: old }),
+      lookup(),
+    );
+    // Its own card and bar still say why, with Resume ...
+    expect(team.status).toBe("needs-you");
+    expect(team.need).toMatchObject({ kind: "paused", quiet: true });
+    // ... but the Dock, Home, Activity and the sidebar don't count it.
+    expect(teamsNeedingYou([team])).toEqual([]);
+    expect(teamNeedSessionIds([team]).size).toBe(0);
+    expect(teamRowInfo(team)).toMatchObject({ needsYou: false });
+    // Paused by an earlier version, with no date: seen once more.
+    const undated = orchestrationTeam(
+      run({ status: "paused", error: "Stopped by you." }),
+      lookup(),
+    );
+    expect(undated.need?.quiet).toBeUndefined();
+    expect(teamsNeedingYou([undated])).toEqual([undated]);
   });
 
   it("ends with the lead's verdict", () => {

@@ -555,12 +555,13 @@ export function orchestrationProgressText(
 export const QUIET_PAUSE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * A run paused long ago, or before runs kept when they paused, which Aven
- * loads at start-up so it is never lost: it waits where it is, but is not
- * counted in the Dock, Home or Activity as needing you.
+ * A run paused long ago, which Aven loads at start-up so it is never lost:
+ * it waits where it is, but is not counted in the Dock, Home or Activity as
+ * needing you. One paused by an earlier version, which kept no date, counts
+ * as recent, so it is seen once more.
  */
 export function quietPause(pausedAt: number | undefined, now = Date.now()) {
-  return pausedAt === undefined || now - pausedAt > QUIET_PAUSE_AFTER_MS;
+  return pausedAt !== undefined && now - pausedAt > QUIET_PAUSE_AFTER_MS;
 }
 
 /** An orchestration as a team: the lead, then one member per worker. */

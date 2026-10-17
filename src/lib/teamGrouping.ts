@@ -43,7 +43,9 @@ export function teamRowInfo(team: TeamRun): TeamRowInfo {
     id: team.id,
     kind: team.kind,
     status: `${TEAM_KIND_LABEL[team.kind]} · ${
-      team.status === "needs-you" && team.need ? "Needs you" : team.progress
+      team.status === "needs-you" && team.need && !team.need.quiet
+        ? "Needs you"
+        : team.progress
     }`,
     members: team.members.map((member) => ({
       sessionId: member.sessionId,
@@ -54,7 +56,8 @@ export function teamRowInfo(team: TeamRun): TeamRowInfo {
       (member) =>
         member.state === "working" || member.state === "lead-deciding",
     ).length,
-    needsYou: team.status === "needs-you",
+    // A run paused long ago waits quietly, as everywhere else.
+    needsYou: team.status === "needs-you" && !team.need?.quiet,
   };
 }
 

@@ -80,8 +80,8 @@ export type OrchestrationRun = {
   startedAt?: number;
   endedAt?: number;
   /**
-   * When it paused, while it is paused. A run paused long ago, or before
-   * runs kept this, waits quietly: it is not counted as needing you.
+   * When it paused, while it is paused. A run paused long ago waits
+   * quietly: it is not counted as needing you.
    */
   pausedAt?: number;
   /**
@@ -1676,11 +1676,12 @@ export class Orchestrator {
    * Another window now holds this lead's run: its chat opened there while
    * the run was paused. Let go of it here, without saving, so no run is
    * held, and counted as needing you, in two windows. A run still going
-   * here is kept.
+   * here is kept, and so is a finished or stopped one, whose card this
+   * window's chat still shows.
    */
   release(leadId: string) {
     const run = this.run(leadId);
-    if (!run || run.status === "active" || run.tasks.some(activeTask)) return;
+    if (!run || run.status !== "paused" || run.tasks.some(activeTask)) return;
     this.runs = this.runs.filter((entry) => entry.leadId !== leadId);
     this.loaded.delete(leadId);
     this.persisted.delete(leadId);

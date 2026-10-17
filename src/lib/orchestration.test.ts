@@ -197,6 +197,13 @@ describe("local orchestration", () => {
     // Its chat opened here again: loaded afresh.
     await restored.hydrate("lead");
     expect(restored.run("lead")?.status).toBe("paused");
+    // A finished run's card stays where its chat shows it.
+    f.saved.set("lead", { ...f.saved.get("lead")!, status: "finished" });
+    const finished = new Orchestrator(f.store);
+    finished.bind(f.host);
+    await finished.hydrate("lead");
+    finished.release("lead");
+    expect(finished.run("lead")?.status).toBe("finished");
   });
 
   it("loads a page's runs once, however often its effects run", async () => {
