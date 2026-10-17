@@ -389,6 +389,23 @@ class RealAppCheck(unittest.TestCase):
         final = next(m for m in messages if m['type'] == 'assistant')
         self.assertEqual(final['message']['content'][0]['text'], ''.join(deltas))
 
+    def test_stand_in_streams_a_long_code_block_for_the_speed_test(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        request = {'type': 'user', 'uuid': 'turn-5',
+                   'message': {'role': 'user', 'content': [{'type': 'text', 'text': 'Go. AVEN_PERF_CODE 9'}]}}
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json'],
+                              input=json.dumps(request) + '\n', capture_output=True, text=True, timeout=10)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        deltas = [m['event']['delta']['text'] for m in messages
+                  if m['type'] == 'stream_event' and m['event']['type'] == 'content_block_delta']
+        text = ''.join(deltas)
+        # An opening, two pieces per line, a closing, then the check word.
+        self.assertEqual(len(deltas), 1 + 2 * 9 + 1 + 1)
+        self.assertTrue(text.startswith('Here is the whole module:\n\n```ts\n'))
+        self.assertEqual(text.count('```'), 2)
+        self.assertIn('visibleRows1(', text)
+        self.assertTrue(text.endswith('AVEN_SMOKE_OK'))
+
     def test_stand_in_holds_its_reply_when_asked(self):
         stand_in = self.root / 'home/.local/bin/claude'
         request = {'type': 'user', 'uuid': 'turn-3',

@@ -21,6 +21,7 @@
 - Each racing agent shows how it really ended: Working, Needs you, Done, Failed, Stopped, or Interrupted after Aven quit, and its clock stops when it finished. A failed or interrupted agent offers **Retry**, which sends it the task again in its own copy.
 - Files you pick in a race are remembered when you reopen it, a kept race shows what it kept ("Kept Claude Code's version · 4 files"), and Aven keeps running races plus the 20 most recent finished ones instead of every race ever run.
 - In Parallel work, a copy with uncommitted files says "3 files changed" (or "3 files changed · 2 to merge") instead of "Up to date".
+- Long agent replies stream more smoothly and use less of your Mac. Aven now prepares only the end of a reply as it grows instead of all of it on every update: for a 24 KB reply that work fell from about 310 ms to 30 ms over the whole stream, and for a 96 KB reply from about 14 seconds to under half a second. A code block being written is coloured line by line instead of from the top each time, so an agent writing a 150-line file no longer costs about 75 ms per update, and finished turns above the one streaming are left alone. Replies look exactly as before.
 
 ### Removed
 

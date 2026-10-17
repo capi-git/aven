@@ -62,6 +62,31 @@ STREAM_LINES = [
 ]
 
 
+# "AVEN_PERF_CODE <lines>" asks for a reply that is mostly one long TypeScript
+# code block, streamed a half line at a time, as agents write whole files.
+CODE_PATTERN = re.compile(r"AVEN_PERF_CODE (\d+)")
+CODE_LINES = [
+    "export function visibleRows{n}(rows: Row[], limit = 20): Row[] {{",
+    "  // Keep the newest rows that are not archived, oldest last.",
+    "  const open = rows.filter((row) => !row.archived && row.size > {n});",
+    "  const label = `rows ${{open.length}} of ${{rows.length}} (batch {n})`;",
+    "  if (open.length > limit) console.warn(\"trimmed\", label);",
+    "  return open.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);",
+    "}}",
+    "",
+]
+
+
+def code_text(lines):
+    chunks = ["Here is the whole module:\n\n```ts\n"]
+    for index in range(lines):
+        line = CODE_LINES[index % len(CODE_LINES)].format(n=index // len(CODE_LINES))
+        middle = len(line) // 2
+        chunks += [line[:middle], line[middle:] + "\n"]
+    chunks.append("```\n\nThat is the whole change. ")
+    return chunks
+
+
 # "AVEN_SMOKE_HOLD <ms>" in a message keeps the turn running that long before
 # the reply, so the real-app check can watch what moves while an agent works.
 HOLD_PATTERN = re.compile(r"AVEN_SMOKE_HOLD (\d+)")
@@ -408,6 +433,9 @@ def main():
                 emit_dev_server(session, turn, int(server.group(1)))
             requested = STREAM_PATTERN.search(text)
             chunks = stream_text(int(requested.group(1))) if requested else []
+            code = CODE_PATTERN.search(text)
+            if code:
+                chunks = code_text(int(code.group(1)))
             reply = KEEPER_REPLY if keeper else WRAP_UP_REPLY if wrap_up else REPLY
             if not helper and JUMP_IN_PATTERN.search(text):
                 reply = f"Agreed, that works. {REPLY} {HEARD_WORD}"
