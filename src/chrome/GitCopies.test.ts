@@ -465,7 +465,14 @@ describe("other copies", () => {
     expect(
       vi.mocked(invoke).mock.calls.map(([command, args]) => [command, args]),
     ).toEqual([
-      ["git_worktrees", { cwd: "/repo" }],
+      // Race lanes are measured from where their race started.
+      [
+        "git_worktrees",
+        {
+          cwd: "/repo",
+          bases: { "/races/race-1/0": "abc", "/races/race-1/1": "abc" },
+        },
+      ],
       ["git_worktree_remove", { cwd: "/repo", path: "/c/a" }],
       ["git_worktree_remove", { cwd: "/repo", path: "/c/b" }],
       ["race_cleanup", { root: "/repo", lanes: [kept.lanes[0]] }],
@@ -586,13 +593,23 @@ describe("compact parallel work", () => {
         mergedIntoDefault: false,
       }),
       copy({ path: "/c", branch: "feat/c" }),
+      copy({
+        path: "/d",
+        branch: "feat/d",
+        files: [file("x"), file("y"), file("z")],
+        aheadOfDefault: 2,
+        mergedIntoDefault: false,
+      }),
+      copy({ path: "/e", branch: "feat/e", mergedIntoDefault: false }),
     ]);
     const at = (path: string) =>
       copies.find((entry) => entry.worktree.path === path)!;
-    const [ahead, fresh, merged] = [at("/a"), at("/b"), at("/c")];
-    expect(copyShortStatus(ahead)).toBe("78 to merge");
-    expect(copyShortStatus(fresh)).toBe("Up to date");
-    expect(copyShortStatus(merged)).toBe("Merged");
+    expect(copyShortStatus(at("/a"))).toBe("78 to merge");
+    // Uncommitted files are work, never "Up to date".
+    expect(copyShortStatus(at("/b"))).toBe("1 file changed");
+    expect(copyShortStatus(at("/d"))).toBe("3 files changed · 2 to merge");
+    expect(copyShortStatus(at("/c"))).toBe("Merged");
+    expect(copyShortStatus(at("/e"))).toBe("Up to date");
   });
 
   it("puts working agents first, then the latest chat, otherwise keeps order", () => {

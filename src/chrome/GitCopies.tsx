@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ExternalLink,
   GitBranch,
+  GitCompare,
   MessageSquare,
   Trash2,
 } from "./icons";
@@ -24,11 +25,25 @@ import {
   type GitPr,
   type GitWorktree,
 } from "../lib/fs";
+import { getActivitySnapshot, useActivity } from "../lib/activity";
 import { errorText, logError } from "../lib/errors";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { isEqualOrInside, pathKey, prettyCwd } from "../lib/paths";
-import { finishRace, raceHost, raceLaneAtPath } from "../lib/race";
+import {
+  finishRace,
+  raceHost,
+  raceLaneAtPath,
+  raceLaneBases,
+  raceWorkspace,
+  type RaceRecord,
+} from "../lib/race";
+import {
+  raceDiscardQuestion,
+  raceLaneState,
+  raceProgress,
+  type RaceLaneState,
+} from "../lib/raceLanes";
 import {
   sessionDisplayTitle,
   sessionNeedsInput,
@@ -112,9 +127,59 @@ export function partitionCopies(copies: readonly CopySummary[]): {
  * folder is listed for reference but is not work in progress.
  */
 export function parallelWorkCount(active: readonly CopySummary[]): number {
-  return active.filter(
-    ({ worktree }) => !worktree.primary || worktree.files.length > 0,
-  ).length;
+  // A running race is one piece of work, however many agents it has.
+  const races = new Set<string>();
+  let count = 0;
+  for (const copy of active) {
+    if (copy.race?.race.state === "running") races.add(copy.race.race.id);
+    else if (!copy.worktree.primary || copy.worktree.files.length > 0) count++;
+  }
+  return count + races.size;
+}
+
+/** A running race's lane copies, shown as one row. */
+export type RaceGroup = {
+  race: RaceRecord;
+  /** Each lane's copy, in lane order; absent when it is the one open here. */
+  copies: (CopySummary | undefined)[];
+};
+
+/** Running races' lanes grouped per race; every other copy on its own. */
+export function groupParallelWork(active: readonly CopySummary[]): {
+  races: RaceGroup[];
+  copies: CopySummary[];
+} {
+  const races = new Map<string, RaceGroup>();
+  const copies: CopySummary[] = [];
+  for (const copy of active) {
+    const race = copy.race?.race;
+    if (!race || race.state !== "running") {
+      copies.push(copy);
+      continue;
+    }
+    let group = races.get(race.id);
+    if (!group) {
+      group = { race, copies: race.lanes.map(() => undefined) };
+      races.set(race.id, group);
+    }
+    const lane = race.lanes.findIndex(
+      (entry) => pathKey(entry.path) === pathKey(copy.worktree.path),
+    );
+    if (lane >= 0) group.copies[lane] = copy;
+  }
+  return { races: [...races.values()], copies };
+}
+
+/** "Race · Fix the login loop" and "3 agents · 2 done". */
+export function raceGroupLine(
+  race: RaceRecord,
+  lanes: readonly RaceLaneState[],
+): { name: string; short: string } {
+  const done = lanes.filter((lane) => lane.kind === "done").length;
+  return {
+    name: `Race · ${firstLine(race.prompt)}`,
+    short: `${race.lanes.length} agents · ${done} done`,
+  };
 }
 
 export type CopyStatus = {
@@ -167,8 +232,13 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
 /** The short status at the end of a copy's one-line row. */
 export function copyShortStatus(copy: CopySummary): string {
   if (copy.finished) return "Merged";
+  const files = copy.worktree.files.length;
   const ahead = copy.worktree.aheadOfDefault;
-  return ahead > 0 ? `${ahead} to merge` : "Up to date";
+  const parts = [
+    files > 0 ? `${count(files, "file", "files")} changed` : "",
+    ahead > 0 ? `${ahead} to merge` : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "Up to date";
 }
 
 /** The conversation that works, or last worked, in a copy. */
@@ -189,6 +259,20 @@ function latestTurnAt(session: Session): number {
 }
 
 const CHAT_RANK = { working: 2, waiting: 1, idle: 0 } as const;
+
+/** One row of Parallel work: a copy, or a running race with its lanes. */
+type ParallelRow =
+  | { kind: "copy"; copy: CopySummary; chat: CopyChat | null }
+  | {
+      kind: "race";
+      group: RaceGroup;
+      lanes: RaceLaneState[];
+      chat: CopyChat | null;
+    };
+
+function raceKey(race: RaceRecord): string {
+  return `race:${race.id}`;
+}
 
 /**
  * The chat to show for a copy: one with an agent working or waiting there
@@ -323,7 +407,7 @@ export async function cleanUpCopies(
   sessions: () => readonly Session[],
   onProgress?: (done: number) => void,
 ): Promise<CleanupResult> {
-  const latest = summarizeCopies(await gitWorktrees(cwd));
+  const latest = summarizeCopies(await gitWorktrees(cwd, raceLaneBases()));
   const result: CleanupResult = { removed: [], failures: [] };
   for (const [index, planned] of copies.entries()) {
     onProgress?.(index);
@@ -447,7 +531,8 @@ function useWorktrees(
     const gate = createRefreshGate(async () => {
       if (cancelled || document.hidden) return;
       try {
-        const next = await gitWorktrees(cwd);
+        // Race lanes count from where their race started, not from main.
+        const next = await gitWorktrees(cwd, raceLaneBases());
         if (!cancelled) setWorktrees(next);
       } catch {
         if (!cancelled) setWorktrees([]);
@@ -718,6 +803,8 @@ export function GitCopies({
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
   const sessions = () => live?.list() ?? [];
+  // A finished, failed or stopped lane records an outcome; recount then.
+  const entries = useActivity();
   // Folded to one header line until opened; the choice is remembered.
   const [sectionOpen, setSectionOpen] = useState(loadParallelWorkOpen);
   const [showAll, setShowAll] = useState(false);
@@ -743,6 +830,22 @@ export function GitCopies({
     path: string;
     message: string;
   } | null>(null);
+  const discardRace = async (race: RaceRecord) => {
+    const key = raceKey(race);
+    setRemoving(key);
+    setFailure(null);
+    try {
+      await finishRace(race, null);
+      setConfirming(null);
+      setOpen(null);
+    } catch (error) {
+      setFailure({ path: key, message: errorText(error) });
+    } finally {
+      setRemoving(null);
+      notifyGitChanged(cwd);
+      refreshCopies();
+    }
+  };
   const remove = async (copy: CopySummary) => {
     const { path } = copy.worktree;
     setRemoving(path);
@@ -792,7 +895,41 @@ export function GitCopies({
           history.get(copy.worktree.path),
         ),
   });
-  const rows = orderParallelWork(active.map(withChat));
+  const grouped = groupParallelWork(active);
+  const raceRow = (group: RaceGroup): ParallelRow => {
+    let chat: CopyChat | null = null;
+    for (const copy of group.copies) {
+      if (!copy) continue;
+      const lane = withChat(copy).chat;
+      if (
+        lane &&
+        (!chat ||
+          CHAT_RANK[lane.state] > CHAT_RANK[chat.state] ||
+          (CHAT_RANK[lane.state] === CHAT_RANK[chat.state] &&
+            lane.at > chat.at))
+      )
+        chat = lane;
+    }
+    return {
+      kind: "race",
+      group,
+      lanes: group.race.lanes.map((lane) =>
+        raceLaneState(
+          lane.sessionId,
+          live?.session(lane.sessionId),
+          entries.length ? entries : getActivitySnapshot(),
+        ),
+      ),
+      chat,
+    };
+  };
+  const rows = orderParallelWork<ParallelRow>([
+    ...grouped.copies.map((copy) => ({
+      kind: "copy" as const,
+      ...withChat(copy),
+    })),
+    ...grouped.races.map(raceRow),
+  ]);
   const working = rows.filter(({ chat }) => chat?.state === "working");
   const visible = showAll ? rows : rows.slice(0, PARALLEL_ROWS_SHOWN);
   const hidden = rows.length - visible.length;
@@ -1010,6 +1147,174 @@ export function GitCopies({
     );
   };
 
+  const renderRace = (
+    group: RaceGroup,
+    lanes: readonly RaceLaneState[],
+    chat: CopyChat | null,
+  ) => {
+    const { race } = group;
+    const key = raceKey(race);
+    const expanded = open === key;
+    const line = raceGroupLine(race, lanes);
+    const files = group.copies.reduce(
+      (sum, copy) => sum + (copy?.worktree.files.length ?? 0),
+      0,
+    );
+    const question = raceDiscardQuestion(
+      race,
+      lanes,
+      group.copies.map((copy) => copy?.worktree.files.length),
+    );
+    return (
+      <div key={key}>
+        <div
+          className="git-copy"
+          data-race-group={race.id}
+          data-open={expanded || undefined}
+          data-tone={files > 0 ? "uncommitted" : "quiet"}
+        >
+          <button
+            type="button"
+            className="git-copy-line"
+            aria-expanded={expanded}
+            title={[race.prompt, raceProgress(lanes)].join("\n")}
+            onClick={() => setOpen(expanded ? null : key)}
+          >
+            <span className="git-copy-dots">
+              {chat?.state === "working" ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="working"
+                  role="img"
+                  aria-label="Agent working"
+                />
+              ) : null}
+              {files > 0 ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="uncommitted"
+                  role="img"
+                  aria-label="Uncommitted files"
+                />
+              ) : null}
+            </span>
+            <span className="git-copy-name">{line.name}</span>
+            <span className="git-copy-short">{line.short}</span>
+          </button>
+          {expanded ? (
+            <div className="git-copy-files">
+              <p className="git-copy-status">{raceProgress(lanes)}</p>
+              {race.lanes.map((lane, index) => {
+                const copy = group.copies[index];
+                const state = lanes[index];
+                return (
+                  <p
+                    key={lane.sessionId}
+                    className="git-copy-chat"
+                    data-race-lane={index}
+                    data-state={
+                      state?.kind === "working"
+                        ? "working"
+                        : state?.kind === "waiting"
+                          ? "waiting"
+                          : "idle"
+                    }
+                    title={lane.path}
+                  >
+                    {state?.kind === "working" && mark ? (
+                      <ProjectMark path={mark} active />
+                    ) : (
+                      <ProviderMarks harnesses={[lane.harness]} />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">
+                      {`${lane.label} — ${state?.label ?? "Closed"}`}
+                    </span>
+                    <span className="git-copy-short">
+                      {copy ? copyShortStatus(copy) : "Open here"}
+                    </span>
+                  </p>
+                );
+              })}
+              {confirming === key ? (
+                <div
+                  className="git-copy-confirm"
+                  role="group"
+                  aria-label={question.title}
+                >
+                  <p>{`${question.title} ${question.body}`}</p>
+                  <div>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      data-tone="danger"
+                      disabled={removing === key}
+                      onClick={() => void discardRace(race)}
+                    >
+                      {removing === key ? "Discarding…" : question.confirm}
+                    </button>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      disabled={removing === key}
+                      onClick={() => setConfirming(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="git-copy-actions">
+                  <button
+                    type="button"
+                    className="git-copy-action"
+                    data-race-compare
+                    title="Compare the agents' changes and keep one"
+                    onClick={() => raceWorkspace()?.compare(race.id)}
+                  >
+                    <GitCompare className="size-3" strokeWidth={1.75} />
+                    Compare
+                  </button>
+                  {chat ? (
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      title={`Open “${chat.title}”`}
+                      onClick={() => requestOpenChat(chat.id)}
+                    >
+                      <MessageSquare className="size-3" strokeWidth={1.75} />
+                      Open chat
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="git-copy-action"
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirming(key);
+                    }}
+                  >
+                    <Trash2 className="size-3" strokeWidth={1.75} />
+                    Discard race
+                  </button>
+                </div>
+              )}
+              {failure?.path === key ? (
+                <p className="git-copy-error" role="alert">
+                  {failure.message}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRow = (row: ParallelRow) =>
+    row.kind === "race"
+      ? renderRace(row.group, row.lanes, row.chat)
+      : renderCopy(row);
+
   const renderCleanup = () => {
     if (!cleanup) return null;
     if (cleanup.phase === "error")
@@ -1125,8 +1430,16 @@ export function GitCopies({
               className="git-copies-working"
               aria-label={`${working.length} ${working.length === 1 ? "agent" : "agents"} working`}
             >
-              {working.slice(0, 3).map(({ copy }) => (
-                <ProjectMark key={copy.worktree.path} path={mark} active />
+              {working.slice(0, 3).map((row) => (
+                <ProjectMark
+                  key={
+                    row.kind === "race"
+                      ? raceKey(row.group.race)
+                      : row.copy.worktree.path
+                  }
+                  path={mark}
+                  active
+                />
               ))}
             </span>
           ) : null}
@@ -1137,7 +1450,7 @@ export function GitCopies({
           {explained ? null : (
             <p className="git-copies-explainer">{PARALLEL_WORK_EXPLAINER}</p>
           )}
-          {visible.map(renderCopy)}
+          {visible.map(renderRow)}
           {hidden > 0 ? (
             <button
               type="button"
