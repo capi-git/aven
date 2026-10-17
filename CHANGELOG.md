@@ -5,6 +5,9 @@
 ### Changed
 
 - When two panes share a tab, each now has a slim strip at its top in the same style as tabs, with its name, a handle to drag it and a button to close it. The strip sits above the pane's content, so it no longer covers a chat's first message the way the floating controls did. A tab with one pane still has no strip.
+### Removed
+
+- Linear is gone from Aven. The Inbox now shows only GitHub issues and pull requests, without the GitHub | Linear switch, and Settings → Connections no longer has a Linear section. If you had connected Linear, Aven stops using the API key it saved; your GitHub inbox, filters and read marks are unchanged.
 
 ## [0.1.144] - 2026-10-16
 

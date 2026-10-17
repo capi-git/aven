@@ -145,7 +145,7 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
   {
     id: "open_inbox",
     label: "Open Inbox",
-    keywords: "github linear issues pull requests",
+    keywords: "github issues pull requests",
   },
   {
     id: "open_automations",

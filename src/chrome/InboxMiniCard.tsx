@@ -11,15 +11,14 @@ type Props = {
 export function InboxMiniCard({ card, onDismiss }: Props) {
   const KindIcon = card.kind === "pr" ? GitPullRequest : CircleDot;
   const kindLabel = card.kind === "pr" ? "Pull request" : "Issue";
-  const providerLabel = card.provider === "linear" ? "Linear" : "GitHub";
 
   return (
     <div className="px-3 pt-2">
       <div className="relative rounded-md border border-content/10 bg-content/6 px-2.5 py-2 pr-8">
         <button
           type="button"
-          title={`Open in ${providerLabel}`}
-          aria-label={`Open ${kindLabel} ${card.identifier} in ${providerLabel}`}
+          title="Open in GitHub"
+          aria-label={`Open ${kindLabel} ${card.identifier} in GitHub`}
           disabled={!card.url}
           onClick={() => {
             if (card.url) void openInAppUrl(card.url);
@@ -27,10 +26,7 @@ export function InboxMiniCard({ card, onDismiss }: Props) {
           className="flex w-full flex-col text-left disabled:cursor-default"
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <InboxProviderMark
-              provider={card.provider}
-              className="size-3.5 shrink-0"
-            />
+            <InboxProviderMark className="size-3.5 shrink-0" />
             <KindIcon
               className="size-3 shrink-0 text-content/45"
               strokeWidth={1.75}

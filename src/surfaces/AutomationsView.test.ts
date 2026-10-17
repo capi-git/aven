@@ -16,7 +16,6 @@ vi.mock("../lib/platform", async (original) => ({
 }));
 
 import { AUTOMATION_EXAMPLES } from "../lib/automationExamples";
-import { loadInboxSource } from "../lib/inboxFilters";
 import { isInboxEntryUnread } from "../lib/inboxSeen";
 import {
   EVERY_DAY,
@@ -400,35 +399,23 @@ describe("Inbox without the Scheduled tab", () => {
     );
   }
 
-  it("lists GitHub and Linear only", async () => {
-    localStorage.setItem("monocode.inboxSource", "github");
+  it("shows the GitHub list with no source tabs", async () => {
     await renderInbox();
-    const tabs = [...container.querySelectorAll('[role="tab"]')].map(
-      (tab) => tab.textContent,
-    );
-    expect(tabs).toEqual(["GitHub", "Linear"]);
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(
       container.querySelector('input[aria-label="Filter inbox"]'),
     ).not.toBeNull();
     expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
   });
 
-  it("falls back to GitHub when the saved source was Scheduled", async () => {
+  it("opens normally when the saved source was Scheduled", async () => {
     localStorage.setItem("monocode.inboxSource", "scheduled");
-    expect(loadInboxSource()).toBe("github");
     await renderInbox();
-    expect(
-      container.querySelector('[role="tab"][aria-selected="true"]')
-        ?.textContent,
-    ).toBe("GitHub");
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(
       container.querySelector('input[aria-label="Filter inbox"]'),
     ).not.toBeNull();
-  });
-
-  it("keeps Linear when that was saved", async () => {
-    localStorage.setItem("monocode.inboxSource", "linear");
-    expect(loadInboxSource()).toBe("linear");
+    expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
   });
 
   it("ignores a palette request for a new automation", async () => {
@@ -436,9 +423,8 @@ describe("Inbox without the Scheduled tab", () => {
     await act(async () => requestScheduleEditor());
     expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
     expect(
-      container.querySelector('[role="tab"][aria-selected="true"]')
-        ?.textContent,
-    ).toBe("GitHub");
+      container.querySelector('input[aria-label="Filter inbox"]'),
+    ).not.toBeNull();
     // Still waiting for the Automations view to take it.
     expect(takeScheduleEditorRequest()).toBe(true);
   });

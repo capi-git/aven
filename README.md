@@ -20,7 +20,7 @@ Aven brings agent conversations, your project and a browser into one window. Use
 - **Comment on a page:** click Edit page, select an element and add a comment beside it. **Add to chat** puts your comment and an element screenshot in the draft for review before sending.
 - **Run agents on a schedule:** Automations start agents at set times while your computer is awake and Aven is open, with ready-made examples to start from.
 - **Guide agents:** review approvals, queue follow-ups, inspect changes, and coordinate a lead with workers through [orchestration](docs/ORCHESTRATION.md).
-- **Save context:** Notes for Markdown notes, and Inbox for GitHub issues, pull requests and Linear tasks from connected projects.
+- **Save context:** Notes for Markdown notes, and Inbox for GitHub issues and pull requests from connected projects.
 - **Make it yours:** dark and light themes, workspace colors, translucent surfaces and optional chat backgrounds.
 
 ## Install
@@ -40,7 +40,7 @@ Both versions download signed updates in the background and install them when yo
 Aven needs no Aven account and does not sell model access. Subscriptions, API charges, sign-in and usage limits stay with each provider. Adapters are included for Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp and fx. Model lists refresh from your installed providers without an Aven release.
 
 > [!NOTE]
-> Agents can edit files and run commands according to the access mode you choose. Review it before starting a task, and use version control for projects you let agents change. Workspace profiles organize projects; they do not separate provider, GitHub or Linear accounts. For GitHub Inbox, see the [account setup guide](docs/GITHUB-ACCOUNTS.md).
+> Agents can edit files and run commands according to the access mode you choose. Review it before starting a task, and use version control for projects you let agents change. Workspace profiles organize projects; they do not separate provider or GitHub accounts. For GitHub Inbox, see the [account setup guide](docs/GITHUB-ACCOUNTS.md).
 
 ## Build and contribute
 

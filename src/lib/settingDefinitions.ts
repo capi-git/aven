@@ -283,12 +283,6 @@ export const SETTINGS = {
     rowDescription:
       "Run your configured Claude Code hooks. Changes apply on the next turn.",
   }),
-  linearApiKey: defineSetting({
-    section: "connections",
-    label: "Linear API key",
-    description: "Connect Linear to access your teams and issues.",
-    keywords: "integration account token disconnect",
-  }),
   version: defineSetting({
     section: "general",
     label: "Version",
