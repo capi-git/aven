@@ -10,6 +10,7 @@ import { activitySections } from "../chrome/ActivityPanel";
 import {
   ACTIVITY_STORAGE_KEY,
   amendTeamEnd,
+  canClearActivity,
   getActivitySnapshot,
   recordActivity,
   resolveTeamNeedActivity,
@@ -483,6 +484,17 @@ describe("a member's own turn", () => {
     expect(invoke).toHaveBeenCalledWith(
       "show_notification",
       expect.objectContaining({ body: "Race ready to compare · 2 agents" }),
+    );
+  });
+
+  it("leaves Clear finished with nothing to clear once only members' entries remain", () => {
+    const member = {
+      ...entry("l0:turn:t:completed"),
+      team: { id: "race:r1", kind: "race" as const, member: true as const },
+    };
+    expect(canClearActivity([member])).toBe(false);
+    expect(canClearActivity([member, entry("chat:turn:u:completed")])).toBe(
+      true,
     );
   });
 

@@ -591,13 +591,24 @@ export function homeProjects(
     }
   }
   // A team waiting on you itself asks from its chat, as a request would.
-  const teamAsks = new Map<string, { id: string; text: string }>();
+  const teamAsks = new Map<
+    string,
+    { id: string; text: string; title: string }
+  >();
   for (const team of teamsNeedingYou(teams)) {
     const need = team.need;
     if (!need || need.kind === "approval" || need.kind === "question") continue;
     const key = projectKey(team.project);
+    // The tile names the chat it opens, never another chat of the project.
+    const member = team.members.find(
+      (entry) => entry.sessionId === need.sessionId,
+    );
     if (!waiting.has(key) && !teamAsks.has(key))
-      teamAsks.set(key, { id: need.sessionId, text: clip(need.text) });
+      teamAsks.set(key, {
+        id: need.sessionId,
+        text: clip(need.text),
+        title: member?.title ?? team.title,
+      });
   }
   const lastEvent = new Map<string, number>();
   for (const entry of activity) {
@@ -625,7 +636,7 @@ export function homeProjects(
       ...(teamAsk
         ? {
             resumeId: teamAsk.id,
-            resumeTitle: index.title.get(teamAsk.id) ?? opens?.title ?? "",
+            resumeTitle: index.title.get(teamAsk.id) ?? teamAsk.title,
           }
         : opens
           ? { resumeId: opens.id, resumeTitle: opens.title }

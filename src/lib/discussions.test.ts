@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendUser } from "./harness/apply";
 import {
+  DISCUSSION_HISTORY_LIMIT,
   capRelay,
   createDiscussion,
   discussionEndNote,
@@ -680,6 +681,41 @@ describe("DiscussionStore", () => {
     // A running discussion whose partner is deleted stops.
     store.forgetChat(B.sessionId);
     expect(store.get("live")?.ended).toEqual({ kind: "stopped" });
+  });
+
+  it("trims history windows since closed left behind, oldest first", () => {
+    const storage = memoryStorage();
+    // Closed windows each left their own history, more than all together keep.
+    for (const label of [
+      "window-7",
+      "window-8",
+      "window-9",
+      "window-10",
+      "window-11",
+    ]) {
+      const gone = new DiscussionStore(storage, label, () => 0);
+      for (let index = 0; index < DISCUSSION_HISTORY_LIMIT; index += 1) {
+        const id = `${label}-${index}`;
+        gone.start({
+          id,
+          a: { ...A, sessionId: `${id}-a` },
+          b: { ...B, sessionId: `${id}-b` },
+          topic: "Topic",
+          rounds: 1,
+        });
+        gone.stop(id);
+        gone.notePosted(id, "a");
+        gone.notePosted(id, "b");
+      }
+    }
+    const main = new DiscussionStore(storage, "main");
+    main.start({ id: "live", a: A, b: B, topic: "Now", rounds: 1 });
+    const saved = JSON.parse(storage.getItem("aven.discussions") ?? "[]") as {
+      owner: string;
+    }[];
+    const others = saved.filter((entry) => entry.owner !== "main");
+    expect(others).toHaveLength(4 * DISCUSSION_HISTORY_LIMIT);
+    expect(saved.some((entry) => entry.owner === "main")).toBe(true);
   });
 
   it("loads the twenty finished discussions an earlier version kept, smaller", () => {

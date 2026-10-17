@@ -1445,8 +1445,9 @@ function ComposerComponent({
       );
       return;
     }
-    // A command would reach both agents as text, not run.
-    if (/^\/\S/.test(value.trim())) {
+    // A command would reach both agents as text, not run. A path such as
+    // "/Users/me/app.ts" is not a command.
+    if (/^\/[A-Za-z][\w:-]*(?:\s|$)/.test(value.trim())) {
       setCommandNotice(
         "Commands aren't sent to both chats. Send it once the discussion ends, or stop it first.",
       );

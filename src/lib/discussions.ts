@@ -1811,7 +1811,14 @@ export class DiscussionStore {
       }
       for (const discussion of mine.values())
         written.push(yielded.get(discussion.id) ?? discussion);
-      const raw = written.length ? JSON.stringify(written) : null;
+      // History left by windows since closed is trimmed here too, oldest
+      // first, once all other windows' together pass a generous bound.
+      const kept = keepRecentHistory(
+        written,
+        (owner) => owner !== this.owner,
+        OTHER_WINDOWS_HISTORY_LIMIT,
+      );
+      const raw = kept.length ? JSON.stringify(kept) : null;
       // Unchanged since this window last wrote it: nothing to write.
       if (raw !== this.written) {
         if (raw) this.storage.setItem(DISCUSSIONS_KEY, raw);
@@ -1838,18 +1845,23 @@ export class DiscussionStore {
   }
 }
 
+/** Other windows' finished discussions kept, all together. */
+const OTHER_WINDOWS_HISTORY_LIMIT = 4 * DISCUSSION_HISTORY_LIMIT;
+
 /**
- * `list` with only this window's newest `DISCUSSION_HISTORY_LIMIT`
- * finished discussions: running ones, those with a note still to post and
- * other windows' are left alone.
+ * `list` with only the newest `limit` finished discussions of `owner` (a
+ * window, or which windows): running ones, those with a note still to post
+ * and other windows' are left alone.
  */
 export function keepRecentHistory(
   list: readonly Discussion[],
-  owner: string,
+  owner: string | ((owner: string) => boolean),
   limit = DISCUSSION_HISTORY_LIMIT,
 ): readonly Discussion[] {
+  const owned =
+    typeof owner === "string" ? (label: string) => label === owner : owner;
   const history = list.filter(
-    (discussion) => discussion.owner === owner && isHistory(discussion),
+    (discussion) => owned(discussion.owner) && isHistory(discussion),
   );
   if (history.length <= limit) return list;
   const kept = new Set(
@@ -1860,7 +1872,7 @@ export function keepRecentHistory(
   );
   return list.filter(
     (discussion) =>
-      discussion.owner !== owner ||
+      !owned(discussion.owner) ||
       !isHistory(discussion) ||
       kept.has(discussion.id),
   );

@@ -529,6 +529,16 @@ describe("the message box while this chat's discussion runs", () => {
     expect(field().value).toBe(long);
   });
 
+  it("sends a message that starts with a path to both, as it isn't a command", async () => {
+    startHere();
+    await render();
+    await type("/Users/me/app/src/cache.ts fails on the second load");
+    await press("Enter");
+    expect(added()).toEqual([
+      "/Users/me/app/src/cache.ts fails on the second load",
+    ]);
+  });
+
   it("leaves the other chat's message box as it is", async () => {
     startHere();
     props.sessionId = "b";

@@ -214,6 +214,23 @@ export function recordActivity(
   });
   if (!entry) return { added: false };
   const previous = current.entries.find((item) => item.id === entry.id);
+  // A request settled while it was someone else's (a worker's, while its
+  // lead decided) and now waits on you again: it is news again.
+  if (
+    previous &&
+    previous.resolvedAt !== null &&
+    isPendingActivity(entry) &&
+    previous.outcome === entry.outcome
+  ) {
+    const reopened = { ...previous, ...entry };
+    writeLedger({
+      ...current,
+      entries: current.entries
+        .map((item) => (item === previous ? reopened : item))
+        .sort((a, b) => b.createdAt - a.createdAt),
+    });
+    return { added: true, entry: reopened };
+  }
   if (previous || current.seen.includes(entry.id))
     return { added: false, entry: previous };
   writeLedger({
@@ -329,6 +346,16 @@ export function amendTeamEnd(teamId: string, summary: string) {
   if (!target || target.summary === text) return;
   updateEntries((entry) =>
     entry === target ? { ...entry, summary: text } : entry,
+  );
+}
+
+/**
+ * Whether "Clear finished" has anything to clear: an entry that is neither
+ * a request still waiting nor a team member's quiet entry, which it keeps.
+ */
+export function canClearActivity(entries: readonly ActivityEntry[]): boolean {
+  return entries.some(
+    (entry) => !isPendingActivity(entry) && !isMemberActivity(entry),
   );
 }
 

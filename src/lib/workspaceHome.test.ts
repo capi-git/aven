@@ -645,6 +645,42 @@ describe("homeProjects with a team waiting on you", () => {
       asking: "“Review” isn't open in this window.",
     });
   });
+
+  it("names the chat it opens, not the project's latest", () => {
+    const recent = homeRecentSessions(
+      [summary({ id: "latest", cwd: SITE, updatedAt: 50, title: "Latest" })],
+      [],
+      scope,
+    );
+    const [card] = homeProjects([{ path: SITE }], recent, [], [], undefined, [
+      {
+        id: "discuss:d1",
+        kind: "discuss",
+        key: "d1",
+        origin: { sessionId: "a" },
+        project: SITE,
+        title: "Cache the lookups?",
+        status: "needs-you",
+        progress: "Round 1 of 2",
+        need: { sessionId: "b", kind: "paused", text: "Paused", since: 3 },
+        members: [
+          {
+            sessionId: "b",
+            harness: "codex",
+            model: "GPT-5",
+            label: "Codex · GPT-5",
+            title: "Review",
+            role: "responder",
+            state: "queued",
+            stateLabel: "Waiting",
+          },
+        ],
+        startedAt: 0,
+        updatedAt: 0,
+      },
+    ]);
+    expect(card).toMatchObject({ resumeId: "b", resumeTitle: "Review" });
+  });
 });
 
 describe("homeProjects with live sessions", () => {

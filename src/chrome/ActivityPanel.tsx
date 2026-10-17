@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  canClearActivity,
   clearActivityHistory,
   isMemberActivity,
   isPendingActivity,
@@ -276,7 +277,7 @@ export function ActivityPanel({
           Mark all read
         </button>
         <button
-          disabled={!entries.some((entry) => !isPendingActivity(entry))}
+          disabled={!canClearActivity(entries)}
           onClick={() => clearActivityHistory({ keepPending: true })}
         >
           Clear finished
