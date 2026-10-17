@@ -61,6 +61,7 @@ mod provider_updates;
 mod pty;
 mod race;
 mod rate_limits;
+mod retired_files;
 mod scheduled_agents;
 mod search;
 #[cfg(target_os = "macos")]
@@ -287,6 +288,7 @@ pub fn run() {
                 harness::reap_orphaned_harness_processes();
             }
             session_store::init(app.handle());
+            retired_files::remove(app.handle());
             control::init(app.handle())?;
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;
