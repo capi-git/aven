@@ -3,6 +3,7 @@ import remend from "remend";
 import { parseMarkdownIntoBlocks } from "streamdown";
 import { describe, expect, it, vi } from "vitest";
 import {
+  completeStreamingBold,
   completeStreamingLinks,
   completeStreamingMarkdown,
   createStreamingBlockSplitter,
@@ -186,6 +187,45 @@ describe("completeStreamingMarkdown", () => {
         remend(input, linksOnly),
       );
     }
+  });
+
+  it("matches remend's bold handler on its own", () => {
+    const boldOnly = {
+      singleTilde: false,
+      comparisonOperators: false,
+      htmlTags: false,
+      setextHeadings: false,
+      links: false,
+      images: false,
+      boldItalic: false,
+      italic: false,
+      inlineCode: false,
+      strikethrough: false,
+      katex: false,
+    };
+    const next = random(13);
+    for (let index = 0; index < 20_000; index += 1) {
+      const text = randomMarkdown(next, 1 + Math.floor(next() * 30));
+      const input =
+        text.endsWith(" ") && !text.endsWith("  ") ? `${text}x` : text;
+      expect(completeStreamingBold(input), JSON.stringify(input)).toBe(
+        remend(input, boldOnly),
+      );
+    }
+    for (const text of [
+      "**open",
+      "* **list item\nmore",
+      "***",
+      "a ** b",
+      "`**code` and **bold",
+      "```\n**x\n```\n**y",
+      "\\`**not code",
+      "**",
+      "**a**b**",
+    ])
+      expect(completeStreamingBold(text), JSON.stringify(text)).toBe(
+        remend(text, boldOnly),
+      );
   });
 
   it("keeps what remend does with unfinished links and images", () => {

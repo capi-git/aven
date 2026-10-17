@@ -5,9 +5,10 @@ import { detectTextDirection, parseMarkdownIntoBlocks } from "streamdown";
  * Streamdown repairs the whole message with `remend` and splits all of it into
  * blocks on every update. For a long streamed reply that is most of the work:
  * `remend`'s link check rescans the text from the start for every `[`, so its
- * cost grows with the square of the reply's length. This module produces the
- * same repaired text and the same blocks with work that grows with the length
- * of the reply (repair) or of its last few blocks (splitting).
+ * cost grows with the square of the reply's length, and its bold check scans
+ * the text twice copying a substring at every character. This module produces
+ * the same repaired text and the same blocks with work that grows with the
+ * length of the reply (repair) or of its last few blocks (splitting).
  */
 
 const INCOMPLETE_LINK = "](streamdown:incomplete-link)";
@@ -24,7 +25,10 @@ const BEFORE_LINKS = {
   katex: false,
 } as const;
 
-/** remend's handlers that run after its link handler (priorities 30–70). */
+/**
+ * remend's handlers that run after its link handler (priorities 30–70), with
+ * its bold handler (35) replaced by the single-pass one below.
+ */
 const AFTER_LINKS = {
   singleTilde: false,
   comparisonOperators: false,
@@ -32,13 +36,17 @@ const AFTER_LINKS = {
   setextHeadings: false,
   links: false,
   images: false,
-} as const;
+  bold: false,
+  handlers: [{ name: "bold", handle: completeStreamingBold, priority: 35 }],
+};
 
 const BACKSLASH = 92;
 const BACKTICK = 96;
 const OPEN_BRACKET = 91;
 const CLOSE_BRACKET = 93;
 const BANG = 33;
+const ASTERISK = 42;
+const NEWLINE = 10;
 
 /**
  * remend's "inside code" answer for every offset at once: `inside[i]` is what
@@ -130,6 +138,147 @@ export function completeStreamingLinks(text: string): string {
     return `${text}${INCOMPLETE_LINK}`;
   }
   return text;
+}
+
+/** True when remend's scanner is inside inline code or a fence before `at`. */
+function insideCode(text: string, at: number): boolean {
+  let inline = false;
+  let fence = false;
+  for (let index = 0; index < at; index += 1) {
+    const code = text.charCodeAt(index);
+    if (
+      code === BACKSLASH &&
+      index + 1 < text.length &&
+      text.charCodeAt(index + 1) === BACKTICK
+    ) {
+      index += 1;
+      continue;
+    }
+    if (
+      code === BACKTICK &&
+      text.charCodeAt(index + 1) === BACKTICK &&
+      text.charCodeAt(index + 2) === BACKTICK
+    ) {
+      fence = !fence;
+      index += 2;
+      continue;
+    }
+    if (!fence && code === BACKTICK) inline = !inline;
+  }
+  return inline || fence;
+}
+
+/** True when `at` falls strictly inside a closed inline code span. */
+function insideInlineCode(text: string, at: number): boolean {
+  let open = false;
+  let fence = false;
+  let start = -1;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (
+      code === BACKSLASH &&
+      index + 1 < text.length &&
+      text.charCodeAt(index + 1) === BACKTICK
+    ) {
+      index += 1;
+      continue;
+    }
+    if (
+      code === BACKTICK &&
+      text.charCodeAt(index + 1) === BACKTICK &&
+      text.charCodeAt(index + 2) === BACKTICK
+    ) {
+      fence = !fence;
+      index += 2;
+      continue;
+    }
+    if (fence || code !== BACKTICK) continue;
+    if (open) {
+      if (start < at && at < index) return true;
+      open = false;
+      start = -1;
+    } else {
+      open = true;
+      start = index;
+    }
+  }
+  return false;
+}
+
+/** remend's count of `**` pairs outside fences. */
+function boldMarkers(text: string): number {
+  let count = 0;
+  let fence = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (
+      code === BACKTICK &&
+      index + 2 < text.length &&
+      text.charCodeAt(index + 1) === BACKTICK &&
+      text.charCodeAt(index + 2) === BACKTICK
+    ) {
+      fence = !fence;
+      index += 2;
+      continue;
+    }
+    if (
+      !fence &&
+      code === ASTERISK &&
+      index + 1 < text.length &&
+      text.charCodeAt(index + 1) === ASTERISK
+    ) {
+      count += 1;
+      index += 1;
+    }
+  }
+  return count;
+}
+
+/** True when the line holding `at` is a thematic break of `mark`s. */
+function thematicBreakAt(text: string, at: number, mark: string): boolean {
+  let start = 0;
+  for (let index = at - 1; index >= 0; index -= 1)
+    if (text.charCodeAt(index) === NEWLINE) {
+      start = index + 1;
+      break;
+    }
+  let end = text.length;
+  for (let index = at; index < text.length; index += 1)
+    if (text.charCodeAt(index) === NEWLINE) {
+      end = index;
+      break;
+    }
+  let marks = 0;
+  for (const character of text.substring(start, end)) {
+    if (character === mark) marks += 1;
+    else if (character !== " " && character !== "\t") return false;
+  }
+  return marks >= 3;
+}
+
+const BOLD_AT_END = /(\*\*)([^*]*\*?)$/;
+const ONLY_MARKERS = /^[\s_~*`]*$/;
+const LIST_MARKER = /^[\s]*[-*+][\s]+$/;
+
+/**
+ * Exactly remend's bold handler: close a `**` the end of the text left open.
+ * remend asks whether the marker is in code by scanning from the start twice,
+ * copying a three-character substring at every position; these scans read
+ * character codes instead.
+ */
+export function completeStreamingBold(text: string): string {
+  const match = BOLD_AT_END.exec(text);
+  if (!match) return text;
+  const after = match[2];
+  const at = text.lastIndexOf("**");
+  if (insideCode(text, at) || insideInlineCode(text, at)) return text;
+  if (!after || ONLY_MARKERS.test(after)) return text;
+  const lineStart = at > 0 ? text.lastIndexOf("\n", at - 1) + 1 : 0;
+  if (LIST_MARKER.test(text.substring(lineStart, at)) && after.includes("\n"))
+    return text;
+  if (thematicBreakAt(text, at, "*")) return text;
+  if (boldMarkers(text) % 2 !== 1) return text;
+  return after.endsWith("*") ? `${text}*` : `${text}**`;
 }
 
 /**
