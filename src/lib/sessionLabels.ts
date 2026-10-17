@@ -60,6 +60,8 @@ export function modelDisplayName(
   model: string,
   named: readonly { harness: HarnessId; model: string; name: string }[] = [],
 ): string {
+  // Saved before models were kept: no name to give, and no guess.
+  if (!model?.trim()) return "";
   const given = named.find(
     (entry) => entry.harness === harness && entry.model === model,
   )?.name;

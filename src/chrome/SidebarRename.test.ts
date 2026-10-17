@@ -245,7 +245,7 @@ describe("sidebar orchestration card", () => {
         card()
           .querySelector('[data-orchestration-agent="worker-a"] button')
           ?.getAttribute("title"),
-      ).toContain("codex:worker-a");
+      ).toContain("Codex · worker-a");
       expect(
         card().querySelectorAll("[data-orchestration-agent]"),
       ).toHaveLength(3);
