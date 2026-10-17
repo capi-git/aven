@@ -1,4 +1,5 @@
-import { memo, useMemo, useState, type CSSProperties } from "react";
+import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { RoleBadge } from "../chrome/AgentRoles";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import { Check, ExternalLink, Play, Sparkles, Square } from "../chrome/icons";
@@ -122,6 +123,8 @@ export const TeamFaceoff = memo(function TeamFaceoff({
 }) {
   const shown = team.members.slice(0, FACES);
   const more = team.members.length - shown.length;
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  useMotionOnChange(statusRef, status);
   // Two models of one provider in a race are named apart.
   const raceNames = team.kind === "race" ? raceShortNames(team.members) : null;
   return (
@@ -155,6 +158,7 @@ export const TeamFaceoff = memo(function TeamFaceoff({
         {more > 0 ? <li className="team-watch-more">+{more}</li> : null}
       </ul>
       <p
+        ref={statusRef}
         className="team-watch-status"
         data-tone={teamTone(team)}
         role="status"

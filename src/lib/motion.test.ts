@@ -148,6 +148,16 @@ describe("motion tokens", () => {
   });
 });
 
+describe("meters", () => {
+  it("glide the bottom bar's usage fill by transform, not width", () => {
+    const css = readFileSync("src/chrome/FooterUsage.css", "utf8");
+    expect(css).toContain(
+      "transition: transform var(--aven-motion-base) var(--aven-ease-out);",
+    );
+    expect(css).not.toMatch(/transition:\s*width/);
+  });
+});
+
 describe("pressed buttons", () => {
   it("press at once on the shared button classes, by scale and without a transition", () => {
     const press = motionCss.slice(

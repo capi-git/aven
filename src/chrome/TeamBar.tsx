@@ -1,8 +1,16 @@
-import { memo, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  memo,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   useOrchestrationRun,
   useOrchestrationSelector,
 } from "../hooks/useOrchestrationRun";
+import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useTeamOf } from "../hooks/useTeamRuns";
 import { discussionStore } from "../lib/discussions";
 import {
@@ -359,6 +367,9 @@ function OpenTeamBar({
         ? { label: runningSummary(run, idle) }
         : teamBarParts(team, sessionId, { partnerTitle: partner?.title });
   const text = parts.reason ? `${parts.label} · ${parts.reason}` : parts.label;
+  // "round 2 of 4" to "round 3 of 4", or a new status, rolls into place.
+  const textRef = useRef<HTMLSpanElement>(null);
+  useMotionOnChange(textRef, text);
   const watch = team.kind !== "discuss" ? teamActions?.watch : undefined;
   const state = stalled
     ? "stalled"
@@ -385,6 +396,7 @@ function OpenTeamBar({
       <Mark team={team} sessionId={sessionId} paused={paused} />
       {partner?.agentRole ? <RoleBadge role={partner.agentRole} /> : null}
       <span
+        ref={textRef}
         className={`min-w-0 flex-1 ${
           parts.reason
             ? "line-clamp-2 leading-4 [overflow-wrap:anywhere]"

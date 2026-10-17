@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
@@ -16,6 +17,7 @@ import {
 import type { HarnessId } from "../lib/session";
 import type { TeamKind } from "../lib/teamRuns";
 import { visibleInterval } from "../lib/visibleInterval";
+import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { RoleBadge } from "./AgentRoles";
 import { DiscussionAvatar } from "./DiscussionAvatar";
 import "./TeamCard.css";
@@ -97,6 +99,11 @@ export function TeamCard({
   /** Inside a turn's own padded row, as an orchestration's card is. */
   bare?: boolean;
 }) {
+  // A changed count or status word rolls into place.
+  const badgeRef = useRef<HTMLSpanElement>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  useMotionOnChange(badgeRef, typeof badge === "string" ? badge : undefined);
+  useMotionOnChange(statusRef, typeof status === "string" ? status : undefined);
   return (
     <div className={bare ? undefined : "team-card-row"}>
       <div
@@ -114,13 +121,21 @@ export function TeamCard({
             <div className="team-card-title-line">
               <span className="team-card-title">{title}</span>
               {badge ? (
-                <span className="team-card-badge" data-tone={tone}>
+                <span
+                  ref={badgeRef}
+                  className="team-card-badge"
+                  data-tone={tone}
+                >
                   {badge}
                 </span>
               ) : null}
             </div>
             {status ? (
-              <div className="team-card-status" title={statusTitle}>
+              <div
+                ref={statusRef}
+                className="team-card-status"
+                title={statusTitle}
+              >
                 {status}
               </div>
             ) : null}
