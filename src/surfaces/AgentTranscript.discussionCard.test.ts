@@ -202,14 +202,14 @@ describe("a discussion's card in the chat that started it", () => {
     ].find((message) => message.textContent?.includes(TOPIC))!;
     expect(card()?.dataset.state).toBe("live");
     expect(follows(topic, card())).toBe(true);
-    expect(text(card()!.querySelector(".discussion-card-title"))).toBe(
+    expect(text(card()!.querySelector(".team-card-title"))).toBe(
       "Claude and Codex are discussing",
     );
     expect(text(card()!.querySelector("[data-discussion-card-badge]"))).toBe(
       "Round 2 of 2",
     );
     // The latest line: the reply just relayed, by who wrote it.
-    expect(text(card()!.querySelector(".discussion-card-line"))).toBe(
+    expect(text(card()!.querySelector(".team-card-status"))).toBe(
       "Claude: “Thirty seconds.”",
     );
     expect(card()!.querySelectorAll("[data-discussion-avatar]")).toHaveLength(
@@ -222,7 +222,9 @@ describe("a discussion's card in the chat that started it", () => {
 
     await press("[data-discussion-card-watch]");
     expect(host.open).toHaveBeenCalledExactlyOnceWith("d1");
-    await press("[data-discussion-card-stop]");
+    // Stop is the bar's, in the message box: the card offers no second one.
+    expect(one("[data-discussion-card-stop]")).toBeNull();
+    await act(async () => discussionStore().stop("d1"));
     expect(discussionStore().get("d1")?.ended?.kind).toBe("stopped");
     expect(card()?.dataset.state).toBe("stopped");
   });
@@ -235,7 +237,7 @@ describe("a discussion's card in the chat that started it", () => {
     expect(text(card()!.querySelector("[data-discussion-card-badge]"))).toBe(
       "Needs you",
     );
-    expect(text(card()!.querySelector(".discussion-card-line"))).toBe(
+    expect(text(card()!.querySelector(".team-card-status"))).toBe(
       "“Review” needs your approval.",
     );
     expect(text(one("[data-discussion-card-goto]"))).toBe("Go to Codex");
@@ -257,7 +259,7 @@ describe("a discussion's card in the chat that started it", () => {
     discussionStore().settle("d1", 3, { status: "completed", text: LAST });
     await render([...midway(), ...ending]);
     expect(card()?.dataset.state).toBe("done");
-    expect(text(card()!.querySelector(".discussion-card-title"))).toBe(
+    expect(text(card()!.querySelector(".team-card-title"))).toBe(
       "Discussed for 2 rounds",
     );
     expect(one("[data-discussion-card-stop]")).toBeNull();

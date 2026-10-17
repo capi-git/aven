@@ -24,6 +24,7 @@ import { resizeComposer } from "../lib/composerResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
 import { HarnessIcon } from "./HarnessIcon";
+import { OrchestrationTeamCard } from "./OrchestrationTeamCard";
 import { Popover } from "./Popover";
 import {
   Check,
@@ -335,6 +336,8 @@ export function OrchestrationPreview({
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
+  // Once confirmed, the run's card stands for the plan; it can show it.
+  const [planShown, setPlanShown] = useState(false);
   useEffect(() => {
     if (actions)
       void orchestrator
@@ -348,7 +351,6 @@ export function OrchestrationPreview({
     !pending &&
     !busy &&
     !!actions;
-  const runOpen = run?.status === "active" || run?.status === "paused";
   const planning = proposal.status === "planning";
   const starting = pending || proposal.status === "starting";
   const visible = showAll ? proposal.tasks : proposal.tasks.slice(0, 3);
@@ -391,11 +393,13 @@ export function OrchestrationPreview({
   const field =
     "w-full rounded-md border border-content/12 bg-background-base/40 px-2 py-1.5 text-ui-label leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/30";
   const fieldLabel = "mb-1 block text-ui-caption leading-tight text-content/45";
-  return (
+  const planCard = (
     <div
       className="aven-inset-card mb-2 overflow-hidden font-sans"
       aria-label="Orchestration proposal"
-      data-orchestration-review
+      {...(run
+        ? { "data-orchestration-plan": "" }
+        : { "data-orchestration-review": "" })}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2.5 px-3 py-2.5">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/8 text-content/55">
@@ -463,35 +467,6 @@ export function OrchestrationPreview({
                 {starting ? "Starting…" : "Confirm & start"}
               </button>
             )}
-          {run && (
-            <button
-              className={secondary}
-              onClick={() =>
-                actions?.openAgents?.(
-                  run.tasks.map((task) => ({
-                    sessionId: task.sessionId,
-                    leadId: run.leadId,
-                    title: task.title,
-                    harness: task.harness,
-                  })),
-                )
-              }
-            >
-              View agents
-            </button>
-          )}
-          {runOpen && (
-            <button
-              className={secondary}
-              disabled={pending}
-              title="Stop the lead and every agent in this run"
-              onClick={() =>
-                void perform(() => orchestrator.stopRun(proposal.leadId))
-              }
-            >
-              Stop run
-            </button>
-          )}
         </div>
       </div>
       {planning && (
@@ -722,5 +697,21 @@ export function OrchestrationPreview({
         </div>
       )}
     </div>
+  );
+  if (!run) return planCard;
+  return (
+    <>
+      <OrchestrationTeamCard
+        run={run}
+        modelName={(harness, model) =>
+          proposal.settings.choices.find(
+            (choice) => choice.harness === harness && choice.model === model,
+          )?.name ?? model
+        }
+        planShown={planShown}
+        onTogglePlan={() => setPlanShown((shown) => !shown)}
+      />
+      {planShown ? <div className="mt-2">{planCard}</div> : null}
+    </>
   );
 }

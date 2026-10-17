@@ -1,0 +1,172 @@
+import { useContext, useMemo } from "react";
+import { useTeamRun } from "../hooks/useTeamRuns";
+import { memberVoice, teamMascots } from "../lib/discussionVoices";
+import type { OrchestrationRun } from "../lib/orchestration";
+import { orchestrationStatusWord } from "../lib/orchestrationSummary";
+import type { TeamMember } from "../lib/teamRuns";
+import { teamWorkspace } from "../lib/teamWorkspace";
+import { OrchestrationActions } from "./OrchestrationActions";
+import {
+  TeamCard,
+  TeamCardButton,
+  TeamCardMember,
+  TeamFaces,
+  type TeamCardTone,
+} from "./TeamCard";
+
+const MEMBER_TONE: Record<
+  TeamMember["state"],
+  "live" | "needs-you" | "done" | "failed" | "muted"
+> = {
+  working: "live",
+  "lead-deciding": "live",
+  "needs-you": "needs-you",
+  done: "done",
+  failed: "failed",
+  interrupted: "failed",
+  stopped: "muted",
+  queued: "muted",
+};
+
+/** The most mascots in the header; the rows show every agent. */
+const FACES = 5;
+
+function plural(count: number, one: string): string {
+  return `${count} ${one}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * An orchestration's card once its plan is confirmed: the lead and its
+ * agents, each with its state and what it is doing, then, once the run is
+ * over, its result: the lead's one-line verdict, one row per agent (title,
+ * model, Accepted / Cancelled / Failed, files touched, and a line on what it
+ * did once the cheap model has written one), Review changes and Open
+ * agents. Show plan unfolds the plan it started from. Stop run is the bar's.
+ */
+export function OrchestrationTeamCard({
+  run,
+  modelName,
+  planShown,
+  onTogglePlan,
+}: {
+  run: OrchestrationRun;
+  /** A model id's display name, from the plan's choices. */
+  modelName: (harness: TeamMember["harness"], model: string) => string;
+  planShown: boolean;
+  onTogglePlan: () => void;
+}) {
+  const actions = useContext(OrchestrationActions);
+  const team = useTeamRun(`orchestrate:${run.leadId}`, { detail: true });
+  const voices = useMemo(() => {
+    if (!team) return [];
+    const mascots = teamMascots(team.members.map((member) => member.sessionId));
+    return team.members.map((member, index) =>
+      memberVoice(member, mascots[index], index === 0),
+    );
+  }, [team]);
+  if (!team) return null;
+  const over = run.status === "finished" || run.status === "stopped";
+  const workers = team.members.slice(1);
+  const tone: TeamCardTone =
+    run.status === "finished"
+      ? "done"
+      : run.status === "stopped"
+        ? "stopped"
+        : team.status === "needs-you"
+          ? "needs-you"
+          : "live";
+  const status = over
+    ? team.result?.why ||
+      (run.status === "finished"
+        ? "The lead finished without a closing note."
+        : "Stopped before the lead finished.")
+    : team.status === "needs-you" && team.need
+      ? team.need.text
+      : team.progress;
+  const openAgents =
+    actions?.openAgents && run.tasks.length
+      ? () =>
+          actions.openAgents?.(
+            run.tasks.map((task) => ({
+              sessionId: task.sessionId,
+              leadId: run.leadId,
+              title: task.title,
+              harness: task.harness,
+            })),
+          )
+      : undefined;
+  const shown = voices.slice(0, FACES);
+  return (
+    <TeamCard
+      kind="orchestrate"
+      bare
+      tone={tone}
+      attributes={{
+        "data-orchestration-review": "",
+        "data-orchestration-run": run.leadId,
+        ...(over ? { "data-orchestration-ended": run.status } : {}),
+      }}
+      faces={<TeamFaces voices={shown} />}
+      title={over ? (team.result?.headline ?? team.title) : team.title}
+      badge={
+        <span data-orchestration-status>
+          {orchestrationStatusWord(run.status)}
+        </span>
+      }
+      status={status}
+      statusTitle={status}
+      members={workers.map((member, index) => {
+        const model = modelName(member.harness, member.model);
+        const files = member.changes?.files;
+        return (
+          <TeamCardMember
+            key={member.sessionId}
+            voice={voices[index + 1]}
+            name={member.label}
+            detail={
+              over
+                ? member.summary
+                  ? `${model} · ${member.summary}`
+                  : model
+                : member.state === "lead-deciding"
+                  ? `${model} · its lead is deciding a request`
+                  : member.doing
+                    ? `${model} · ${member.doing}`
+                    : model
+            }
+            state={member.stateLabel}
+            tone={MEMBER_TONE[member.state]}
+            attributes={{
+              "data-orchestration-agent": member.sessionId,
+              "data-orchestration-task-status": member.stateLabel,
+            }}
+            meta={files ? <span>{plural(files, "file")}</span> : undefined}
+          />
+        );
+      })}
+      actions={
+        <>
+          {over && run.status === "finished" ? (
+            <TeamCardButton
+              data-orchestration-review-changes
+              onClick={() => teamWorkspace()?.reviewChanges(run.cwd)}
+            >
+              Review changes
+            </TeamCardButton>
+          ) : null}
+          {openAgents ? (
+            <TeamCardButton onClick={openAgents}>Open agents</TeamCardButton>
+          ) : null}
+          <button
+            type="button"
+            className="team-card-toggle"
+            aria-expanded={planShown}
+            onClick={onTogglePlan}
+          >
+            {planShown ? "Hide plan" : "Show plan"}
+          </button>
+        </>
+      }
+    />
+  );
+}

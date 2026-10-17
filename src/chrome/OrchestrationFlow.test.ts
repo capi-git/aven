@@ -362,7 +362,7 @@ describe("orchestration composer and card", () => {
     expect(container.querySelector("[data-orchestration-review]")).toBeNull();
     expect(container.textContent).not.toContain("Confirm & start");
   });
-  it("opens worker panes from View agents instead of the sidebar", async () => {
+  it("opens worker panes from Open agents instead of the sidebar", async () => {
     const open = vi.fn();
     const openAgents = vi.fn();
     const task: OrchestrationTask = {
@@ -464,7 +464,7 @@ describe("orchestration composer and card", () => {
         ),
       ),
     );
-    await click(button("View agents"));
+    await click(button("Open agents"));
     expect(open).not.toHaveBeenCalled();
     expect(openAgents).toHaveBeenCalledWith([
       {

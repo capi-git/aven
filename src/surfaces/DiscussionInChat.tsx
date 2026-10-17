@@ -1,13 +1,6 @@
-import {
-  memo,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
-import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
+import { memo, useContext, useEffect, useMemo, useState } from "react";
 import { DiscussionHostContext } from "../chrome/DiscussionWrapUpNote";
+import { TeamCard, TeamCardButton, TeamFaces } from "../chrome/TeamCard";
 import { useDiscussionCard } from "../hooks/useDiscussions";
 import { relayVoices } from "../lib/discussionChat";
 import {
@@ -116,25 +109,22 @@ export function cardView(
   };
 }
 
-/** A side's mascot on a tile tinted with its colour. */
-function Tile({ voice }: { voice: DiscussionVoice }) {
-  return (
-    <span
-      className="discussion-card-tile"
-      style={{ "--discussion-voice": voice.color } as CSSProperties}
-    >
-      <DiscussionAvatar voice={voice} />
-    </span>
-  );
-}
+/** The card's tone in the family's terms (see `TeamCard`). */
+const TONE = {
+  live: "live",
+  "needs-you": "needs-you",
+  done: "done",
+  stopped: "stopped",
+} as const;
 
 /**
  * The live card in the chat that started a discussion, after its topic:
  * both mascots, "Claude and Codex are discussing", the round and the latest
- * line, with Watch and Stop; in amber when it needs you, with a way to the
- * chat it waits for; "Discussed for 4 rounds" with Open once it is done.
- * It reads that discussion by id and re-renders only when what it shows
- * changes. "Show in chat" unfolds the turns it stands for.
+ * line, with Watch; in amber when it needs you, with a way to the chat it
+ * waits for or Resume; "Discussed for 4 rounds" with Open once it is done.
+ * Stop is the bar's, in the message box below. It reads that discussion by
+ * id and re-renders only when what it shows changes. "Show in chat"
+ * unfolds the turns it stands for.
  */
 export const DiscussionCard = memo(function DiscussionCard({
   id,
@@ -181,89 +171,61 @@ export const DiscussionCard = memo(function DiscussionCard({
         : null;
   const finished = view.state === "done" || view.state === "stopped";
   return (
-    <div className="discussion-card-row">
-      <div
-        className="discussion-card"
-        data-discussion-card={id}
-        data-state={view.state}
-        style={{ "--discussion-voice": voices.b.color } as CSSProperties}
-      >
-        <span className="discussion-card-duo" aria-hidden>
-          <Tile voice={voices.a} />
-          <span className="discussion-card-link">• • •</span>
-          <Tile voice={voices.b} />
-        </span>
-        <div className="discussion-card-text">
-          <div className="discussion-card-head">
-            <span className="discussion-card-title">{view.title}</span>
-            {view.badge ? (
-              <span
-                className="discussion-card-badge"
-                data-discussion-card-badge={view.state}
-              >
-                {view.badge}
-              </span>
-            ) : null}
-          </div>
-          <div className="discussion-card-line" title={view.line}>
-            {view.line}
-          </div>
+    <TeamCard
+      kind="discuss"
+      tone={TONE[view.state]}
+      accent={voices.b.color}
+      attributes={{ "data-discussion-card": id }}
+      faces={<TeamFaces voices={[voices.a, voices.b]} />}
+      title={view.title}
+      badge={
+        view.badge ? (
+          <span data-discussion-card-badge={view.state}>{view.badge}</span>
+        ) : undefined
+      }
+      status={view.line}
+      statusTitle={view.line}
+      actions={
+        <>
+          {host && discussion ? (
+            <>
+              {view.state === "needs-you" && blocked && host.show ? (
+                <TeamCardButton
+                  data-discussion-card-goto={blocked}
+                  onClick={() => host.show!(id, blocked)}
+                >
+                  Go to {names[blocked]}
+                </TeamCardButton>
+              ) : view.state === "needs-you" ? (
+                <TeamCardButton
+                  data-discussion-card-resume
+                  onClick={() => discussionStore().resume(id)}
+                >
+                  Resume
+                </TeamCardButton>
+              ) : null}
+              {host.open ? (
+                <TeamCardButton
+                  data-discussion-card-watch
+                  onClick={() => host.open!(id)}
+                >
+                  {finished ? "Open" : "Watch"}
+                </TeamCardButton>
+              ) : null}
+            </>
+          ) : null}
           <button
             type="button"
-            className="discussion-card-toggle"
+            className="team-card-toggle"
             data-discussion-card-toggle
             aria-expanded={expanded}
             onClick={() => onToggle(spanKey)}
           >
             {expanded ? "Hide in chat" : "Show in chat"}
           </button>
-        </div>
-        {host && discussion ? (
-          <div className="discussion-card-actions">
-            {view.state === "needs-you" && blocked && host.show ? (
-              <button
-                type="button"
-                className="discussion-card-button"
-                data-discussion-card-goto={blocked}
-                onClick={() => host.show!(id, blocked)}
-              >
-                Go to {names[blocked]}
-              </button>
-            ) : view.state === "needs-you" ? (
-              <button
-                type="button"
-                className="discussion-card-button"
-                data-discussion-card-resume
-                onClick={() => discussionStore().resume(id)}
-              >
-                Resume
-              </button>
-            ) : null}
-            {host.open ? (
-              <button
-                type="button"
-                className="discussion-card-button"
-                data-discussion-card-watch
-                onClick={() => host.open!(id)}
-              >
-                {finished ? "Open" : "Watch"}
-              </button>
-            ) : null}
-            {!finished ? (
-              <button
-                type="button"
-                className="discussion-card-button"
-                data-variant="ghost"
-                data-discussion-card-stop
-                onClick={() => discussionStore().stop(id)}
-              >
-                Stop
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 });
 

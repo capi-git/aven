@@ -533,6 +533,8 @@ import {
 import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
 import { teamCompanions, teamRunsFrom } from "./lib/teamRuns";
 import { teamActivityEvents, type TeamSeen } from "./lib/teamActivity";
+import { leadVerdict, summarizeRun } from "./lib/teamResult";
+import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
 import { equalChromeData } from "./hooks/useChromeProps";
 import {
@@ -796,6 +798,9 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
 // Register capabilities before composer hooks choose their discovery strategy.
 registerBuiltinHarnesses();
 
+/** How soon after a run finishes its agents are summed up (see teamResult). */
+const RUN_SUMMARY_WINDOW_MS = 10 * 60_000;
+
 export default function App({
   windowTransfer = null,
   resumed = null,
@@ -1035,6 +1040,22 @@ export default function App({
         openChat: (id) => raceActionsRef.current.openChat(id),
         compare: (id) => raceActionsRef.current.compare(id),
         retry: (race, lane) => raceActionsRef.current.retry(race, lane),
+      }),
+    [],
+  );
+  // What a team's card asks of the workspace (see teamWorkspace).
+  const teamActionsRef = useRef<TeamWorkspace>({
+    reviewChanges: () => {},
+    openChat: () => {},
+    send: async () => false,
+  });
+  useEffect(
+    () =>
+      installTeamWorkspace({
+        reviewChanges: (project) =>
+          teamActionsRef.current.reviewChanges(project),
+        openChat: (id) => teamActionsRef.current.openChat(id),
+        send: (id, compose) => teamActionsRef.current.send(id, compose),
       }),
     [],
   );
@@ -2261,6 +2282,36 @@ export default function App({
       }),
     [announceActivity, sessionsRef],
   );
+
+  // A finished run's result card: the lead's verdict once its last turn
+  // ended, and a line per agent from the cheap model (see teamResult).
+  useEffect(() => {
+    for (const run of teamStores.runs) {
+      if (run.status !== "finished") continue;
+      const lead = sessionById.get(run.leadId);
+      if (run.verdict === undefined && lead && !lead.busy)
+        void orchestrator
+          .noteVerdict(run.leadId, leadVerdict(lead.blocks))
+          .catch(console.error);
+      // Only a run that just finished here: an older one is not summed up
+      // again each time Aven reopens it.
+      if (
+        !run.summaries &&
+        run.endedAt !== undefined &&
+        Date.now() - run.endedAt < RUN_SUMMARY_WINDOW_MS
+      )
+        void (async () => {
+          if (!(await orchestrator.noteSummaries(run.leadId, "running")))
+            return;
+          const lines = await summarizeRun(run);
+          await orchestrator.noteSummaries(
+            run.leadId,
+            lines ? "done" : "failed",
+            lines ?? {},
+          );
+        })().catch(console.error);
+    }
+  }, [sessionById, teamStores.runs]);
 
   // A team posts one entry per new need and one at its end (see
   // teamActivity); its members' own turns were recorded quietly.
@@ -8714,6 +8765,30 @@ export default function App({
           teamMember: { id: `race:${race.id}`, kind: "race" },
         });
       });
+    },
+  };
+
+  teamActionsRef.current = {
+    reviewChanges: (project) => {
+      flushSync(() => {
+        setHomeViewOpen(false);
+        if (!sameProjectPath(project, projectCwdRef.current)) {
+          revealProjectTask(project);
+          setProjectCwd(project);
+        }
+      });
+      onShowSourceControl();
+    },
+    openChat: (id) => void onOpenApprovalSession(id),
+    send: async (id, compose) => {
+      const session = await ensureOpenSession(id);
+      if (!session) return false;
+      await onOpenApprovalSession(id);
+      const { text, shown } = compose(session.blocks);
+      return (
+        onSubmit(session.id, text, [], shown ? { displayText: shown } : {}) !==
+        false
+      );
     },
   };
 

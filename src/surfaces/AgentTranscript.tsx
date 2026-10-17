@@ -92,6 +92,7 @@ import {
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
+import { RaceCard } from "./RaceCard";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import { discussionSpans, isDiscussionAside } from "../lib/discussionChat";
 import "./AgentTranscript.css";
@@ -816,6 +817,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
             onOpenFile={onOpenFile}
           />
         </div>
+        <RaceCard raceId={teamStart.team.id} />
       </div>
     );
   const userBlock = turnUserBlock(turn, managed);

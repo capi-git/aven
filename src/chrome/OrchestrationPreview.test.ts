@@ -180,7 +180,7 @@ describe("the proposal card", () => {
     expect(discard).toHaveBeenCalledWith("lead", "plan");
   });
 
-  it("uses plain words for a run and offers Stop run while it is open", async () => {
+  it("becomes the run's card, in plain words, leaving Stop run to the bar", async () => {
     const run = {
       leadId: "lead",
       proposalId: "plan",
@@ -209,10 +209,18 @@ describe("the proposal card", () => {
     );
     expect(host.textContent).not.toContain("Shared project folder");
     expect(
-      host.querySelector("[data-orchestration-task-status]")?.textContent,
+      host
+        .querySelector("[data-orchestration-task-status]")
+        ?.getAttribute("data-orchestration-task-status"),
     ).toBe("Working");
-    await act(async () => buttonIn(cards()[0], "Stop run")!.click());
-    expect(orchestrator.stopRun).toHaveBeenCalledWith("lead");
+    // One Stop for the run: the bar's, in the lead's message box.
+    expect(buttonIn(cards()[0], "Stop run")).toBeUndefined();
+    expect(orchestrator.stopRun).not.toHaveBeenCalled();
+    // The plan it started from is a click away, read-only.
+    expect(host.querySelector("[data-orchestration-plan]")).toBeNull();
+    await act(async () => buttonIn(cards()[0], "Show plan")!.click());
+    expect(host.querySelector("[data-orchestration-plan]")).not.toBeNull();
+    expect(buttonIn(host, "Confirm & start")).toBeUndefined();
 
     for (const [status, word] of [
       ["paused", "Paused"],

@@ -85,6 +85,22 @@ function hash(text: string): number {
 }
 
 /**
+ * Each chat's mascot, stable for that chat. A chat whose sprite another
+ * chat before it already wears steps to the next free one, so a team's
+ * members all look different (while there are sprites enough).
+ */
+export function teamMascots(sessionIds: readonly string[]): string[] {
+  const count = PROJECT_MASCOTS.length;
+  const used = new Set<number>();
+  return sessionIds.map((id) => {
+    let index = hash(id) % count;
+    while (used.has(index) && used.size < count) index = (index + 1) % count;
+    used.add(index);
+    return PROJECT_MASCOTS[index].name;
+  });
+}
+
+/**
  * Each chat's mascot, stable for that chat; the second side steps to the
  * next sprite when both would wear the same one.
  */
@@ -92,13 +108,34 @@ export function discussionMascots(
   a: string,
   b: string,
 ): Record<DiscussionSide, string> {
-  const count = PROJECT_MASCOTS.length;
-  const first = hash(a) % count;
-  let second = hash(b) % count;
-  if (second === first) second = (second + 1) % count;
+  const [first, second] = teamMascots([a, b]);
+  return { a: first, b: second };
+}
+
+/**
+ * A team member's face, as a discussion side's: its mascot in its
+ * provider's colour, named by its label, its state as its part.
+ */
+export function memberVoice(
+  member: {
+    sessionId: string;
+    harness: HarnessId;
+    label: string;
+    title?: string;
+    stateLabel: string;
+  },
+  mascot: string,
+  first = false,
+): DiscussionVoice {
   return {
-    a: PROJECT_MASCOTS[first].name,
-    b: PROJECT_MASCOTS[second].name,
+    side: first ? "a" : "b",
+    sessionId: member.sessionId,
+    harness: member.harness,
+    name: member.label,
+    title: member.title ?? member.label,
+    persona: member.stateLabel,
+    mascot,
+    color: providerVoiceColor(member.harness),
   };
 }
 

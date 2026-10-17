@@ -302,7 +302,7 @@ export function raceHeadline(race: RaceRecord): string | undefined {
   if (race.state !== "kept" || !outcome) return undefined;
   if (outcome.kind === "lane") {
     const lane = race.lanes[outcome.lane];
-    return `Kept ${lane?.label ?? "one agent"}'s version (${plural(outcome.files, "file")})`;
+    return `Kept ${lane?.label ?? "one agent's version"} (${plural(outcome.files, "file")})`;
   }
   const from = new Set(Object.values(race.picks ?? {})).size;
   return from > 1

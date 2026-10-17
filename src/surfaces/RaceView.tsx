@@ -20,6 +20,7 @@ import { useActivity } from "../lib/activity";
 import {
   getRace,
   finishRace,
+  noteRaceStats,
   raceFileRows,
   raceHost,
   raceWorkspace,
@@ -43,6 +44,15 @@ import {
   type RaceQuestion,
 } from "../lib/raceLanes";
 import type { Session } from "../lib/session";
+import {
+  continueLane,
+  finalReply,
+  raceContinueMessage,
+  replyOpening,
+  requestRaceSuggestion,
+  suggestionRunning,
+} from "../lib/teamResult";
+import { teamWorkspace } from "../lib/teamWorkspace";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
@@ -168,6 +178,8 @@ function RaceBody({
         if (finishingRef.current || getRace(raceId)?.state !== "running")
           return;
         setDiffs(next);
+        // The race's card in its chat shows the same numbers.
+        noteRaceStats(raceId, next);
         setLoadError(
           next.every((diff) => !diff) ? "Couldn’t read the race copies." : null,
         );
@@ -336,6 +348,22 @@ function RaceBody({
   const selectedCount = Object.keys(picked).length;
   const disabled = !running || !!working;
   const outcome = raceOutcomeText(race);
+  // Winner and why: once no lane works, the cheap model can suggest one.
+  const suggestion = race.suggestion;
+  const suggesting = suggestionRunning(suggestion);
+  const settled =
+    running && !anyActive && states.some((state) => state.kind === "done");
+  const suggested = suggestion?.status === "done" ? suggestion.lane : undefined;
+  const suggest = () =>
+    void requestRaceSuggestion(
+      race.id,
+      (id) => sessions.find((entry) => entry.id === id),
+      states.map((state) => state.label),
+    );
+  const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+  const continueAt = continueLane(race);
+  const continueWith =
+    continueAt !== undefined ? race.lanes[continueAt] : undefined;
 
   return (
     <div
@@ -363,6 +391,18 @@ function RaceBody({
                     .join(" · ")}
           </div>
         </div>
+        {settled && suggestion?.status !== "done" ? (
+          <button
+            type="button"
+            data-race-suggest
+            disabled={!!working || suggesting}
+            title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
+            onClick={suggest}
+            className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
+          >
+            {suggesting ? "Suggesting…" : "Suggest a winner"}
+          </button>
+        ) : null}
         {running && anyBusy ? (
           <button
             type="button"
@@ -402,6 +442,24 @@ function RaceBody({
         ) : null}
       </header>
 
+      {running &&
+      suggestion?.status === "done" &&
+      race.lanes[suggestion.lane] ? (
+        <div
+          className="flex items-start gap-2 border-b border-content/10 px-4 py-2 text-ui-label text-content/75"
+          data-race-suggestion
+        >
+          <Check className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Suggested: {race.lanes[suggestion.lane].label} — {suggestion.why}
+          </span>
+        </div>
+      ) : running && suggestion?.status === "failed" && settled ? (
+        <div className="border-b border-content/10 px-4 py-2 text-ui-label text-content/55">
+          Couldn't suggest a winner. Compare their changes to choose.
+        </div>
+      ) : null}
+
       {actionError || race.error || (running && loadError) ? (
         <div className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-ui-label text-content/75">
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
@@ -415,8 +473,13 @@ function RaceBody({
           gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))`,
         }}
       >
-        {lanes.map(({ lane, state }, index) => {
+        {lanes.map(({ lane, state, session }, index) => {
           const diff = diffs[index];
+          // The first lines of its last reply, once it is not working.
+          const opening =
+            session && !raceLaneActive(state)
+              ? replyOpening(finalReply(session.blocks))
+              : "";
           return (
             <section
               key={lane.sessionId}
@@ -433,6 +496,23 @@ function RaceBody({
                 </span>
                 {running ? <LaneStatus state={state} now={now} /> : null}
               </div>
+              {suggested === index && running ? (
+                <div
+                  className="text-ui-caption font-medium text-content"
+                  data-race-suggested
+                >
+                  Suggested winner
+                </div>
+              ) : null}
+              {opening ? (
+                <p
+                  className="line-clamp-3 whitespace-pre-line text-ui-label text-content/60"
+                  title={opening}
+                  data-race-reply
+                >
+                  {opening}
+                </p>
+              ) : null}
               {running ? (
                 <div className="text-ui-label text-content/55">
                   {diff ? (
@@ -628,12 +708,44 @@ function RaceBody({
               {outcome}
             </p>
           ) : null}
+          {why ? (
+            <p className="max-w-md text-ui-label text-content/60">Why: {why}</p>
+          ) : null}
           <p className="break-all font-mono text-ui-label text-content/60">
             {race.project}
           </p>
-          <p className="text-ui-label text-content/45">
-            Open a chat to continue in this project.
-          </p>
+          {race.state === "kept" ? (
+            <div className="mt-1 flex flex-wrap justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => teamWorkspace()?.reviewChanges(race.project)}
+                className="rounded-md border border-content/15 px-2.5 py-1 text-ui-label text-content hover:bg-content/10"
+              >
+                Review changes
+              </button>
+              {continueWith ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void teamWorkspace()?.send(
+                      continueWith.sessionId,
+                      (blocks) => ({
+                        text: raceContinueMessage(
+                          race,
+                          race.outcome?.files ?? 0,
+                          finalReply(blocks),
+                        ),
+                        shown: "Carry on from the race: your version was kept.",
+                      }),
+                    )
+                  }
+                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90"
+                >
+                  Continue with {continueWith.label}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
       {pending && running ? (

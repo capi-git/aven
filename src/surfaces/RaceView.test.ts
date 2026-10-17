@@ -268,13 +268,13 @@ it("keeps one lane: applies its files, stops the lanes and removes the copies", 
     base: record.base,
     choices: [{ worktree: "/data/races/r1/0", paths: ["a.ts"] }],
   });
-  expect(settle).toHaveBeenCalledWith(record);
+  expect(settle).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(host.invoke).toHaveBeenCalledWith("race_cleanup", {
     root: "/work/site",
     lanes: record.lanes,
   });
   expect(getRace("r1")?.state).toBe("kept");
-  expect(release).toHaveBeenCalledWith(record);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
 });
 
 it("waits for every lane writer before applying or deleting its copy", async () => {
@@ -312,7 +312,7 @@ it("waits for every lane writer before applying or deleting its copy", async () 
   await act(async () => stopped());
   expect(host.invoke).toHaveBeenCalledWith("race_apply", expect.anything());
   expect(host.invoke).toHaveBeenCalledWith("race_cleanup", expect.anything());
-  expect(release).toHaveBeenCalledWith(record);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
   expect(isFinishingRaceCheckout(record.lanes[0].path)).toBe(false);
 });
@@ -359,9 +359,19 @@ it.each([
     expect(view.textContent).not.toContain("Keep this");
     expect(view.textContent).not.toContain("Select files to combine");
     expect(view.textContent).not.toContain("Couldn’t load diff");
+    // A kept race offers its result's next steps; a discarded one does not.
     expect(
       [...view.querySelectorAll("button")].map((entry) => entry.textContent),
-    ).toEqual(["Open chat", "Open chat"]);
+    ).toEqual(
+      state === "kept"
+        ? [
+            "Open chat",
+            "Open chat",
+            "Review changes",
+            `Continue with ${record.lanes[0].label}`,
+          ]
+        : ["Open chat", "Open chat"],
+    );
     await act(async () => button(view, "Open chat").click());
     expect(openChat).toHaveBeenCalledWith("s0");
   },
@@ -421,7 +431,7 @@ it("releases chats after a successful keep even when a copy cannot be removed", 
   );
   const view = await render([session("s0"), session("s1")]);
   await act(async () => button(view, "Keep this").click());
-  expect(release).toHaveBeenCalledWith(record);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
   expect(view.textContent).toContain("Some race copies could not be removed");
   expect(view.textContent).toContain("copy is locked");
@@ -653,4 +663,53 @@ it("fetches the open file's diff again only when its size changes", async () => 
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("shows each lane's last reply, and records why when you keep the suggested lane", async () => {
+  saveRace({
+    ...record,
+    suggestion: {
+      status: "done",
+      lane: 0,
+      why: "Smaller change, with a test.",
+      model: "Claude Haiku 4.5",
+      at: 1,
+    },
+  });
+  const view = await render([
+    ended("s0", "completed"),
+    ended("s1", "completed"),
+  ]);
+  expect(
+    [...view.querySelectorAll("[data-race-reply]")].map((p) => p.textContent),
+  ).toEqual(["Done.", "Done."]);
+  expect(view.querySelector("[data-race-suggestion]")?.textContent).toBe(
+    "Suggested: Claude Code · Opus — Smaller change, with a test.",
+  );
+  expect(
+    view.querySelector('[data-race-lane="0"] [data-race-suggested]'),
+  ).not.toBeNull();
+  // Already suggested: not offered again.
+  expect(view.querySelector("[data-race-suggest]")).toBeNull();
+  await act(async () => button(view, "Keep this").click());
+  expect(getRace("r1")?.outcome).toMatchObject({
+    kind: "lane",
+    lane: 0,
+    why: "Smaller change, with a test.",
+  });
+  expect(view.textContent).toContain("Why: Smaller change, with a test.");
+});
+
+it("offers Suggest a winner once no lane is working", async () => {
+  const busy = await render([ended("s0", "completed"), session("s1", true)]);
+  expect(busy.querySelector("[data-race-suggest]")).toBeNull();
+  await act(async () => root.unmount());
+  busy.remove();
+  const settled = await render([
+    ended("s0", "completed"),
+    ended("s1", "failed"),
+  ]);
+  expect(settled.querySelector("[data-race-suggest]")?.textContent).toBe(
+    "Suggest a winner",
+  );
 });

@@ -1,0 +1,291 @@
+/* One card family for a team in the chat it started from: a header with the
+   members' mascots, a title and a badge, a status line, a row per member,
+   and actions at the bottom. Theme tokens only. */
+.team-card-row {
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}
+.team-card {
+  --team-accent: var(--color-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 680px;
+  padding: 12px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 12px;
+  background: var(
+    --aven-glass-card,
+    color-mix(in srgb, var(--color-content) 4%, transparent)
+  );
+  color: var(--color-content);
+}
+.team-card[data-state="needs-you"] {
+  border-color: color-mix(in srgb, var(--color-amber-400) 45%, transparent);
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.team-card-faces {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+.team-card-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.team-card-tile .discussion-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+.team-card-link {
+  width: 18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.team-card[data-state="live"] .team-card-link {
+  animation: team-card-link 1.6s steps(3, end) infinite;
+}
+@keyframes team-card-link {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+.team-card-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.team-card-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.team-card-title {
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  white-space: nowrap;
+}
+.team-card-badge[data-tone="live"] {
+  color: color-mix(in srgb, var(--team-accent) 80%, var(--color-content));
+}
+.team-card-badge[data-tone="live"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--team-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-accent) 22%, transparent);
+}
+.team-card-badge[data-tone="needs-you"] {
+  color: var(--color-amber-400);
+}
+.team-card-badge[data-tone="ready"] {
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-content));
+}
+.team-card-status {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-card-member-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 7px;
+  text-align: left;
+  color: inherit;
+}
+button.team-card-member-open:hover {
+  background: var(--aven-hover);
+}
+.team-card-member-face .discussion-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.team-card-member-face .discussion-avatar-sprite {
+  width: 14px;
+  height: 14px;
+}
+.team-card-member-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.team-card-member-name,
+.team-card-member-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-member-name {
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+}
+.team-card-member-detail {
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.team-card-member-state {
+  flex-shrink: 0;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  white-space: nowrap;
+}
+.team-card-member-state[data-tone="live"] {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+}
+.team-card-member-state[data-tone="needs-you"] {
+  color: var(--color-amber-400);
+}
+.team-card-member-state[data-tone="done"] {
+  color: var(--color-content);
+}
+.team-card-member-state[data-tone="failed"] {
+  color: color-mix(in srgb, var(--color-red-400) 80%, var(--color-content));
+}
+.team-card-member-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  white-space: nowrap;
+}
+.team-card-lines [data-sign="add"] {
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-content));
+}
+.team-card-lines [data-sign="del"] {
+  color: color-mix(in srgb, var(--color-red-400) 70%, var(--color-content));
+}
+
+.team-card-note {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+
+.team-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.team-card-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 7px;
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 7%, transparent)
+  );
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+  white-space: nowrap;
+}
+.team-card-button:hover:not(:disabled) {
+  background: var(--aven-hover);
+}
+.team-card-button:disabled {
+  opacity: 0.45;
+}
+.team-card-button[data-variant="primary"] {
+  border-color: transparent;
+  background: var(--color-content);
+  color: var(--color-background-base);
+}
+.team-card-button[data-variant="primary"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-content) 82%, transparent);
+}
+.team-card-button[data-variant="ghost"] {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.team-card-toggle {
+  margin-left: auto;
+  border-radius: 4px;
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+}
+.team-card-toggle:hover {
+  color: var(--color-content);
+}
+.team-card-button:focus-visible,
+.team-card-toggle:focus-visible,
+.team-card-member-open:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
+
+@container (max-width: 520px) {
+  .team-card-member-meta {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-card[data-state="live"] .team-card-link {
+    animation: none;
+  }
+}
