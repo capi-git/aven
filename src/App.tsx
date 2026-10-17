@@ -90,8 +90,8 @@ import {
   keptDiscussionChats,
 } from "./lib/discussions";
 import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
-import { useDiscussionPanel } from "./hooks/useDiscussionPanel";
-import { DiscussionFloat } from "./surfaces/DiscussionPanel";
+import { useTeamWatch } from "./hooks/useTeamWatch";
+import { TeamWatchFloat } from "./surfaces/TeamWatchPanel";
 import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
@@ -533,7 +533,13 @@ import {
   type SessionSummary,
 } from "./lib/sessionStore";
 import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
-import { teamCompanions, teamRunsFrom } from "./lib/teamRuns";
+import {
+  teamCompanions,
+  teamIdOf,
+  teamKeyOf,
+  teamKindOf,
+  teamRunsFrom,
+} from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
 import { teamActivityEvents, type TeamSeen } from "./lib/teamActivity";
 import { leadVerdict, summarizeRun } from "./lib/teamResult";
@@ -1050,6 +1056,7 @@ export default function App({
   const teamActionsRef = useRef<TeamWorkspace>({
     reviewChanges: () => {},
     openChat: () => {},
+    watch: () => {},
     send: async () => false,
   });
   useEffect(
@@ -1058,6 +1065,7 @@ export default function App({
         reviewChanges: (project) =>
           teamActionsRef.current.reviewChanges(project),
         openChat: (id) => teamActionsRef.current.openChat(id),
+        watch: (id) => teamActionsRef.current.watch?.(id),
         send: (id, compose, options) =>
           teamActionsRef.current.send(id, compose, options),
       }),
@@ -2732,19 +2740,25 @@ export default function App({
     });
   }, [tabs]);
 
-  // This window's discussion panel and pills (see `useDiscussionPanel`).
-  const discussionPanel = useDiscussionPanel();
+  // This window's team panel and pills (see `useTeamWatch`).
+  const teamWatch = useTeamWatch();
   // Chats in a discussion this window drives, while it runs or still owes a
-  // closing note, and the two in the open panel. A discussion's partner has
-  // no tab: it plays out in the chat that started it.
+  // closing note, and the two in the open or popped-out panel. A
+  // discussion's partner has no tab: it plays out in the chat that started it.
   const discussionList = useDiscussionList();
-  const panelDiscussion = discussionPanel.state.expanded;
+  const panelDiscussions = [teamWatch.state.expanded, ...teamWatch.state.popped]
+    .filter((id): id is string => !!id && teamKindOf(id) === "discuss")
+    .map(teamKeyOf)
+    .join("\n");
   const panelChats = useMemo(() => {
-    const shown = discussionList.find(
-      (discussion) => discussion.id === panelDiscussion,
-    );
-    return shown ? [shown.a.sessionId, shown.b.sessionId] : [];
-  }, [discussionList, panelDiscussion]);
+    const ids = panelDiscussions ? panelDiscussions.split("\n") : [];
+    return discussionList
+      .filter((discussion) => ids.includes(discussion.id))
+      .flatMap((discussion) => [
+        discussion.a.sessionId,
+        discussion.b.sessionId,
+      ]);
+  }, [discussionList, panelDiscussions]);
   panelChatsRef.current = panelChats;
   const keptDiscussionKey = useMemo(
     () =>
@@ -6857,12 +6871,17 @@ export default function App({
   );
 
   /** Watch, Open, the sidebar connector: a discussion in its floating panel. */
-  const openDiscussionPanel = discussionPanel.open;
+  const openTeamPanel = teamWatch.open;
+  const startedTeam = teamWatch.started;
+  const onDiscussionStarted = useCallback(
+    (id: string) => startedTeam(teamIdOf("discuss", id)),
+    [startedTeam],
+  );
   const openDiscussionView = useCallback(
     (id: string) => {
-      if (discussionStore().get(id)) openDiscussionPanel(id);
+      if (discussionStore().get(id)) openTeamPanel(teamIdOf("discuss", id));
     },
-    [openDiscussionPanel],
+    [openTeamPanel],
   );
 
   // Two chats discussing a topic, started by the user; relayed at turn end.
@@ -6916,7 +6935,7 @@ export default function App({
       return session.id;
     },
     openView: openDiscussionView,
-    onStarted: discussionPanel.started,
+    onStarted: onDiscussionStarted,
     // Where they landed reaches the chat that started it: say so through the
     // usual notifications when the user is looking elsewhere.
     onEnded: (discussion) => {
@@ -8779,6 +8798,7 @@ export default function App({
       onShowSourceControl();
     },
     openChat: (id) => void onOpenApprovalSession(id),
+    watch: (teamId) => openTeamPanel(teamId),
     send: async (id, compose, options) => {
       const session = await ensureOpenSession(id);
       if (!session) return false;
@@ -9876,11 +9896,12 @@ export default function App({
               </LazyViewSlot>
             ) : null}
 
-            <DiscussionFloat
-              panel={discussionPanel}
+            <TeamWatchFloat
+              panel={teamWatch}
               sessions={sessions}
               host={discussions.host}
               onOpenFile={onOpenFile}
+              onStop={onStop}
             />
             <ApprovalToasts
               notices={hiddenApprovalToasts}

@@ -41,6 +41,7 @@ import {
   type RaceRecord,
 } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
+import { installTeamWorkspace } from "../lib/teamWorkspace";
 import { OrchestrationActions } from "./OrchestrationActions";
 import {
   runningSummary,
@@ -304,6 +305,19 @@ describe("while discussing", () => {
     discussions.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 2 });
     discussions.pause("d1", "“Review” is busy with your own turn.", "b");
     await show("a");
+    // The reason is never cut off: it may take a second line.
+    expect(bar()?.querySelector("[data-team-bar-reason]")?.textContent).toBe(
+      "“Review” is busy with your own turn.",
+    );
+    expect(bar()?.querySelector("[data-state]")?.className).toContain(
+      "min-h-7",
+    );
+    expect(bar()?.querySelector("[data-team-bar-text]")?.className).toContain(
+      "line-clamp-2",
+    );
+    expect(text()).toBe(
+      "Discussing · Paused · “Review” is busy with your own turn.",
+    );
     expect(labels()).toEqual(["Go to Codex", "Stop"]);
     await press("Go to Codex");
     expect(open).toHaveBeenCalledWith("b");
@@ -378,6 +392,24 @@ describe("while racing", () => {
     ]);
     await show("chat");
     expect(labels()).toContain("Go to Claude Code · Sonnet 5");
+  });
+
+  it("offers Watch where the window has a team panel", async () => {
+    const watch = vi.fn();
+    const stopWatching = installTeamWorkspace({
+      reviewChanges: vi.fn(),
+      openChat: vi.fn(),
+      send: vi.fn(async () => true),
+      watch,
+    });
+    await show("chat");
+    expect(labels()).toEqual(["Watch", "Compare", "Stop all"]);
+    // One line while nothing waits on you.
+    expect(bar()?.querySelector("[data-state]")?.className).toContain("h-7");
+    expect(bar()?.querySelector("[data-team-bar-reason]")).toBeNull();
+    await press("Watch");
+    expect(watch).toHaveBeenCalledWith("race:r1");
+    stopWatching();
   });
 
   it("goes away once the race is kept, and never shows in other chats", async () => {

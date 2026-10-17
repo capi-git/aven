@@ -33,33 +33,13 @@ import {
   type RaceReview,
   type RaceSuggestion,
 } from "./race";
+import { finalReply } from "./replyText";
 import type { Block, HarnessId } from "./session";
+
+export { finalReply, replyOpening } from "./replyText";
 
 /** One line of a result, as the cards show it. */
 export const RESULT_LINE_CHARS = 160;
-
-/** The last reply of a chat's latest turn, or "". */
-export function finalReply(blocks: readonly Block[]): string {
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const block = blocks[index];
-    if (block.role === "user" && !block.internal) break;
-    if (block.role === "assistant" && block.text.trim())
-      return block.text.trim();
-  }
-  return "";
-}
-
-/** The first lines of a reply, for a lane's column: at most `lines` and `chars`. */
-export function replyOpening(text: string, lines = 3, chars = 280): string {
-  const kept = text
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, lines)
-    .join("\n");
-  return clip(kept, chars);
-}
 
 /** A model's line, made safe to show: no markup, secrets or instructions. */
 function cleanLine(line: string): string | null {

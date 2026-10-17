@@ -19,28 +19,18 @@ import {
   type TeamCardTone,
 } from "../chrome/TeamCard";
 import { useTeamRun } from "../hooks/useTeamRuns";
-import { memberVoice, teamMascots, voiceName } from "../lib/discussionVoices";
+import { memberVoice, teamMascots } from "../lib/discussionVoices";
 import { moveMenuFocus } from "../lib/keyboard";
-import {
-  LiveSessionsContext,
-  type LiveSessionStore,
-} from "../lib/liveSessions";
-import { resolveModel } from "../lib/models";
+import { LiveSessionsContext } from "../lib/liveSessions";
 import {
   getRace,
   noteRaceStats,
   raceHost,
-  raceLaneFor,
   raceWorkspace,
   subscribeRaces,
   type RaceRecord,
 } from "../lib/race";
-import { sameProjectPath } from "../lib/recents";
-import {
-  sessionDisplayTitle,
-  sessionIsWaitingForInput,
-  type HarnessId,
-} from "../lib/session";
+import { reviewerChoices, type ReviewerChoice } from "../lib/raceReviewers";
 import {
   askRaceReviewer,
   continueLane,
@@ -84,7 +74,10 @@ const MEMBER_TONE: Record<
  * first showing and after each lane's turn. No timer: the overview refreshes
  * the numbers while it is open, and both keep them with the race.
  */
-function useRaceStats(race: RaceRecord | undefined, team: TeamRun | null) {
+export function useRaceStats(
+  race: RaceRecord | undefined,
+  team: TeamRun | null,
+) {
   const running = race?.state === "running";
   const key = team?.members.map((member) => member.state).join(" ") ?? "";
   const raceId = race?.id;
@@ -104,59 +97,6 @@ function useRaceStats(race: RaceRecord | undefined, team: TeamRun | null) {
       cancelled = true;
     };
   }, [base, key, paths, raceId, running]);
-}
-
-/** A chat that could review the race, and why it can't now, if so. */
-type ReviewerChoice = {
-  sessionId: string;
-  harness: HarnessId;
-  /** "Claude · Opus 4.6". */
-  label: string;
-  title: string;
-  busy?: "Working" | "Needs you";
-};
-
-/**
- * Chats in the race's project that could review it: the chat it was sent
- * from first, then the others, newest first. Never a lane of any race or an
- * orchestration's worker.
- */
-export function reviewerChoices(
-  race: RaceRecord,
-  live: Pick<LiveSessionStore, "list">,
-): ReviewerChoice[] {
-  return live
-    .list()
-    .filter(
-      (session) =>
-        sameProjectPath(session.cwd, race.project) &&
-        !session.inboxAsk &&
-        !session.orchestrationLeadId &&
-        !raceLaneFor(session.id),
-    )
-    .map((session): ReviewerChoice => {
-      const model = resolveModel(session.harness, session.model);
-      return {
-        sessionId: session.id,
-        harness: session.harness,
-        label: voiceName({
-          harness: session.harness,
-          model: model.harness === session.harness ? model.name : session.model,
-        }),
-        title: sessionDisplayTitle(session.title, session.harness) || "Chat",
-        ...(sessionIsWaitingForInput(session)
-          ? { busy: "Needs you" as const }
-          : session.busy
-            ? { busy: "Working" as const }
-            : {}),
-      };
-    })
-    .reverse()
-    .sort(
-      (a, b) =>
-        Number(b.sessionId === race.origin?.sessionId) -
-        Number(a.sessionId === race.origin?.sessionId),
-    );
 }
 
 /**
@@ -552,6 +492,15 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 onClick={() => workspace.compare(race.id)}
               >
                 Compare
+              </TeamCardButton>
+            ) : null}
+            {teamWorkspace()?.watch ? (
+              <TeamCardButton
+                data-team-watch={team.id}
+                title="Watch the agents in a floating panel"
+                onClick={() => teamWorkspace()?.watch?.(team.id)}
+              >
+                Watch
               </TeamCardButton>
             ) : null}
             {ready && suggestion?.status !== "done" ? (

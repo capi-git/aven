@@ -177,6 +177,26 @@ export function dispatchableTask(
 }
 
 /**
+ * What a queued task waits for, in words: a task it depends on that is not
+ * accepted yet, an agent working on files it needs, or a free worker slot.
+ */
+export function taskWaitingReason(
+  run: Pick<OrchestrationRun, "tasks">,
+  task: OrchestrationTask,
+): string | undefined {
+  if (task.status !== "queued") return undefined;
+  const dependency = run.tasks.find(
+    (entry) => task.dependsOn.includes(entry.id) && !entry.accepted,
+  );
+  if (dependency) return `Waiting for review: ${dependency.title}`;
+  const owner = run.tasks.find(
+    (entry) => activeTask(entry) && scopesOverlap(entry.scopes, task.scopes),
+  );
+  if (owner) return `Waiting for files: ${owner.title}`;
+  return "Waiting for a worker slot";
+}
+
+/**
  * An active run that nothing will move forward: the lead is idle with no
  * message waiting, no agent is working, no queued task can start, and every
  * result already reached the lead. Aven only wakes the lead for new results
@@ -922,16 +942,7 @@ export class Orchestrator {
     run: OrchestrationRun,
     task: OrchestrationTask,
   ): string | undefined {
-    if (task.status !== "queued") return undefined;
-    const dependency = run.tasks.find(
-      (entry) => task.dependsOn.includes(entry.id) && !entry.accepted,
-    );
-    if (dependency) return `Waiting for review: ${dependency.title}`;
-    const owner = run.tasks.find(
-      (entry) => activeTask(entry) && scopesOverlap(entry.scopes, task.scopes),
-    );
-    if (owner) return `Waiting for files: ${owner.title}`;
-    return "Waiting for a worker slot";
+    return taskWaitingReason(run, task);
   }
   private async execute(
     run: OrchestrationRun,

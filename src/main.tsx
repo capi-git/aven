@@ -93,6 +93,17 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
       ).render(<UsagePanelWindow />);
     })
     .catch(showStartupFailure);
+} else if (new URLSearchParams(window.location.search).has("teamWatch")) {
+  // A team's panel popped out: it draws what its owning window sends and
+  // owns no chats, so never restore an App, workspace or harness here.
+  void import("./surfaces/TeamWatchWindow")
+    .then(({ TeamWatchWindow }) => {
+      ReactDOM.createRoot(
+        document.getElementById("root") as HTMLElement,
+        rootOptions,
+      ).render(<TeamWatchWindow />);
+    })
+    .catch(showStartupFailure);
 } else if (new URLSearchParams(window.location.search).has("workspaceWindow")) {
   void import("./surfaces/DetachedWorkspace")
     .then(({ DetachedWorkspace }) => {

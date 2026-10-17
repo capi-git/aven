@@ -18,9 +18,14 @@ import {
   type DiscussionSide,
 } from "./discussions";
 import { voiceName } from "./discussionVoices";
-import type { OrchestrationRun, OrchestrationTask } from "./orchestration";
+import {
+  taskWaitingReason,
+  type OrchestrationRun,
+  type OrchestrationTask,
+} from "./orchestration";
 import type { RaceRecord } from "./race";
 import { raceLaneState, raceProgress, type RaceLaneKind } from "./raceLanes";
+import { finalReply, replyOpening } from "./replyText";
 import {
   HARNESS_TITLE,
   hasPendingApproval,
@@ -77,6 +82,15 @@ export type TeamMember = {
   changes?: { files: number; additions?: number; deletions?: number };
   /** An orchestration worker's one-line summary, once written. */
   summary?: string;
+  /**
+   * The first lines of a race lane's final reply, once it stopped working.
+   * Filled in only for watchers that ask for detail.
+   */
+  reply?: string;
+  /** A queued orchestration worker: what it waits for. Detail only. */
+  waiting?: string;
+  /** The first project files it touched, by path. Detail only. */
+  files?: string[];
 };
 
 export type TeamStatus =
@@ -146,6 +160,27 @@ export type TeamLookup = {
    */
   detail?: boolean;
 };
+
+/** A team's id: `<kind>:<store id>`. */
+export function teamIdOf(kind: TeamKind, key: string): string {
+  return `${kind}:${key}`;
+}
+
+/** The kind a team id names, or null for anything else. */
+export function teamKindOf(id: string): TeamKind | null {
+  const kind = id.slice(0, id.indexOf(":"));
+  return kind === "discuss" || kind === "race" || kind === "orchestrate"
+    ? kind
+    : null;
+}
+
+/** The store's own id inside a team id. */
+export function teamKeyOf(id: string): string {
+  return id.slice(id.indexOf(":") + 1);
+}
+
+/** The most file paths a member lists for a watcher. */
+export const TEAM_MEMBER_FILES = 6;
 
 export const TEAM_KIND_LABEL: Record<TeamKind, string> = {
   discuss: "Discussing",
@@ -303,6 +338,14 @@ const LANE_STATE: Record<RaceLaneKind, TeamMemberState> = {
   closed: "stopped",
 };
 
+/** A lane that is no longer working, whose last reply says how it ended. */
+const STOPPED_STATES: ReadonlySet<TeamMemberState> = new Set([
+  "done",
+  "failed",
+  "stopped",
+  "interrupted",
+]);
+
 /** "Kept Codex · GPT-5 (7 files)" or "Kept 3 files from 2 agents". */
 export function raceHeadline(race: RaceRecord): string | undefined {
   const outcome = race.outcome;
@@ -330,6 +373,11 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
     const state = LANE_STATE[lanes.kind];
     const asking = state === "needs-you" ? ownRequest(session) : undefined;
     const stats = race.stats?.[index];
+    // How it ended, in its own words: only once it stopped working.
+    const reply =
+      look.detail && session && STOPPED_STATES.has(state)
+        ? replyOpening(finalReply(session.blocks))
+        : "";
     return {
       sessionId: lane.sessionId,
       harness: lane.harness,
@@ -351,6 +399,7 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
             },
           }
         : {}),
+      ...(reply ? { reply } : {}),
     };
   });
   const origin = race.origin ?? { sessionId: race.lanes[0]?.sessionId ?? "" };
@@ -498,6 +547,19 @@ export function orchestrationTeam(
   const workers = run.tasks.map((task): TeamMember => {
     const session = look.session(task.sessionId);
     const { state, stateLabel } = workerState(run, task, session);
+    // What a watcher shows beyond the card: why it waits, what its lead is
+    // deciding for it, and which files it touched.
+    const waiting =
+      look.detail && run.status === "active"
+        ? taskWaitingReason(run, task)
+        : undefined;
+    const asking =
+      look.detail && state === "lead-deciding"
+        ? ownRequest(session)
+        : undefined;
+    const files = look.detail
+      ? task.touched?.slice(0, TEAM_MEMBER_FILES)
+      : undefined;
     return {
       sessionId: task.sessionId,
       harness: task.harness,
@@ -508,7 +570,10 @@ export function orchestrationTeam(
       state,
       stateLabel,
       ...(state === "working" ? doingOf(session, look) : {}),
+      ...(asking ? { asking } : {}),
+      ...(waiting ? { waiting } : {}),
       ...(task.touched ? { changes: { files: task.touched.length } } : {}),
+      ...(files?.length ? { files } : {}),
       ...(task.summary ? { summary: task.summary } : {}),
     };
   });

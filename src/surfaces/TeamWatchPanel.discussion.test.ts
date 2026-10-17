@@ -8,19 +8,17 @@ import {
   type DiscussionHost,
   type DiscussionParty,
 } from "../lib/discussions";
-import { PANEL_STATE_PREFIX, PANEL_TOP_INSET } from "../lib/discussionPanel";
+import { PANEL_TOP_INSET } from "../lib/discussionPanel";
 import { newSession, type Block, type Session } from "../lib/session";
-import {
-  useDiscussionPanel,
-  type DiscussionPanelControls,
-} from "../hooks/useDiscussionPanel";
+import { TEAM_PANEL_PREFIX } from "../lib/teamWatch";
+import { useTeamWatch, type TeamWatchControls } from "../hooks/useTeamWatch";
 
 vi.mock("./AgentMarkdown", () => ({
   AgentMarkdown: ({ text }: { text: string }) =>
     createElement("div", { "data-markdown": "" }, text),
 }));
 
-import { DiscussionFloat } from "./DiscussionPanel";
+import { TeamWatchFloat } from "./TeamWatchPanel";
 
 const party = (sessionId: string, title: string, codex = false) =>
   ({
@@ -36,7 +34,7 @@ const B = party("b", "Review", true);
 let root: Root;
 let container: HTMLDivElement;
 let values: Map<string, string>;
-let panel: DiscussionPanelControls;
+let panel: TeamWatchControls;
 let sessions: Session[];
 const host: DiscussionHost = {
   options: () => ({ candidates: [] }),
@@ -44,11 +42,16 @@ const host: DiscussionHost = {
 };
 
 function Workspace() {
-  panel = useDiscussionPanel("main", {
+  panel = useTeamWatch("main", {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => void values.set(key, value),
   });
-  return createElement(DiscussionFloat, { panel, sessions, host });
+  return createElement(TeamWatchFloat, {
+    panel,
+    sessions,
+    host,
+    popOuts: null,
+  });
 }
 
 async function mount() {
@@ -56,7 +59,7 @@ async function mount() {
 }
 
 const saved = () =>
-  JSON.parse(values.get(`${PANEL_STATE_PREFIX}main`) ?? "null") as {
+  JSON.parse(values.get(`${TEAM_PANEL_PREFIX}main`) ?? "null") as {
     rect?: { x: number; y: number; width: number; height: number };
     mode: string;
     watching: string[];
@@ -140,7 +143,7 @@ describe("the discussion panel over the workspace", () => {
     discuss("d1", A, B);
     await mount();
     expect(float()).toBeNull();
-    await act(async () => panel.started("d1"));
+    await act(async () => panel.started("discuss:d1"));
     const panelElement = float()!;
     expect(panelElement.dataset.discussionPanel).toBe("d1");
     // Cut out of a native browser page beneath it, as menus are.
@@ -153,13 +156,16 @@ describe("the discussion panel over the workspace", () => {
     expect(rect.x + rect.width).toBeLessThanOrEqual(window.innerWidth);
     expect(rect.y).toBeGreaterThanOrEqual(PANEL_TOP_INSET);
     expect(panelElement.style.left).toBe(`${rect.x}px`);
-    expect(saved()).toMatchObject({ watching: ["d1"], expanded: "d1" });
+    expect(saved()).toMatchObject({
+      watching: ["discuss:d1"],
+      expanded: "discuss:d1",
+    });
   });
 
   it("is dragged by its header and kept inside the window, below the title bar", async () => {
     discuss("d1", A, B);
     await mount();
-    await act(async () => panel.started("d1"));
+    await act(async () => panel.started("discuss:d1"));
     const before = saved()!.rect!;
     await drag(float()!.querySelector(".discussion-float-title")!, -60, -30);
     expect(saved()!.rect).toEqual({
@@ -184,7 +190,7 @@ describe("the discussion panel over the workspace", () => {
   it("is resized from its edges and corners", async () => {
     discuss("d1", A, B);
     await mount();
-    await act(async () => panel.started("d1"));
+    await act(async () => panel.started("discuss:d1"));
     const before = saved()!.rect!;
     await drag(float()!.querySelector("[data-edge='w']")!, -80, 0);
     expect(saved()!.rect).toMatchObject({
@@ -199,7 +205,7 @@ describe("the discussion panel over the workspace", () => {
   it("shrinks to a pill and comes back, and is remembered in this window", async () => {
     discuss("d1", A, B, 1);
     await mount();
-    await act(async () => panel.started("d1"));
+    await act(async () => panel.started("discuss:d1"));
     await act(async () =>
       float()!.querySelector<HTMLElement>("[data-discussion-shrink]")!.click(),
     );
@@ -233,7 +239,7 @@ describe("the discussion panel over the workspace", () => {
     // Pressed: the panel comes back.
     await act(async () => pills()[0].click());
     expect(float()?.dataset.discussionPanel).toBe("d1");
-    expect(saved()).toMatchObject({ mode: "open", expanded: "d1" });
+    expect(saved()).toMatchObject({ mode: "open", expanded: "discuss:d1" });
   });
 
   it("shows one discussion at a time, the others as stacked pills", async () => {
@@ -242,8 +248,8 @@ describe("the discussion panel over the workspace", () => {
     discuss("d1", A, B, 1);
     discuss("d2", C, D);
     await mount();
-    await act(async () => panel.started("d1"));
-    await act(async () => panel.started("d2"));
+    await act(async () => panel.started("discuss:d1"));
+    await act(async () => panel.started("discuss:d2"));
     expect(float()?.dataset.discussionPanel).toBe("d2");
     expect(pills().map((pill) => pill.dataset.discussionPill)).toEqual(["d1"]);
     // One needs you: its pill says so, in amber.
@@ -259,7 +265,7 @@ describe("the discussion panel over the workspace", () => {
       "d1",
     ]);
     // Closing one leaves the other; the discussion itself goes on.
-    await act(async () => panel.close("d2"));
+    await act(async () => panel.close("discuss:d2"));
     expect(pills().map((pill) => pill.dataset.discussionPill)).toEqual(["d1"]);
     expect(discussionStore().get("d2")?.status).toBe("active");
   });
@@ -267,7 +273,7 @@ describe("the discussion panel over the workspace", () => {
   it("shows Done once a discussion ends, and stays until closed", async () => {
     discuss("d1", A, B, 3);
     await mount();
-    await act(async () => panel.open("d1"));
+    await act(async () => panel.open("discuss:d1"));
     await act(async () =>
       discussionStore().settle("d1", 3, { status: "completed", text: "Fine." }),
     );
@@ -282,7 +288,7 @@ describe("the discussion panel over the workspace", () => {
   it("drops a discussion that no longer exists", async () => {
     discuss("d1", A, B);
     await mount();
-    await act(async () => panel.started("d1"));
+    await act(async () => panel.started("discuss:d1"));
     await act(async () => discussionStore().forgetChat("a"));
     expect(float()).toBeNull();
     expect(saved()?.watching).toEqual([]);
@@ -334,7 +340,7 @@ describe("a long thread in the panel", () => {
     discussFour(4);
     sessions = [chatA("d1", 6)];
     await mount();
-    await act(async () => panel.open("d1"));
+    await act(async () => panel.open("discuss:d1"));
     await act(async () =>
       container
         .querySelector<HTMLElement>("[data-discussion-fold] button")!
@@ -353,8 +359,9 @@ describe("a long thread in the panel", () => {
     discussFour(5);
     sessions = [chatA("d1", 6)];
     // Seen up to reply 3 when the user last looked.
+    // As an earlier version left it: discussion ids, under its own key.
     values.set(
-      `${PANEL_STATE_PREFIX}main`,
+      "aven.discussionPanel.main",
       JSON.stringify({
         mode: "open",
         watching: ["d1"],
@@ -364,7 +371,7 @@ describe("a long thread in the panel", () => {
       }),
     );
     await mount();
-    await act(async () => panel.open("d1"));
+    await act(async () => panel.open("discuss:d1"));
     // Round 1 folds; round 2 holds the first new reply, so it stays.
     expect(text(container.querySelector("[data-discussion-fold]"))).toBe(
       "Round 1 · Show",
@@ -378,7 +385,7 @@ describe("a long thread in the panel", () => {
       ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // Now seen.
-    expect(saved()?.seen.d1).toBe(5);
+    expect(saved()?.seen["discuss:d1"]).toBe(5);
     // The rail lists every round; pressing a folded one unfolds it.
     const rail = [
       ...container.querySelectorAll<HTMLElement>(
@@ -399,7 +406,7 @@ describe("a long thread in the panel", () => {
     discussFour(7);
     sessions = [chatA("d1", 8)];
     await mount();
-    await act(async () => panel.open("d1"));
+    await act(async () => panel.open("discuss:d1"));
     expect(text(container.querySelector("[data-discussion-fold]"))).toBe(
       "Rounds 1–2 · Show",
     );

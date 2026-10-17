@@ -255,6 +255,30 @@ describe("raceTeam", () => {
     });
   });
 
+  it("gives a watcher how each lane ended, in its first lines, once it stopped", () => {
+    const finished = session("l0", {}, [
+      { id: "u", role: "user", text: "Go", startedAt: 1_000 },
+      {
+        id: "r",
+        role: "assistant",
+        text: "Fixed the loop.\n\nThe cookie was read twice.\nAdded a test.\nRan it.",
+      },
+    ]);
+    const look = (detail: boolean) =>
+      lookup(
+        [finished, lane("l1", true)],
+        [outcome("l0", "completed")],
+        detail,
+      );
+    const watched = raceTeam(race(), look(true));
+    expect(watched.members[0].reply).toBe(
+      "Fixed the loop.\nThe cookie was read twice.\nAdded a test.",
+    );
+    expect(watched.members[1].reply).toBeUndefined();
+    // A bar or a sidebar row never carries it.
+    expect(raceTeam(race(), look(false)).members[0].reply).toBeUndefined();
+  });
+
   it("is ready, not waiting on you, once every lane is done", () => {
     const team = raceTeam(
       race(),
@@ -375,6 +399,39 @@ describe("orchestrationTeam", () => {
     ]);
     expect(team.members[0].label).toBe("Claude · Opus");
     expect(team.members[3].changes).toEqual({ files: 2 });
+  });
+
+  it("gives a watcher what each worker waits for, is asked and touched", () => {
+    const team = orchestrationTeam(
+      run({
+        tasks: [
+          task("1", { status: "running" }),
+          task("2", { dependsOn: ["1"] }),
+          task("3", { scopes: ["/work/site/src/app"] }),
+          task("4", {
+            status: "completed",
+            accepted: true,
+            touched: ["a", "b", "c", "d", "e", "f", "g"],
+          }),
+          task("5", { status: "running", scopes: ["/work/site/docs"] }),
+        ],
+      }),
+      lookup([session("w-5", { busy: true }, [approval])], [], true),
+    );
+    const [, , dependent, overlapping, done, asking] = team.members;
+    expect(dependent.waiting).toBe("Waiting for review: Task 1");
+    expect(overlapping.waiting).toBe("Waiting for files: Task 1");
+    expect(done.files).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(done.changes).toEqual({ files: 7 });
+    expect(asking).toMatchObject({
+      state: "lead-deciding",
+      asking: { kind: "approval", text: "Approve: npm test" },
+    });
+    // Still never yours to answer.
+    expect(team.need).toBeUndefined();
+    const plain = orchestrationTeam(run(), lookup([], [], false));
+    expect(plain.members[2].waiting).toBeUndefined();
+    expect(plain.members[3].files).toBeUndefined();
   });
 
   it("leaves a worker's request to its lead", () => {

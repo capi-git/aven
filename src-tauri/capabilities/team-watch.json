@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "team-watch",
+  "description": "A team's panel popped out into its own window: it hears its own events and drags its own window. It owns no chats; its actions go back to the workspace that opened it, which checks them.",
+  "webviews": ["team-watch-*"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging"
+  ]
+}

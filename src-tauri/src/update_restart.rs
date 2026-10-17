@@ -516,6 +516,7 @@ fn is_panel(label: &str) -> bool {
     label.starts_with("access-panel-")
         || label.starts_with("usage-panel-")
         || label.starts_with("workspace-menu-panel-")
+        || crate::team_watch::is_team_watch_label(label)
 }
 
 fn check_update_windows(owner: &str, labels: &[String]) -> Result<(), String> {
@@ -1136,7 +1137,8 @@ mod tests {
                 "main",
                 "usage-panel-a",
                 "access-panel-b",
-                "workspace-menu-panel-c"
+                "workspace-menu-panel-c",
+                "team-watch-d"
             ])
         )
         .is_ok());

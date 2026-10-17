@@ -157,6 +157,15 @@ export function OrchestrationTeamCard({
           {openAgents ? (
             <TeamCardButton onClick={openAgents}>Open agents</TeamCardButton>
           ) : null}
+          {!over && teamWorkspace()?.watch ? (
+            <TeamCardButton
+              data-team-watch={team.id}
+              title="Watch the lead and its agents in a floating panel"
+              onClick={() => teamWorkspace()?.watch?.(team.id)}
+            >
+              Watch
+            </TeamCardButton>
+          ) : null}
           <button
             type="button"
             className="team-card-toggle"
