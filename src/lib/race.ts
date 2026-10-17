@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useSyncExternalStore } from "react";
 import type { AgentRoleId } from "./agentRoles";
 import { isEqualOrInside } from "./paths";
 import type { Attachment, Block, HarnessId, Session } from "./session";
@@ -709,14 +710,41 @@ export type RaceWorkspace = {
 };
 
 let workspace: RaceWorkspace | null = null;
+const workspaceListeners = new Set<() => void>();
+
+function workspaceChanged() {
+  for (const listener of workspaceListeners) listener();
+}
 
 export function installRaceWorkspace(next: RaceWorkspace) {
   workspace = next;
+  workspaceChanged();
   return () => {
-    if (workspace === next) workspace = null;
+    if (workspace !== next) return;
+    workspace = null;
+    workspaceChanged();
   };
 }
 
 export function raceWorkspace(): RaceWorkspace | null {
   return workspace;
+}
+
+function subscribeRaceWorkspace(listener: () => void) {
+  workspaceListeners.add(listener);
+  return () => {
+    workspaceListeners.delete(listener);
+  };
+}
+
+/**
+ * The race workspace for what a card or bar shows, kept current: App
+ * installs it after its children first draw.
+ */
+export function useRaceWorkspace(): RaceWorkspace | null {
+  return useSyncExternalStore(
+    subscribeRaceWorkspace,
+    raceWorkspace,
+    raceWorkspace,
+  );
 }

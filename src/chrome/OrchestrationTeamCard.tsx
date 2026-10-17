@@ -4,7 +4,7 @@ import { memberVoice, teamMascots } from "../lib/discussionVoices";
 import type { OrchestrationRun } from "../lib/orchestration";
 import { orchestrationStatusWord } from "../lib/orchestrationSummary";
 import type { TeamMember } from "../lib/teamRuns";
-import { teamWorkspace } from "../lib/teamWorkspace";
+import { useTeamWorkspace } from "../lib/teamWorkspace";
 import { OrchestrationActions } from "./OrchestrationActions";
 import {
   TeamCard,
@@ -56,6 +56,7 @@ export function OrchestrationTeamCard({
   onTogglePlan: () => void;
 }) {
   const actions = useContext(OrchestrationActions);
+  const workspace = useTeamWorkspace();
   const team = useTeamRun(`orchestrate:${run.leadId}`, { detail: true });
   const voices = useMemo(() => {
     if (!team) return [];
@@ -149,7 +150,7 @@ export function OrchestrationTeamCard({
           {over && run.status === "finished" ? (
             <TeamCardButton
               data-orchestration-review-changes
-              onClick={() => teamWorkspace()?.reviewChanges(run.cwd)}
+              onClick={() => workspace?.reviewChanges(run.cwd)}
             >
               Review changes
             </TeamCardButton>
@@ -157,11 +158,11 @@ export function OrchestrationTeamCard({
           {openAgents ? (
             <TeamCardButton onClick={openAgents}>Open agents</TeamCardButton>
           ) : null}
-          {!over && teamWorkspace()?.watch ? (
+          {!over && workspace?.watch ? (
             <TeamCardButton
               data-team-watch={team.id}
               title="Watch the lead and its agents in a floating panel"
-              onClick={() => teamWorkspace()?.watch?.(team.id)}
+              onClick={() => workspace.watch?.(team.id)}
             >
               Watch
             </TeamCardButton>

@@ -43,6 +43,7 @@ import {
   getRace,
   raceWorkspace,
   subscribeRaces,
+  useRaceWorkspace,
   type RaceSuggestion,
 } from "../lib/race";
 import { sessionWorkCwd, type Session } from "../lib/session";
@@ -74,7 +75,7 @@ import {
   type TeamWatchPlace,
   type TeamWatchSnapshot,
 } from "../lib/teamWatchBridge";
-import { teamWorkspace } from "../lib/teamWorkspace";
+import { teamWorkspace, useTeamWorkspace } from "../lib/teamWorkspace";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import {
   DiscussionPanelContent,
@@ -333,6 +334,8 @@ function suggestionView(
  */
 export function useTeamWatchView(teamId: string): TeamWatchView | null {
   const team = useTeamRun(teamId, { detail: true, previews: true });
+  const raceActions = useRaceWorkspace();
+  const teamActions = useTeamWorkspace();
   const kind = teamKindOf(teamId);
   const key = teamKeyOf(teamId);
   const race = useSyncExternalStore(
@@ -348,9 +351,9 @@ export function useTeamWatchView(teamId: string): TeamWatchView | null {
     STALLED_AFTER_MS,
   );
   const orchestration = useContext(OrchestrationActions);
-  const compare = !!raceWorkspace();
+  const compare = !!raceActions;
   const openAgents = !!orchestration?.openAgents;
-  const openChat = !!teamWorkspace() || !!orchestration;
+  const openChat = !!teamActions || !!orchestration;
   const suggestion = suggestionView(race?.suggestion);
   const suggestionKey = suggestion ? JSON.stringify(suggestion) : "";
   // The reviewer, and the chats that could be one once the race is ready.

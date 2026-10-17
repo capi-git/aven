@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import type { ControlOutcome } from "./orchestration";
 import type { Block } from "./session";
 
@@ -35,14 +36,38 @@ export type TeamWorkspace = {
 };
 
 let workspace: TeamWorkspace | null = null;
+const listeners = new Set<() => void>();
+
+function changed() {
+  for (const listener of listeners) listener();
+}
 
 export function installTeamWorkspace(next: TeamWorkspace) {
   workspace = next;
+  changed();
   return () => {
-    if (workspace === next) workspace = null;
+    if (workspace !== next) return;
+    workspace = null;
+    changed();
   };
 }
 
 export function teamWorkspace(): TeamWorkspace | null {
   return workspace;
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * The workspace for what a card shows, kept current: App installs it in an
+ * effect, after its children first draw, so a card read only at render
+ * would leave out its buttons until something else redrew it.
+ */
+export function useTeamWorkspace(): TeamWorkspace | null {
+  return useSyncExternalStore(subscribe, teamWorkspace, teamWorkspace);
 }

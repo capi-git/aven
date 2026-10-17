@@ -12,8 +12,8 @@ import {
   runWaitsOnLead,
   type OrchestrationRun,
 } from "../lib/orchestration";
-import { raceWorkspace } from "../lib/race";
-import { teamWorkspace } from "../lib/teamWorkspace";
+import { useRaceWorkspace } from "../lib/race";
+import { useTeamWorkspace } from "../lib/teamWorkspace";
 import {
   TEAM_KIND_LABEL,
   teamIsOpen,
@@ -306,6 +306,8 @@ function OpenTeamBar({
   onOpenDiscussion,
 }: Props & { team: TeamRun }) {
   const actions = useContext(OrchestrationActions);
+  const teamActions = useTeamWorkspace();
+  const raceActions = useRaceWorkspace();
   const lead = team.kind === "orchestrate" ? team.key : undefined;
   const run = useOrchestrationRun(lead);
   const stalled = useStalled(run, idle);
@@ -346,7 +348,7 @@ function OpenTeamBar({
         ? { label: runningSummary(run, idle) }
         : teamBarParts(team, sessionId, { partnerTitle: partner?.title });
   const text = parts.reason ? `${parts.label} · ${parts.reason}` : parts.label;
-  const watch = team.kind !== "discuss" ? teamWorkspace()?.watch : undefined;
+  const watch = team.kind !== "discuss" ? teamActions?.watch : undefined;
   const state = stalled
     ? "stalled"
     : paused
@@ -366,7 +368,7 @@ function OpenTeamBar({
             })),
           )
       : undefined;
-  const race = team.kind === "race" ? raceWorkspace() : null;
+  const race = team.kind === "race" ? raceActions : null;
   return (
     <Frame team={team} state={state} tall={!!parts.reason}>
       <Mark team={team} sessionId={sessionId} paused={paused} />

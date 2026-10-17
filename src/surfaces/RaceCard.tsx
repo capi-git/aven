@@ -26,8 +26,8 @@ import {
   getRace,
   noteRaceStats,
   raceHost,
-  raceWorkspace,
   subscribeRaces,
+  useRaceWorkspace,
   type RaceRecord,
 } from "../lib/race";
 import { reviewerChoices, type ReviewerChoice } from "../lib/raceReviewers";
@@ -42,7 +42,7 @@ import {
 } from "../lib/teamResult";
 import { raceAgentNames, raceShortNames } from "../lib/raceNames";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
-import { teamWorkspace } from "../lib/teamWorkspace";
+import { useTeamWorkspace } from "../lib/teamWorkspace";
 
 /** "A", "A and B", "A, B and C". */
 function listNames(names: readonly string[]): string {
@@ -207,6 +207,8 @@ function ReviewerButton({
  * Continue with the agent. Stop all is the bar's, in the message box below.
  */
 export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
+  const workspace = useRaceWorkspace();
+  const teamActions = useTeamWorkspace();
   const [continuing, setContinuing] = useState(false);
   const [continueError, setContinueError] = useState<string | null>(null);
   const race = useSyncExternalStore(
@@ -236,7 +238,6 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
         attributes={{ "data-race-card": raceId }}
       />
     );
-  const workspace = raceWorkspace();
   const names = listNames(raceShortNames(team.members));
   const kept = race.state === "kept";
   const over = race.state !== "running";
@@ -304,7 +305,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       team.members.map((member) => member.stateLabel),
     );
   const askReviewer = (choice: ReviewerChoice) => {
-    const send = teamWorkspace()?.send;
+    const send = teamActions?.send;
     if (!send) return;
     void askRaceReviewer(
       race.id,
@@ -465,7 +466,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
             <>
               <TeamCardButton
                 data-race-review
-                onClick={() => teamWorkspace()?.reviewChanges(race.project)}
+                onClick={() => teamActions?.reviewChanges(race.project)}
               >
                 Review changes
               </TeamCardButton>
@@ -481,7 +482,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                   onClick={() => {
                     setContinuing(true);
                     setContinueError(null);
-                    void continueRace(race.id, teamWorkspace()?.send).then(
+                    void continueRace(race.id, teamActions?.send).then(
                       (error) => {
                         setContinuing(false);
                         setContinueError(error);
@@ -519,11 +520,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 Compare
               </TeamCardButton>
             ) : null}
-            {teamWorkspace()?.watch ? (
+            {teamActions?.watch ? (
               <TeamCardButton
                 data-team-watch={team.id}
                 title="Watch the agents in a floating panel"
-                onClick={() => teamWorkspace()?.watch?.(team.id)}
+                onClick={() => teamActions?.watch?.(team.id)}
               >
                 Watch
               </TeamCardButton>

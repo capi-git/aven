@@ -170,6 +170,28 @@ const press = async (label: string) => {
   await act(async () => button!.click());
 };
 
+describe("a race's card drawn before the workspace is ready", () => {
+  it("gains Compare once the window installs its race actions", async () => {
+    for (const stop of uninstall) stop();
+    uninstall = [];
+    await render();
+    expect(labels()).toEqual([]);
+    await act(async () => {
+      uninstall = [
+        installRaceWorkspace({
+          stop: vi.fn(),
+          settle: vi.fn(),
+          release: vi.fn(),
+          openChat,
+          compare,
+          retry: vi.fn(),
+        }),
+      ];
+    });
+    expect(labels()).toEqual(["Compare"]);
+  });
+});
+
 describe("a race's card in the chat it was sent from", () => {
   it("shows each lane live with Compare, and no Stop of its own", async () => {
     await render();
