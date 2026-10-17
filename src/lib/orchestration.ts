@@ -129,6 +129,8 @@ const messageOf = (error: unknown) =>
 const folderName = (path: string) =>
   path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ||
   "This project";
+/** The latest a finished lead keeps control when its reply never goes out. */
+const REVOKE_AFTER_FINISH_MS = 10_000;
 /** What the user should do after Aven paused a run and stopped its agents. */
 const PAUSED_NEXT =
   "Aven paused the run and stopped its agents. Check the files, then resume or stop the run.";
@@ -340,6 +342,7 @@ export class Orchestrator {
   >();
   private host: OrchestrationHost | null = null;
   private outcomeListeners = new Set<(outcome: RunOutcome) => void>();
+  private revokeAfterReply = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(private readonly store: Storage = storage) {}
   bind(host: OrchestrationHost) {
     this.host = host;
@@ -350,6 +353,17 @@ export class Orchestrator {
       this.listeners.delete(listener);
     };
   };
+  /**
+   * The answer to a lead's control call has been sent. After its finish,
+   * this is when its control access is revoked.
+   */
+  replied(leadId: string) {
+    const timer = this.revokeAfterReply.get(leadId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.revokeAfterReply.delete(leadId);
+    void this.store.disable(leadId).catch(console.error);
+  }
   /** Called once when an active run finishes or pauses. */
   onOutcome(listener: (outcome: RunOutcome) => void) {
     this.outcomeListeners.add(listener);
@@ -652,6 +666,10 @@ export class Orchestrator {
     if (previous?.tasks.some(activeTask))
       throw new Error("Stop active workers before changing the run");
     const [canonicalRoot] = await this.store.scopes(lead.cwd, ["."]);
+    // A revoke still pending from the last run's finish must not take the
+    // new run's access with it.
+    clearTimeout(this.revokeAfterReply.get(leadId));
+    this.revokeAfterReply.delete(leadId);
     const cli = await this.store.enable(leadId, lead.cwd);
     try {
       await this.host!.stop(leadId); // Refresh the child environment before its next turn.
@@ -1101,7 +1119,13 @@ export class Orchestrator {
           { ...this.run(run.leadId)!, status: "finished" },
           { finished: true },
         );
-        await this.store.disable(run.leadId);
+        // Revoking the lead's control drops its pending calls, this one
+        // included, so the lead would read its own finish as a failure.
+        // Revoke once the reply is out (see replied), or soon after anyway.
+        this.revokeAfterReply.set(
+          run.leadId,
+          setTimeout(() => this.replied(run.leadId), REVOKE_AFTER_FINISH_MS),
+        );
         return result;
       }
       default:

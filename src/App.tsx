@@ -7336,6 +7336,8 @@ export default function App({
               },
             }),
         )
+        // Only now may a finished lead's control access go.
+        .finally(() => orchestrator.replied(payload.sessionId))
         .catch(console.error);
     });
     return () => {

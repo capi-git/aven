@@ -1009,6 +1009,24 @@ describe("a run the lead left open", () => {
     expect(f.manager.submissionError("other")).toBeNull();
   });
 
+  it("answers the lead's finish before revoking its control", async () => {
+    vi.useFakeTimers();
+    const f = setup();
+    await f.start();
+    expect(await f.call("finish")).toEqual({ finished: true });
+    // Revoking first would drop this very call's reply.
+    expect(f.store.disable).not.toHaveBeenCalled();
+    f.manager.replied("lead");
+    expect(f.store.disable).toHaveBeenCalledWith("lead");
+    // Without a reply, access still goes soon after.
+    const late = setup();
+    await late.start();
+    await late.call("finish");
+    expect(late.store.disable).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(late.store.disable).toHaveBeenCalledWith("lead");
+  });
+
   it("announces a finished or paused run once, and never a stopped one", async () => {
     const f = setup();
     const outcomes: string[] = [];
