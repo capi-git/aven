@@ -219,7 +219,7 @@ export function ModalPanel({
         onMouseDown={(event) => event.stopPropagation()}
         className={`modal-panel flex flex-col overflow-hidden rounded-2xl ${className ?? ""}`}
       >
-        <header className="flex shrink-0 items-start gap-2 px-4 pt-3">
+        <header className="modal-panel-content flex shrink-0 items-start gap-2 px-4 pt-3">
           <div className="min-w-0 flex-1 pt-0.5">
             <h2
               id={titleId}
@@ -241,14 +241,14 @@ export function ModalPanel({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <X className="size-3.5" strokeWidth={1.75} />
           </button>
         </header>
         <div
           ref={lockOverscroll}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-none"
+          className="modal-panel-content min-h-0 flex-1 overflow-y-auto overscroll-none"
         >
           {children}
         </div>

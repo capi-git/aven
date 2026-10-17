@@ -54,6 +54,7 @@ import {
   type SortablePointerPosition,
 } from "../hooks/useSortable";
 import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
+import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -113,6 +114,8 @@ export type Tab = {
   needsInput?: boolean;
   /** The tab holds one race's agents; `title` is the race prompt. */
   race?: boolean;
+  /** The chats in this tab, whose finished turns flash it. */
+  sessionIds?: string[];
   dirty?: boolean;
   terminal?: boolean;
 };
@@ -343,6 +346,8 @@ function TitleTabItem({
 }) {
   const { headline, tooltip } = tabCopy(tab, projectless);
   const appearance = useProjectAppearance(projectless ? null : tab.projectPath);
+  const tabRef = useRef<HTMLDivElement | null>(null);
+  useTurnEndFlash(tabRef, tab.sessionIds);
   const fileIcon = tab.files[0];
   const showStart =
     canDrag &&
@@ -360,6 +365,7 @@ function TitleTabItem({
   return (
     <div
       ref={(el) => {
+        tabRef.current = el;
         sortable.setItemRef(tab.id, el);
         itemRef?.(el);
       }}

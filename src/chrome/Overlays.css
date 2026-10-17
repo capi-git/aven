@@ -1,5 +1,6 @@
-/* Shared sheets remain opaque over native browser views. Only their content
-   animates, so opening a menu does not expose or repaint the page underneath. */
+/* Shared sheets remain opaque over native browser views. The frame only
+   scales as it opens and its content settles (motion.css), so opening a menu
+   does not expose or repaint the page underneath. */
 .aven-popover-frame {
   border-color: var(--aven-glass-overlay-edge);
   border-radius: 12px;
@@ -52,8 +53,8 @@
 }
 
 /* ToolbarPanel owns the single themed border in both host types. In a
-   popover the still frame paints its surface, forwarded by Popover, so the
-   material is in place from the first frame while only the content animates. */
+   popover the frame paints its surface, forwarded by Popover, so the
+   material is in place from the first frame while the content settles. */
 .aven-popover-frame.aven-popover-panel {
   border: 0;
   background: transparent;

@@ -14,6 +14,7 @@ import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import { OrchestrationActions } from "../chrome/OrchestrationActions";
 import { STALLED_AFTER_MS } from "../chrome/TeamBar";
 import { useDiscussionList } from "../hooks/useDiscussions";
+import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import type { TeamWatchControls } from "../hooks/useTeamWatch";
 import { useTeamRun, useTeamRuns } from "../hooks/useTeamRuns";
@@ -797,6 +798,10 @@ export const TeamPill = memo(function TeamPill({
 }) {
   const voices = useTeamVoices(team);
   const { progress, status } = teamPillText(team);
+  const progressRef = useRef<HTMLSpanElement>(null);
+  const statusRef = useRef<HTMLSpanElement>(null);
+  useMotionOnChange(progressRef, progress);
+  useMotionOnChange(statusRef, status);
   const active =
     team.members.find((member) => member.state === "working") ??
     team.members[0];
@@ -826,8 +831,12 @@ export const TeamPill = memo(function TeamPill({
           />
         ))}
       </span>
-      <span className="team-pill-progress">{progress}</span>
-      <span className="discussion-pill-status">{status}</span>
+      <span ref={progressRef} className="team-pill-progress">
+        {progress}
+      </span>
+      <span ref={statusRef} className="discussion-pill-status">
+        {status}
+      </span>
     </button>
   );
 });

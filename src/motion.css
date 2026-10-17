@@ -1,0 +1,203 @@
+/* Aven's motion: short, eased out, and only ever `transform` and `opacity`,
+   so the compositor runs it without layout or paint. Every duration and
+   curve lives here. src/lib/motion.ts mirrors them for the one animation
+   script starts itself (rows gliding to a new place), and motion.test.ts
+   keeps the two equal.
+
+   Reduce motion (the system's setting, or Settings › Appearance) sets
+   html[data-motion="reduce"]. That zeroes every duration below and stops
+   script from starting any animation, so each one is off in one place.
+
+   Nothing here loops, nothing is left with `will-change`, and every
+   one-shot is started by an attribute that script removes when it ends:
+   an idle window runs no animation frames. */
+:root {
+  --aven-motion-fast: 120ms;
+  --aven-motion-base: 150ms;
+  --aven-motion-glide: 160ms;
+  --aven-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --aven-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --aven-press-scale: 0.96;
+}
+
+:root[data-motion="reduce"] {
+  --aven-motion-fast: 0ms;
+  --aven-motion-base: 0ms;
+  --aven-motion-glide: 0ms;
+  --aven-press-scale: 1;
+}
+
+/* The system's setting holds before script has marked the root. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --aven-motion-fast: 0ms;
+    --aven-motion-base: 0ms;
+    --aven-motion-glide: 0ms;
+    --aven-press-scale: 1;
+  }
+}
+
+/* A popup's frame lands with a small spring. Only its scale moves: the
+   frame is opaque from the first frame, so nothing shows through it. */
+@keyframes aven-pop {
+  from {
+    transform: scale(0.97);
+  }
+}
+
+/* Contents settle inside a frame that is already solid. */
+@keyframes aven-settle {
+  from {
+    opacity: 0.4;
+  }
+}
+
+@keyframes aven-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Your message rises from the message box into the transcript. */
+@keyframes aven-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+}
+
+/* A changed number or status word rolls up into place. */
+@keyframes aven-roll {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.5em, 0);
+  }
+}
+
+/* A finished turn: an underline sweeps across, then fades. */
+@keyframes aven-sweep {
+  0% {
+    opacity: 1;
+    transform: scaleX(0);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+/* One-shots, started by playMotion() in src/lib/motion.ts. Backwards fill
+   only: nothing stays composited once an animation ends. */
+[data-aven-motion="rise"] {
+  animation: aven-rise var(--aven-motion-base) var(--aven-ease-out) backwards;
+}
+
+[data-aven-motion="fade"],
+[data-aven-motion="pane-in"] {
+  animation: aven-fade var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
+[data-aven-motion="roll"] {
+  animation: aven-roll var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
+.personal-task-row[data-aven-motion="flash"]::after,
+.aven-tab[data-aven-motion="flash"]::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  z-index: 1;
+  background: color-mix(in srgb, #34d399 80%, var(--color-content));
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: left center;
+  animation: aven-sweep calc(var(--aven-motion-glide) * 2) var(--aven-ease-out);
+}
+
+/* Popups, menus, dialogs and the floating team panel spring in. Each frame
+   is solid from its first frame; only its scale moves, and its contents
+   settle from partly visible so the two read as one surface appearing.
+   They close at once, which is faster still: a fading copy left behind
+   would keep the closed popup in the page, over a native browser page and
+   in front of whatever checks it is gone. Backwards fill only: an
+   animation left in effect after it ends would keep the popup on its own
+   layer. */
+.aven-popover-frame,
+.modal-panel,
+.discussion-float {
+  animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring) backwards;
+}
+
+.modal-backdrop {
+  animation: aven-fade var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
+.modal-panel-content {
+  animation: aven-settle var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
+/* Popover contents also drift in from the edge they hang off. */
+@keyframes popover-open {
+  from {
+    opacity: 0.4;
+    transform: translate3d(var(--popover-shift, 0), var(--popover-lift, 0), 0);
+  }
+}
+
+.popover-open {
+  animation: popover-open var(--aven-motion-fast) var(--aven-ease-out) backwards;
+  backface-visibility: hidden;
+}
+
+.popover-open[data-popover-side="bottom"] {
+  --popover-lift: -3px;
+}
+
+.popover-open[data-popover-side="top"] {
+  --popover-lift: 3px;
+}
+
+.popover-open[data-popover-side="right"] {
+  --popover-shift: -3px;
+}
+
+.popover-open[data-popover-side="left"] {
+  --popover-shift: 3px;
+}
+
+/* A press shows at once, on the shared button classes, and lets go at
+   once: no transition, so it never replaces a control's own. `scale`
+   composes with any `transform` or `translate` the control already has.
+   Rows and tabs are left out: they are dragged, and a press there starts a
+   drag. */
+.aven-press:active:not(:disabled),
+.settings-button:active:not(:disabled),
+.team-card-button:active:not(:disabled),
+.team-watch-button:active:not(:disabled),
+.discussion-float-control:active:not(:disabled),
+.discussion-action:active:not(:disabled),
+.discussion-pill:active,
+.duplicate-server-action:active:not(:disabled),
+.git-copy-action:active:not(:disabled),
+.git-ship-button:active:not(:disabled),
+.git-clean-action:active:not(:disabled),
+.memory-keeper-action:active:not(:disabled),
+.browser-icon-button:active:not(:disabled),
+.toolbar-panel-icon-button:active:not(:disabled),
+.provider-row-action:active:not(:disabled),
+.agent-panel-usage-action:active:not(:disabled),
+.footer-usage-summary:active,
+.footer-usage-refresh:active:not(:disabled),
+.personal-new-session:active:not(:disabled),
+.personal-view-project-tasks:active:not(:disabled),
+.workspace-home-actions button:active:not(:disabled) {
+  scale: var(--aven-press-scale);
+}

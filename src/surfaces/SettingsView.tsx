@@ -1240,6 +1240,7 @@ function AppearancePage({
             />
           </Row>
         )}
+        <ReduceMotionRow />
       </SettingsGroup>
       <SettingsGroup
         title="Chat background"
@@ -1269,6 +1270,20 @@ function AppearancePage({
         </SecondaryButton>
       </div>
     </>
+  );
+}
+
+/** A device preference, like the system's; Restore defaults leaves it. */
+function ReduceMotionRow() {
+  const reduceMotion = useSetting(SETTINGS.reduceMotion);
+  return (
+    <Row {...SETTINGS.reduceMotion.row}>
+      <Toggle
+        label={SETTINGS.reduceMotion.label}
+        on={reduceMotion}
+        onChange={SETTINGS.reduceMotion.save}
+      />
+    </Row>
   );
 }
 

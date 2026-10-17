@@ -150,6 +150,8 @@ import {
 } from "../lib/discussions";
 import { SettingsNav } from "./SettingsRail";
 import { WorkConflictMark } from "./WorkConflictMark";
+import { MotionList } from "./MotionList";
+import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import "./PersonalNavigation.css";
 
@@ -687,6 +689,17 @@ function SidebarComponent({
   const visibleFolderIds = sessionListEntries.flatMap((entry) =>
     entry.kind === "folder" ? [entry.folder.id] : [],
   );
+  // Rows glide when a chat's order or status changes (see MotionList).
+  const sessionListKeys = sessionListEntries.map(sessionListEntryKey);
+  const sessionListState = sessionListEntries
+    .map((entry) =>
+      entry.kind === "session"
+        ? `${busySessionIds.has(entry.session.id) ? "b" : ""}${
+            approvalSessionIds.has(entry.session.id) ? "a" : ""
+          }${unseenFinishedIds.has(entry.session.id) ? "d" : ""}`
+        : "",
+    )
+    .join(",");
   const folderSortable = useSortable(
     visibleFolderIds,
     (ids) => {
@@ -1374,12 +1387,17 @@ function SidebarComponent({
                   <p className="personal-tasks-empty">No tasks yet.</p>
                 )
               ) : (
-                <ul className="personal-task-list flex flex-col gap-0.5 p-1.5">
+                <MotionList
+                  className="personal-task-list relative flex flex-col gap-0.5 p-1.5"
+                  motionKeys={sessionListKeys}
+                  motionState={sessionListState}
+                >
                   {sessionListEntries.map((entry, index) => {
                     if (entry.kind === "divider") {
                       return (
                         <li
-                          key={`divider-${index}`}
+                          key={sessionListKeys[index]}
+                          data-motion-key={sessionListKeys[index]}
                           className="personal-sidebar-section-label list-none"
                         >
                           Recent
@@ -1416,6 +1434,7 @@ function SidebarComponent({
                           ref={(el) =>
                             folderSortable.setItemRef(entry.folder.id, el)
                           }
+                          data-motion-key={entry.folder.id}
                           data-session-folder={entry.folder.id}
                           className={`relative ${
                             expanded || beforeUngrouped ? "mb-1.5" : ""
@@ -1538,7 +1557,10 @@ function SidebarComponent({
                       );
                     }
                     return (
-                      <li key={entry.session.id}>
+                      <li
+                        key={entry.session.id}
+                        data-motion-key={entry.session.id}
+                      >
                         {sessionListEntries[index - 1]?.kind !== "session" &&
                         sessionListEntries[index - 1]?.kind !== "divider" ? (
                           <p className="personal-sidebar-section-label">
@@ -1556,7 +1578,7 @@ function SidebarComponent({
                       className="h-px list-none"
                     />
                   ) : null}
-                </ul>
+                </MotionList>
               )}
             </div>
           )}
@@ -2241,6 +2263,18 @@ export function Sidebar(props: SidebarProps) {
   return <MemoSidebar {...useChromeProps(props, SIDEBAR_DATA)} />;
 }
 
+/** A row of the task list: its folder, chat or divider. */
+function sessionListEntryKey(
+  entry: ReturnType<typeof buildSessionList>[number],
+  index: number,
+): string {
+  return entry.kind === "folder"
+    ? entry.folder.id
+    : entry.kind === "session"
+      ? entry.session.id
+      : `divider-${index}`;
+}
+
 function SessionsHeaderButton({
   label,
   active = false,
@@ -2265,7 +2299,7 @@ function SessionsHeaderButton({
       aria-haspopup={hasPopup ? "menu" : undefined}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
+      className={`aven-press relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
         open || active ? "bg-content/10 text-content" : ""
       }`}
     >
@@ -2563,6 +2597,8 @@ function SessionCard({
 }) {
   const skipClickUntil = useRef(0);
   const cancelDrag = useRef<(() => void) | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useTurnEndFlash(rowRef, session.id);
   const listDropRef = useRef(onListDrop);
   listDropRef.current = onListDrop;
   useEffect(() => () => cancelDrag.current?.(), [session.id]);
@@ -2773,7 +2809,7 @@ function SessionCard({
   // so expanding or stopping a worker cannot accidentally open the lead.
   if (session.orchestration)
     return (
-      <div className="personal-task-row group relative">
+      <div ref={rowRef} className="personal-task-row group relative">
         <div
           data-session-card={session.id}
           data-orchestration-card="true"
@@ -2866,6 +2902,7 @@ function SessionCard({
 
   return (
     <div
+      ref={rowRef}
       className="personal-task-row group relative"
       data-has-archive={!!onArchive}
       data-compact={compact || undefined}

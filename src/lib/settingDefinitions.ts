@@ -327,6 +327,21 @@ export const SETTINGS = {
       "Light mode always uses a solid window. Glass applies in dark mode.",
     nativeGlass: true,
   }),
+  reduceMotion: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.reduceMotion",
+      ...storedBoolean(false),
+      changeEvent: "aven:reduce-motion-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Reduce motion",
+    description: "Show changes at once instead of sliding and fading.",
+    keywords:
+      "animation animations transitions motion movement fade slide spring accessibility calm",
+    rowDescription:
+      "Messages, menus, panes and lists change at once instead of sliding or fading. Aven also follows your system’s Reduce motion setting.",
+  }),
   chatBackground: defineSetting({
     section: "appearance",
     label: "Chat background",

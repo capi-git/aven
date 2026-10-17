@@ -10433,6 +10433,7 @@ function toTitleTab(
         : "",
     more,
     sessionCount: tabSessions.length,
+    sessionIds: tabSessions.map((session) => session.id),
     models: ordered.map(sessionModelIdentity),
     harnesses,
     busyHarnesses,

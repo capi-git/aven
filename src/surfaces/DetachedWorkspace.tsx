@@ -892,6 +892,7 @@ export function DetachedWorkspace() {
       title: focused?.title ?? "",
       more: sessions.filter((s) => s.id !== focused?.id).map((s) => s.title),
       sessionCount: sessions.length,
+      sessionIds: sessions.map((s) => s.id),
       harnesses: [...new Set(sessions.map((s) => s.harness))],
       busyHarnesses: [
         ...new Set(sessions.filter((s) => s.busy).map((s) => s.harness)),

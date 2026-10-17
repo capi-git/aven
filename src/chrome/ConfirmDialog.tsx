@@ -34,7 +34,7 @@ export function ConfirmDialog({
           type="button"
           autoFocus
           onClick={onCancel}
-          className="rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-content/8"
+          className="aven-press rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-content/8"
         >
           Cancel
         </button>
@@ -44,8 +44,8 @@ export function ConfirmDialog({
           onClick={onConfirm}
           className={
             danger
-              ? "rounded-md bg-red-500/15 px-3 py-1.5 text-ui-label font-medium text-red-600 hover:bg-red-500/25 dark:text-red-400"
-              : "rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90"
+              ? "aven-press rounded-md bg-red-500/15 px-3 py-1.5 text-ui-label font-medium text-red-600 hover:bg-red-500/25 dark:text-red-400"
+              : "aven-press rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90"
           }
         >
           {confirmLabel}
