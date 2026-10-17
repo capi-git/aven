@@ -84,8 +84,6 @@ export function initMotionPreference(): () => void {
 }
 
 const running = new WeakMap<Element, () => void>();
-/** An animation that never started (its element was not displayed) still ends. */
-export const MOTION_SETTLE_MS = 1000;
 
 function restartCssAnimation(element: Element) {
   try {
@@ -105,7 +103,8 @@ function restartCssAnimation(element: Element) {
 /**
  * Plays one of motion.css's one-shot animations on `element`, and removes
  * its attribute when it ends so nothing is left running or composited.
- * Nothing waits for it. Returns false when motion is off.
+ * Nothing waits for it, and it sets no timer: an element that is not
+ * displayed yet plays it when it is. Returns false when motion is off.
  */
 export function playMotion(
   element: Element | null | undefined,
@@ -117,10 +116,8 @@ export function playMotion(
   element.setAttribute(MOTION_ATTRIBUTE, name);
   // The same attribute value again would not restart a CSS animation.
   if (again) restartCssAnimation(element);
-  let timer = 0;
   const finish = (event?: Event) => {
     if (event && event.target !== element) return;
-    window.clearTimeout(timer);
     element.removeEventListener("animationend", finish);
     element.removeEventListener("animationcancel", finish);
     if (running.get(element) === finish) running.delete(element);
@@ -129,7 +126,6 @@ export function playMotion(
   };
   element.addEventListener("animationend", finish);
   element.addEventListener("animationcancel", finish);
-  timer = window.setTimeout(finish, MOTION_SETTLE_MS);
   running.set(element, finish);
   return true;
 }

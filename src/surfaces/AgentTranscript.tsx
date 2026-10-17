@@ -83,6 +83,9 @@ import {
   type ScrollAnchor,
 } from "../lib/scrollAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
+import { useMotionOnAttach } from "../hooks/useMotionOnAttach";
+import type { MotionName } from "../lib/motion";
+import { TurnEntrances } from "../lib/transcriptMotion";
 import {
   followsAfterScroll,
   isAtEnd,
@@ -593,6 +596,19 @@ function AgentTranscriptComponent({
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
+  // A turn that arrives while this transcript is on screen rises in, and the
+  // reply under it fades in as it starts (motion.css). Nothing waits for it.
+  const entrances = useRef<TurnEntrances | null>(null);
+  entrances.current ??= new TurnEntrances();
+  const lastTurnId = turns.at(-1)?.[0].id;
+  entrances.current.observe(lastTurnId, visible);
+  const fadeReplies = entrances.current.started;
+  useLayoutEffect(() => {
+    entrances.current?.commit(
+      turnsRef.current.map((turn) => turn[0].id),
+      visible,
+    );
+  }, [lastTurnId, turns.length, visible]);
   const visibleTurnCountRef = useRef(visibleTurnCount);
   visibleTurnCountRef.current = visibleTurnCount;
 
@@ -683,6 +699,8 @@ function AgentTranscriptComponent({
               turn={turn}
               isLastTurn={isLastTurn}
               stickyIndex={turnAt + 1}
+              entering={entrances.current?.rises(turn[0].id) ?? false}
+              fadeReplies={isLastTurn && fadeReplies}
               managed={managed}
               busy={busy}
               visible={visible}
@@ -766,6 +784,10 @@ type TranscriptTurnProps = Pick<
   turn: Block[];
   isLastTurn: boolean;
   stickyIndex: number;
+  /** Arrived while the transcript was on screen: your message rises in. */
+  entering: boolean;
+  /** Replies that start while this turn is live fade in. */
+  fadeReplies: boolean;
   managed: boolean;
   busy?: boolean;
   visible: boolean;
@@ -814,6 +836,8 @@ const TranscriptTurn = memo(function TranscriptTurn({
   turn,
   isLastTurn,
   stickyIndex,
+  entering,
+  fadeReplies,
   managed,
   busy,
   visible,
@@ -863,6 +887,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
         <div className="flow-root pb-1">
           <TranscriptBlock
             block={{ ...teamStart, role: "user" }}
+            motion={entering ? "rise" : undefined}
             layout={transcriptLayout}
             stickyIndex={stickyIndex}
             cwd={cwd}
@@ -901,6 +926,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
           <div className="flow-root pb-1">
             <TranscriptBlock
               block={userBlock}
+              motion={entering ? "rise" : undefined}
               layout={transcriptLayout}
               stickyIndex={stickyIndex}
               cwd={cwd}
@@ -959,6 +985,8 @@ const TranscriptTurn = memo(function TranscriptTurn({
   // the last: the mark, and the clock beside it. It never moves, so a
   // turn settling does not shuffle the layout around the answer.
   const live = visible && !settled && !preparingHandoff;
+  const replyMotion: MotionName | undefined =
+    fadeReplies && live ? "fade" : undefined;
   const foldTitle: ReactNode = live ? (
     <LiveFoldTitle
       startedAt={startedAt}
@@ -985,7 +1013,11 @@ const TranscriptTurn = memo(function TranscriptTurn({
   const renderItem = (item: TurnItem, itemIndex: number) =>
     item.type === "activity" ? (
       itemIndex === initialThinkingAt ? (
-        <InitialThinking key={item.blocks[0].id} live={visible && !settled} />
+        <InitialThinking
+          key={item.blocks[0].id}
+          live={visible && !settled}
+          motion={replyMotion}
+        />
       ) : (
         <ActivityPhases
           key={item.blocks[0].id}
@@ -1006,6 +1038,15 @@ const TranscriptTurn = memo(function TranscriptTurn({
       <TranscriptBlock
         key={item.block.id}
         block={item.block}
+        motion={
+          item.block.role === "user"
+            ? entering
+              ? "rise"
+              : undefined
+            : isProseBlock(item.block)
+              ? replyMotion
+              : undefined
+        }
         proposalReply={proposalReplyIds.has(item.block.id)}
         layout={transcriptLayout}
         stickyIndex={stickyIndex}
@@ -1152,9 +1193,19 @@ const TranscriptTurn = memo(function TranscriptTurn({
 });
 
 /** Placeholder for private reasoning before the first assistant text arrives. */
-function InitialThinking({ live }: { live: boolean }) {
+function InitialThinking({
+  live,
+  motion,
+}: {
+  live: boolean;
+  motion?: MotionName;
+}) {
+  const motionRef = useMotionOnAttach<HTMLDivElement>(motion);
   return (
-    <div className="min-w-0 px-4 pt-3 pb-1 font-sans text-sm text-content/50">
+    <div
+      ref={motionRef}
+      className="min-w-0 px-4 pt-3 pb-1 font-sans text-sm text-content/50"
+    >
       {live ? <Shimmer duration={1.6}>Thinking…</Shimmer> : "Thinking…"}
     </div>
   );
@@ -1378,6 +1429,7 @@ function SaveNoteButton({
 
 const TranscriptBlock = memo(function TranscriptBlock({
   block,
+  motion,
   proposalReply = false,
   layout,
   stickyIndex,
@@ -1393,6 +1445,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planModel,
 }: {
   block: Block;
+  /** Played once, when the block first shows: a sent message rises, a reply fades. */
+  motion?: MotionName;
   proposalReply?: boolean;
   layout: TranscriptLayout;
   stickyIndex: number;
@@ -1408,10 +1462,14 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planHarness?: HarnessId;
   planModel?: string;
 }) {
+  const replyRef = useMotionOnAttach<HTMLDivElement>(
+    block.role === "user" ? undefined : motion,
+  );
   if (block.role === "user") {
     return (
       <UserMessageBlock
         block={block}
+        motion={motion}
         layout={layout}
         stickyIndex={stickyIndex}
         cwd={cwd}
@@ -1529,6 +1587,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
 
   return (
     <div
+      ref={replyRef}
       data-selectable-agent-response={block.streaming ? undefined : block.id}
       className={`personal-transcript-response min-w-0 px-4 pb-1 text-content ${underLine ? "pt-1" : "pt-3"}`}
     >
@@ -1544,11 +1603,13 @@ const TranscriptBlock = memo(function TranscriptBlock({
 
 function UserMessageBlock({
   block,
+  motion,
   layout,
   stickyIndex,
   cwd,
 }: {
   block: Block;
+  motion?: MotionName;
   layout: TranscriptLayout;
   stickyIndex: number;
   cwd?: string;
@@ -1557,6 +1618,7 @@ function UserMessageBlock({
   const [overflows, setOverflows] = useState(false);
   const [singleLine, setSingleLine] = useState(false);
   const textRef = useRef<HTMLPreElement>(null);
+  const bubbleRef = useMotionOnAttach<HTMLDivElement>(motion);
   const card = block.secondOpinion;
   const note = block.noteCard;
   const relay = block.discussion;
@@ -1623,6 +1685,7 @@ function UserMessageBlock({
       }`}
     >
       <div
+        ref={bubbleRef}
         className={`personal-user-bubble min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
           chat
             ? `w-fit max-w-xl ${singleLine ? "rounded-full" : "rounded-xl"}`

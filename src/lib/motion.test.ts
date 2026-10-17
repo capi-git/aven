@@ -9,7 +9,6 @@ import {
   MOTION_EASE,
   MOTION_MS,
   MOTION_ROOT_ATTRIBUTE,
-  MOTION_SETTLE_MS,
   motionReduced,
   playMotion,
 } from "./motion";
@@ -244,12 +243,11 @@ describe("one-shot motion", () => {
     expect(element.hasAttribute(MOTION_ATTRIBUTE)).toBe(false);
   });
 
-  it("clears the mark even when the animation never ran", () => {
+  it("sets no timer, so an idle window has nothing to wake it", () => {
     vi.useFakeTimers();
     const element = document.createElement("div");
     playMotion(element, "fade");
-    vi.advanceTimersByTime(MOTION_SETTLE_MS);
-    expect(element.hasAttribute(MOTION_ATTRIBUTE)).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("lets a newer animation replace an older one without the older clearing it", () => {

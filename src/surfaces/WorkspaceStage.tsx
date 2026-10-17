@@ -24,6 +24,7 @@ import {
   restoreScrollOffsets,
   type ScrollOffsets,
 } from "../lib/hiddenSurfaces";
+import { playMotion } from "../lib/motion";
 import { subscribeMemoryPressure } from "../lib/memoryPressure";
 import {
   browserHandoffPending,
@@ -569,6 +570,20 @@ export function WorkspaceStage({
   useLayoutEffect(() => {
     committedShown.current = shownIds;
   });
+  // A pane that comes into view, from a tab switch or a new split, fades in.
+  // Only its opacity moves (motion.css): no layout, no work in hidden panes,
+  // and a native page keeps its place. The stage's first layout appears at
+  // once.
+  const motionShown = useRef<ReadonlySet<string> | null>(null);
+  const shownKey = shownIds.join("\0");
+  useLayoutEffect(() => {
+    const before = motionShown.current;
+    const now = new Set(shownKey ? shownKey.split("\0") : []);
+    motionShown.current = now;
+    if (!before) return;
+    for (const id of now)
+      if (!before.has(id)) playMotion(surfaceNodes.current.get(id), "pane-in");
+  }, [shownKey]);
   useLayoutEffect(() => {
     if (!held.size) return;
     // Children's layout effects have run, so incoming pages have registered.
