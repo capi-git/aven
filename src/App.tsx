@@ -732,6 +732,10 @@ import {
   subscribeOpenChatRequests,
   subscribeShipRequests,
 } from "./lib/shipRequest";
+import { forgetChatReview, useChatReviews } from "./lib/chatReview";
+import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
+import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
+import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -2234,6 +2238,30 @@ export default function App({
     approvalSessionIdsRef.current = nextApprovalSessionIds;
   }
   const approvalSessionIds = approvalSessionIdsRef.current;
+  // One word per chat, for its sidebar row and the project boards: what its
+  // turns, teams, unreviewed changes and ships say (see chatStatus).
+  useChatReviewTracker(sessionsRef);
+  const chatReviews = useChatReviews();
+  const shippedChats = useShippedChats();
+  const nextChatStatus = useMemo(
+    () =>
+      chatStatuses({
+        working: busySessionIds,
+        needsYou: approvalSessionIds,
+        teams,
+        reviews: chatReviews,
+        shipped: shippedChats,
+      }),
+    [busySessionIds, approvalSessionIds, teams, chatReviews, shippedChats],
+  );
+  const chatStatusRef =
+    useRef<Readonly<Record<string, ChatStatusWord>>>(nextChatStatus);
+  if (
+    chatStatusRef.current !== nextChatStatus &&
+    !equalChromeData(chatStatusRef.current, nextChatStatus)
+  )
+    chatStatusRef.current = nextChatStatus;
+  const chatStatus = chatStatusRef.current;
   const [notificationWindowFocused, setNotificationWindowFocused] = useState(
     () => document.hasFocus(),
   );
@@ -5079,6 +5107,9 @@ export default function App({
                 current.filter((entry) => entry.id !== sessionId),
               );
               void refreshHistory(sidebarCwd);
+              // A deleted chat leaves no card on its project's board.
+              forgetChatReview(sessionId);
+              forgetShippedChat(sessionId);
             }
           },
         });
@@ -9228,6 +9259,7 @@ export default function App({
     busySessionIds,
     approvalSessionIds,
     teamNeedIds,
+    chatStatus,
     activeSessionId: profileHome ? undefined : active?.id,
     status: historyFailed ? "error" : "idle",
     pending: historyPending,
