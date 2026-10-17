@@ -652,7 +652,7 @@ function resultApp(flaws: ResultFlaws = {}) {
     entry(
       `chat-${chats}:team:r1:ready:1`,
       `chat-${chats}`,
-      "Race ready to compare · 3 agents",
+      "Race ready to compare · 3 of 3 done",
       false,
     );
     draw();
@@ -744,12 +744,7 @@ function resultApp(flaws: ResultFlaws = {}) {
       section.dataset.raceLane = String(index);
       section.append(
         button("Keep this", () => {
-          races[0] = {
-            ...record(),
-            state: "kept",
-            outcome: { kind: "lane", lane: index, files: 1 },
-          };
-          disk.get(PROJECT)!.add("race-grok.txt");
+          keeping = index;
           draw();
         }),
       );
@@ -757,10 +752,35 @@ function resultApp(flaws: ResultFlaws = {}) {
     });
     return view;
   }
+  // Keep asks first: the other agents' finished work goes with their copies.
+  let keeping: number | null = null;
+  function keepQuestion(lane: number) {
+    const element = document.createElement("div");
+    element.setAttribute("role", "dialog");
+    element.append(
+      "Keep Grok Build's version? This deletes all 3 copies, with the other agents' changes: Claude Code · Claude Opus 5.5 (1 file) and Claude Code · claude:sonnet-5 (1 file).",
+      button(
+        "Keep Grok Build's version",
+        () => {
+          keeping = null;
+          races[0] = {
+            ...record(),
+            state: "kept",
+            outcome: { kind: "lane", lane, files: 1 },
+          };
+          disk.get(PROJECT)!.add("race-grok.txt");
+          draw();
+        },
+        { confirm: "" },
+      ),
+    );
+    return element;
+  }
   function draw() {
     document.body.replaceChildren();
     if (screen === "overview") {
       document.body.append(overview());
+      if (keeping !== null) document.body.append(keepQuestion(keeping));
       return;
     }
     const id = `chat-${chats}`;
@@ -857,7 +877,7 @@ describe("the real-app check's finished race step", () => {
     const { detail, error } = await runResult();
     expect(error).toBeUndefined();
     expect(detail).toBe(
-      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 agents" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok Build\'s version · 1 file" with why; Continue with sent it a recap',
+      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok Build\'s version · 1 file" with why; Continue with sent it a recap',
     );
   });
 

@@ -180,7 +180,8 @@ JUDGE_REPLY = "\n".join([
 ])
 RUN_SUMMARY_SIGNATURE = "You are Aven's run summariser."
 RUN_SUMMARY_WORD = "AVEN_SMOKE_SUMMARY"
-WORKER_PATTERN = re.compile(r"--- Worker (\d+):")
+# Each worker's section is headed by a marker made fresh for the call.
+WORKER_PATTERN = re.compile(r"--- (?:#[0-9a-f]+ )?Worker (\d+):")
 
 
 def run_summary_reply(text):

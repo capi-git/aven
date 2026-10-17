@@ -1235,13 +1235,29 @@ export async function checkRaceResult(
       [chat.id, ...lanes],
       since,
       chat.id,
-      "Race ready to compare · 3 agents",
+      "Race ready to compare · 3 of 3 done",
       3,
     );
   try {
     await waitFor(() => !told(), 10_000, "one Race ready to compare entry");
   } catch (error) {
-    throw new Error(`${errorText(error)}: ${told() ?? ""}`);
+    // How each agent read when the race became ready, to tell a race
+    // announced early from one worded differently.
+    const ended = race.races().find((entry) => entry.id === record.id)?.ends;
+    const states = [
+      ...(card()?.querySelectorAll(".team-card-member-state") ?? []),
+    ].map((state) => state.textContent?.trim());
+    const failures = getActivitySnapshot()
+      .filter(
+        (entry) =>
+          lanes.includes(entry.sessionId) &&
+          entry.outcome === "failed" &&
+          entry.createdAt >= since,
+      )
+      .map((entry) => entry.summary);
+    throw new Error(
+      `${errorText(error)}: ${told() ?? ""} (agents now ${states.join(", ")}; recorded ${JSON.stringify(ended ?? null)}; failures ${JSON.stringify(failures)})`,
+    );
   }
   // Winner and why, from the cheapest model (the stand-in judge).
   const suggest = buttonNamed(card(), "Suggest a winner");
@@ -1256,7 +1272,8 @@ export async function checkRaceResult(
     throw new Error(`The card reads "${status()}"`);
   if (status().includes("Note to AI"))
     throw new Error("A line addressed to agents reached the card");
-  // Keep the suggested lane from the overview; nothing works, so it asks nothing.
+  // Keep the suggested lane from the overview. Nothing works, but the other
+  // agents' finished work goes with their copies, so it asks, naming them.
   card()?.querySelector<HTMLButtonElement>("[data-race-compare]")?.click();
   const view = await waitFor(
     () => firstOnScreen<HTMLElement>(`[data-race-view="${record.id}"]`),
@@ -1276,6 +1293,22 @@ export async function checkRaceResult(
     "Keep this on Grok's lane",
   );
   keep.click();
+  const keepQuestion = await waitFor(
+    () =>
+      document
+        .querySelector<HTMLElement>('[role="dialog"] [data-confirm]')
+        ?.closest<HTMLElement>('[role="dialog"]') ?? null,
+    5_000,
+    "Keep's question",
+  );
+  const question = keepQuestion.textContent ?? "";
+  if (
+    !question.includes(`Keep ${raceLaneName(record, 1)}'s version?`) ||
+    !question.includes("with the other agents' changes") ||
+    question.includes("still working")
+  )
+    throw new Error(`Keep asked "${question}"`);
+  keepQuestion.querySelector<HTMLButtonElement>("[data-confirm]")?.click();
   const kept = await waitFor(
     () =>
       race
@@ -1333,7 +1366,7 @@ export async function checkRaceResult(
     20_000,
     "the kept agent's turn to end",
   );
-  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 agents" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
+  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
 }
 
 /** A chat's pane on screen. */
@@ -1453,17 +1486,25 @@ export async function checkTeamPanel(
     "the panel to leave for a window of its own",
   );
   let opened: SmokeWindow | undefined;
-  await waitForAsync(
-    async () => {
-      opened = (await windows()).find(
-        (window) =>
-          window.label.startsWith("team-watch-") && !before.has(window.label),
-      );
-      return !!opened && (await opened.isVisible());
-    },
-    15_000,
-    "the pop-out to draw and show itself",
-  );
+  try {
+    await waitForAsync(
+      async () => {
+        opened = (await windows()).find(
+          (window) =>
+            window.label.startsWith("team-watch-") && !before.has(window.label),
+        );
+        return !!opened && (await opened.isVisible());
+      },
+      15_000,
+      "the pop-out to draw and show itself",
+    );
+  } catch (error) {
+    // Leave no hidden window behind for the steps after this one.
+    await opened?.close().catch(() => {});
+    throw new Error(
+      `${errorText(error)} (${opened ? "its window was made but stayed hidden" : "no window was made"})`,
+    );
+  }
   await opened!.close();
   await waitFor(
     () => teamPill(teamId) && !teamPanel(teamId),
