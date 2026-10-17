@@ -15,6 +15,9 @@ import {
   type Session,
 } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
+import { TeamMiniFaces } from "./TeamCard";
+import { useTeamRuns } from "../hooks/useTeamRuns";
+import { groupRunningChats, teamRowInfo } from "../lib/teamGrouping";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
@@ -100,6 +103,12 @@ export function ActivityPanel({
           (session.busy || session.queuedMessages?.length),
       ),
     [sessions],
+  );
+  // A team runs as one row: its chats fold into the one it started from.
+  const teams = useTeamRuns();
+  const runningRows = useMemo(
+    () => groupRunningChats(running, teams),
+    [running, teams],
   );
   const unread = entries.filter(
     (entry) => entry.readAt === null && !isMemberActivity(entry),
@@ -216,40 +225,77 @@ export function ActivityPanel({
         {running.length ? (
           <section className="activity-section" aria-label="Running">
             <h3>
-              Running<span>{running.length}</span>
+              Running<span>{runningRows.length}</span>
             </h3>
-            {running.map((session) => (
-              <div className="toolbar-panel-row activity-row" key={session.id}>
-                <button
-                  className="activity-destination"
-                  disabled={opening !== null}
-                  onClick={() =>
-                    void open(session.id, () => onOpenSession(session.id))
-                  }
-                  aria-label={`Open ${sessionDisplayTitle(session.title, session.harness)}`}
+            {runningRows.map((row) => {
+              if (row.kind === "team") {
+                const info = teamRowInfo(row.team);
+                const origin = row.team.origin.sessionId;
+                return (
+                  <div
+                    className="toolbar-panel-row activity-row"
+                    key={row.team.id}
+                    data-activity-team={row.team.id}
+                  >
+                    <button
+                      className="activity-destination"
+                      disabled={opening !== null}
+                      onClick={() =>
+                        void open(origin, () => onOpenSession(origin))
+                      }
+                      aria-label={`Open ${row.team.title}`}
+                    >
+                      <span className="activity-provider">
+                        <TeamMiniFaces members={info.members} active />
+                      </span>
+                      <span className="activity-copy">
+                        <span className="activity-title">{row.team.title}</span>
+                        <span className="activity-detail">
+                          {info.status} · {info.count} agents ·{" "}
+                          {projectName(row.team.project)}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                );
+              }
+              const session = row.item;
+              return (
+                <div
+                  className="toolbar-panel-row activity-row"
+                  key={session.id}
                 >
-                  <span className="activity-provider">
-                    <HarnessIcon harness={session.harness} />
-                  </span>
-                  <span className="activity-copy">
-                    <span className="activity-title">
-                      {sessionDisplayTitle(session.title, session.harness)}
+                  <button
+                    className="activity-destination"
+                    disabled={opening !== null}
+                    onClick={() =>
+                      void open(session.id, () => onOpenSession(session.id))
+                    }
+                    aria-label={`Open ${sessionDisplayTitle(session.title, session.harness)}`}
+                  >
+                    <span className="activity-provider">
+                      <HarnessIcon harness={session.harness} />
                     </span>
-                    <span className="activity-detail">
-                      {session.busy
-                        ? "Working"
-                        : session.queueStatus === "paused"
-                          ? "Queue paused"
-                          : "Queued"}
-                      {session.queuedMessages?.length
-                        ? ` · ${session.queuedMessages.length} queued`
-                        : ""}{" "}
-                      · {projectName(session.cwd)}
+                    <span className="activity-copy">
+                      <span className="activity-title">
+                        {sessionDisplayTitle(session.title, session.harness)}
+                      </span>
+                      <span className="activity-detail">
+                        {session.busy
+                          ? "Working"
+                          : session.queueStatus === "paused"
+                            ? "Queue paused"
+                            : "Queued"}
+                        {session.queuedMessages?.length
+                          ? ` · ${session.queuedMessages.length} queued`
+                          : ""}{" "}
+                        · {projectName(session.cwd)}
+                      </span>
                     </span>
-                  </span>
-                </button>
-              </div>
-            ))}
+                  </button>
+                </div>
+              );
+            })}
           </section>
         ) : null}
         {section("Finished", finished)}

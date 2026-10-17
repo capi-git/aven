@@ -8,6 +8,11 @@ import {
   recordActivity,
   type ActivityOutcome,
 } from "../lib/activity";
+import {
+  createLiveSessionStore,
+  LiveSessionsContext,
+} from "../lib/liveSessions";
+import { saveRace } from "../lib/race";
 import { newSession } from "../lib/session";
 
 let host: HTMLDivElement;
@@ -73,6 +78,74 @@ afterEach(async () => {
 });
 
 describe("Activity panel", () => {
+  it("shows a running team as one row, and leaves its members' turns out", async () => {
+    saveRace({
+      id: "r1",
+      project: "/tmp/project",
+      root: "/tmp/project",
+      base: "a".repeat(40),
+      prompt: "Fix the login loop",
+      createdAt: 0,
+      uncommitted: false,
+      untracked: false,
+      state: "running",
+      origin: { sessionId: "chat", blockId: "msg" },
+      lanes: ["l0", "l1"].map((sessionId, slot) => ({
+        sessionId,
+        harness: slot ? ("codex" as const) : ("claude" as const),
+        model: "m",
+        label: slot ? "Codex · GPT-5" : "Claude Code · Opus",
+        path: `/data/races/r1/${slot}`,
+        branch: `aven/race/r1-${slot}`,
+      })),
+    });
+    recordActivity(
+      {
+        id: "l0:turn:t:completed",
+        sessionId: "l0",
+        outcome: "completed",
+        title: "Race · Claude",
+        summary: "Done.",
+        harness: "claude",
+        model: "m",
+        cwd: "/tmp/project",
+        team: { id: "race:r1", kind: "race", member: true },
+      },
+      true,
+    );
+    const lane = (id: string) => ({
+      ...newSession("claude", "/tmp/project"),
+      id,
+      title: `Race · ${id}`,
+      busy: true,
+      blocks: [
+        { id: `${id}-u`, role: "user" as const, text: "Go", startedAt: 1 },
+      ],
+    });
+    const lanes = [lane("l0"), lane("l1")];
+    await act(async () =>
+      root.render(
+        createElement(
+          LiveSessionsContext.Provider,
+          { value: createLiveSessionStore(lanes) },
+          createElement(ActivityPanel, {
+            sessions: lanes,
+            onOpen: open,
+            onOpenSession: openSession,
+          }),
+        ),
+      ),
+    );
+    const running = host.querySelector<HTMLElement>('[aria-label="Running"]')!;
+    expect(running.querySelector("h3")?.textContent).toBe("Running1");
+    const row = running.querySelector("[data-activity-team='race:r1']")!;
+    expect(row.textContent).toContain("Fix the login loop");
+    expect(row.textContent).toContain("Racing · 0 of 2 done · 2 agents");
+    // The lane's own turn is its team's, so Finished does not list it.
+    expect(host.querySelector('[aria-label="Finished"]')).toBeNull();
+    await act(async () => button("Open Fix the login loop").click());
+    expect(openSession).toHaveBeenCalledWith("chat");
+  });
   it("updates the shared workspace palette and closes without changing activity", async () => {
     record("Saved result", "completed");
     const close = vi.fn();

@@ -13,6 +13,7 @@ import { isActiveSessionAgent } from "./sessionAgents";
 import { summaryFromSession } from "./sessionHistory";
 import type { SessionSummary } from "./sessionStore";
 import { requestsAreUsers, teamsNeedingYou } from "./teamAttention";
+import type { TeamRowInfo } from "./teamGrouping";
 import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
 
@@ -83,6 +84,8 @@ export type HomeRunning = {
   cwd: string;
   startedAt?: number;
   doing?: string;
+  /** A team shown as one row (see `teamGrouping`): its mascots and count. */
+  team?: TeamRowInfo;
 };
 
 export type HomeProject = {

@@ -289,3 +289,56 @@ button.team-card-member-open:hover {
     animation: none;
   }
 }
+
+/* A team's members as one row's mark: small mascots, overlapping. */
+.team-mini-faces {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+.team-mini-faces .discussion-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: color-mix(
+    in srgb,
+    var(--discussion-voice) 16%,
+    var(--color-background-base)
+  );
+}
+.team-mini-faces .discussion-avatar + .discussion-avatar {
+  margin-left: -5px;
+}
+.team-mini-faces .discussion-avatar-sprite {
+  width: 12px;
+  height: 12px;
+}
+
+/* A race as one sidebar row: its lanes' mascots and how far it is. */
+.sidebar-team-badge {
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 50%;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.sidebar-team-badge[data-needs-you] {
+  color: var(--color-amber-400);
+}
+.sidebar-team-badge .team-mini-faces .discussion-avatar {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+}
+.sidebar-team-badge .team-mini-faces .discussion-avatar-sprite {
+  width: 10px;
+  height: 10px;
+}
+.sidebar-team-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

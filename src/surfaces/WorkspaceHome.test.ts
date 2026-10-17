@@ -817,6 +817,44 @@ describe("Running now", () => {
   });
 });
 
+describe("a team in Running now", () => {
+  it("is one row with its mascots, status and count, opening the chat it began in", async () => {
+    const value = props({
+      running: [
+        {
+          id: "chat",
+          title: "Fix the login loop",
+          cwd: APP,
+          startedAt: Date.now() - 3 * MINUTE,
+          doing: "Racing · 1 of 2 done",
+          team: {
+            id: "race:r1",
+            kind: "race",
+            status: "Racing · 1 of 2 done",
+            members: [
+              { sessionId: "l0", harness: "claude" },
+              { sessionId: "l1", harness: "codex" },
+            ],
+            count: 2,
+            working: 1,
+            needsYou: false,
+          },
+        },
+      ] satisfies HomeRunning[],
+    });
+    await render(value);
+    const running = section("Running now")!;
+    expect(rowTitles(running)).toEqual(["Fix the login loop"]);
+    const row = running.querySelector<HTMLElement>(".workspace-home-row")!;
+    expect(row.textContent).toContain("app · Racing · 1 of 2 done");
+    expect(row.textContent).toContain("2 agents");
+    expect(row.querySelectorAll("[data-discussion-avatar]")).toHaveLength(2);
+    expect(running.querySelector("[data-home-team='race:r1']")).not.toBeNull();
+    await act(async () => row.click());
+    expect(value.onSession).toHaveBeenCalledExactlyOnceWith("chat");
+  });
+});
+
 describe("Activity", () => {
   it("feeds finished turns with their outcome, summary and time", async () => {
     const value = props({

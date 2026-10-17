@@ -9,6 +9,7 @@ import {
 import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
+import { groupHomeRunning } from "../lib/teamGrouping";
 import type { TeamRun } from "../lib/teamRuns";
 import {
   homeFinished,
@@ -127,9 +128,15 @@ export function useWorkspaceHomeData({
       [enabled, live, activity, scope, index, teams],
     ),
   );
-  const running = useMemo(
-    () => (enabled ? homeRunning(live, scope) : EMPTY.running),
-    [enabled, live, scope],
+  // A team runs as one row: its members fold into the chat it started from.
+  const running = useStable(
+    useMemo(
+      () =>
+        enabled
+          ? groupHomeRunning(homeRunning(live, scope), teams)
+          : EMPTY.running,
+      [enabled, live, scope, teams],
+    ),
   );
   const cards = useStable(
     useMemo(

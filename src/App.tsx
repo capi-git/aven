@@ -532,6 +532,7 @@ import {
 } from "./lib/sessionStore";
 import { setDockTeamNeeds, syncDockBadge } from "./lib/dockBadge";
 import { teamCompanions, teamRunsFrom } from "./lib/teamRuns";
+import { sidebarTeams } from "./lib/teamGrouping";
 import { teamActivityEvents, type TeamSeen } from "./lib/teamActivity";
 import { leadVerdict, summarizeRun } from "./lib/teamResult";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
@@ -2146,6 +2147,8 @@ export default function App({
   const teams = teamsRef.current;
   const teamsLatest = useRef(teams);
   teamsLatest.current = teams;
+  // Open races as one sidebar row each (see teamGrouping).
+  const sidebarTeamRows = useMemo(() => sidebarTeams(teams), [teams]);
 
   // Chats waiting on the user (see teamAttention): their own approvals and
   // questions, never an orchestration worker's, which its lead decides; and
@@ -8927,6 +8930,7 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
     onSelectAgent: onSelectLiveAgent,

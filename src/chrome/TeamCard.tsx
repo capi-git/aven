@@ -6,7 +6,13 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import type { DiscussionVoice } from "../lib/discussionVoices";
+import {
+  memberVoice,
+  providerShortName,
+  teamMascots,
+  type DiscussionVoice,
+} from "../lib/discussionVoices";
+import type { HarnessId } from "../lib/session";
 import type { TeamKind } from "../lib/teamRuns";
 import { visibleInterval } from "../lib/visibleInterval";
 import { DiscussionAvatar } from "./DiscussionAvatar";
@@ -262,3 +268,38 @@ export function LineChanges({
     </span>
   );
 }
+
+/**
+ * A team's members as small overlapping mascots, for a row that stands for
+ * the whole team (Home, Activity, the sidebar).
+ */
+export const TeamMiniFaces = memo(function TeamMiniFaces({
+  members,
+  active = false,
+}: {
+  members: readonly { sessionId: string; harness: HarnessId }[];
+  /** The mascots step, as a working chat's does. */
+  active?: boolean;
+}) {
+  const mascots = teamMascots(members.map((member) => member.sessionId));
+  return (
+    <span className="team-mini-faces" aria-hidden>
+      {members.slice(0, 4).map((member, index) => (
+        <DiscussionAvatar
+          key={member.sessionId}
+          voice={memberVoice(
+            {
+              sessionId: member.sessionId,
+              harness: member.harness,
+              label: providerShortName(member.harness),
+              stateLabel: "",
+            },
+            mascots[index],
+            index === 0,
+          )}
+          typing={active}
+        />
+      ))}
+    </span>
+  );
+});

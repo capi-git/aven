@@ -25,6 +25,7 @@ import {
   Square,
   X,
 } from "../chrome/icons";
+import { TeamMiniFaces } from "../chrome/TeamCard";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
@@ -239,9 +240,17 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
     if (count) changedProjects += 1;
   }
   const busyProjects = new Set(running.map((row) => row.cwd)).size;
+  // A team's row stands for each of its agents at work.
+  const agentsWorking = running.reduce(
+    (count, row) => count + (row.team ? Math.max(1, row.team.working) : 1),
+    0,
+  );
   const listed = new Set([
     ...needsYou.map((item) => item.id),
-    ...running.map((item) => item.id),
+    ...running.flatMap((item) => [
+      item.id,
+      ...(item.team?.members.map((member) => member.sessionId) ?? []),
+    ]),
   ]);
   const recentRows = recent
     .filter((row) => !listed.has(row.id))
@@ -271,7 +280,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               onActivity={() => reveal(activityRef)}
             />
             <HomePulse
-              running={running.length}
+              running={agentsWorking}
               busyProjects={busyProjects}
               waiting={waiting}
               unread={unread}
@@ -404,26 +413,45 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                   role="list"
                 >
                   {running.map((item) => (
-                    <li key={item.id}>
+                    <li
+                      key={item.team?.id ?? item.id}
+                      data-home-team={item.team?.id}
+                    >
                       <SessionRow
                         cwd={item.cwd}
                         title={
-                          discussing.has(item.id)
+                          !item.team && discussing.has(item.id)
                             ? `↔ ${item.title}`
                             : item.title
                         }
                         active
+                        // A team is one row: its mascots, its status and
+                        // how many agents; it opens the chat it began in.
+                        mark={
+                          item.team ? (
+                            <TeamMiniFaces members={item.team.members} active />
+                          ) : undefined
+                        }
                         line={
                           item.doing
                             ? `${nameFor(item.cwd)} · ${item.doing}`
                             : nameFor(item.cwd)
                         }
                         aside={
-                          item.startedAt !== undefined ? (
-                            <Elapsed since={item.startedAt} />
-                          ) : (
-                            <span className="workspace-home-time">Working</span>
-                          )
+                          <>
+                            {item.team ? (
+                              <span className="workspace-home-row-project">
+                                {item.team.count} agents
+                              </span>
+                            ) : null}
+                            {item.startedAt !== undefined ? (
+                              <Elapsed since={item.startedAt} />
+                            ) : (
+                              <span className="workspace-home-time">
+                                Working
+                              </span>
+                            )}
+                          </>
                         }
                         onClick={() => onSession(item.id)}
                       />
@@ -1117,6 +1145,7 @@ function SessionRow({
   active = false,
   attention,
   outcome,
+  mark,
   onClick,
 }: {
   cwd: string;
@@ -1124,6 +1153,8 @@ function SessionRow({
   line: ReactNode;
   aside: ReactNode;
   active?: boolean;
+  /** In place of the project's mascot, such as a team's. */
+  mark?: ReactNode;
   attention?: HomeAttention["kind"];
   outcome?: HomeFinished["kind"];
   onClick: () => void;
@@ -1137,7 +1168,7 @@ function SessionRow({
       onClick={onClick}
     >
       <span className="workspace-home-row-mark">
-        <HomeMark cwd={cwd} active={active} />
+        {mark ?? <HomeMark cwd={cwd} active={active} />}
         {outcome ? <OutcomeIcon kind={outcome} /> : null}
       </span>
       <span className="workspace-home-row-text">
