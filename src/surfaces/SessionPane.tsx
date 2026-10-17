@@ -27,7 +27,8 @@ import {
   useOrchestrationRun,
   useOrchestrationSelector,
 } from "../hooks/useOrchestrationRun";
-import { OrchestrationBar } from "../chrome/OrchestrationBar";
+import { TeamBar, teamBarOwnsStop } from "../chrome/TeamBar";
+import { useTeamOf } from "../hooks/useTeamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
@@ -240,7 +241,12 @@ export const SessionPane = memo(function SessionPane({
     runs.some((run) => runIsOpen(run) && sameCheckout(run.cwd, runsCwd)),
   );
   const ownRun = useOrchestrationRun(session.id);
-  const leadsOpenRun = !!ownRun && runIsOpen(ownRun);
+  // The team bar's Stop stops what this chat's own Stop would (a lead's
+  // run, a discussion): one Stop is enough.
+  const team = useTeamOf(session.inboxAsk ? undefined : session.id, {
+    previews: true,
+  });
+  const barStops = teamBarOwnsStop(team, session.id);
   const runLocked = useOrchestrationSelector((runs) =>
     runs.some(
       (run) =>
@@ -538,6 +544,23 @@ export const SessionPane = memo(function SessionPane({
     [onSubmit],
   );
   const busy = !!session.busy;
+  // Kept while its inputs hold, so the memoized message box skips streams.
+  const idle = leadIsIdle(session);
+  const openDiscussion = discussion?.open;
+  const teamBar = useMemo(
+    () =>
+      inboxAsk ? undefined : (
+        <TeamBar
+          sessionId={sessionId}
+          cwd={runsCwd}
+          idle={idle}
+          onSubmit={submitText}
+          onStop={onStop}
+          onOpenDiscussion={openDiscussion}
+        />
+      ),
+    [idle, inboxAsk, onStop, openDiscussion, runsCwd, sessionId, submitText],
+  );
   const review = useMemo(
     () =>
       inboxAsk ? null : (
@@ -618,6 +641,7 @@ export const SessionPane = memo(function SessionPane({
       onOpenFile={onOpenFile}
       busy={busy}
       discussion={session.inboxAsk ? undefined : discussion}
+      teamBar={teamBar}
     >
       {review}
     </Composer>
@@ -754,22 +778,10 @@ export const SessionPane = memo(function SessionPane({
               workerAgents,
             )}
             visible={visible}
-            stopElsewhere={leadsOpenRun}
+            stopElsewhere={barStops}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
-          {/* Lined up with the bars inside the message box. */}
-          {!session.inboxAsk ? (
-            <div className="px-1.5">
-              <OrchestrationBar
-                sessionId={session.id}
-                cwd={runsCwd}
-                idle={leadIsIdle(session)}
-                onSubmit={submitText}
-                onStop={onStop}
-              />
-            </div>
-          ) : null}
           {composer}
         </div>
       ) : null}

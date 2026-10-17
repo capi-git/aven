@@ -158,8 +158,6 @@ import {
   type DiscussionHost,
 } from "../lib/discussions";
 import { useStartedDiscussionId } from "../hooks/useDiscussions";
-import { DiscussionBar } from "./DiscussionBar";
-import { RaceBar } from "./RaceBar";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -240,6 +238,11 @@ type Props = {
   onAttachmentsChange?: (attachments: Attachment[]) => void;
   /** Starts a discussion with another chat; absent hides Discuss mode. */
   discussion?: DiscussionHost;
+  /**
+   * The bar of the team this chat started or belongs to, shown at the top
+   * of the message box (see `TeamBar`).
+   */
+  teamBar?: ReactNode;
   children?: ReactNode;
 };
 
@@ -570,6 +573,7 @@ function ComposerComponent({
   onDraftChange,
   onAttachmentsChange,
   discussion,
+  teamBar,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -1668,10 +1672,8 @@ function ComposerComponent({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
-      {discussion ? (
-        <DiscussionBar sessionId={sessionId} onOpen={discussion.open} />
-      ) : null}
-      <RaceBar sessionId={sessionId} />
+      {/* The team this chat started or belongs to (see TeamBar). */}
+      {teamBar}
       <SharedWorkBar sessionId={sessionId} />
       {children}
       <MessageQueue

@@ -17,8 +17,9 @@ type Props = {
   session: Session;
   visible: boolean;
   /**
-   * Another bar above the message box stops this chat's work, as the run
-   * bar does for an orchestration's lead; one Stop is enough.
+   * The team bar in the message box stops this chat's work, as it does for
+   * an orchestration's lead or either chat of a discussion (see
+   * `teamBarOwnsStop`); one Stop is enough.
    */
   stopElsewhere?: boolean;
   onStop: (sessionId: string) => void;

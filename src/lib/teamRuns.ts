@@ -54,6 +54,8 @@ export type TeamMember = {
   /** "Claude · Sonnet 5", a race lane's label, or a worker's task title. */
   label: string;
   role: TeamMemberRole;
+  /** A discussion chat's own title, to name it. */
+  title?: string;
   state: TeamMemberState;
   /** The state in words: "Working", "Lead deciding", "Accepted"… */
   stateLabel: string;
@@ -86,6 +88,12 @@ export type TeamNeed = {
   text: string;
   /** When it started waiting, as far as the store knows. */
   since: number;
+  /**
+   * `sessionId` is the chat the team waits on (its request, or the chat a
+   * discussion paused for), not only where to act: other chats offer a way
+   * there instead of Resume.
+   */
+  blocking?: true;
 };
 
 /** How a team ended, for its result card and its one Activity entry. */
@@ -115,6 +123,8 @@ export type TeamRun = {
   startedAt: number;
   updatedAt: number;
   endedAt?: number;
+  /** A development preview: shown only, never announced or counted. */
+  preview?: true;
 };
 
 /** What the adapters read besides the stores. */
@@ -205,6 +215,7 @@ export function discussionTeam(
       model: party.model,
       label: voiceName(party),
       role: side === "a" ? ("opener" as const) : ("responder" as const),
+      title: party.title,
     };
     if (ended)
       return completed
@@ -267,6 +278,7 @@ export function discussionTeam(
     startedAt: discussion.startedAt,
     updatedAt: discussion.updatedAt,
     ...(ended ? { endedAt: discussion.updatedAt } : {}),
+    ...(discussion.preview ? { preview: true as const } : {}),
   };
 }
 
@@ -546,11 +558,19 @@ export type TeamStores = {
   runs: readonly OrchestrationRun[];
 };
 
-/** Every team the three stores know, discussions first, then races, then runs. */
-export function teamRunsFrom(stores: TeamStores, look: TeamLookup): TeamRun[] {
+/**
+ * Every team the three stores know, discussions first, then races, then
+ * runs. Development previews are left out unless asked for: they are shown,
+ * never announced or counted.
+ */
+export function teamRunsFrom(
+  stores: TeamStores,
+  look: TeamLookup,
+  { previews = false }: { previews?: boolean } = {},
+): TeamRun[] {
   return [
     ...stores.discussions
-      .filter((discussion) => !discussion.preview)
+      .filter((discussion) => previews || !discussion.preview)
       .map((discussion) => discussionTeam(discussion, look)),
     ...stores.races.map((race) => raceTeam(race, look)),
     ...stores.runs.map((run) => orchestrationTeam(run, look)),

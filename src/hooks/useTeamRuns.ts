@@ -54,6 +54,8 @@ export function useTeamStores(): TeamStores {
 type Options = {
   /** Fill in each working member's `doing` line (see `TeamLookup.detail`). */
   detail?: boolean;
+  /** Include development previews, which a bar or card shows. */
+  previews?: boolean;
 };
 
 /**
@@ -64,7 +66,7 @@ type Options = {
  */
 function useTeamsFor(
   stores: TeamStores,
-  { detail = false }: Options,
+  { detail = false, previews = false }: Options,
 ): readonly TeamRun[] {
   const live = useContext(LiveSessionsContext);
   const ids = useMemo(() => teamSessionIds(stores).join("\n"), [stores]);
@@ -102,11 +104,11 @@ function useTeamsFor(
     )
       return previous.teams;
     const byId = new Map(list.map((id, index) => [id, sessions[index]]));
-    const next = teamRunsFrom(stores, {
-      session: (id) => byId.get(id),
-      activity,
-      detail,
-    });
+    const next = teamRunsFrom(
+      stores,
+      { session: (id) => byId.get(id), activity, detail },
+      { previews },
+    );
     const teams = !next.length
       ? NO_TEAMS
       : previous && equalChromeData(previous.teams, next)
@@ -114,7 +116,7 @@ function useTeamsFor(
         : next;
     cache.current = { stores, sessions, activity, teams };
     return teams;
-  }, [detail, ids, ledger, live, stores]);
+  }, [detail, ids, ledger, live, previews, stores]);
   return useSyncExternalStore(subscribe, read, read);
 }
 

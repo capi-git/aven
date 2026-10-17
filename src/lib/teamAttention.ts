@@ -66,6 +66,7 @@ export function teamAttention(input: {
         kind: asking.asking?.kind ?? "approval",
         text: asking.asking?.text ?? `${asking.label} needs you`,
         since,
+        blocking: true,
       },
     };
   if (phase === "paused")
@@ -76,6 +77,7 @@ export function teamAttention(input: {
         kind: "paused",
         text: input.pause?.reason ?? "Paused",
         since,
+        ...(input.pause?.sessionId ? { blocking: true as const } : {}),
       },
     };
   if (kind === "race") {

@@ -97,6 +97,7 @@ describe("whose request it is", () => {
         kind: "question",
         text: "Which port?",
         since: 5,
+        blocking: true,
       },
     });
   });
@@ -133,6 +134,7 @@ describe("teamAttention", () => {
       kind: "paused",
       text: "Codex is busy with your own turn.",
       since: 9,
+      blocking: true,
     });
     expect(
       teamAttention({
