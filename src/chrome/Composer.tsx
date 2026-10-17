@@ -145,7 +145,8 @@ import type { AgentRoleId } from "../lib/agentRoles";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
-import { nextRaceAgent } from "../lib/raceAgents";
+import { loadRaceLaneChoice, nextRaceAgent } from "../lib/raceAgents";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import {
   consumeOrchestratorCommand,
@@ -155,6 +156,7 @@ import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
 import {
   discussionStore,
+  INTERJECTION_CHAR_LIMIT,
   loadDiscussionRounds,
   saveDiscussionRounds,
   type DiscussionHost,
@@ -643,6 +645,12 @@ function ComposerComponent({
   /** Turn Race mode on, with the dropdown open when it can't race yet. */
   const startRaceMode = useCallback(
     (openMenu = false) => {
+      // The saved lanes' providers may list their models only once asked.
+      const saved = [
+        ...new Set(loadRaceLaneChoice().map((lane) => lane.harness)),
+      ];
+      if (saved.length)
+        void refreshHarnessCatalogs(saved).catch(() => undefined);
       setRaceOn(true);
       setPlanSelected(false);
       setOrchestrationSelected(false);
@@ -657,7 +665,14 @@ function ComposerComponent({
     setRaceOn(false);
     setRaceMenuOpen(false);
     setRaceError(null);
+    // "For this race only": the chat's own model next time.
+    setRaceModel(undefined);
   }, []);
+  // A refusal ("Add another agent…") no longer holds once the lanes change.
+  const raceLaneKey = raceLanes
+    .map((lane) => `${lane.harness}:${lane.model}`)
+    .join(",");
+  useEffect(() => setRaceError(null), [raceLaneKey]);
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   // Discuss mode: sending starts a discussion with the message as its topic.
   const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
@@ -734,9 +749,12 @@ function ComposerComponent({
     !hideTopBar && !draftPlanning && consumeOrchestratorCommand(draft).matched;
   // Race, Plan mode, Orchestrator and Discuss are exclusive; a typed /plan
   // or /orchestrator wins over Race.
+  // While this chat's discussion runs, what you send goes to both of its
+  // chats, so no mode applies and none is offered.
   const raceActive =
     raceOn &&
     !!onRace &&
+    !jumpInId &&
     !draftPlanning &&
     !draftOrchestrating &&
     !planSelected &&
@@ -1071,6 +1089,13 @@ function ComposerComponent({
   // an unchanged token object lets the repeats skip a composer render.
   const syncTokensFromTextarea = (el: HTMLTextAreaElement) => {
     if (creatingSkill) return;
+    // What goes to both chats of a discussion is plain text: a skill or a
+    // reference would arrive as its literal name.
+    if (jumpInId) {
+      setSlash(null);
+      setMention(null);
+      return;
+    }
     const text = el.value;
     const cursor = el.selectionStart ?? 0;
     let slashToken = slashTokenAt(text, cursor, hasNativeCommands(harness));
@@ -1360,6 +1385,14 @@ function ComposerComponent({
         ? "Add another agent or model above to race."
         : "Install or enable another agent to race.";
     if (!task.trim()) return "Type the task in the message box, then send.";
+    // Every lane gets the attachments: none may race without them.
+    if (attachmentsRef.current.length) {
+      const without = raceLanes.find(
+        (lane) => !harnessSupportsAttachments(lane.harness),
+      );
+      if (without)
+        return `${HARNESS_TITLE[without.harness]} can't take attachments. Remove them, or leave it out of the race.`;
+    }
     return null;
   };
 
@@ -1409,6 +1442,19 @@ function ComposerComponent({
     if (attachmentsRef.current.length) {
       setCommandNotice(
         "Messages for both chats are text only. Remove the attachments to send.",
+      );
+      return;
+    }
+    // A command would reach both agents as text, not run.
+    if (/^\/\S/.test(value.trim())) {
+      setCommandNotice(
+        "Commands aren't sent to both chats. Send it once the discussion ends, or stop it first.",
+      );
+      return;
+    }
+    if (value.length > INTERJECTION_CHAR_LIMIT) {
+      setCommandNotice(
+        `Messages for both chats are limited to ${INTERJECTION_CHAR_LIMIT.toLocaleString("en-US")} characters; this one has ${value.length.toLocaleString("en-US")}. Shorten it to send.`,
       );
       return;
     }
@@ -1992,32 +2038,43 @@ function ComposerComponent({
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={planSelected}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlanSelected((selected) => !selected);
-                      setOrchestrationSelected(false);
-                      stopRaceMode();
-                      stopDiscussMode();
-                      setPlusOpen(false);
-                      ref.current?.focus();
-                    }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
-                  >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-ui-body">Plan mode</span>
-                      <span className="block text-ui-caption leading-4 text-content/45">
-                        Create a plan to review before building
+                  {jumpInId ? (
+                    <p
+                      className="px-2 py-1.5 text-ui-caption leading-4 text-content/45"
+                      data-composer-modes-off
+                    >
+                      While this chat's discussion runs, what you send goes to
+                      both chats. Modes return when it ends.
+                    </p>
+                  ) : null}
+                  {jumpInId ? null : (
+                    <button
+                      type="button"
+                      aria-pressed={planSelected}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPlanSelected((selected) => !selected);
+                        setOrchestrationSelected(false);
+                        stopRaceMode();
+                        stopDiscussMode();
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-ui-body">Plan mode</span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
+                          Create a plan to review before building
+                        </span>
                       </span>
-                    </span>
-                    {planSelected ? (
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
-                    ) : null}
-                  </button>
-                  {!hideTopBar ? (
+                      {planSelected ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  )}
+                  {!hideTopBar && !jumpInId ? (
                     <button
                       type="button"
                       aria-pressed={orchestrationSelected}
@@ -2045,7 +2102,7 @@ function ComposerComponent({
                       ) : null}
                     </button>
                   ) : null}
-                  {discussAvailable ? (
+                  {discussAvailable && !jumpInId ? (
                     <button
                       type="button"
                       aria-pressed={discussActive}
@@ -2071,7 +2128,7 @@ function ComposerComponent({
                       ) : null}
                     </button>
                   ) : null}
-                  {onRace ? (
+                  {onRace && !jumpInId ? (
                     <button
                       type="button"
                       aria-pressed={raceActive}
@@ -2104,7 +2161,7 @@ function ComposerComponent({
                 </Popover>
               ) : null}
             </div>
-            {orchestrationSelected ? (
+            {orchestrationSelected && !jumpInId ? (
               <button
                 type="button"
                 title="Turn off Orchestrator mode"
@@ -2121,7 +2178,7 @@ function ComposerComponent({
                 <X className="size-3" />
               </button>
             ) : null}
-            {planSelected ? (
+            {planSelected && !jumpInId ? (
               <button
                 type="button"
                 title="Turn off Plan mode"

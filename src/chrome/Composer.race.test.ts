@@ -464,3 +464,85 @@ it("offers no role for racing agents, so their comparison stays fair", async () 
   expect(menu()!.querySelector("[data-role-picker]")).toBeNull();
   expect(menu()!.textContent).not.toMatch(/Reviewer|Skeptic|Tester|Designer/);
 });
+
+it("moves through the dropdown with the arrow keys from the start, and keeps the keyboard there after a choice", async () => {
+  setHarnessModels("codex", [
+    { id: "gpt-5", harness: "codex", name: "GPT-5" },
+    { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
+  ]);
+  await render();
+  await turnRaceOn();
+  await openChip();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  // The dropdown holds the keyboard: ↓ reaches its first button.
+  const surface = menu()!;
+  await act(async () =>
+    (document.activeElement ?? surface).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    ),
+  );
+  expect(surface.contains(document.activeElement)).toBe(true);
+  expect(document.activeElement?.tagName).toBe("BUTTON");
+  // Picking a model keeps the keyboard on that lane's model button.
+  const modelButton = surface.querySelector<HTMLButtonElement>(
+    '[data-race-lane-model="0"]',
+  )!;
+  await act(async () => modelButton.click());
+  const option = [
+    ...surface.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((item) => item.textContent === "GPT-5 Mini")!;
+  await act(async () => option.click());
+  expect(document.activeElement).toBe(
+    menu()!.querySelector('[data-race-lane-model="0"]'),
+  );
+});
+
+it("forgets this chat's race-only model once the race is sent", async () => {
+  setHarnessModels("codex", [
+    { id: "gpt-5", harness: "codex", name: "GPT-5" },
+    { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
+  ]);
+  await render();
+  await turnRaceOn();
+  await openChip();
+  await act(async () =>
+    menu()!
+      .querySelector<HTMLButtonElement>('[data-race-lane-model="0"]')!
+      .click(),
+  );
+  await act(async () =>
+    [...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+      .find((item) => item.textContent === "GPT-5 Mini")!
+      .click(),
+  );
+  await closeChip();
+  await send();
+  // The next race starts from the chat's own model again.
+  await act(async () => {
+    field().value = "Again";
+  });
+  await turnRaceOn();
+  expect(chipLabel()).toContain("GPT-5");
+  expect(chipLabel()).not.toContain("Mini");
+});
+
+it("drops a refusal once the lanes change", async () => {
+  // Only Codex is installed, with two models: a second one can race.
+  agents.list = agents.all.filter((agent) => agent.harness === "codex");
+  setHarnessModels("codex", [
+    { id: "gpt-5", harness: "codex", name: "GPT-5" },
+    { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
+  ]);
+  await render();
+  await turnRaceOn();
+  await closeChip();
+  await send();
+  expect(menu()?.querySelector('[role="alert"]')?.textContent).toBe(
+    "Add another agent or model above to race.",
+  );
+  await act(async () => add("codex").click());
+  expect(laneLabels()).toHaveLength(2);
+  expect(menu()?.querySelector('[role="alert"]')).toBeNull();
+});

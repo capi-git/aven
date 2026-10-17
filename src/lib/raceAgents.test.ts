@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from "vitest";
 import type { PaletteAgent } from "./commandPalette";
-import { pickerModelsFor, savePickerModelVisible } from "./models";
+import {
+  pickerModelsFor,
+  resetHarnessModelOverlays,
+  savePickerModelVisible,
+  setHarnessModels,
+} from "./models";
 import {
   addRaceLane,
   loadRaceLaneChoice,
@@ -96,9 +101,20 @@ it("migrates the choice an earlier version saved, one lane per provider", () => 
   data.set("aven.raceAgents.v1", JSON.stringify(["claude", "grok", "claude"]));
   data.set("aven.raceModels.v1", JSON.stringify({ claude: second.id, x: 1 }));
   expect(loadRaceLaneChoice()).toEqual([
-    { harness: "claude", model: second.id },
-    { harness: "grok" },
+    { harness: "claude", model: second.id, perProvider: true },
+    { harness: "grok", perProvider: true },
   ]);
+  // Its model went with "the other providers": from a Claude chat it never
+  // becomes a second Claude lane, as Codex and Claude on main never did.
+  expect(
+    harnesses(
+      resolveRaceAgents(
+        [...available, agent("codex")],
+        agent("claude"),
+        loadRaceLaneChoice(),
+      ),
+    ),
+  ).toEqual(["claude", "grok"]);
   // A provider saved without a model still never doubles this chat's own.
   expect(
     harnesses(
@@ -114,6 +130,24 @@ it("migrates the choice an earlier version saved, one lane per provider", () => 
   expect(data.get("aven.raceAgents.v1")).toBe(
     JSON.stringify(["claude", "grok", "claude"]),
   );
+});
+
+it("keeps a saved model whose provider's list has not loaded here", () => {
+  resetHarnessModelOverlays();
+  // Cursor lists its models only once asked: race the saved one meanwhile.
+  expect(raceAgentFor(available, "cursor", "cursor:other-model")).toEqual({
+    harness: "cursor",
+    model: "cursor:other-model",
+    label: `${HARNESS_TITLE.cursor} · other-model`,
+  });
+  // Once its list is in and lacks the model, the usual one races.
+  setHarnessModels("cursor", [
+    { id: "cursor-model", harness: "cursor", name: "Auto" },
+  ]);
+  expect(raceAgentFor(available, "cursor", "cursor:other-model")).toEqual(
+    agent("cursor"),
+  );
+  resetHarnessModelOverlays();
 });
 
 it("ignores a saved choice it cannot read", () => {
@@ -185,8 +219,11 @@ it("races an agent on the model saved for it, and falls back when it's gone", ()
     model: second.id,
     label: `${HARNESS_TITLE.claude} · ${second.name}`,
   });
-  // A model the provider no longer lists, or one the user hid, is ignored.
+  // A model the provider's live list no longer has, or one the user hid,
+  // is ignored.
+  setHarnessModels("claude", [first, second]);
   expect(raceAgentFor([claude], "claude", "retired-model")).toEqual(claude);
+  resetHarnessModelOverlays();
   savePickerModelVisible(second.id, false);
   expect(raceAgentFor([claude], "claude", second.id)).toEqual(claude);
 });

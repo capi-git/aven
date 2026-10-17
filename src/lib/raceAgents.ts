@@ -1,8 +1,9 @@
 import type { PaletteAgent } from "./commandPalette";
-import { pickerModelsFor } from "./models";
+import { hasLiveCatalog, modelsFor, pickerModelsFor } from "./models";
 import { RACE_MAX_LANES, RACE_MIN_LANES } from "./race";
 import { raceAgentLabel } from "./raceNames";
 import { HARNESS_TITLE, type HarnessId } from "./session";
+import { modelDisplayName } from "./sessionLabels";
 
 /**
  * The agents a race uses, shared by the composer's Race chip and the command
@@ -11,7 +12,16 @@ import { HARNESS_TITLE, type HarnessId } from "./session";
  * races; the saved choice is the other lanes, in order. A saved lane without
  * a model uses that provider's usual one.
  */
-export type RaceLaneChoice = { harness: HarnessId; model?: string };
+export type RaceLaneChoice = {
+  harness: HarnessId;
+  model?: string;
+  /**
+   * Read from the choice an earlier version saved, one lane per provider:
+   * it stood for "the other providers", never a second lane of the chat's
+   * own provider. Never saved.
+   */
+  perProvider?: true;
+};
 
 const KEY = "aven.raceLanes.v2";
 /** Saved before lanes had models of their own: providers, and a model each. */
@@ -45,11 +55,15 @@ function legacyLaneChoice(): RaceLaneChoice[] {
     return typeof model === "string" && model ? model : undefined;
   };
   const seen = new Set<HarnessId>();
-  return agents.filter(isHarness).flatMap((harness) => {
+  return agents.filter(isHarness).flatMap((harness): RaceLaneChoice[] => {
     if (seen.has(harness)) return [];
     seen.add(harness);
     const model = modelOf(harness);
-    return [model ? { harness, model } : { harness }];
+    return [
+      model
+        ? { harness, model, perProvider: true }
+        : { harness, perProvider: true },
+    ];
   });
 }
 
@@ -119,9 +133,24 @@ export function raceAgentFor(
   const agent = available.find((item) => item.harness === harness);
   if (!agent || !model || model === agent.model) return agent;
   const picked = pickerModelsFor(harness).find((item) => item.id === model);
-  return picked
-    ? { harness, model: picked.id, label: raceAgentLabel(harness, picked.name) }
-    : agent;
+  if (picked)
+    return {
+      harness,
+      model: picked.id,
+      label: raceAgentLabel(harness, picked.name),
+    };
+  // Its provider's live list hasn't loaded in this window yet: keep the
+  // saved model, rather than racing the usual one and saving over it with
+  // the next edit. Once the list is in and lacks it, the usual one races;
+  // a model you hid never races.
+  const known = modelsFor(harness).some((item) => item.id === model);
+  if (!hasLiveCatalog(harness) && !known)
+    return {
+      harness,
+      model,
+      label: raceAgentLabel(harness, modelDisplayName(harness, model)),
+    };
+  return agent;
 }
 
 /**
@@ -143,9 +172,10 @@ export function resolveRaceAgents(
   };
   add(first);
   for (const lane of saved) {
-    // A lane saved without a model stood for its provider, one lane each,
-    // so it never doubles the chat's own provider.
-    if (!lane.model && lane.harness === first?.harness) continue;
+    // A lane saved without a model, or by an earlier version, stood for its
+    // provider, one lane each, so it never doubles the chat's own provider.
+    if ((lane.perProvider || !lane.model) && lane.harness === first?.harness)
+      continue;
     add(raceAgentFor(available, lane.harness, lane.model));
   }
   for (const agent of available) {

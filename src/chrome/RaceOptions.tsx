@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { providerShortName } from "../lib/discussionVoices";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
@@ -24,7 +24,7 @@ export type RaceProps = {
   /** The lanes the next send will race; this chat's agent first. */
   lanes: readonly PaletteAgent[];
   /** Model for the first lane (this chat's agent), for this race only. */
-  onFirstModelChange?: (model: string) => void;
+  onFirstModelChange: (model: string) => void;
 };
 
 /** The provider's models, always including the one this lane uses now. */
@@ -55,8 +55,20 @@ export function RaceOptions({
 }: RaceProps) {
   const [picking, setPicking] = useState<number | null>(null);
   const full = lanes.length >= RACE_MAX_LANES;
+  // A choice takes away the button that had the keyboard (a model in the
+  // list, a removed lane's ×): give it to that lane's model button instead.
+  const root = useRef<HTMLDivElement>(null);
+  const [refocus, setRefocus] = useState<number | null>(null);
+  useEffect(() => {
+    if (refocus === null) return;
+    const buttons = root.current?.querySelectorAll<HTMLElement>(
+      "[data-race-lane-model]",
+    );
+    buttons?.[Math.min(refocus, buttons.length - 1)]?.focus();
+    setRefocus(null);
+  }, [refocus, lanes]);
   return (
-    <div data-race-options>
+    <div data-race-options ref={root}>
       <p className="px-2.5 pb-1 pt-2 text-ui-micro font-medium uppercase tracking-wide text-content/40">
         Race with ({RACE_MIN_LANES}–{RACE_MAX_LANES} agents)
       </p>
@@ -65,7 +77,6 @@ export function RaceOptions({
           const title = HARNESS_TITLE[lane.harness];
           const own = index === 0;
           const expanded = picking === index;
-          const fixedModel = own && !onFirstModelChange;
           const removable = !own && lanes.length > RACE_MIN_LANES;
           return (
             <div key={`${lane.harness}:${lane.model}`}>
@@ -83,37 +94,33 @@ export function RaceOptions({
                 </span>
                 <button
                   type="button"
+                  data-race-lane-model={index}
                   aria-haspopup="listbox"
                   aria-expanded={expanded}
                   aria-label={`${title} model: ${raceModelName(lane)}`}
-                  disabled={fixedModel}
                   title={
-                    fixedModel
-                      ? "Uses this chat's model. Change it in the model list."
-                      : own
-                        ? "Choose this chat's model for this race only"
-                        : `Choose the ${title} model for this race`
+                    own
+                      ? "Choose this chat's model for this race only"
+                      : `Choose the ${title} model for this race`
                   }
                   onClick={() => {
                     if (expanded) return setPicking(null);
                     setPicking(index);
                     loadModels(lane);
                   }}
-                  className={`flex max-w-32 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption disabled:cursor-default ${
+                  className={`flex max-w-32 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption ${
                     expanded
                       ? "bg-content/10 text-content"
-                      : "text-content/55 hover:bg-content/10 hover:text-content disabled:hover:bg-transparent disabled:hover:text-content/55"
+                      : "text-content/55 hover:bg-content/10 hover:text-content"
                   }`}
                 >
                   <span className="min-w-0 truncate">
                     {raceModelName(lane)}
                   </span>
-                  {fixedModel ? null : (
-                    <ChevronDown
-                      className={`size-3 shrink-0 ${expanded ? "rotate-180" : ""}`}
-                      strokeWidth={1.75}
-                    />
-                  )}
+                  <ChevronDown
+                    className={`size-3 shrink-0 ${expanded ? "rotate-180" : ""}`}
+                    strokeWidth={1.75}
+                  />
                 </button>
                 {own ? (
                   <span
@@ -135,6 +142,7 @@ export function RaceOptions({
                     onClick={() => {
                       setPicking(null);
                       saveLanes(removeRaceLane(lanes, index));
+                      setRefocus(index - 1);
                     }}
                     className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-35 disabled:hover:bg-transparent"
                   >
@@ -169,8 +177,9 @@ export function RaceOptions({
                         title={taken ? "Already racing" : undefined}
                         onClick={() => {
                           setPicking(null);
+                          setRefocus(index);
                           if (selected) return;
-                          if (own) onFirstModelChange?.(model.id);
+                          if (own) onFirstModelChange(model.id);
                           else saveLanes(replaceRaceLane(lanes, index, agent));
                         }}
                         className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-label disabled:cursor-default disabled:opacity-40 ${

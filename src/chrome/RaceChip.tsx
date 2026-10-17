@@ -32,6 +32,8 @@ export function RaceChip({
 }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
   const label = raceChipLabel(lanes);
+  // On the surface itself: it holds the keyboard when the dropdown opens,
+  // so the arrow keys move through it from the start.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
     moveMenuFocus(event);
@@ -79,6 +81,7 @@ export function RaceChip({
           autoFocus
           tabIndex={-1}
           aria-label="Race this message"
+          onKeyDown={onKeyDown}
           onDismiss={(dismissed) => {
             onOpenChange(false);
             if (dismissed === "escape") onDone();
@@ -86,7 +89,7 @@ export function RaceChip({
           data-race-menu
           className="outline-none"
         >
-          <div onKeyDown={onKeyDown}>
+          <div>
             <RaceOptions
               available={available}
               lanes={lanes}

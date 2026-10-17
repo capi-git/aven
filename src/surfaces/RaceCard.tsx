@@ -148,7 +148,11 @@ function ReviewerButton({
           tabIndex={-1}
           aria-label="Ask a reviewer"
           onKeyDown={moveMenuFocus}
-          onDismiss={() => setOpen(false)}
+          onDismiss={(reason) => {
+            setOpen(false);
+            // The keyboard goes back where it came from.
+            if (reason === "escape") anchor.current?.focus();
+          }}
           data-race-reviewers
           className="p-1 outline-none"
         >
@@ -170,6 +174,7 @@ function ReviewerButton({
                 }
                 onClick={() => {
                   setOpen(false);
+                  anchor.current?.focus();
                   onPick(choice);
                 }}
                 className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content/85 hover:bg-content/5 hover:text-content disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"

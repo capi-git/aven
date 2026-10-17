@@ -499,6 +499,36 @@ describe("the message box while this chat's discussion runs", () => {
     );
   });
 
+  it("offers no mode while it runs, since what you send goes to both", async () => {
+    startHere();
+    await render();
+    await openPlus();
+    expect(discussItem()).toBeNull();
+    expect(document.body.querySelector("[data-composer-race]")).toBeNull();
+    expect(
+      document.body.querySelector("[data-composer-modes-off]")?.textContent,
+    ).toContain("what you send goes to both chats");
+  });
+
+  it("says why it won't send a command or a long message to both", async () => {
+    startHere();
+    await render();
+    await type("/compact");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(container.textContent).toContain(
+      "Commands aren't sent to both chats.",
+    );
+    const long = "x".repeat(1_600);
+    await type(long);
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(container.textContent).toContain(
+      "Messages for both chats are limited to 1,500 characters; this one has 1,600. Shorten it to send.",
+    );
+    expect(field().value).toBe(long);
+  });
+
   it("leaves the other chat's message box as it is", async () => {
     startHere();
     props.sessionId = "b";

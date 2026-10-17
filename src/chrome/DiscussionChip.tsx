@@ -10,6 +10,12 @@ import {
 } from "../lib/discussions";
 import { providerShortName } from "../lib/discussionVoices";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
+
+/** ↑, ↓, Home and End through a dropdown's buttons, never mid-composition. */
+const menuKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+  if (isImeComposition(event.nativeEvent)) return;
+  moveMenuFocus(event);
+};
 import { resolveModel } from "../lib/models";
 import type { HarnessId } from "../lib/session";
 import { RolePicker } from "./AgentRoles";
@@ -198,6 +204,9 @@ export function DiscussionChip({
           tabIndex={-1}
           ignore={PROVIDER_MENUS}
           aria-label="Discuss with another chat"
+          // On the surface itself: it holds the keyboard when the dropdown
+          // opens, so the arrow keys move through it from the start.
+          onKeyDown={menuKeys}
           onDismiss={(dismissed) => {
             onOpenChange(false);
             if (dismissed === "escape") onDone();
@@ -266,12 +275,8 @@ function DiscussionMenu({
         ? "bg-content/10 text-content"
         : "text-content/85 hover:bg-content/5 hover:text-content"
     }`;
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (isImeComposition(event.nativeEvent)) return;
-    moveMenuFocus(event);
-  };
   return (
-    <div onKeyDown={onKeyDown}>
+    <div>
       <p className="px-2.5 pb-1 pt-2 text-ui-micro font-medium uppercase tracking-wide text-content/40">
         Discuss with
       </p>
