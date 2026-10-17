@@ -882,15 +882,26 @@ export type DiscussionHost = {
   show?(id: string, side: DiscussionSide): void;
   /**
    * Shows `side`'s chat and sends it, as the user, a message asking it to
-   * carry out the plan the discussion landed on. Returns why it could not,
-   * or null.
+   * carry out the plan the discussion landed on, loading that chat first if
+   * it was parked. Resolves why it could not, or null.
    */
-  build?(id: string, side: DiscussionSide): string | null;
+  build?(
+    id: string,
+    side: DiscussionSide,
+  ): string | null | Promise<string | null>;
   /** Development builds offer a preview of the sidebar animation. */
   preview?: boolean;
 };
 
 // --- Planner -------------------------------------------------------------------
+
+/**
+ * Without a way to load chats, every chat that isn't loaded counts as one
+ * that couldn't be, as before: tests and other windows plan this way.
+ */
+const ALL_CHATS_UNAVAILABLE: ReadonlySet<string> = {
+  has: () => true,
+} as unknown as ReadonlySet<string>;
 
 export type DiscussionAction =
   | { kind: "deliver"; id: string; sessionId: string }
@@ -914,6 +925,12 @@ export type DiscussionAction =
     }
   | { kind: "recover"; id: string; turn: number; reply: string }
   | { kind: "redeliver"; id: string }
+  /**
+   * A chat it needs is not loaded (a new partner has no tab, so it was
+   * parked): load it, then carry on. Only a chat that can't be loaded
+   * pauses the discussion or drops its note.
+   */
+  | { kind: "load"; id: string; sessionId: string }
   /** It used up its rounds: sum up where it landed, once. */
   | { kind: "summarise"; id: string };
 
@@ -927,6 +944,8 @@ export function planDiscussions(
   owner: string,
   sessions: readonly Session[],
   inFlight: ReadonlySet<string>,
+  /** Chats this window tried to load and could not (deleted, or gone). */
+  unavailable: ReadonlySet<string> = ALL_CHATS_UNAVAILABLE,
 ): DiscussionAction[] {
   const actions: DiscussionAction[] = [];
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -937,7 +956,12 @@ export function planDiscussions(
       if (discussion.summary?.status === "pending")
         actions.push({ kind: "summarise", id });
       for (const side of discussion.notes ?? []) {
-        const session = byId.get(discussionParty(discussion, side).sessionId);
+        const chat = discussionParty(discussion, side).sessionId;
+        const session = byId.get(chat);
+        if (!session && !unavailable.has(chat)) {
+          actions.push({ kind: "load", id, sessionId: chat });
+          continue;
+        }
         // A note waits for the chat to be idle, so it never splits a reply.
         if (session?.busy) continue;
         // Only the chat that started it shows where they landed.
@@ -966,12 +990,16 @@ export function planDiscussions(
     const b = byId.get(discussion.b.sessionId);
     if (!a || !b) {
       const missing = !a ? discussion.a : discussion.b;
-      actions.push({
-        kind: "pause",
-        id,
-        reason: `“${missing.title}” isn't open in this window. Open it to continue.`,
-        blockedBy: missing.sessionId,
-      });
+      actions.push(
+        unavailable.has(missing.sessionId)
+          ? {
+              kind: "pause",
+              id,
+              reason: `“${missing.title}” couldn't be opened. Open it from the sidebar to continue.`,
+              blockedBy: missing.sessionId,
+            }
+          : { kind: "load", id, sessionId: missing.sessionId },
+      );
       continue;
     }
     const waiting = sessionNeedsInput(a)

@@ -86,13 +86,17 @@ describe("teamActivityEvents", () => {
 
   it("posts one entry when a discussion ends, on the chat that started it", () => {
     const first = teamActivityEvents(null, [discussion()]);
-    const ended = discussion({ status: "finished", progress: "4 rounds" });
+    const ended = discussion({
+      status: "finished",
+      progress: "4 rounds",
+      endedAt: 40,
+    });
     const { events, seen } = teamActivityEvents(first.seen, [ended]);
     expect(events).toEqual([
       {
         sessionId: "a",
         event: {
-          id: "a:team:d1:ended",
+          id: "a:team:d1:ended:40",
           outcome: "completed",
           summary: "Discussion ended · 4 rounds",
           team: { id: "discuss:d1", kind: "discuss" },
@@ -100,6 +104,14 @@ describe("teamActivityEvents", () => {
       },
     ]);
     expect(teamActivityEvents(seen, [ended]).events).toEqual([]);
+    // Continued and finished again: a new ending, announced again.
+    const continued = teamActivityEvents(seen, [discussion()]);
+    const again = teamActivityEvents(continued.seen, [
+      discussion({ status: "finished", progress: "5 rounds", endedAt: 90 }),
+    ]);
+    expect(again.events.map((entry) => entry.event.id)).toEqual([
+      "a:team:d1:ended:90",
+    ]);
   });
 
   it("posts one entry when a race is ready to compare, and again after a retry", () => {

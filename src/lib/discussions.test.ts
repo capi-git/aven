@@ -352,14 +352,30 @@ describe("planning the broker's work", () => {
     });
   });
 
-  it("pauses when a chat is no longer open here", () => {
+  it("loads a chat that isn't loaded, and pauses only when it can't be", () => {
     expect(
-      planDiscussions([fresh()], "main", [chat("chat-a")], new Set()),
+      planDiscussions(
+        [fresh()],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(),
+      ),
+    ).toEqual([{ kind: "load", id: "d1", sessionId: "chat-b" }]);
+    expect(
+      planDiscussions(
+        [fresh()],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(["chat-b"]),
+      ),
     ).toEqual([
       {
         kind: "pause",
         id: "d1",
-        reason: "“Review” isn't open in this window. Open it to continue.",
+        reason:
+          "“Review” couldn't be opened. Open it from the sidebar to continue.",
         blockedBy: "chat-b",
       },
     ]);

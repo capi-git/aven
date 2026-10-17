@@ -48,6 +48,8 @@ let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
 let ref: () => Session[];
 let accept: boolean;
+/** Chats this window parked, which `loadChat` brings back. */
+let parked: Map<string, Session>;
 let openPartner: ReturnType<typeof vi.fn>;
 let openView: ReturnType<typeof vi.fn<(id: string) => void>>;
 let summarise: ReturnType<
@@ -134,6 +136,13 @@ function Harness({ initial }: { initial: Session[] }) {
     onStarted: (id) => started.push(id),
     onEnded: (discussion) => endedIds.push(discussion.id),
     focusChat: (sessionId) => focused.push(sessionId),
+    loadChat: async (sessionId) => {
+      const session = parked.get(sessionId);
+      if (!session) return null;
+      parked.delete(sessionId);
+      setSessions((list) => [...list, session]);
+      return session;
+    },
     summarise,
   });
   host = broker.host;
@@ -189,6 +198,7 @@ beforeEach(() => {
   endedIds = [];
   summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
+  parked = new Map();
   openPartner = vi.fn();
   openView = vi.fn<(id: string) => void>();
   root = createRoot(document.createElement("div"));
@@ -667,6 +677,76 @@ describe("useDiscussionBroker with the user jumping in", () => {
       "Discussion ended after 2 rounds.",
     ]);
   });
+
+  it("brings back a parked partner to continue, instead of pausing", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    await finish("b", "Agreed, five minutes.");
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      expect(store.interject(id, "Now eviction?")).toBeNull();
+    });
+    await finish("a", "LRU.");
+    // The partner is loaded and gets its turn; nothing paused.
+    expect(store.get(id)?.status).toBe("active");
+    expect(sent.at(-1)?.sessionId).toBe("b");
+    expect(ref().some((session) => session.id === "b")).toBe(true);
+  });
+
+  it("pauses for a partner that can't be brought back", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    await finish("b", "Agreed.");
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      store.interject(id, "Now eviction?");
+    });
+    await finish("a", "LRU.");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(store.get(id)).toMatchObject({
+      status: "paused",
+      reason:
+        "“Review” couldn't be opened. Open it from the sidebar to continue.",
+    });
+  });
+
+  it("copies the partner's last reply in when its turn ended before a reload", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    // B answers, but this page never hears its turn end (a reload).
+    const turn = sent.at(-1)!;
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "b"
+            ? stopStreaming({
+                ...session,
+                blocks: [
+                  ...session.blocks,
+                  { id: "late", role: "assistant", text: "Agreed, later." },
+                ],
+              })
+            : session,
+        ),
+      ),
+    );
+    expect(turn.sessionId).toBe("b");
+    // A new page drives it: its turn in flight is forgotten.
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    await mount(ref());
+    expect(store.get(id)).toMatchObject({ status: "ended", settled: 2 });
+    expect(replies.map((reply) => reply.text)).toEqual(["Agreed, later."]);
+    expect(endedIds).toEqual([id]);
+  });
 });
 
 describe("useDiscussionBroker's wrap-up", () => {
@@ -932,7 +1012,7 @@ describe("useDiscussionBroker's wrap-up", () => {
     const id = await complete();
     let refused: string | null = "unset";
     await act(async () => {
-      refused = host.build!(id, "b");
+      refused = await host.build!(id, "b");
     });
     expect(refused).toBeNull();
     expect(focused).toEqual(["b"]);
@@ -952,15 +1032,32 @@ describe("useDiscussionBroker's wrap-up", () => {
     expect(sent).toHaveLength(2);
   });
 
+  it("brings back a chat that was parked once the discussion ended, then builds", async () => {
+    const id = await complete();
+    // The new partner had no tab: it was parked after the closing notes.
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    let refused: string | null = "unset";
+    await act(async () => {
+      refused = await host.build!(id, "b");
+    });
+    expect(refused).toBeNull();
+    expect(messages.map((message) => message.sessionId)).toEqual(["b"]);
+    expect(focused).toEqual(["b"]);
+  });
+
   it("says why it can't build when the chat is gone or refuses", async () => {
     const id = await complete();
     await act(async () =>
       setSessions((list) => list.filter((session) => session.id !== "a")),
     );
-    expect(host.build!(id, "a")).toBe("“Caching” isn't open in this window.");
+    expect(await host.build!(id, "a")).toBe("Couldn't open “Caching”.");
     accept = false;
-    expect(host.build!(id, "b")).toBe("Couldn't send to “Review”.");
-    expect(host.build!("gone", "b")).toBe(
+    expect(await host.build!(id, "b")).toBe("Couldn't send to “Review”.");
+    expect(await host.build!("gone", "b")).toBe(
       "This discussion is no longer available.",
     );
   });

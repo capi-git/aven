@@ -80,6 +80,12 @@ type Options = {
   ) => void | boolean;
   /** Show a chat in this window, as its sidebar row does. */
   focusChat?: (sessionId: string) => void;
+  /**
+   * Load a chat this window has parked (a new partner has no tab), without
+   * opening a tab for it; null when it can't be. Without it, a chat that
+   * isn't loaded is treated as gone.
+   */
+  loadChat?: (sessionId: string) => Promise<Session | null | undefined>;
   /** Sums up a finished discussion; tests replace the model call. */
   summarise?: (
     discussion: Discussion,
@@ -182,6 +188,7 @@ export function useDiscussionBroker({
   onStarted,
   onEnded,
   focusChat,
+  loadChat,
   summarise = runDiscussionWrapUp,
   store: given,
 }: Options): { host: DiscussionHost; sidebar: SidebarDiscussion[] } {
@@ -202,6 +209,7 @@ export function useDiscussionBroker({
     onStarted,
     onEnded,
     focusChat,
+    loadChat,
     summarise,
   });
   latest.current = {
@@ -215,10 +223,36 @@ export function useDiscussionBroker({
     onStarted,
     onEnded,
     focusChat,
+    loadChat,
     summarise,
   };
   /** Discussion id → the turn this window sent and is waiting on. */
   const inFlight = useRef(new Map<string, number>());
+  /** Chats being loaded for a discussion, and those that could not be. */
+  const loading = useRef(new Set<string>());
+  const unavailable = useRef(new Set<string>());
+  /** Loads a parked chat once; resolves it, or null when it can't be. */
+  const load = useCallback(
+    async (sessionId: string): Promise<Session | null> => {
+      const loaded = latest.current.sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (loaded) return loaded;
+      const loadChat = latest.current.loadChat;
+      if (!loadChat) return null;
+      try {
+        const session = await loadChat(sessionId);
+        if (session) unavailable.current.delete(sessionId);
+        else unavailable.current.add(sessionId);
+        return session ?? null;
+      } catch (error) {
+        logError("Couldn't open a discussion's chat", error);
+        unavailable.current.add(sessionId);
+        return null;
+      }
+    },
+    [],
+  );
 
   const settle = useCallback(
     (
@@ -368,13 +402,15 @@ export function useDiscussionBroker({
     [store],
   );
 
+  const rerun = useRef(() => {});
   const run = useCallback(() => {
-    const { sessionsRef, postNote } = latest.current;
+    const { sessionsRef, postNote, loadChat } = latest.current;
     const actions = planDiscussions(
       store.snapshot(),
       store.owner,
       sessionsRef.current,
       new Set(inFlight.current.keys()),
+      loadChat ? unavailable.current : undefined,
     );
     for (const action of actions) {
       switch (action.kind) {
@@ -392,11 +428,29 @@ export function useDiscussionBroker({
             postNote(action.sessionId, action.text, action.wrapUp);
           store.notePosted(action.id, action.side);
           break;
-        case "recover":
-          store.settle(action.id, action.turn, {
-            status: "completed",
-            text: action.reply,
-          });
+        case "recover": {
+          // The same ending as a turn heard here: the final reply is
+          // copied into the starting chat, and its end is announced.
+          const discussion = store.get(action.id);
+          if (discussion)
+            settle(
+              action.id,
+              action.turn,
+              partyOf(discussion, action.turn % 2 === 0 ? "a" : "b").sessionId,
+              { status: "completed", text: action.reply },
+            );
+          break;
+        }
+        case "load":
+          if (!loading.current.has(action.sessionId)) {
+            loading.current.add(action.sessionId);
+            // Loading changes the chats, which plans again; so does a chat
+            // that can't be loaded, which then pauses it.
+            void load(action.sessionId).then((session) => {
+              loading.current.delete(action.sessionId);
+              if (!session) rerun.current();
+            });
+          }
           break;
         case "redeliver":
           store.redeliver(action.id);
@@ -406,7 +460,8 @@ export function useDiscussionBroker({
           break;
       }
     }
-  }, [deliver, store, summariseOnce]);
+  }, [deliver, load, settle, store, summariseOnce]);
+  rerun.current = run;
 
   const driving = list.some(
     (discussion) => store.owns(discussion) && !discussion.preview,
@@ -536,15 +591,14 @@ export function useDiscussionBroker({
         if (discussion)
           latest.current.focusChat?.(partyOf(discussion, side).sessionId);
       },
-      build(id, side) {
-        const { sessionsRef, onSubmit, focusChat } = latest.current;
+      async build(id, side) {
         const discussion = store.get(id);
         if (!discussion) return "This discussion is no longer available.";
         const party = partyOf(discussion, side);
-        const session = sessionsRef.current.find(
-          (entry) => entry.id === party.sessionId,
-        );
-        if (!session) return `“${party.title}” isn't open in this window.`;
+        // A new partner has no tab, and is parked once the discussion ends.
+        const session = await load(party.sessionId);
+        if (!session) return `Couldn't open “${party.title}”.`;
+        const { onSubmit, focusChat } = latest.current;
         focusChat?.(session.id);
         let accepted: void | boolean = false;
         try {
@@ -560,7 +614,7 @@ export function useDiscussionBroker({
         return accepted === false ? `Couldn't send to “${party.title}”.` : null;
       },
     }),
-    [store],
+    [load, store],
   );
 
   const sidebar = useMemo(() => sidebarDiscussions(list), [list]);

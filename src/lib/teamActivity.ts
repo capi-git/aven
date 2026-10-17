@@ -78,11 +78,13 @@ export function teamActivityEvents(
     const marker = { id: team.id, kind: team.kind };
     const origin = team.origin.sessionId;
     if (team.kind === "discuss" && team.status === "finished") {
+      // Each ending is its own: a discussion continued and finished again
+      // is announced again.
       if (before.status !== "finished")
         events.push({
           sessionId: origin,
           event: {
-            id: `${origin}:team:${team.key}:ended`,
+            id: `${origin}:team:${team.key}:ended:${team.endedAt ?? team.updatedAt}`,
             outcome: "completed",
             summary: `Discussion ended · ${team.progress}`,
             team: marker,

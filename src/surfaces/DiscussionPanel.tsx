@@ -102,7 +102,7 @@ export function performDiscussionAction(
   discussion: Pick<Discussion, "id" | "a" | "b">,
   host: DiscussionHost | undefined,
   action: TeamWatchAction,
-): string | null {
+): string | null | Promise<string | null> {
   const store = discussionStore();
   switch (action.kind) {
     case "stop":

@@ -7090,22 +7090,12 @@ export default function App({
     },
     openView: openDiscussionView,
     onStarted: onDiscussionStarted,
-    // Where they landed reaches the chat that started it: say so through the
-    // usual notifications when the user is looking elsewhere.
-    onEnded: (discussion) => {
-      const session = sessionsRef.current.find(
-        (entry) => entry.id === discussion.a.sessionId,
-      );
-      if (session)
-        announceActivity(session, {
-          id: `discussion:${discussion.id}:${discussion.settled}`,
-          outcome: "completed",
-          summary: `Discussion with ${discussion.b.model} ended after ${discussion.rounds} ${
-            discussion.rounds === 1 ? "round" : "rounds"
-          }.`,
-        });
-    },
+    // Its end is the team's own entry, "Discussion ended · N rounds" (see
+    // teamActivity), posted once per ending.
     focusChat: (sessionId) => void onSelectHistorySession(sessionId),
+    // A new partner has no tab: it is parked once the discussion ends, and
+    // loaded again when the discussion continues or is asked to build.
+    loadChat: ensureOpenSession,
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
