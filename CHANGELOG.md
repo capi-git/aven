@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- An orchestration's lead chat has a slim bar above its message box while its run is open: "Orchestrating · 2 working · 1 waiting", or "Paused" with the reason, with **Resume**, **Stop run** and **Open agents**. When the lead stops without finishing, the bar says "The lead stopped without finishing" and offers **Finish run** (tasks that never started are cancelled) and **Ask the lead to wrap up**. **Stop run** is also on the plan card and the sidebar card whenever a run is running or paused, not only while a turn runs.
+- The plan card shows each task's files as small chips, and before you start you can **Remove task** (tasks that waited for it no longer do) or **Discard plan**.
+
+### Changed
+
+- An agent's approval or question in an orchestration is its lead's to decide. The agent shows "Lead deciding" in a neutral colour, and you no longer get a banner, an Activity "Needs approval" entry, an amber lead or a Home "Needs you" row for it. The lead asking you in its own chat still does.
+- A run posts one Activity entry, "Run finished · 4 agents" or "Run paused" with its reason, with a banner when you are elsewhere. Agents' turns and the lead's behind-the-scenes turns no longer post their own "Finished" entries or banners.
+- Orchestration messages use plain words. Other chats in the project say "<project> is busy with an orchestration in “<chat>”. Finish or stop it there." with **Go to lead**; the plan card reads Running, Paused, Finished or Stopped; pauses say what happened and what to do next.
+- A finished run's sidebar card folds to one line, such as "Finished · 4 agents · 2h ago", and opens when you click it. Its count leaves cancelled tasks out: "3 done · 1 cancelled".
+- Long orchestrations are lighter on the workspace: each chat and card redraws only for its own run, and the floating sidebar receives a short summary of each run instead of every prompt and result.
+
+### Fixed
+
+- A run whose lead ended without finishing no longer holds the project with no way out.
+- Closing the lead's tab no longer strands an orchestration's results or stops its run: the lead stays loaded while its run is running or paused.
+- Finished agent turns no longer linger as unread on Home and in the unread count.
+- An older plan card can no longer start a plan that a newer one replaced; it reads "Replaced by a newer plan".
+- An orchestration's lead no longer sees its own successful finish reported as "Lead connection was revoked".
+
 ## [0.1.144] - 2026-10-16
 
 ### Added
