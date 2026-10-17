@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Long agent replies stream more smoothly and use less of your Mac. Aven now prepares only the end of a reply as it grows instead of all of it on every update: for a 24 KB reply that work fell from about 310 ms to 30 ms over the whole stream, and for a 96 KB reply from about 14 seconds to under half a second. A code block being written is coloured line by line instead of from the top each time, so an agent writing a 150-line file no longer costs about 75 ms per update, and finished turns above the one streaming are left alone. Replies look exactly as before.
+
 ## [0.1.144] - 2026-10-16
 
 ### Added
