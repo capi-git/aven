@@ -367,6 +367,62 @@ export function raceLaneEnded(
   updateRace(race.id, { ends });
 }
 
+/**
+ * A lane's chat was archived or deleted mid-turn: no turn end will report
+ * it, so it is recorded as stopped, with Retry, rather than read as working
+ * for good.
+ */
+export function raceLaneRemoved(sessionId: string) {
+  const found = runningLane(sessionId);
+  if (found && found.race.ends?.[found.lane] === null)
+    raceLaneEnded(sessionId, "stopped");
+}
+
+/** Lanes this page already checked are still there. */
+const checkedLanes = new Set<string>();
+
+/**
+ * Lanes whose turn the race saw start, whose chat isn't loaded here and no
+ * longer exists (deleted, or archived): stopped, as `raceLaneRemoved` would
+ * have recorded them. Each lane is asked about once per page.
+ */
+export async function settleMissingLanes(
+  loaded: (sessionId: string) => boolean,
+  exists: (sessionId: string) => Promise<boolean>,
+): Promise<void> {
+  const pending = read().flatMap((race) =>
+    race.state !== "running"
+      ? []
+      : race.lanes.filter(
+          (lane, index) =>
+            race.ends?.[index] === null &&
+            !loaded(lane.sessionId) &&
+            !checkedLanes.has(lane.sessionId),
+        ),
+  );
+  for (const lane of pending) {
+    checkedLanes.add(lane.sessionId);
+    if (!(await exists(lane.sessionId))) raceLaneRemoved(lane.sessionId);
+  }
+}
+
+/**
+ * Running races whose window is gone: closed, or from an earlier launch,
+ * whose label a new window may reuse. The main window (`me`) takes them
+ * over, so one window always posts their notices. `open` are the
+ * workspace windows open now.
+ */
+export function adoptOrphanRaces(me: string, open: ReadonlySet<string>) {
+  for (const race of read())
+    if (
+      race.state === "running" &&
+      race.window &&
+      race.window !== me &&
+      !open.has(race.window)
+    )
+      updateRace(race.id, { window: me });
+}
+
 /** All races, unchanged (the same array) until one is saved. */
 export function racesSnapshot(): readonly RaceRecord[] {
   return read();

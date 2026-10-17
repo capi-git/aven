@@ -391,6 +391,7 @@ pub fn run() {
             browser::browser_download_action,
             browser_snapshot::browser_snapshot,
             projectless::projectless_cwd,
+            window::workspace_window_labels,
             workspace_window::workspace_window_open,
             workspace_window::workspace_window_update,
             workspace_window::workspace_window_get_state,
@@ -626,6 +627,7 @@ pub fn run() {
                 ..
             } => {
                 control::window_closed(handle, &label);
+                window::workspace_closed(handle, &label);
                 browser_agent::window_destroyed(&label);
                 keep_awake::forget_window(&label);
                 browser::window_destroyed(handle, &label);

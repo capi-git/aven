@@ -683,6 +683,32 @@ describe("DiscussionStore", () => {
     expect(store.get("live")?.ended).toEqual({ kind: "stopped" });
   });
 
+  it("is taken over by a window when the one driving it is gone", () => {
+    const storage = memoryStorage();
+    const gone = new DiscussionStore(storage, "window-1");
+    gone.start({ id: "d1", a: A, b: B, topic: "Cache?", rounds: 2 });
+    gone.pause("d1", "Its window reloaded or closed. Resume to continue.");
+    gone.start({
+      id: "done",
+      a: { ...A, sessionId: "x" },
+      b: { ...B, sessionId: "y" },
+      topic: "Old",
+      rounds: 1,
+    });
+    gone.stop("done");
+    gone.notePosted("done", "a");
+    gone.notePosted("done", "b");
+    const main = new DiscussionStore(storage, "main");
+    // window-1 still open: left to it.
+    main.adoptOrphans(new Set(["main", "window-1"]));
+    expect(main.get("d1")?.owner).toBe("window-1");
+    // Closed, or from an earlier launch: main drives it now, without
+    // loading its chats; finished history stays where it was.
+    main.adoptOrphans(new Set(["main"]));
+    expect(main.get("d1")).toMatchObject({ owner: "main", adopted: true });
+    expect(main.get("done")?.owner).toBe("window-1");
+  });
+
   it("trims history windows since closed left behind, oldest first", () => {
     const storage = memoryStorage();
     // Closed windows each left their own history, more than all together keep.

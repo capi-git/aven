@@ -226,6 +226,34 @@ pub fn show_hidden_or_open_new(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| err.to_string())
 }
 
+/// Workspace windows by label, sorted, from any window labels.
+fn workspace_labels<'a>(labels: impl Iterator<Item = &'a String>) -> Vec<String> {
+    let mut labels: Vec<String> = labels
+        .filter(|label| is_workspace_label(label))
+        .cloned()
+        .collect();
+    labels.sort();
+    labels
+}
+
+/// The workspace windows open now. A race or discussion saved by a window
+/// not among them (closed, or from an earlier launch, whose label a new
+/// window may reuse) is the main window's to take over.
+#[tauri::command]
+pub fn workspace_window_labels(app: AppHandle) -> Vec<String> {
+    workspace_labels(app.webview_windows().keys())
+}
+
+/// Tells the main window a workspace window closed, so it takes over what
+/// that window drove.
+pub const WORKSPACE_CLOSED_EVENT: &str = "aven-workspace-closed";
+
+pub fn workspace_closed(app: &AppHandle, label: &str) {
+    if label != "main" && is_workspace_label(label) {
+        let _ = app.emit_to("main", WORKSPACE_CLOSED_EVENT, label);
+    }
+}
+
 /// Whether any workspace window is on screen (or about to draw itself).
 /// Pop-outs and panels do not count.
 pub fn any_workspace_visible(app: &AppHandle) -> bool {
@@ -365,6 +393,24 @@ pub(crate) fn prepare_process_exit(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lists_only_workspace_windows() {
+        let labels: Vec<String> = [
+            "window-2",
+            "main",
+            "team-watch-1",
+            "usage-panel",
+            "window-1",
+        ]
+        .iter()
+        .map(|label| label.to_string())
+        .collect();
+        assert_eq!(
+            workspace_labels(labels.iter()),
+            ["main", "window-1", "window-2"]
+        );
+    }
 
     #[test]
     fn glass_tint_clamps_to_a_usable_native_alpha() {

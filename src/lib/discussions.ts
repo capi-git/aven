@@ -1507,6 +1507,23 @@ export class DiscussionStore {
     );
   }
 
+  /**
+   * Discussions whose window is gone (closed, or from an earlier launch,
+   * whose label a new window may reuse) and that still have something to
+   * do: this window takes them over, as the main window does, so one window
+   * drives each and posts its notices. Finished history stays as it is.
+   */
+  adoptOrphans(open: ReadonlySet<string>) {
+    for (const discussion of [...this.list])
+      if (
+        !this.owns(discussion) &&
+        !open.has(discussion.owner) &&
+        !discussion.preview &&
+        !isHistory(discussion)
+      )
+        this.adopt(discussion.id);
+  }
+
   markDelivered(id: string) {
     this.change(id, (discussion) =>
       discussion.delivered ? discussion : { ...discussion, delivered: true },

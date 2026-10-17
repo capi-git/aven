@@ -5,7 +5,10 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
 import { groupTurns } from "../surfaces/transcriptActivity";
 import {
+  adoptOrphanRaces,
   getRace,
+  raceLaneRemoved,
+  settleMissingLanes,
   noteRaceStats,
   raceLaneEnded,
   raceLaneStarted,
@@ -165,4 +168,46 @@ it("records a lane cut short by a quit, which no turn end reports", () => {
   saveRace(record({ id: "r2" }));
   settleInterruptedLanes([lane("l0", true)], () => true);
   expect(getRace("r2")?.ends).toBeUndefined();
+});
+
+it("is taken over by the main window once the window that started it is gone", () => {
+  saveRace(record({ window: "window-1" }));
+  saveRace(record({ id: "r2", window: "window-2" }));
+  saveRace(record({ id: "r3", window: "window-1", state: "kept" }));
+  saveRace(record({ id: "r4" }));
+  // window-2 is open; window-1 closed, or was from an earlier launch.
+  adoptOrphanRaces("main", new Set(["main", "window-2"]));
+  expect(getRace("r1")?.window).toBe("main");
+  expect(getRace("r2")?.window).toBe("window-2");
+  // A finished race, or one saved before races kept a window, is left.
+  expect(getRace("r3")?.window).toBe("window-1");
+  expect(getRace("r4")?.window).toBeUndefined();
+});
+
+it("records an agent removed mid-turn as stopped, never working for good", async () => {
+  saveRace(record({ ends: [null, { kind: "done", at: 5 }] }));
+  // Archived or deleted while it worked.
+  raceLaneRemoved("l0");
+  expect(getRace("r1")?.ends?.[0]?.kind).toBe("stopped");
+  // One that had finished keeps how it ended.
+  raceLaneRemoved("l1");
+  expect(getRace("r1")?.ends?.[1]?.kind).toBe("done");
+  // Gone before races recorded that: found once, and stopped too.
+  // l1-b is held elsewhere; l0-b's chat no longer exists.
+  saveRace(
+    record({
+      id: "r2",
+      ends: [null, null],
+      lanes: record().lanes.map((lane) => ({
+        ...lane,
+        sessionId: `${lane.sessionId}-b`,
+      })),
+    }),
+  );
+  await settleMissingLanes(
+    () => false,
+    async (id) => id !== "l0-b",
+  );
+  expect(getRace("r2")?.ends?.[0]?.kind).toBe("stopped");
+  expect(getRace("r2")?.ends?.[1]).toBeNull();
 });

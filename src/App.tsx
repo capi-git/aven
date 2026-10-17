@@ -16,7 +16,8 @@ import {
   prepareAgentBrowserPrompt,
   refreshAgentBrowserScopes,
 } from "./lib/agentBrowser";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import {
@@ -229,6 +230,9 @@ import {
   raceOriginBlock,
   saveRace,
   settleInterruptedLanes,
+  adoptOrphanRaces,
+  raceLaneRemoved,
+  settleMissingLanes,
   subscribeRaces,
   updateRace,
   usesRaceCheckout,
@@ -2443,6 +2447,19 @@ export default function App({
         (id) => willAutoContinue(sessionById.get(id)),
       ).catch((error) => logError("Race review", error));
   }, [sessionById, teamStores.races]);
+  // A lane whose chat was deleted or archived elsewhere, or before races
+  // recorded that, reads stopped rather than working for good.
+  useEffect(() => {
+    if (!teamStores.races.some((race) => race.state === "running")) return;
+    void settleMissingLanes(
+      (id) => sessionsRef.current.some((session) => session.id === id),
+      async (id) =>
+        !chatIsArchived(
+          id,
+          historyRef.current.find((row) => row.id === id)?.archived,
+        ) && (await getSession(id).catch(() => null)) != null,
+    ).catch((error) => logError("Race agents", error));
+  }, [teamStores.races, sessionsRef]);
   // A lane cut short by a quit or reload, and not about to carry on,
   // reports no ending: record it, so a window that doesn't hold it stops
   // reading it as working.
@@ -4961,6 +4978,8 @@ export default function App({
             if (run && (run.status === "active" || run.status === "paused"))
               await orchestrator.stopRun(run.leadId);
             await stopSessionForRemoval(sessionId);
+            // A race agent removed mid-turn reports no ending of its own.
+            raceLaneRemoved(sessionId);
           },
           updateSession: (stopped) => {
             const next = sessionsRef.current.map((session) =>
@@ -7756,11 +7775,40 @@ export default function App({
     orchestrator.sync();
   }, [sessions]);
 
-  // Another window opened a paused run's lead and now holds the run.
+  // Another window opened a paused run's lead and now holds the run. The
+  // host tells only this window, so only this page listens.
   useEffect(() => {
-    const listening = listen<string>("control-run-released", ({ payload }) => {
-      if (typeof payload === "string") orchestrator.release(payload);
-    });
+    if (!isTauri()) return;
+    const listening = getCurrentWebview().listen<string>(
+      "control-run-released",
+      ({ payload }) => {
+        if (typeof payload === "string") orchestrator.release(payload);
+      },
+    );
+    return () => {
+      void listening.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // A race or discussion whose window closed, or was from an earlier
+  // launch, would be announced by no window: the main window takes it over
+  // at start-up and whenever a workspace window closes.
+  useEffect(() => {
+    if (!isTauri() || currentWindowLabel() !== "main") return;
+    const adopt = (closed?: string) =>
+      void invoke<string[]>("workspace_window_labels")
+        .then((labels) => {
+          const open = new Set(labels);
+          if (closed) open.delete(closed);
+          adoptOrphanRaces("main", open);
+          discussionStore().adoptOrphans(open);
+        })
+        .catch((error) => logError("Couldn't check open windows", error));
+    adopt();
+    const listening = getCurrentWebview().listen<string>(
+      "aven-workspace-closed",
+      ({ payload }) => adopt(typeof payload === "string" ? payload : undefined),
+    );
     return () => {
       void listening.then((unlisten) => unlisten());
     };
