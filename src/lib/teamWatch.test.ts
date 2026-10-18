@@ -267,6 +267,15 @@ describe("pills", () => {
       teamPillText(
         team({
           id: "race:r1",
+          status: "needs-you",
+          progress: "1 of 2 done · 1 needs you",
+        }),
+      ),
+    ).toEqual({ progress: "1 of 2 done", status: "Needs you" });
+    expect(
+      teamPillText(
+        team({
+          id: "race:r1",
           status: "finished",
           progress: "Kept Codex (2 files)",
         }),

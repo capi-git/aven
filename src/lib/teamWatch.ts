@@ -438,8 +438,13 @@ export function teamPillText(team: TeamRun): {
         : tone === "ready"
           ? "Ready to compare"
           : "Racing";
+    // The status says "Needs you"; the count beside it doesn't repeat it.
+    const progress = team.progress.replace(/^Ready to compare · /, "");
     return {
-      progress: team.progress.replace(/^Ready to compare · /, ""),
+      progress:
+        tone === "needs-you"
+          ? progress.replace(/ · \d+ needs? you\b/, "")
+          : progress,
       status,
     };
   }
