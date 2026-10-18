@@ -111,6 +111,54 @@ function scrollMetrics(
   };
 }
 
+/**
+ * Like `scrollMetrics`, with the live turn stretched to the viewport after a
+ * send (prompt to top). The stretch comes from `--transcript-viewport`, which
+ * the transcript sets only after layout has run at the new viewport height,
+ * so a taller viewport first clamps the offset against the old stretch.
+ */
+function stretchedScrollMetrics(
+  el: HTMLElement,
+  initialHeight: number,
+  earlier: number,
+  initialLive: number,
+) {
+  let height = initialHeight;
+  let live = initialLive;
+  let position = 0;
+  const stretch = () =>
+    Number.parseFloat(el.style.getPropertyValue("--transcript-viewport")) || 0;
+  const total = () => earlier + Math.max(live, stretch());
+  const clamp = (next: number) => Math.max(0, Math.min(next, total() - height));
+  Object.defineProperties(el, {
+    clientHeight: { configurable: true, get: () => height },
+    scrollHeight: { configurable: true, get: total },
+    scrollTop: {
+      configurable: true,
+      get: () => position,
+      set: (next: number) => {
+        position = clamp(next);
+      },
+    },
+  });
+  return {
+    grow: (amount: number) => {
+      live += amount;
+    },
+    /** Change the viewport. A browser clamps the offset to the new bottom. */
+    resize: (next: number) => {
+      height = next;
+      position = clamp(position);
+    },
+  };
+}
+
+async function reportResize() {
+  await act(async () => {
+    for (const report of resizeReports) report();
+  });
+}
+
 async function wheel(target: HTMLElement, deltaY: number) {
   const event = new WheelEvent("wheel", {
     deltaY,
@@ -329,6 +377,59 @@ describe("transcript bottom following", () => {
     await scrollTo(el, 500);
     act(() => jumpToBottom());
     expect(el.scrollTop).toBe(750);
+  });
+
+  it("keeps following a stretched live turn when the stack over the message box gets shorter", async () => {
+    // After a send, the live turn fills the viewport so the prompt sits at
+    // the top. Starting a run swaps two rows over the message box for one
+    // bar: the viewport grows, the browser clamps the offset, and then the
+    // stretch grows with the viewport and the end moves back down.
+    const el = await render(answer("Here is the plan."));
+    expect(container.querySelector(".transcript-turn-anchor")).not.toBeNull();
+    const metrics = stretchedScrollMetrics(el, 400, 600, 150);
+    await reportResize();
+    expect(el.scrollTop).toBe(600);
+
+    // The new bar commits with the transcript's own update.
+    metrics.resize(460);
+    expect(el.scrollTop).toBe(540);
+    await render(answer("Here is the plan.\n\nStarting the run."));
+    expect(el.scrollTop).toBe(600);
+    // A row leaving mid-run is reported by the resize observer alone.
+    metrics.resize(500);
+    expect(el.scrollTop).toBe(560);
+    await reportResize();
+    expect(el.scrollTop).toBe(600);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+
+    // The lead's summary and the run's result arrive while it follows, and
+    // the stack grows again when the run finishes. The end stays in view.
+    metrics.grow(500);
+    await render(answer("Here is the plan.\n\nThe run finished."));
+    expect(el.scrollTop).toBe(750);
+    metrics.resize(300);
+    await reportResize();
+    expect(el.scrollTop).toBe(950);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+  });
+
+  it("does not re-pin a slightly scrolled-up reader when a shorter stack stretches the live turn", async () => {
+    const el = await render(answer("Here is the plan."));
+    const metrics = stretchedScrollMetrics(el, 400, 600, 150);
+    await reportResize();
+    await wheel(el, -4);
+    await scrollTo(el, 596);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+
+    metrics.resize(460);
+    await reportResize();
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(500);
+    await render(answer("Here is the plan.\n\nThe run finished."));
+    expect(el.scrollTop).toBe(540);
   });
 
   it("keeps following when a queued scroll event from the last pin lands after content grows", async () => {
