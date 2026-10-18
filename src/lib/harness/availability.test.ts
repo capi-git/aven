@@ -185,6 +185,12 @@ it("is checking until a probe answers, and not once a setup check has", async ()
   expect(store.isHarnessAvailable("claude")).toBe(false);
 });
 
+it("names a missing provider in plain words", () => {
+  expect(store.harnessUnavailableHint("claude")).toBe(
+    "Claude Code isn't installed. Install it from Settings, or restart Aven if you just installed it.",
+  );
+});
+
 it("looks providers up in a webview that never registered them", async () => {
   // The hover sidebar renders project rows, and so this dialog, without
   // registering any provider adapters.

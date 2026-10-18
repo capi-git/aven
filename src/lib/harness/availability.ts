@@ -91,10 +91,10 @@ export function recordHarnessAvailability(
   emit();
 }
 
+/** Why a provider can't be picked, in plain words for any screen. */
 export function harnessUnavailableHint(id: HarnessId): string {
-  const { name, install } = harnessDescriptor(id).cli;
-  const how = install ? ` (\`${install}\`)` : "";
-  return `${name} not found${how}. Install it, or restart Aven if it is already installed.`;
+  const { title } = harnessDescriptor(id);
+  return `${title} isn't installed. Install it from Settings, or restart Aven if you just installed it.`;
 }
 
 async function findBinary(id: HarnessId): Promise<boolean> {
