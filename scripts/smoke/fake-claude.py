@@ -255,6 +255,11 @@ EDIT_PATTERN = re.compile(r"AVEN_SMOKE_EDIT ([\w.-]+)")
 EDIT_SETTLE_SECONDS = 0.8
 
 
+def chat_session(args):
+    """A chat's own process: Aven answers its permission prompts over stdio."""
+    return option(args, "--permission-prompt-tool") == "stdio"
+
+
 def emit_edit(session, turn, name):
     path = os.path.abspath(name)
     content = "edited by the stand-in Claude\n"
@@ -514,7 +519,10 @@ def main():
             server = None if helper else DEV_SERVER_PATTERN.search(text)
             if server:
                 emit_dev_server(session, turn, int(server.group(1)))
-            edit = None if helper else EDIT_PATTERN.search(text)
+            # Only the chat itself edits: Aven also hands the message to quick
+            # tool-free calls (a title), whose own "edit" would land first and
+            # leave the chat nothing to change.
+            edit = EDIT_PATTERN.search(text) if chat_session(args) and not helper else None
             if edit:
                 emit_edit(session, turn, edit.group(1))
             requested = STREAM_PATTERN.search(text)

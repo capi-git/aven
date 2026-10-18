@@ -1056,13 +1056,35 @@ fn relative_to_root(root: &Path, path: &str) -> Result<String, String> {
     }
     let expanded = expand_home(trimmed);
     if expanded.is_absolute() {
-        let relative = expanded
-            .strip_prefix(root)
-            .map_err(|_| "Path is outside the project".to_string())?;
+        let relative = match expanded.strip_prefix(root) {
+            Ok(relative) => relative.to_path_buf(),
+            // The same folder by another name: an agent reports paths from
+            // its working directory's real path (macOS's /var is
+            // /private/var; a checkout can sit behind a symlink).
+            Err(_) => real_path(&expanded)
+                .zip(root.canonicalize().ok())
+                .and_then(|(path, root)| path.strip_prefix(&root).ok().map(Path::to_path_buf))
+                .ok_or_else(|| "Path is outside the project".to_string())?,
+        };
         let relative = relative.to_string_lossy().replace('\\', "/");
         return resolve_repo_path(root, &relative);
     }
     resolve_repo_path(root, trimmed)
+}
+
+/// `path` with symlinks resolved, also for a file that does not exist yet
+/// (an edit's file before its first write): its nearest existing folder is
+/// resolved and the rest appended as given.
+fn real_path(path: &Path) -> Option<PathBuf> {
+    let mut missing = Vec::new();
+    let mut existing = path;
+    loop {
+        if let Ok(real) = existing.canonicalize() {
+            return Some(missing.iter().rev().fold(real, |acc, part| acc.join(part)));
+        }
+        missing.push(existing.file_name()?.to_os_string());
+        existing = existing.parent()?;
+    }
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -1397,6 +1419,43 @@ mod tests {
             vec!["app.ts"]
         );
         assert!(store.status("reader", &cwd).unwrap().files.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracks_an_edit_reported_through_the_projects_real_path() {
+        // macOS's /var is /private/var: an agent working in a project under
+        // a symlinked folder reports its files by their real path.
+        let base = tmp("symlinked-project");
+        let real = base.0.join("real");
+        std::fs::create_dir(&real).unwrap();
+        let linked = base.0.join("linked");
+        std::os::unix::fs::symlink(&real, &linked).unwrap();
+        let cwd = linked.to_string_lossy().into_owned();
+        let reported = real
+            .canonicalize()
+            .unwrap()
+            .join("notes")
+            .join("new.txt")
+            .to_string_lossy()
+            .into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+        store
+            .prepare("s1", &cwd, std::slice::from_ref(&reported))
+            .unwrap();
+        std::fs::create_dir(real.join("notes")).unwrap();
+        std::fs::write(real.join("notes/new.txt"), "agent\n").unwrap();
+        store.capture("s1", &cwd, &[reported]).unwrap();
+
+        let status = store.status("s1", &cwd).unwrap();
+        assert_eq!(relatives(&status), vec!["notes/new.txt"]);
+        assert_eq!(status.files[0].additions, 1);
+        assert!(status.files[0].undoable);
+
+        // A path outside the project stays outside, by either name.
+        let outside = base.0.join("elsewhere.txt").to_string_lossy().into_owned();
+        assert!(relative_to_root(&linked, &outside).is_err());
     }
 
     #[test]
