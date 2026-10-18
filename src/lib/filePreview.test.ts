@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   formatFileSize,
+  imageMimeFor,
   isImagePath,
   isPdfPath,
+  isSvgPath,
   sniffImageMime,
 } from "./filePreview";
 
@@ -86,5 +88,28 @@ describe("formatFileSize", () => {
     expect(formatFileSize(48 * 1024)).toBe("48 KB");
     expect(formatFileSize(3 * 1024 * 1024)).toBe("3.0 MB");
     expect(formatFileSize(2 * 1024 * 1024 * 1024)).toBe("2.0 GB");
+  });
+});
+
+describe("imageMimeFor", () => {
+  const text = (value: string) => new TextEncoder().encode(value);
+
+  it("sniffs raster bytes whatever the name says", () => {
+    const png = bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+    expect(imageMimeFor("/w/shot.png", png)).toBe("image/png");
+    expect(imageMimeFor("/w/misnamed.svg", png)).toBe("image/png");
+  });
+
+  it("draws an SVG file only when it holds an svg element", () => {
+    expect(isSvgPath("/w/Logo.SVG")).toBe(true);
+    expect(isSvgPath("/w/logo.svg.txt")).toBe(false);
+    expect(
+      imageMimeFor(
+        "/w/logo.svg",
+        text('<?xml version="1.0"?>\n<!-- icon -->\n<svg viewBox="0 0 4 4"/>'),
+      ),
+    ).toBe("image/svg+xml");
+    expect(imageMimeFor("/w/logo.svg", text("<html></html>"))).toBeNull();
+    expect(imageMimeFor("/w/page.html", text("<svg></svg>"))).toBeNull();
   });
 });

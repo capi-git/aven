@@ -23,6 +23,11 @@ export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extension);
 }
 
+/** SVG is text the editor owns; the image viewer can also draw it. */
+export function isSvgPath(path: string): boolean {
+  return basename(path).toLowerCase().endsWith(".svg");
+}
+
 /** PDFs have a read-only document viewer, including restored file tabs. */
 export function isPdfPath(path: string): boolean {
   return basename(path).toLowerCase().endsWith(".pdf");
@@ -56,6 +61,23 @@ export function sniffImageMime(bytes: Uint8Array): string | null {
     if (brand === "avif" || brand === "avis") return "image/avif";
   }
   return null;
+}
+
+/** How far into a file an SVG's root element is looked for. */
+const SVG_SNIFF_BYTES = 16 * 1024;
+
+/**
+ * The MIME for an image file's bytes: sniffed for raster formats, and
+ * `image/svg+xml` only for a `.svg` file that holds an `<svg>` element. The
+ * result is shown through an `<img>`, where the webview runs no script and
+ * fetches nothing the document asks for, as the editor's SVG preview does.
+ */
+export function imageMimeFor(path: string, bytes: Uint8Array): string | null {
+  const sniffed = sniffImageMime(bytes);
+  if (sniffed) return sniffed;
+  if (!isSvgPath(path)) return null;
+  const head = new TextDecoder().decode(bytes.subarray(0, SVG_SNIFF_BYTES));
+  return /<svg[\s>]/i.test(head) ? "image/svg+xml" : null;
 }
 
 /** Byte count for the viewer footer, in the units a file manager would show. */

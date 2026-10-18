@@ -1,68 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
+import { useImageFile } from "../hooks/useImageFile";
+import { useImageZoom } from "../hooks/useImageZoom";
 import { AlertCircle, Folder, Minus, Plus, RotateCcw } from "../chrome/icons";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { copyText } from "../lib/clipboard";
-import { formatFileSize, sniffImageMime } from "../lib/filePreview";
+import { formatFileSize } from "../lib/filePreview";
 import { watchFile } from "../lib/fileWatch";
-import { basename, readBinaryFile, revealPath } from "../lib/fs";
+import { basename, revealPath } from "../lib/fs";
 import { displayPath } from "../lib/paths";
 
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 16;
-
 type Props = { path: string; cwd: string };
-
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; url: string; mime: string; size: number }
-  | { status: "unsupported"; size: number }
-  | { status: "error"; message: string };
 
 /**
  * Read-only surface for files the editor can't open. Images render; bytes that
  * turn out not to be an image get a card pointing at the file on disk.
  */
 export function BinaryFileView({ path, cwd }: Props) {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    let created: string | null = null;
-    setState({ status: "loading" });
-
-    readBinaryFile(path).then(
-      (bytes) => {
-        if (cancelled) return;
-        // The blob's MIME comes from the bytes, never the extension, so a file
-        // named `.png` that holds markup can't become a same-origin document.
-        const mime = sniffImageMime(bytes);
-        if (!mime) {
-          setState({ status: "unsupported", size: bytes.byteLength });
-          return;
-        }
-        created = URL.createObjectURL(new Blob([bytes], { type: mime }));
-        setState({
-          status: "ready",
-          url: created,
-          mime,
-          size: bytes.byteLength,
-        });
-      },
-      (cause: unknown) => {
-        if (cancelled) return;
-        setState({
-          status: "error",
-          message: cause instanceof Error ? cause.message : String(cause),
-        });
-      },
-    );
-
-    return () => {
-      cancelled = true;
-      if (created) URL.revokeObjectURL(created);
-    };
-  }, [path, reloadKey]);
+  const state = useImageFile(path, reloadKey);
 
   const reload = useCallback(() => setReloadKey((value) => value + 1), []);
 
@@ -127,13 +82,14 @@ function ImageView({
   size: number;
   mime: string;
 }) {
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
-  const [zoom, setZoom] = useState<number | "fit">("fit");
+  const { natural, zoom, setZoom, zoomIn, zoomOut, scrollerRef, imageProps } =
+    useImageZoom();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
-        className="grid min-h-0 flex-1 place-items-center overflow-auto overscroll-contain p-4"
+        ref={scrollerRef}
+        className="flex min-h-0 flex-1 overflow-auto overscroll-contain p-4"
         style={{
           // A checkerboard so transparent PNGs read as transparent rather than
           // as whatever the theme background happens to be.
@@ -143,28 +99,7 @@ function ImageView({
           backgroundPosition: "0 0, 8px 8px",
         }}
       >
-        <img
-          src={url}
-          alt=""
-          draggable={false}
-          onLoad={(event) =>
-            setNatural({
-              w: event.currentTarget.naturalWidth,
-              h: event.currentTarget.naturalHeight,
-            })
-          }
-          onClick={() => setZoom((value) => (value === "fit" ? 1 : "fit"))}
-          className={
-            zoom === "fit"
-              ? "max-h-full max-w-full object-contain"
-              : "max-w-none object-contain"
-          }
-          style={
-            zoom === "fit" || !natural
-              ? undefined
-              : { width: natural.w * zoom, height: natural.h * zoom }
-          }
-        />
+        <img src={url} alt="" draggable={false} {...imageProps} />
       </div>
       <footer className="flex h-8 shrink-0 items-center gap-3 border-t border-content/10 px-3 text-ui-caption text-content/50">
         <span className="tabular-nums">
@@ -173,12 +108,7 @@ function ImageView({
         <span className="tabular-nums">{formatFileSize(size)}</span>
         <span className="uppercase">{mime.replace(/^image\//, "")}</span>
         <span className="flex-1" />
-        <ZoomButton
-          label="Zoom out"
-          onClick={() =>
-            setZoom((value) => clampZoom((value === "fit" ? 1 : value) / 1.5))
-          }
-        >
+        <ZoomButton label="Zoom out" onClick={zoomOut}>
           <Minus className="size-3" strokeWidth={1.75} />
         </ZoomButton>
         <button
@@ -189,12 +119,7 @@ function ImageView({
         >
           {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}
         </button>
-        <ZoomButton
-          label="Zoom in"
-          onClick={() =>
-            setZoom((value) => clampZoom((value === "fit" ? 1 : value) * 1.5))
-          }
-        >
+        <ZoomButton label="Zoom in" onClick={zoomIn}>
           <Plus className="size-3" strokeWidth={1.75} />
         </ZoomButton>
       </footer>
@@ -284,8 +209,4 @@ function CardButton({
       {children}
     </button>
   );
-}
-
-function clampZoom(value: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
