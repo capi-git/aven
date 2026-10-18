@@ -34,7 +34,9 @@ import { loadDiffViewer, subscribeDiffViewer } from "../lib/settings";
 import { AgentTabView } from "./AgentTabView";
 import { MarkdownPreview } from "./AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
+import { WorkBoard } from "./lazyViews";
 import { ReleaseNotesSurface } from "./ReleaseNotesSurface";
+import { WorkBoardFrame } from "./WorkBoardFrame";
 
 const PdfViewer = retryableLazy(() =>
   import("./PdfViewer").then((module) => module.default),
@@ -57,9 +59,6 @@ const WorkingTreeDiff = retryableLazy(() =>
 );
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
-);
-const WorkBoard = retryableLazy(() =>
-  import("./WorkBoard").then((module) => module.WorkBoard),
 );
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
@@ -231,10 +230,17 @@ function FilePaneComponent({
                     />
                   ) : isBoardTab(file) ? (
                     boards ? (
-                      <WorkBoard
-                        project={file.board.project}
-                        visible={presented && file.id === pane.activeFileId}
-                      />
+                      // Its title and columns show at once while it loads.
+                      <Suspense
+                        fallback={
+                          <WorkBoardFrame project={file.board.project} />
+                        }
+                      >
+                        <WorkBoard
+                          project={file.board.project}
+                          visible={presented && file.id === pane.activeFileId}
+                        />
+                      </Suspense>
                     ) : (
                       <p
                         className="grid h-full place-items-center text-ui-body text-content/45"

@@ -7,7 +7,6 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { ProjectMark } from "../chrome/ProjectMark";
 import { equalChromeData } from "../hooks/useChromeProps";
 import { TeamCardButton, TeamMiniFaces } from "../chrome/TeamCard";
 import { useCardGlide } from "../hooks/useCardGlide";
@@ -33,7 +32,8 @@ import {
   workBoardFeedLoaded,
 } from "../lib/workBoardFeed";
 import { homeElapsed } from "../lib/workspaceHome";
-import "./WorkBoard.css";
+// The frame brings the board's styles, loaded with the workspace.
+import { WorkBoardHeading } from "./WorkBoardFrame";
 
 const noSubscription = () => () => {};
 
@@ -139,15 +139,10 @@ export const WorkBoardView = memo(function WorkBoardView({
       data-work-board={project}
       aria-label={`${name} board`}
     >
-      <header className="work-board-header">
-        <ProjectMark path={project} className="work-board-mark" />
-        <div className="work-board-heading">
-          <h1>{name}</h1>
-          <p className="work-board-today">
-            {loading ? "Loading chats…" : today}
-          </p>
-        </div>
-      </header>
+      <WorkBoardHeading
+        project={project}
+        line={loading ? "Loading chats…" : today}
+      />
       <div className="work-board-columns">
         {BOARD_COLUMNS.map((column) => {
           const cards = columns[column.id];

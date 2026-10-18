@@ -24,6 +24,10 @@ export const NotesView = retryableLazy(() =>
 export const CommandPalette = retryableLazy(() =>
   import("../chrome/CommandPalette").then((module) => module.CommandPalette),
 );
+/** A project's board, opened as a tab; `WorkBoardFrame` stands in while it loads. */
+export const WorkBoard = retryableLazy(() =>
+  import("./WorkBoard").then((module) => module.WorkBoard),
+);
 // Shown at most once per launch, at startup or from Settings, so these load
 // when they open instead of with the others.
 export const WhatsNewDialog = retryableLazy(() =>
@@ -40,6 +44,7 @@ const PRELOADED = [
   AutomationsView,
   NotesView,
   CommandPalette,
+  WorkBoard,
 ];
 
 /** Load the views people open from the sidebar, menus and shortcuts. */
