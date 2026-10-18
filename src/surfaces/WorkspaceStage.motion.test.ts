@@ -62,15 +62,26 @@ describe("workspace stage motion", () => {
     expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
   });
 
-  it("fades in only the pane a tab switch brings into view", async () => {
+  it("shows the pane a tab switch brings into view at once", async () => {
     await render();
     await render({ layout: leaf("browser"), focusedId: "browser" });
-    expect(motion("browser")).toBe("pane-in");
-    // The pane that left is hidden at once, and untouched panes stay still.
-    expect(motion("chat")).toBeNull();
-    expect(motion("notes")).toBeNull();
+    expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
     const hidden = container.querySelector(`[data-workspace-surface="chat"]`)!;
     expect(hidden.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("shows the workspace at once when it comes back from Settings", async () => {
+    await render({ layout: columns });
+    await render({ visible: false });
+    await render({ visible: true });
+    expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
+  });
+
+  it("switches a split tab for another at once", async () => {
+    await render({ layout: columns });
+    await render({ layout: leaf("notes"), focusedId: "notes" });
+    await render({ layout: columns, focusedId: "chat" });
+    expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
   });
 
   it("eases a new split's card in and leaves the pane already there", async () => {
@@ -80,10 +91,10 @@ describe("workspace stage motion", () => {
     expect(motion("chat")).toBeNull();
   });
 
-  it("switches at once when motion is reduced", async () => {
+  it("opens a split at once when motion is reduced", async () => {
     document.documentElement.setAttribute(MOTION_ROOT_ATTRIBUTE, "reduce");
     await render();
-    await render({ layout: leaf("browser"), focusedId: "browser" });
+    await render({ layout: columns });
     expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
   });
 });

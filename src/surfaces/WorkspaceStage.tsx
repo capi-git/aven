@@ -300,6 +300,19 @@ const SurfaceContent = memo(function SurfaceContent({
   return content;
 });
 
+/**
+ * The panes that fade in: those a new split adds while every pane already
+ * on screen stays. A tab switch, the stage coming back from Settings and the
+ * first layout bring panes in at once.
+ */
+export function newSplitPanes(
+  before: ReadonlySet<string> | null,
+  now: ReadonlySet<string>,
+): string[] {
+  if (!before?.size || ![...before].every((id) => now.has(id))) return [];
+  return [...now].filter((id) => !before.has(id));
+}
+
 export function WorkspaceStage({
   layout,
   focusedId,
@@ -570,19 +583,17 @@ export function WorkspaceStage({
   useLayoutEffect(() => {
     committedShown.current = shownIds;
   });
-  // A pane that comes into view, from a tab switch or a new split, fades in.
-  // Only its opacity moves (motion.css): no layout, no work in hidden panes,
-  // and a native page keeps its place. The stage's first layout appears at
-  // once.
+  // A newly opened split pane fades in beside the panes already there. A
+  // switch (between tabs, or back from Settings) appears at once: fading the
+  // incoming pane gave it a layer of its own and measurably slowed switching.
   const motionShown = useRef<ReadonlySet<string> | null>(null);
   const shownKey = shownIds.join("\0");
   useLayoutEffect(() => {
     const before = motionShown.current;
     const now = new Set(shownKey ? shownKey.split("\0") : []);
     motionShown.current = now;
-    if (!before) return;
-    for (const id of now)
-      if (!before.has(id)) playMotion(surfaceNodes.current.get(id), "pane-in");
+    for (const id of newSplitPanes(before, now))
+      playMotion(surfaceNodes.current.get(id), "pane-in");
   }, [shownKey]);
   useLayoutEffect(() => {
     if (!held.size) return;
