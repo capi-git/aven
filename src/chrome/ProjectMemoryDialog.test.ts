@@ -105,16 +105,47 @@ describe("project memory editor", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("10 of 8k characters");
     expect(text).toMatch(/Edited/);
-    expect(text).toContain("System prompt");
-    expect(text).toContain("Claude Code");
-    expect(text).toContain("Developer instructions");
-    expect(text).toContain("Codex");
-    expect(text).toContain("First message");
-    expect(text).toContain("Cursor");
+    expect(text).toContain(
+      "Every agent in this project gets this, whichever app runs it.",
+    );
     expect(text).toContain(
       "Changes reach new chats right away, and chats already open with their next message.",
     );
+    // Plain words only: no per-provider delivery channels.
+    expect(text).not.toContain("Received by");
+    expect(text).not.toContain("System prompt");
     expect(button("Save").disabled).toBe(true);
+  });
+
+  it("says why Save and Copy are unavailable", async () => {
+    respond({ project_memory_get: () => null });
+    await render();
+    expect(button("Save").disabled).toBe(true);
+    expect(button("Save").title).toBe("Nothing to save yet");
+    expect(button("Copy").disabled).toBe(true);
+    expect(button("Copy").title).toBe("Nothing to copy yet");
+    const hint = document.getElementById("project-memory-save-hint")!;
+    expect(hint.textContent).toBe("Nothing to save yet");
+    expect(button("Save").getAttribute("aria-describedby")).toBe(
+      "project-memory-save-hint",
+    );
+    await type("- Use pnpm");
+    expect(button("Save").disabled).toBe(false);
+    expect(button("Copy").disabled).toBe(false);
+    expect(hint.textContent).toBe("");
+    expect(button("Save").getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("says there is nothing new to save until the memory is edited", async () => {
+    respond({ project_memory_get: () => STORED });
+    await render();
+    expect(button("Save").title).toBe("No changes to save");
+    expect(
+      document.getElementById("project-memory-save-hint")!.textContent,
+    ).toBe("No changes to save");
+    await type("- Use pnpm\n- Ship small");
+    expect(button("Save").disabled).toBe(false);
+    expect(button("Save").title).toMatch(/^Save \(/);
   });
 
   it("saves an edit based on the version it opened", async () => {
@@ -140,6 +171,7 @@ describe("project memory editor", () => {
     await render();
     await type("x".repeat(8001));
     expect(button("Save").disabled).toBe(true);
+    expect(button("Save").title).toBe("Too long to save");
     expect(field().getAttribute("aria-invalid")).toBe("true");
   });
 
