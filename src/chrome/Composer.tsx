@@ -505,6 +505,7 @@ function MessageQueue({
                     <AttachmentChip
                       key={`${attachment.path ?? attachment.name}:${attachmentIndex}`}
                       attachment={attachment}
+                      group={attachments}
                       onRemove={
                         editing
                           ? () =>
@@ -1909,6 +1910,7 @@ function ComposerComponent({
                 <AttachmentChip
                   key={file.id}
                   attachment={file}
+                  group={attachments}
                   onRemove={() => removeAttachment(file.id)}
                 />
               ))}

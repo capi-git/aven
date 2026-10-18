@@ -36,7 +36,14 @@ export type EditorNavigationTarget = EditorNavigation & {
   focus?: boolean;
 };
 
-export type OpenFileFn = (path: string, navigation?: EditorNavigation) => void;
+/** How the user asked for a file. `asTab` skips the image viewer (Open in tab). */
+export type OpenFileOptions = { asTab?: boolean };
+
+export type OpenFileFn = (
+  path: string,
+  navigation?: EditorNavigation,
+  options?: OpenFileOptions,
+) => void;
 
 export function normalizeEditorPath(path: string): string {
   return slash(path).replace(/\/+$/, "") || path;

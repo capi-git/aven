@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { sniffImageMime } from "../lib/filePreview";
 import { basename, readBinaryFile } from "../lib/fs";
+import { openImageGroupAt } from "../lib/imageViewer";
 import "./LocalMarkdownImage.css";
 
-/** Reads visible image files through the existing bounded binary reader. */
+/**
+ * Reads visible image files through the existing bounded binary reader. A
+ * click shows the picture in the image viewer, with the other pictures in
+ * the same reply; without a viewer it opens the file.
+ */
 export function LocalMarkdownImage({
   path,
   alt,
@@ -17,6 +23,14 @@ export function LocalMarkdownImage({
   const [visible, setVisible] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{ src?: string; error?: string }>({});
+  const viewer = useImageViewerAvailable();
+  const open =
+    viewer || onOpenFile
+      ? (event: MouseEvent<HTMLElement>) => {
+          if (viewer && openImageGroupAt(event.currentTarget)) return;
+          onOpenFile?.(path);
+        }
+      : undefined;
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") {
@@ -75,12 +89,12 @@ export function LocalMarkdownImage({
   return (
     <span ref={host} className="markdown-local-image" data-local-image={path}>
       {image ? (
-        onOpenFile ? (
+        open ? (
           <button
             type="button"
             className="markdown-local-image-open"
             title={`Open ${label}`}
-            onClick={() => onOpenFile(path)}
+            onClick={open}
           >
             {image}
           </button>

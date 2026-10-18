@@ -27,6 +27,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { BrowserPane } from "./BrowserPane";
 import { SessionPane } from "./SessionPane";
 import { FilePane } from "./FilePane";
+import { ImageViewer } from "./ImageViewer";
 import {
   WorkspaceStage,
   workspaceSurfaceDropAt,
@@ -35,6 +36,7 @@ import {
 import { nativeBrowser } from "../lib/browser";
 import { browserIdForTab } from "../lib/personalWorkspace";
 import { orderByIds } from "../lib/reorder";
+import { openImageFile, shouldOpenInImageViewer } from "../lib/imageViewer";
 import { installInAppLinks } from "../lib/inAppLinks";
 import {
   leaf,
@@ -89,7 +91,11 @@ import {
   subscribeEditorDrafts,
 } from "../lib/workspaceTransfers";
 import "./DetachedWorkspace.css";
-import type { EditorNavigation, EditorNavigationTarget } from "../lib/search";
+import type {
+  EditorNavigation,
+  EditorNavigationTarget,
+  OpenFileFn,
+} from "../lib/search";
 
 function sameDropTarget(
   previous: WorkspaceSurfaceDropTarget | null,
@@ -567,16 +573,31 @@ export function DetachedWorkspace() {
     },
     [change, closeLeaf],
   );
+  /** The user's own opens: pictures show in the image viewer, as in the main window. */
+  const openUserFile = useCallback<OpenFileFn>(
+    (path, navigation, options) => {
+      if (shouldOpenInImageViewer(path, navigation, options)) {
+        openImageFile(path);
+        return;
+      }
+      openFile(path, {}, navigation);
+    },
+    [openFile],
+  );
+  const openImageInTab = useCallback(
+    (path: string) => openFile(path, {}),
+    [openFile],
+  );
   useEffect(
     () =>
       installInAppLinks(
         {
           openUrl,
-          openFile: (path, navigation) => openFile(path, {}, navigation),
+          openFile: openUserFile,
         },
         report,
       ),
-    [openUrl, openFile, report],
+    [openUrl, openUserFile, report],
   );
   useEffect(() => {
     let disposed = false;
@@ -1131,8 +1152,7 @@ export function DetachedWorkspace() {
                 onFocus: () =>
                   updateTab(tab.id, (t) => ({ ...t, focusedId: id })),
                 onClose: () => closeLeaf(tab.id, id),
-                onOpenFile: (path: string, navigation?: EditorNavigation) =>
-                  openFile(path, {}, navigation),
+                onOpenFile: openUserFile,
                 onOpenUrl: openUrl,
                 onOpenDiff: (path?: string) =>
                   openFile(path ?? session.session.cwd, {
@@ -1186,8 +1206,7 @@ export function DetachedWorkspace() {
                     : (s.dirtyFileIds ?? []).filter((id) => id !== fileId),
                 })),
               onErrorCountChange: () => {},
-              onOpenFile: (path: string, navigation?: EditorNavigation) =>
-                openFile(path, {}, navigation),
+              onOpenFile: openUserFile,
               onUpdatePlan: (sessionId, blockId, text) =>
                 action(sessionId, "onUpdatePlan", [sessionId, blockId, text]),
               onBuildPlan: (sessionId, blockId, target) =>
@@ -1285,6 +1304,7 @@ export function DetachedWorkspace() {
           <button onClick={() => void leave()}>Return to workspace</button>
         </div>
       )}
+      <ImageViewer onOpenInTab={openImageInTab} />
     </main>
   );
 }

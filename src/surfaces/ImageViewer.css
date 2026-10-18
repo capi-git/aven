@@ -1,0 +1,188 @@
+/* The image popup. It is dark in every theme, as a lightbox is, so a
+   picture reads against the same quiet backdrop whatever is behind it. The
+   backdrop is solid: text in the work underneath must never read through it.
+   Motion lives in motion.css. */
+.image-viewer {
+  --image-viewer-text: #ececef;
+  --image-viewer-muted: #9b9ba4;
+  --image-viewer-surface: #1a1a1f;
+  --image-viewer-edge: rgb(255 255 255 / 0.14);
+  --image-viewer-hover: rgb(255 255 255 / 0.09);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Clear of the title bar, where macOS draws the traffic lights. */
+  padding: 30px 20px 14px;
+  color: var(--image-viewer-text);
+  color-scheme: dark;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+  overscroll-behavior: contain;
+}
+.image-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(8 8 10);
+}
+.image-viewer-bar,
+.image-viewer-stage,
+.image-viewer-count {
+  position: relative;
+}
+
+.image-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 1180px);
+  min-height: 34px;
+  margin-inline: auto;
+}
+.image-viewer-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.image-viewer-title h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-viewer-meta {
+  flex: none;
+  color: var(--image-viewer-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.image-viewer-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--image-viewer-edge);
+  border-radius: 10px;
+  background: var(--image-viewer-surface);
+}
+.image-viewer-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--image-viewer-text);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+.image-viewer-action:hover {
+  background: var(--image-viewer-hover);
+}
+.image-viewer-close {
+  width: 26px;
+  padding: 0;
+}
+
+.image-viewer-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* A flex box with a definite height, as useImageZoom expects. */
+.image-viewer-scroller {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* Room for the arrows at either side. */
+  padding: 4px 64px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* A fitted picture never overflows, so its shadow may fall past the box. */
+.image-viewer-scroller[data-zoom="fit"] {
+  overflow: visible;
+}
+.image-viewer-image {
+  border-radius: 10px;
+  /* Transparent pixels read as transparent, not as the backdrop. */
+  background: repeating-conic-gradient(
+      rgb(128 128 128 / 0.22) 0 25%,
+      rgb(128 128 128 / 0.1) 0 50%
+    )
+    0 0 / 16px 16px;
+  box-shadow:
+    0 24px 64px rgb(0 0 0 / 0.55),
+    0 0 0 1px rgb(255 255 255 / 0.06);
+  cursor: zoom-in;
+}
+.image-viewer-scroller[data-zoom="actual"] .image-viewer-image {
+  cursor: zoom-out;
+}
+.image-viewer-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  padding: 0 64px;
+  color: var(--image-viewer-muted);
+  text-align: center;
+}
+.image-viewer-status small {
+  font-size: 12px;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.image-viewer-nav {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--image-viewer-edge);
+  border-radius: 50%;
+  background: var(--image-viewer-surface);
+  color: var(--image-viewer-text);
+  translate: 0 -50%;
+  cursor: default;
+}
+.image-viewer-nav:hover {
+  background: color-mix(
+    in srgb,
+    var(--image-viewer-surface),
+    rgb(255 255 255) 8%
+  );
+}
+.image-viewer-nav[data-side="previous"] {
+  left: 4px;
+}
+.image-viewer-nav[data-side="next"] {
+  right: 4px;
+}
+
+.image-viewer-count {
+  min-height: 18px;
+  margin: 0;
+  color: var(--image-viewer-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.image-viewer :is(button):focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}

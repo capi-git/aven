@@ -20,6 +20,13 @@ const { iconRender, directories, pendingDirectories } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
   invoke: vi.fn(async (command: string, args: { path: string }) => {
+    if (command === "create_path") {
+      const { parent, name } = args as unknown as {
+        parent: string;
+        name: string;
+      };
+      return `${parent}/${name}`;
+    }
     if (command !== "list_dir")
       throw new Error(`Unexpected command: ${command}`);
     return (
@@ -217,6 +224,35 @@ describe("FileTree render isolation", () => {
     });
     expect(row("added.ts")).not.toBeNull();
     expect(row("first.ts")).toBeNull();
+  });
+});
+
+describe("FileTree new files", () => {
+  it("opens a file it just made as a tab, even one named like a picture", async () => {
+    await act(async () => render());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="New File"]')!
+        .click(),
+    );
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "logo.svg");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(props.onOpenFile).toHaveBeenCalledExactlyOnceWith(
+      `${cwd}/logo.svg`,
+      undefined,
+      { asTab: true },
+    );
   });
 });
 

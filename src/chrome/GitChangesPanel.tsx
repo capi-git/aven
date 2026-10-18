@@ -1,4 +1,9 @@
 import { ask } from "@tauri-apps/plugin-dialog";
+import {
+  changedImageGroup,
+  imageViewerAvailable,
+  openImageViewer,
+} from "../lib/imageViewer";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
   ArrowUp,
@@ -173,7 +178,18 @@ export function GitChangesPanel({
       setCopyLabel(currentCopyLabel(worktrees)),
     [],
   );
-  const files = index?.files ?? [];
+  const files = useMemo(() => index?.files ?? [], [index]);
+  // A changed picture opens in the image viewer, beside the others changed
+  // with it; everything else opens its diff.
+  const openChange = useCallback(
+    (path: string, kind: GitFileDiffKind) => {
+      const group = imageViewerAvailable()
+        ? changedImageGroup(files, path, kind)
+        : null;
+      if (!group || !openImageViewer(group)) onOpenFile(path, kind);
+    },
+    [files, onOpenFile],
+  );
   // Nothing to commit: the history takes the space the file list would use.
   const clean = index !== null && files.length === 0;
   // No branch and no commits: not a Git repository, so there is no history.
@@ -268,7 +284,7 @@ export function GitChangesPanel({
         onShowHistory={showHistory}
         onOpenBranchPicker={onOpenBranchPicker}
         onWorktrees={onWorktrees}
-        onOpenFile={onOpenFile}
+        onOpenFile={openChange}
         onOpenAllChanges={onOpenAllChanges}
         onMutated={(paths) => {
           reload();
