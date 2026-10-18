@@ -166,6 +166,7 @@ function FilePaneComponent({
                   cwd={sessionReview.cwd}
                   sessionId={sessionReview.sessionChanges.sessionId}
                   focusPath={sessionReview.path}
+                  onClose={() => onCloseFile(pane.id, sessionReview.id)}
                 />
               </div>
             ) : commitReview && activeFile?.commit ? (

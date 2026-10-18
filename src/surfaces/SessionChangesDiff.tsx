@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Loader } from "../chrome/icons";
+import { AlertCircle, Check, Loader } from "../chrome/icons";
+import { useChatReviews } from "../lib/chatReview";
+import { changesShipped } from "../lib/chatStatus";
 import {
   sessionCheckpointFileDiff,
   sessionCheckpointStatus,
@@ -7,6 +9,9 @@ import {
   type CheckpointFile,
 } from "../lib/checkpoint";
 import { forEachConcurrent } from "../lib/concurrent";
+import { subscribeGitChanged } from "../lib/fs";
+import { useShippedChats } from "../lib/shippedChats";
+import { isWindowVisible } from "../lib/windowActivity";
 import { buildUnifiedFile, type UnifiedFileDiff } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
@@ -14,6 +19,8 @@ type Props = {
   cwd: string;
   sessionId: string;
   focusPath?: string;
+  /** Close this review's tab. */
+  onClose?: () => void;
 };
 
 type LoadedDiff = {
@@ -25,11 +32,23 @@ type LoadedDiff = {
 
 const DIFF_LOAD_CONCURRENCY = 4;
 
-/** Read-only review of the exact before/after snapshots owned by one session. */
-export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
+/**
+ * Read-only review of the exact before/after snapshots owned by one session.
+ * Once its changes ship, or go away, it says so calmly instead of showing
+ * what is no longer waiting for review.
+ */
+export function SessionChangesDiff({
+  cwd,
+  sessionId,
+  focusPath,
+  onClose,
+}: Props) {
   const [files, setFiles] = useState<CheckpointFile[] | null>(null);
   const [diffs, setDiffs] = useState<Map<string, LoadedDiff>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const ship = useShippedChats()[sessionId];
+  const review = useChatReviews()[sessionId];
+  const shipped = changesShipped(review?.at, ship?.at);
 
   useEffect(() => {
     if (!cwd || cwd === "~" || !sessionId) {
@@ -40,13 +59,17 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
 
     let disposed = false;
     let generation = 0;
+    // The changes on screen, to tell whether a re-read found anything new.
+    let shown: string | null = null;
     const run = () => {
       const current = ++generation;
+      shown = null;
       setFiles(null);
       setDiffs(new Map());
       void sessionCheckpointStatus(sessionId, cwd)
         .then(async (status) => {
           if (disposed || current !== generation) return;
+          shown = filesKey(status.files);
           setFiles(status.files);
           setError(null);
           await forEachConcurrent(
@@ -98,9 +121,24 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
     const unsubscribe = subscribeReviewChanged((changedSessionId) => {
       if (!changedSessionId || changedSessionId === sessionId) run();
     });
+    // Keep, Undo, a commit or a checkout here: read again while on screen,
+    // and show it afresh only if the changes are not what is shown.
+    const recheck = () => {
+      const base = generation;
+      void sessionCheckpointStatus(sessionId, cwd)
+        .then((status) => {
+          if (disposed || base !== generation || shown === null) return;
+          if (filesKey(status.files) !== shown) run();
+        })
+        .catch(() => {});
+    };
+    const unsubscribeGit = subscribeGitChanged(() => {
+      if (isWindowVisible()) recheck();
+    });
     return () => {
       disposed = true;
       unsubscribe();
+      unsubscribeGit();
     };
   }, [cwd, focusPath, sessionId]);
 
@@ -170,17 +208,56 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
       </div>
     );
   }
-  if (files.length === 0) {
+  if (shipped || files.length === 0) {
     return (
-      <p className="grid h-full place-items-center text-ui-body text-content/45">
-        No session changes
-      </p>
+      <div
+        className="grid h-full place-items-center p-6 text-center"
+        data-session-changes-done={shipped ? "shipped" : "empty"}
+      >
+        <div>
+          {shipped ? (
+            <Check
+              className="mx-auto mb-2 size-5 text-emerald-400"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+          ) : null}
+          <p className="text-ui-body text-content/70" role="status">
+            {shipped
+              ? shippedLine(ship?.commit?.shortSha)
+              : "No session changes"}
+          </p>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-3 h-7 rounded-md bg-content/10 px-3 text-ui-label text-content/80 hover:bg-content/15 hover:text-content"
+            >
+              Close
+            </button>
+          ) : null}
+        </div>
+      </div>
     );
   }
 
   return (
     <UnifiedDiffView files={models} focusPath={focusPath} totals={totals} />
   );
+}
+
+/** "Shipped · 1a2b3c4 · nothing left to review". */
+export function shippedLine(shortSha: string | undefined): string {
+  return ["Shipped", shortSha, "nothing left to review"]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The changes a status lists, to tell whether a re-read found anything new. */
+function filesKey(files: readonly CheckpointFile[]): string {
+  return files
+    .map((file) => `${file.relative}:${file.additions}:${file.deletions}`)
+    .join("\n");
 }
 
 function prioritizeFile(

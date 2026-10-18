@@ -94,6 +94,17 @@ export function chatStatusWord(facts: ChatStatusFacts): ChatStatusWord | null {
   return null;
 }
 
+/**
+ * Whether a chat's changes went out through Ship it with nothing newer
+ * left to review, as its word "Shipped" says.
+ */
+export function changesShipped(
+  reviewAt: number | undefined,
+  shippedAt: number | undefined,
+): boolean {
+  return chatStatusWord({ reviewAt, shippedAt }) === "shipped";
+}
+
 /** Every chat of a team: the one it started from and its members. */
 function teamChats(team: TeamRun): string[] {
   return [
