@@ -233,6 +233,7 @@ import {
   raceLaneEnded,
   raceLaneFor,
   raceLaneRecords,
+  raceLanesNotKept,
   raceLaneStarted,
   raceOriginBlock,
   saveRace,
@@ -316,6 +317,7 @@ import {
 } from "./lib/fs";
 import { resolveGrokBinary } from "./lib/harness/child";
 import { saveRaceLaneChoice } from "./lib/raceAgents";
+import { raceAgentNames, raceLaneTitle, raceTaskWords } from "./lib/raceNames";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -8984,6 +8986,10 @@ export default function App({
       return false;
     }
     const runtimeMode = request.runtimeMode ?? loadDefaultRuntimeMode();
+    // Each lane's chat is named for the task and its agent: "Reset button ·
+    // Codex", the model only where two of one app race.
+    const laneNames = raceAgentNames(request.agents);
+    const taskWords = raceTaskWords(request.text);
     const laneSessions: Session[] = request.agents.map((agent, index) => ({
       ...newSession(
         agent.harness,
@@ -8993,7 +8999,7 @@ export default function App({
         index === 0 ? request.modelSettings : undefined,
       ),
       worktreeCwd: created[index].path,
-      title: `Race · ${agent.label}`,
+      title: raceLaneTitle(agent.harness, taskWords, laneNames[index]),
     }));
     // Sent from a chat: your message stays there, followed by the race's
     // card, and you stay in that chat while the agents work.
@@ -9064,6 +9070,33 @@ export default function App({
       onSubmit(session.id, prompt, request.attachments ?? [], {
         teamMember: { id: `race:${raceId}`, kind: "race" },
       });
+    // Then the task's words as a new chat gets them, once for every lane.
+    const [first] = laneSessions;
+    if (first && request.text.trim())
+      void generateHarnessTitle(first.harness, {
+        sessionId: first.id,
+        cwd: created[0].path,
+        message: request.text,
+      })
+        .then((title) => {
+          const words = title?.trim();
+          if (!words) return;
+          setSessions((prev) =>
+            prev.map((session) => {
+              const index = laneSessions.findIndex(
+                (lane) => lane.id === session.id,
+              );
+              // A title the user changed meanwhile stays.
+              if (index < 0 || session.title !== laneSessions[index].title)
+                return session;
+              return {
+                ...session,
+                title: raceLaneTitle(session.harness, words, laneNames[index]),
+              };
+            }),
+          );
+        })
+        .catch(() => undefined);
     return true;
   };
   startRaceRef.current = startRace;
@@ -9324,6 +9357,11 @@ export default function App({
       );
       notifyGitChanged();
       nudgeWatchedFiles();
+      // The agents whose work was not kept leave the project's live chats;
+      // they stay readable under Archived.
+      const finished = getRace(race.id);
+      for (const lane of finished ? raceLanesNotKept(finished) : [])
+        void onRemoveHistorySession(finished!.lanes[lane].sessionId, "archive");
     },
     // The same open-or-restore path as a notification: a lane whose tab was
     // closed comes back into one.

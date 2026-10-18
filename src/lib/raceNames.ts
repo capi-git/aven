@@ -13,7 +13,7 @@ import {
 } from "./agentNames";
 import type { PaletteAgent } from "./commandPalette";
 import type { ComposerFit } from "./composerFit";
-import { HARNESS_TITLE, type HarnessId } from "./session";
+import { formatSessionTitle, HARNESS_TITLE, type HarnessId } from "./session";
 import { plural } from "./words";
 
 type LaneLike = Pick<PaletteAgent, "harness" | "label" | "model">;
@@ -73,4 +73,32 @@ export function raceChipFitLabel(
   return fit === "compact"
     ? `Race · ${plural(lanes.length, "agent")}`
     : `Race · ${lanes.length}`;
+}
+
+/** The most of a race's task a lane's chat title keeps. */
+const TASK_WORDS_MAX = 48;
+
+/**
+ * The task's words for a lane's chat title, as a new chat's title starts:
+ * the first line of the message, shortened. "" when it has none.
+ */
+export function raceTaskWords(prompt: string): string {
+  const line = prompt.trim().split(/\r?\n/)[0]?.trim() ?? "";
+  return line.length > TASK_WORDS_MAX
+    ? `${line.slice(0, TASK_WORDS_MAX - 1).trimEnd()}…`
+    : line;
+}
+
+/**
+ * A lane's chat title, stored as a chat's title is: "Reset button ·
+ * Codex", the task and the agent's short name (see `raceAgentNames`), or
+ * "Race · Codex" without task words.
+ */
+export function raceLaneTitle(
+  harness: HarnessId,
+  task: string,
+  name: string,
+): string {
+  const words = task.replace(/\s+/g, " ").trim();
+  return formatSessionTitle(harness, `${words || "Race"} · ${name}`);
 }

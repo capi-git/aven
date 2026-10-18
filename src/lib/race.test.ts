@@ -9,6 +9,7 @@ import {
   raceFileRows,
   raceLaneBases,
   raceLaneProject,
+  raceLanesNotKept,
   racePrompt,
   racesSnapshot,
   releaseRaceCheckout,
@@ -264,5 +265,51 @@ describe("choosing results", () => {
     expect(prompt.startsWith("Fix it\n\n")).toBe(true);
     expect(prompt).toContain("3 agents");
     expect(prompt).toContain("Do not push");
+  });
+});
+
+describe("chats whose work a kept race did not keep", () => {
+  const three = (patch: Partial<RaceRecord>) =>
+    race({
+      lanes: [0, 1, 2].map((slot) => ({
+        sessionId: `s${slot}`,
+        harness: "claude" as const,
+        model: "m",
+        label: "Claude Code · M",
+        path: `/data/races/r1/${slot}`,
+        branch: `aven/race/r1-${slot}`,
+      })),
+      ...patch,
+    });
+
+  it("are every lane but the kept one", () => {
+    expect(
+      raceLanesNotKept(
+        three({ state: "kept", outcome: { kind: "lane", lane: 1, files: 2 } }),
+      ),
+    ).toEqual([0, 2]);
+  });
+
+  it("are, for a mix, the lanes no file came from", () => {
+    expect(
+      raceLanesNotKept(
+        three({
+          state: "kept",
+          outcome: { kind: "mix", files: 2 },
+          picks: { "a.ts": 0, "b.ts": 2 },
+        }),
+      ),
+    ).toEqual([1]);
+    // Without its picks, every chat stays.
+    expect(
+      raceLanesNotKept(
+        three({ state: "kept", outcome: { kind: "mix", files: 2 } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("are none while it runs or once it is discarded", () => {
+    expect(raceLanesNotKept(three({}))).toEqual([]);
+    expect(raceLanesNotKept(three({ state: "discarded" }))).toEqual([]);
   });
 });

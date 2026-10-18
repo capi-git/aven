@@ -123,6 +123,8 @@ type Flaws = {
   twoStops?: boolean;
   /** A kept race's card does not become its result. */
   noResult?: boolean;
+  /** The chat whose work was not kept stays among the open chats. */
+  loserStays?: boolean;
 };
 
 /**
@@ -239,11 +241,14 @@ function app(flaws: Flaws = {}) {
       state: "kept",
       outcome: { kind: "lane", lane: 0, files: kept.length },
     };
-    state.sessions = state.sessions.map((session) =>
-      session.id.startsWith("lane-")
-        ? { ...session, worktreeCwd: undefined }
-        : session,
-    );
+    // The kept lane's chat is back on the project; Grok's is archived.
+    state.sessions = state.sessions
+      .filter((session) => flaws.loserStays || session.id !== "lane-1")
+      .map((session) =>
+        session.id.startsWith("lane-")
+          ? { ...session, worktreeCwd: undefined }
+          : session,
+      );
     asking = false;
     draw();
   }
@@ -475,7 +480,7 @@ describe("the real-app check's race step", () => {
     const { detail, error, fake } = await run();
     expect(error).toBeUndefined();
     expect(detail).toMatch(
-      /^your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card \("Racing · 0 of 2 done"\); Grok read Failed, then Working after Retry; kept Claude's lane mid-run \(stopping 2\) with race-claude-late-\d+\.txt the overview hadn't shown; copies removed, both chats back on the project; the card reads "Kept Claude's version · \d+ files"$/,
+      /^your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card \("Racing · 0 of 2 done"\); Grok read Failed, then Working after Retry; kept Claude's lane mid-run \(stopping 2\) with race-claude-late-\d+\.txt the overview hadn't shown; copies removed, the kept chat back on the project and Grok's archived; the card reads "Kept Claude's version · \d+ files"$/,
     );
     expect(
       [...fake.disk.get(PROJECT)!].some((name) =>
@@ -499,6 +504,10 @@ describe("the real-app check's race step", () => {
     ],
     [{ twoStops: true }, "offers race, run status Stop"],
     [{ noResult: true }, "the race's card to become its result"],
+    [
+      { loserStays: true },
+      "the kept chat to point back at the project and Grok's to be archived",
+    ],
   ])("fails when %o", async (flaws, message) => {
     const { error } = await run(flaws);
     expect(error).toContain(message);

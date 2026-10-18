@@ -541,6 +541,27 @@ export class RaceRefusal extends Error {}
 export const RACE_CLEANUP_ERROR =
   "Some leftover race files couldn't be cleaned up.";
 
+/**
+ * The lanes of a kept race none of whose work was kept: every lane but the
+ * kept one, or for a mix of files, those no file came from. Their copies
+ * are gone, so their chats are put away (archived) rather than left among
+ * the project's live work. A race that is running or was discarded has
+ * none.
+ */
+export function raceLanesNotKept(
+  race: Pick<RaceRecord, "state" | "outcome" | "picks" | "lanes">,
+): number[] {
+  const outcome = race.outcome;
+  if (race.state !== "kept" || !outcome) return [];
+  const kept =
+    outcome.kind === "lane"
+      ? new Set([outcome.lane])
+      : new Set(Object.values(race.picks ?? {}));
+  // A mix with no record of its picks keeps every chat.
+  if (!kept.size) return [];
+  return race.lanes.flatMap((_, index) => (kept.has(index) ? [] : [index]));
+}
+
 /** Stop every writer before reading its final diff or deleting its checkout. */
 export async function finishRace(
   race: RaceRecord,

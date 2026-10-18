@@ -796,8 +796,9 @@ async function startRaceFromComposer(
  * Stop race; separate copies; Compare from the card; truthful lane states
  * and Retry, with no entry in Activity for a lane's turn; then Keep one
  * lane while the other still works. The kept files must include one the
- * overview had not shown yet, the copies must go, both lane chats must
- * point back at the project, and the card must become the result.
+ * overview had not shown yet, the copies must go, the kept lane's chat
+ * must point back at the project while the other's is archived, and the
+ * card must become the result.
  */
 export async function checkRace(
   get: () => Options,
@@ -1104,18 +1105,20 @@ export async function checkRace(
       )
     )
       throw new Error(`${lane.label}'s copy is still there`);
+  // The kept agent's chat carries on in the project; Grok's, whose work
+  // went with its copy, is archived.
   await waitFor(
-    () =>
-      record.lanes.every((lane) => {
-        const current = session(lane.sessionId);
-        return (
-          current &&
-          !current.worktreeCwd &&
-          sameProjectPath(current.cwd, config.projectPath)
-        );
-      }),
+    () => {
+      const keptChat = session(record.lanes[0].sessionId);
+      return (
+        !!keptChat &&
+        !keptChat.worktreeCwd &&
+        sameProjectPath(keptChat.cwd, config.projectPath) &&
+        !session(record.lanes[1].sessionId)
+      );
+    },
     5_000,
-    "both lane chats to point back at the project",
+    "the kept chat to point back at the project and Grok's to be archived",
   );
   // Close the finished overview as a person would, leaving only chats.
   pressShortcut("w");
@@ -1143,7 +1146,7 @@ export async function checkRace(
   )
     throw new Error("The result has no Review changes or Continue with");
   if (barOf()) throw new Error("The race's bar stayed after the keep");
-  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
+  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, the kept chat back on the project and Grok's archived; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
 }
 
 /** The second race: both lanes write their file and finish within seconds. */
