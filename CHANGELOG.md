@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.146] - 2026-10-18
+
 ### Added
 
 - **Mark up** in the browser's toolbar (the pen beside Edit page, also in the More menu) freezes the page as a sharp picture and opens a small toolbar over it, like Claude's: select, pen, line, arrow, box, circle and text, a colour, undo, **Send** and close. Draw on the page, then **Send** attaches the marked-up picture to the chat beside it, ready for you to say what to change; it never sends by itself. Keys pick the tools (V, P, L, A, R, O, T), ⌘Z undoes and Escape leaves without sending. A note placed by the edge stays inside the picture. On a Mac.
