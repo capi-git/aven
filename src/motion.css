@@ -144,6 +144,24 @@
   animation: aven-settle var(--aven-motion-fast) var(--aven-ease-out) backwards;
 }
 
+/* The image popup: its backdrop fades in, each picture springs in like a
+   dialog's frame, and the bar, arrows and count settle. The dialog element
+   itself never animates, so a native browser page underneath swaps to its
+   still image from the first frame. */
+.image-viewer-backdrop {
+  animation: aven-fade var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
+.image-viewer-image {
+  animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring) backwards;
+}
+
+.image-viewer-bar,
+.image-viewer-nav,
+.image-viewer-count {
+  animation: aven-settle var(--aven-motion-fast) var(--aven-ease-out) backwards;
+}
+
 /* Popover contents also drift in from the edge they hang off. */
 @keyframes popover-open {
   from {

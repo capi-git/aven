@@ -24,7 +24,7 @@ const FOCUSABLE_SELECTOR =
 
 /** Checking the ancestor chain also excludes collapsed sections and fields
  * inside a hidden wrapper, which can have visible styles of their own. */
-function isVisible(element: HTMLElement): boolean {
+export function isVisible(element: HTMLElement): boolean {
   if (!element.isConnected) return false;
   for (
     let node: HTMLElement | null = element;
@@ -53,7 +53,8 @@ function isVisible(element: HTMLElement): boolean {
   return true;
 }
 
-function topModal(): HTMLElement | undefined {
+/** The modal dialog that owns the keyboard: the last visible one. */
+export function topModal(): HTMLElement | undefined {
   const dialogs = [
     ...document.querySelectorAll<HTMLElement>(MODAL_SELECTOR),
   ].filter(isVisible);
@@ -77,7 +78,7 @@ function isDisabled(element: HTMLElement): boolean {
   return false;
 }
 
-function focusableWithin(roots: HTMLElement[]): HTMLElement[] {
+export function focusableWithin(roots: HTMLElement[]): HTMLElement[] {
   return (
     [
       ...new Set(
