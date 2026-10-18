@@ -26,6 +26,7 @@ import {
   indentFocusedEditor,
   openFindInActiveEditor,
 } from "../surfaces/editorCommands";
+import { closeFocusedTeamPanel } from "../lib/teamPanelFocus";
 
 /** What shortcuts, menu commands and the command palette can do. */
 export type WorkspaceActions = {
@@ -251,7 +252,10 @@ export function useWorkspaceShortcuts({
           });
         else if (cmd === "close-others")
           run("close-others", a.onCloseOtherTabs);
-        else if (cmd === "close") run("close", a.onClosePane);
+        else if (cmd === "close")
+          run("close", () => {
+            if (!closeFocusedTeamPanel()) a.onClosePane();
+          });
         else if (cmd === "next") run("next", a.onNext);
         else if (cmd === "prev") run("prev", a.onPrev);
         else if (cmd === "back") run("back", a.onVisitBack);
@@ -354,7 +358,14 @@ export function useWorkspaceShortcuts({
       listen("close_other_tabs", () =>
         run("close-others", actions.current.onCloseOtherTabs),
       ),
-      listen("close_tab", () => run("close", actions.current.onClosePane)),
+      listen("close_tab", () =>
+        run("close", () => {
+          // In the floating team panel, ⌘W closes the panel, not the
+          // chat pane behind it.
+          if (closeFocusedTeamPanel()) return;
+          actions.current.onClosePane();
+        }),
+      ),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
       listen("back_tab", () =>

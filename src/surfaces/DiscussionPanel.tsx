@@ -14,6 +14,7 @@ import { DiscussionWrapUpCard } from "../chrome/DiscussionWrapUp";
 import { ArrowRight, ArrowUp, Play, Square } from "../chrome/icons";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { useDiscussionList } from "../hooks/useDiscussions";
+import { useTeamAct } from "../hooks/useTeamAct";
 import {
   discussionRound,
   completedRounds,
@@ -109,6 +110,9 @@ export function performDiscussionAction(
       return null;
     case "resume":
       store.resume(discussion.id);
+      return null;
+    case "summarise":
+      store.retrySummary(discussion.id);
       return null;
     case "jump-in":
       return store.interject(discussion.id, action.text);
@@ -338,8 +342,11 @@ export function DiscussionThreadPanel({
         : undefined,
     [act, can.build],
   );
+  // A press's refusal or failure, from here or a window of its own, is
+  // shown under the actions rather than dropped.
+  const action = useTeamAct(act);
   const show = (side: DiscussionSide) =>
-    void act({ kind: "open-chat", sessionId: discussion[side].sessionId });
+    action.run({ kind: "open-chat", sessionId: discussion[side].sessionId });
 
   let replyIndex = 0;
   const renderItem = (item: DiscussionThreadItem): ReactNode => {
@@ -476,12 +483,22 @@ export function DiscussionThreadPanel({
               size="compact"
               data-team-stop="discussion"
               title="Stop the discussion. A reply being written finishes, but the other chat won't get it."
-              onClick={() => void act({ kind: "stop" })}
+              disabled={action.pending === "stop"}
+              onClick={() => action.run({ kind: "stop" })}
             >
               <Square className="size-2.5" />
               Stop discussion
             </TeamCardButton>
           </div>
+        ) : null}
+        {action.problem ? (
+          <p
+            className="team-watch-problem"
+            role="alert"
+            data-discussion-problem
+          >
+            {action.problem}
+          </p>
         ) : null}
       </div>
       <div className="discussion-float-body">
@@ -557,12 +574,23 @@ export function DiscussionThreadPanel({
                 onOpenFile={onOpenFile}
               />
             ))}
-            {paused ? <PausedRow reason={discussion.reason} act={act} /> : null}
+            {paused ? (
+              <PausedRow
+                reason={discussion.reason}
+                run={action.run}
+                pending={action.pending === "resume"}
+              />
+            ) : null}
             {ended ? (
               <DiscussionWrapUpCard
                 discussion={discussion}
                 voices={voices}
                 build={build}
+                onRetry={
+                  can.jumpIn
+                    ? () => action.run({ kind: "summarise" })
+                    : undefined
+                }
               />
             ) : null}
           </ol>
@@ -785,17 +813,21 @@ const ThreadItem = memo(function ThreadItem({
 
 const PausedRow = memo(function PausedRow({
   reason,
-  act,
+  run,
+  pending,
 }: {
   reason?: string;
-  act: TeamWatchAct;
+  run: (action: TeamWatchAction) => void;
+  pending: boolean;
 }) {
   return (
     <li className="discussion-paused" data-discussion-paused>
       <span className="min-w-0">Paused{reason ? ` · ${reason}` : ""}</span>
       <TeamCardButton
         size="compact"
-        onClick={() => void act({ kind: "resume" })}
+        disabled={pending}
+        title="Resume the discussion"
+        onClick={() => run({ kind: "resume" })}
       >
         <Play className="size-3" />
         Resume

@@ -595,3 +595,9 @@ button.discussion-side:focus-visible {
     padding-left: 16px;
   }
 }
+
+/* The panel takes the keyboard as a whole; its controls show their own
+   rings. */
+.discussion-float:focus {
+  outline: none;
+}

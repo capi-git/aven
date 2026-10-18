@@ -824,8 +824,11 @@ export type RaceWorkspace = {
   openChat: (sessionId: string) => void;
   /** Show the race's overview, from wherever the user is. */
   compare: (raceId: string) => void;
-  /** Send the race's task to one lane's chat again, in its copy. */
-  retry: (race: RaceRecord, lane: number) => void;
+  /**
+   * Send the race's task to one agent's chat again, in its own folder.
+   * Resolves with why it could not, or null once sent.
+   */
+  retry: (race: RaceRecord, lane: number) => Promise<string | null> | void;
 };
 
 let workspace: RaceWorkspace | null = null;

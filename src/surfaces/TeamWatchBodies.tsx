@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMotionOnChange } from "../hooks/useMotionOnChange";
+import { useTeamAct } from "../hooks/useTeamAct";
 import { RoleBadge } from "../chrome/AgentRoles";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import {
@@ -17,7 +18,6 @@ import {
   teamMascots,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
-import { logError } from "../lib/errors";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import {
   memberNames,
@@ -49,50 +49,6 @@ export function useTeamVoices(team: TeamRun | null): DiscussionVoice[] {
       memberVoice(member, mascots[index], index === 0),
     );
   }, [team]);
-}
-
-/** What a panel says when an action failed outright, not refused. */
-export const ACT_FAILED =
-  "Couldn't do that. Try again in the window it runs in.";
-
-/**
- * Runs an action from a button, keeping its plain refusal to show and
- * disabling the button while a slower one (from a window of its own) is
- * answered. An error is logged and shown as one plain sentence.
- */
-export function useAct(act: TeamWatchAct) {
-  const [pending, setPending] = useState<TeamWatchAction["kind"] | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const failed = (error: unknown) => {
-    logError("Team panel", error);
-    setProblem(ACT_FAILED);
-  };
-  const run = (action: TeamWatchAction) => {
-    setProblem(null);
-    let result: ReturnType<TeamWatchAct>;
-    try {
-      result = act(action);
-    } catch (error) {
-      failed(error);
-      return;
-    }
-    if (!(result instanceof Promise)) {
-      setProblem(result);
-      return;
-    }
-    setPending(action.kind);
-    void result.then(
-      (refused) => {
-        setPending(null);
-        setProblem(refused);
-      },
-      (error: unknown) => {
-        setPending(null);
-        failed(error);
-      },
-    );
-  };
-  return { run, pending, problem };
 }
 
 /**
@@ -257,7 +213,7 @@ const TeamBody = memo(function TeamBody({
 }) {
   const { team } = view;
   const voices = useTeamVoices(team);
-  const action = useAct(act);
+  const action = useTeamAct(act);
   return (
     <div
       className="team-watch-view"

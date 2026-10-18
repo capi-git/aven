@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useDiscussionWrapUp } from "../hooks/useDiscussions";
-import type { DiscussionHost } from "../lib/discussions";
+import { discussionStore, type DiscussionHost } from "../lib/discussions";
 import { discussionVoices } from "../lib/discussionVoices";
 import type { DiscussionWrapUpMeta } from "../lib/session";
 import { DiscussionOpenContext } from "./DiscussionRelayCard";
@@ -58,6 +58,7 @@ export function DiscussionActions({
 export function DiscussionWrapUpNote({ meta }: { meta: DiscussionWrapUpMeta }) {
   const open = useContext(DiscussionOpenContext);
   const build = useContext(DiscussionBuildContext);
+  const host = useContext(DiscussionHostContext);
   const discussion = useDiscussionWrapUp(meta.id);
   // The ending this note closed; continuing the discussion moves past it.
   const current =
@@ -80,6 +81,9 @@ export function DiscussionWrapUpNote({ meta }: { meta: DiscussionWrapUpMeta }) {
           voices={voices}
           build={build}
           onOpen={open ? () => open(meta.id) : undefined}
+          onRetry={
+            host ? () => discussionStore().retrySummary(meta.id) : undefined
+          }
         />
       </div>
     );

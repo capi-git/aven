@@ -180,6 +180,8 @@ function RaceBody({
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<Pending | null>(null);
+  /** The agent whose Retry is on its way. */
+  const [retrying, setRetrying] = useState<number | null>(null);
 
   // Saving picks rewrites the record; refreshes follow only the copies.
   const raceId = race.id;
@@ -590,13 +592,31 @@ function RaceBody({
                 {running && raceLaneCanRetry(state) ? (
                   <button
                     type="button"
-                    disabled={disabled}
+                    disabled={disabled || retrying !== null}
                     title="Send the race's task to this agent again"
-                    onClick={() => raceWorkspace()?.retry(race, index)}
+                    onClick={() => {
+                      setRetrying(index);
+                      setActionError(null);
+                      void Promise.resolve(
+                        raceWorkspace()?.retry(race, index),
+                      ).then(
+                        (reason) => {
+                          setRetrying(null);
+                          if (reason) setActionError(reason);
+                        },
+                        (error: unknown) => {
+                          setRetrying(null);
+                          logError("Race retry", error);
+                          setActionError(
+                            "Couldn't retry this agent. Try again.",
+                          );
+                        },
+                      );
+                    }}
                     className="flex items-center gap-1 rounded-md border border-content/15 px-2 py-0.5 text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
                   >
                     <RotateCcw className="size-3" />
-                    Retry
+                    {retrying === index ? "Retrying…" : "Retry"}
                   </button>
                 ) : null}
                 {running ? (

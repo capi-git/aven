@@ -9231,24 +9231,28 @@ export default function App({
     // closed comes back into one.
     openChat: (id) => void onOpenApprovalSession(id),
     compare: showRaceOverview,
-    retry: (race, lane) => {
+    retry: async (race, lane) => {
       const record = race.lanes[lane];
-      if (!record || getRace(race.id)?.state !== "running") return;
-      void ensureOpenSession(record.sessionId).then((session) => {
-        if (!session || session.busy || getRace(race.id)?.state !== "running")
-          return;
-        // The task as the lane first got it, with its attachments: its
-        // first message carries them.
-        const first = session.blocks.find(
-          (block) => block.role === "user" && !block.internal,
-        );
-        onSubmit(
-          session.id,
-          racePrompt(race.prompt, race.lanes.length),
-          first?.attachments ?? [],
-          { teamMember: { id: `race:${race.id}`, kind: "race" } },
-        );
-      });
+      if (!record || getRace(race.id)?.state !== "running")
+        return "This race has already finished.";
+      const session = await ensureOpenSession(record.sessionId);
+      if (getRace(race.id)?.state !== "running")
+        return "This race has already finished.";
+      if (!session)
+        return "Couldn't retry: the agent's chat couldn't be opened.";
+      if (session.busy) return "Couldn't retry: the agent's chat is busy.";
+      // The task as the lane first got it, with its attachments: its
+      // first message carries them.
+      const first = session.blocks.find(
+        (block) => block.role === "user" && !block.internal,
+      );
+      onSubmit(
+        session.id,
+        racePrompt(race.prompt, race.lanes.length),
+        first?.attachments ?? [],
+        { teamMember: { id: `race:${race.id}`, kind: "race" } },
+      );
+      return null;
     },
   };
 

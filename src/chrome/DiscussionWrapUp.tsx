@@ -1,8 +1,9 @@
 import { memo, useState, type CSSProperties } from "react";
 import type { Discussion, DiscussionSide } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
-import { Check, Eye } from "./icons";
+import { Check, Eye, RotateCcw } from "./icons";
 import { ProjectMascot } from "./ProjectMascot";
+import { TeamCardButton } from "./TeamCard";
 import "./DiscussionWrapUp.css";
 
 /** What the wrap-up reads from a discussion. */
@@ -25,6 +26,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   as: Tag = "li",
   compact = false,
   onOpen,
+  onRetry,
 }: {
   discussion: WrapUpSource;
   voices: Record<DiscussionSide, DiscussionVoice>;
@@ -41,8 +43,11 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   compact?: boolean;
   /** Opens the discussion's panel. */
   onOpen?: () => void;
+  /** Asks for the summary again, after it failed. */
+  onRetry?: () => void;
 }) {
   const [sent, setSent] = useState<DiscussionSide | null>(null);
+  const [sending, setSending] = useState<DiscussionSide | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const completed = discussion.ended?.kind === "completed";
   if (!completed && !build) return null;
@@ -50,13 +55,16 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   const summing =
     summary?.status === "pending" || summary?.status === "running";
   const done = summary?.status === "done" ? summary : null;
+  const failed = completed && summary?.status === "failed";
   const state = !completed
     ? "stopped"
     : summing
       ? "summing"
       : done
         ? "done"
-        : "plain";
+        : failed
+          ? "failed"
+          : "plain";
   return (
     <Tag
       className={`discussion-wrapup${compact ? " discussion-wrapup-compact" : ""}`}
@@ -93,6 +101,25 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
           Summing up…
         </p>
       ) : null}
+      {failed ? (
+        <div className="discussion-wrapup-failed">
+          <p className="discussion-wrapup-wait" role="status">
+            Couldn't sum this up.
+          </p>
+          {onRetry ? (
+            <TeamCardButton
+              size="compact"
+              variant="ghost"
+              data-discussion-wrapup-retry
+              title="Ask for the summary again"
+              onClick={onRetry}
+            >
+              <RotateCcw className="size-3" />
+              Try again
+            </TeamCardButton>
+          ) : null}
+        </div>
+      ) : null}
       {done ? <WrapUpLists agreed={done.agreed} open={done.open} /> : null}
       {build ? (
         <div className="discussion-wrapup-actions">
@@ -105,15 +132,34 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                 className="discussion-build"
                 data-discussion-build={side}
                 data-sent={sent === side || undefined}
+                // Once sent, or while either is sending, it can't go twice.
+                disabled={sent === side || sending !== null}
                 style={{ "--discussion-voice": voice.color } as CSSProperties}
-                title={`Send the plan to “${voice.title}”`}
+                title={
+                  sent === side
+                    ? `The plan was sent to “${voice.title}”`
+                    : `Send the plan to “${voice.title}”`
+                }
                 onClick={() => {
+                  if (sending !== null || sent === side) return;
                   const settle = (refused: string | null) => {
+                    setSending(null);
                     setProblem(refused);
-                    setSent(refused ? null : side);
+                    if (!refused) setSent(side);
                   };
-                  const result = build(discussion.id, side);
-                  if (result instanceof Promise) void result.then(settle);
+                  setSending(side);
+                  setProblem(null);
+                  let result: ReturnType<NonNullable<typeof build>>;
+                  try {
+                    result = build(discussion.id, side);
+                  } catch {
+                    settle("Couldn't send the plan. Try again.");
+                    return;
+                  }
+                  if (result instanceof Promise)
+                    void result.then(settle, () =>
+                      settle("Couldn't send the plan. Try again."),
+                    );
                   else settle(result);
                 }}
               >
@@ -127,7 +173,13 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                     className="discussion-build-sprite"
                   />
                 )}
-                <span className="truncate">Have {voice.name} build it</span>
+                <span className="truncate">
+                  {sent === side
+                    ? `Sent to ${voice.name}`
+                    : sending === side
+                      ? "Sending…"
+                      : `Have ${voice.name} build it`}
+                </span>
               </button>
             );
           })}

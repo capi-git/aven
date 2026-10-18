@@ -19,6 +19,8 @@ vi.mock("./AgentMarkdown", () => ({
 }));
 
 import { DiscussionPanelContent, discussionStatus } from "./DiscussionPanel";
+import { ACT_FAILED } from "../hooks/useTeamAct";
+import { NO_ANSWER_TEXT } from "../lib/teamWatchBridge";
 
 const A: DiscussionParty = {
   sessionId: "a",
@@ -265,6 +267,43 @@ describe("DiscussionPanelContent", () => {
       "Discussion stopped during round 1 of 2.",
     );
     expect(container.querySelector('[data-team-stop="discussion"]')).toBe(null);
+  });
+
+  it("shows why a press from a window of its own did nothing", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    store.pause("d1", "“Review” needs your approval.");
+    // As a popped-out panel acts: the owning window answers later.
+    const act_ = vi.fn(async () => NO_ANSWER_TEXT);
+    await act(async () =>
+      root.render(
+        createElement(DiscussionPanelContent, {
+          discussionId: "d1",
+          a: sessions.a,
+          b: sessions.b,
+          act: act_,
+        }),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-paused] button")!
+        .click(),
+    );
+    expect(act_).toHaveBeenCalledWith({ kind: "resume" });
+    const problem = container.querySelector("[data-discussion-problem]");
+    expect(problem?.getAttribute("role")).toBe("alert");
+    expect(problem?.textContent).toBe(NO_ANSWER_TEXT);
+    // A failure, not a refusal, is said plainly.
+    act_.mockRejectedValueOnce(new Error("The owning workspace closed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-stop="discussion"]')!
+        .click(),
+    );
+    expect(text("[data-discussion-problem]")).toBe(ACT_FAILED);
   });
 
   it("ends with the closing note and one happy hop on each side's last message", async () => {
@@ -659,6 +698,11 @@ describe("DiscussionPanelContent: where they landed", () => {
     await act(async () => buttons[1].click());
     expect(actions.build).toHaveBeenCalledExactlyOnceWith("d1", "b");
     expect(buttons[1].dataset.sent).toBe("true");
+    // Sent once: it says so and can't send the plan twice.
+    expect(buttons[1].textContent).toBe("Sent to Codex");
+    expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => buttons[1].click());
+    expect(actions.build).toHaveBeenCalledOnce();
     actions.build.mockReturnValueOnce(
       "“Caching plan” isn't open in this window.",
     );
@@ -668,7 +712,7 @@ describe("DiscussionPanelContent: where they landed", () => {
     );
   });
 
-  it("keeps the buttons without lists when the summary failed", async () => {
+  it("says calmly when the summary failed, and tries again", async () => {
     await complete(host());
     await act(async () => {
       const store = discussionStore();
@@ -678,10 +722,19 @@ describe("DiscussionPanelContent: where they landed", () => {
     expect(
       container.querySelector<HTMLElement>("[data-discussion-wrapup]")?.dataset
         .discussionWrapup,
-    ).toBe("plain");
+    ).toBe("failed");
     expect(text(".discussion-wrapup-title")).toBe("Where they landed");
+    expect(text(".discussion-wrapup-wait")).toBe("Couldn't sum this up.");
     expect(container.querySelector("[data-discussion-list]")).toBeNull();
     expect(all("[data-discussion-build]")).toHaveLength(2);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-wrapup-retry]")!
+        .click(),
+    );
+    // Asked again: the window that drives it sums it up once more.
+    expect(discussionStore().get("d1")?.summary?.status).toBe("pending");
+    expect(text(".discussion-wrapup-wait")).toBe("Summing up…");
   });
 
   it("shows only the buttons for a stopped discussion", async () => {

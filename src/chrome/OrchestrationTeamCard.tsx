@@ -4,6 +4,7 @@ import { memberVoice, teamMascots } from "../lib/discussionVoices";
 import type { OrchestrationRun } from "../lib/orchestration";
 import { orchestrationStatusWord } from "../lib/orchestrationSummary";
 import type { TeamMember } from "../lib/teamRuns";
+import { agentNameWithModel } from "../lib/agentNames";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import { plural } from "../lib/words";
 import { OrchestrationActions } from "./OrchestrationActions";
@@ -154,7 +155,11 @@ export function OrchestrationTeamCard({
       members={
         workers.length
           ? workers.map((member, index) => {
-              const model = modelName(member.harness, member.model);
+              // "Codex GPT-5": the agent's app and model, as the panel says.
+              const model = agentNameWithModel({
+                harness: member.harness,
+                model: modelName(member.harness, member.model),
+              });
               const files = member.changes?.files;
               return (
                 <TeamCardMember

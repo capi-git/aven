@@ -1294,7 +1294,19 @@ export function GitCopies({
                       type="button"
                       className="git-copy-action"
                       disabled={removing === key}
-                      onClick={() => setConfirming(null)}
+                      // The question replaced Discard race: the keyboard
+                      // comes here, and goes back there on Cancel.
+                      autoFocus
+                      onClick={() => {
+                        setConfirming(null);
+                        requestAnimationFrame(() =>
+                          document
+                            .querySelector<HTMLElement>(
+                              `[data-race-discard="${race.id}"]`,
+                            )
+                            ?.focus(),
+                        );
+                      }}
                     >
                       Cancel
                     </button>
@@ -1326,6 +1338,7 @@ export function GitCopies({
                   <button
                     type="button"
                     className="git-copy-action"
+                    data-race-discard={race.id}
                     onClick={() => {
                       setFailure(null);
                       setConfirming(key);

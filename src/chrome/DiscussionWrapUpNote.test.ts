@@ -165,18 +165,27 @@ describe("where a discussion landed, in the chat that started it", () => {
     );
   });
 
-  it("keeps the buttons without lists when the summary failed", async () => {
+  it("says calmly when the summary failed, with the buttons and Try again", async () => {
     complete();
     await render(undefined, host());
     await act(async () => {
       discussionStore().claimSummary("d1");
       discussionStore().finishSummary("d1", 2, { status: "failed" });
     });
-    expect(card()?.dataset.discussionWrapup).toBe("plain");
+    expect(card()?.dataset.discussionWrapup).toBe("failed");
+    expect(
+      container.querySelector(".discussion-wrapup-wait")?.textContent,
+    ).toBe("Couldn't sum this up.");
     expect(container.querySelector("[data-discussion-list]")).toBeNull();
     expect(container.querySelectorAll("[data-discussion-build]")).toHaveLength(
       2,
     );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-wrapup-retry]")!
+        .click(),
+    );
+    expect(discussionStore().get("d1")?.summary?.status).toBe("pending");
   });
 
   it("shows nothing for a stopped discussion", async () => {

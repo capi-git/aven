@@ -164,8 +164,8 @@ describe("an orchestration's card", () => {
     expect(text("[data-orchestration-status]")).toBe("Running");
     expect(text(".team-card-status")).toBe("1 working · 1 queued");
     expect(rows()).toEqual([
-      { name: "Task a", detail: "GPT-5", state: "Working", meta: "" },
-      { name: "Task b", detail: "GPT-5", state: "Queued", meta: "" },
+      { name: "Task a", detail: "Codex GPT-5", state: "Working", meta: "" },
+      { name: "Task b", detail: "Codex GPT-5", state: "Queued", meta: "" },
     ]);
     // The lead and both agents in the header.
     expect(
@@ -227,12 +227,17 @@ describe("an orchestration's card", () => {
     expect(rows()).toEqual([
       {
         name: "Task a",
-        detail: "GPT-5 · Moved the form into its own component.",
+        detail: "Codex GPT-5 · Moved the form into its own component.",
         state: "Accepted",
         meta: "3 files",
       },
-      { name: "Task b", detail: "GPT-5", state: "Cancelled", meta: "" },
-      { name: "Task c", detail: "GPT-5", state: "Failed", meta: "1 file" },
+      { name: "Task b", detail: "Codex GPT-5", state: "Cancelled", meta: "" },
+      {
+        name: "Task c",
+        detail: "Codex GPT-5",
+        state: "Failed",
+        meta: "1 file",
+      },
     ]);
     expect(labels()).toEqual(["Review changes", "Open agents", "Show plan"]);
     const press = async (label: string) =>
@@ -249,6 +254,57 @@ describe("an orchestration's card", () => {
       expect.objectContaining({ sessionId: "w-b" }),
       expect.objectContaining({ sessionId: "w-c" }),
     ]);
+  });
+
+  it("opens an agent's chat from its row", async () => {
+    store.runs = [run()];
+    await render();
+    await act(async () =>
+      card()!
+        .querySelector<HTMLButtonElement>(
+          '[data-orchestration-agent="w-b"] button',
+        )!
+        .click(),
+    );
+    expect(openAgents).toHaveBeenCalledWith([
+      expect.objectContaining({ sessionId: "w-b", leadId: "lead" }),
+    ]);
+  });
+
+  it("says when the lead has handed out no tasks yet", async () => {
+    store.runs = [run({ tasks: [] })];
+    await render();
+    expect(text(".team-card-note")).toBe(
+      "The lead hasn't handed out any tasks yet.",
+    );
+  });
+
+  it("says while each agent's line is written, and when it could not be", async () => {
+    const finished = (summaries: OrchestrationRun["summaries"]) =>
+      run({
+        status: "finished",
+        endedAt: 9,
+        verdict: "Done.",
+        summaries,
+        tasks: [task("a", { status: "completed", accepted: true })],
+      });
+    store.runs = [finished("running")];
+    await render();
+    expect(text("[data-orchestration-summaries]")).toBe(
+      "Writing a line on what each agent did…",
+    );
+    store.runs = [finished("failed")];
+    await act(async () => {
+      for (const listener of store.listeners) listener();
+    });
+    expect(text("[data-orchestration-summaries]")).toBe(
+      "Couldn't write the summaries. Open agents to read their replies.",
+    );
+    store.runs = [finished("done")];
+    await act(async () => {
+      for (const listener of store.listeners) listener();
+    });
+    expect(card()?.querySelector("[data-orchestration-summaries]")).toBeNull();
   });
 
   it("reads a stopped run plainly, with nothing to review", async () => {

@@ -70,8 +70,13 @@ const chat: Session = { ...newSession("claude", "/work/site"), id: "chat" };
 
 /** The host's bridge: each open becomes a window the check can find and close. */
 function fakePopOuts(): TeamWatchOwner {
+  let shown: ((team: string) => void) | undefined;
   return {
-    open: vi.fn(async (team: string) => void opened.push(team)),
+    // Each window draws and shows itself as it opens.
+    open: vi.fn(async (team: string) => {
+      opened.push(team);
+      shown?.(team);
+    }),
     update: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     reset: vi.fn(async () => {}),
@@ -79,6 +84,10 @@ function fakePopOuts(): TeamWatchOwner {
     // The check never acts from a pop-out, so nothing listens here.
     onAction: vi.fn(async () => () => {}),
     onFocus: vi.fn(async () => () => {}),
+    onShown: vi.fn(async (callback: (team: string) => void) => {
+      shown = callback;
+      return () => {};
+    }),
     onClosed: vi.fn(async (callback: (team: string) => void) => {
       closeThere = callback;
       return () => {};

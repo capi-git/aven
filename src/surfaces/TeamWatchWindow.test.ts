@@ -281,6 +281,20 @@ describe("a team's panel in a window of its own", () => {
     expect(container.querySelector("[data-owner-hidden]")).toBeNull();
   });
 
+  it("shows itself to say so when its page could not load", async () => {
+    const host = fakeBridge(state({ team: race, race: {}, can }));
+    vi.mocked(host.bridge.state).mockRejectedValueOnce(new Error("lost"));
+    await show(host.bridge);
+    expect(words(container.querySelector(".team-watch-closed p"))).toBe(
+      "This panel couldn't load. Close it and press Watch again.",
+    );
+    // Shown anyway, with the oldest revision any page accepts, so the
+    // window never stays hidden while its team has left its panel.
+    expect(host.bridge.ready).toHaveBeenCalledWith(0);
+    await press("[data-team-watch-close]");
+    expect(host.bridge.dismiss).toHaveBeenCalled();
+  });
+
   it("says so when the team is gone", async () => {
     const host = fakeBridge(state(null));
     await show(host.bridge);

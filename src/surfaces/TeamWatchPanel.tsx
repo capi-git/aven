@@ -75,6 +75,7 @@ import {
 } from "../lib/teamWatch";
 import {
   noteTeamPopOutFocus,
+  TEAM_WATCH_SHOW_MS,
   teamWatchOwner,
   type TeamWatchOwner,
   type TeamWatchPlace,
@@ -88,11 +89,8 @@ import {
 } from "./DiscussionPanel";
 import { useRaceStats } from "./RaceCard";
 import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
-import {
-  ACT_FAILED,
-  TeamWatchPanelView,
-  useTeamVoices,
-} from "./TeamWatchBodies";
+import { ACT_FAILED } from "../hooks/useTeamAct";
+import { TeamWatchPanelView, useTeamVoices } from "./TeamWatchBodies";
 import "./DiscussionPanel.css";
 import "./TeamWatchPanel.css";
 
@@ -668,16 +666,51 @@ export const TeamWatchFloat = memo(function TeamWatchFloat({
   const shrink = panel.shrink;
   const close = panel.close;
   const popOut = panel.popOut;
+  // The keyboard: opening moves it into the panel (unless you were typing
+  // somewhere), shrinking moves it to the pill, closing gives it back to
+  // whatever opened the panel, and Escape shrinks it.
+  const section = useRef<HTMLElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const element = section.current;
+    if (!expanded || !element) return;
+    const active = document.activeElement;
+    if (
+      !(active instanceof HTMLElement) ||
+      element.contains(active) ||
+      active.closest("textarea, input, [contenteditable='true']")
+    )
+      return;
+    opener.current = active === document.body ? null : active;
+    element.focus({ preventScroll: true });
+  }, [expanded]);
+  const focusedHere = () => !!section.current?.contains(document.activeElement);
+  const shrinkHere = useCallback(() => {
+    const id = expanded;
+    const had = focusedHere();
+    shrink();
+    if (had && id)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>(`[data-team-pill="${id}"]`)
+          ?.focus({ preventScroll: true }),
+      );
+  }, [expanded, shrink]);
   const controls = useMemo<TeamPanelControls | undefined>(
     () =>
       expanded
         ? {
-            onShrink: shrink,
-            onClose: () => close(expanded),
+            onShrink: shrinkHere,
+            onClose: () => {
+              const back = focusedHere() ? opener.current : null;
+              opener.current = null;
+              close(expanded);
+              if (back?.isConnected) back.focus({ preventScroll: true });
+            },
             ...(popOuts ? { onPopOut: () => popOut(expanded) } : {}),
           }
         : undefined,
-    [close, expanded, popOut, popOuts, shrink],
+    [close, expanded, popOut, popOuts, shrinkHere],
   );
   const seenDiscussion = panel.seen;
   const onSeen = useCallback(
@@ -700,6 +733,13 @@ export const TeamWatchFloat = memo(function TeamWatchFloat({
     <>
       {expanded && kind ? (
         <section
+          ref={section}
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.defaultPrevented) return;
+            event.preventDefault();
+            shrinkHere();
+          }}
           className="discussion-float"
           data-team-panel={expanded}
           data-team-kind={kind}
@@ -906,6 +946,8 @@ function PopOuts({
   const shown = useRef(new Map<string, TeamRun>());
   /** Pop-outs the user closed in their own window. */
   const closedThere = useRef(new Set<string>());
+  /** Pop-outs that drew and showed themselves. */
+  const onScreen = useRef(new Set<string>());
   const performRef = useRef(perform);
   performRef.current = perform;
   const panelRef = useRef(panel);
@@ -944,6 +986,7 @@ function PopOuts({
         panelRef.current.poppedBack(team);
       }),
       bridge.onFocus(noteTeamPopOutFocus),
+      bridge.onShown((team) => onScreen.current.add(team)),
     ];
     return () => {
       for (const stop of stops) void stop.then((unlisten) => unlisten());
@@ -960,13 +1003,29 @@ function PopOuts({
             teamId={id}
             sessions={sessions}
             host={host}
-            feed={{ bridge, theme, shown, closedThere, placeRef, panelRef }}
+            feed={{
+              bridge,
+              theme,
+              shown,
+              closedThere,
+              onScreen,
+              placeRef,
+              panelRef,
+            }}
           />
         ) : (
           <TeamPopOut
             key={id}
             teamId={id}
-            feed={{ bridge, theme, shown, closedThere, placeRef, panelRef }}
+            feed={{
+              bridge,
+              theme,
+              shown,
+              closedThere,
+              onScreen,
+              placeRef,
+              panelRef,
+            }}
           />
         ),
       )}
@@ -979,6 +1038,7 @@ type Feed = {
   theme: TeamWatchSnapshot["theme"];
   shown: { current: Map<string, TeamRun> };
   closedThere: { current: Set<string> };
+  onScreen: { current: Set<string> };
   placeRef: { current: PanelRect };
   panelRef: { current: TeamWatchControls };
 };
@@ -1012,7 +1072,8 @@ function DiscussionPopOut({
  * here, or went) closes the window, unless the user already closed it there.
  */
 function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
-  const { bridge, theme, shown, closedThere, placeRef, panelRef } = feed;
+  const { bridge, theme, shown, closedThere, onScreen, placeRef, panelRef } =
+    feed;
   const sent = useRef<string | null>(null);
   const opened = useRef(false);
   const opening = useRef<Promise<unknown> | null>(null);
@@ -1061,6 +1122,21 @@ function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
         bridge.update(teamId, snapshot).catch(() => {});
     });
   }, [bridge, closedThere, panelRef, placeRef, teamId, theme, view]);
+  // A window that never shows itself (its page could not load) must not
+  // take the team with it: after a while the team comes back here.
+  useEffect(() => {
+    const screen = onScreen.current;
+    const timer = window.setTimeout(() => {
+      if (screen.has(teamId) || !panelRef.current.state.popped.includes(teamId))
+        return;
+      logError("team pop-out", new Error("The pop-out never showed itself"));
+      panelRef.current.popIn(teamId);
+    }, TEAM_WATCH_SHOW_MS);
+    return () => {
+      window.clearTimeout(timer);
+      screen.delete(teamId);
+    };
+  }, [onScreen, panelRef, teamId]);
   // Watch while it is out: bring its window forward.
   useEffect(() => {
     if (!raisedAt || !opened.current || sent.current === null) return;

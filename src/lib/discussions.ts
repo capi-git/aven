@@ -1642,6 +1642,22 @@ export class DiscussionStore {
     );
   }
 
+  /**
+   * Sum a finished discussion up again after its summary failed: this
+   * window takes it over and its broker asks the model once more.
+   */
+  retrySummary(id: string) {
+    const current = this.get(id);
+    if (current?.status !== "ended" || current.summary?.status !== "failed")
+      return;
+    this.adopt(id);
+    this.change(id, (discussion) =>
+      discussion.status === "ended" && discussion.summary?.status === "failed"
+        ? { ...discussion, summary: { status: "pending" } }
+        : discussion,
+    );
+  }
+
   /** The user pressed Stop discussion. */
   stop(id: string) {
     const current = this.get(id);

@@ -29,6 +29,14 @@ export const TEAM_WATCH_ACTION_EVENT = "team-watch-action";
 export const TEAM_WATCH_CLOSED_EVENT = "team-watch-closed";
 export const TEAM_WATCH_REPLY_EVENT = "team-watch-reply";
 export const TEAM_WATCH_FOCUS_EVENT = "team-watch-focus";
+/** A pop-out drew and is on screen. */
+export const TEAM_WATCH_SHOWN_EVENT = "team-watch-shown";
+/**
+ * How long a pop-out may take to show itself before its owner takes the
+ * team back into its own panel, so a window that never loads never loses
+ * the team.
+ */
+export const TEAM_WATCH_SHOW_MS = 6_000;
 
 /** How long a pop-out waits for its owner to answer an action. */
 export const TEAM_WATCH_REPLY_MS = 15_000;
@@ -105,6 +113,8 @@ export type TeamWatchOwner = {
   onFocus(
     callback: (team: string, focused: boolean) => void,
   ): Promise<() => void>;
+  /** A pop-out of this window drew and is on screen. */
+  onShown(callback: (team: string) => void): Promise<() => void>;
 };
 
 export function teamWatchOwner(
@@ -126,6 +136,14 @@ export function teamWatchOwner(
       }),
     onClosed: (callback) =>
       transport.listen<unknown>(TEAM_WATCH_CLOSED_EVENT, (payload) => {
+        const team =
+          payload && typeof payload === "object"
+            ? (payload as { team?: unknown }).team
+            : undefined;
+        if (typeof team === "string") callback(team);
+      }),
+    onShown: (callback) =>
+      transport.listen<unknown>(TEAM_WATCH_SHOWN_EVENT, (payload) => {
         const team =
           payload && typeof payload === "object"
             ? (payload as { team?: unknown }).team

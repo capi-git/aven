@@ -532,6 +532,8 @@ export type TeamWatchAction =
   | { kind: "open-chat"; sessionId: string }
   | { kind: "jump-in"; text: string }
   | { kind: "build"; side: DiscussionSide }
+  /** Sum a finished discussion up again after that failed. */
+  | { kind: "summarise" }
   | { kind: "watch" };
 
 export type TeamWatchActionKind = TeamWatchAction["kind"];
@@ -547,7 +549,15 @@ export type TeamWatchAct = (
 
 /** The actions each kind of team takes; anything else is refused. */
 export const TEAM_ACTIONS: Record<TeamKind, readonly TeamWatchActionKind[]> = {
-  discuss: ["stop", "resume", "open-chat", "jump-in", "build", "watch"],
+  discuss: [
+    "stop",
+    "resume",
+    "open-chat",
+    "jump-in",
+    "build",
+    "summarise",
+    "watch",
+  ],
   race: ["stop", "compare", "suggest", "review", "open-chat", "watch"],
   orchestrate: [
     "stop",
@@ -575,6 +585,7 @@ export const TEAM_WATCH_ACTION_KINDS: readonly TeamWatchActionKind[] = [
   "open-chat",
   "jump-in",
   "build",
+  "summarise",
   "watch",
 ];
 

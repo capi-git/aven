@@ -560,6 +560,21 @@ it("shows each lane's real outcome, stops its clock at its own end and offers Re
   expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: "r1" }), 1);
 });
 
+it("says why it could not retry an agent", async () => {
+  retry.mockResolvedValueOnce("Couldn't retry: the agent's chat is busy.");
+  const view = await render([
+    ended("s0", "failed", 42),
+    ended("s1", "failed", 9),
+  ]);
+  const lanes = view.querySelectorAll("section");
+  await act(async () => button(lanes[0] as HTMLElement, "Retry").click());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const banner = view.querySelector('[role="alert"]');
+  expect(banner?.textContent).toBe("Couldn't retry: the agent's chat is busy.");
+});
+
 it("tells a stopped lane from a working one and offers Retry only for the stopped one", async () => {
   const stopped = await render([
     ended("s0", "stopped", 7),

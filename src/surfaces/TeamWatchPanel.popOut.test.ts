@@ -34,6 +34,7 @@ import { newSession, type Session } from "../lib/session";
 import type { TeamWatchRequest, TeamWatchView } from "../lib/teamWatch";
 import {
   focusedTeamPopOut,
+  TEAM_WATCH_SHOW_MS,
   type TeamWatchOwner,
   type TeamWatchSnapshot,
 } from "../lib/teamWatchBridge";
@@ -85,13 +86,20 @@ const completed = (sessionId: string) =>
     createdAt: 70_000,
   });
 
-/** The host's side of the bridge, recorded, with a way to press buttons in a pop-out. */
+/**
+ * The host's side of the bridge, recorded, with a way to press buttons in a
+ * pop-out. Its windows show themselves as they open, unless `shows` is off.
+ */
 function fakeBridge() {
   let onAction: ((request: TeamWatchRequest) => void) | undefined;
   let onClosed: ((team: string) => void) | undefined;
   let onFocus: ((team: string, focused: boolean) => void) | undefined;
+  let onShown: ((team: string) => void) | undefined;
+  const options = { shows: true };
   const bridge = {
-    open: vi.fn(async () => {}),
+    open: vi.fn(async (team: string) => {
+      if (options.shows) setTimeout(() => onShown?.(team), 0);
+    }),
     update: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     reset: vi.fn(async () => {}),
@@ -116,9 +124,16 @@ function fakeBridge() {
         };
       },
     ),
+    onShown: vi.fn(async (callback: (team: string) => void) => {
+      onShown = callback;
+      return () => {
+        onShown = undefined;
+      };
+    }),
   } satisfies TeamWatchOwner;
   return {
     bridge,
+    options,
     press: (team: string, action: unknown, requestId = "req-1") =>
       onAction?.({ team, requestId, action }),
     closeThere: (team: string) => onClosed?.(team),
@@ -383,6 +398,42 @@ describe("a team popped out into its own window", () => {
     expect(view()).toBeNull();
     expect(host.bridge.open).toHaveBeenCalledTimes(2);
     expect(host.bridge.close).not.toHaveBeenCalled();
+  });
+
+  it("takes the team back when its window never shows itself", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["setTimeout", "clearTimeout"],
+    });
+    try {
+      host.options.shows = false;
+      await mount();
+      await popOut();
+      expect(view()).toBeNull();
+      await act(async () => vi.advanceTimersByTime(TEAM_WATCH_SHOW_MS));
+      await act(async () => vi.advanceTimersByTime(10));
+      // Back as the panel here, and its hidden window closed.
+      expect(view()).not.toBeNull();
+      expect(host.bridge.close).toHaveBeenCalledWith("race:r1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a window that showed itself alone", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["setTimeout", "clearTimeout"],
+    });
+    try {
+      await mount();
+      await popOut();
+      await act(async () => vi.advanceTimersByTime(TEAM_WATCH_SHOW_MS * 2));
+      expect(view()).toBeNull();
+      expect(host.bridge.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays in the window when its own window cannot open", async () => {

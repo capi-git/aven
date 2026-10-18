@@ -36,6 +36,9 @@ const CLOSED_EVENT: &str = "team-watch-closed";
 const REPLY_EVENT: &str = "team-watch-reply";
 /// Tells an owner when one of its pop-outs gains or loses focus.
 const FOCUS_EVENT: &str = "team-watch-focus";
+/// Tells an owner its pop-out drew and is on screen, so it need not take
+/// the team back.
+const SHOWN_EVENT: &str = "team-watch-shown";
 const ENTRY: &str = "index.html?teamWatch=1";
 const LABEL_PREFIX: &str = "team-watch-";
 
@@ -66,6 +69,7 @@ const ACTIONS: &[&str] = &[
     "open-chat",
     "jump-in",
     "build",
+    "summarise",
     "watch",
 ];
 
@@ -513,16 +517,15 @@ pub async fn team_watch_ready(caller: Webview, revision: u64) -> Result<(), Stri
     let app = caller.app_handle().clone();
     on_main(&app, move || {
         let app = caller.app_handle();
-        let show = with_state(app, |entries| {
-            Ok(entries
-                .get_mut(caller.label())
-                .is_some_and(|pop| pop.accept_ready(revision)))
-        })?;
-        if !show {
+        let Some((owner, payload)) = with_state(app, |entries| {
+            Ok(shown_notice(entries, caller.label(), revision))
+        })?
+        else {
             return Ok(());
-        }
+        };
         let window = caller.window();
         window.show().map_err(|error| error.to_string())?;
+        let _ = app.emit_to(EventTarget::webview(&owner), SHOWN_EVENT, payload);
         window.set_focus().map_err(|error| error.to_string())
     })
     .await
@@ -715,6 +718,20 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
 
 /// The owner to tell, and what, when the pop-out `label` gains or loses
 /// focus; nothing for an orphaned pop-out or any other window.
+/// A pop-out's first drawn frame: marks it shown and returns its owner and
+/// what to tell it, or nothing for a later or stale frame.
+fn shown_notice(
+    entries: &mut HashMap<String, PopOut>,
+    label: &str,
+    revision: u64,
+) -> Option<(String, Value)> {
+    let pop = entries.get_mut(label)?;
+    if !pop.accept_ready(revision) {
+        return None;
+    }
+    Some((pop.owner.clone(), json!({ "team": pop.team })))
+}
+
 fn focus_notice(
     entries: &HashMap<String, PopOut>,
     label: &str,
@@ -759,6 +776,20 @@ mod tests {
             shown: false,
             quiet: false,
         }
+    }
+
+    #[test]
+    fn tells_the_owner_once_its_pop_out_is_shown() {
+        let mut entries = HashMap::from([("team-watch-1".into(), pop("main", "race:r1"))]);
+        // A page that failed to load reports the oldest revision; it still shows.
+        assert_eq!(
+            shown_notice(&mut entries, "team-watch-1", 0),
+            Some(("main".into(), json!({ "team": "race:r1" })))
+        );
+        assert_eq!(shown_notice(&mut entries, "team-watch-1", 1), None);
+        assert_eq!(shown_notice(&mut entries, "team-watch-2", 1), None);
+        let mut newer = HashMap::from([("team-watch-3".into(), pop("main", "race:r2"))]);
+        assert_eq!(shown_notice(&mut newer, "team-watch-3", 2), None);
     }
 
     #[test]

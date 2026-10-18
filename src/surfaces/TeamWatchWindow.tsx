@@ -121,6 +121,18 @@ export function TeamWatchWindow({
       live = false;
     };
   }, [bridge, drawing]);
+  // A page that could not load still shows, to say so: the window would
+  // otherwise stay hidden while its team has left the panel it came from.
+  useEffect(() => {
+    if (!failed) return;
+    let live = true;
+    void afterDrawnFrame(250).then(() => {
+      if (live) void bridge.ready(0).catch(() => {});
+    });
+    return () => {
+      live = false;
+    };
+  }, [bridge, failed]);
   const act = useCallback<TeamWatchAct>(
     (action) => bridge.send(action),
     [bridge],
