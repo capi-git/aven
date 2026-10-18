@@ -424,8 +424,14 @@ button.team-card-member-open:hover {
   font-size: var(--text-ui-caption);
   font-variant-numeric: tabular-nums;
 }
-/* A narrow chat keeps the bar on one line: the time and the word Agents
-   go before any of the team's own buttons would be squeezed. */
+/* A narrow chat keeps the bar on one line. What the chat is doing goes
+   first, before it is cut to a bare ellipsis; then the time and the word
+   Agents, before any of the team's own buttons would be squeezed. */
+@container personal-composer-dock (max-width: 640px) {
+  .team-bar-doing {
+    display: none;
+  }
+}
 @container personal-composer-dock (max-width: 520px) {
   .team-bar-clock,
   .team-bar-agents-label {
