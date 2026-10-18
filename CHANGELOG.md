@@ -61,6 +61,10 @@
 - In a narrow chat, the review bar and the message box no longer cut their words off. The review bar's **Undo All**, **Keep All**, **Review** and **Ship it** become icons with tooltips, the Race chip reads "Race · 2 agents" or "Race · 2", the Discuss chip "Discuss · Codex · 3", Plan and Orchestrator keep their icons and the agent pill keeps its mark. Tooltips give the full text.
 - After Ship it, Session Changes reads "Shipped · 1a2b3c4 · nothing left to review" with **Close**, instead of still showing the diff that went out. It also updates when the changes are kept or undone.
 - The memory keeper's offer no longer cuts itself off in a narrow chat. It asks "Keep this project's memory up to date?" and wraps to a second line when it has to.
+- The files an orchestrator run's agents write, and the files of a race version you keep, now show in the chat the run or race started from, so its file bar, **Review**, its board card and **Ship it** cover all of them instead of only the files its own agent touched.
+- A file you change after shipping it no longer shows as the agent's change, with the old line counts. When the agent edits it again, the count starts from what you shipped.
+- The board's **Shipped** column keeps each ship for the week, named after its commit, even after the same chat has new changes to review, and "Today: 2 shipped" counts the same ships, so the two always agree.
+- The board shows its title and columns as soon as it opens, instead of a blank pane for a moment.
 
 ## [0.1.144] - 2026-10-16
 
