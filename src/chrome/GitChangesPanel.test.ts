@@ -40,6 +40,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../lib/harness", () => ({
   generateCommitMessage: vi.fn(),
   generatePrContent: vi.fn(),
+  textModelLabel: () => "Claude Haiku 4.5",
 }));
 vi.mock("../lib/fileWatch", () => ({
   invalidateWatchedFiles: mocks.invalidate,
@@ -171,6 +172,39 @@ describe("GitChangesPanel commit message generation", () => {
 
     await act(async () => resolveFirst("Old message"));
     expect(container.querySelector("textarea")?.value).toBe("New message");
+  });
+});
+
+describe("GitChangesPanel typing over a message being written", () => {
+  it("names who writes it and hands the message back when you type", async () => {
+    index.files = [changed("change.ts", true, false)];
+    let finish!: (message: string) => void;
+    vi.mocked(generateCommitMessage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render();
+    await act(async () => button("Generate commit message")!.click());
+    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
+    const cancel = button("Cancel commit message generation")!;
+    expect(cancel.title).toContain("Writing with Claude Haiku 4.5");
+    const field = container.querySelector<HTMLTextAreaElement>(
+      '[placeholder^="Message"]',
+    )!;
+    expect(field.disabled).toBe(false);
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(field, "My own words");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => finish("Model words"));
+    expect(field.value).toBe("My own words");
   });
 });
 

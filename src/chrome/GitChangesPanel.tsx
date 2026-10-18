@@ -67,7 +67,11 @@ import {
   saveChangesView,
   type ChangesView,
 } from "../lib/appearance";
-import { generateCommitMessage, generatePrContent } from "../lib/harness";
+import {
+  generateCommitMessage,
+  generatePrContent,
+  textModelLabel,
+} from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
@@ -405,7 +409,8 @@ function ChangedFiles({
     ((index?.ahead ?? 0) > 0 || (index?.behind ?? 0) > 0);
   const canCommitPush = canCommit && hasRemote && !diverged;
   const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
-  const canEditMessage = staged.length > 0 && !busy;
+  // Typing over a message being written takes it back at once.
+  const canEditMessage = staged.length > 0 && (!busy || busy === "generate");
 
   // Abandon an in-flight generation when the project changes or the panel
   // unmounts, so a late result never lands in another project's message.
@@ -694,7 +699,10 @@ function ChangedFiles({
             value={message}
             placeholder={`Message (${MOD}↩ to commit)`}
             disabled={!canEditMessage}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => {
+              if (busy === "generate") cancelGenerate();
+              setMessage(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (
                 (event.metaKey || event.ctrlKey) &&
@@ -711,7 +719,7 @@ function ChangedFiles({
             type="button"
             title={
               busy === "generate"
-                ? "Cancel commit message generation"
+                ? `Writing with ${textModelLabel(textHarness)}. Press to cancel, or type your own.`
                 : "Generate commit message"
             }
             aria-label={
