@@ -518,12 +518,13 @@ html.has-chat-background .workspace-home::before {
   filter: saturate(0.4);
 }
 
-/* Thirteen pixels across at 2px each, above the mascot's right shoulder. It
-   drifts up into place once when the tile appears, then stays still. */
+/* Thirteen pixels across at 2px each, above the mascot's right shoulder and
+   just clear of its box, so it never sits on a critter's ear or eye stalk.
+   It drifts up into place once when the tile appears, then stays still. */
 .workspace-home-agent-zzz {
   position: absolute;
   top: -8px;
-  right: -16px;
+  right: -18px;
   width: 26px;
   height: 24px;
   color: var(--aven-muted);
@@ -560,7 +561,7 @@ html.has-chat-background .workspace-home::before {
   height: 48px;
 }
 
-/* Eight pixels across, so 48px keeps every pixel crisp. */
+/* Twelve pixels across, so 48px keeps every pixel crisp. */
 .workspace-home-agent .workspace-home-agent-mark .project-mark-mascot {
   width: 48px;
   height: 48px;
@@ -871,13 +872,13 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-mark {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-home-mark .project-mark-mascot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-home-mark-none {

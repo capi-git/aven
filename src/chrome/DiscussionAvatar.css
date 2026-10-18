@@ -1,7 +1,8 @@
 /* A discussion side's mascot on a tile tinted with its provider's colour.
-   Sprites are 8 pixels across, drawn at whole multiples (16px, 24px) so every
-   pixel stays crisp. Motion is stepped, like the other mascots: two frames
-   held half a beat each, only while that side is typing. */
+   Critters are 12 pixels across, drawn at multiples of 6px (18px, 24px) so
+   every pixel lands on whole device pixels of a Retina screen. Motion is
+   stepped, like the other mascots: two frames held half a beat each, only
+   while that side is typing. */
 .discussion-avatar {
   --discussion-voice: var(--color-content);
   position: relative;
@@ -21,8 +22,8 @@
   border-radius: 10px;
 }
 .discussion-avatar-sprite {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 .discussion-avatar[data-size="large"] .discussion-avatar-sprite {
   width: 24px;
@@ -56,14 +57,25 @@
 .discussion-avatar .mascot-active {
   animation: discussion-avatar-step 760ms steps(2, jump-none) infinite;
 }
+.discussion-avatar[data-size="large"] .mascot-active {
+  animation-name: discussion-avatar-step-large;
+}
 .discussion-avatar .mascot-rest {
   animation: discussion-avatar-rest 760ms steps(2, jump-none) infinite;
 }
 .discussion-avatar .mascot-talk {
   animation: discussion-avatar-talk 760ms steps(2, jump-none) infinite;
 }
-/* One mascot pixel: 2px at 16px, 3px at 24px. */
+/* One mascot pixel: 1.5px at 18px, 2px at 24px. */
 @keyframes discussion-avatar-step {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes discussion-avatar-step-large {
   from {
     transform: translateY(0);
   }
