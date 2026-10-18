@@ -9,7 +9,11 @@ import {
   subscribeMemoryKeeper,
   type KeeperProject,
 } from "../lib/memoryKeeper";
-import { pickKeeperModel, type KeeperModel } from "../lib/memoryKeeperModel";
+import {
+  isKeeperModelChecking,
+  pickKeeperModel,
+  type KeeperModel,
+} from "../lib/memoryKeeperModel";
 
 const EMPTY: KeeperProject = Object.freeze({});
 
@@ -23,6 +27,17 @@ export function useMemoryKeeperProject(
 
 /** The model that would keep memories now, or null when none is installed. */
 export function useKeeperModel(): KeeperModel | null {
+  return useKeeperModelStatus().model;
+}
+
+/**
+ * The keeper model, and whether Aven is still checking for one. Until the
+ * probe answers for Claude Code and Codex, "none" only means "not known yet".
+ */
+export function useKeeperModelStatus(): {
+  model: KeeperModel | null;
+  checking: boolean;
+} {
   useSyncExternalStore(
     subscribeHarnessAvailability,
     getHarnessAvailabilitySnapshot,
@@ -34,5 +49,6 @@ export function useKeeperModel(): KeeperModel | null {
   useEffect(() => {
     void probeHarnessAvailability();
   }, []);
-  return pickKeeperModel();
+  const model = pickKeeperModel();
+  return { model, checking: model == null && isKeeperModelChecking() };
 }

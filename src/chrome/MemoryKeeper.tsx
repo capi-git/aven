@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import {
   useKeeperModel,
+  useKeeperModelStatus,
   useMemoryKeeperProject,
 } from "../hooks/useMemoryKeeperProject";
 import { errorText } from "../lib/errors";
@@ -87,12 +88,15 @@ export function MemoryKeeperSwitch({
   details?: boolean;
 }) {
   const state = useMemoryKeeperProject(path);
-  const model = useKeeperModel();
+  const { model, checking } = useKeeperModelStatus();
   const on = state.consent === "on";
   const working = on && (state.running != null || state.requested != null);
   const now = Date.now();
+  const unavailable = checking
+    ? "Checking for Claude Code or Codex…"
+    : "Needs Claude Code or Codex installed.";
   const description = !model
-    ? "Needs Claude Code or Codex installed."
+    ? unavailable
     : on
       ? [
           state.model ?? model.label,
@@ -112,7 +116,9 @@ export function MemoryKeeperSwitch({
       title={
         details
           ? undefined
-          : "Aven fills this memory and keeps its own sections current"
+          : !model && !on
+            ? unavailable
+            : "Aven fills this memory and keeps its own sections current"
       }
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => setMemoryKeeper(path, !on)}
