@@ -55,6 +55,17 @@ afterEach(() => {
 });
 
 describe("startChatReviewTracker", () => {
+  it("keeps reading while the window is on screen without focus", async () => {
+    // Watched from a second screen: the board still follows the turn's end.
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    window.dispatchEvent(new Event("blur"));
+    sessions = [chat("a")];
+    notifyReviewChanged("a");
+    await settle();
+    expect(status).toHaveBeenCalledExactlyOnceWith("a", "/repo");
+    vi.restoreAllMocks();
+  });
+
   it("reads a chat's checkpoint once when its turn ends", async () => {
     sessions = [chat("a", { worktreeCwd: "/copies/a" })];
     notifyReviewChanged("a");

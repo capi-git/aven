@@ -10,6 +10,28 @@ export function isWindowActive() {
   return !document.hidden && focused;
 }
 
+/** On screen, focused or not: behind another app or on a second screen. */
+export function isWindowVisible() {
+  return !document.hidden;
+}
+
+/**
+ * Why a Git-backed reader wants to read again: `event` when something said
+ * Git changed (a turn ended, Ship it, Keep, a commit) or the reader just
+ * opened, `poll` for its own periodic check.
+ */
+export type RefreshReason = "event" | "poll";
+
+/**
+ * The one rule for Git-backed readers: an event refreshes once whenever the
+ * window is on screen, focused or not, so a window watched from a second
+ * screen never goes stale; polling waits for focus, so a window at rest
+ * stays quiet.
+ */
+export function mayRefresh(reason: RefreshReason): boolean {
+  return reason === "event" ? isWindowVisible() : isWindowActive();
+}
+
 /** Share one native focus listener across pollers; web previews use DOM focus. */
 export function subscribeWindowActivity(listener: () => void) {
   listeners.add(listener);

@@ -1,5 +1,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createRefreshGate } from "../lib/refreshGate";
+import { watchGitReader } from "../lib/gitRefresh";
+import { isWindowVisible } from "../lib/windowActivity";
 import {
   ArrowUp,
   ChevronRight,
@@ -20,7 +22,6 @@ import {
   notifyGitChanged,
   removeGitWorktree,
   revealPath,
-  subscribeGitChanged,
   type GitDiffIndex,
   type GitPr,
   type GitWorktree,
@@ -548,7 +549,7 @@ function useWorktrees(
     if (!enabled || !cwd || cwd === "~") return;
     let cancelled = false;
     const gate = createRefreshGate(async () => {
-      if (cancelled || document.hidden) return;
+      if (cancelled || !isWindowVisible()) return;
       try {
         // Race lanes count from where their race started, not from main.
         const next = await gitWorktrees(cwd, raceLaneBases());
@@ -559,36 +560,16 @@ function useWorktrees(
     }, COPIES_POLL_MS);
     // Git changes arrive every couple of seconds while an agent edits; each
     // scan runs several git commands per copy, so scans are spaced out.
-    const load = () => gate.request();
     // After the user's own change (removing a copy), scan straight away.
     refreshNow.current = () => gate.request(true);
-    // Poll only while the window is visible, like the open folder's index.
-    let timer: number | null = null;
-    const onFocus = () => load();
-    const onVisibility = () => {
-      if (document.hidden) {
-        if (timer !== null) window.clearInterval(timer);
-        timer = null;
-        return;
-      }
-      timer ??= window.setInterval(() => {
-        // Watching another app: wait for focus, which scans straight away.
-        if (document.hasFocus()) load();
-      }, COPIES_POLL_MS);
-      load();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    const unsubscribe = subscribeGitChanged(onFocus);
-    onVisibility();
+    // Like the open folder's index: Git changes are read while the window is
+    // on screen, focused or not, and the periodic scan runs only with focus.
+    const stop = watchGitReader(() => gate.request(), COPIES_POLL_MS);
     return () => {
       cancelled = true;
       gate.stop();
       refreshNow.current = () => {};
-      if (timer !== null) window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      unsubscribe();
+      stop();
     };
   }, [cwd, enabled]);
   const refresh = useCallback(() => refreshNow.current(), []);
