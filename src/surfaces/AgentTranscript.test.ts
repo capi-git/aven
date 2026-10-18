@@ -117,6 +117,38 @@ describe("AgentTranscript collapsed work", () => {
     card.orchestration!.status = "planning";
     expect(render(blocks)).not.toContain("data-orchestration-review");
   });
+  it("keeps a started run's card in the lead's turn while the run drives it", () => {
+    const card = proposalBlock("proposal", {
+      version: 1,
+      leadId: "lead",
+      cwd: "/repo",
+      request: "Build",
+      author: { harness: "claude", model: "claude:test", name: "Lead" },
+      settings: { choices: [], maxWorkers: 2 },
+      status: "approved",
+      title: "Proposed assignments",
+      summary: "",
+      tasks: [],
+    });
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Build", durationMs: 500 },
+      { id: "answer", role: "assistant", text: "Here is the plan." },
+      card,
+      // The run's own message to the lead: the turn it starts stays this one.
+      { id: "driven", role: "user", text: "Supervise them", internal: true },
+      { id: "waiting", role: "assistant", text: "Waiting on the agents." },
+    ];
+    const live = render(blocks, true);
+    expect(live.match(/data-orchestration-result/g)).toHaveLength(1);
+    expect(live.indexOf("Waiting on the agents.")).toBeLessThan(
+      live.indexOf("data-orchestration-result"),
+    );
+    card.orchestration!.status = "starting";
+    expect(render(blocks, true)).toContain("data-orchestration-result");
+    // A plan you have not started still waits for the turn to end.
+    card.orchestration!.status = "ready";
+    expect(render(blocks, true)).not.toContain("data-orchestration-result");
+  });
   it("names a turn's model only when it ran on a different model than the chat's current one", () => {
     const turn = (id: string, model: string): Block[] => [
       {

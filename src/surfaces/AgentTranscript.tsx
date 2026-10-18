@@ -945,7 +945,15 @@ const TranscriptTurn = memo(function TranscriptTurn({
   }
   const durationMs = userBlock?.durationMs;
   const settled = !(busy && isLastTurn);
-  const proposals = turn.filter((block) => block.orchestration);
+  // A plan's card waits for the turn that writes it to end. Once its run
+  // starts, the run drives the lead's next turns inside this one (their
+  // messages are the app's), so the card stays: hiding it while the lead
+  // works would collapse the turn under the reader each time.
+  const proposals = turn.filter((block) => {
+    const status = block.orchestration?.status;
+    if (!status || status === "planning") return false;
+    return settled || status === "starting" || status === "approved";
+  });
   // The other agent's last reply and the closing note end a
   // discussion after the turn's own footer.
   const asides = turn.filter(isDiscussionAside);
@@ -1123,22 +1131,19 @@ const TranscriptTurn = memo(function TranscriptTurn({
   const footer = (
     <>
       {foldLineAt >= items.length ? foldLineRow : null}
-      {settled &&
-        proposals
-          .filter((block) => block.orchestration?.status !== "planning")
-          .map((block) => (
-            <div
-              key={block.id}
-              className="px-4 pt-1 pb-2"
-              data-orchestration-result
-            >
-              <OrchestrationPreview
-                block={block}
-                busy={!!busy}
-                superseded={block.id !== newestProposalId}
-              />
-            </div>
-          ))}
+      {proposals.map((block) => (
+        <div
+          key={block.id}
+          className="px-4 pt-1 pb-2"
+          data-orchestration-result
+        >
+          <OrchestrationPreview
+            block={block}
+            busy={!!busy}
+            superseded={block.id !== newestProposalId}
+          />
+        </div>
+      ))}
       {durationMs != null && settled ? (
         <TurnDuration
           elapsedMs={durationMs}

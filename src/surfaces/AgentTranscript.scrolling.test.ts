@@ -2,6 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { saveTranscriptAnchor } from "../lib/appearance";
+import type { OrchestrationProposal } from "../lib/orchestrationPlan";
 import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
 import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
@@ -58,12 +60,12 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(blocks: Block[]) {
+async function render(blocks: Block[], busy = true) {
   await act(async () => {
     root.render(
       createElement(AgentTranscript, {
         blocks,
-        busy: true,
+        busy,
         onJumpToBottomChange: showJump,
         onJumpToBottomReady: (jump) => {
           jumpToBottom = jump;
@@ -149,6 +151,53 @@ function stretchedScrollMetrics(
     resize: (next: number) => {
       height = next;
       position = clamp(position);
+    },
+  };
+}
+
+/**
+ * Heights from the rows the transcript renders: earlier history, then each
+ * turn, with a run's card much taller than a line. A turn stretched for
+ * prompt to top is at least `--transcript-viewport` tall. Reading the offset
+ * clamps it to the end, as layout does.
+ */
+const LINE_PX = 40;
+const RUN_CARD_PX = 240;
+
+function renderedScrollMetrics(el: HTMLElement, initialHeight: number) {
+  let height = initialHeight;
+  let position = 0;
+  const rowHeight = (row: Element) =>
+    row.hasAttribute("data-orchestration-result") ? RUN_CARD_PX : LINE_PX;
+  const total = () => {
+    const stretch =
+      Number.parseFloat(el.style.getPropertyValue("--transcript-viewport")) ||
+      0;
+    let sum = 2000;
+    for (const turn of el.querySelectorAll(".transcript-turn")) {
+      let rows = 0;
+      for (const row of turn.children) rows += rowHeight(row);
+      sum += turn.classList.contains("transcript-turn-anchor")
+        ? Math.max(rows, stretch)
+        : rows;
+    }
+    return sum;
+  };
+  const clamp = (next: number) => Math.max(0, Math.min(next, total() - height));
+  Object.defineProperties(el, {
+    clientHeight: { configurable: true, get: () => height },
+    scrollHeight: { configurable: true, get: total },
+    scrollTop: {
+      configurable: true,
+      get: () => (position = clamp(position)),
+      set: (next: number) => {
+        position = clamp(next);
+      },
+    },
+  });
+  return {
+    resize: (next: number) => {
+      height = next;
     },
   };
 }
@@ -431,6 +480,105 @@ describe("transcript bottom following", () => {
     await render(answer("Here is the plan.\n\nThe run finished."));
     expect(el.scrollTop).toBe(540);
   });
+
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])(
+    "keeps the run's card and the end in view when the run takes over the lead's turn (prompt to top %s)",
+    async (_, promptToTop) => {
+      const stored = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => stored.get(key) ?? null,
+        setItem: (key: string, value: string) => stored.set(key, value),
+        removeItem: (key: string) => stored.delete(key),
+      });
+      saveTranscriptAnchor(promptToTop);
+      const plan = (status: OrchestrationProposal["status"]): Block => ({
+        id: "plan",
+        role: "plan",
+        text: "Reset button polish",
+        orchestration: {
+          version: 1,
+          leadId: "lead",
+          cwd: "/repo",
+          request: "Polish the reset button",
+          author: { harness: "claude", model: "claude:test", name: "Lead" },
+          settings: {
+            choices: [
+              { harness: "claude", model: "claude:test", name: "Worker" },
+            ],
+            maxWorkers: 2,
+          },
+          status,
+          title: "Reset button polish",
+          summary: "Two tasks",
+          tasks: [],
+        },
+      });
+      const earlier: Block[] = [
+        { id: "ask-0", role: "user", text: "Earlier", durationMs: 1000 },
+        { id: "reply-0", role: "assistant", text: "Earlier reply" },
+      ];
+      const request: Block = {
+        id: "ask-1",
+        role: "user",
+        text: "Polish the reset button",
+        startedAt: 1000,
+      };
+      const finished: Block = { ...request, durationMs: 9000 };
+      const reply: Block = {
+        id: "reply-1",
+        role: "assistant",
+        text: "Here is the plan.",
+      };
+      const driven: Block = {
+        id: "driven",
+        role: "user",
+        text: "The user confirmed the orchestration card.",
+        internal: true,
+        startedAt: 20_000,
+      };
+
+      // The request is sent, and the lead's turn ends with the plan card.
+      const el = await render([...earlier, request, reply]);
+      const card = () => el.querySelector("[data-orchestration-result]");
+      const lowerEdge = () => el.scrollTop + el.clientHeight;
+      const metrics = renderedScrollMetrics(el, 500);
+      await reportResize();
+      await render([...earlier, finished, reply, plan("ready")], false);
+      await reportResize();
+      expect(card()).not.toBeNull();
+      const before = lowerEdge();
+      expect(before).toBe(el.scrollHeight);
+
+      // Confirm and start. The team bar replaces the memory offer and the
+      // "Finished" line over the message box, and the run drives the lead's
+      // next turn. Its message is the app's, so the turn stays this one.
+      metrics.resize(528);
+      await reportResize();
+      await render([...earlier, finished, reply, plan("approved"), driven]);
+      await reportResize();
+      expect(card()).not.toBeNull();
+      expect(lowerEdge()).toBe(el.scrollHeight);
+      // Only the finished turn's footer gives way to the live clock.
+      expect(before - lowerEdge()).toBeLessThanOrEqual(LINE_PX);
+
+      // The lead's new output lands at the end, in view.
+      await render([
+        ...earlier,
+        finished,
+        reply,
+        plan("approved"),
+        driven,
+        { id: "reply-2", role: "assistant", text: "I'll wait for the task." },
+      ]);
+      await reportResize();
+      expect(card()).not.toBeNull();
+      expect(lowerEdge()).toBe(el.scrollHeight);
+      expect(showJump).not.toHaveBeenCalledWith(true);
+    },
+  );
 
   it("keeps following when a queued scroll event from the last pin lands after content grows", async () => {
     const el = await render(answer("One"));
