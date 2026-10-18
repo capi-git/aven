@@ -4,6 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
 import { EXTERNAL_BROWSER_NAME, type BrowserState } from "../lib/browser";
+import { reportDevServer, resetDevPreviews } from "../lib/devPreviews";
+import {
+  installDevServerStarter,
+  resetDevServerStarts,
+} from "../lib/devServerStart";
+import { localDevAddress } from "../lib/devServerUrls";
 import * as workspaceTransfers from "../lib/workspaceTransfers";
 import {
   BROWSER_HANDOFF_MAX_MS,
@@ -80,6 +86,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
+const devScripts = vi.hoisted(() => ({
+  value: null as null | { name: string; script: string; run: string },
+}));
+vi.mock("../lib/devServerStart", async (original) => ({
+  ...(await original<typeof import("../lib/devServerStart")>()),
+  loadDevScript: vi.fn(async () => devScripts.value),
+}));
 vi.mock("@tauri-apps/api/menu", () => ({ Menu: { new: mocks.nativeMenu } }));
 vi.mock("../lib/platform", async (original) => ({
   ...(await original<typeof import("../lib/platform")>()),
@@ -627,6 +640,90 @@ describe("native preview lifecycle", () => {
       "Search or enter a web address",
     );
     expect(mocks.close).not.toHaveBeenCalled();
+  });
+
+  it("offers to start the project's dev server for a local preview that cannot connect, and reloads once it answers", async () => {
+    devScripts.value = {
+      name: "dev",
+      script: "python3 -m http.server 5180",
+      run: "npm run dev",
+    };
+    const run = vi.fn(() => true);
+    const uninstall = installDevServerStarter(run);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(BrowserPane, {
+            id: "dev",
+            project: "/Users/me/site",
+            initialUrl: "http://localhost:5180/test.html",
+          }),
+        ),
+      );
+      await flushFrame();
+      await receive({
+        url: "http://localhost:5180/test.html",
+        loading: false,
+        error: "Could not connect to this server.",
+      });
+      await flushFrame();
+      const start = container.querySelector<HTMLButtonElement>(
+        "[data-dev-server-start]",
+      )!;
+      expect(start.textContent).toBe("Start dev server");
+      await act(async () => start.click());
+      expect(run).toHaveBeenCalledWith("/Users/me/site", "npm run dev");
+      expect(
+        container.querySelector("[data-dev-server-starting]")?.textContent,
+      ).toContain("“npm run dev”");
+      expect(container.querySelector("[data-dev-server-start]")).toBeNull();
+      // The terminal announces the server: the tab loads its page again.
+      mocks.navigate.mockClear();
+      await act(
+        async () =>
+          void reportDevServer({
+            project: "/Users/me/site",
+            cwd: "/Users/me/site",
+            address: localDevAddress("http://0.0.0.0:5180/", "strong")!,
+            source: "terminal",
+            sourceId: "terminal:t1",
+            placement: "terminal",
+          }),
+      );
+      expect(mocks.navigate).toHaveBeenCalledTimes(1);
+      expect(mocks.navigate).toHaveBeenLastCalledWith(
+        expect.any(String),
+        "http://localhost:5180/test.html",
+      );
+    } finally {
+      uninstall();
+      devScripts.value = null;
+      resetDevServerStarts();
+      resetDevPreviews();
+    }
+  });
+
+  it("keeps a local preview's message with a plain hint when the project has no dev script", async () => {
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, {
+          id: "dev",
+          project: "/Users/me/site",
+          initialUrl: "http://localhost:5180/",
+        }),
+      ),
+    );
+    await flushFrame();
+    await receive({
+      url: "http://localhost:5180/",
+      loading: false,
+      error: "Could not connect to this server.",
+    });
+    await flushFrame();
+    expect(container.querySelector("[data-dev-server-start]")).toBeNull();
+    expect(container.querySelector("[data-dev-server-hint]")?.textContent).toBe(
+      "Start the project's development server in a terminal, then press Retry.",
+    );
   });
 
   it("shows real load errors, offers a search for legacy single-word URLs, and restores the same native view", async () => {

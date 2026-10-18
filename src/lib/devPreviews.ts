@@ -429,6 +429,14 @@ export function previewTabMatch<T extends { id: string; url: string }>(
   return preferred && matches(preferred) ? preferred : tabs.find(matches);
 }
 
+/**
+ * The server an address is on, the same whichever loopback name or page it
+ * uses ("http://loopback:5180"), or undefined for no web address.
+ */
+export function devServerIdentity(url: string): string | undefined {
+  return serverIdentity(url);
+}
+
 /** Every browser tab already showing the server `url` is on, on any page. */
 export function previewTabsOnServer<T extends { url: string }>(
   tabs: readonly T[],

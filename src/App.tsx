@@ -201,6 +201,8 @@ import {
   publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
+import { installDevServerStarter } from "./lib/devServerStart";
+import { queueTerminalCommand } from "./lib/pty";
 import {
   newSessionChangesWorkspaceTab,
   reviewPaneFor,
@@ -3545,6 +3547,39 @@ export default function App({
       return true;
     },
     [focusProjectTerminal],
+  );
+
+  // A preview tab's Start dev server: a new terminal in the project's panel
+  // runs the script, queued until its shell starts like any terminal
+  // command. The panel opens to show the output; focus stays where it is.
+  useEffect(
+    () =>
+      installDevServerStarter((project, command) => {
+        const projectPath = projectCwdRef.current;
+        if (
+          !looksLikeProject(projectPath) ||
+          !sameProjectPath(projectPath, project)
+        )
+          return false;
+        const existing = findProjectTerminal(
+          projectTerminalsRef.current,
+          projectPath,
+        );
+        const file = newTerminalFile(
+          projectPath,
+          existing ? nextDockTerminalTitle(existing, projectPath) : undefined,
+        );
+        queueTerminalCommand(file.id, command);
+        setProjectTerminals((prev) =>
+          findProjectTerminal(prev, projectPath)
+            ? mapProjectTerminal(prev, projectPath, (dock) =>
+                addTerminalToDock(dock, file),
+              )
+            : [...prev, createProjectTerminal(projectPath, file)],
+        );
+        return true;
+      }),
+    [],
   );
 
   // New terminals open in the active session's worktree when it has one, so
