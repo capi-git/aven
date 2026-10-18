@@ -1774,7 +1774,11 @@ function UserMessageBlock({
             className={`personal-message-attachments flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
           >
             {block.attachments.map((file) => (
-              <AttachmentChip key={file.id} attachment={file} />
+              <AttachmentChip
+                key={file.id}
+                attachment={file}
+                group={block.attachments}
+              />
             ))}
           </div>
         ) : null}

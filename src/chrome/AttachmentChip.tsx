@@ -1,18 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "./icons";
+import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { attachmentPreviewSrc } from "../lib/attachments";
 import { sniffImageMime } from "../lib/filePreview";
 import { readBinaryFile } from "../lib/fs";
+import {
+  attachmentImageGroup,
+  attachmentViewerItem,
+  openImageViewer,
+} from "../lib/imageViewer";
 import { openInAppFile } from "../lib/inAppLinks";
 import type { Attachment } from "../lib/session";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 type Props = {
   attachment: Attachment;
+  /**
+   * The attachments shown beside this one. Its picture opens in the image
+   * viewer with the other pictures among them.
+   */
+  group?: readonly Attachment[];
   onRemove?: () => void;
 };
 
-export function AttachmentChip({ attachment, onRemove }: Props) {
+export function AttachmentChip({ attachment, group, onRemove }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const directPreview = attachmentPreviewSrc(attachment);
   const [visible, setVisible] = useState(false);
@@ -68,6 +79,13 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
     directPreview ??
     (savedPreview?.path === imagePath ? savedPreview?.src : undefined);
   const image = attachment.kind === "image" && preview;
+  const viewer = useImageViewerAvailable();
+  const viewable = viewer && !!attachmentViewerItem(attachment);
+  const open = () => {
+    const pictures = viewable ? attachmentImageGroup(attachment, group) : null;
+    if (pictures && openImageViewer(pictures)) return;
+    if (path) openInAppFile(path);
+  };
 
   const content = image ? (
     <img
@@ -94,14 +112,14 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
       }`}
       title={attachment.path ?? attachment.name}
     >
-      {path ? (
+      {path || viewable ? (
         <button
           type="button"
           className="flex min-w-0 items-center gap-1.5 rounded-md focus-visible:outline-2 focus-visible:outline-accent"
           aria-label={`Open ${attachment.name}`}
           onClick={(event) => {
             event.stopPropagation();
-            openInAppFile(path);
+            open();
           }}
         >
           {content}

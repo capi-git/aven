@@ -47,9 +47,11 @@ import {
 } from "../lib/streamingMarkdown";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
+import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
 import { copyText } from "../lib/clipboard";
+import { openImageGroupAt } from "../lib/imageViewer";
 import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
 import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
@@ -518,7 +520,7 @@ function NoteAssetImage({
     };
   }, [asset, src]);
 
-  return (
+  const image = (
     <img
       {...props}
       src={src}
@@ -527,6 +529,38 @@ function NoteAssetImage({
       draggable={false}
       loading="lazy"
     />
+  );
+  return src ? <ViewableImage name={alt}>{image}</ViewableImage> : image;
+}
+
+/**
+ * An inline picture that opens in the image viewer, with the other pictures
+ * in the same reply or note. Without a viewer it stays a plain image.
+ */
+function ViewableImage({
+  name,
+  children,
+}: {
+  name?: string;
+  children: ReactNode;
+}) {
+  const viewer = useImageViewerAvailable();
+  if (!viewer) return children;
+  const label = name?.trim() || "image";
+  return (
+    <button
+      type="button"
+      className="markdown-image-open"
+      data-viewer-image=""
+      data-viewer-name={name?.trim() || undefined}
+      title={`Open ${label}`}
+      aria-label={`Open ${label}`}
+      onClick={(event) => {
+        openImageGroupAt(event.currentTarget);
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -540,7 +574,11 @@ function MarkdownImage({
   const { cwd, onOpenFile } = useContext(FileOpenContext);
   const url = typeof src === "string" ? src.trim() : "";
   if (url.startsWith("data:image/")) {
-    return <img {...props} src={url} alt={alt ?? ""} />;
+    return (
+      <ViewableImage name={alt}>
+        <img {...props} src={url} alt={alt ?? ""} />
+      </ViewableImage>
+    );
   }
   if (isNoteImagePath(url)) {
     return <NoteAssetImage {...props} asset={url} alt={alt} />;

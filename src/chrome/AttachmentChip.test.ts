@@ -1,8 +1,13 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AttachmentChip } from "./AttachmentChip";
+import {
+  closeImageViewer,
+  imageViewerSnapshot,
+  registerImageViewerHost,
+} from "../lib/imageViewer";
 import type { Attachment } from "../lib/session";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), open: vi.fn() }));
@@ -109,4 +114,81 @@ it("does not allocate a preview after removal during the read", async () => {
   await act(async () => root.render(null));
   await act(async () => finish(png));
   expect(createUrl).not.toHaveBeenCalled();
+});
+
+describe("with an image viewer in the window", () => {
+  let unregister: () => void;
+  const pasted: Attachment = {
+    id: "pasted",
+    name: "Pasted image.png",
+    kind: "image",
+    mimeType: "image/png",
+    size: 3,
+    data: "AAAA",
+  };
+  const spec: Attachment = {
+    id: "spec",
+    name: "spec.pdf",
+    kind: "file",
+    mimeType: "application/pdf",
+    size: 10,
+    path: "/attachments/spec.pdf",
+  };
+
+  beforeEach(() => {
+    unregister = registerImageViewerHost();
+  });
+
+  afterEach(() => {
+    closeImageViewer();
+    unregister();
+  });
+
+  async function renderIn(value: Attachment, group: Attachment[]) {
+    await act(async () =>
+      root.render(createElement(AttachmentChip, { attachment: value, group })),
+    );
+  }
+
+  it("opens a picture in the viewer with the message's other pictures", async () => {
+    await renderIn(attachment, [pasted, spec, attachment]);
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>("[aria-label='Open screen.png']")!
+        .click(),
+    );
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(imageViewerSnapshot()).toMatchObject({
+      index: 1,
+      items: [
+        { name: "Pasted image.png", src: "data:image/png;base64,AAAA" },
+        { name: "screen.png", path: attachment.path },
+      ],
+    });
+  });
+
+  it("makes a pasted picture with no file openable", async () => {
+    await renderIn(pasted, [pasted]);
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          "[aria-label='Open Pasted image.png']",
+        )!
+        .click(),
+    );
+    expect(imageViewerSnapshot()?.items).toEqual([
+      { name: "Pasted image.png", src: "data:image/png;base64,AAAA", size: 3 },
+    ]);
+  });
+
+  it("still opens other files as before", async () => {
+    await renderIn(spec, [attachment, spec]);
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>("[aria-label='Open spec.pdf']")!
+        .click(),
+    );
+    expect(mocks.open).toHaveBeenCalledExactlyOnceWith("/attachments/spec.pdf");
+    expect(imageViewerSnapshot()).toBeNull();
+  });
 });
