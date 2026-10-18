@@ -120,7 +120,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
           status: "error",
           version: null,
           message:
-            "Aven couldn’t check this provider. Try again, or reopen Aven after installing the CLI.",
+            "Aven couldn’t check this provider. Try again, or reopen Aven after installing it.",
         },
       }));
     } finally {
@@ -263,8 +263,8 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
             </details>
           </div>
           <p className="provider-setup-note">
-            Aven connects to your provider’s CLI. Provider accounts and usage
-            are managed by that provider.
+            Aven works through each provider’s own command-line tool. Provider
+            accounts and usage are managed by that provider.
           </p>
           <footer className="provider-setup-footer">
             {onDone ? (
@@ -347,7 +347,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
                         className="provider-setup-primary"
                         onClick={() => void prepare(harness, "install")}
                       >
-                        {guided ? "Install CLI" : "Installation guide"}
+                        {guided ? "Install" : "Installation guide"}
                       </button>
                     ) : null}
                     {result &&
@@ -393,7 +393,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
                   ) : null}
                   {result?.status === "ready" && !supportsTest ? (
                     <p className="provider-setup-note">
-                      Start your first task in Aven to confirm this account can
+                      Start your first chat in Aven to confirm this account can
                       send a message.
                     </p>
                   ) : null}
@@ -519,7 +519,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
           <div className="provider-setup-lead">
             <h3>
               {verified.length
-                ? "You’re ready for your first task"
+                ? "You’re ready for your first chat"
                 : ready.length
                   ? "Your provider is connected"
                   : "Your choices are saved"}
@@ -528,7 +528,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
               {verified.length
                 ? `${verified.map((id) => HARNESS_TITLE[id]).join(" and ")} responded to a test message.`
                 : ready.length
-                  ? "Sign-in is confirmed. Start your first task to check the connection."
+                  ? "Sign-in is confirmed. Start your first chat to check the connection."
                   : "You can finish connecting your providers whenever you’re ready."}
             </p>
           </div>

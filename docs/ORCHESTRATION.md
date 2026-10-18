@@ -22,7 +22,7 @@ The lead's chat stays loaded while its run is running or paused, so closing its 
 
 ## Message queue
 
-Follow-ups default to **Queue** while an agent is working. **Steer** remains available for agents that support it. Waiting messages keep their order, including when a switch to another agent is pending. **Resume** runs the next queued message. A message that can't be sent stays in the box to edit or retry.
+Messages you send while an agent is working default to **Wait their turn**. **Send right away** (or **Send now** on a waiting message) remains available for agents that support it. Waiting messages keep their order, including when a switch to another agent is pending. **Resume** runs the next queued message. A message that can't be sent stays in the box to edit or retry.
 
 ## Discussions
 

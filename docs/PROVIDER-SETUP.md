@@ -8,7 +8,7 @@ A fresh installation offers setup on first launch. Existing projects and convers
 
 1. Choose the providers you want to use. The initial selection is empty, even if some CLIs are already installed. Selecting a provider does not install software, sign in, or send a message.
 2. Select **Continue**. Aven checks only the providers you chose.
-3. For Claude Code or Codex, select **Install CLI** or **Sign in**, review the action, and explicitly select **Run installation** or **Start sign-in**. Installation uses that provider's official installer for your operating system. Complete sign-in through the provider's terminal or browser prompts.
+3. For Claude Code or Codex, select **Install** or **Sign in**, review the action, and explicitly select **Run installation** or **Start sign-in**. Installation uses that provider's official installer for your operating system. Complete sign-in through the provider's terminal or browser prompts.
 4. When the setup command finishes, select **Close & check**. Closing this terminal stops an unfinished setup command.
 5. For Claude, you can explicitly select **Send test message**. For Codex and other providers, start a task to verify that the account can respond. Then choose a folder and start your work in Aven.
 
