@@ -10,6 +10,11 @@ import {
   type GitPr,
 } from "../lib/fs";
 import { generateCommitMessage } from "../lib/harness";
+import {
+  closeImageViewer,
+  imageViewerSnapshot,
+  registerImageViewerHost,
+} from "../lib/imageViewer";
 import { requestShip, takeShipRequest } from "../lib/shipRequest";
 
 const mocks = vi.hoisted(() => ({
@@ -222,6 +227,54 @@ describe("GitChangesPanel Open All Changes", () => {
     await act(async () => opens[0].click());
     await act(async () => opens[1].click());
     expect(onOpenAllChanges.mock.calls).toEqual([["staged"], ["unstaged"]]);
+  });
+});
+
+describe("changed pictures", () => {
+  it("open in the image viewer beside the section's other pictures; other files open their diff", async () => {
+    const unregister = registerImageViewerHost();
+    index.files = [
+      changed("shots/a.png", false, true),
+      changed("src/b.ts", false, true),
+      changed("shots/c.png", false, true),
+    ];
+    const onOpenFile = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(GitChangesPanel, {
+          cwd,
+          enabled: true,
+          onOpenFile,
+          onOpenAllChanges: vi.fn(),
+          onOpenCommit: vi.fn(),
+        }),
+      ),
+    );
+    const row = (relative: string) =>
+      container.querySelector<HTMLButtonElement>(
+        `button[title="${relative}"]`,
+      )!;
+    await act(async () => row("shots/c.png").click());
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(imageViewerSnapshot()).toMatchObject({
+      index: 1,
+      items: [
+        { name: "a.png", path: `${cwd}/shots/a.png` },
+        { name: "c.png", path: `${cwd}/shots/c.png` },
+      ],
+    });
+    closeImageViewer();
+    await act(async () => row("src/b.ts").click());
+    expect(onOpenFile).toHaveBeenCalledExactlyOnceWith(
+      `${cwd}/src/b.ts`,
+      "unstaged",
+    );
+    unregister();
+    await act(async () => row("shots/a.png").click());
+    expect(onOpenFile).toHaveBeenLastCalledWith(
+      `${cwd}/shots/a.png`,
+      "unstaged",
+    );
   });
 });
 
