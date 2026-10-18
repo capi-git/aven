@@ -10,6 +10,7 @@ import {
   type CheckpointStatus,
 } from "../lib/checkpoint";
 import { gitChangeAffects, subscribeGitChangedPath } from "../lib/fs";
+import { installChatFolders } from "../lib/teamChanges";
 import {
   sessionDisplayTitle,
   sessionWorkCwd,
@@ -121,16 +122,26 @@ export function startChatReviewTracker({
   };
 }
 
-/** `startChatReviewTracker` for the workspace's chats, for its lifetime. */
+/**
+ * `startChatReviewTracker` for the workspace's chats, for its lifetime. It
+ * also tells team runs where each chat keeps its changes, so what a kept
+ * race brings in lands in its chat's review (see `teamChanges`).
+ */
 export function useChatReviewTracker(sessionsRef: {
   readonly current: readonly Session[];
 }): void {
-  useEffect(
-    () =>
-      startChatReviewTracker({
-        session: (id) => sessionsRef.current.find((entry) => entry.id === id),
-        sessions: () => sessionsRef.current,
-      }),
-    [sessionsRef],
-  );
+  useEffect(() => {
+    const stopTracker = startChatReviewTracker({
+      session: (id) => sessionsRef.current.find((entry) => entry.id === id),
+      sessions: () => sessionsRef.current,
+    });
+    const stopFolders = installChatFolders((id) => {
+      const loaded = sessionsRef.current.find((entry) => entry.id === id);
+      return loaded ? sessionWorkCwd(loaded) : undefined;
+    });
+    return () => {
+      stopTracker();
+      stopFolders();
+    };
+  }, [sessionsRef]);
 }

@@ -2,8 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
 import { readAgentRole, type AgentRoleId } from "./agentRoles";
 import { logError } from "./errors";
-import { isEqualOrInside } from "./paths";
+import { isEqualOrInside, joinPath } from "./paths";
 import type { Attachment, Block, HarnessId, Session } from "./session";
+import { applyForChat } from "./teamChanges";
 
 /**
  * A race runs one prompt through several agents, each in its own git
@@ -625,7 +626,14 @@ export async function finishRace(
             : "None of the files you picked are changed any more. Pick again.",
         );
       try {
-        await raceHost.apply(race.root, race.base, choices);
+        // What it brings in is the starting chat's to review and ship.
+        await applyForChat(
+          race.origin?.sessionId,
+          choices.flatMap((choice) =>
+            choice.paths.map((path) => joinPath(race.root, path)),
+          ),
+          () => raceHost.apply(race.root, race.base, choices),
+        );
       } catch (error) {
         logError("Race keep", error);
         throw new RaceRefusal(

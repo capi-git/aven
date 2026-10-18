@@ -586,6 +586,7 @@ import {
   summarizeRun,
   watchRaceSuggestions,
 } from "./lib/teamResult";
+import { turnChangeOwner } from "./lib/teamChanges";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
 import { equalChromeData } from "./hooks/useChromeProps";
@@ -6138,9 +6139,9 @@ export default function App({
       const current = options?.buildTarget
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
+      const drivingRun = orchestrator.forSession(sessionId);
       const controlledTurn =
-        !!options?.managed ||
-        orchestrationOwnsTurn(orchestrator.forSession(sessionId));
+        !!options?.managed || orchestrationOwnsTurn(drivingRun);
       const intent = options?.intent ?? "default";
       if (intent === "orchestrate") {
         try {
@@ -6188,6 +6189,22 @@ export default function App({
       }
       if (isPreparingHandoff(current)) return false;
       const workCwd = sessionWorkCwd(current);
+      // A run's driven turns write for its lead: the lead chat reviews and
+      // ships everything the run changed.
+      const drivingLead = drivingRun
+        ? sessionsRef.current.find(
+            (session) => session.id === drivingRun.leadId,
+          )
+        : undefined;
+      const changeOwner = turnChangeOwner({
+        sessionId,
+        workCwd,
+        driven: controlledTurn,
+        lead: drivingLead && {
+          id: drivingLead.id,
+          workCwd: sessionWorkCwd(drivingLead),
+        },
+      });
       const submittedText = intent === "build" ? "Build approved plan" : text;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
       const harnessText = rawCommand
@@ -6675,8 +6692,10 @@ export default function App({
           return event;
         };
 
-        if (!current.inboxAsk && !controlledTurn) {
-          await beginSessionTurn(sessionId, workCwd).catch(() => undefined);
+        if (!current.inboxAsk && changeOwner) {
+          await beginSessionTurn(changeOwner.sessionId, changeOwner.cwd).catch(
+            () => undefined,
+          );
         }
         if (turnGen.current.get(sessionId) !== gen) return;
         let buildSucceeded = false;
@@ -6782,7 +6801,12 @@ export default function App({
                 revealHandoff(wrap.text);
               }
               nudgeOpenEditors(event, workCwd);
-              if (!controlledTurn) trackSessionEdits(sessionId, workCwd, event);
+              if (changeOwner)
+                trackSessionEdits(
+                  changeOwner.sessionId,
+                  changeOwner.cwd,
+                  event,
+                );
               const routed = routePlanEvent(event);
               if (routed) enqueueHarnessEvent(sessionId, routed);
             },
@@ -6897,6 +6921,8 @@ export default function App({
               activityTurnIds.current.delete(sessionId);
               failedActivityTurns.current.delete(sessionId);
               notifyReviewChanged(sessionId);
+              if (changeOwner && changeOwner.sessionId !== sessionId)
+                notifyReviewChanged(changeOwner.sessionId);
               notifyGitChanged(workCwd);
               nudgeWorkspace(workCwd);
               nudgeWatchedFiles();
