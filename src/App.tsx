@@ -746,6 +746,7 @@ import {
 } from "./lib/shipRequest";
 import { forgetChatReview, useChatReviews } from "./lib/chatReview";
 import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
+import { forgetTurnNotes, takeTurnNotes } from "./lib/turnNotes";
 import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
 import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
 import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
@@ -5221,6 +5222,7 @@ export default function App({
               // A deleted chat leaves no card on its project's board.
               forgetChatReview(sessionId);
               forgetShippedChat(sessionId);
+              forgetTurnNotes(sessionId);
             }
           },
         });
@@ -6680,6 +6682,7 @@ export default function App({
         }
         if (turnGen.current.get(sessionId) !== gen) return;
         let buildSucceeded = false;
+        let restoreNotes = () => {};
         try {
           const prepared = await prepareAttachments(attachments);
           const prompt =
@@ -6708,6 +6711,27 @@ export default function App({
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
+          const projectMemory = await projectMemoryForTurn(current.cwd);
+          const composed = orchestrator.prompt(
+            sessionId,
+            inboxAskPrompt(
+              rawCommand ? undefined : current.inboxAsk,
+              wrap && !rawCommand
+                ? wrapHandoffPrompt(
+                    wrap.text,
+                    wrap.from,
+                    turnPrompt.trim() || CONTINUE_PROMPT,
+                    earlier,
+                  )
+                : turnPrompt,
+            ),
+          );
+          // What Aven did for this chat since its last turn (a Ship it
+          // commit, the race version kept) rides ahead, hidden, once.
+          const noted = rawCommand
+            ? { text: composed, restore: () => {} }
+            : takeTurnNotes(sessionId, composed);
+          restoreNotes = noted.restore;
           await sendHarnessTurn({
             harness: current.harness,
             sessionId,
@@ -6719,21 +6743,8 @@ export default function App({
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
             controlsAgents: orchestrator.run(sessionId)?.status === "active",
-            projectMemory: await projectMemoryForTurn(current.cwd),
-            text: orchestrator.prompt(
-              sessionId,
-              inboxAskPrompt(
-                rawCommand ? undefined : current.inboxAsk,
-                wrap && !rawCommand
-                  ? wrapHandoffPrompt(
-                      wrap.text,
-                      wrap.from,
-                      turnPrompt.trim() || CONTINUE_PROMPT,
-                      earlier,
-                    )
-                  : turnPrompt,
-              ),
-            ),
+            projectMemory,
+            text: noted.text,
             attachments: prepared,
             onEvent: (event) => {
               if (
@@ -6802,6 +6813,8 @@ export default function App({
           }
           buildSucceeded = true;
         } catch (error: unknown) {
+          // The message never reached the agent: its notes wait for the next.
+          restoreNotes();
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
           const message = failureText(
