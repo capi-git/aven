@@ -4387,6 +4387,10 @@ export default function App({
     );
     let id: string;
     if (existing) {
+      // One shown elsewhere (another window, another project) is left there.
+      const view = viewRef.current.view;
+      const known = Object.values({ ...view.groups, ...view.hiddenGroups });
+      if (!known.some((members) => members.includes(existing.id))) return false;
       id = existing.id;
       setTabs((prev) =>
         prev.map((tab) =>
