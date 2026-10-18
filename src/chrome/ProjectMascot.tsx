@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { AVEN_MARK_SUMMIT_COLOR } from "../lib/avenMark";
 import {
   MASCOT_REACTION_MS,
   type MascotReactionKind,
@@ -8,7 +9,10 @@ import {
   MASCOT_SPARKLE_PATH,
   MASCOT_SWEAT_PATH,
   MASCOT_TWINKLE_PATH,
+  mascotEyeInk,
   projectMascot,
+  summitBlendsIn,
+  type MascotFrame,
 } from "../lib/projectMascots";
 import "./ProjectMascot.css";
 
@@ -27,6 +31,59 @@ type Props = {
   reactionId?: string;
 };
 
+/*
+ * Shading is drawn as overlays on the body colour rather than mixed colours,
+ * so it follows any colour, a CSS variable included, and costs nothing to
+ * work out.
+ */
+const VIEW_BOX = `0 0 ${MASCOT_GRID} ${MASCOT_GRID}`;
+const SHADE = "#000000";
+const SHADE_OPACITY = 0.38;
+const LIGHT = "#ffffff";
+const LIGHT_OPACITY = 0.48;
+const EYE = "#121215";
+/** Eyes on a dark mascot. */
+const PALE_EYE = "#f4f4f6";
+/** The summit on a mascot already close to Aven's blue. */
+const PALE_SUMMIT = "#f3f6ff";
+const PALE_SUMMIT_OPACITY = 0.92;
+
+type Look = { pale: boolean; ink: ReturnType<typeof mascotEyeInk> };
+
+/** One frame's paths: the body in the mascot colour, then its overlays. */
+function Frame({ frame, look }: { frame: MascotFrame; look: Look }) {
+  const { pale, ink } = look;
+  return (
+    <>
+      <path d={frame.body} />
+      {frame.shade ? (
+        <path d={frame.shade} fill={SHADE} fillOpacity={SHADE_OPACITY} />
+      ) : null}
+      {frame.light ? (
+        <path d={frame.light} fill={LIGHT} fillOpacity={LIGHT_OPACITY} />
+      ) : null}
+      {frame.eyes ? (
+        <path
+          className="mascot-eyes"
+          data-ink={ink}
+          d={frame.eyes}
+          fill={ink === "light" ? PALE_EYE : EYE}
+        />
+      ) : null}
+      {frame.glint ? <path d={frame.glint} fill={LIGHT} /> : null}
+      {frame.summit ? (
+        <path
+          className="mascot-summit"
+          data-pale={pale || undefined}
+          d={frame.summit}
+          fill={pale ? PALE_SUMMIT : AVEN_MARK_SUMMIT_COLOR}
+          fillOpacity={pale ? PALE_SUMMIT_OPACITY : undefined}
+        />
+      ) : null}
+    </>
+  );
+}
+
 /** Pixel mascot standing in for the project's color dot. */
 export function ProjectMascot({
   project,
@@ -38,12 +95,17 @@ export function ProjectMascot({
   reactionId,
 }: Props) {
   const mascot = projectMascot(project, name);
+  const look: Look = {
+    pale: summitBlendsIn(color, AVEN_MARK_SUMMIT_COLOR),
+    ink: mascotEyeInk(color),
+  };
   if (reaction) {
+    const blinks = reaction === "shrug" || reaction === "tilt";
     return (
       <svg
         key={reactionId ?? reaction}
         aria-hidden
-        viewBox={`0 0 ${MASCOT_GRID} ${MASCOT_GRID}`}
+        viewBox={VIEW_BOX}
         shapeRendering="crispEdges"
         overflow="visible"
         className={`${className} mascot-reacting`}
@@ -57,9 +119,17 @@ export function ProjectMascot({
         }
       >
         <g className="mascot-body">
-          <path d={mascot.restPath} />
-          {reaction === "shrug" || reaction === "tilt" ? (
-            <path className="mascot-blink" d={mascot.blinkPath} />
+          <Frame frame={mascot.restFrame} look={look} />
+          {blinks ? (
+            // Closed lids: the body colour, shaded, over the eyes.
+            <g className="mascot-blink">
+              <path d={mascot.blinkPath} />
+              <path
+                d={mascot.blinkPath}
+                fill={SHADE}
+                fillOpacity={SHADE_OPACITY}
+              />
+            </g>
           ) : null}
         </g>
         {reaction === "cheer" ? (
@@ -77,7 +147,7 @@ export function ProjectMascot({
   return (
     <svg
       aria-hidden
-      viewBox={`0 0 ${MASCOT_GRID} ${MASCOT_GRID}`}
+      viewBox={VIEW_BOX}
       shapeRendering="crispEdges"
       className={`${className} ${active ? "mascot-active" : ""}`}
       fill="currentColor"
@@ -85,11 +155,15 @@ export function ProjectMascot({
     >
       {active ? (
         <>
-          <path className="mascot-rest" d={mascot.restPath} />
-          <path className="mascot-talk" d={mascot.talkPath} />
+          <g className="mascot-rest">
+            <Frame frame={mascot.restFrame} look={look} />
+          </g>
+          <g className="mascot-talk">
+            <Frame frame={mascot.talkFrame} look={look} />
+          </g>
         </>
       ) : (
-        <path d={mascot.restPath} />
+        <Frame frame={mascot.restFrame} look={look} />
       )}
     </svg>
   );

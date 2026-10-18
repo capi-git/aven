@@ -1,5 +1,19 @@
+/* Eyes on a mascot coloured from the theme's text follow the theme: the
+   light theme's text is dark, so they turn pale there. */
+html.theme-light .mascot-eyes[data-ink="theme"] {
+  fill: #f4f4f6;
+}
+
+/* A summit turned pale on a blue mascot would vanish on the light theme's
+   light surfaces wherever it stands clear of the body (a spout, a bud), so
+   it turns a deep blue there instead. */
+html.theme-light .mascot-summit[data-pale] {
+  fill: #1d5fae;
+  fill-opacity: 1;
+}
+
 /* One-shot reactions at a turn's end. Transforms here are in the mascot's
-   own 8-pixel grid, so 1px moves one mascot pixel, and every keyframe holds
+   own 12-pixel grid, so 1px moves one mascot pixel, and every keyframe holds
    until the next (step-end): the sprite jumps whole pixels like an arcade
    sprite and never blurs between them. Durations come from
    MASCOT_REACTION_MS through --mascot-reaction-ms. */
@@ -77,25 +91,25 @@
   }
 }
 
-/* Completed: a happy hop, up three pixels and a small second bounce. */
+/* Completed: a happy hop, up four pixels and a small second bounce. */
 @keyframes mascot-cheer {
   0% {
     transform: translateY(0);
   }
   10% {
-    transform: translateY(-2px);
-  }
-  22% {
     transform: translateY(-3px);
   }
+  22% {
+    transform: translateY(-4px);
+  }
   36% {
-    transform: translateY(-2px);
+    transform: translateY(-3px);
   }
   46% {
     transform: translateY(0);
   }
   58% {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
   }
   68%,
   100% {
@@ -141,14 +155,14 @@
   }
 }
 
-/* Failed: droops a pixel while a drop of sweat runs down, then recovers. */
+/* Failed: droops two pixels while a drop of sweat runs down, then recovers. */
 @keyframes mascot-slump {
   0% {
     transform: translateY(0);
   }
   12%,
   78% {
-    transform: translateY(1px);
+    transform: translateY(2px);
   }
   88%,
   100% {
@@ -167,16 +181,16 @@
   }
   40% {
     opacity: 1;
-    transform: translateY(1px);
+    transform: translateY(2px);
   }
   60% {
     opacity: 1;
-    transform: translateY(2px);
+    transform: translateY(3px);
   }
   76%,
   100% {
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(3px);
   }
 }
 
@@ -205,7 +219,7 @@
     transform: translateY(0);
   }
   64% {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
   }
   80%,
   100% {
@@ -213,19 +227,19 @@
   }
 }
 
-/* Agrees: two quick nods, down one pixel and back. */
+/* Agrees: two quick nods, down two pixels and back. */
 @keyframes mascot-nod {
   0% {
     transform: translateY(0);
   }
   14% {
-    transform: translateY(1px);
+    transform: translateY(2px);
   }
   34% {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(1px);
+    transform: translateY(2px);
   }
   70%,
   100% {
@@ -233,20 +247,20 @@
   }
 }
 
-/* Pushes back: leans a pixel one way, then the other, with one blink, like
-   a small "hmm". */
+/* Pushes back: leans two pixels one way, then the other, with one blink,
+   like a small "hmm". */
 @keyframes mascot-tilt {
   0% {
     transform: translate(0, 0);
   }
   12% {
-    transform: translate(-1px, 0);
+    transform: translate(-2px, 0);
   }
   40% {
-    transform: translate(-1px, -1px);
+    transform: translate(-2px, -2px);
   }
   58% {
-    transform: translate(1px, 0);
+    transform: translate(2px, 0);
   }
   80%,
   100% {

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HARNESS_ICONS, MONOCHROME_HARNESSES } from "../chrome/HarnessIcon";
-import { MASCOT_GRID, PROJECT_MASCOTS } from "../lib/projectMascots";
+import {
+  MASCOT_GRID,
+  PROJECT_MASCOTS,
+  mascotCellsPath,
+} from "../lib/projectMascots";
 import { HARNESSES, type HarnessId } from "../lib/session";
 import {
   ARCADE_MODES,
@@ -57,21 +61,33 @@ type Board = {
 };
 
 /**
- * Mascot art, traced once over its 8×8 box so each frame is a single fill.
- * Traced on first paint rather than at import, so nothing needs a canvas
- * around just to pull this module in.
+ * The grid is one colour, so a critter's shading becomes three strengths of
+ * it: light cells and the summit brightest, the body a little softer, shade
+ * fainter still. Eyes stay holes.
  */
-const mascotPaths = new Map<string, { rest: Path2D; talk: Path2D }>();
+const MASCOT_TONES = [
+  { cells: "+w*", alpha: 1 },
+  { cells: "#", alpha: 0.78 },
+  { cells: "=", alpha: 0.48 },
+] as const;
+
+type MascotTones = Path2D[];
+
+/**
+ * Mascot art, traced once over its 12×12 box so each tone of a frame is a
+ * single fill. Traced on first paint rather than at import, so nothing needs
+ * a canvas around just to pull this module in.
+ */
+const mascotPaths = new Map<string, { rest: MascotTones; talk: MascotTones }>();
 
 function mascotArt(name: string) {
   const cached = mascotPaths.get(name);
   if (cached) return cached;
   const mascot = PROJECT_MASCOTS.find((it) => it.name === name);
   if (!mascot) return null;
-  const art = {
-    rest: new Path2D(mascot.restPath),
-    talk: new Path2D(mascot.talkPath),
-  };
+  const tones = (rows: readonly string[]) =>
+    MASCOT_TONES.map(({ cells }) => new Path2D(mascotCellsPath(rows, cells)));
+  const art = { rest: tones(mascot.rest), talk: tones(mascot.talk) };
   mascotPaths.set(name, art);
   return art;
 }
@@ -117,24 +133,25 @@ function drawPacman(
   ctx.fill();
 }
 
-/** The mascot's own pixel art, scaled up out of its 8×8 box. */
+/** The mascot's own pixel art, scaled up out of its 12×12 box. */
 function drawGhost(
   ctx: CanvasRenderingContext2D,
   sprite: ArcadeSprite,
-  fill: string,
+  rgb: string,
+  opacity: number,
 ) {
   const span = sprite.size * PITCH * SPRITE_SCALE;
   const left = sprite.cx * PITCH + CELL / 2 - span / 2;
   const top = sprite.cy * PITCH + CELL / 2 - span / 2;
-  const unit = span / MASCOT_GRID;
 
-  ctx.fillStyle = fill;
   if (sprite.eyes) {
-    // Eaten: only the eyes float home, leaning the way they're headed.
+    // Eaten: only a pair of eyes floats home, leaning the way they're headed.
+    const unit = span / 8;
     const lean = {
       x: Math.sign(sprite.dx) * unit * 0.6,
       y: Math.sign(sprite.dy) * unit * 0.6,
     };
+    ctx.fillStyle = `rgba(${rgb}, ${opacity})`;
     for (const offset of [2, 5]) {
       ctx.fillRect(
         left + offset * unit + lean.x,
@@ -148,10 +165,15 @@ function drawGhost(
 
   const art = sprite.mascot ? mascotArt(sprite.mascot) : null;
   if (!art) return;
+  const unit = span / MASCOT_GRID;
+  const tones = sprite.frame === "talk" ? art.talk : art.rest;
   ctx.save();
   ctx.translate(left, top);
   ctx.scale(unit, unit);
-  ctx.fill(sprite.frame === "talk" ? art.talk : art.rest);
+  tones.forEach((path, index) => {
+    ctx.fillStyle = `rgba(${rgb}, ${opacity * MASCOT_TONES[index].alpha})`;
+    ctx.fill(path);
+  });
   ctx.restore();
 }
 
@@ -342,9 +364,9 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
           dim *
           (sprite.kind === "pacman" ? PAC_OPACITY : GHOST_OPACITY);
         if (opacity <= 0.02) continue;
-        const fill = `rgba(${rgb}, ${opacity})`;
-        if (sprite.kind === "pacman") drawPacman(ctx, sprite, fill);
-        else drawGhost(ctx, sprite, fill);
+        if (sprite.kind === "pacman")
+          drawPacman(ctx, sprite, `rgba(${rgb}, ${opacity})`);
+        else drawGhost(ctx, sprite, rgb, opacity);
       }
 
       const bubble = arcade.speechBubble();

@@ -9,6 +9,7 @@ import {
 } from "../lib/activity";
 import { REACTION_CLAIMS_KEY } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
+import { AVEN_MARK_SUMMIT_COLOR } from "../lib/avenMark";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import {
   MASCOT_SPARKLE_PATH,
@@ -34,7 +35,7 @@ function appearance(patch: Partial<ProjectAppearance> = {}): ProjectAppearance {
     automaticColorIndex: 0,
     logoPath: null,
     logoSrc: null,
-    mascot: "ghost",
+    mascot: "jelly",
     ...patch,
   } as ProjectAppearance;
 }
@@ -116,9 +117,13 @@ describe("mark reactions", () => {
       async () => void recordActivity(turn("t2", { outcome: "stopped" })),
     );
     expect(svg().dataset.reaction).toBe("shrug");
-    expect(container.querySelector(".mascot-blink")?.getAttribute("d")).toBe(
-      projectMascot(APP, "ghost").blinkPath,
-    );
+    // Closed lids over the eyes: the body colour, then its shade.
+    const lids = [...container.querySelectorAll(".mascot-blink path")];
+    expect(lids.map((lid) => lid.getAttribute("d"))).toEqual([
+      projectMascot(APP, "jelly").blinkPath,
+      projectMascot(APP, "jelly").blinkPath,
+    ]);
+    expect(lids[1].getAttribute("fill-opacity")).toBe("0.38");
   });
 
   it("restarts the animation for a new turn end", async () => {
@@ -161,10 +166,63 @@ describe("mark reactions", () => {
 describe("ProjectMascot", () => {
   it("keeps its plain frames when not reacting", async () => {
     await act(async () =>
-      root.render(createElement(ProjectMascot, { project: APP, active: true })),
+      root.render(
+        createElement(ProjectMascot, {
+          project: APP,
+          name: "owl",
+          active: true,
+        }),
+      ),
     );
-    expect(container.querySelectorAll("path")).toHaveLength(2);
+    const frames = [...svg().children];
+    expect(frames.map((frame) => frame.getAttribute("class"))).toEqual([
+      "mascot-rest",
+      "mascot-talk",
+    ]);
+    // The owl: body, shade, light and eyes, no summit.
+    for (const frame of frames)
+      expect(frame.querySelectorAll("path")).toHaveLength(4);
+    expect(svg().getAttribute("viewBox")).toBe("0 0 12 12");
     expect(svg().getAttribute("overflow")).toBeNull();
+  });
+
+  it("shades its body and keeps eyes and summit their own colours", async () => {
+    const draw = (color?: string) =>
+      act(async () =>
+        root.render(
+          createElement(ProjectMascot, { project: APP, name: "jelly", color }),
+        ),
+      );
+    const fills = () =>
+      [...container.querySelectorAll("path")].map((path) => [
+        path.getAttribute("fill"),
+        path.getAttribute("fill-opacity"),
+      ]);
+    await draw("#d97757");
+    expect(svg().style.color).toBe("#d97757");
+    expect(fills()).toEqual([
+      [null, null],
+      ["#000000", "0.38"],
+      ["#ffffff", "0.48"],
+      ["#121215", null],
+      [AVEN_MARK_SUMMIT_COLOR, null],
+    ]);
+    // On Codex's blue the summit would vanish, so it turns pale.
+    await draw("#7a9dff");
+    expect(fills()[4]).toEqual(["#f3f6ff", "0.92"]);
+    expect(
+      svg().querySelector(".mascot-summit")?.hasAttribute("data-pale"),
+    ).toBe(true);
+    // Inheriting the text colour, it stays Aven's blue, and its eyes follow
+    // the theme (pale on the light theme's dark text).
+    await draw();
+    expect(fills()[4]).toEqual([AVEN_MARK_SUMMIT_COLOR, null]);
+    expect(svg().querySelector(".mascot-eyes")?.getAttribute("data-ink")).toBe(
+      "theme",
+    );
+    // A dark colour gets pale eyes outright.
+    await draw("#2a2b35");
+    expect(fills()[3]).toEqual(["#f4f4f6", null]);
   });
 
   it("draws reaction overlays outside its box without clipping", async () => {
