@@ -105,12 +105,19 @@ impl CheckpointStore {
             // Keep the original pre-edit snapshot across later edits by this
             // session. The first tool-start event owns the safe undo boundary.
             if manifest.touched.contains(&relative) && manifest.prepared.contains(&relative) {
-                if !after_matches_worktree(&dir, &root, &manifest, &relative)
-                    && manifest.diverged.insert(relative)
-                {
+                if is_settled(&root, &manifest, &relative) {
+                    // Its last change was committed since: this edit starts a
+                    // new one from what HEAD holds now.
+                    release_path(&mut manifest, &relative);
                     dirty = true;
+                } else {
+                    if !after_matches_worktree(&dir, &root, &manifest, &relative)
+                        && manifest.diverged.insert(relative)
+                    {
+                        dirty = true;
+                    }
+                    continue;
                 }
-                continue;
             }
             if manifest.prepared.contains(&relative) {
                 continue;
@@ -186,13 +193,22 @@ impl CheckpointStore {
     }
 
     fn status(&self, session_id: &str, cwd: &str) -> Result<CheckpointStatus, String> {
-        let Some(manifest) = self.load_matching(session_id, cwd)? else {
+        let Some(mut manifest) = self.load_matching(session_id, cwd)? else {
             return Ok(CheckpointStatus { files: Vec::new() });
         };
         let root = project_root(cwd)?;
+        let dir = self.session_dir(session_id);
+        let index = git_diff_files_for(&root);
+        // A change committed since is settled. Letting go of it keeps a later
+        // edit to that file, by hand or by another agent, from reading as
+        // this session's, with this session's old line counts.
+        if release_settled(&root, &index, &mut manifest) {
+            write_manifest(&dir, &manifest)?;
+        }
         let foreign_touched = self.foreign_touched_paths(cwd, session_id);
-        Ok(diff_from_manifest(
-            &self.session_dir(session_id),
+        Ok(diff_from_manifest_with(
+            &index,
+            &dir,
             &root,
             &manifest,
             &foreign_touched,
@@ -808,6 +824,67 @@ fn release_path(manifest: &mut Manifest, relative: &str) {
     manifest.after.remove(relative);
     manifest.stats.remove(relative);
     manifest.diverged.remove(relative);
+}
+
+/// Whether `relative` matches HEAD in both the index and the working tree.
+/// None when Git cannot say, so a failed read never settles anything.
+fn matches_head(root: &Path, relative: &str) -> Option<bool> {
+    let status = crate::git::git_cmd()
+        .arg("--no-pager")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "--literal-pathspecs",
+            "diff",
+            "--quiet",
+            "HEAD",
+            "--",
+            relative,
+        ])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()?;
+    match status.code() {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
+}
+
+/// A session change to a file Git tracks that HEAD now holds exactly: it was
+/// committed (or put back), so its review is over. An untracked file never
+/// matches by omission, since `git diff` does not list it.
+fn is_settled(root: &Path, manifest: &Manifest, relative: &str) -> bool {
+    (manifest.tracked.contains(relative) || in_head(root, relative))
+        && matches_head(root, relative) == Some(true)
+}
+
+/// Let go of every settled change (`is_settled`). Only paths the working-tree
+/// index no longer lists are asked about, each checked on its own.
+fn release_settled(root: &Path, index: &GitDiffIndex, manifest: &mut Manifest) -> bool {
+    let dirty: HashSet<&str> = index
+        .files
+        .iter()
+        .map(|file| file.relative.as_str())
+        .collect();
+    let settled: Vec<String> = manifest
+        .touched
+        .iter()
+        .filter(|relative| {
+            manifest.prepared.contains(*relative)
+                && !dirty.contains(relative.as_str())
+                && is_settled(root, manifest, relative)
+        })
+        .cloned()
+        .collect();
+    for relative in &settled {
+        release_path(manifest, relative);
+    }
+    !settled.is_empty()
 }
 
 fn restore_one(dir: &Path, root: &Path, manifest: &Manifest, relative: &str) -> Result<(), String> {
@@ -1662,6 +1739,61 @@ mod tests {
         assert!(git(&repo.0, &["add", "-A"]));
         assert!(git(&repo.0, &["commit", "-m", "agent changes"]));
         assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn a_later_edit_after_a_commit_is_not_the_sessions() {
+        let repo = tmp("committed-then-edited");
+        if !init_git_commit(&repo.0, &[("edit.txt", "head\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+        std::fs::write(repo.0.join("edit.txt"), "agent\n").unwrap();
+        std::fs::write(repo.0.join("created.txt"), "new\n").unwrap();
+        record(&store, "s1", &cwd, &["edit.txt", "created.txt"]);
+
+        assert!(git(&repo.0, &["add", "-A"]));
+        assert!(git(&repo.0, &["commit", "-m", "ship"]));
+        assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+
+        // Changed again afterwards, outside this session: still not its own.
+        std::fs::write(repo.0.join("edit.txt"), "agent\nby hand\n").unwrap();
+        std::fs::write(repo.0.join("created.txt"), "new\nby hand\n").unwrap();
+        assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn an_edit_after_a_commit_counts_from_what_was_committed() {
+        let repo = tmp("committed-then-reedited");
+        if !init_git_commit(&repo.0, &[("app.js", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+        store.prepare("s1", &cwd, &["app.js".into()]).unwrap();
+        std::fs::write(repo.0.join("app.js"), "one\ntwo\nthree\n").unwrap();
+        store.capture("s1", &cwd, &["app.js".into()]).unwrap();
+        assert!(git(&repo.0, &["commit", "-am", "ship"]));
+
+        // No status read in between: the next edit alone starts the review.
+        store.prepare("s1", &cwd, &["app.js".into()]).unwrap();
+        std::fs::write(repo.0.join("app.js"), "one\ntwo\nthree\nfour\n").unwrap();
+        store.capture("s1", &cwd, &["app.js".into()]).unwrap();
+        let status = store.status("s1", &cwd).unwrap();
+        assert_eq!(relatives(&status), vec!["app.js"]);
+        assert_eq!(status.files[0].additions, 1);
+        assert_eq!(status.files[0].deletions, 0);
+        assert!(status.files[0].exact);
+        assert!(status.files[0].undoable);
+
+        store.undo("s1", &cwd, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(repo.0.join("app.js")).unwrap(),
+            "one\ntwo\nthree\n"
+        );
     }
 
     #[test]
