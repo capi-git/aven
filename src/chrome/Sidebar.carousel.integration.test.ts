@@ -157,7 +157,7 @@ async function loadNextPage() {
 }
 async function changeTaskQuery(value: string) {
   const input = body().querySelector<HTMLInputElement>(
-    '[aria-label="Filter tasks"]',
+    '[aria-label="Filter chats"]',
   )!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(
@@ -202,7 +202,7 @@ function expectOneActiveBody() {
   );
   expect(body().closest("[inert],[aria-hidden=true]")).toBeNull();
   expect(
-    accessible('button[aria-label="New session without a project"]'),
+    accessible('button[aria-label="New chat without a project"]'),
   ).toHaveLength(1);
   expect(accessible("[data-live-project]")).toHaveLength(1);
   expect(accessible(".personal-profile-header")).toHaveLength(1);
@@ -701,12 +701,12 @@ it("keeps task search and collapsed project state with their workspace instead o
   await render(personal);
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Filter tasks by title"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Filter chats by title"]')!
       .click(),
   );
   await changeTaskQuery("Personal");
   expect(
-    body().querySelector<HTMLInputElement>('[aria-label="Filter tasks"]')!
+    body().querySelector<HTMLInputElement>('[aria-label="Filter chats"]')!
       .value,
   ).toBe("Personal");
   await act(async () =>
@@ -716,7 +716,7 @@ it("keeps task search and collapsed project state with their workspace instead o
   await settledNativePage(1);
   await render(work);
   expect(taskCount()).toBe(32);
-  expect(body().querySelector('[aria-label="Filter tasks"]')).toBeNull();
+  expect(body().querySelector('[aria-label="Filter chats"]')).toBeNull();
   await settledNativePage(0);
   await render(personal);
   expect(
@@ -729,7 +729,7 @@ it("keeps task search and collapsed project state with their workspace instead o
     body().querySelector<HTMLButtonElement>("[data-toggle-project]")!.click(),
   );
   expect(
-    body().querySelector<HTMLInputElement>('[aria-label="Filter tasks"]')!
+    body().querySelector<HTMLInputElement>('[aria-label="Filter chats"]')!
       .value,
   ).toBe("Personal");
   expect(taskCount()).toBe(32);
@@ -740,11 +740,11 @@ it("restores an open workspace search without stealing editor focus and focuses 
   await render(personal);
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Filter tasks by title"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Filter chats by title"]')!
       .click(),
   );
   const searchInput = () =>
-    body().querySelector<HTMLInputElement>('[aria-label="Filter tasks"]')!;
+    body().querySelector<HTMLInputElement>('[aria-label="Filter chats"]')!;
   expect(document.activeElement).toBe(searchInput());
   await changeTaskQuery("Personal");
   const editor = document.createElement("input");
@@ -760,13 +760,13 @@ it("restores an open workspace search without stealing editor focus and focuses 
   expect(document.activeElement).toBe(editor);
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Filter tasks by title"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Filter chats by title"]')!
       .click(),
   );
   expect(searchInput()).toBeNull();
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Filter tasks by title"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Filter chats by title"]')!
       .click(),
   );
   expect(document.activeElement).toBe(searchInput());
@@ -778,7 +778,7 @@ it("resets live position and pagination for a genuine task search or filter chan
   await scrollTasks(333);
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Filter tasks by title"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Filter chats by title"]')!
       .click(),
   );
   await changeTaskQuery("Task");
@@ -796,7 +796,7 @@ it("resets live position and pagination for a genuine task search or filter chan
   });
   await act(async () =>
     body()
-      .querySelector<HTMLButtonElement>('[aria-label="Task filters"]')!
+      .querySelector<HTMLButtonElement>('[aria-label="Chat filters"]')!
       .click(),
   );
   const working = [
@@ -815,7 +815,7 @@ it("retains the single real sidebar body and scroller across consecutive native 
   const originalScroller = body().querySelector(".personal-projects-scroll");
   const originalPages = pages();
   const originalControl = body().querySelector<HTMLButtonElement>(
-    'button[aria-label="New session without a project"]',
+    'button[aria-label="New chat without a project"]',
   )!;
   originalControl.id = "current-new-session";
   originalControl.autofocus = true;
@@ -862,7 +862,7 @@ it("retains the single real sidebar body and scroller across consecutive native 
     expect(selectProject).not.toHaveBeenCalled();
     expect(selectSession).not.toHaveBeenCalled();
     const create = body().querySelector<HTMLButtonElement>(
-      'button[aria-label="New session without a project"]',
+      'button[aria-label="New chat without a project"]',
     )!;
     await act(async () => create.click());
   }

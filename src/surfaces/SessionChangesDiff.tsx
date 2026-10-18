@@ -195,7 +195,7 @@ export function SessionChangesDiff({
       <div className="grid h-full place-items-center p-6 text-center">
         <AlertCircle className="mx-auto mb-3 size-5 text-red-400" />
         <p className="text-ui-body text-content">
-          Couldn’t load session changes
+          Couldn’t load this chat’s changes
         </p>
         <p className="mt-1 text-ui-label text-content/50">{error}</p>
       </div>
@@ -225,7 +225,7 @@ export function SessionChangesDiff({
           <p className="text-ui-body text-content/70" role="status">
             {shipped
               ? shippedLine(ship?.commit?.shortSha)
-              : "No session changes"}
+              : "No changes in this chat"}
           </p>
           {onClose ? (
             <button

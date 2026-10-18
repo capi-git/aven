@@ -176,14 +176,14 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
       {showNewSession ? (
         <div className="personal-new-session">
           <Plus className="size-3.5" />
-          <span>New session</span>
+          <span>New chat</span>
         </div>
       ) : null}
       <div className="personal-projects-scroll min-h-0 flex-1 overflow-hidden">
         {!!preview?.standaloneTasks.length && (
           <section className="personal-standalone-group">
             <div className="personal-projects-heading">
-              <span>Sessions</span>
+              <span>Chats</span>
             </div>
             <PreviewTasks tasks={preview.standaloneTasks} />
           </section>

@@ -114,7 +114,7 @@ it("closes the five utilities but leaves Home and the file picker", async () => 
 });
 
 it("shows the workspace over Home and every utility for a new chat", async () => {
-  // The sidebar's New task pressed over Home.
+  // The sidebar's New chat pressed over Home.
   await act(async () => views.setHomeViewOpen(true));
   await act(async () => views.showWorkspace());
   expect(openViews()).toEqual([]);

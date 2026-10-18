@@ -12,7 +12,7 @@ type Props = {
 };
 
 /**
- * Delete drops the project from the rail and its saved chats. The folder on
+ * Delete drops the project from the sidebar and its saved chats. The folder on
  * disk is left alone; opening it again brings the project back empty.
  */
 export function RemoveProjectDialog({
@@ -62,29 +62,29 @@ export function RemoveProjectDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Delete ${name}`}
+        aria-label={`Delete ${name} and its chats`}
         onMouseDown={(event) => event.stopPropagation()}
         className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
       >
         <div className="flex flex-col gap-1">
           <h2 className="text-ui-body font-medium leading-tight text-content">
-            Delete “{name}”?
+            Delete “{name}” and its chats?
           </h2>
           <p className="text-ui-label leading-snug text-content/55">
-            All conversations for this project, including agent conversations,
-            will be deleted. It also leaves the sidebar. The folder on disk
-            stays put, and opening it again brings the project back empty.
+            All chats in this project, including ones agents started, will be
+            deleted. It also leaves the sidebar. The folder on disk stays put,
+            and opening it again brings the project back empty.
           </p>
           {sessions != null && sessions > 0 ? (
             <p className="text-ui-label leading-snug text-content/45">
               {sessions === 1
-                ? "1 saved conversation will be removed."
-                : `${sessions} saved conversations will be removed.`}
+                ? "1 saved chat will be removed."
+                : `${sessions} saved chats will be removed.`}
             </p>
           ) : null}
           {countError ? (
             <p role="alert" className="text-ui-label leading-snug text-red-300">
-              Could not load this project's conversations. Cancel and try again.
+              Could not load this project's chats. Cancel and try again.
             </p>
           ) : null}
           <p className="truncate text-ui-caption leading-tight text-content/40">

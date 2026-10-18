@@ -6,6 +6,7 @@ import {
 } from "./devPreviews";
 import { displayPath, pathKey, prettyCwd, isEqualOrInside } from "./paths";
 import type { HarnessId, RuntimeMode, TurnIntent } from "./session";
+import { isUntitledChatTitle } from "./untitledChat";
 import {
   agentName,
   sharedWorkSession,
@@ -184,7 +185,7 @@ export function chatName(sessionId: string | undefined): string {
   if (!session) return "another chat";
   const name = agentName(session.harness);
   const title = session.title.trim();
-  return title && title !== "New session"
+  return title && !isUntitledChatTitle(title)
     ? `${name} in “${clip(title, MAX_TITLE)}”`
     : `${name} in a new chat`;
 }

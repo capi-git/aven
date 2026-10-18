@@ -141,7 +141,7 @@ describe("sidebar session IDs", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
     item = openSessionMenu("session-2");
-    await act(async () => item("Copy Aven session ID").click());
+    await act(async () => item("Copy Aven chat ID").click());
     expect(copyText).toHaveBeenNthCalledWith(2, "session-2");
   });
 
@@ -152,7 +152,7 @@ describe("sidebar session IDs", () => {
     expect(provider.disabled).toBe(true);
     await act(async () => provider.click());
     expect(copyText).not.toHaveBeenCalled();
-    const aven = openSessionMenu("session-1")("Copy Aven session ID");
+    const aven = openSessionMenu("session-1")("Copy Aven chat ID");
     expect(aven.disabled).toBe(false);
     await act(async () => aven.click());
     expect(copyText).toHaveBeenCalledExactlyOnceWith("session-1");

@@ -179,7 +179,7 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let open_automations =
         MenuItemBuilder::with_id("open_automations", "Automations").build(app)?;
     let open_notes = MenuItemBuilder::with_id("open_notes", "Notes").build(app)?;
-    let new_tab = MenuItemBuilder::with_id("new_tab", "New Tab")
+    let new_tab = MenuItemBuilder::with_id("new_tab", "New Chat")
         .accelerator("CmdOrCtrl+T")
         .build(app)?;
     let new_terminal = MenuItemBuilder::with_id("new_terminal", "New Terminal")

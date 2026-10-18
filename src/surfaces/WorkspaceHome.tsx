@@ -304,7 +304,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               disabled={starting}
             >
               <Plus size={14} />
-              {starting ? "Starting…" : "New task"}
+              {starting ? "Starting…" : "New chat"}
             </button>
             <button type="button" onClick={onBrowser} disabled={starting}>
               <Globe size={14} />
@@ -495,7 +495,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                 <p className="workspace-home-empty">
                   {recent.length
                     ? "Everything recent is listed above."
-                    : "Your sessions will appear here. Start one with or without a project."}
+                    : "Your chats will appear here. Start one with or without a project."}
                 </p>
               )}
             </section>
@@ -1076,7 +1076,7 @@ const AgentTile = memo(
           {project.lastActivity ? (
             <TimeAgo at={project.lastActivity} />
           ) : (
-            <span>No sessions yet</span>
+            <span>No chats yet</span>
           )}
           {described ? <span className="sr-only">. {described}</span> : null}
         </p>
@@ -1084,8 +1084,8 @@ const AgentTile = memo(
           {onNewProjectTask ? (
             <button
               type="button"
-              aria-label={`New task in ${name}`}
-              title={`New task in ${name}`}
+              aria-label={`New chat in ${name}`}
+              title={`New chat in ${name}`}
               onClick={() => onNewProjectTask(project.path)}
             >
               <Plus size={13} />

@@ -50,10 +50,10 @@ describe("surfaceTabPresentation", () => {
         newSessionChangesTab("/repo", "session-a", "/repo/App.tsx"),
       ),
     ).toEqual({
-      name: "Session Changes",
-      label: "Session Changes",
+      name: "Chat Changes",
+      label: "Chat Changes",
       iconName: "CHANGES",
-      tooltip: "Changes captured for this session only",
+      tooltip: "Changes made in this chat",
     });
   });
 

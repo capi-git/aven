@@ -62,6 +62,7 @@ import {
   type Session,
   type ComposerTurnOptions,
 } from "../lib/session";
+import { isUntitledChatTitle } from "../lib/untitledChat";
 import { AgentTranscript } from "./AgentTranscript";
 import { isBlockingQuestion } from "../lib/userQuestion";
 import { SessionRunStatus } from "./SessionRunStatus";
@@ -384,7 +385,7 @@ export const SessionPane = memo(function SessionPane({
       const sessionTitle = sessionDisplayTitle(session.title, session.harness);
       void createNote({
         title:
-          sessionTitle && sessionTitle !== "New session"
+          sessionTitle && !isUntitledChatTitle(sessionTitle)
             ? sessionTitle
             : noteTitle(text),
         body: text,

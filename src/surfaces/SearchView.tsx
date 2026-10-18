@@ -46,7 +46,7 @@ import { searchSessions, type SessionSummary } from "../lib/sessionStore";
 
 const SCOPES: { id: SearchScope; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "conversations", label: "Conversations" },
+  { id: "conversations", label: "Chats" },
   { id: "files", label: "Files" },
   { id: "projects", label: "Projects" },
 ];
@@ -465,7 +465,7 @@ function EmptyState() {
       </div>
 
       <p className="max-w-xs text-center text-ui-body text-content/45">
-        Find files, conversations, messages, and projects.
+        Find files, chats, messages, and projects.
       </p>
     </div>
   );

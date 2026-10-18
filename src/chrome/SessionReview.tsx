@@ -174,10 +174,10 @@ export function SessionReview({
               label="Undo All"
               title={
                 canUndoAll
-                  ? "Undo all session changes"
+                  ? "Put these files back the way they were before this chat changed them"
                   : undoLocked
-                    ? "Undo is unavailable while another session is running in this project"
-                    : "Undo is unavailable because a file changed outside this session"
+                    ? "Undo is unavailable while another chat is running in this project"
+                    : "Undo is unavailable because a file changed outside this chat"
               }
               disabled={disabled || !canUndoAll}
               onClick={() => run("undo")}
@@ -186,7 +186,7 @@ export function SessionReview({
               narrow={narrow}
               icon={Check}
               label="Keep All"
-              title="Keep all session changes"
+              title="Keep these changes and hide this bar"
               disabled={disabled}
               onClick={() => run("keep")}
             />

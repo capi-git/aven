@@ -27,6 +27,7 @@ import { teamsNeedingYou } from "../lib/teamAttention";
 import { teamAnchor, type TeamNeed, type TeamRun } from "../lib/teamRuns";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
+import { UNTITLED_CHAT_TITLE } from "../lib/untitledChat";
 import {
   ToolbarPanel,
   ToolbarPanelHeader,
@@ -195,9 +196,9 @@ export function ActivityPanel({
       if (await action()) {
         if (entry) markActivityRead(entry.id);
       } else
-        setError("This task could not be opened. Its activity is still saved.");
+        setError("This chat could not be opened. Its activity is still saved.");
     } catch {
-      setError("This task could not be opened. Its activity is still saved.");
+      setError("This chat could not be opened. Its activity is still saved.");
     } finally {
       setOpening(null);
     }
@@ -219,14 +220,14 @@ export function ActivityPanel({
               className="activity-destination"
               disabled={opening !== null}
               onClick={() => void open(entry.id, () => onOpen(entry), entry)}
-              aria-label={`Open “${entry.title || "New task"}”: ${activityOutcomeLabel(entry)}`}
+              aria-label={`Open “${entry.title || UNTITLED_CHAT_TITLE}”: ${activityOutcomeLabel(entry)}`}
             >
               <span className="activity-provider">
                 <HarnessIcon harness={entry.harness} />
               </span>
               <span className="activity-copy">
                 <span className="activity-title">
-                  {entry.title || "New task"}
+                  {entry.title || UNTITLED_CHAT_TITLE}
                 </span>
                 <span className="activity-detail">
                   {activityOutcomeLabel(entry)} · {projectName(entry.cwd)} ·{" "}
@@ -256,7 +257,7 @@ export function ActivityPanel({
             {entry.readAt === null ? (
               <button
                 className="activity-read"
-                aria-label={`Mark “${entry.title || "New task"}” as read`}
+                aria-label={`Mark “${entry.title || UNTITLED_CHAT_TITLE}” as read`}
                 title="Mark as read"
                 onClick={() => markActivityRead(entry.id)}
               >
@@ -380,7 +381,7 @@ export function ActivityPanel({
         {section("Finished", finished)}
         {!needsYou.length && !finished.length && !running.length ? (
           <p className="activity-empty">
-            Nothing here yet. Finished tasks and requests for your input will
+            Nothing here yet. Finished work and requests for your input will
             appear here.
           </p>
         ) : null}
