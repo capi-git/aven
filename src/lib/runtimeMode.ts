@@ -13,17 +13,18 @@ export const DEFAULT_RUNTIME_MODE_KEY = "monocode.defaultRuntimeMode";
 const DEFAULT_RUNTIME_MODE_CHANGE = "aven:default-runtime-mode-change";
 
 export const RUNTIME_MODE_LABEL: Record<RuntimeMode, string> = {
-  supervised: "Supervised",
+  supervised: "Ask first",
   "auto-accept-edits": "Auto-accept edits",
   auto: "Auto",
   "full-access": "Full access",
 };
 
 export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
-  supervised: "Ask before commands and file changes.",
-  "auto-accept-edits": "Auto-approve edits, ask before other actions.",
-  auto: "Use the provider's automatic approval policy.",
-  "full-access": "Allow commands and edits without prompts.",
+  supervised: "Asks before running commands or changing files.",
+  "auto-accept-edits":
+    "Edits files without asking; asks before riskier actions.",
+  auto: "Safe actions run without asking; riskier ones are checked first.",
+  "full-access": "Never asks. Use with care.",
 };
 
 export function isRuntimeMode(value: unknown): value is RuntimeMode {

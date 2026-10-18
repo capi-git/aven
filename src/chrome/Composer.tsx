@@ -260,6 +260,9 @@ type Props = {
   children?: ReactNode;
 };
 
+/** Sending into the reply in progress (steering), in plain words. */
+const STEER_HINT = "Send now — the agent sees it straight away";
+
 /** Keys an open picker handles on keydown; their keyup must not reopen it. */
 const PICKER_KEYS = new Set(["Escape", "Enter", "Tab", "ArrowUp", "ArrowDown"]);
 
@@ -467,13 +470,13 @@ function MessageQueue({
                       disabled={!onSteer}
                       title={
                         !onSteer
-                          ? "This agent will send the queued message after its current turn"
-                          : undefined
+                          ? "This agent can't read messages while it works; it gets this one when it finishes"
+                          : STEER_HINT
                       }
                       className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:opacity-40"
                     >
                       <CornerDownRight className="size-3.5" />
-                      Steer
+                      Send now
                     </button>
                     <button
                       type="button"
@@ -2095,7 +2098,7 @@ function ComposerComponent({
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Plan mode</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Create a plan to review before building
+                          Plans first; you approve before it changes anything
                         </span>
                       </span>
                       {planSelected ? (
@@ -2123,7 +2126,7 @@ function ComposerComponent({
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Orchestrator</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Plan and coordinate agent work
+                          Splits the job into parts and runs an agent on each
                         </span>
                       </span>
                       {orchestrationSelected ? (
@@ -2149,7 +2152,8 @@ function ComposerComponent({
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Discuss</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Talk your message through with another chat
+                          Another chat talks it over with this one for a few
+                          rounds
                         </span>
                       </span>
                       {discussActive ? (
@@ -2178,8 +2182,7 @@ function ComposerComponent({
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Race</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Give this message to several agents and keep the best
-                          result
+                          Several AIs try it separately; you keep the best one
                         </span>
                       </span>
                       {raceActive ? (
@@ -2193,7 +2196,7 @@ function ComposerComponent({
             {orchestrationSelected && !jumpInId ? (
               <button
                 type="button"
-                title="Turn off Orchestrator mode"
+                title="Orchestrator: splits the job into parts and runs an agent on each. Click to turn off."
                 aria-label="Turn off Orchestrator mode"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
@@ -2210,7 +2213,7 @@ function ComposerComponent({
             {planSelected && !jumpInId ? (
               <button
                 type="button"
-                title="Turn off Plan mode"
+                title="Plan mode: plans first; you approve before it changes anything. Click to turn off."
                 aria-label="Turn off Plan mode"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -2333,7 +2336,7 @@ function ComposerComponent({
                       : queueSubmission
                         ? "Queue message"
                         : busy
-                          ? "Steer active turn"
+                          ? STEER_HINT
                           : "Send"
                 }
                 hasValue={hasValue}

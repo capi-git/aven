@@ -173,9 +173,9 @@ describe("Automations view", () => {
     await render();
     await click(button("New automation"));
     expect(button("Create automation").disabled).toBe(true);
-    // Supervised access is the default and may stall an unattended run.
+    // Ask first is the default access and may stall an unattended run.
     expect(container.querySelector('[role="note"]')?.textContent).toMatch(
-      /pause whenever the agent asks for approval/,
+      /pauses whenever the agent asks for approval/,
     );
 
     await type("Name", "Morning review");

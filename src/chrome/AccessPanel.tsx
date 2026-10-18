@@ -45,8 +45,8 @@ export function AccessPanelContent({
       />
       <p className="access-panel-note">
         {snapshot.busy
-          ? "Changes apply to the next turn and new tasks."
-          : "Your choice is remembered for new tasks."}
+          ? "Applies from your next message, and to new chats."
+          : "Your choice is remembered for new chats."}
       </p>
       <AccessModeOptions value={snapshot.value} onSelect={onSelect} autoFocus />
       {error ? (

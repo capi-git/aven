@@ -98,7 +98,9 @@ describe("composer draft mutation boundaries", () => {
     const textarea = await render();
     await act(async () => saveFollowUpBehavior("steer"));
     expect(
-      container.querySelector('[aria-label="Steer active turn"]'),
+      container.querySelector(
+        '[aria-label="Send now — the agent sees it straight away"]',
+      ),
     ).not.toBeNull();
     await act(async () =>
       textarea.dispatchEvent(
@@ -212,7 +214,7 @@ describe("composer draft mutation boundaries", () => {
     };
     await render();
     const steer = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Steer",
+      (button) => button.textContent?.trim() === "Send now",
     )!;
     expect(steer.disabled).toBe(true);
     await act(async () => steer.click());

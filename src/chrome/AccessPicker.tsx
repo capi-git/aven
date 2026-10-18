@@ -145,10 +145,10 @@ export function AccessPicker({
         type="button"
         title={
           busy
-            ? `${RUNTIME_MODE_LABEL[value]} applies to the next turn. The current turn keeps its starting access.`
+            ? `${RUNTIME_MODE_LABEL[value]} applies from your next message. The reply in progress keeps its current access.`
             : `${RUNTIME_MODE_LABEL[value]}: ${RUNTIME_MODE_HINT[value]}`
         }
-        aria-label={`${RUNTIME_MODE_LABEL[value]}${busy ? " · next turn" : ""}`}
+        aria-label={`${RUNTIME_MODE_LABEL[value]}${busy ? " · from your next message" : ""}`}
         aria-expanded={open}
         aria-haspopup="dialog"
         data-access-trigger

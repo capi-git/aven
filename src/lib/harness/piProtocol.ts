@@ -711,7 +711,7 @@ export function thinkingSetting(reasoning: boolean): ModelSetting | undefined {
   if (!reasoning) return undefined;
   return {
     id: "thinking",
-    label: "Thinking",
+    label: "Effort",
     kind: "select",
     value: "medium",
     options: PI_THINKING_LEVELS.map((value) => ({

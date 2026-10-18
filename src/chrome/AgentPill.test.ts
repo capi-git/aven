@@ -139,7 +139,7 @@ describe("the agent pill", () => {
     expect(
       panel()!.querySelector('[role="listbox"][aria-label="Models"]'),
     ).not.toBeNull();
-    expect(section("Reasoning")).toBeDefined();
+    expect(section("Effort")).toBeDefined();
     expect(section("Access")).toBeDefined();
     expect(panel()!.querySelector('[aria-label="Fast"]')).not.toBeNull();
     // Race is a mode of the message box, started from its + menu.
@@ -155,7 +155,7 @@ describe("the agent pill", () => {
   it("changes effort and access in place and stays open", async () => {
     await render();
     await open();
-    await act(async () => radio("Reasoning", "High").click());
+    await act(async () => radio("Effort", "High").click());
     expect(props.onModelSettingsChange).toHaveBeenCalledExactlyOnceWith({
       effort: "high",
       fast: "false",
@@ -168,12 +168,12 @@ describe("the agent pill", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it("says when an access change waits for the next turn", async () => {
+  it("says when an access change waits for the next message", async () => {
     props.busy = true;
     await render();
     await open();
     expect(section("Access")!.textContent).toContain(
-      "Applies from the next turn.",
+      "Applies from your next message.",
     );
   });
 
@@ -270,7 +270,7 @@ describe("the panel's model list", () => {
         ?.getAttribute("aria-selected"),
     ).toBe("true");
     // The Reasoning section beside it belongs to the same model.
-    expect(section("Reasoning")).toBeDefined();
+    expect(section("Effort")).toBeDefined();
   });
 });
 

@@ -44,7 +44,7 @@ export const CLAUDE_OPUS_5_5_MODEL: AgentModel = {
   settings: [
     {
       id: "effort",
-      label: "Reasoning",
+      label: "Effort",
       kind: "select",
       value: "medium",
       options: [
@@ -149,7 +149,7 @@ export const MODELS: AgentModel[] = [
     settings: [
       {
         id: "effort",
-        label: "Reasoning",
+        label: "Effort",
         kind: "select",
         value: "high",
         options: [
@@ -170,7 +170,7 @@ export const MODELS: AgentModel[] = [
     settings: [
       {
         id: "effort",
-        label: "Reasoning",
+        label: "Effort",
         kind: "select",
         value: "high",
         options: [

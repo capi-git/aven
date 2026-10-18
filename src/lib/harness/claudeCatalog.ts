@@ -35,7 +35,7 @@ import {
 
 const EFFORT_LOW_TO_ULTRATHINK: ModelSetting = {
   id: "effort",
-  label: "Reasoning",
+  label: "Effort",
   kind: "select",
   value: "high",
   options: [
@@ -49,7 +49,7 @@ const EFFORT_LOW_TO_ULTRATHINK: ModelSetting = {
 
 const EFFORT_WITH_XHIGH: ModelSetting = {
   id: "effort",
-  label: "Reasoning",
+  label: "Effort",
   kind: "select",
   value: "high",
   options: [
@@ -68,7 +68,7 @@ const EFFORT_WITH_XHIGH: ModelSetting = {
 
 const EFFORT_OPUS_47: ModelSetting = {
   id: "effort",
-  label: "Reasoning",
+  label: "Effort",
   kind: "select",
   value: "xhigh",
   options: [
@@ -176,7 +176,7 @@ export const CLAUDE_MODEL_CATALOG: AgentModel[] = [
     settings: [
       {
         id: "effort",
-        label: "Reasoning",
+        label: "Effort",
         kind: "select",
         value: "high",
         options: [
@@ -464,7 +464,7 @@ function effortSetting(
     : (options[0]?.value ?? "high");
   return {
     id: "effort",
-    label: "Reasoning",
+    label: "Effort",
     kind: "select",
     value: defaultValue,
     options,

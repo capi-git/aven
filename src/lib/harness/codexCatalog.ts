@@ -199,7 +199,7 @@ function parseModelSettings(rec: Record<string, unknown>): ModelSetting[] {
   if (effortOptions.length > 0) {
     settings.push({
       id: "reasoningEffort",
-      label: "Reasoning",
+      label: "Effort",
       kind: "select",
       value: defaultEffort ?? effortOptions[0].value,
       options: effortOptions,
