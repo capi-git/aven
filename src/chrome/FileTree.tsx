@@ -52,6 +52,7 @@ import {
 import { isImeComposition } from "../lib/keyboard";
 import { displayPath, parentPath, rebasePath } from "../lib/paths";
 import { MOD, REVEAL_LABEL, SHIFT } from "../lib/platform";
+import type { OpenFileFn } from "../lib/search";
 import type { GitStatusMap } from "../hooks/useGitFileStatuses";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -67,7 +68,7 @@ type Props = {
   cwd: string;
   /** Preserve the loaded tree while pausing work for a hidden inspector. */
   enabled?: boolean;
-  onOpenFile: (path: string) => void;
+  onOpenFile: OpenFileFn;
   onOpenTerminal?: (cwd: string) => void;
   onFileMoved?: (from: string, to: string) => void;
   onFileDeleted?: (path: string) => void;
@@ -333,7 +334,8 @@ export const FileTree = memo(function FileTree({
     expandDirs(touched);
     setSelectedPath(created);
     saveSelected(cwd, created);
-    if (!asFolder) onOpenFile(created);
+    // A file just made is for editing, even one named like a picture.
+    if (!asFolder) onOpenFile(created, undefined, { asTab: true });
   };
 
   const onRenameCancel = () => setRenaming(null);

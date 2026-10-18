@@ -289,6 +289,7 @@ import {
 import { BranchPicker } from "./chrome/BranchPicker";
 import { AddProjectMenu } from "./chrome/AddProjectMenu";
 import { installInAppLinks, openInAppUrl } from "./lib/inAppLinks";
+import { openImageFile, shouldOpenInImageViewer } from "./lib/imageViewer";
 import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
@@ -670,6 +671,7 @@ import {
 import { PaneTree } from "./surfaces/PaneTree";
 import { SessionPane } from "./surfaces/SessionPane";
 import { SessionSurface } from "./surfaces/SessionSurface";
+import { ImageViewer } from "./surfaces/ImageViewer";
 import { ProjectTerminalDock } from "./surfaces/ProjectTerminalDock";
 import {
   AutomationsView,
@@ -5975,7 +5977,19 @@ export default function App({
   );
 
   const onOpenFile = useCallback<OpenFileFn>(
-    (path, navigation) => {
+    (path, navigation, options) => {
+      // A picture the user opens shows over their work, not as a tab.
+      if (shouldOpenInImageViewer(path, navigation, options)) {
+        const cwd = projectCwdRef.current;
+        void resolveOpenablePath(gitCwdRef.current, path)
+          .catch(() => undefined)
+          .then((resolved) => {
+            const target = resolved ?? path;
+            rememberOpenedFile(cwd, target);
+            openImageFile(target);
+          });
+        return;
+      }
       const currentIntent = beginNavigation();
       clearReturnFocus();
       leaveExpandedPreview();
@@ -6040,6 +6054,11 @@ export default function App({
       });
     },
     [profileHome, appendTab, clearReturnFocus, beginNavigation],
+  );
+
+  const onOpenImageInTab = useCallback(
+    (path: string) => onOpenFile(path, undefined, { asTab: true }),
+    [onOpenFile],
   );
 
   agentFileBridge.current = async (sessionId, cwd, path, navigation) => {
@@ -10584,6 +10603,7 @@ export default function App({
                 onClose={() => setFilePickerOpen(false)}
               />
             ) : null}
+            <ImageViewer onOpenInTab={onOpenImageInTab} />
             <UpdateNoticeDialog />
             <UpdateRestartDialog />
             {providerSetupOpen ? (

@@ -478,6 +478,60 @@ it("opens an agent file in its detached task and forwards editor navigation with
   );
 });
 
+it("shows a picture the user opens in its own image viewer, but an agent's or Open in tab as a tab", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  initial.state.tabs = [newTab("task")];
+  initial.state.sessions = [
+    {
+      session: {
+        id: "task",
+        title: "Task",
+        cwd: "/project",
+        harness: "codex",
+        model: "gpt-5",
+        modelSettings: {},
+        runtimeMode: "full-access",
+        blocks: [],
+      },
+      recents: [],
+    },
+  ];
+  initial.state.view = resolveWorkspaceView(
+    initial.state.view,
+    ["selected", "background", initial.state.tabs[0].id],
+    "selected",
+  );
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const viewer = () => document.querySelector('[role="dialog"][aria-modal]');
+  const tab = (path: string) =>
+    host.querySelector(`[data-test-file="${path}"]`);
+  const links = vi.mocked(installInAppLinks).mock.lastCall![0];
+
+  await act(async () => links.openFile("/project/shot.png"));
+  expect(viewer()?.querySelector("h2")?.textContent).toBe("shot.png");
+  expect(tab("/project/shot.png")).toBeNull();
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(),
+  );
+  expect(viewer()).toBeNull();
+
+  await act(async () =>
+    links.openFile("/project/shot.png", undefined, { asTab: true }),
+  );
+  expect(tab("/project/shot.png")).not.toBeNull();
+  expect(viewer()).toBeNull();
+
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({
+      requestToken: "agent-picture",
+      sessionId: "task",
+      file: { path: "/project/agent.png" },
+    }),
+  );
+  expect(tab("/project/agent.png")).not.toBeNull();
+  expect(viewer()).toBeNull();
+});
+
 it("finishes startup recovery when the initial state request fails", async () => {
   const splash = document.createElement("div");
   splash.id = "boot-splash";
