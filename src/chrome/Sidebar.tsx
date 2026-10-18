@@ -2649,7 +2649,7 @@ function SessionCard({
       ? "Needs you"
       : "Needs approval";
   const statusClass = needsApproval
-    ? "text-amber-400"
+    ? "text-[color:var(--aven-needs-you)]"
     : busy
       ? "text-accent"
       : done

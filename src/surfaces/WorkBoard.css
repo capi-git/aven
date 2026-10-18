@@ -129,7 +129,7 @@
 }
 
 .work-board-card[data-column="needs-you"] {
-  border-color: color-mix(in srgb, var(--aven-needs-you) 50%, transparent);
+  border-color: var(--aven-needs-you-edge);
   box-shadow: inset 2px 0 0 var(--aven-needs-you);
 }
 
@@ -193,37 +193,7 @@
   gap: 6px;
 }
 
-.work-board-action {
-  display: inline-flex;
-  height: 22px;
-  align-items: center;
-  padding: 0 8px;
-  border: 1px solid var(--aven-line);
-  border-radius: 6px;
-  background: var(--aven-control-bg, var(--aven-hover));
-  color: var(--color-content);
-  font-size: var(--text-ui-label);
-  transition:
-    background-color 120ms ease,
-    transform 120ms ease;
-}
-
-.work-board-action:hover {
-  background: var(--aven-control-hover, var(--aven-hover));
-}
-
-.work-board-action:active {
-  transform: scale(0.97);
-}
-
-.work-board-action[data-primary] {
-  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-}
-
-.work-board-action[data-primary]:hover {
-  background: color-mix(in srgb, var(--color-accent) 26%, transparent);
-}
+/* Card buttons are the team family's one button (TeamCard.css). */
 
 .work-board-empty {
   margin: 4px 2px;
@@ -265,8 +235,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .work-board-card[data-gliding=""],
-  .work-board-action {
+  .work-board-card[data-gliding=""] {
     transition: none;
   }
   .work-board-card[data-glide-enter] {

@@ -61,8 +61,27 @@
     var(--color-content)
   );
   --aven-shadow: 0 14px 42px #0003;
-  /* Text that says a team needs you. */
+  /* "Needs you": its text, the border around what needs you, and the wash
+     behind it (stronger on hover). The one amber every surface uses. */
   --aven-needs-you: var(--color-amber-400, #e2a03f);
+  --aven-needs-you-edge: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 45%,
+    transparent
+  );
+  --aven-needs-you-wash: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 8%,
+    transparent
+  );
+  --aven-needs-you-wash-hover: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 16%,
+    transparent
+  );
+  /* Lines added and removed, in Git's green and red. */
+  --aven-git-add: #61bd85;
+  --aven-git-del: #d77880;
   /* Text that says a chat's changes wait for review. */
   --aven-review: var(--color-emerald-400, #34d399);
 }
@@ -88,6 +107,23 @@ html.theme-light {
     var(--color-content) 45%,
     var(--color-amber-400, #e2a03f)
   );
+  --aven-needs-you-edge: color-mix(
+    in srgb,
+    var(--color-amber-500, #f59e0b) 55%,
+    transparent
+  );
+  --aven-needs-you-wash: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 12%,
+    transparent
+  );
+  --aven-needs-you-wash-hover: color-mix(
+    in srgb,
+    var(--color-amber-400, #e2a03f) 22%,
+    transparent
+  );
+  --aven-git-add: #1a7f37;
+  --aven-git-del: #c2303a;
   --aven-review: color-mix(
     in srgb,
     var(--color-content) 40%,

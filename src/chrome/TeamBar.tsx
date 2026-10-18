@@ -34,15 +34,17 @@ import { TEAM_NOUN } from "../lib/teamWatch";
 import { RoleBadge } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationActions } from "./OrchestrationActions";
+import { TeamCardButton } from "./TeamCard";
 import {
+  ArrowRight,
   Check,
-  ExternalLink,
   Eye,
-  MessageMultiple,
+  GitCompare,
   MessageSquare,
   Pause,
   Play,
   Race,
+  Share,
   Square,
 } from "./icons";
 import "./ProviderMarks.css";
@@ -58,9 +60,6 @@ export const WRAP_UP_REQUEST =
  * shorter wait would flash the message between turns.
  */
 export const STALLED_AFTER_MS = 1_500;
-
-const BUTTON =
-  "aven-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-40";
 
 /** "Orchestrating · 2 working", worded as the team's pill and panel word it. */
 export function runningSummary(
@@ -237,13 +236,10 @@ function Frame({
       {...legacy}
     >
       <div
-        className={`team-bar flex min-w-0 items-center gap-1.5 rounded-lg border bg-content/3 pl-2 pr-0.5 text-ui-label text-content/60 ${
+        // Waiting on you reads amber (TeamCard.css); a race ready to
+        // compare stays calm.
+        className={`team-bar flex min-w-0 items-center gap-1.5 rounded-lg border border-content/10 bg-content/3 pl-2 pr-[3px] text-ui-label text-content/60 ${
           tall ? "min-h-7 py-1" : "h-7"
-        } ${
-          // Waiting on you reads amber; a race ready to compare stays calm.
-          state === "paused" || state === "needs-you" || state === "stalled"
-            ? "border-amber-400/40"
-            : "border-content/10"
         }`}
         data-state={state}
       >
@@ -286,7 +282,7 @@ function Mark({
       ) : team.kind === "race" ? (
         <Race className="size-3.5" strokeWidth={1.75} />
       ) : (
-        <MessageMultiple className="size-3.5" strokeWidth={1.75} />
+        <Share className="size-3.5" strokeWidth={1.75} />
       )}
     </span>
   );
@@ -416,7 +412,7 @@ function OpenTeamBar({
           parts.reason
             ? "line-clamp-2 leading-4 [overflow-wrap:anywhere]"
             : "truncate"
-        } ${error ? "text-red-400" : ""}`}
+        } ${error ? "text-red-600 dark:text-red-400" : ""}`}
         title={text}
         data-team-bar-text
       >
@@ -435,21 +431,19 @@ function OpenTeamBar({
         {announce}
       </span>
       {elsewhere && actions ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           data-team-goto={elsewhere}
           onClick={() => actions.open(elsewhere)}
         >
-          <ExternalLink className="size-3" />
+          <ArrowRight className="size-3" />
           Go to {elsewhereName ?? "chat"}
-        </button>
+        </TeamCardButton>
       ) : null}
       {stalled && run ? (
         <>
-          <button
-            type="button"
-            className={BUTTON}
+          <TeamCardButton
+            size="compact"
             disabled={pending}
             title="End the run as it is. Tasks that never started are cancelled."
             onClick={() =>
@@ -461,46 +455,43 @@ function OpenTeamBar({
           >
             <Check className="size-3" strokeWidth={2} />
             Finish run
-          </button>
-          <button
-            type="button"
-            className={BUTTON}
+          </TeamCardButton>
+          <TeamCardButton
+            size="compact"
             disabled={pending}
             title="Ask the lead to review what's done and finish the run"
             onClick={() => onSubmit(sessionId, WRAP_UP_REQUEST)}
           >
             <MessageSquare className="size-3" />
             Ask the lead to wrap up
-          </button>
+          </TeamCardButton>
         </>
       ) : null}
       {watch ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           data-team-watch={team.id}
           title={`Watch the ${noun} in a floating panel`}
           onClick={watch}
         >
           <Eye className="size-3" />
           Watch
-        </button>
+        </TeamCardButton>
       ) : null}
       {race ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           data-race-compare
           title="Compare the agents' changes and keep one"
           onClick={() => race.compare(team.key)}
         >
+          <GitCompare className="size-3" strokeWidth={1.75} />
           Compare
-        </button>
+        </TeamCardButton>
       ) : null}
       {paused && !elsewhere ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           disabled={pending || (team.kind === "orchestrate" && !idle)}
           title={
             team.kind === "orchestrate" && !idle
@@ -524,23 +515,21 @@ function OpenTeamBar({
         >
           <Play className="size-3" />
           Resume
-        </button>
+        </TeamCardButton>
       ) : null}
       {openAgents && !stalled ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           title="Open the agents' chats beside the lead"
           onClick={openAgents}
         >
-          <ExternalLink className="size-3" />
+          <ArrowRight className="size-3" />
           Open agents
-        </button>
+        </TeamCardButton>
       ) : null}
       {stop ? (
-        <button
-          type="button"
-          className={BUTTON}
+        <TeamCardButton
+          size="compact"
           data-team-stop={stop}
           disabled={pending}
           title={
@@ -572,7 +561,7 @@ function OpenTeamBar({
             : stop === "race"
               ? "Stop race"
               : "Stop discussion"}
-        </button>
+        </TeamCardButton>
       ) : null}
     </Frame>
   );
@@ -596,20 +585,16 @@ function BusyBar({ sessionId, cwd }: Props) {
       state="busy"
     >
       <span className="grid size-3.5 shrink-0 place-items-center text-content/45">
-        <MessageMultiple className="size-3.5" strokeWidth={1.75} />
+        <Share className="size-3.5" strokeWidth={1.75} />
       </span>
       <span className="min-w-0 flex-1 truncate" title={message} role="status">
         {message}
       </span>
       {actions ? (
-        <button
-          type="button"
-          className={BUTTON}
-          onClick={() => actions.open(run.leadId)}
-        >
-          <ExternalLink className="size-3" />
+        <TeamCardButton size="compact" onClick={() => actions.open(run.leadId)}>
+          <ArrowRight className="size-3" />
           Go to lead
-        </button>
+        </TeamCardButton>
       ) : null}
     </Frame>
   );

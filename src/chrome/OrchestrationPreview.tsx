@@ -37,7 +37,7 @@ import {
   ChevronRight,
   CircleDashed,
   CircleHelp,
-  MessageMultiple,
+  Share,
   Play,
   Search,
 } from "./icons";
@@ -420,7 +420,7 @@ export function OrchestrationPreview({
           {planning || proposal.status === "starting" ? (
             <CircleDashed className="size-4 animate-spin" />
           ) : (
-            <MessageMultiple className="size-4" strokeWidth={1.75} />
+            <Share className="size-4" strokeWidth={1.75} />
           )}
         </span>
         <div className="min-w-0 flex-1">

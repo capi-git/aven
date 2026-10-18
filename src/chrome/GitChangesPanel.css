@@ -2,13 +2,11 @@
    the history rows. Glass card tokens come from macos-theme.css so the panel
    follows the user's opacity and light/dark theme. */
 .git-changes {
-  --git-add: #61bd85;
-  --git-del: #d77880;
+  --git-add: var(--aven-git-add);
+  --git-del: var(--aven-git-del);
   --git-ok: #4ade80;
 }
 html.theme-light .git-changes {
-  --git-add: #1a7f37;
-  --git-del: #c2303a;
   --git-ok: #1a7f37;
 }
 

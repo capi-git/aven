@@ -11,7 +11,8 @@ import {
 } from "react";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import { DiscussionWrapUpCard } from "../chrome/DiscussionWrapUp";
-import { ArrowUp, Play, Square } from "../chrome/icons";
+import { ArrowRight, ArrowUp, Play, Square } from "../chrome/icons";
+import { TeamCardButton } from "../chrome/TeamCard";
 import { useDiscussionList } from "../hooks/useDiscussions";
 import {
   discussionRound,
@@ -461,25 +462,25 @@ export function DiscussionThreadPanel({
         {!ended ? (
           <div className="discussion-float-actions">
             {paused && blocked && can.openChat ? (
-              <button
-                type="button"
-                className="discussion-action"
+              <TeamCardButton
+                size="compact"
+                variant="needs-you"
                 onClick={() => show(blocked)}
               >
+                <ArrowRight className="size-3" />
                 Go to {voices[blocked].name}
-              </button>
+              </TeamCardButton>
             ) : null}
             {/* Resume sits with the reason, at the end of the thread. */}
-            <button
-              type="button"
-              className="discussion-action"
+            <TeamCardButton
+              size="compact"
               data-team-stop="discussion"
               title="Stop the discussion. A reply being written finishes, but the other chat won't get it."
               onClick={() => void act({ kind: "stop" })}
             >
               <Square className="size-2.5" />
               Stop discussion
-            </button>
+            </TeamCardButton>
           </div>
         ) : null}
       </div>
@@ -792,14 +793,13 @@ const PausedRow = memo(function PausedRow({
   return (
     <li className="discussion-paused" data-discussion-paused>
       <span className="min-w-0">Paused{reason ? ` · ${reason}` : ""}</span>
-      <button
-        type="button"
-        className="discussion-action"
+      <TeamCardButton
+        size="compact"
         onClick={() => void act({ kind: "resume" })}
       >
         <Play className="size-3" />
         Resume
-      </button>
+      </TeamCardButton>
     </li>
   );
 });

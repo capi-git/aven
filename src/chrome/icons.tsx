@@ -14,6 +14,7 @@ import ArrowDownLeft01Icon from "@hugeicons/core-free-icons/ArrowDownLeft01Icon"
 import ArrowExpand01Icon from "@hugeicons/core-free-icons/ArrowExpand01Icon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
+import ArrowRight02Icon from "@hugeicons/core-free-icons/ArrowRight02Icon";
 import ArrowTurnForwardIcon from "@hugeicons/core-free-icons/ArrowTurnForwardIcon";
 import ArrowUp01Icon from "@hugeicons/core-free-icons/ArrowUp01Icon";
 import ArrowUpRight01Icon from "@hugeicons/core-free-icons/ArrowUpRight01Icon";
@@ -163,6 +164,8 @@ export const Archive = wrap(Archive02Icon, "Archive");
 export const ArrowDownCircle = wrap(CircleArrowDown01Icon, "ArrowDownCircle");
 export const ArrowLeft = wrap(ArrowLeft01Icon, "ArrowLeft");
 export const ArrowUp = wrap(ArrowUp01Icon, "ArrowUp");
+/** → : to another place inside Aven ("Go to Codex"). */
+export const ArrowRight = wrap(ArrowRight02Icon, "ArrowRight");
 /** ↗ : out into a window of its own. */
 export const ArrowUpRight = wrap(ArrowUpRight01Icon, "ArrowUpRight");
 /** ↙ : back into the window it came from. */

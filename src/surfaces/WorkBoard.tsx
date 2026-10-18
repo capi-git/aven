@@ -9,7 +9,7 @@ import {
 } from "react";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { equalChromeData } from "../hooks/useChromeProps";
-import { TeamMiniFaces } from "../chrome/TeamCard";
+import { TeamCardButton, TeamMiniFaces } from "../chrome/TeamCard";
 import { useCardGlide } from "../hooks/useCardGlide";
 import { useDevPreviews } from "../hooks/useDevPreviews";
 import {
@@ -302,6 +302,7 @@ const BoardCardView = memo(function BoardCardView({
   );
 });
 
+/** The team family's one button, compact, on a board card. */
 function BoardButton({
   primary,
   onClick,
@@ -312,14 +313,15 @@ function BoardButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <TeamCardButton
+      size="compact"
+      variant={primary ? "primary" : "default"}
       className="work-board-action"
       data-primary={primary || undefined}
       onClick={onClick}
     >
       {children}
-    </button>
+    </TeamCardButton>
   );
 }
 

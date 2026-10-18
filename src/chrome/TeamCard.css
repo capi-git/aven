@@ -13,15 +13,16 @@
   max-width: 680px;
   padding: 12px 14px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 12px;
+  border-radius: var(--aven-radius-card, 12px);
   background: var(
     --aven-glass-card,
     color-mix(in srgb, var(--color-content) 4%, transparent)
   );
+  box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
 }
 .team-card[data-state="needs-you"] {
-  border-color: color-mix(in srgb, var(--color-amber-400) 45%, transparent);
+  border-color: var(--aven-needs-you-edge);
 }
 
 .team-card-head {
@@ -46,12 +47,18 @@
   height: 34px;
   border-radius: 9px;
 }
+/* The pair's link: three square pixel dots, like the typing dots. */
 .team-card-link {
+  display: inline-flex;
+  justify-content: center;
+  gap: 3px;
   width: 18px;
-  text-align: center;
-  font-size: 10px;
-  letter-spacing: 1px;
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.team-card-link i {
+  width: 2px;
+  height: 2px;
+  background: currentColor;
 }
 .team-card[data-state="live"] .team-card-link {
   animation: team-card-link 1.6s steps(3, end) infinite;
@@ -136,25 +143,32 @@
 .team-card-member-open {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
   min-width: 0;
   padding: 4px 6px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-control, 8px);
   text-align: left;
   color: inherit;
 }
 button.team-card-member-open:hover {
   background: var(--aven-hover);
 }
+/* A member looks the same on the card and in the panel. */
 .team-card-member-face .discussion-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
 }
 .team-card-member-face .discussion-avatar-sprite {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+}
+/* The role is named beside the member; its letter on the mascot would say
+   it twice. */
+.team-card-member-face .discussion-avatar-role,
+.team-watch-member-face .discussion-avatar-role {
+  display: none;
 }
 .team-card-member-text {
   display: flex;
@@ -176,6 +190,7 @@ button.team-card-member-open:hover {
 }
 .team-card-member-name {
   font-size: var(--text-ui-label);
+  font-weight: 500;
   line-height: 17px;
 }
 .team-card-member-detail {
@@ -213,17 +228,17 @@ button.team-card-member-open:hover {
   white-space: nowrap;
 }
 .team-card-lines [data-sign="add"] {
-  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-content));
+  color: var(--aven-git-add);
 }
 .team-card-lines [data-sign="del"] {
-  color: color-mix(in srgb, var(--color-red-400) 70%, var(--color-content));
+  color: var(--aven-git-del);
 }
 
 .team-card-note {
   margin: 0;
   font-size: var(--text-ui-label);
   line-height: 18px;
-  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  color: var(--aven-muted);
 }
 
 .team-card-actions {
@@ -232,26 +247,40 @@ button.team-card-member-open:hover {
   align-items: center;
   gap: 6px;
 }
+/* The one button of the team family: the card, the message-box bar, the
+   floating panel and the board all use it. */
 .team-card-button {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 5px;
   height: 26px;
   padding: 0 10px;
   border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 7px;
+  border-radius: var(--aven-radius-control, 8px);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 7%, transparent)
   );
   font-size: var(--text-ui-label);
+  font-weight: 500;
   color: var(--color-content);
   white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.team-card-button[data-size="compact"] {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
 }
 .team-card-button:hover:not(:disabled) {
-  background: var(--aven-hover);
+  background: var(--aven-control-hover, var(--aven-hover));
+  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
 }
 .team-card-button:disabled {
+  cursor: default;
   opacity: 0.45;
 }
 .team-card-button[data-variant="primary"] {
@@ -266,6 +295,25 @@ button.team-card-member-open:hover {
   border-color: transparent;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.team-card-button[data-variant="ghost"]:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-content);
+}
+/* The way to what needs you reads in its amber. */
+.team-card-button[data-variant="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+  background: var(--aven-needs-you-wash);
+  color: var(--aven-needs-you);
+}
+.team-card-button[data-variant="needs-you"]:hover:not(:disabled) {
+  border-color: var(--aven-needs-you-edge);
+  background: var(--aven-needs-you-wash-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .team-card-button {
+    transition: none;
+  }
 }
 .team-card-toggle {
   margin-left: auto;
@@ -296,7 +344,8 @@ button.team-card-member-open:hover {
   }
 }
 
-/* A team's members as one row's mark: small mascots, overlapping. */
+/* A team's members as one row's mark: small mascots, overlapping. The
+   sprites draw at 16px, a whole multiple of their 8 pixels. */
 .team-mini-faces {
   display: inline-flex;
   flex-shrink: 0;
@@ -316,8 +365,11 @@ button.team-card-member-open:hover {
   margin-left: -5px;
 }
 .team-mini-faces .discussion-avatar-sprite {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
+}
+.team-mini-faces .discussion-avatar-role {
+  display: none;
 }
 
 /* A race as one sidebar row: its lanes' mascots and how far it is. */
@@ -340,11 +392,18 @@ button.team-card-member-open:hover {
   border-radius: 4px;
 }
 .sidebar-team-badge .team-mini-faces .discussion-avatar-sprite {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 .sidebar-team-badge-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The message-box bar: amber while the team waits on you. */
+.team-bar[data-state="paused"],
+.team-bar[data-state="needs-you"],
+.team-bar[data-state="stalled"] {
+  border-color: var(--aven-needs-you-edge);
 }

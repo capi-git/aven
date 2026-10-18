@@ -33,12 +33,15 @@ vi.mock("../chrome/ProjectMark", async () => {
       ),
   };
 });
-vi.mock("../chrome/TeamCard", async () => {
+vi.mock("../chrome/TeamCard", async (importOriginal) => {
   const react = await import("react");
   const onRender: ProfilerOnRenderCallback = () => {
     renders.cards += 1;
   };
   return {
+    TeamCardButton: (
+      await importOriginal<typeof import("../chrome/TeamCard")>()
+    ).TeamCardButton,
     TeamMiniFaces: ({
       members,
       active,

@@ -10,12 +10,11 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 16px;
+  /* A solid popup: the overlay's edge, radius and soft theme shadow. */
+  border: 1px solid var(--aven-glass-overlay-edge, var(--aven-line));
+  border-radius: var(--aven-radius-overlay, 14px);
   background: var(--aven-popup);
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.45),
-    0 2px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
   font-family: var(--font-sans);
   color: var(--color-content);
   container: discussion-view / inline-size;
@@ -172,7 +171,9 @@ button.discussion-side:focus-visible {
   height: 54px;
   border-radius: 12px;
 }
-.discussion-side .discussion-avatar-sprite {
+.discussion-side
+  .discussion-avatar[data-size="large"]
+  .discussion-avatar-sprite {
   width: 32px;
   height: 32px;
 }
@@ -206,7 +207,7 @@ button.discussion-side:focus-visible {
   white-space: nowrap;
 }
 .discussion-versus[data-state="needs-you"] {
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
 }
 .discussion-track {
   display: flex;
@@ -269,8 +270,13 @@ button.discussion-side:focus-visible {
   background: var(--aven-hover);
   color: var(--color-content);
 }
+.discussion-rail button:focus-visible,
+.discussion-fold button:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
 .discussion-rail-mark {
-  font-size: 9px;
+  font-size: var(--text-ui-micro, 10px);
   line-height: 10px;
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
@@ -328,12 +334,10 @@ button.discussion-side:focus-visible {
   gap: 9px;
   max-width: 360px;
   padding: 6px 12px 6px 8px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border: 1px solid var(--aven-glass-overlay-edge, var(--aven-line));
   border-radius: 999px;
   background: var(--aven-popup);
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.4),
-    0 1px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
   font-family: var(--font-sans);
   font-size: var(--text-ui-label);
   color: var(--color-content);
@@ -348,11 +352,7 @@ button.discussion-side:focus-visible {
   outline-offset: 2px;
 }
 .discussion-pill[data-state="needs-you"] {
-  border-color: color-mix(
-    in srgb,
-    var(--color-amber-400, #e2a03f) 55%,
-    transparent
-  );
+  border-color: var(--aven-needs-you-edge);
 }
 .discussion-duo {
   display: inline-flex;
@@ -375,27 +375,14 @@ button.discussion-side:focus-visible {
   );
 }
 .discussion-pill[data-state="needs-you"] .discussion-pill-status {
-  color: var(--color-amber-400, #e2a03f);
+  color: var(--aven-needs-you);
+}
+.discussion-pill[data-state="ready"] .discussion-pill-status {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
 }
 .discussion-pill[data-state="done"] .discussion-pill-status,
 .discussion-pill[data-state="stopped"] .discussion-pill-status {
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
-}
-
-.discussion-action {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 6px;
-  font-size: var(--text-ui-label);
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
-}
-.discussion-action:hover {
-  background: var(--aven-hover);
-  color: var(--color-content);
 }
 
 .discussion-scroll {
@@ -404,6 +391,11 @@ button.discussion-side:focus-visible {
   overflow-y: auto;
   overscroll-behavior: none;
   outline: none;
+}
+/* Escape from the box lands here: show where the keyboard went. */
+.discussion-scroll:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: -2px;
 }
 .discussion-thread {
   display: flex;
@@ -426,15 +418,13 @@ button.discussion-side:focus-visible {
   font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
+/* Cards inside the panel sit on its own material. */
 .discussion-topic-card {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 12px;
-  background: var(
-    --aven-glass-card,
-    color-mix(in srgb, var(--color-content) 4%, transparent)
-  );
+  border-radius: 10px;
+  background: var(--aven-inset-card);
 }
 
 .discussion-closing {
@@ -447,6 +437,7 @@ button.discussion-side:focus-visible {
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   text-align: center;
 }
+/* Paused reads as a run's paused notice does: amber, with Resume. */
 .discussion-paused {
   display: flex;
   align-items: center;
@@ -455,11 +446,11 @@ button.discussion-side:focus-visible {
   max-width: min(560px, 100%);
   margin-top: 6px;
   padding: 4px 4px 4px 12px;
-  border: 1px solid var(--aven-line);
+  border: 1px solid var(--aven-needs-you-edge);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-needs-you-wash);
   font-size: var(--text-ui-label);
-  color: color-mix(in srgb, var(--color-content) 66%, transparent);
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
 }
 
 /* Something the user added for both chats: centred between the two sides,
@@ -511,7 +502,8 @@ button.discussion-side:focus-visible {
 }
 
 .discussion-jump-problem {
-  margin: 0;
+  max-width: 828px;
+  margin: 5px auto 0;
   font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
 }
@@ -589,11 +581,6 @@ button.discussion-side:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: 1px;
 }
-.discussion-jump-problem {
-  max-width: 828px;
-  margin: 5px auto 0;
-}
-
 @container discussion-view (max-width: 400px) {
   .discussion-wrapup-lists {
     grid-template-columns: minmax(0, 1fr);

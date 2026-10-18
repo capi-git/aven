@@ -67,7 +67,7 @@
   width: 13px;
   height: 13px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: var(--text-ui-micro, 10px);
   line-height: 1;
   color: color-mix(in srgb, var(--discussion-voice) 70%, var(--color-content));
   background: color-mix(in srgb, var(--discussion-voice) 12%, transparent);
@@ -120,6 +120,11 @@
 }
 .discussion-more:hover {
   color: var(--color-content);
+}
+.discussion-more:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* Three square pixels taking turns, in the side's colour. */

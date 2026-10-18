@@ -1,13 +1,10 @@
 /* Another chat's work in the same project: same-file edits and second
    copies of a dev server. Quiet, with one amber mark. */
+/* The message box shows one amber: the theme's "Needs you" colour. */
 .shared-work-bar,
 .duplicate-server-chip,
 .work-conflict-mark {
-  --shared-work-tone: var(--color-warning, #d99c45);
-}
-html.theme-light
-  :is(.shared-work-bar, .duplicate-server-chip, .work-conflict-mark) {
-  --shared-work-tone: #a8661c;
+  --shared-work-tone: var(--aven-needs-you);
 }
 .shared-work-mark,
 .work-conflict-mark {

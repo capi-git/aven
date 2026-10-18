@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Check,
   LoaderCircle,
-  Pause,
   RotateCcw,
   Square,
 } from "../chrome/icons";
@@ -104,20 +103,24 @@ function LaneStatus({ state, now }: { state: RaceLaneState; now: number }) {
         ? Check
         : state.kind === "failed" || state.kind === "interrupted"
           ? AlertCircle
-          : state.kind === "waiting"
-            ? Pause
-            : state.kind === "stopped"
-              ? Square
-              : null;
+          : state.kind === "stopped"
+            ? Square
+            : null;
   const strong =
     state.kind === "done" ||
-    state.kind === "waiting" ||
     state.kind === "failed" ||
     state.kind === "interrupted";
+  // An agent that needs you reads in the one "Needs you" amber.
   return (
     <span
       data-lane-state={state.kind}
-      className={`flex shrink-0 items-center gap-1 text-ui-label ${strong ? "text-content" : "text-content/55"}`}
+      className={`flex shrink-0 items-center gap-1 text-ui-label ${
+        state.kind === "waiting"
+          ? "font-medium text-[color:var(--aven-needs-you)]"
+          : strong
+            ? "text-content"
+            : "text-content/55"
+      }`}
     >
       {Icon ? (
         <Icon
@@ -562,9 +565,13 @@ function RaceBody({
                 <div className="text-ui-label text-content/55">
                   {diff ? (
                     <>
-                      <span className="text-content">+{diff.additions}</span>{" "}
-                      <span className="text-content">−{diff.deletions}</span> ·{" "}
-                      {diff.files.length}{" "}
+                      <span className="text-[color:var(--aven-git-add)]">
+                        +{diff.additions}
+                      </span>{" "}
+                      <span className="text-[color:var(--aven-git-del)]">
+                        −{diff.deletions}
+                      </span>{" "}
+                      · {diff.files.length}{" "}
                       {diff.files.length === 1 ? "file" : "files"}
                     </>
                   ) : (

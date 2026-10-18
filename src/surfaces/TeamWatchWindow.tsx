@@ -21,6 +21,7 @@ import {
   type TeamWatchWindow as Bridge,
   type TeamWatchWindowState,
 } from "../lib/teamWatchBridge";
+import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
 import { TeamWatchPanelView } from "./TeamWatchBodies";
 import "./DiscussionPanel.css";
@@ -44,6 +45,8 @@ function useWindowTheme(
     set("--theme-accent-color", theme.accent);
     set("--personal-accent", theme.accent);
     set("--theme-content-color", theme.text);
+    // The workspace's own background, so light cards and badges match it.
+    set("--theme-background-color", theme.background);
     set("--team-watch-window-bg", theme.background);
   }, [theme]);
 }
@@ -168,14 +171,9 @@ export function TeamWatchWindow({
           </div>
           <div className="team-watch-closed" role="status">
             <p className="m-0">{ended}</p>
-            <button
-              type="button"
-              className="team-watch-button"
-              data-team-watch-close
-              onClick={close}
-            >
+            <TeamCardButton data-team-watch-close onClick={close}>
               Close
-            </button>
+            </TeamCardButton>
           </div>
         </>
       ) : (
@@ -188,14 +186,9 @@ export function TeamWatchWindow({
               data-owner-hidden
             >
               <p>{OWNER_HIDDEN_TEXT}</p>
-              <button
-                type="button"
-                className="team-watch-button"
-                data-team-show-owner
-                onClick={showOwner}
-              >
+              <TeamCardButton data-team-show-owner onClick={showOwner}>
                 Show window
-              </button>
+              </TeamCardButton>
             </div>
           ) : null}
         </>

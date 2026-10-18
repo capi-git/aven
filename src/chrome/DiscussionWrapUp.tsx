@@ -1,7 +1,7 @@
 import { memo, useState, type CSSProperties } from "react";
 import type { Discussion, DiscussionSide } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
-import { Check, ExternalLink } from "./icons";
+import { Check, Eye } from "./icons";
 import { ProjectMascot } from "./ProjectMascot";
 import "./DiscussionWrapUp.css";
 
@@ -82,8 +82,8 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
               title="Watch the discussion in a floating panel"
               onClick={onOpen}
             >
+              <Eye className="size-3 shrink-0" />
               Watch
-              <ExternalLink className="size-3 shrink-0" />
             </button>
           ) : null}
         </div>

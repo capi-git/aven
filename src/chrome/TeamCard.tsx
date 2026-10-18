@@ -46,7 +46,11 @@ export function TeamFaces({
       {voices.map((voice, index) => (
         <span key={voice.sessionId} className="team-card-face">
           {pair && index === 1 ? (
-            <span className="team-card-link">• • •</span>
+            <span className="team-card-link">
+              <i />
+              <i />
+              <i />
+            </span>
           ) : null}
           <span
             className="team-card-tile"
@@ -233,19 +237,26 @@ export const TeamCardMember = memo(function TeamCardMember({
   );
 });
 
+/**
+ * The team family's one button: on the cards, in the message-box bar
+ * (`compact`), in the floating panel and on the board.
+ */
 export function TeamCardButton({
   variant = "default",
+  size = "regular",
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "default" | "primary" | "ghost";
+  variant?: "default" | "primary" | "ghost" | "needs-you";
+  size?: "regular" | "compact";
   ref?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
       type="button"
-      className={`team-card-button ${className}`}
+      className={`team-card-button aven-press ${className}`}
       data-variant={variant === "default" ? undefined : variant}
+      data-size={size === "compact" ? "compact" : undefined}
       {...props}
     />
   );

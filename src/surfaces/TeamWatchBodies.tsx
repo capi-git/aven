@@ -2,8 +2,15 @@ import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { RoleBadge } from "../chrome/AgentRoles";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
-import { Check, ExternalLink, Play, Sparkles, Square } from "../chrome/icons";
-import { LineChanges, MemberClock } from "../chrome/TeamCard";
+import {
+  ArrowRight,
+  Check,
+  GitCompare,
+  Play,
+  Sparkles,
+  Square,
+} from "../chrome/icons";
+import { LineChanges, MemberClock, TeamCardButton } from "../chrome/TeamCard";
 import { agentNameWithModel, appName } from "../lib/agentNames";
 import {
   memberVoice,
@@ -492,17 +499,19 @@ const RaceLane = memo(function RaceLane({
         </span>
       ) : null}
       {member.state === "needs-you" && canOpen ? (
-        <button
-          type="button"
-          className="team-watch-needs"
+        <TeamCardButton
+          variant="needs-you"
+          size="compact"
+          className="self-start"
           data-team-goto={member.sessionId}
           title={`Open ${member.label}'s chat`}
           onClick={() =>
             run({ kind: "open-chat", sessionId: member.sessionId })
           }
         >
+          <ArrowRight className="size-3" />
           Go to chat
-        </button>
+        </TeamCardButton>
       ) : null}
     </li>
   );
@@ -572,9 +581,8 @@ function RunRows({
               : team.need?.text}
           </p>
           {stalled ? (
-            <button
-              type="button"
-              className="discussion-action"
+            <TeamCardButton
+              size="compact"
               data-team-finish
               disabled={pending === "finish"}
               title="End the run as it is. Tasks that never started are cancelled."
@@ -582,11 +590,10 @@ function RunRows({
             >
               <Check className="size-3" strokeWidth={2} />
               Finish run
-            </button>
+            </TeamCardButton>
           ) : (
-            <button
-              type="button"
-              className="discussion-action"
+            <TeamCardButton
+              size="compact"
               data-team-resume
               disabled={lead?.state === "working" || pending === "resume"}
               title={
@@ -598,7 +605,7 @@ function RunRows({
             >
               <Play className="size-3" />
               Resume
-            </button>
+            </TeamCardButton>
           )}
         </div>
       ) : null}
@@ -812,21 +819,18 @@ function TeamActions({
           </ul>
         ) : null}
         {view.can.compare ? (
-          <button
-            type="button"
-            className="team-watch-button"
-            data-variant={team.status === "ready" ? "primary" : undefined}
+          <TeamCardButton
+            variant={team.status === "ready" ? "primary" : "default"}
             data-team-compare
             title="Compare the agents' changes and keep one"
             onClick={() => run({ kind: "compare" })}
           >
+            <GitCompare className="size-3" strokeWidth={1.75} />
             Compare
-          </button>
+          </TeamCardButton>
         ) : null}
         {team.status === "ready" && suggestion?.status !== "done" ? (
-          <button
-            type="button"
-            className="team-watch-button"
+          <TeamCardButton
             data-team-suggest
             disabled={judging}
             title={
@@ -837,14 +841,12 @@ function TeamActions({
             onClick={() => run({ kind: "suggest" })}
           >
             {suggesting ? "Suggesting…" : "Suggest a winner"}
-          </button>
+          </TeamCardButton>
         ) : null}
         {team.status === "ready" &&
         suggestion?.status !== "done" &&
         reviewers ? (
-          <button
-            type="button"
-            className="team-watch-button"
+          <TeamCardButton
             data-team-review-ask
             aria-expanded={picking}
             disabled={judging}
@@ -852,12 +854,10 @@ function TeamActions({
             onClick={() => setPicking((value) => !value)}
           >
             {reviewing ? "Reviewing…" : "Ask a reviewer"}
-          </button>
+          </TeamCardButton>
         ) : null}
         {working ? (
-          <button
-            type="button"
-            className="team-watch-button"
+          <TeamCardButton
             data-team-stop="race"
             disabled={pending === "stop"}
             title="Stop every agent still working. You can still compare what they wrote."
@@ -865,7 +865,7 @@ function TeamActions({
           >
             <Square className="size-2.5" />
             Stop race
-          </button>
+          </TeamCardButton>
         ) : null}
       </div>
     );
@@ -875,21 +875,17 @@ function TeamActions({
   return (
     <div className="team-watch-actions">
       {agents && view.can.openAgents ? (
-        <button
-          type="button"
-          className="team-watch-button"
+        <TeamCardButton
           data-team-open-agents
           title="Open the agents' chats beside the lead"
           onClick={() => run({ kind: "open-agents" })}
         >
-          <ExternalLink className="size-3" />
+          <ArrowRight className="size-3" />
           Open agents
-        </button>
+        </TeamCardButton>
       ) : null}
       {open ? (
-        <button
-          type="button"
-          className="team-watch-button"
+        <TeamCardButton
           data-team-stop="run"
           disabled={pending === "stop"}
           title="Stop the lead and every agent in this run"
@@ -897,7 +893,7 @@ function TeamActions({
         >
           <Square className="size-2.5" />
           Stop run
-        </button>
+        </TeamCardButton>
       ) : null}
     </div>
   );

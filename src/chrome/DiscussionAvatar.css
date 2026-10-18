@@ -43,7 +43,7 @@
   border: 1px solid var(--aven-line);
   background: var(--color-background-base);
   color: color-mix(in srgb, var(--color-content) 80%, transparent);
-  font-size: 8px;
+  font-size: var(--text-ui-micro, 10px);
   font-weight: 600;
   line-height: 1;
 }
@@ -51,7 +51,6 @@
   min-width: 14px;
   height: 14px;
   border-radius: 7px;
-  font-size: 9px;
 }
 
 .discussion-avatar .mascot-active {
