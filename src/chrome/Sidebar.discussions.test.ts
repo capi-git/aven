@@ -165,7 +165,7 @@ describe("Sidebar discussions", () => {
     await render([talking("a", "elsewhere", "b")]);
     expect(link()).toBeNull();
     const badge = container.querySelector(".discussion-talk-badge");
-    expect(badge?.textContent).toBe("↔ talking with Elsewhere");
+    expect(badge?.textContent).toBe("Discussing with “Elsewhere”");
     expect(
       badge
         ?.closest("[data-discussion-row]")

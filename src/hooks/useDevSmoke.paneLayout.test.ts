@@ -6,74 +6,12 @@ vi.mock("../lib/floatingSidebar", () => ({
   nativeFloatingSidebar: { send: vi.fn(), listen: vi.fn() },
 }));
 
-import { paneLayoutProblem } from "./useDevSmoke";
+import { paneLayoutProblem, singlePaneProblem } from "./useDevSmoke";
 
 type Box = { left: number; top: number; width: number; height: number };
 
-/** A tab holding a chat beside a discussion's page, measured as on screen. */
-function layout({
-  controlsInRow = false,
-  radius = "12px",
-  inset = 5,
-  pageTabHeight = 26,
-} = {}) {
-  document.body.innerHTML = `
-    <div data-workspace-stage>
-      <div class="workspace-stage-surface" data-workspace-surface="tab"
-        style="border-top-left-radius:${radius};border-top-width:1px">
-        <div data-pane-id="chat">
-          <div data-session-drop="chat">
-            <div data-session-pane-controls
-              style="position:${controlsInRow ? "static" : "absolute"}"></div>
-            <div data-chat-content style="position:relative"></div>
-          </div>
-        </div>
-        <div data-pane-id="files">
-          <div class="aven-surface-tabs"><button class="aven-tab-button"
-            data-page-tab style="border-top-left-radius:6px"></button></div>
-          <div data-discussion-view="d"></div>
-        </div>
-      </div>
-      <div data-workspace-header="tab"><button class="aven-tab-button"
-        style="border-top-left-radius:6px"></button></div>
-    </div>`;
-  const boxes = new Map<Element, Box>();
-  const at = (selector: string, box: Box) =>
-    boxes.set(document.querySelector(selector)!, box);
-  at("[data-workspace-stage]", { left: 0, top: 0, width: 1000, height: 600 });
-  at(".workspace-stage-surface", {
-    left: inset,
-    top: inset,
-    width: 1000 - 2 * inset,
-    height: 600 - 2 * inset,
-  });
-  at("[data-session-drop]", { left: 6, top: 38, width: 500, height: 560 });
-  at("[data-session-pane-controls]", {
-    left: 400,
-    top: 44,
-    width: 80,
-    height: 24,
-  });
-  at("[data-chat-content]", {
-    left: 6,
-    top: controlsInRow ? 74 : 38,
-    width: 500,
-    height: 400,
-  });
-  at("[data-workspace-header]", { left: 6, top: 6, width: 988, height: 32 });
-  at(".aven-surface-tabs", { left: 507, top: 38, width: 488, height: 32 });
-  at("[data-workspace-header] .aven-tab-button", {
-    left: 12,
-    top: 9,
-    width: 200,
-    height: 26,
-  });
-  at("[data-page-tab]", {
-    left: 513,
-    top: 41,
-    width: 200,
-    height: pageTabHeight,
-  });
+const boxes = new Map<Element, Box>();
+function measure() {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
       const box = boxes.get(this) ?? { left: 0, top: 0, width: 1, height: 1 };
@@ -85,7 +23,89 @@ function layout({
   ) {
     return [this.getBoundingClientRect()] as unknown as DOMRectList;
   });
-  return document.querySelector<HTMLElement>("[data-discussion-view]")!;
+}
+const at = (selector: string, box: Box) =>
+  boxes.set(document.querySelector(selector)!, box);
+
+/** A tab holding a chat beside a file, measured as on screen. */
+function layout({
+  chatStrips = 1,
+  fileNameStrip = false,
+  floating = false,
+  chip = false,
+  stripHeight = 32,
+  radius = "12px",
+  inset = 5,
+  fileTabHeight = 26,
+} = {}) {
+  const strip = `
+    <div class="aven-tab-bar" data-pane-strip
+      style="position:${floating ? "absolute" : "relative"}">
+      <div class="aven-tab"><div class="aven-tab-button" data-chat-tab
+        style="border-top-left-radius:6px"></div></div>
+    </div>`;
+  document.body.innerHTML = `
+    <div data-workspace-stage>
+      <div class="workspace-stage-surface" data-workspace-surface="tab"
+        style="border-top-left-radius:${radius};border-top-width:1px">
+        <div data-pane-id="chat">
+          <div data-session-drop="chat">
+            ${chip ? "<div data-session-pane-controls></div>" : ""}
+            ${strip.repeat(chatStrips)}
+            <div data-chat-content></div>
+          </div>
+        </div>
+        <div data-pane-id="files">
+          ${fileNameStrip ? '<div class="aven-tab-bar" data-file-name-strip></div>' : ""}
+          <div class="aven-surface-tabs aven-tab-bar"><button
+            class="aven-tab-button" data-file-tab
+            style="border-top-left-radius:6px"></button></div>
+          <div data-file-body></div>
+        </div>
+      </div>
+      <div data-workspace-header="tab"><button class="aven-tab-button"
+        data-header-tab style="border-top-left-radius:6px"></button></div>
+    </div>`;
+  boxes.clear();
+  at("[data-workspace-stage]", { left: 0, top: 0, width: 1000, height: 600 });
+  at(".workspace-stage-surface", {
+    left: inset,
+    top: inset,
+    width: 1000 - 2 * inset,
+    height: 600 - 2 * inset,
+  });
+  at("[data-workspace-header]", { left: 6, top: 6, width: 988, height: 32 });
+  at("[data-header-tab]", { left: 12, top: 9, width: 200, height: 26 });
+  document.querySelectorAll("[data-pane-strip]").forEach((element, index) =>
+    boxes.set(element, {
+      left: 6,
+      top: 38 + index * stripHeight,
+      width: 500,
+      height: stripHeight,
+    }),
+  );
+  document
+    .querySelectorAll("[data-chat-tab]")
+    .forEach((tab) =>
+      boxes.set(tab, { left: 12, top: 41, width: 200, height: 26 }),
+    );
+  // A floating strip lies over the content, which starts at the pane's top.
+  at("[data-chat-content]", {
+    left: 6,
+    top: floating ? 38 : 38 + chatStrips * stripHeight,
+    width: 500,
+    height: 400,
+  });
+  at(".aven-surface-tabs", { left: 507, top: 38, width: 488, height: 32 });
+  at("[data-file-tab]", {
+    left: 513,
+    top: 41,
+    width: 200,
+    height: fileTabHeight,
+  });
+  at("[data-file-body]", { left: 507, top: 70, width: 488, height: 520 });
+  measure();
+  return document.querySelector<HTMLElement>("[data-file-body]")!;
 }
 
 afterEach(() => {
@@ -94,17 +114,37 @@ afterEach(() => {
 });
 
 describe("paneLayoutProblem", () => {
-  it("passes one bar per pane, a card clear of the edge and matching tabs", () => {
+  it("passes one strip per pane above its content, cards and matching tabs", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one bar per pane; cards with 12px corners 5px from the edge; chat and page tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content; cards with 12px corners 5px from the edge; tab, chat and file tabs 26px tall, 6px corners",
     );
   });
 
-  it("names a second header row, square or edge-to-edge panes and mismatched tabs", () => {
-    expect(paneLayoutProblem(layout({ controlsInRow: true })).problem).toBe(
-      "the split chat's controls take a row of their own",
+  it("names a missing, doubled or floating strip and the old chip", () => {
+    expect(paneLayoutProblem(layout({ chatStrips: 0 })).problem).toBe(
+      "the chat has 0 strips, not one",
+    );
+    expect(paneLayoutProblem(layout({ chatStrips: 2 })).problem).toBe(
+      "the chat has 2 strips, not one",
+    );
+    expect(paneLayoutProblem(layout({ fileNameStrip: true })).problem).toBe(
+      "the file has 2 strips, not one",
+    );
+    expect(paneLayoutProblem(layout({ floating: true })).problem).toBe(
+      "the chat's strip floats over its content",
+    );
+    expect(paneLayoutProblem(layout({ chip: true })).problem).toBe(
+      "the chat still has the floating chip",
+    );
+  });
+
+  it("names a strip over content, square or edge-to-edge panes and mismatched tabs", () => {
+    const file = layout();
+    at("[data-chat-content]", { left: 6, top: 50, width: 500, height: 400 });
+    expect(paneLayoutProblem(file).problem).toBe(
+      "the chat's strip covers 20px of its content",
     );
     expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
       "the pane's corners are 0px",
@@ -112,8 +152,36 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ inset: 0 })).problem).toBe(
       "the card is 0px from the workspace edge",
     );
-    expect(paneLayoutProblem(layout({ pageTabHeight: 32 })).problem).toBe(
-      "the chat's tab is 26px tall, 6px corners and the page's is 32px tall, 6px corners",
+    expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
+      "the tab's bar is 32px, the chat's strip 24px and the file's 32px",
+    );
+    expect(paneLayoutProblem(layout({ fileTabHeight: 32 })).problem).toBe(
+      "the tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
+    );
+  });
+});
+
+describe("singlePaneProblem", () => {
+  function lone(strip: boolean) {
+    document.body.innerHTML = `
+      <div data-workspace-stage>
+        <div class="workspace-stage-surface" data-workspace-surface="tab">
+          <div data-pane-id="chat">
+            <div data-session-drop="chat">
+              ${strip ? '<div class="aven-tab-bar" data-pane-strip></div>' : ""}
+              <div data-chat-content></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    measure();
+    return document.querySelector<HTMLElement>("[data-session-drop]")!;
+  }
+
+  it("passes a chat alone in its tab without a strip and names one with it", () => {
+    expect(singlePaneProblem(lone(false))).toBeNull();
+    expect(singlePaneProblem(lone(true))).toBe(
+      "a chat alone in its tab shows 1 strip",
     );
   });
 });

@@ -104,7 +104,12 @@ async function render(blocks: Block[], busy = false) {
   return container.querySelector<HTMLElement>(".agent-transcript")!;
 }
 
+/** The reader scrolling: their wheel input, then the moved offset. */
 async function scrollTo(top: number) {
+  const deltaY = top - scroller.scrollTop;
+  await act(async () => {
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY }));
+  });
   scroller.scrollTop = top;
   await act(async () => {
     scroller.dispatchEvent(new Event("scroll"));

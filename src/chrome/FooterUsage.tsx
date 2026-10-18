@@ -1,5 +1,6 @@
 import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useProviderUsage } from "../hooks/useProviderUsage";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { contextPercent, formatTokens } from "../lib/contextUsage";
@@ -77,7 +78,20 @@ function UsageMeter({
       data-forecast={warning ? "warning" : undefined}
       aria-hidden
     >
-      <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />
+      <span
+        style={{ transform: `translateX(${Math.max(fill ?? 0, 4) - 100}%)` }}
+      />
+    </span>
+  );
+}
+
+/** A reading that rolls into its new value when it changes. */
+function UsagePercent({ children }: { children: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useMotionOnChange(ref, children);
+  return (
+    <span ref={ref} className="footer-usage-percent">
+      {children}
     </span>
   );
 }
@@ -185,7 +199,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
           >
             <span className="footer-usage-muted">Context</span>
             <UsageMeter fill={contextShare} />
-            <span className="footer-usage-percent">{contextLabel}</span>
+            <UsagePercent>{contextLabel}</UsagePercent>
           </span>
         ) : null}
         {accounts.map((account, index) => {
@@ -210,9 +224,9 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
                     fill={usageMeterFill(closest)}
                     warning={warning}
                   />
-                  <span className="footer-usage-percent">
+                  <UsagePercent>
                     {formatUsagePercent(closest.window.usedPercent)}
-                  </span>
+                  </UsagePercent>
                 </>
               ) : (
                 <span className="footer-usage-muted">

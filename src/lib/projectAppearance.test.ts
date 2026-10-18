@@ -71,7 +71,7 @@ describe("projectAppearance", () => {
     const key = projectKey(APP);
     saveTabGroupLabel(key, "  Aven  ");
     saveTabGroupColor(key, 4);
-    saveTabGroupMascot(key, "ghost");
+    saveTabGroupMascot(key, "whale");
     saveTabGroupLogo(key, "/logos/app.png");
     notifyTabGroupLogosChanged();
     let look = projectAppearance(APP);
@@ -80,8 +80,8 @@ describe("projectAppearance", () => {
       customLabel: "Aven",
       color: TAB_GROUP_COLORS[4],
       colorIndex: 4,
-      mascot: "ghost",
-      mascotOverride: "ghost",
+      mascot: "whale",
+      mascotOverride: "whale",
       logoPath: "/logos/app.png",
     });
     expect(look.logoSrc).toMatch(
@@ -101,6 +101,19 @@ describe("projectAppearance", () => {
       mascotOverride: null,
       logoPath: null,
     });
+  });
+
+  it("shows a pick saved under an old sprite's name as its critter", () => {
+    const key = projectKey(APP);
+    saveTabGroupMascot(key, "ghost");
+    expect(projectAppearance(APP)).toMatchObject({
+      mascot: "jelly",
+      mascotOverride: "jelly",
+    });
+    // The saved name itself is left as it was.
+    expect(JSON.stringify([...data.values()])).toContain("ghost");
+    saveTabGroupMascot(key, "nope");
+    expect(projectAppearance(APP).mascot).toBe(projectMascot("app").name);
   });
 
   it("returns the same object until that project's appearance changes", () => {

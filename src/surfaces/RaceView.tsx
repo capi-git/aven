@@ -6,21 +6,65 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { HarnessIcon } from "../chrome/HarnessIcon";
-import { AlertCircle, Check, LoaderCircle } from "../chrome/icons";
+import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
+import {
+  AlertCircle,
+  Check,
+  LoaderCircle,
+  RotateCcw,
+  Square,
+} from "../chrome/icons";
+import { useActivity } from "../lib/activity";
 import {
   getRace,
   finishRace,
+  noteRaceStats,
+  RaceRefusal,
   raceFileRows,
   raceHost,
   raceWorkspace,
-  selectLane,
   subscribeRaces,
+  updateRace,
   type RaceDiff,
+  type RaceKeep,
   type RaceRecord,
   type RaceSelection,
 } from "../lib/race";
-import { sessionIsWaitingForInput, type Session } from "../lib/session";
+import {
+  raceCombineQuestion,
+  raceDiscardQuestion,
+  raceKeepAsks,
+  raceKeepQuestion,
+  raceKeptWhy,
+  raceLaneActive,
+  raceLaneCanRetry,
+  raceLaneName,
+  raceLaneSeconds,
+  raceLaneState,
+  raceOutcomeText,
+  raceSuggestionText,
+  type RaceLaneState,
+  type RaceQuestion,
+} from "../lib/raceLanes";
+import { logError } from "../lib/errors";
+import { raceFullName } from "../lib/raceNames";
+import type { Session } from "../lib/session";
+import {
+  continueLane,
+  finalReply,
+  continueRace,
+  raceContinueTitle,
+  replyOpening,
+  requestRaceSuggestion,
+  reviewRunning,
+  suggestionRunning,
+} from "../lib/teamResult";
+import { teamWorkspace } from "../lib/teamWorkspace";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
@@ -31,6 +75,10 @@ type Props = {
 };
 
 const REFRESH_WHILE_RUNNING_MS = 4000;
+
+/** When the agents' changes could not be read; the overview tries again. */
+const CHANGES_UNREAD =
+  "Couldn't read the agents' changes. They'll be read again shortly.";
 
 /** Compare the lanes of one race and keep a result. */
 export function RaceView({ raceId, sessions, visible }: Props) {
@@ -48,28 +96,54 @@ export function RaceView({ raceId, sessions, visible }: Props) {
   return <RaceBody race={race} sessions={sessions} visible={visible} />;
 }
 
-function laneStatus(session: Session | undefined) {
-  if (!session) return { label: "Closed", tone: "muted" as const };
-  if (sessionIsWaitingForInput(session))
-    return { label: "Needs you", tone: "warn" as const };
-  if (session.busy) return { label: "Working", tone: "busy" as const };
-  return { label: "Done", tone: "done" as const };
-}
-
-function laneSeconds(
-  session: Session | undefined,
-  race: RaceRecord,
-  now: number,
-) {
-  const turn = session?.blocks.find((block) => block.role === "user");
-  if (turn?.durationMs != null && !session?.busy)
-    return Math.round(turn.durationMs / 1000);
-  return Math.max(0, Math.round((now - race.createdAt) / 1000));
-}
-
 function clock(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
+
+function LaneStatus({ state, now }: { state: RaceLaneState; now: number }) {
+  const seconds = raceLaneSeconds(state, now);
+  const Icon =
+    state.kind === "working"
+      ? LoaderCircle
+      : state.kind === "done"
+        ? Check
+        : state.kind === "failed" || state.kind === "interrupted"
+          ? AlertCircle
+          : state.kind === "stopped"
+            ? Square
+            : null;
+  const strong =
+    state.kind === "done" ||
+    state.kind === "failed" ||
+    state.kind === "interrupted";
+  // An agent that needs you reads in the one "Needs you" amber.
+  return (
+    <span
+      data-lane-state={state.kind}
+      className={`flex shrink-0 items-center gap-1 text-ui-label ${
+        state.kind === "waiting"
+          ? "font-medium text-[color:var(--aven-needs-you)]"
+          : strong
+            ? "text-content"
+            : "text-content/55"
+      }`}
+    >
+      {Icon ? (
+        <Icon
+          className={`size-3 ${state.kind === "working" ? "animate-spin" : ""}`}
+        />
+      ) : null}
+      {state.label}
+      {seconds != null ? ` · ${clock(seconds)}` : ""}
+    </span>
+  );
+}
+
+type Pending = {
+  question: RaceQuestion;
+  danger: boolean;
+  run: () => void;
+};
 
 function RaceBody({
   race,
@@ -80,16 +154,30 @@ function RaceBody({
   sessions: readonly Session[];
   visible: boolean;
 }) {
-  const lanes = race.lanes.map((lane) => ({
-    lane,
-    session: sessions.find((session) => session.id === lane.sessionId),
-  }));
+  const entries = useActivity();
+  const lanes = race.lanes.map((lane, index) => {
+    const session = sessions.find((entry) => entry.id === lane.sessionId);
+    return {
+      lane,
+      session,
+      state: raceLaneState(
+        lane.sessionId,
+        session,
+        entries,
+        race.ends?.[index],
+      ),
+    };
+  });
+  const states = lanes.map(({ state }) => state);
   const running = race.state === "running";
+  const anyActive = states.some(raceLaneActive);
   const anyBusy = lanes.some(({ session }) => session?.busy);
-  const busyKey = lanes.map(({ session }) => (session?.busy ? 1 : 0)).join("");
+  const stateKey = states.map((state) => state.kind).join(" ");
   const [diffs, setDiffs] = useState<(RaceDiff | undefined)[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selection, setSelection] = useState<RaceSelection>({});
+  const [selection, setSelection] = useState<RaceSelection>(
+    () => race.picks ?? {},
+  );
   const [focus, setFocus] = useState<{ path: string; lane: number } | null>(
     null,
   );
@@ -97,27 +185,37 @@ function RaceBody({
   const finishingRef = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [pending, setPending] = useState<Pending | null>(null);
+  /** The agent whose Retry is on its way. */
+  const [retrying, setRetrying] = useState<number | null>(null);
 
+  // Saving picks rewrites the record; refreshes follow only the copies.
+  const raceId = race.id;
+  const base = race.base;
+  const lanesKey = race.lanes.map((lane) => lane.path).join("\n");
   const refresh = useCallback(() => {
-    if (race.state !== "running" || working || finishingRef.current) return;
+    if (getRace(raceId)?.state !== "running" || working || finishingRef.current)
+      return;
     void Promise.all(
-      race.lanes.map((lane) =>
-        raceHost.diff(lane.path, race.base).catch(() => undefined),
-      ),
+      lanesKey
+        .split("\n")
+        .map((path) => raceHost.diff(path, base).catch(() => undefined)),
     )
       .then((next) => {
-        if (finishingRef.current || getRace(race.id)?.state !== "running")
+        if (finishingRef.current || getRace(raceId)?.state !== "running")
           return;
         setDiffs(next);
-        setLoadError(
-          next.every((diff) => !diff) ? "Couldn’t read the race copies." : null,
-        );
+        // The race's card in its chat shows the same numbers.
+        noteRaceStats(raceId, next);
+        setLoadError(next.every((diff) => !diff) ? CHANGES_UNREAD : null);
       })
       .catch((error: unknown) => {
-        if (!finishingRef.current && getRace(race.id)?.state === "running")
-          setLoadError(String(error));
+        if (!finishingRef.current && getRace(raceId)?.state === "running") {
+          logError("Race overview", error);
+          setLoadError(CHANGES_UNREAD);
+        }
       });
-  }, [race, working]);
+  }, [working, raceId, lanesKey, base]);
 
   // Reload when a lane starts or finishes, and periodically while one works.
   useEffect(() => {
@@ -129,7 +227,7 @@ function RaceBody({
       refresh();
     }, REFRESH_WHILE_RUNNING_MS);
     return () => window.clearInterval(timer);
-  }, [visible, running, working, busyKey, anyBusy, refresh]);
+  }, [visible, running, working, stateKey, anyBusy, refresh]);
 
   const rows = useMemo(() => raceFileRows(diffs), [diffs]);
   const current =
@@ -137,36 +235,43 @@ function RaceBody({
   // `current` is rebuilt every render; the diff follows only its file and lane.
   const currentPath = current?.path;
   const currentLane = current?.lane;
+  const currentStats =
+    currentLane === undefined
+      ? undefined
+      : diffs[currentLane]?.files.find((file) => file.path === currentPath);
+  // A refresh rebuilds every list; fetch the file again only when it changed.
+  const statsKey = currentStats
+    ? `${currentStats.status}:${currentStats.additions}:${currentStats.deletions}:${currentStats.binary}`
+    : "";
+  const statsRef = useRef(currentStats);
+  statsRef.current = currentStats;
+  const lanePath =
+    currentLane === undefined ? undefined : race.lanes[currentLane]?.path;
 
   const [fileModel, setFileModel] = useState<UnifiedDiffFileModel | null>(null);
   useEffect(() => {
+    const stats = statsRef.current;
     if (
       currentPath === undefined ||
       currentLane === undefined ||
       !visible ||
       !running ||
       working ||
-      finishingRef.current
+      finishingRef.current ||
+      !lanePath ||
+      !stats
     ) {
-      setFileModel(null);
-      return;
-    }
-    const lane = race.lanes[currentLane];
-    const stats = diffs[currentLane]?.files.find(
-      (file) => file.path === currentPath,
-    );
-    if (!lane || !stats) {
       setFileModel(null);
       return;
     }
     let cancelled = false;
     void raceHost
-      .fileDiff(lane.path, race.base, currentPath)
+      .fileDiff(lanePath, base, currentPath)
       .then((result) => {
         if (
           cancelled ||
           finishingRef.current ||
-          getRace(race.id)?.state !== "running"
+          getRace(raceId)?.state !== "running"
         )
           return;
         const unreadable =
@@ -193,24 +298,39 @@ function RaceBody({
         if (
           !cancelled &&
           !finishingRef.current &&
-          getRace(race.id)?.state === "running"
-        )
+          getRace(raceId)?.state === "running"
+        ) {
+          logError("Race overview", error);
           setFileModel({
             id: `${currentLane}:${currentPath}`,
             path: currentPath,
             label: currentPath,
-            emptyMessage: `Couldn’t load diff: ${String(error)}`,
+            emptyMessage: "Couldn't show this file's changes.",
             additions: stats.additions,
             deletions: stats.deletions,
             blocks: [],
           });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [currentPath, currentLane, diffs, race, visible, running, working]);
+  }, [
+    currentPath,
+    currentLane,
+    statsKey,
+    lanePath,
+    raceId,
+    base,
+    visible,
+    running,
+    working,
+  ]);
 
-  const finish = async (label: string, keep: RaceSelection | null) => {
+  // Lane chats re-render the overview as they stream; the diff stays put.
+  const diffFiles = useMemo(() => (fileModel ? [fileModel] : []), [fileModel]);
+
+  const finish = async (label: string, keep: RaceKeep | null) => {
     if (finishingRef.current) return;
     finishingRef.current = true;
     setWorking(label);
@@ -218,43 +338,131 @@ function RaceBody({
     try {
       await finishRace(race, keep);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
+      if (error instanceof RaceRefusal) setActionError(error.message);
+      else {
+        logError("Race overview", error);
+        setActionError(
+          keep
+            ? "Couldn't keep those changes. Try again."
+            : "Couldn't discard the race. Try again.",
+        );
+      }
     } finally {
       finishingRef.current = false;
       setWorking(null);
     }
   };
 
-  const selectedCount = Object.keys(selection).length;
+  /** Ask first when the action can't be undone and agents would be cut off. */
+  const confirm = (
+    ask: boolean,
+    question: RaceQuestion,
+    danger: boolean,
+    run: () => void,
+  ) => {
+    if (!ask) {
+      run();
+      return;
+    }
+    setPending({ question, danger, run });
+  };
+
+  // Picks are saved with the race, so reopening the overview keeps them.
+  const pick = (path: string, lane: number) => {
+    const next = { ...selection };
+    if (next[path] === lane) delete next[path];
+    else next[path] = lane;
+    setSelection(next);
+    updateRace(race.id, { picks: next });
+  };
+
+  // Picks for files no lane changes any more are not offered.
+  const picked = Object.fromEntries(
+    Object.entries(selection).filter(([path, lane]) =>
+      rows.some((row) => row.path === path && row.lanes.includes(lane)),
+    ),
+  );
+  const selectedCount = Object.keys(picked).length;
   const disabled = !running || !!working;
+  const outcome = raceOutcomeText(race);
+  // Winner and why: once no lane works, the cheap model can suggest one.
+  const suggestion = race.suggestion;
+  // One judge at a time: never while a reviewer compares them.
+  const suggesting =
+    suggestionRunning(suggestion) ||
+    reviewRunning(
+      race.review,
+      Date.now(),
+      sessions.find((entry) => entry.id === race.review?.sessionId),
+    );
+  const settled =
+    running && !anyActive && states.some((state) => state.kind === "done");
+  const suggested = suggestion?.status === "done" ? suggestion.lane : undefined;
+  const suggest = () =>
+    void requestRaceSuggestion(
+      race.id,
+      (id) => sessions.find((entry) => entry.id === id),
+      states.map((state) => state.label),
+    );
+  const why = raceKeptWhy(race);
+  // The project by its name, as the sidebar shows it; never its path.
+  const projectLabel = projectDisplayName(race.project, useProjectLabels());
+  const continueAt = continueLane(race);
+  const continueWith =
+    continueAt !== undefined && race.lanes[continueAt]
+      ? raceLaneName(race, continueAt)
+      : undefined;
+  const suggestedText = raceSuggestionText(race);
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-ui-body">
+    <div
+      className="flex h-full min-h-0 flex-col text-ui-body"
+      data-race-view={race.id}
+    >
       <header className="flex items-center gap-3 border-b border-content/10 px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="truncate text-content">{race.prompt}</div>
           <div className="truncate text-ui-label text-content/45">
             {race.state === "kept"
               ? race.error
-                ? "Kept. Some race copies could not be removed."
-                : "Kept. The race copies were removed."
+                ? `Kept in your project. ${race.error}`
+                : "Kept in your project. The other agents' work was cleared away."
               : race.state === "discarded"
-                ? "Discarded. Your project was not changed."
+                ? "Discarded. Your project didn't change."
                 : [
                     `${lanes.length} agents`,
                     race.uncommitted
-                      ? "started from your uncommitted changes"
-                      : "started from the last commit",
-                    race.untracked ? "new untracked files were not copied" : "",
+                      ? "started from your files as they are now"
+                      : "started from your last commit",
+                    race.untracked
+                      ? "new files not yet added to Git weren't included"
+                      : "",
                   ]
                     .filter(Boolean)
                     .join(" · ")}
           </div>
         </div>
+        {settled && suggestion?.status !== "done" ? (
+          <button
+            type="button"
+            data-race-suggest
+            disabled={!!working || suggesting}
+            title={
+              suggesting && !suggestionRunning(suggestion)
+                ? "Wait for the reviewer to finish first."
+                : "Ask the cheapest model which result to keep, from the agents' last replies and changes"
+            }
+            onClick={suggest}
+            className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
+          >
+            {suggesting ? "Suggesting…" : "Suggest a winner"}
+          </button>
+        ) : null}
         {running && anyBusy ? (
           <button
             type="button"
             disabled={!!working}
+            title="Stop every agent still working. You can still compare what they wrote."
             onClick={() =>
               raceWorkspace()?.stop(
                 lanes
@@ -264,14 +472,25 @@ function RaceBody({
             }
             className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
           >
-            Stop all
+            Stop race
           </button>
         ) : null}
         {running ? (
           <button
             type="button"
             disabled={disabled}
-            onClick={() => void finish("Discarding…", null)}
+            onClick={() =>
+              confirm(
+                true,
+                raceDiscardQuestion(
+                  race,
+                  states,
+                  diffs.map((diff) => diff?.files.length),
+                ),
+                true,
+                () => void finish("Discarding…", null),
+              )
+            }
             className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
           >
             Discard race
@@ -279,8 +498,25 @@ function RaceBody({
         ) : null}
       </header>
 
-      {actionError || race.error || (running && loadError) ? (
-        <div className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-ui-label text-content/75">
+      {running && suggestedText ? (
+        <div
+          className="flex items-start gap-2 border-b border-content/10 px-4 py-2 text-ui-label text-content/75"
+          data-race-suggestion
+        >
+          <Check className="mt-0.5 size-3.5 shrink-0" />
+          <span>{suggestedText}</span>
+        </div>
+      ) : running && suggestion?.status === "failed" && settled ? (
+        <div className="border-b border-content/10 px-4 py-2 text-ui-label text-content/55">
+          Couldn't suggest a winner. Compare the agents' changes to choose.
+        </div>
+      ) : null}
+
+      {actionError || (running && (race.error || loadError)) ? (
+        <div
+          className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-ui-label text-content/75"
+          role="alert"
+        >
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
           <span>{actionError ?? race.error ?? loadError}</span>
         </div>
@@ -292,12 +528,17 @@ function RaceBody({
           gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))`,
         }}
       >
-        {lanes.map(({ lane, session }, index) => {
-          const status = laneStatus(session);
+        {lanes.map(({ lane, state, session }, index) => {
           const diff = diffs[index];
+          // The first lines of its last reply, once it is not working.
+          const opening =
+            session && !raceLaneActive(state)
+              ? replyOpening(finalReply(session.blocks))
+              : "";
           return (
             <section
               key={lane.sessionId}
+              data-race-lane={index}
               className="flex min-w-0 flex-col gap-1.5 border-r border-content/10 px-4 py-3 last:border-r-0"
             >
               <div className="flex min-w-0 items-center gap-2">
@@ -305,29 +546,42 @@ function RaceBody({
                   harness={lane.harness}
                   className="size-4 shrink-0"
                 />
-                <span className="min-w-0 flex-1 truncate text-content">
-                  {lane.label}
+                <span
+                  className="min-w-0 flex-1 truncate text-content"
+                  title={raceFullName(lane)}
+                >
+                  {raceLaneName(race, index)}
                 </span>
-                {running ? (
-                  <span
-                    className={`flex shrink-0 items-center gap-1 text-ui-label ${status.tone === "done" ? "text-content" : status.tone === "warn" ? "text-content" : "text-content/55"}`}
-                  >
-                    {status.tone === "busy" ? (
-                      <LoaderCircle className="size-3 animate-spin" />
-                    ) : status.tone === "done" ? (
-                      <Check className="size-3" />
-                    ) : null}
-                    {status.label} · {clock(laneSeconds(session, race, now))}
-                  </span>
-                ) : null}
+                {running ? <LaneStatus state={state} now={now} /> : null}
               </div>
+              {suggested === index && running ? (
+                <div
+                  className="text-ui-caption font-medium text-content"
+                  data-race-suggested
+                >
+                  Suggested winner
+                </div>
+              ) : null}
+              {opening ? (
+                <p
+                  className="line-clamp-3 whitespace-pre-line text-ui-label text-content/60"
+                  title={opening}
+                  data-race-reply
+                >
+                  {opening}
+                </p>
+              ) : null}
               {running ? (
                 <div className="text-ui-label text-content/55">
                   {diff ? (
                     <>
-                      <span className="text-content">+{diff.additions}</span>{" "}
-                      <span className="text-content">−{diff.deletions}</span> ·{" "}
-                      {diff.files.length}{" "}
+                      <span className="text-[color:var(--aven-git-add)]">
+                        +{diff.additions}
+                      </span>{" "}
+                      <span className="text-[color:var(--aven-git-del)]">
+                        −{diff.deletions}
+                      </span>{" "}
+                      · {diff.files.length}{" "}
                       {diff.files.length === 1 ? "file" : "files"}
                     </>
                   ) : (
@@ -335,7 +589,7 @@ function RaceBody({
                   )}
                 </div>
               ) : null}
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => raceWorkspace()?.openChat(lane.sessionId)}
@@ -343,13 +597,54 @@ function RaceBody({
                 >
                   Open chat
                 </button>
+                {running && raceLaneCanRetry(state) ? (
+                  <button
+                    type="button"
+                    disabled={disabled || retrying !== null}
+                    title="Send the race's task to this agent again"
+                    onClick={() => {
+                      setRetrying(index);
+                      setActionError(null);
+                      void Promise.resolve(
+                        raceWorkspace()?.retry(race, index),
+                      ).then(
+                        (reason) => {
+                          setRetrying(null);
+                          if (reason) setActionError(reason);
+                        },
+                        (error: unknown) => {
+                          setRetrying(null);
+                          logError("Race retry", error);
+                          setActionError(
+                            "Couldn't retry this agent. Try again.",
+                          );
+                        },
+                      );
+                    }}
+                    className="flex items-center gap-1 rounded-md border border-content/15 px-2 py-0.5 text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
+                  >
+                    <RotateCcw className="size-3" />
+                    {retrying === index ? "Retrying…" : "Retry"}
+                  </button>
+                ) : null}
                 {running ? (
                   <button
                     type="button"
                     disabled={disabled || !diff?.files.length}
-                    onClick={() =>
-                      void finish("Keeping…", selectLane(diffs, index))
+                    title={
+                      diff && !diff.files.length
+                        ? "This agent didn't change any files."
+                        : undefined
                     }
+                    onClick={() => {
+                      const changed = diffs.map((entry) => entry?.files.length);
+                      confirm(
+                        raceKeepAsks(race, index, states, changed),
+                        raceKeepQuestion(race, index, states, changed),
+                        false,
+                        () => void finish("Keeping…", { lane: index }),
+                      );
+                    }}
                     className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
                   >
                     Keep this
@@ -368,17 +663,20 @@ function RaceBody({
         >
           <div className="flex min-h-0 flex-col border-r border-content/10">
             <div className="px-3 pb-1 pt-2 text-ui-caption text-content/40">
-              Files · pick which agent’s version to keep
+              Files · pick which agent's version to keep
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
               {rows.length === 0 ? (
                 <p className="px-2 py-3 text-ui-label text-content/45">
-                  {anyBusy ? "No changes yet." : "No agent changed any files."}
+                  {anyActive
+                    ? "No changes yet."
+                    : "No agent changed any files."}
                 </p>
               ) : null}
               {rows.map((row) => (
                 <div
                   key={row.path}
+                  data-race-file={row.path}
                   onClick={() =>
                     setFocus({
                       path: row.path,
@@ -396,7 +694,7 @@ function RaceBody({
                   <span className="flex shrink-0 gap-0.5">
                     {race.lanes.map((lane, index) => {
                       const touched = row.lanes.includes(index);
-                      const chosen = selection[row.path] === index;
+                      const chosen = picked[row.path] === index;
                       return (
                         <button
                           key={lane.sessionId}
@@ -405,19 +703,13 @@ function RaceBody({
                           aria-pressed={chosen}
                           title={
                             touched
-                              ? `Keep ${lane.label}'s version`
-                              : `${lane.label} did not change this file`
+                              ? `Keep ${raceLaneName(race, index)}'s version`
+                              : `${raceLaneName(race, index)} didn't change this file`
                           }
                           onClick={(event) => {
                             event.stopPropagation();
                             setFocus({ path: row.path, lane: index });
-                            setSelection((previous) => {
-                              const next = { ...previous };
-                              if (next[row.path] === index)
-                                delete next[row.path];
-                              else next[row.path] = index;
-                              return next;
-                            });
+                            pick(row.path, index);
                           }}
                           className={`grid size-5 place-items-center rounded border ${chosen ? "border-content bg-content text-background-base" : "border-content/15"} ${touched ? "" : "opacity-25"}`}
                         >
@@ -436,7 +728,14 @@ function RaceBody({
               <button
                 type="button"
                 disabled={disabled || selectedCount === 0}
-                onClick={() => void finish("Keeping…", selection)}
+                onClick={() =>
+                  confirm(
+                    anyActive,
+                    raceCombineQuestion(race, selectedCount, states),
+                    false,
+                    () => void finish("Keeping…", { files: picked }),
+                  )
+                }
                 className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
               >
                 {working ??
@@ -465,7 +764,7 @@ function RaceBody({
                         harness={lane.harness}
                         className="size-3.5"
                       />
-                      {lane.label}
+                      {raceLaneName(race, index)}
                     </button>
                   ) : null,
                 )}
@@ -473,10 +772,10 @@ function RaceBody({
             ) : null}
             <div className="relative min-h-0 flex-1">
               {fileModel ? (
-                <UnifiedDiffView files={[fileModel]} fileLayout="cards" />
+                <UnifiedDiffView files={diffFiles} fileLayout="cards" />
               ) : (
                 <p className="grid h-full place-items-center text-ui-label text-content/40">
-                  {rows.length ? "Loading diff…" : ""}
+                  {rows.length ? "Loading changes…" : ""}
                 </p>
               )}
             </div>
@@ -487,17 +786,59 @@ function RaceBody({
           <Check className="mb-1 size-5 text-content/60" />
           <p className="text-content">
             {race.state === "kept"
-              ? "Changes kept in your project"
-              : "Your project is unchanged"}
+              ? `Kept in ${projectLabel}.`
+              : `${projectLabel} didn't change.`}
           </p>
-          <p className="break-all font-mono text-ui-label text-content/60">
-            {race.project}
-          </p>
-          <p className="text-ui-label text-content/45">
-            Open a chat to continue in this project.
-          </p>
+          {outcome ? (
+            <p className="text-ui-label text-content/70" data-race-outcome>
+              {outcome}
+            </p>
+          ) : null}
+          {why ? (
+            <p className="max-w-md text-ui-label text-content/60">Why: {why}</p>
+          ) : null}
+          {race.state === "kept" ? (
+            <div className="mt-1 flex flex-wrap justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => teamWorkspace()?.reviewChanges(race.project)}
+                className="rounded-md border border-content/15 px-2.5 py-1 text-ui-label text-content hover:bg-content/10"
+              >
+                Review changes
+              </button>
+              {continueWith ? (
+                <button
+                  type="button"
+                  data-race-continue
+                  title={raceContinueTitle(race, continueWith)}
+                  onClick={() =>
+                    void continueRace(race.id, teamWorkspace(), (id) =>
+                      sessions.find((entry) => entry.id === id),
+                    ).then(setActionError)
+                  }
+                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
+                >
+                  {`Continue with ${continueWith}`}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
+      {pending && running ? (
+        <ConfirmDialog
+          title={pending.question.title}
+          body={pending.question.body}
+          confirmLabel={pending.question.confirm}
+          danger={pending.danger}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { run } = pending;
+            setPending(null);
+            run();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -35,9 +35,6 @@ describe("inbox sessions", () => {
     expect(inboxAskKey(item)).not.toBe(
       inboxAskKey({ ...item, url: "https://git.example.com/acme/app/pull/42" }),
     );
-    expect(
-      inboxAskKey({ provider: "linear", id: "issue-uuid" } as InboxItem),
-    ).toBe("linear:issue-uuid");
   });
 
   it("adds the remote-access instruction on follow-ups and leaves ordinary sessions alone", () => {
@@ -90,7 +87,9 @@ describe("inbox sessions", () => {
     expect(liveAgentsFromSessions([session], new Set([session.id]))).toEqual(
       [],
     );
-    expect(hiddenApprovalNotices([session], "", [], true)).toEqual([]);
+    expect(hiddenApprovalNotices([session], "", [], true, new Set())).toEqual(
+      [],
+    );
   });
 
   it("omits Ask from workspace snapshots and restart recovery", () => {

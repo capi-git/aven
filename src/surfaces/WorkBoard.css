@@ -1,0 +1,244 @@
+/* A project's board: four columns of small cards in the workspace's glass.
+   The board scrolls as a whole, so a card gliding between columns is never
+   clipped by a column of its own. */
+.work-board {
+  --work-board-glide: var(--aven-motion-duration, 220ms)
+    var(--aven-motion-easing, cubic-bezier(0.22, 1, 0.36, 1));
+  position: relative;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: clamp(14px, 3vw, 24px);
+  container-type: inline-size;
+  color: var(--color-content);
+}
+
+.work-board-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 16px;
+}
+
+.work-board-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.work-board-heading {
+  min-width: 0;
+}
+
+.work-board-heading h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-heading);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-board-today {
+  margin: 2px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-board-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+@container (max-width: 760px) {
+  .work-board-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 420px) {
+  .work-board-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.work-board-column {
+  --work-board-tone: var(--color-content);
+  display: flex;
+  min-width: 0;
+  min-height: 140px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow: var(--aven-glass-sheen, none);
+}
+
+.work-board-column[data-board-column="needs-you"] {
+  --work-board-tone: var(--aven-needs-you);
+}
+
+.work-board-column[data-board-column="working"] {
+  --work-board-tone: var(--color-accent);
+}
+
+.work-board-column[data-board-column="review"] {
+  --work-board-tone: var(--aven-review, var(--color-emerald-400, #34d399));
+}
+
+.work-board-column-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 2px 2px;
+  color: var(--work-board-tone);
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+}
+
+.work-board-count {
+  color: var(--aven-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: var(--aven-raised);
+}
+
+.work-board-card[data-column="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+  box-shadow: inset 2px 0 0 var(--aven-needs-you);
+}
+
+.work-board-card-open {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 6px;
+  color: inherit;
+  text-align: left;
+}
+
+.work-board-card-open:focus-visible,
+.work-board-action:focus-visible,
+.work-board-older:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}
+
+.work-board-card-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+
+.work-board-card[data-column="shipped"] .work-board-card-title {
+  color: var(--aven-muted);
+}
+
+.work-board-card-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-board-card-open:hover .work-board-card-name {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.work-board-card-line {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.work-board-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Card buttons are the team family's one button (TeamCard.css). */
+
+.work-board-empty {
+  margin: 4px 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.work-board-older {
+  align-self: flex-start;
+  margin: 0 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.work-board-older:hover {
+  color: var(--color-content);
+}
+
+/* Motion: a card that changed column glides there (useCardGlide); a new
+   one fades in. Transforms and opacity only. */
+.work-board-card[data-gliding] {
+  position: relative;
+  z-index: 1;
+}
+
+.work-board-card[data-gliding=""] {
+  transition: transform var(--work-board-glide);
+}
+
+.work-board-card[data-glide-enter] {
+  animation: work-board-card-in var(--aven-motion-duration, 180ms) ease-out;
+}
+
+@keyframes work-board-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-board-card[data-gliding=""] {
+    transition: none;
+  }
+  .work-board-card[data-glide-enter] {
+    animation: none;
+  }
+}

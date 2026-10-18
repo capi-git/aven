@@ -22,6 +22,8 @@ import {
   projectMemoryKey,
 } from "../lib/projectMemory";
 import { isInFlightSession } from "../lib/inFlight";
+import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
+import { raceLaneFor } from "../lib/race";
 import type { Session } from "../lib/session";
 import { getUsageForecasts } from "../lib/usageHistory";
 
@@ -75,6 +77,8 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
   const busyProjects = useMemo(() => keeperBusyProjects(sessions), [sessions]);
   const busy = useRef(busyProjects);
   busy.current = busyProjects;
+  const chats = useRef(sessions);
+  chats.current = sessions;
 
   useEffect(() => {
     const timers = new Map<string, number>();
@@ -149,12 +153,29 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
       }
     };
 
-    const offerIfEmpty = async (path: string) => {
+    const offerIfEmpty = async (path: string, sessionId: string) => {
       await probeHarnessAvailability();
       if (!pickKeeperModel()) return;
       const memory = await loadProjectMemory(path).catch(() => undefined);
       if (memory === undefined || memory?.body.trim()) return;
-      offerMemoryKeeper(path);
+      offerMemoryKeeper(path, Date.now(), sessionId);
+    };
+
+    /**
+     * Only a chat the user works in brings the offer, and it is asked
+     * there: never a lane, worker or Inbox conversation, nor a chat in
+     * another window (that window offers it).
+     */
+    const offersHere = (sessionId: string) => {
+      const chat = chats.current.find((session) => session.id === sessionId);
+      return (
+        !!chat &&
+        chatMayOfferMemoryKeeper(chat, {
+          lane: !!raceLaneFor(chat.id),
+          teamRole: null,
+          teamOpen: false,
+        })
+      );
     };
 
     const onActivity = () => {
@@ -166,14 +187,15 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
       for (const entry of entries) {
         if (known.has(entry.id)) continue;
         known.add(entry.id);
-        if (entry.outcome !== "completed") continue;
+        if (entry.outcome !== "completed" || entry.team?.member) continue;
         if (Math.abs(now - entry.createdAt) > FRESH_TURN_MS) continue;
         const project = memoryProjectFor(entry.cwd);
         if (!project) continue;
         const state = getKeeperProject(project);
-        if (!state.consent && state.offeredAt == null)
-          void offerIfEmpty(project);
-        else if (state.consent === "on") schedule(project, KEEPER_SETTLE_MS);
+        if (!state.consent && state.offeredAt == null) {
+          if (offersHere(entry.sessionId))
+            void offerIfEmpty(project, entry.sessionId);
+        } else if (state.consent === "on") schedule(project, KEEPER_SETTLE_MS);
       }
     };
 

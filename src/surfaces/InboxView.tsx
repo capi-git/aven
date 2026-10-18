@@ -5,7 +5,6 @@ import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import {
   CheckCheck,
   CheckCircle,
-  ChevronDown,
   CircleDot,
   CircleX,
   ExternalLink,
@@ -68,38 +67,21 @@ import {
 import {
   applyInboxFilters,
   hasActiveInboxFilters,
-  linearProjectOptions,
   inboxFetchState,
   loadInboxFilters,
-  loadInboxSource,
   pruneInboxFilters,
   saveInboxFilters,
-  saveInboxSource,
   type InboxFilters,
-  type InboxSource,
 } from "../lib/inboxFilters";
 import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
-import { sameProjectPath, type RecentProject } from "../lib/recents";
+import type { RecentProject } from "../lib/recents";
 import {
   isInboxEntryUnseen,
   markInboxItemSeen,
   markInboxItemsSeen,
   useInboxSeenTick,
 } from "../lib/inboxSeen";
-import {
-  LINEAR_CHANGE_EVENT,
-  linearIssueComment,
-  linearIssueDetails,
-  linearIssueThread,
-  listLinearTeams,
-  loadHiddenLinearTeamIds,
-  peekLinearIssueDetails,
-  peekLinearIssueThread,
-  saveHiddenLinearTeamIds,
-  type LinearIssueThread,
-  type LinearTeam,
-} from "../lib/linear";
 import {
   loadTabGroupColors,
   loadTabGroupCustomColors,
@@ -142,57 +124,19 @@ type InboxProjectOption = {
   path: string;
   name: string;
   logoPath: string | null;
-  mascotName: string | null;
-  mascotColor: string;
 };
 
 function inboxProjectOptions(
   projects: RecentProject[],
   logos: ReturnType<typeof useTabGroupLogos>,
 ): InboxProjectOption[] {
-  const mascots = loadTabGroupMascots();
-  const colors = loadTabGroupColors();
-  const custom = loadTabGroupCustomColors();
   return [...projects]
-    .map((project) => {
-      const name = projectName(project.path);
-      const key = projectKey(project.path);
-      return {
-        path: project.path,
-        name,
-        logoPath: resolveTabGroupLogo(key, logos),
-        mascotName: resolveTabGroupMascot(key, mascots),
-        mascotColor: resolveTabGroupColor(key, colors, custom, name),
-      };
-    })
+    .map((project) => ({
+      path: project.path,
+      name: projectName(project.path),
+      logoPath: resolveTabGroupLogo(projectKey(project.path), logos),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function InboxProjectMark({
-  project,
-}: {
-  project: Pick<
-    InboxProjectOption,
-    "name" | "logoPath" | "mascotName" | "mascotColor"
-  >;
-}) {
-  if (project.logoPath) {
-    return (
-      <ProjectLogoIcon
-        path={project.logoPath}
-        className="size-3.5 shrink-0 rounded-sm"
-        imageClassName="size-3.5"
-      />
-    );
-  }
-  return (
-    <ProjectMascot
-      project={project.name}
-      color={project.mascotColor}
-      name={project.mascotName}
-      className="size-3 shrink-0"
-    />
-  );
 }
 
 function peekInboxForRail(recents: RecentProject[], cwd: string) {
@@ -205,41 +149,7 @@ function peekInboxForRail(recents: RecentProject[], cwd: string) {
     assignedToMe: filters.assignedToMe,
     state: inboxFetchState(filters),
     search: "",
-    linearHiddenTeamIds: loadHiddenLinearTeamIds(),
   });
-}
-
-function InboxSourceTab({
-  source,
-  selected,
-  onSelect,
-}: {
-  source: InboxSource;
-  selected: boolean;
-  onSelect: (source: InboxSource) => void;
-}) {
-  const label = source === "linear" ? "Linear" : "GitHub";
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      onClick={() => onSelect(source)}
-      className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-ui-label leading-none ${
-        selected
-          ? "bg-content/10 text-content"
-          : "text-content/50 hover:bg-content/5 hover:text-content"
-      }`}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <InboxProviderMark
-          provider={source}
-          className="block size-3.5 shrink-0"
-        />
-        <span className="min-w-0 truncate leading-none">{label}</span>
-      </span>
-    </button>
-  );
 }
 
 function InboxDetailTab({
@@ -278,7 +188,7 @@ type Props = {
   besideRail?: boolean;
   onClose?: () => void;
   onToggleSidebar?: () => void;
-  onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onStart?: (item: InboxItem) => void | Promise<void>;
 };
 
 export function InboxView({
@@ -316,12 +226,7 @@ export function InboxView({
   const [refresh, setRefresh] = useState(0);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [filters, setFilters] = useState(loadInboxFilters);
-  const [source, setSource] = useState(loadInboxSource);
   const [filterMenu, setFilterMenu] = useState<HTMLButtonElement | null>(null);
-  const [linearHiddenTeamIds, setLinearHiddenTeamIds] = useState(
-    loadHiddenLinearTeamIds,
-  );
-  const [linearTeams, setLinearTeams] = useState<LinearTeam[]>([]);
   const prevRefresh = useRef(refresh);
 
   const projects = useMemo(
@@ -332,7 +237,6 @@ export function InboxView({
     () => inboxProjectOptions(projects, logos),
     [logos, projects],
   );
-  const linearProjects = useMemo(() => linearProjectOptions(items), [items]);
   const activeFilters = useMemo(
     () =>
       pruneInboxFilters(
@@ -341,20 +245,15 @@ export function InboxView({
       ),
     [filters, projects],
   );
-  const filtersActive = hasActiveInboxFilters(
-    activeFilters,
-    source,
-    linearHiddenTeamIds,
-  );
+  const filtersActive = hasActiveInboxFilters(activeFilters);
   const fetchState = inboxFetchState(activeFilters);
   const fetchQuery = useMemo<InboxQuery>(
     () => ({
       assignedToMe: activeFilters.assignedToMe,
       state: fetchState,
       search: "",
-      linearHiddenTeamIds,
     }),
-    [activeFilters.assignedToMe, fetchState, linearHiddenTeamIds],
+    [activeFilters.assignedToMe, fetchState],
   );
 
   const resize = useDragResize({
@@ -370,9 +269,6 @@ export function InboxView({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // The project picker owns Escape while its list is open. Its listener is
-      // registered after this view's capture listener, so check the DOM first.
-      if (document.querySelector("[data-inbox-project-menu]")) return;
       event.preventDefault();
       event.stopPropagation();
       if (filterMenu) {
@@ -384,32 +280,6 @@ export function InboxView({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [filterMenu]);
-
-  useEffect(() => {
-    const onChange = () => {
-      setLinearHiddenTeamIds(loadHiddenLinearTeamIds());
-      setRefresh((value) => value + 1);
-    };
-    window.addEventListener(LINEAR_CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(LINEAR_CHANGE_EVENT, onChange);
-  }, []);
-
-  // The roster has to come from Linear, not from the fetched issues: hiding a
-  // team drops its issues, so a derived list could never offer it back.
-  useEffect(() => {
-    if (source !== "linear") return;
-    let cancelled = false;
-    void listLinearTeams()
-      .then((teams) => {
-        if (!cancelled) setLinearTeams(teams);
-      })
-      .catch(() => {
-        if (!cancelled) setLinearTeams([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [source, linearHiddenTeamIds]);
 
   useEffect(() => {
     const force = refresh !== prevRefresh.current;
@@ -441,7 +311,7 @@ export function InboxView({
         if (cached) return;
         setItems([]);
         const message = err instanceof Error ? err.message : String(err);
-        setProviderErrors({ github: message, linear: message });
+        setProviderErrors({ github: message });
       })
       .finally(() => {
         if (cancelled) return;
@@ -455,29 +325,26 @@ export function InboxView({
   }, [fetchQuery, projects, refresh]);
 
   const visibleItems = useMemo(
-    () =>
-      applyInboxFilters(items, activeFilters, searchInput, Date.now(), source),
-    [activeFilters, items, searchInput, source],
+    () => applyInboxFilters(items, activeFilters, searchInput, Date.now()),
+    [activeFilters, items, searchInput],
   );
   const inboxSeenTick = useInboxSeenTick();
-  const sourceEntries = useMemo(
+  const seenEntries = useMemo(
     () =>
-      items
-        .filter((item) => item.provider === source)
-        .map((item) => ({
-          key: inboxItemKey(item),
-          updatedAt: item.updatedAt,
-        })),
-    [items, source],
+      items.map((item) => ({
+        key: inboxItemKey(item),
+        updatedAt: item.updatedAt,
+      })),
+    [items],
   );
-  const sourceHasUnseen = useMemo(
-    () => sourceEntries.some(isInboxEntryUnseen),
-    [inboxSeenTick, sourceEntries],
+  const hasUnseen = useMemo(
+    () => seenEntries.some(isInboxEntryUnseen),
+    [inboxSeenTick, seenEntries],
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
   const narrowedByUser = searchNarrowed || filtersActive;
-  const sourceError = providerErrors[source] ?? null;
+  const fetchError = providerErrors.github ?? null;
 
   const selected =
     visibleItems.find((item) => inboxItemKey(item) === selectedKey) ??
@@ -502,11 +369,6 @@ export function InboxView({
     saveInboxFilters(pruned);
   };
 
-  const onSourceChange = (next: InboxSource) => {
-    setSource(next);
-    saveInboxSource(next);
-  };
-
   const onFilterButtonClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
     // Anchored to this button, so the menu's outside-click dismissal ignores
     // it and this press closes an open menu rather than reopening it.
@@ -519,22 +381,6 @@ export function InboxView({
       ref={resize.setPaneRef}
       className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
     >
-      <div
-        role="tablist"
-        aria-label="Inbox source"
-        className="flex h-9 shrink-0 items-center gap-px border-b border-content/10 px-2"
-      >
-        <InboxSourceTab
-          source="github"
-          selected={source === "github"}
-          onSelect={onSourceChange}
-        />
-        <InboxSourceTab
-          source="linear"
-          selected={source === "linear"}
-          onSelect={onSourceChange}
-        />
-      </div>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
         <div className="relative flex h-7 min-w-0 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
@@ -565,8 +411,8 @@ export function InboxView({
           type="button"
           title="Mark all as read"
           aria-label="Mark all as read"
-          disabled={!sourceHasUnseen}
-          onClick={() => markInboxItemsSeen(sourceEntries)}
+          disabled={!hasUnseen}
+          onClick={() => markInboxItemsSeen(seenEntries)}
           className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content/45"
         >
           <CheckCheck className="size-3.5" strokeWidth={1.75} />
@@ -591,9 +437,9 @@ export function InboxView({
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
-        {sourceError && visibleItems.length === 0 ? (
+        {fetchError && visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-ui-label text-content/50">
-            {sourceError}
+            {fetchError}
           </p>
         ) : loading && items.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
@@ -603,17 +449,11 @@ export function InboxView({
           <p className="px-3 py-2 text-ui-label text-content/50">
             {narrowedByUser
               ? searchNarrowed
-                ? source === "linear"
-                  ? "No matching Linear issues"
-                  : "No matching issues or pull requests"
-                : source === "linear"
-                  ? "No Linear issues match these filters"
-                  : "No issues or pull requests match these filters"
-              : source === "linear"
-                ? "No Linear issues"
-                : projects.length === 0
-                  ? "Open a project to fill the inbox"
-                  : "No matching issues or pull requests"}
+                ? "No matching issues or pull requests"
+                : "No issues or pull requests match these filters"
+              : projects.length === 0
+                ? "Open a project to fill the inbox"
+                : "No matching issues or pull requests"}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
@@ -664,13 +504,8 @@ export function InboxView({
     <InboxFiltersMenu
       anchor={filterMenu}
       projects={projectOptions}
-      linearProjects={linearProjects}
-      linearTeams={linearTeams}
-      hiddenLinearTeamIds={linearHiddenTeamIds}
-      source={source}
       filters={activeFilters}
       onChange={onFiltersChange}
-      onLinearTeamsChange={saveHiddenLinearTeamIds}
       onClose={() => setFilterMenu(null)}
     />
   ) : null;
@@ -711,7 +546,6 @@ export function InboxView({
             <InboxDetailBody
               item={selected}
               cwd={cwd}
-              projects={projectOptions}
               revision={refresh}
               onDiscuss={() => setDiscussionOpen(true)}
               onStart={onStart}
@@ -737,17 +571,15 @@ export function InboxView({
 function InboxDetailBody({
   item,
   cwd,
-  projects,
   revision = 0,
   onDiscuss,
   onStart,
 }: {
   item: InboxItem | null;
   cwd: string;
-  projects: InboxProjectOption[];
   revision?: number;
   onDiscuss?: () => void;
-  onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onStart?: (item: InboxItem) => void | Promise<void>;
 }) {
   if (!item) {
     return (
@@ -764,7 +596,6 @@ function InboxDetailBody({
       key={inboxItemKey(item)}
       item={item}
       cwd={cwd}
-      projects={projects}
       revision={revision}
       onDiscuss={onDiscuss}
       onStart={onStart}
@@ -834,8 +665,7 @@ function InboxCard({
   const kindLabel = item.kind === "pr" ? "Pull request" : "Issue";
   const time = formatRelativeTime(item.updatedAt);
   const name = projectName(item.projectPath);
-  const linear = item.provider === "linear";
-  const source = linear ? item.teamName || item.repo : item.repo || name;
+  const source = item.repo || name;
   const unseen = isInboxEntryUnseen({
     key: inboxItemKey(item),
     updatedAt: item.updatedAt,
@@ -859,10 +689,7 @@ function InboxCard({
     >
       <span className="flex items-center gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <InboxProviderMark
-            provider={item.provider}
-            className="size-3.5 shrink-0"
-          />
+          <InboxProviderMark className="size-3.5 shrink-0" />
           <status.Icon
             className={`size-3 shrink-0 ${status.className}`}
             strokeWidth={1.75}
@@ -889,7 +716,7 @@ function InboxCard({
       </span>
       <span className="mt-1 flex min-w-0 items-center gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-ui-caption text-content/45">
-          {linear ? null : logoPath ? (
+          {logoPath ? (
             <ProjectLogoIcon
               path={logoPath}
               className="size-3.5 shrink-0 rounded-sm"
@@ -920,35 +747,27 @@ function InboxCard({
 function InboxDetail({
   item,
   cwd,
-  projects,
   revision,
   onDiscuss,
   onStart,
 }: {
   item: InboxItem;
   cwd: string;
-  projects: InboxProjectOption[];
   revision: number;
   onDiscuss?: () => void;
-  onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onStart?: (item: InboxItem) => void | Promise<void>;
 }) {
-  const linear = item.provider === "linear";
-  const isPr = !linear && item.kind === "pr";
-  const githubKind =
-    item.kind === "issue" || item.kind === "pr" ? item.kind : null;
-  const cached = linear
-    ? peekLinearIssueDetails(item.id ?? "")
-    : githubKind
-      ? peekGithubWorkItemDetails(item.projectPath, githubKind, item.number)
-      : null;
+  const kind = item.kind;
+  const isPr = kind === "pr";
+  const cached = peekGithubWorkItemDetails(item.projectPath, kind, item.number);
   const cachedDiff = isPr
     ? peekGithubPrDiff(item.projectPath, item.number)
     : null;
-  const cachedThread = linear
-    ? peekLinearIssueThread(item.id ?? "")
-    : githubKind
-      ? peekGithubWorkItemThread(item.projectPath, githubKind, item.number)
-      : null;
+  const cachedThread = peekGithubWorkItemThread(
+    item.projectPath,
+    kind,
+    item.number,
+  );
   const [details, setDetails] = useState<GithubWorkItemDetails | null>(cached);
   const [loading, setLoading] = useState(cached == null);
   const [error, setError] = useState<string | null>(null);
@@ -956,30 +775,21 @@ function InboxDetail({
   const [prDiff, setPrDiff] = useState<GithubPrDiff | null>(cachedDiff);
   const [diffLoading, setDiffLoading] = useState(isPr && cachedDiff == null);
   const [diffError, setDiffError] = useState<string | null>(null);
-  const [thread, setThread] = useState<
-    GithubWorkItemThread | LinearIssueThread | null
-  >(cachedThread);
+  const [thread, setThread] = useState<GithubWorkItemThread | null>(
+    cachedThread,
+  );
   const [threadLoading, setThreadLoading] = useState(cachedThread == null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<InboxReplyTarget | null>(null);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-  const defaultProject =
-    projects.find((project) => sameProjectPath(project.path, cwd))?.path ??
-    projects[0]?.path ??
-    cwd;
-  const [startProject, setStartProject] = useState(defaultProject);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const status = linear
-    ? item.state || inboxItemStatus(item)
-    : inboxItemStatus(item);
+  const status = inboxItemStatus(item);
   const statusMark = inboxStatusMark(item);
 
-  const source = linear
-    ? item.teamName || item.repo
-    : item.repo || projectName(item.projectPath);
-  const markdownCwd = linear ? startProject || cwd : item.projectPath || cwd;
+  const source = item.repo || projectName(item.projectPath);
+  const markdownCwd = item.projectPath || cwd;
   const authorName = details?.author?.trim() ?? "";
   const extraAssignees = item.assignees.filter(
     (person) =>
@@ -1004,11 +814,11 @@ function InboxDetail({
 
   useEffect(() => {
     let cancelled = false;
-    const cachedDetails = linear
-      ? peekLinearIssueDetails(item.id ?? "")
-      : githubKind
-        ? peekGithubWorkItemDetails(item.projectPath, githubKind, item.number)
-        : null;
+    const cachedDetails = peekGithubWorkItemDetails(
+      item.projectPath,
+      kind,
+      item.number,
+    );
     if (cachedDetails) {
       setDetails(cachedDetails);
       setLoading(false);
@@ -1018,14 +828,7 @@ function InboxDetail({
       setError(null);
       setDetails(null);
     }
-    const pending = linear
-      ? item.id
-        ? linearIssueDetails(item.id)
-        : Promise.reject(new Error("Missing Linear issue"))
-      : githubKind
-        ? githubWorkItemDetails(item.projectPath, githubKind, item.number)
-        : Promise.reject(new Error("Unknown inbox item"));
-    void pending
+    void githubWorkItemDetails(item.projectPath, kind, item.number)
       .then((next) => {
         if (cancelled) return;
         setDetails(next);
@@ -1042,44 +845,13 @@ function InboxDetail({
     return () => {
       cancelled = true;
     };
-  }, [githubKind, item.id, item.number, item.projectPath, linear, revision]);
+  }, [kind, item.number, item.projectPath, revision]);
 
   useEffect(() => {
     let cancelled = false;
-    if (linear) {
-      const id = item.id ?? "";
-      const cachedThread = peekLinearIssueThread(id);
-      if (cachedThread) {
-        setThread(cachedThread);
-        setThreadLoading(false);
-        setThreadError(null);
-      } else {
-        setThreadLoading(true);
-        setThreadError(null);
-        setThread(null);
-      }
-      void linearIssueThread(id)
-        .then((next) => {
-          if (cancelled) return;
-          setThread(next);
-          setThreadError(null);
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          if (cachedThread) return;
-          setThreadError(err instanceof Error ? err.message : String(err));
-        })
-        .finally(() => {
-          if (!cancelled) setThreadLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!githubKind) return;
     const cachedThread = peekGithubWorkItemThread(
       item.projectPath,
-      githubKind,
+      kind,
       item.number,
     );
     if (cachedThread) {
@@ -1091,7 +863,7 @@ function InboxDetail({
       setThreadError(null);
       setThread(null);
     }
-    void githubWorkItemThread(item.projectPath, githubKind, item.number)
+    void githubWorkItemThread(item.projectPath, kind, item.number)
       .then((next) => {
         if (cancelled) return;
         setThread(next);
@@ -1108,7 +880,7 @@ function InboxDetail({
     return () => {
       cancelled = true;
     };
-  }, [githubKind, item.id, item.number, item.projectPath, linear, revision]);
+  }, [kind, item.number, item.projectPath, revision]);
 
   useEffect(() => {
     if (!isPr || tab !== "code") return;
@@ -1146,36 +918,15 @@ function InboxDetail({
     setPosting(true);
     setPostError(null);
     try {
-      if (linear) {
-        const id = item.id ?? "";
-        await linearIssueComment(id, body, { parentId: replyTo?.id });
-        setReplyTo(null);
-        try {
-          setThread(await linearIssueThread(id, { force: true }));
-        } catch (err: unknown) {
-          setPostError(err instanceof Error ? err.message : String(err));
-        }
-        return;
-      }
-      if (!githubKind) throw new Error("Unknown inbox item");
-      await githubWorkItemComment(
-        item.projectPath,
-        githubKind,
-        item.number,
-        body,
-        { inReplyTo: replyTo?.threadId },
-      );
+      await githubWorkItemComment(item.projectPath, kind, item.number, body, {
+        inReplyTo: replyTo?.threadId,
+      });
       setReplyTo(null);
       try {
         setThread(
-          await githubWorkItemThread(
-            item.projectPath,
-            githubKind,
-            item.number,
-            {
-              force: true,
-            },
-          ),
+          await githubWorkItemThread(item.projectPath, kind, item.number, {
+            force: true,
+          }),
         );
       } catch (err: unknown) {
         setPostError(err instanceof Error ? err.message : String(err));
@@ -1192,7 +943,7 @@ function InboxDetail({
     <div className={`mx-auto flex w-full flex-col gap-5 px-8 py-8 max-w-5xl`}>
       <header className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-ui-label text-content/50">
-          <InboxProviderMark provider={item.provider} className="size-3.5" />
+          <InboxProviderMark className="size-3.5" />
           <span>{item.kind === "pr" ? "Pull request" : "Issue"}</span>
           <span className="tabular-nums">{inboxItemRef(item)}</span>
           <span className={`flex items-center gap-1 ${statusMark.className}`}>
@@ -1209,7 +960,6 @@ function InboxDetail({
             <InboxPerson
               name={authorName}
               avatarUrl={inboxPersonAvatarUrl(
-                item.provider,
                 authorName,
                 details?.authorAvatarUrl,
               )}
@@ -1226,7 +976,6 @@ function InboxDetail({
                       key={person.login}
                       name={person.login}
                       avatarUrl={inboxPersonAvatarUrl(
-                        item.provider,
                         person.login,
                         person.avatarUrl,
                       )}
@@ -1239,12 +988,8 @@ function InboxDetail({
               )}
             </>
           ) : null}
-          {linear ? null : (
-            <>
-              <span aria-hidden>·</span>
-              <span>{projectName(item.projectPath)}</span>
-            </>
-          )}
+          <span aria-hidden>·</span>
+          <span>{projectName(item.projectPath)}</span>
           {formatRelativeTime(item.updatedAt) ? (
             <>
               <span aria-hidden>·</span>
@@ -1278,41 +1023,25 @@ function InboxDetail({
         ) : null}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {onStart && item.kind !== "pr" ? (
-            <>
-              <button
-                type="button"
-                disabled={
-                  starting || (linear && (!startProject || loading || !!error))
-                }
-                onClick={() => {
-                  if (starting) return;
-                  setStarting(true);
-                  setStartError(null);
-                  const next = linear
-                    ? { ...item, projectPath: startProject }
-                    : item;
-                  void Promise.resolve(
-                    onStart(next, linear ? (details?.body ?? "") : undefined),
-                  )
-                    .catch((err: unknown) => {
-                      setStartError(
-                        err instanceof Error ? err.message : String(err),
-                      );
-                    })
-                    .finally(() => setStarting(false));
-                }}
-                className={`${ACTION_FILLED} disabled:cursor-default disabled:opacity-40`}
-              >
-                {starting ? "Sending..." : "Send to agent"}
-              </button>
-              {linear ? (
-                <InboxProjectPicker
-                  projects={projects}
-                  value={startProject}
-                  onChange={setStartProject}
-                />
-              ) : null}
-            </>
+            <button
+              type="button"
+              disabled={starting}
+              onClick={() => {
+                if (starting) return;
+                setStarting(true);
+                setStartError(null);
+                void Promise.resolve(onStart(item))
+                  .catch((err: unknown) => {
+                    setStartError(
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  })
+                  .finally(() => setStarting(false));
+              }}
+              className={`${ACTION_FILLED} disabled:cursor-default disabled:opacity-40`}
+            >
+              {starting ? "Sending…" : "Send to agent"}
+            </button>
           ) : null}
           <button
             type="button"
@@ -1327,11 +1056,7 @@ function InboxDetail({
             className={ACTION_GHOST}
           >
             <ExternalLink className="size-3.5" strokeWidth={1.75} />
-            {item.kind === "pr"
-              ? "Review on GitHub"
-              : linear
-                ? "Open in Linear"
-                : "Open on GitHub"}
+            {item.kind === "pr" ? "Review on GitHub" : "Open on GitHub"}
           </button>
         </div>
         {startError ? (
@@ -1408,8 +1133,6 @@ function InboxDetail({
             loading={threadLoading}
             error={threadError}
             cwd={markdownCwd}
-            provider={item.provider}
-            replyMode={linear ? "parent" : "thread"}
             onReply={setReplyTo}
           />
           <InboxCommentForm
@@ -1475,101 +1198,6 @@ function InboxPerson({
       )}
       <span className="min-w-0 truncate">{name}</span>
     </span>
-  );
-}
-
-function InboxProjectPicker({
-  projects,
-  value,
-  onChange,
-}: {
-  projects: InboxProjectOption[];
-  value: string;
-  onChange: (path: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const selected =
-    projects.find((project) => sameProjectPath(project.path, value)) ??
-    projects[0] ??
-    null;
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (button.current?.contains(target) || menu.current?.contains(target)) {
-        return;
-      }
-      setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [open]);
-
-  return (
-    <div className="relative">
-      <button
-        ref={button}
-        type="button"
-        disabled={projects.length === 0}
-        onClick={() => setOpen((next) => !next)}
-        className="inline-flex h-7 max-w-48 items-center gap-1.5 rounded-md border border-content/10 bg-content/5 px-2 text-ui-label text-content/80 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40"
-      >
-        {selected ? <InboxProjectMark project={selected} /> : null}
-        <span className="min-w-0 truncate">
-          {selected?.name ?? "Choose project"}
-        </span>
-        <ChevronDown
-          className="size-3 shrink-0 text-content/45"
-          strokeWidth={1.75}
-        />
-      </button>
-      {open ? (
-        <div
-          ref={menu}
-          role="listbox"
-          data-inbox-project-menu
-          className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-full max-w-64 overflow-y-auto aven-glass-overlay [--aven-radius-overlay:12px] p-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-        >
-          {projects.map((project) => {
-            const active = selected
-              ? sameProjectPath(project.path, selected.path)
-              : false;
-            return (
-              <button
-                key={project.path}
-                type="button"
-                role="option"
-                aria-selected={active}
-                onClick={() => {
-                  onChange(project.path);
-                  setOpen(false);
-                }}
-                className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-ui-label ${
-                  active
-                    ? "bg-content/10 text-content"
-                    : "text-content/80 hover:bg-content/5 hover:text-content"
-                }`}
-              >
-                <InboxProjectMark project={project} />
-                <span className="min-w-0 truncate">{project.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

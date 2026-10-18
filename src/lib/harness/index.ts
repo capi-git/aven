@@ -102,6 +102,7 @@ export {
   generateCommitMessage,
   generatePrContent,
   pickTextHarness,
+  textModelLabel,
   warmupText,
 } from "./textHarness";
 export { warmupCursorText } from "./cursorText";

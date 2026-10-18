@@ -1,212 +1,256 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PaletteAgent } from "../lib/commandPalette";
+import { appName } from "../lib/agentNames";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { pickerModelsFor } from "../lib/models";
 import { RACE_MAX_LANES, RACE_MIN_LANES } from "../lib/race";
 import {
-  saveRaceAgentChoice,
-  saveRaceModelChoice,
-  toggleRaceAgent,
+  addRaceLane,
+  nextRaceAgent,
+  raceLaneChoices,
+  removeRaceLane,
+  replaceRaceLane,
+  sameRaceAgent,
+  saveRaceLaneChoice,
 } from "../lib/raceAgents";
-import { HARNESS_TITLE, type HarnessId } from "../lib/session";
+import {
+  raceAgentLabel,
+  raceFullName,
+  raceModelName,
+  raceShortName,
+} from "../lib/raceNames";
 import { HarnessIcon } from "./HarnessIcon";
-import { Check, ChevronDown, Race } from "./icons";
-import { PanelSection } from "./PanelSection";
+import { Check, ChevronDown, Plus, X } from "./icons";
 
 export type RaceProps = {
-  active: boolean;
-  /** Installed agents; the composer's own agent is first. */
+  /** Installed agents, once each; this chat's agent first, on its model. */
   available: readonly PaletteAgent[];
-  /** The lanes the next send will race. */
+  /** The lanes the next send will race; this chat's agent first. */
   lanes: readonly PaletteAgent[];
-  /** Why Race can't be used right now; disables the switch. */
-  disabledReason?: string;
-  onActiveChange: (active: boolean) => void;
   /** Model for the first lane (this chat's agent), for this race only. */
-  onFirstModelChange?: (model: string) => void;
+  onFirstModelChange: (model: string) => void;
 };
-
-const modelName = (agent: PaletteAgent) =>
-  agent.label.split(" · ").slice(1).join(" · ") || agent.model;
 
 /** The provider's models, always including the one this lane uses now. */
 function laneModels(agent: PaletteAgent): { id: string; name: string }[] {
   const models = pickerModelsFor(agent.harness);
   return models.some((model) => model.id === agent.model)
     ? models
-    : [{ id: agent.model, name: modelName(agent) }, ...models];
+    : [{ id: agent.model, name: raceModelName(agent) }, ...models];
 }
 
 const saveLanes = (lanes: readonly PaletteAgent[]) =>
-  saveRaceAgentChoice(lanes.slice(1).map((lane) => lane.harness));
+  saveRaceLaneChoice(raceLaneChoices(lanes));
+
+// Some providers list their models only once asked.
+const loadModels = (agent: PaletteAgent) =>
+  void refreshHarnessCatalogs([agent.harness]).catch(() => undefined);
 
 /**
- * The agent panel's Race section: send the next message to several agents at
- * once, choose which agents race and the model each one uses.
+ * Which agents race, inside the Race chip's dropdown: a row per lane with
+ * its model, and a way to add another of any provider, including a second
+ * model of one already racing. This chat's agent always races. Lanes never
+ * take a role, so their comparison stays fair.
  */
 export function RaceOptions({
-  active,
   available,
   lanes,
-  disabledReason,
-  onActiveChange,
   onFirstModelChange,
 }: RaceProps) {
-  const [picking, setPicking] = useState<HarnessId | null>(null);
-  const installed = available.length >= RACE_MIN_LANES;
-  const canRace = installed && !disabledReason;
-  const reason =
-    disabledReason ??
-    (installed ? undefined : "Install or enable a second agent to race");
+  const [picking, setPicking] = useState<number | null>(null);
+  const full = lanes.length >= RACE_MAX_LANES;
+  // A choice takes away the button that had the keyboard (a model in the
+  // list, a removed lane's ×): give it to that lane's model button instead.
+  const root = useRef<HTMLDivElement>(null);
+  const [refocus, setRefocus] = useState<number | null>(null);
+  useEffect(() => {
+    if (refocus === null) return;
+    const buttons = root.current?.querySelectorAll<HTMLElement>(
+      "[data-race-lane-model]",
+    );
+    buttons?.[Math.min(refocus, buttons.length - 1)]?.focus();
+    setRefocus(null);
+  }, [refocus, lanes]);
   return (
-    <PanelSection title="Race" data-race-options>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={active}
-        aria-label="Race this message"
-        disabled={!canRace}
-        title={
-          reason ?? "Send this message to several agents, each in its own copy"
-        }
-        onClick={() => onActiveChange(!active)}
-        className="model-control-option agent-switch-row"
-      >
-        <Race className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span className="min-w-0 flex-1 truncate">
-          {active ? `Race ${lanes.length} agents` : "Race this message"}
-        </span>
-        <span className="agent-switch" aria-hidden="true" />
-      </button>
-      {reason ? <p className="agent-panel-note">{reason}</p> : null}
-      {installed ? (
-        <div role="group" aria-label="Racing agents" className="agent-race">
-          <p className="agent-panel-note">
-            Agents ({RACE_MIN_LANES}–{RACE_MAX_LANES})
-          </p>
-          {available.map((agent, index) => {
-            const title = HARNESS_TITLE[agent.harness];
-            const chosen = lanes.some((lane) => lane.harness === agent.harness);
-            const locked = index === 0;
-            const atLimit = chosen
-              ? lanes.length <= RACE_MIN_LANES
-              : lanes.length >= RACE_MAX_LANES;
-            const expanded = picking === agent.harness;
-            const fixedModel = locked && !onFirstModelChange;
-            return (
-              <div key={agent.harness}>
-                <div className="agent-race-lane">
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={chosen}
-                    disabled={locked || atLimit}
-                    title={
-                      locked
-                        ? "This chat's agent always races"
-                        : atLimit
-                          ? chosen
-                            ? `A race needs at least ${RACE_MIN_LANES} agents`
-                            : `A race can have up to ${RACE_MAX_LANES} agents`
-                          : undefined
-                    }
-                    onClick={() => saveLanes(toggleRaceAgent(lanes, agent))}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left text-ui-label text-content disabled:cursor-default"
+    <div data-race-options ref={root}>
+      <p className="px-2.5 pb-1 pt-2 text-ui-micro font-medium uppercase tracking-wide text-content/40">
+        Race with ({RACE_MIN_LANES}–{RACE_MAX_LANES} agents)
+      </p>
+      <div role="group" aria-label="Racing agents" className="px-1 pb-1">
+        {lanes.map((lane, index) => {
+          const title = appName(lane.harness);
+          const own = index === 0;
+          const expanded = picking === index;
+          const removable = !own && lanes.length > RACE_MIN_LANES;
+          return (
+            <div key={`${lane.harness}:${lane.model}`}>
+              <div
+                className="flex h-8 min-w-0 items-center gap-2 rounded-md pl-2 pr-0.5 text-ui-body text-content/85 hover:bg-content/5"
+                data-race-lane-choice={index}
+                data-race-lane-label={lane.label}
+              >
+                <HarnessIcon
+                  harness={lane.harness}
+                  className="size-3.5 shrink-0"
+                />
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={raceFullName(lane)}
+                >
+                  {title}
+                </span>
+                <button
+                  type="button"
+                  data-race-lane-model={index}
+                  aria-haspopup="listbox"
+                  aria-expanded={expanded}
+                  aria-label={`${title} model: ${raceModelName(lane)}`}
+                  title={
+                    own
+                      ? "Choose this chat's model for this race only"
+                      : `Choose the ${title} model for this race`
+                  }
+                  onClick={() => {
+                    if (expanded) return setPicking(null);
+                    setPicking(index);
+                    loadModels(lane);
+                  }}
+                  className={`flex max-w-32 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption ${
+                    expanded
+                      ? "bg-content/10 text-content"
+                      : "text-content/55 hover:bg-content/10 hover:text-content"
+                  }`}
+                >
+                  <span className="min-w-0 truncate">
+                    {raceModelName(lane)}
+                  </span>
+                  <ChevronDown
+                    className={`size-3 shrink-0 ${expanded ? "rotate-180" : ""}`}
+                    strokeWidth={1.75}
+                  />
+                </button>
+                {own ? (
+                  <span
+                    className="grid size-6 shrink-0 place-items-center text-content/35"
+                    title="This chat's agent always races"
                   >
-                    <span
-                      className={`grid size-3.5 shrink-0 place-items-center rounded border ${chosen ? "border-content bg-content text-background-base" : "border-content/25"} ${!locked && atLimit ? "opacity-40" : ""}`}
-                    >
-                      {chosen ? <Check className="size-2.5" /> : null}
-                    </span>
-                    <HarnessIcon harness={agent.harness} className="size-3.5" />
-                    <span className="min-w-0 truncate">{title}</span>
-                  </button>
+                    <Check className="size-3" />
+                  </span>
+                ) : (
                   <button
                     type="button"
-                    aria-haspopup="listbox"
-                    aria-expanded={expanded}
-                    aria-label={`${title} model: ${modelName(agent)}`}
-                    disabled={fixedModel}
+                    aria-label={`Leave ${raceShortName(lane)} out of the race`}
+                    disabled={!removable}
                     title={
-                      fixedModel
-                        ? "Uses this chat's model. Change it in the model list."
-                        : `Choose the ${title} model for this race`
+                      removable
+                        ? `Leave ${raceShortName(lane)} out of the race`
+                        : `A race needs at least ${RACE_MIN_LANES} agents`
                     }
                     onClick={() => {
-                      if (expanded) return setPicking(null);
-                      setPicking(agent.harness);
-                      // Some providers list their models only once asked.
-                      void refreshHarnessCatalogs([agent.harness]).catch(
-                        () => undefined,
-                      );
+                      setPicking(null);
+                      saveLanes(removeRaceLane(lanes, index));
+                      setRefocus(index - 1);
                     }}
-                    className={`flex max-w-28 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption disabled:cursor-default ${
-                      expanded
-                        ? "bg-content/10 text-content"
-                        : "text-content/55 hover:bg-content/10 hover:text-content disabled:hover:bg-transparent disabled:hover:text-content/55"
-                    }`}
+                    className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-35 disabled:hover:bg-transparent"
                   >
-                    <span className="min-w-0 truncate">{modelName(agent)}</span>
-                    {fixedModel ? null : (
-                      <ChevronDown
-                        className={`size-3 shrink-0 ${expanded ? "rotate-180" : ""}`}
-                        strokeWidth={1.75}
-                      />
-                    )}
+                    <X className="size-3" />
                   </button>
-                </div>
-                {expanded ? (
-                  <div
-                    role="listbox"
-                    aria-label={`${title} models`}
-                    className="mb-1 ml-4 max-h-44 overflow-y-auto border-l border-content/10 pl-1"
-                  >
-                    {laneModels(agent).map((model) => {
-                      const selected = model.id === agent.model;
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          onClick={() => {
-                            setPicking(null);
-                            if (locked) {
-                              onFirstModelChange?.(model.id);
-                              return;
-                            }
-                            saveRaceModelChoice(agent.harness, model.id);
-                            // Picking a model also races that agent, if there's room.
-                            if (!chosen && !atLimit)
-                              saveLanes(toggleRaceAgent(lanes, agent));
-                          }}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-label ${
-                            selected
-                              ? "bg-content/8 text-content"
-                              : "text-content/80 hover:bg-content/5 hover:text-content"
-                          }`}
-                        >
-                          <span className="min-w-0 flex-1 truncate">
-                            {model.name}
-                          </span>
-                          {selected ? (
-                            <Check className="size-3 shrink-0" />
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                )}
               </div>
-            );
-          })}
-          <p className="agent-panel-note">
-            Each agent works in its own copy of the project on a new branch.
-            Your files stay untouched until you keep a result. Uses each
-            provider’s normal usage.
-          </p>
-        </div>
-      ) : null}
-    </PanelSection>
+              {expanded ? (
+                <div
+                  role="listbox"
+                  aria-label={`${title} models`}
+                  className="mb-1 ml-4 max-h-44 overflow-y-auto overscroll-none border-l border-content/10 pl-1"
+                >
+                  {laneModels(lane).map((model) => {
+                    const agent = {
+                      harness: lane.harness,
+                      model: model.id,
+                      label: raceAgentLabel(lane.harness, model.name),
+                    };
+                    const selected = model.id === lane.model;
+                    // Each lane races a different provider and model.
+                    const taken =
+                      !selected &&
+                      lanes.some((other) => sameRaceAgent(other, agent));
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={taken}
+                        title={taken ? "Already racing" : undefined}
+                        onClick={() => {
+                          setPicking(null);
+                          setRefocus(index);
+                          if (selected) return;
+                          if (own) onFirstModelChange(model.id);
+                          else saveLanes(replaceRaceLane(lanes, index, agent));
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-label disabled:cursor-default disabled:opacity-40 ${
+                          selected
+                            ? "bg-content/8 text-content"
+                            : "text-content/80 hover:bg-content/5 hover:text-content disabled:hover:bg-transparent"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {model.name}
+                        </span>
+                        {selected ? (
+                          <Check className="size-3 shrink-0" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div
+        role="group"
+        aria-label="Add an agent"
+        className="flex flex-wrap items-center gap-1 border-t border-content/10 px-2.5 py-2"
+      >
+        <span className="mr-1 text-ui-caption text-content/50">Add</span>
+        {available.map((agent) => {
+          const next = full
+            ? undefined
+            : nextRaceAgent(available, lanes, agent.harness);
+          const title = appName(agent.harness);
+          return (
+            <button
+              key={agent.harness}
+              type="button"
+              data-race-add={agent.harness}
+              disabled={!next}
+              title={
+                next
+                  ? `Race ${raceShortName(next)} too`
+                  : full
+                    ? `A race can have up to ${RACE_MAX_LANES} agents`
+                    : `Every ${title} model is racing already`
+              }
+              onClick={() => {
+                if (!next) return;
+                setPicking(null);
+                saveLanes(addRaceLane(lanes, next));
+              }}
+              className="flex h-6 items-center gap-1 rounded-md bg-content/5 px-1.5 text-ui-caption text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-35 disabled:hover:bg-content/5 disabled:hover:text-content/70"
+            >
+              <Plus className="size-3 shrink-0" />
+              <HarnessIcon
+                harness={agent.harness}
+                className="size-3 shrink-0"
+              />
+              {title}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

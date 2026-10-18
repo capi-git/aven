@@ -12,6 +12,7 @@ import {
 import {
   closeLeaf,
   isAgentTab,
+  isDiscussionTab,
   isTerminalTab,
   leafIds,
   newTab,
@@ -73,7 +74,7 @@ export function collectWorkspaceSnapshot(
   projectTerminals: ProjectTerminalDock[] = [],
 ): WorkspaceSnapshot {
   const snapshot = withoutInboxSessions({
-    tabs: withoutAgentTabs(tabs)
+    tabs: withoutRetiredTabs(tabs)
       .map(sanitizeTab)
       .filter((tab): tab is WorkspaceTab => tab != null),
     sessions: sessions
@@ -90,17 +91,22 @@ export function collectWorkspaceSnapshot(
 
 /**
  * Agent tabs watch a live worker, and a run does not outlive the window that
- * started it. Dropping them in `sanitizeFile` would strand an empty pane and
- * cost the whole workspace tab on restore, so the pane is closed here instead.
+ * started it. A discussion's page tab, from an earlier version, is now its
+ * floating panel. Dropping either in `sanitizeFile` would strand an empty
+ * pane and cost the whole workspace tab on restore, so the pane is closed
+ * here instead.
  */
-function withoutAgentTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
+function retired(file: FilePaneTab): boolean {
+  return isAgentTab(file) || isDiscussionTab(file);
+}
+
+function withoutRetiredTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
   return tabs.flatMap((tab) => {
-    if (!tab.editorPanes.some((pane) => pane.files.some(isAgentTab)))
-      return [tab];
+    if (!tab.editorPanes.some((pane) => pane.files.some(retired))) return [tab];
     let remaining: WorkspaceTab | null = tab;
     const panes: EditorPane[] = [];
     for (const pane of tab.editorPanes) {
-      const files = pane.files.filter((file) => !isAgentTab(file));
+      const files = pane.files.filter((file) => !retired(file));
       if (files.length === pane.files.length) {
         panes.push(pane);
       } else if (files.length === 0) {
@@ -155,9 +161,11 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
   if (!Array.isArray(value.tabs) || typeof value.activeTabId !== "string") {
     return null;
   }
-  const tabs = value.tabs
-    .map(sanitizeTab)
-    .filter((tab): tab is WorkspaceTab => tab != null);
+  const tabs = withoutRetiredTabs(
+    value.tabs
+      .map(sanitizeTab)
+      .filter((tab): tab is WorkspaceTab => tab != null),
+  );
   if (tabs.length === 0) return null;
   const sessions = Array.isArray(value.sessions)
     ? value.sessions
@@ -531,9 +539,18 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     typeof (value.race as { raceId?: unknown }).raceId === "string"
       ? { raceId: (value.race as { raceId: string }).raceId }
       : undefined;
+  const board =
+    value.board &&
+    typeof value.board === "object" &&
+    typeof (value.board as { project?: unknown }).project === "string" &&
+    (value.board as { project: string }).project
+      ? { project: (value.board as { project: string }).project }
+      : undefined;
   const hasDiscussion = "discussion" in value && value.discussion != null;
   const discussion = sanitizeDiscussion(value.discussion);
   if (hasDiscussion && !discussion) return null;
+  // A board that names no project is no tab at all, not a file named Board.
+  if ("board" in value && value.board != null && !board) return null;
   if (hasReleaseNotes && !releaseNotes) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
@@ -577,6 +594,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
     ...(race ? { race } : {}),
+    ...(board ? { board } : {}),
     ...(discussion ? { discussion } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(value.review === true ? { review: true } : {}),

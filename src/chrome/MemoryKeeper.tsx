@@ -7,7 +7,7 @@ import { errorText } from "../lib/errors";
 import {
   keeperAgo,
   keeperChangeText,
-  keeperOfferPending,
+  keeperOfferShownIn,
   requestKeeperRefresh,
   setMemoryKeeper,
 } from "../lib/memoryKeeper";
@@ -15,18 +15,29 @@ import { undoKeeperChange } from "../lib/memoryKeeperRun";
 import { Brain, RefreshCw, Undo2 } from "./icons";
 import "./MemoryKeeper.css";
 
+/** Short enough for a narrow chat; it wraps to a second line before it is cut. */
+export const MEMORY_KEEPER_OFFER = "Keep this project's memory up to date?";
+
 /**
- * Asked once per project, above the message box, after the first finished
- * turn in a project whose memory is empty.
+ * Asked once per project, above the message box of the chat whose finished
+ * turn brought it (the first in a project whose memory is empty), until it
+ * is answered. Not now is for good.
  */
 export const MemoryKeeperOffer = memo(function MemoryKeeperOffer({
   project,
+  sessionId,
+  focused,
 }: {
   project: string;
+  /** The chat this box belongs to. */
+  sessionId: string;
+  /** Its pane has focus: an older offer, made in no chat, shows there. */
+  focused: boolean;
 }) {
   const state = useMemoryKeeperProject(project);
   const model = useKeeperModel();
-  if (!keeperOfferPending(state) || !model) return null;
+  if (!keeperOfferShownIn(state, sessionId) || !model) return null;
+  if (!state.offeredIn && !focused) return null;
   return (
     <div
       className="memory-keeper-offer"
@@ -44,7 +55,7 @@ export const MemoryKeeperOffer = memo(function MemoryKeeperOffer({
         className="memory-keeper-offer-copy"
         title={`Aven fills this project's memory once and keeps its own sections current with ${model.label}, which reads a summary and cannot change anything. Your own lines are never changed.`}
       >
-        Let Aven keep this project's memory up to date?
+        {MEMORY_KEEPER_OFFER}
       </span>
       <button
         type="button"

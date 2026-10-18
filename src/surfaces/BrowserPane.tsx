@@ -62,6 +62,7 @@ import {
   type BrowserState,
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
+import { useDevServerStart } from "../hooks/useDevServerStart";
 import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
 import {
   createBrowserPresentation,
@@ -967,6 +968,16 @@ function BrowserPaneSession({
     }
   };
 
+  // A local preview whose server is not running (after a restart, say) can
+  // start the project's dev script and reloads once the server answers.
+  const devServer = useDevServerStart({
+    project,
+    url: address || url,
+    error,
+    loading,
+    reload: () => navigate(address || url),
+  });
+
   const action = (kind: BrowserAction) => {
     if (!readyId) return;
     setNotice(null);
@@ -1772,6 +1783,14 @@ function BrowserPaneSession({
             <span className="browser-empty-mark">↗</span>
             <strong>Preview unavailable</strong>
             <p>{error}</p>
+            {devServer.starting ? (
+              <p data-dev-server-starting>
+                Starting the dev server with “{devServer.starting.run}”. This
+                tab reloads when it answers.
+              </p>
+            ) : devServer.hint ? (
+              <p data-dev-server-hint>{devServer.hint}</p>
+            ) : null}
             {browserSearchSuggestion(address || url) ? (
               <p>
                 This looks like a search term. Enter a full address such as
@@ -1779,6 +1798,16 @@ function BrowserPaneSession({
               </p>
             ) : null}
             <div className="browser-empty-actions">
+              {devServer.canStart ? (
+                <button
+                  type="button"
+                  data-dev-server-start
+                  title="Run the project's dev script in its terminal, then reload this tab when the server answers"
+                  onClick={devServer.start}
+                >
+                  Start dev server
+                </button>
+              ) : null}
               <button type="button" onClick={() => navigate(address || url)}>
                 Retry
               </button>

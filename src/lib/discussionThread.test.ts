@@ -137,7 +137,7 @@ describe("buildDiscussionThread", () => {
     expect(shape(thread).slice(-3)).toEqual([
       "a:Three",
       "b:Four",
-      "closing:Discussion ended after 2 rounds.",
+      "closing:Discussion finished after 2 rounds.",
     ]);
     expect(thread.at(-1)).toMatchObject({ completed: true });
     expect(typingSide(discussion)).toBeNull();
@@ -157,7 +157,7 @@ describe("buildDiscussionThread", () => {
       "round 1/3",
       "a:One",
       "b:Two",
-      "closing:Discussion stopped after 1 round of 3.",
+      "closing:Discussion stopped after 1 of 3 rounds.",
     ]);
     expect(thread.at(-1)).toMatchObject({ completed: false });
   });

@@ -1,4 +1,4 @@
-import { failureText, logError } from "./lib/errors";
+import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { useDevSmoke } from "./hooks/useDevSmoke";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
@@ -16,15 +16,31 @@ import {
   prepareAgentBrowserPrompt,
   refreshAgentBrowserScopes,
 } from "./lib/agentBrowser";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import {
+  memberTurns,
+  quietTurns,
+  runOutcomeActivity,
+} from "./lib/orchestrationActivity";
+import { encodedSidebarRuns } from "./lib/orchestrationSummary";
+import { retainedSessionIds } from "./lib/sessionRetention";
+import {
+  attentionSessionIds,
+  leadDecidedIds,
+  sessionNeedsUser,
+  teamNeedSessionIds,
+  type LeadDecided,
+} from "./lib/teamAttention";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
 import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
 import {
   adoptLateProposal,
   completeOrchestrationProposal,
+  latestProposalId,
   orchestrationPlanningPrompt,
   proposalBlock,
   validateOrchestrationSettings,
@@ -71,7 +87,15 @@ import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
-import { discussionStore } from "./lib/discussions";
+import {
+  captureDiscussionWrapUp,
+  discussionStore,
+  keptDiscussionChats,
+} from "./lib/discussions";
+import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
+import { useTeamWatch } from "./hooks/useTeamWatch";
+import { TeamWatchFloat, TeamWatchPills } from "./surfaces/TeamWatchPanel";
+import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -163,17 +187,28 @@ import {
   openAgentBrowserTab,
   createAgentBrowserRouter,
   presentAgentBrowserView,
+  agentRequesterTab,
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
 import {
   installDevPreviewOpener,
   observeAgentPreviewEvent,
+  openDevPreview,
   previewBelongsTo,
   previewTabMatch,
+  previewTabsOnServer,
   publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
+import { installDevServerStarter } from "./lib/devServerStart";
+import { queueTerminalCommand } from "./lib/pty";
+import {
+  newSessionChangesWorkspaceTab,
+  reviewPaneFor,
+  sessionChangesTabFor,
+  showInPane,
+} from "./lib/reviewPlacement";
 import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
 import {
   useDuplicateServerMessenger,
@@ -191,13 +226,27 @@ import type {
   PaletteRaceRequest,
 } from "./chrome/CommandPalette";
 import {
+  createRaceLanes,
+  getRace,
   installRaceWorkspace,
   isFinishingRaceCheckout,
+  listRaces,
   raceHost,
   racePrompt,
   releaseRaceCheckout,
+  raceLaneEnded,
   raceLaneFor,
+  raceLaneRecords,
+  raceLanesNotKept,
+  raceLaneStarted,
+  raceOriginBlock,
   saveRace,
+  settleInterruptedLanes,
+  adoptOrphanRaces,
+  raceLaneRemoved,
+  settleMissingLanes,
+  subscribeRaces,
+  updateRace,
   usesRaceCheckout,
   type RaceBase,
   type RaceWorkspace,
@@ -239,7 +288,7 @@ import {
 } from "./chrome/WorkspaceActionDialog";
 import { BranchPicker } from "./chrome/BranchPicker";
 import { AddProjectMenu } from "./chrome/AddProjectMenu";
-import { installInAppLinks } from "./lib/inAppLinks";
+import { installInAppLinks, openInAppUrl } from "./lib/inAppLinks";
 import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
@@ -262,12 +311,17 @@ import {
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
+  listDir,
   notifyGitChanged,
   pickFolder,
+  readTextFile,
   restoreSessionCheckout,
   type GitFileDiffKind,
   type GitHistoryCommit,
 } from "./lib/fs";
+import { resolveGrokBinary } from "./lib/harness/child";
+import { saveRaceLaneChoice } from "./lib/raceAgents";
+import { raceAgentNames, raceLaneTitle, raceTaskWords } from "./lib/raceNames";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -284,9 +338,9 @@ import {
   isTerminalTab,
   leaf,
   newRaceWorkspaceTab,
-  newDiscussionTab,
-  newDiscussionWorkspaceTab,
-  showDiscussionInTabs,
+  newBoardWorkspaceTab,
+  boardTabFor,
+  isBoardTab,
   leafIds,
   movePane,
   neighborLeafId,
@@ -440,7 +494,7 @@ import {
   rebasePath,
   resolveWorkspacePath,
 } from "./lib/paths";
-import { removeProjectData } from "./lib/projectData";
+import { openProjectFiles, removeProjectData } from "./lib/projectData";
 import {
   lastProjectPath,
   looksLikeProject,
@@ -467,7 +521,6 @@ import {
   HARNESS_TITLE,
   canReplaceSessionTitle,
   formatSessionTitle,
-  sessionNeedsInput,
   sessionIsWaitingForInput,
   newDefaultSession,
   newSession,
@@ -501,12 +554,51 @@ import {
   replaceInFlightSessions,
   saveWorkspaceSnapshot,
   setSessionArchived,
+  chatIsArchived,
   setSessionPinned,
   shouldPersistSession,
   upsertSession,
   type SessionSummary,
 } from "./lib/sessionStore";
-import { syncDockBadge } from "./lib/dockBadge";
+import {
+  setDockLeadDecided,
+  setDockTeamNeeds,
+  syncDockBadge,
+} from "./lib/dockBadge";
+import {
+  teamCompanions,
+  teamIdOf,
+  teamKeyOf,
+  teamKindOf,
+  teamRunsFrom,
+} from "./lib/teamRuns";
+import { sidebarTeams } from "./lib/teamGrouping";
+import { currentWindowLabel } from "./lib/windowLabel";
+import { popOutShownChats } from "./lib/teamWatch";
+import {
+  focusedTeamPopOut,
+  subscribeFocusedTeamPopOut,
+} from "./lib/teamWatchBridge";
+import {
+  teamActivityEvents,
+  teamEndSummaries,
+  teamsNoLongerNeedingYou,
+  teamsPostedHere,
+  type TeamSeen,
+} from "./lib/teamActivity";
+import {
+  leadVerdict,
+  reconcileRaceReviews,
+  summarizeRun,
+  watchRaceSuggestions,
+} from "./lib/teamResult";
+import { turnChangeOwner } from "./lib/teamChanges";
+import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
+import { useTeamStores } from "./hooks/useTeamRuns";
+import { useTeamPanelTidy } from "./hooks/useTeamPanelTidy";
+import { useRacePreviewLabel } from "./hooks/useRacePreviewLabel";
+import { racePreviewTitle } from "./lib/racePreviews";
+import { equalChromeData } from "./hooks/useChromeProps";
 import {
   backgroundWorkerIdsForStop,
   isCurrentSessionAgentSource,
@@ -523,7 +615,12 @@ import {
   useActivity,
   markSessionActivityRead,
   reconcileSessionActivityInputs,
+  resolveTeamNeedActivity,
+  amendTeamEnd,
   isPendingActivity,
+  isTurnActivity,
+  retractActivityTurn,
+  type ActivityTeam,
 } from "./lib/activity";
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
 import {
@@ -590,7 +687,6 @@ import { shouldOfferProviderSetup } from "./lib/providerSetup";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
-import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
   loadLiveAgentsEnabled,
   loadNotesEnabled,
@@ -616,6 +712,7 @@ import {
   inFlightSnapshotKey,
   isInFlightSession,
   shouldWriteInFlightSnapshot,
+  wasTurnInterrupted,
 } from "./lib/inFlight";
 import {
   collectWorkspaceSnapshot,
@@ -653,9 +750,20 @@ import {
 } from "./lib/streamFlush";
 import { LiveSessionsContext } from "./lib/liveSessions";
 import {
+  requestShip,
   subscribeOpenChatRequests,
   subscribeShipRequests,
 } from "./lib/shipRequest";
+import { forgetChatReview, useChatReviews } from "./lib/chatReview";
+import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
+import { forgetTurnNotes, takeTurnNotes } from "./lib/turnNotes";
+import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
+import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
+import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
+import {
+  installWorkBoardActions,
+  type WorkBoardActions,
+} from "./lib/workBoardFeed";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -690,6 +798,13 @@ function lastAssistantTextInTurn(session: Session): string {
 /** A chat started from a Race lane keeps the project but works in the lane. */
 function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
   return source.worktreeCwd ? { worktreeCwd: source.worktreeCwd } : {};
+}
+
+/** A turn Aven cut short (a quit) that it is about to continue by itself. */
+function willAutoContinue(session: Session | undefined): boolean {
+  return (
+    !!session && canAutoContinue(session) && isLiveHarness(session.harness)
+  );
 }
 
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
@@ -760,13 +875,17 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.terminal === other.terminal &&
       tab.groupId === other.groupId &&
       tab.needsInput === other.needsInput &&
-      tab.race === other.race
+      tab.race === other.race &&
+      tab.board === other.board
     );
   });
 }
 
 // Register capabilities before composer hooks choose their discovery strategy.
 registerBuiltinHarnesses();
+
+/** How soon after a run finishes its agents are summed up (see teamResult). */
+const RUN_SUMMARY_WINDOW_MS = 10 * 60_000;
 
 export default function App({
   windowTransfer = null,
@@ -985,6 +1104,7 @@ export default function App({
           own?.harness === session.harness && own.model === session.model
             ? session.modelSettings
             : undefined,
+        origin: session.id,
       });
     },
     [],
@@ -994,6 +1114,8 @@ export default function App({
     settle: async () => {},
     release: async () => {},
     openChat: () => {},
+    compare: () => {},
+    retry: () => {},
   });
   useEffect(
     () =>
@@ -1002,6 +1124,44 @@ export default function App({
         settle: (race) => raceActionsRef.current.settle(race),
         release: (race) => raceActionsRef.current.release(race),
         openChat: (id) => raceActionsRef.current.openChat(id),
+        compare: (id) => raceActionsRef.current.compare(id),
+        retry: (race, lane) => raceActionsRef.current.retry(race, lane),
+      }),
+    [],
+  );
+  // What a team's card asks of the workspace (see teamWorkspace).
+  const teamActionsRef = useRef<TeamWorkspace>({
+    reviewChanges: () => {},
+    openChat: () => {},
+    watch: () => {},
+    send: async () => false,
+  });
+  // What a project board's buttons do, kept current below and installed once.
+  const boardActionsRef = useRef<WorkBoardActions | null>(null);
+  useEffect(
+    () =>
+      installWorkBoardActions({
+        openChat: (...args) => boardActionsRef.current?.openChat(...args),
+        allow: (...args) => boardActionsRef.current?.allow(...args),
+        review: (...args) => boardActionsRef.current?.review(...args),
+        ship: (...args) => boardActionsRef.current?.ship(...args),
+        watch: (...args) => boardActionsRef.current?.watch(...args),
+        compare: (...args) => boardActionsRef.current?.compare(...args),
+        preview: (...args) => boardActionsRef.current?.preview(...args),
+        openCommit: (...args) => boardActionsRef.current?.openCommit(...args),
+        openUrl: (...args) => boardActionsRef.current?.openUrl(...args),
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      installTeamWorkspace({
+        reviewChanges: (project) =>
+          teamActionsRef.current.reviewChanges(project),
+        openChat: (id) => teamActionsRef.current.openChat(id),
+        watch: (id) => teamActionsRef.current.watch?.(id),
+        send: (id, compose, options) =>
+          teamActionsRef.current.send(id, compose, options),
       }),
     [],
   );
@@ -1082,15 +1242,19 @@ export default function App({
             )
               throw new Error("The task is no longer available.");
             const project = session.cwd;
+            const before =
+              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER;
             // No await between selecting and committing: overlapping opens see the
             // committed tab and return the same surface instead of creating copies.
             const {
               tab: { id },
               workspace,
-            } = openAgentBrowserTab(
-              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
-              url,
-              { ...options, focus: placement.activate },
+            } = openAgentBrowserTab(before, url, {
+              ...options,
+              focus: placement.activate,
+            });
+            const created = !normalizeBrowserWorkspace(before).tabs.some(
+              (page) => page.id === id,
             );
             const surfaceId = browserIdForTab(project, id);
             if (detachedIdsRef.current.has(surfaceId)) {
@@ -1111,13 +1275,21 @@ export default function App({
               }));
             });
             // Show a requested page in the active project without switching
-            // profiles, beside the chat that asked for it rather than behind it.
-            // arrange:false leaves the panes alone; a new page waits as a
-            // background tab in the focused pane.
-            if (sameProjectPath(projectCwdRef.current, project)) {
-              const requester = tabsRef.current.find((tab) =>
-                leafIds(tab.layout).includes(sessionId),
-              )?.id;
+            // profiles, in the browser pane already open (one showing the
+            // same server first), else beside the chat that asked for it,
+            // never behind it. arrange:false only lets a new page join an
+            // open browser pane as a background tab (without one it waits
+            // in the focused pane) and never moves a page already open.
+            if (
+              sameProjectPath(projectCwdRef.current, project) &&
+              (placement.arrange || created)
+            ) {
+              // A worker has no tab of its own: its lead's chat asked.
+              const requester = agentRequesterTab(tabsRef.current, [
+                sessionId,
+                session.orchestrationLeadId,
+              ]);
+              const pages = workspace.tabs.filter((page) => page.id !== id);
               viewRef.current.change((view) =>
                 presentAgentBrowserView(
                   view,
@@ -1127,9 +1299,12 @@ export default function App({
                   ),
                   requester,
                   placement.arrange,
+                  previewTabsOnServer(pages, url).map((page) =>
+                    browserIdForTab(project, page.id),
+                  ),
                 ),
               );
-            } else {
+            } else if (!sameProjectPath(projectCwdRef.current, project)) {
               // Never switch projects under the user; say where the page went.
               const notice: AgentPageNotice = {
                 id: surfaceId,
@@ -1262,6 +1437,7 @@ export default function App({
   const browserState = normalizeBrowserWorkspace(
     browserWorkspaces[projectCwd] ?? EMPTY_BROWSER,
   );
+  const racePreviewLabelFor = useRacePreviewLabel();
   const browserSurfaces = browserState.open
     ? browserState.tabs
         .map((tab) => ({
@@ -1577,6 +1753,14 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
+  // The footer shows outside the full-window views; while it does, shrunk
+  // teams sit in it rather than floating over the workspace.
+  const footerShown =
+    !settingsOpen &&
+    !searchViewOpen &&
+    !inboxViewOpen &&
+    !automationsViewOpen &&
+    !notesViewOpen;
   const {
     floatingSidebarLayer,
     nativeSidebar,
@@ -1619,6 +1803,8 @@ export default function App({
     () => new Map(),
   );
   const [history, setHistory] = useState<SessionSummary[]>(() => bootHistory);
+  const historyRef = useRef(history);
+  historyRef.current = history;
   /**
    * Projects whose rows are already in `history`. This has to be state, not a
    * ref: `sidebarCwd` is derived during render, so the frame that first shows
@@ -1696,6 +1882,8 @@ export default function App({
   const agentRuntimeEpoch = useRef(new Map<string, number>());
   const stoppedAgentRuntimes = useRef(new Set<string>());
   const activityTurnIds = useRef(new Map<string, string>());
+  /** The planning turn each plan card came from, by the card's id. */
+  const proposalTurns = useRef(new Map<string, string>());
   const failedActivityTurns = useRef(new Map<string, string>());
   const lastPersisted = useRef(new Map<string, string>());
   const lastBoundProvider = useRef(new Map<string, string>());
@@ -2069,23 +2257,83 @@ export default function App({
     void refreshHarnessCatalogs([activeHarness]);
   }, [activeHarness]);
 
-  const nextApprovalSessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const session of sessions) {
-      if (sessionNeedsInput(session)) {
-        ids.add(session.id);
-        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
-      }
-    }
-    return ids;
-  }, [sessions]);
+  const activityEntries = useActivity();
+  // Every discussion, race and orchestration as one team view (see
+  // teamRuns), from the committed sessions: streaming that commits nothing
+  // never recomputes it, and its identity holds until a team changes.
+  const teamStores = useTeamStores();
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+  // Workers whose approvals and questions their lead decides right now:
+  // those of a run that is still open, unless the lead left one to you.
+  const nextLeadDecided = useMemo(
+    () => leadDecidedIds(orchestrationRuns, (id) => sessionById.get(id)),
+    [orchestrationRuns, sessionById],
+  );
+  const leadDecidedRef = useRef(nextLeadDecided);
+  if (!setsEqual(leadDecidedRef.current, nextLeadDecided))
+    leadDecidedRef.current = nextLeadDecided;
+  const leadDecided = leadDecidedRef.current;
+  const nextTeams = useMemo(
+    () =>
+      teamRunsFrom(teamStores, {
+        session: (id) => sessionById.get(id),
+        activity: activityEntries,
+      }),
+    [activityEntries, sessionById, teamStores],
+  );
+  const teamsRef = useRef(nextTeams);
+  if (!equalChromeData(teamsRef.current, nextTeams))
+    teamsRef.current = nextTeams;
+  const teams = teamsRef.current;
+  const teamsLatest = useRef(teams);
+  teamsLatest.current = teams;
+  // Open races as one sidebar row each (see teamGrouping).
+  const sidebarTeamRows = useMemo(() => sidebarTeams(teams), [teams]);
+
+  // Chats waiting on the user (see teamAttention): their own approvals and
+  // questions, never an orchestration worker's, which its lead decides; and
+  // the chat to open for a team that paused or that no agent finished.
+  const nextTeamNeedIds = useMemo(() => teamNeedSessionIds(teams), [teams]);
+  const teamNeedIdsRef = useRef(nextTeamNeedIds);
+  if (!setsEqual(teamNeedIdsRef.current, nextTeamNeedIds))
+    teamNeedIdsRef.current = nextTeamNeedIds;
+  const teamNeedIds = teamNeedIdsRef.current;
+  const nextApprovalSessionIds = useMemo(
+    () => attentionSessionIds(sessions, teams, leadDecided),
+    [sessions, teams, leadDecided],
+  );
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
   if (!setsEqual(approvalSessionIdsRef.current, nextApprovalSessionIds)) {
     approvalSessionIdsRef.current = nextApprovalSessionIds;
   }
   const approvalSessionIds = approvalSessionIdsRef.current;
-
-  const activityEntries = useActivity();
+  // One word per chat, for its sidebar row and the project boards: what its
+  // turns, teams, unreviewed changes and ships say (see chatStatus).
+  useChatReviewTracker(sessionsRef);
+  const chatReviews = useChatReviews();
+  const shippedChats = useShippedChats();
+  const nextChatStatus = useMemo(
+    () =>
+      chatStatuses({
+        working: busySessionIds,
+        needsYou: approvalSessionIds,
+        teams,
+        reviews: chatReviews,
+        shipped: shippedChats,
+      }),
+    [busySessionIds, approvalSessionIds, teams, chatReviews, shippedChats],
+  );
+  const chatStatusRef =
+    useRef<Readonly<Record<string, ChatStatusWord>>>(nextChatStatus);
+  if (
+    chatStatusRef.current !== nextChatStatus &&
+    !equalChromeData(chatStatusRef.current, nextChatStatus)
+  )
+    chatStatusRef.current = nextChatStatus;
+  const chatStatus = chatStatusRef.current;
   const [notificationWindowFocused, setNotificationWindowFocused] = useState(
     () => document.hasFocus(),
   );
@@ -2099,26 +2347,80 @@ export default function App({
   }>({ floatingSessionIds: [], focusedSessionIds: new Set() });
   const activityMainViewRef = useRef({ workspaceVisible, visibleSurfaceIds });
   activityMainViewRef.current = { workspaceVisible, visibleSurfaceIds };
-  const activityPresentation = useCallback((sessionId: string) => {
-    const otherFocused =
-      activityWindowBridgeRef.current.focusedSessionIds.has(sessionId);
+  /** The chats of the discussion open in this window's panel. */
+  const panelChatsRef = useRef<readonly string[]>([]);
+  /** The chats of the team whose pop-out has focus. */
+  const popOutChatsRef = useRef<readonly string[]>([]);
+  /**
+   * Whether each chat is on screen and focused now, worked out once for
+   * however many chats are asked about (the read check asks for each unread
+   * chat on every render).
+   */
+  const activityPresenter = useCallback(() => {
+    const view = activityMainViewRef.current;
+    // A race's overview on screen shows its lanes, as the discussion panel
+    // shows both of its chats.
+    const surfaces = new Set(view.visibleSurfaceIds);
+    const watched = [...panelChatsRef.current];
+    for (const tab of tabsRef.current) {
+      if (!surfaces.has(tab.id)) continue;
+      for (const pane of tab.editorPanes)
+        for (const file of pane.files)
+          if (file.race)
+            for (const lane of getRace(file.race.raceId)?.lanes ?? [])
+              watched.push(lane.sessionId);
+    }
     const mainVisible = visibleActivitySessionIds({
-      ...activityMainViewRef.current,
+      ...view,
       tabs: tabsRef.current,
       sessionIds: new Set(sessionsRef.current.map((session) => session.id)),
       floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
-    }).has(sessionId);
-    return {
-      visible: otherFocused || mainVisible,
-      focused: otherFocused || notificationWindowFocusedRef.current,
+      companions: teamCompanions(teamsLatest.current),
+      panel: watched,
+    });
+    const elsewhere = activityWindowBridgeRef.current.focusedSessionIds;
+    const popOut = new Set(popOutChatsRef.current);
+    const windowFocused = notificationWindowFocusedRef.current;
+    return (sessionId: string) => {
+      const otherFocused = elsewhere.has(sessionId) || popOut.has(sessionId);
+      return {
+        visible: otherFocused || mainVisible.has(sessionId),
+        focused: otherFocused || windowFocused,
+      };
     };
   }, []);
+  const activityPresentation = useCallback(
+    (sessionId: string) => activityPresenter()(sessionId),
+    [activityPresenter],
+  );
+  // Turns the orchestrator sends (a worker's, or the lead's hidden
+  // continuation) post no Activity entry or banner of their own; the run
+  // posts one when it finishes or pauses.
+  const quietActivityTurns = useRef<ReturnType<typeof quietTurns>>(null);
+  quietActivityTurns.current ??= quietTurns();
+  // Turns a team sends its members (a discussion's relays, a race's lanes)
+  // are recorded quietly for their chat's status; the team posts its own
+  // entry per need and at its end.
+  const memberActivityTurns = useRef<ReturnType<typeof memberTurns>>(null);
+  memberActivityTurns.current ??= memberTurns();
   const announceActivity = useCallback(
     (session: Session, event: SessionActivityEvent) => {
+      // A race keeps how each lane ended, whether or not its chat stays
+      // loaded or the ledger keeps the entry. Only the chat's own turn says
+      // that: a team's notice posted on a lane's chat is not its ending.
+      if (
+        isTurnActivity(session.id, event.id) &&
+        (event.outcome === "completed" ||
+          event.outcome === "failed" ||
+          event.outcome === "stopped")
+      )
+        raceLaneEnded(session.id, event.outcome);
+      if (quietActivityTurns.current?.silences(event.id)) return;
+      const team = memberActivityTurns.current?.teamOf(event.id);
       const presentation = activityPresentation(session.id);
       void publishSessionActivity(
         session,
-        event,
+        team ? { ...event, team } : event,
         presentation.visible,
         presentation.focused,
       ).then((result) => {
@@ -2146,7 +2448,7 @@ export default function App({
         !unresolvedActivitySessions.has(session.id)
       )
         continue;
-      const events = pendingSessionActivityEvents(session);
+      const events = pendingSessionActivityEvents(session, leadDecided);
       const ids = events.map((event) => event.id);
       const signature = JSON.stringify(ids);
       if (observedActivityInputs.current.get(session.id) === signature)
@@ -2161,7 +2463,187 @@ export default function App({
     approvalSessionIds,
     announceActivity,
     unresolvedActivitySessions,
+    leadDecided,
   ]);
+
+  /**
+   * The chat a team's notice belongs to, loaded or not: a notice is posted
+   * even when that chat is closed (a race's starting chat, a discussion's
+   * missing partner, a run's tab-less lead), from its saved row or what the
+   * team knows of it.
+   */
+  const noticeChat = useCallback(
+    (
+      id: string,
+      known: {
+        harness?: Session["harness"];
+        cwd?: string;
+        title?: string;
+        model?: string;
+      } = {},
+    ): Session | undefined => {
+      const loaded = sessionsRef.current.find((session) => session.id === id);
+      if (loaded) return loaded;
+      const saved = historyRef.current.find((row) => row.id === id);
+      const harness = saved?.harness ?? known.harness;
+      if (!harness) return undefined;
+      return {
+        ...newSession(harness, saved?.cwd ?? known.cwd ?? "~"),
+        id,
+        title: saved?.title ?? known.title ?? "",
+        model: saved?.model ?? known.model ?? "",
+      };
+    },
+    [sessionsRef],
+  );
+
+  // One entry per run outcome, on the lead's chat: "Run finished · 4 agents"
+  // or "Run paused · <reason>", with a banner while you are elsewhere.
+  useEffect(
+    () =>
+      orchestrator.onOutcome((outcome) => {
+        const { run } = outcome;
+        // A run that ends during a turn of yours to the lead (wrap up, an
+        // answer, an instruction) is that turn's news: its own end posts
+        // nothing, so the run counts once, with one banner and one cheer.
+        const turn = activityTurnIds.current.get(run.leadId);
+        if (turn) quietActivityTurns.current?.add(turn);
+        const lead = noticeChat(run.leadId, {
+          harness: run.lead?.harness,
+          cwd: run.cwd,
+          title: run.title,
+        });
+        if (lead) announceActivity(lead, runOutcomeActivity(outcome));
+      }),
+    [announceActivity, noticeChat],
+  );
+
+  // A run is never lost, or left holding its checkout, across a restart or
+  // a reload: this page loads (and pauses, if it was running) every run its
+  // earlier page held, and in the main window every open run whose lead has
+  // no tab.
+  useEffect(() => {
+    void orchestrator.loadPageRuns(
+      () => invoke<string[]>("control_page_loaded"),
+      (error) => logError("Couldn't load open runs", error),
+    );
+  }, []);
+
+  // A suggested winner this window asked for before a reload, or one that
+  // ran longer than a call can, is over; a review asked before a reload is
+  // settled from its chat's reply once that chat stops working.
+  useEffect(() => watchRaceSuggestions(subscribeRaces), []);
+  useEffect(() => {
+    if (
+      teamStores.races.some(
+        (race) => race.state === "running" && race.review?.status === "running",
+      )
+    )
+      void reconcileRaceReviews(
+        (id) => sessionById.get(id),
+        undefined,
+        undefined,
+        undefined,
+        (id) => willAutoContinue(sessionById.get(id)),
+      ).catch((error) => logError("Race review", error));
+  }, [sessionById, teamStores.races]);
+  // A lane whose chat was deleted or archived elsewhere, or before races
+  // recorded that, reads stopped rather than working for good.
+  useEffect(() => {
+    if (!teamStores.races.some((race) => race.state === "running")) return;
+    void settleMissingLanes(
+      (id) => sessionsRef.current.some((session) => session.id === id),
+      async (id) =>
+        !chatIsArchived(
+          id,
+          historyRef.current.find((row) => row.id === id)?.archived,
+        ) && (await getSession(id).catch(() => null)) != null,
+    ).catch((error) => logError("Race agents", error));
+  }, [teamStores.races, sessionsRef]);
+  // A lane cut short by a quit or reload, and not about to carry on,
+  // reports no ending: record it, so a window that doesn't hold it stops
+  // reading it as working.
+  useEffect(() => {
+    if (teamStores.races.some((race) => race.state === "running"))
+      settleInterruptedLanes(
+        sessions,
+        (session) => wasTurnInterrupted(session) && !willAutoContinue(session),
+      );
+  }, [sessions, teamStores.races]);
+
+  // A finished run's result card: the lead's verdict once its last turn
+  // ended, and a line per agent from the cheap model (see teamResult).
+  useEffect(() => {
+    for (const run of teamStores.runs) {
+      if (run.status !== "finished") continue;
+      const lead = sessionById.get(run.leadId);
+      // The reply of the turn the run ended in. A run from an earlier
+      // version has no end to match, so it keeps no verdict rather than a
+      // line from a later conversation.
+      if (run.verdict === undefined && lead && !lead.busy)
+        void orchestrator
+          .noteVerdict(
+            run.leadId,
+            run.endedAt === undefined
+              ? ""
+              : leadVerdict(lead.blocks, run.endedAt),
+          )
+          .catch(console.error);
+      // Only a run that just finished here: an older one is not summed up
+      // again each time Aven reopens it.
+      if (
+        !run.summaries &&
+        run.endedAt !== undefined &&
+        Date.now() - run.endedAt < RUN_SUMMARY_WINDOW_MS
+      )
+        void (async () => {
+          if (!(await orchestrator.noteSummaries(run.leadId, "running")))
+            return;
+          const lines = await summarizeRun(run);
+          await orchestrator.noteSummaries(
+            run.leadId,
+            lines ? "done" : "failed",
+            lines ?? {},
+          );
+        })().catch(console.error);
+    }
+  }, [sessionById, teamStores.runs]);
+
+  // A team posts one entry per new need and one at its end (see
+  // teamActivity); its members' own turns were recorded quietly.
+  // A team's end entry says what it did once that is known, for Activity
+  // and the memory keeper (see teamEndSummaries).
+  useEffect(() => {
+    for (const { teamId, detail } of teamEndSummaries(teamStores))
+      amendTeamEnd(teamId, detail);
+  }, [teamStores]);
+  const loadedSessionIds = useCallback(
+    () => sessionsRef.current.map((session) => session.id),
+    [sessionsRef],
+  );
+  const seenTeams = useRef<Map<string, TeamSeen> | null>(null);
+  useEffect(() => {
+    // Only the window that drives a team posts its notices.
+    const posted = teamsPostedHere(teams, teamStores, {
+      window: currentWindowLabel(),
+      loaded: new Set(loadedSessionIds()),
+    });
+    const { events, seen } = teamActivityEvents(seenTeams.current, posted);
+    seenTeams.current = seen;
+    resolveTeamNeedActivity(teamsNoLongerNeedingYou(posted));
+    for (const { sessionId, event } of events) {
+      const team = teams.find((entry) => entry.id === event.team?.id);
+      const member =
+        team?.members.find((entry) => entry.sessionId === sessionId) ??
+        team?.members[0];
+      const session = noticeChat(sessionId, {
+        harness: member?.harness,
+        cwd: team?.project,
+        title: member?.title ?? team?.title,
+      });
+      if (session) announceActivity(session, event);
+    }
+  }, [announceActivity, noticeChat, teams, teamStores, loadedSessionIds]);
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.
@@ -2171,10 +2653,11 @@ export default function App({
         .filter((entry) => entry.readAt === null)
         .map((entry) => entry.sessionId),
     );
+    if (!unreadSessions.size) return;
+    const presentation = activityPresenter();
     for (const id of unreadSessions) {
-      const presentation = activityPresentation(id);
-      if (presentation.visible && presentation.focused)
-        markSessionActivityRead(id);
+      const { visible, focused } = presentation(id);
+      if (visible && focused) markSessionActivityRead(id);
     }
   });
 
@@ -2208,13 +2691,22 @@ export default function App({
   );
 
   const hiddenApprovalToasts = useMemo(
-    () => hiddenApprovalNotices(sessions, activeTabId, tabs, composerFocused),
-    [sessions, activeTabId, tabs, composerFocused],
+    () =>
+      hiddenApprovalNotices(
+        sessions,
+        activeTabId,
+        tabs,
+        composerFocused,
+        leadDecided,
+      ),
+    [sessions, activeTabId, tabs, composerFocused, leadDecided],
   );
 
   useEffect(() => {
+    setDockTeamNeeds(teamNeedIds);
+    setDockLeadDecided(leadDecided);
     syncDockBadge(sessions);
-  }, [sessions]);
+  }, [sessions, teamNeedIds, leadDecided]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -2272,6 +2764,7 @@ export default function App({
         stopSessions: (ids) => {
           for (const id of ids) stopSessionRef.current(id);
         },
+        leadDecided: () => leadDecidedRef.current,
       },
     );
     void getCurrentWindow()
@@ -2561,37 +3054,106 @@ export default function App({
     });
   }, [tabs]);
 
+  // This window's team panel and pills (see `useTeamWatch`).
+  const teamWatch = useTeamWatch();
+  // Only live work floats: an ended race's pill goes after a moment, and a
+  // finished discussion's panel shrinks once you leave its chat or send its
+  // plan to build (see `useTeamPanelTidy`).
+  const sessionIdsKey = sessions.map((session) => session.id).join("\n");
+  const visibleSurfacesKey = visibleSurfaceIds.join("\n");
+  const chatsOnScreen = useMemo(
+    () =>
+      [
+        ...visibleActivitySessionIds({
+          workspaceVisible,
+          visibleSurfaceIds: visibleSurfacesKey
+            ? visibleSurfacesKey.split("\n")
+            : [],
+          tabs,
+          sessionIds: new Set(sessionIdsKey ? sessionIdsKey.split("\n") : []),
+          floatingSessionIds: [],
+        }),
+      ]
+        .sort()
+        .join("\n"),
+    [workspaceVisible, visibleSurfacesKey, tabs, sessionIdsKey],
+  );
+  useTeamPanelTidy(teamWatch, chatsOnScreen);
+  // Chats in a discussion this window drives, while it runs or still owes a
+  // closing note, and the two in the open or popped-out panel. A
+  // discussion's partner has no tab: it plays out in the chat that started it.
+  const discussionList = useDiscussionList();
+  const panelDiscussions = [teamWatch.state.expanded, ...teamWatch.state.popped]
+    .filter((id): id is string => !!id && teamKindOf(id) === "discuss")
+    .map(teamKeyOf)
+    .join("\n");
+  const panelChats = useMemo(() => {
+    const ids = panelDiscussions ? panelDiscussions.split("\n") : [];
+    return discussionList
+      .filter((discussion) => ids.includes(discussion.id))
+      .flatMap((discussion) => [
+        discussion.a.sessionId,
+        discussion.b.sessionId,
+      ]);
+  }, [discussionList, panelDiscussions]);
+  // On screen here: only the discussion open in this window's panel. A
+  // popped-out team is on screen in its own window, and counts as seen only
+  // while that window has focus.
+  const expandedDiscussion =
+    teamWatch.state.expanded &&
+    teamKindOf(teamWatch.state.expanded) === "discuss"
+      ? teamKeyOf(teamWatch.state.expanded)
+      : null;
+  panelChatsRef.current = useMemo(
+    () =>
+      discussionList
+        .filter((discussion) => discussion.id === expandedDiscussion)
+        .flatMap((discussion) => [
+          discussion.a.sessionId,
+          discussion.b.sessionId,
+        ]),
+    [discussionList, expandedDiscussion],
+  );
+  const focusedPopOut = useSyncExternalStore(
+    subscribeFocusedTeamPopOut,
+    focusedTeamPopOut,
+    () => null,
+  );
+  const focusedPopOutTeam =
+    focusedPopOut && teamWatch.state.popped.includes(focusedPopOut)
+      ? teams.find((team) => team.id === focusedPopOut)
+      : undefined;
+  popOutChatsRef.current = useMemo(
+    () => (focusedPopOutTeam ? popOutShownChats(focusedPopOutTeam) : []),
+    [focusedPopOutTeam],
+  );
+  const keptDiscussionKey = useMemo(
+    () =>
+      [
+        ...keptDiscussionChats(discussionList, discussionStore().owner),
+        ...panelChats,
+      ].join("\n"),
+    [discussionList, panelChats],
+  );
+
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
   useEffect(() => {
-    const visibleIds = openSessionIds(tabs);
-    // Inbox owns these panes independently of project tabs. Keep their drafts
-    // and attachments mounted when the panel closes or switches items.
-    for (const session of sessions) {
-      if (session.inboxAsk) visibleIds.add(session.id);
-      // A managed assignment may be finished while its native children keep
-      // working. Its lead remains the navigation target for those workers.
-      if (
-        session.orchestrationLeadId &&
-        (isInFlightSession(session) || uncertainSessionAgents(session).length)
-      )
-        visibleIds.add(session.orchestrationLeadId);
-    }
-    // Internal workers stay attached to the lead, even while idle between
-    // turns. They must not be discarded merely because they have no tab.
-    for (const session of sessions) {
-      if (
-        session.orchestrationLeadId &&
-        (visibleIds.has(session.orchestrationLeadId) ||
-          orchestrationRuns.some(
-            (run) =>
-              run.leadId === session.orchestrationLeadId &&
-              ["active", "paused"].includes(run.status),
-          ))
-      )
-        visibleIds.add(session.id);
-    }
+    // Inbox chats, a discussion's chats until it is finished, the lead of a
+    // running or paused orchestration and its workers stay loaded without a
+    // tab (see retainedSessionIds). Read the discussion store too: a chat
+    // started for a discussion is added in the same step that starts it.
+    const discussions = discussionStore();
+    const visibleIds = retainedSessionIds(
+      sessions,
+      openSessionIds(tabs),
+      orchestrationRuns,
+      [
+        ...keptDiscussionKey.split("\n"),
+        ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
+      ],
+    );
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
       (session) =>
@@ -2621,7 +3183,14 @@ export default function App({
           skipForgetSessionIds.current.has(session.id),
       ),
     );
-  }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
+  }, [
+    sessions,
+    tabs,
+    persistSession,
+    liveAgentsEnabled,
+    orchestrationRuns,
+    keptDiscussionKey,
+  ]);
 
   const activateTab = useCallback(
     (id: string, restoreWorkspace = false, paneId?: string) => {
@@ -2859,47 +3428,22 @@ export default function App({
   ]);
 
   const onStartInboxItem = useCallback(
-    async (item: InboxItem, body?: string) => {
-      const start = (description?: string) => {
-        // The Inbox may have been opened over Home; show the new chat.
-        showWorkspace();
-        setSidebarTab("sessions");
-        const cwd =
-          item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
-        const ref =
-          item.provider === "linear"
-            ? item.identifier?.trim() || `#${item.number}`
-            : `#${item.number}`;
-        const session = {
-          ...newDefaultSession(cwd),
-          title: `${ref} ${item.title}`,
-          inboxCard: inboxComposerCard(item, description),
-        };
-        const tab = newTab(session.id);
-        setSessions((prev) => [...prev, session]);
-        appendTab(tab, cwd);
-        setActiveTabId(tab.id);
-        setComposerFocused(true);
+    (item: InboxItem) => {
+      // The Inbox may have been opened over Home; show the new chat.
+      showWorkspace();
+      setSidebarTab("sessions");
+      const cwd =
+        item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
+      const session = {
+        ...newDefaultSession(cwd),
+        title: `#${item.number} ${item.title}`,
+        inboxCard: inboxComposerCard(item),
       };
-
-      if (item.provider !== "linear") {
-        start();
-        return;
-      }
-      if (!item.id) {
-        throw new Error("Missing Linear issue");
-      }
-      if (body !== undefined) {
-        start(body);
-        return;
-      }
-      const cached = peekLinearIssueDetails(item.id);
-      if (cached) {
-        start(cached.body);
-        return;
-      }
-      const details = await linearIssueDetails(item.id);
-      start(details.body);
+      const tab = newTab(session.id);
+      setSessions((prev) => [...prev, session]);
+      appendTab(tab, cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
     },
     [
       active?.cwd,
@@ -3034,6 +3578,39 @@ export default function App({
       return true;
     },
     [focusProjectTerminal],
+  );
+
+  // A preview tab's Start dev server: a new terminal in the project's panel
+  // runs the script, queued until its shell starts like any terminal
+  // command. The panel opens to show the output; focus stays where it is.
+  useEffect(
+    () =>
+      installDevServerStarter((project, command) => {
+        const projectPath = projectCwdRef.current;
+        if (
+          !looksLikeProject(projectPath) ||
+          !sameProjectPath(projectPath, project)
+        )
+          return false;
+        const existing = findProjectTerminal(
+          projectTerminalsRef.current,
+          projectPath,
+        );
+        const file = newTerminalFile(
+          projectPath,
+          existing ? nextDockTerminalTitle(existing, projectPath) : undefined,
+        );
+        queueTerminalCommand(file.id, command);
+        setProjectTerminals((prev) =>
+          findProjectTerminal(prev, projectPath)
+            ? mapProjectTerminal(prev, projectPath, (dock) =>
+                addTerminalToDock(dock, file),
+              )
+            : [...prev, createProjectTerminal(projectPath, file)],
+        );
+        return true;
+      }),
+    [],
   );
 
   // New terminals open in the active session's worktree when it has one, so
@@ -3869,6 +4446,75 @@ export default function App({
     [activateTab, inboxAskPortal],
   );
 
+  /**
+   * A chat's review, when the chat's tab holds only chats and another pane on
+   * screen shows something else (a live preview, a board): a tab in the
+   * widest such pane, beside what it shows, rather than a third column
+   * squeezed in beside the chat. Says whether it went there.
+   */
+  const openReviewInOtherPane = (
+    session: { sessionId: string; cwd: string },
+    focusPath: string | undefined,
+  ): boolean => {
+    const chatTab = tabsRef.current.find(
+      (tab) => tab.id === activeTabIdRef.current,
+    );
+    if (!chatTab || chatTab.editorPanes.length > 0) return false;
+    const isChat = (surfaceId: string) => {
+      const tab = tabsRef.current.find((entry) => entry.id === surfaceId);
+      return (
+        !!tab &&
+        leafIds(tab.layout).some((id) =>
+          sessionsRef.current.some((entry) => entry.id === id),
+        )
+      );
+    };
+    const pane = reviewPaneFor(viewRef.current.view, chatTab.id, isChat);
+    if (!pane) return false;
+    const existing = sessionChangesTabFor(
+      tabsRef.current,
+      session.cwd,
+      session.sessionId,
+    );
+    let id: string;
+    if (existing) {
+      // One shown elsewhere (another window, another project) is left there.
+      const view = viewRef.current.view;
+      const known = Object.values({ ...view.groups, ...view.hiddenGroups });
+      if (!known.some((members) => members.includes(existing.id))) return false;
+      id = existing.id;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === id
+            ? openSessionChangesTab(
+                tab,
+                session.cwd,
+                session.sessionId,
+                focusPath,
+              )
+            : tab,
+        ),
+      );
+    } else {
+      const review = newSessionChangesWorkspaceTab(
+        session.cwd,
+        session.sessionId,
+        focusPath,
+      );
+      // Only a tab of the project on screen can join one of its panes.
+      const project = workspaceTabCwd(review, sessionsRef.current);
+      if (!project || !sameProjectPath(project, projectCwdRef.current))
+        return false;
+      id = review.id;
+      // Commit the tab first so the workspace view knows the new surface.
+      flushSync(() => appendTab(review, projectCwdRef.current));
+    }
+    viewRef.current.change((view) => showInPane(view, id, pane));
+    return true;
+  };
+  const openReviewInOtherPaneRef = useRef(openReviewInOtherPane);
+  openReviewInOtherPaneRef.current = openReviewInOtherPane;
+
   const onOpenDiff = useCallback(
     (
       path?: string,
@@ -3887,6 +4533,11 @@ export default function App({
             : ((await resolveOpenablePath(diffCwd, path)) ?? path)
           : undefined;
         if (resolved) rememberOpenedFile(diffCwd, resolved);
+        if (session && openReviewInOtherPaneRef.current(session, resolved)) {
+          setSidebarTab("changes");
+          setComposerFocused(false);
+          return;
+        }
         setTabs((prev) =>
           prev.map((tab) => {
             if (tab.id !== activeTabId) return tab;
@@ -4132,6 +4783,9 @@ export default function App({
     [refreshHistory, sidebarCwd],
   );
 
+  // A reload brings back a discussion's partner, which has no tab.
+  useDiscussionChatsLoaded(ensureOpenSession, loadedSessionIds);
+
   const reopeningClosed = useRef(false);
   const onReopenClosedTab = useCallback(async () => {
     if (reopeningClosed.current) return;
@@ -4271,13 +4925,6 @@ export default function App({
             candidate && candidate !== "~"
               ? candidate
               : await invoke<string>("default_cwd");
-          const description =
-            item.provider === "linear" && item.id
-              ? (
-                  peekLinearIssueDetails(item.id) ??
-                  (await linearIssueDetails(item.id))
-                ).body
-              : undefined;
           session = {
             ...newDefaultSession(cwd),
             title: `Ask · ${item.title}`,
@@ -4286,7 +4933,6 @@ export default function App({
               title: item.title,
               url: item.url,
               provider: item.provider,
-              description,
             },
           };
           sessionsRef.current = [...sessionsRef.current, session];
@@ -4562,6 +5208,8 @@ export default function App({
             if (run && (run.status === "active" || run.status === "paused"))
               await orchestrator.stopRun(run.leadId);
             await stopSessionForRemoval(sessionId);
+            // A race agent removed mid-turn reports no ending of its own.
+            raceLaneRemoved(sessionId);
           },
           updateSession: (stopped) => {
             const next = sessionsRef.current.map((session) =>
@@ -4592,6 +5240,14 @@ export default function App({
                   ? { ...entry, orchestrationLeadId: undefined }
                   : entry;
               setHistory((current) => current.map(releaseSummary));
+              // A running race started here is shown by its first agent's
+              // row from now on, and its notices go there.
+              for (const race of listRaces())
+                if (
+                  race.state === "running" &&
+                  race.origin?.sessionId === sessionId
+                )
+                  updateRace(race.id, { origin: undefined });
               return;
             }
             if (latest && shouldPersistSession(latest)) {
@@ -4653,6 +5309,10 @@ export default function App({
                 current.filter((entry) => entry.id !== sessionId),
               );
               void refreshHistory(sidebarCwd);
+              // A deleted chat leaves no card on its project's board.
+              forgetChatReview(sessionId);
+              forgetShippedChat(sessionId);
+              forgetTurnNotes(sessionId);
             }
           },
         });
@@ -5047,10 +5707,15 @@ export default function App({
   );
 
   const removingProjects = useRef(new Set<string>());
+  /** Removes a project; resolves with why it could not, or null. */
   const onRemoveProject = useCallback(
-    async (path: string, options: { purgeData: boolean }) => {
+    async (
+      path: string,
+      options: { purgeData: boolean },
+    ): Promise<string | null> => {
       const normalized = normalizeProjectPath(path);
-      if (removingProjects.current.has(normalized)) return;
+      if (removingProjects.current.has(normalized))
+        return "This project is already being removed.";
       removingProjects.current.add(normalized);
       try {
         if (options.purgeData) {
@@ -5066,7 +5731,7 @@ export default function App({
             panelTerminals.length > 0 &&
             !(await confirmCloseTerminals(panelTerminals))
           )
-            return;
+            return "Its terminals were kept running.";
           const closingTerminals = new Set(
             panelTerminals.map((file) => file.id),
           );
@@ -5095,12 +5760,12 @@ export default function App({
                 !!session.handoffCard
               );
             });
-            const remainingFiles = filesInWorkspaceTabs(
-              filterTabsForProject(
-                tabsRef.current,
-                currentSessions,
-                normalized,
-              ),
+            // Its board and race overviews are views, not work: they close
+            // with the project below.
+            const remainingFiles = openProjectFiles(
+              tabsRef.current,
+              currentSessions,
+              normalized,
             );
             if (newWork || remainingFiles.length || hasProjectTerminals()) {
               throw new Error(
@@ -5208,16 +5873,16 @@ export default function App({
           }
         }
       } catch (error) {
-        void message(
-          `Could not delete this project.\n\n${error instanceof Error ? error.message : String(error)}`,
-          {
-            title: "Aven",
-            kind: "error",
-          },
-        );
+        const reason = errorText(error);
+        void message(`Could not delete this project.\n\n${reason}`, {
+          title: "Aven",
+          kind: "error",
+        });
+        return reason;
       } finally {
         removingProjects.current.delete(normalized);
       }
+      return null;
     },
     [onRemoveHistorySession, onSelectProject, persistSession],
   );
@@ -5515,6 +6180,11 @@ export default function App({
         planBlockId?: string;
         buildTarget?: PlanBuildTarget;
         managed?: boolean;
+        /**
+         * A turn a team sends its member, such as a race lane's task. Its
+         * outcome is recorded quietly; the team announces itself.
+         */
+        teamMember?: ActivityTeam;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -5560,9 +6230,9 @@ export default function App({
       const current = options?.buildTarget
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
+      const drivingRun = orchestrator.forSession(sessionId);
       const controlledTurn =
-        !!options?.managed ||
-        orchestrationOwnsTurn(orchestrator.forSession(sessionId));
+        !!options?.managed || orchestrationOwnsTurn(drivingRun);
       const intent = options?.intent ?? "default";
       if (intent === "orchestrate") {
         try {
@@ -5610,6 +6280,22 @@ export default function App({
       }
       if (isPreparingHandoff(current)) return false;
       const workCwd = sessionWorkCwd(current);
+      // A run's driven turns write for its lead: the lead chat reviews and
+      // ships everything the run changed.
+      const drivingLead = drivingRun
+        ? sessionsRef.current.find(
+            (session) => session.id === drivingRun.leadId,
+          )
+        : undefined;
+      const changeOwner = turnChangeOwner({
+        sessionId,
+        workCwd,
+        driven: controlledTurn,
+        lead: drivingLead && {
+          id: drivingLead.id,
+          workCwd: sessionWorkCwd(drivingLead),
+        },
+      });
       const submittedText = intent === "build" ? "Build approved plan" : text;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
       const harnessText = rawCommand
@@ -5739,9 +6425,23 @@ export default function App({
       const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
+      raceLaneStarted(sessionId);
+      if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
+      const member: ActivityTeam | undefined = options?.discussion
+        ? { id: `discuss:${options.discussion.id}`, kind: "discuss" }
+        : options?.teamMember;
+      if (member) memberActivityTurns.current?.add(activityTurnId, member);
       failedActivityTurns.current.delete(sessionId);
       const proposalId =
         intent === "orchestrate" ? crypto.randomUUID() : undefined;
+      if (proposalId) {
+        proposalTurns.current.set(proposalId, activityTurnId);
+        // Keep the map small: only recent plans are confirmed.
+        if (proposalTurns.current.size > 50)
+          proposalTurns.current.delete(
+            proposalTurns.current.keys().next().value!,
+          );
+      }
       let proposalDraft: OrchestrationProposal | undefined = proposalId
         ? {
             version: 1,
@@ -6083,11 +6783,14 @@ export default function App({
           return event;
         };
 
-        if (!current.inboxAsk && !controlledTurn) {
-          await beginSessionTurn(sessionId, workCwd).catch(() => undefined);
+        if (!current.inboxAsk && changeOwner) {
+          await beginSessionTurn(changeOwner.sessionId, changeOwner.cwd).catch(
+            () => undefined,
+          );
         }
         if (turnGen.current.get(sessionId) !== gen) return;
         let buildSucceeded = false;
+        let restoreNotes = () => {};
         try {
           const prepared = await prepareAttachments(attachments);
           const prompt =
@@ -6116,6 +6819,27 @@ export default function App({
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
+          const projectMemory = await projectMemoryForTurn(current.cwd);
+          const composed = orchestrator.prompt(
+            sessionId,
+            inboxAskPrompt(
+              rawCommand ? undefined : current.inboxAsk,
+              wrap && !rawCommand
+                ? wrapHandoffPrompt(
+                    wrap.text,
+                    wrap.from,
+                    turnPrompt.trim() || CONTINUE_PROMPT,
+                    earlier,
+                  )
+                : turnPrompt,
+            ),
+          );
+          // What Aven did for this chat since its last turn (a Ship it
+          // commit, the race version kept) rides ahead, hidden, once.
+          const noted = rawCommand
+            ? { text: composed, restore: () => {} }
+            : takeTurnNotes(sessionId, composed);
+          restoreNotes = noted.restore;
           await sendHarnessTurn({
             harness: current.harness,
             sessionId,
@@ -6127,21 +6851,8 @@ export default function App({
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
             controlsAgents: orchestrator.run(sessionId)?.status === "active",
-            projectMemory: await projectMemoryForTurn(current.cwd),
-            text: orchestrator.prompt(
-              sessionId,
-              inboxAskPrompt(
-                rawCommand ? undefined : current.inboxAsk,
-                wrap && !rawCommand
-                  ? wrapHandoffPrompt(
-                      wrap.text,
-                      wrap.from,
-                      turnPrompt.trim() || CONTINUE_PROMPT,
-                      earlier,
-                    )
-                  : turnPrompt,
-              ),
-            ),
+            projectMemory,
+            text: noted.text,
             attachments: prepared,
             onEvent: (event) => {
               if (
@@ -6190,7 +6901,12 @@ export default function App({
                 revealHandoff(wrap.text);
               }
               nudgeOpenEditors(event, workCwd);
-              if (!controlledTurn) trackSessionEdits(sessionId, workCwd, event);
+              if (changeOwner)
+                trackSessionEdits(
+                  changeOwner.sessionId,
+                  changeOwner.cwd,
+                  event,
+                );
               const routed = routePlanEvent(event);
               if (routed) enqueueHarnessEvent(sessionId, routed);
             },
@@ -6210,6 +6926,8 @@ export default function App({
           }
           buildSucceeded = true;
         } catch (error: unknown) {
+          // The message never reached the agent: its notes wait for the next.
+          restoreNotes();
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
           const message = failureText(
@@ -6305,6 +7023,8 @@ export default function App({
               activityTurnIds.current.delete(sessionId);
               failedActivityTurns.current.delete(sessionId);
               notifyReviewChanged(sessionId);
+              if (changeOwner && changeOwner.sessionId !== sessionId)
+                notifyReviewChanged(changeOwner.sessionId);
               notifyGitChanged(workCwd);
               nudgeWorkspace(workCwd);
               nudgeWatchedFiles();
@@ -6684,30 +7404,18 @@ export default function App({
     [openSessionBeside],
   );
 
-  /**
-   * A discussion's conversation page: focused where it is already open,
-   * otherwise opened beside the chat that started it (or its partner), or in
-   * a tab of its own when neither chat is in this window's tabs.
-   */
+  /** Watch, Open, the sidebar connector: a discussion in its floating panel. */
+  const openTeamPanel = teamWatch.open;
+  const startedTeam = teamWatch.started;
+  const onDiscussionStarted = useCallback(
+    (id: string) => startedTeam(teamIdOf("discuss", id)),
+    [startedTeam],
+  );
   const openDiscussionView = useCallback(
     (id: string) => {
-      const discussion = discussionStore().get(id);
-      if (!discussion) return;
-      const file = newDiscussionTab(discussion);
-      const shown = showDiscussionInTabs(tabsRef.current, file);
-      if (shown) {
-        tabsRef.current = shown.tabs;
-        setTabs(shown.tabs);
-        if (shown.tabId !== activeTabIdRef.current) setActiveTabId(shown.tabId);
-      } else {
-        const tab = newDiscussionWorkspaceTab(file);
-        appendTab(tab, discussion.a.cwd);
-        setActiveTabId(tab.id);
-      }
-      setProjectTerminalFocused(false);
-      setComposerFocused(false);
+      if (discussionStore().get(id)) openTeamPanel(teamIdOf("discuss", id));
     },
-    [appendTab],
+    [openTeamPanel],
   );
 
   // Two chats discussing a topic, started by the user; relayed at turn end.
@@ -6715,10 +7423,38 @@ export default function App({
     sessions,
     sessionsRef,
     onSubmit,
-    postNote: (sessionId, text) => {
-      enqueueHarnessEvent(sessionId, { type: "status", text });
+    postNote: (sessionId, text, wrapUp) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        ...(wrapUp ? { discussionEnd: wrapUp } : {}),
+      });
       flushHarnessEvents();
     },
+    postReply: (sessionId, text, meta) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        discussionReply: meta,
+      });
+      flushHarnessEvents();
+    },
+    recordWrapUp: (sessionId, wrapUp) => {
+      flushHarnessEvents();
+      setSessions((prev) => {
+        const next = prev.map((session) =>
+          session.id === sessionId
+            ? captureDiscussionWrapUp(session, wrapUp)
+            : session,
+        );
+        return next.some((session, index) => session !== prev[index])
+          ? next
+          : prev;
+      });
+    },
+    // The new chat is not shown: the discussion plays out in the chat that
+    // started it. It stays loaded without a tab while the discussion runs
+    // (see the keep-alive in "Tabs are views") and is listed in the sidebar.
     openPartner: (sourceId, harness, model, title) => {
       const source = sessionsRef.current.find((entry) => entry.id === sourceId);
       if (!source) return undefined;
@@ -6727,11 +7463,27 @@ export default function App({
         ...laneCheckout(source),
         title: formatSessionTitle(harness, title),
       };
-      openSessionBeside(sourceId, session, source.cwd);
+      const next = [...sessionsRef.current, session];
+      sessionsRef.current = next;
+      setSessions(next);
       return session.id;
     },
     openView: openDiscussionView,
+    onStarted: onDiscussionStarted,
+    // Its end is the team's own entry, "Discussion ended · N rounds" (see
+    // teamActivity), posted once per ending.
     focusChat: (sessionId) => void onSelectHistorySession(sessionId),
+    // A new partner has no tab: it is parked once the discussion ends, and
+    // loaded again when the discussion continues or is asked to build.
+    // An archived chat is never brought back to relay to: its discussion
+    // paused when it was archived, and stays paused until it is unarchived.
+    loadChat: (id) =>
+      chatIsArchived(
+        id,
+        historyRef.current.find((row) => row.id === id)?.archived,
+      )
+        ? Promise.resolve(null)
+        : ensureOpenSession(id),
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
@@ -7139,10 +7891,13 @@ export default function App({
     if (next.activeTabId !== activeTabId) setActiveTabId(next.activeTabId);
   }, [tabs, activeTabId, orchestrationRuns]);
 
+  const ensureOpenSessionRef = useRef(ensureOpenSession);
+  ensureOpenSessionRef.current = ensureOpenSession;
   useLayoutEffect(() => {
     orchestrator.bind({
       session: (id) => sessionsRef.current.find((session) => session.id === id),
       sessions: () => sessionsRef.current,
+      load: (id) => ensureOpenSessionRef.current(id),
       choices: orchestrationWorkerChoices,
       createWorker: async (run, task) => {
         await invoke("control_attach_worker", {
@@ -7155,7 +7910,7 @@ export default function App({
         const lead = sessionsRef.current.find(
           (session) => session.id === run.leadId,
         );
-        if (!lead) throw new Error("Lead session is unavailable");
+        if (!lead) throw new Error("The lead's chat isn't open.");
         if (existing) {
           if (
             existing.harness !== task.harness ||
@@ -7163,7 +7918,7 @@ export default function App({
             existing.cwd !== run.cwd
           )
             throw new Error(
-              "This worker's configuration changed. Restore its approved harness, model and project before retrying.",
+              "This agent's model or project changed after the plan was confirmed. Start a new plan.",
             );
           // The lead's runtime mode governs its agents, including across a
           // change mid-run: auto stays auto, supervised asks the lead.
@@ -7184,7 +7939,7 @@ export default function App({
           (restored.harness !== task.harness || restored.model !== task.model)
         )
           throw new Error(
-            "The saved worker no longer matches its approved model. Create a new assignment.",
+            "This agent's model changed after the plan was confirmed. Start a new plan.",
           );
         const base = restored
           ? {
@@ -7303,6 +8058,45 @@ export default function App({
     orchestrator.sync();
   }, [sessions]);
 
+  // Another window opened a paused run's lead and now holds the run. The
+  // host tells only this window, so only this page listens.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const listening = getCurrentWebview().listen<string>(
+      "control-run-released",
+      ({ payload }) => {
+        if (typeof payload === "string") orchestrator.release(payload);
+      },
+    );
+    return () => {
+      void listening.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // A race or discussion whose window closed, or was from an earlier
+  // launch, would be announced by no window: the main window takes it over
+  // at start-up and whenever a workspace window closes.
+  useEffect(() => {
+    if (!isTauri() || currentWindowLabel() !== "main") return;
+    const adopt = (closed?: string) =>
+      void invoke<string[]>("workspace_window_labels")
+        .then((labels) => {
+          const open = new Set(labels);
+          if (closed) open.delete(closed);
+          adoptOrphanRaces("main", open);
+          discussionStore().adoptOrphans(open);
+        })
+        .catch((error) => logError("Couldn't check open windows", error));
+    adopt();
+    const listening = getCurrentWebview().listen<string>(
+      "aven-workspace-closed",
+      ({ payload }) => adopt(typeof payload === "string" ? payload : undefined),
+    );
+    return () => {
+      void listening.then((unlisten) => unlisten());
+    };
+  }, []);
+
   useEffect(() => {
     const listening = listen<{
       id: string;
@@ -7333,6 +8127,8 @@ export default function App({
               },
             }),
         )
+        // Only now may a finished lead's control access go.
+        .finally(() => orchestrator.replied(payload.sessionId))
         .catch(console.error);
     });
     return () => {
@@ -7445,6 +8241,14 @@ export default function App({
     () => ({
       open: onOpenApprovalSession,
       openAgents: queueWorkerPanes,
+      title: (sessionId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === sessionId,
+        );
+        return session
+          ? sessionDisplayTitle(session.title, session.harness)
+          : undefined;
+      },
       update: (
         leadId: string,
         blockId: string,
@@ -7460,6 +8264,7 @@ export default function App({
           !session ||
           session.busy ||
           proposal?.status !== "ready" ||
+          latestProposalId(session.blocks) !== blockId ||
           confirmingOrchestration.current.has(leadId)
         )
           return;
@@ -7490,6 +8295,11 @@ export default function App({
             throw new Error(
               "Wait for the proposal to finish before confirming.",
             );
+          // An older card describes a plan the lead has since replaced.
+          if (latestProposalId(session.blocks) !== blockId)
+            throw new Error(
+              "Replaced by a newer plan. Confirm the newest plan in this chat instead.",
+            );
           if (
             session.harness !== proposal.author.harness ||
             session.model !== proposal.author.model
@@ -7508,6 +8318,13 @@ export default function App({
             ...proposal,
             status: "approved",
           });
+          // The turn that wrote the plan is the run's start now, not news of
+          // its own: the run posts one entry when it finishes or pauses.
+          const planning = proposalTurns.current.get(blockId);
+          if (planning) {
+            quietActivityTurns.current?.add(planning);
+            retractActivityTurn(planning);
+          }
         } catch (error) {
           if (proposal)
             updateOrchestrationCard(leadId, blockId, {
@@ -7518,6 +8335,25 @@ export default function App({
         } finally {
           confirmingOrchestration.current.delete(leadId);
         }
+      },
+      discard: (leadId: string, blockId: string) => {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === leadId,
+        );
+        const proposal = session?.blocks.find(
+          (block) => block.id === blockId,
+        )?.orchestration;
+        if (
+          !session ||
+          proposal?.status !== "ready" ||
+          confirmingOrchestration.current.has(leadId)
+        )
+          return;
+        const discarded = updateOrchestrationCard(leadId, blockId, {
+          ...proposal,
+          status: "discarded",
+        });
+        if (discarded) void upsertSession(discarded).catch(console.error);
       },
       retry: (leadId: string, blockId: string) => {
         const session = sessionsRef.current.find(
@@ -7547,7 +8383,7 @@ export default function App({
   );
 
   const nextTitleTabs: TitleTab[] = deckProjectTabs.map((tab) =>
-    toTitleTab(tab, sessions, dirtyFiles),
+    toTitleTab(tab, sessions, dirtyFiles, leadDecided),
   );
   tabProjectsRef.current = new Map(
     nextTitleTabs.map((tab) => [tab.id, tab.project]),
@@ -8010,6 +8846,7 @@ export default function App({
   const detached = useDetachedWorkspaces({
     sessions,
     sessionProps: sessionPaneProps,
+    leadDecided,
     onUpdatePlan,
     onNewSession: async (_windowId, cwd) => {
       const session = newDefaultSession(cwd);
@@ -8156,9 +8993,22 @@ export default function App({
       ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
     : [];
   const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
+  const boardProject =
+    looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+      ? projectCwd
+      : null;
   const paletteCommands = [
     ...PALETTE_COMMANDS.filter(
-      (command) => command.id !== "open_notes" || notesEnabled,
+      (command) =>
+        (command.id !== "open_notes" || notesEnabled) &&
+        (command.id !== "open_board" || boardProject),
+    ).map((command) =>
+      command.id === "open_board" && boardProject && labelsForPalette
+        ? {
+            ...command,
+            label: `Open board for ${projectDisplayName(boardProject, labelsForPalette)}`,
+          }
+        : command,
     ),
     ...DEV_PALETTE_COMMANDS,
   ];
@@ -8178,6 +9028,7 @@ export default function App({
       new_chat: () => void run.onNew(),
       new_terminal: run.onNewTerminal,
       new_browser_tab: onNewBrowserTab,
+      open_board: () => onOpenBoard(),
       open_search: run.onOpenSearch,
       go_to_file: run.onGoToFile,
       find_in_project: run.onFindInProject,
@@ -8237,14 +9088,10 @@ export default function App({
       });
       return false;
     }
-    const created: { path: string; branch: string }[] = [];
+    let created: { path: string; branch: string }[];
     try {
-      for (const [slot] of request.agents.entries())
-        created.push(
-          await raceHost.createLane(base.root, raceId, slot, base.base),
-        );
+      created = await createRaceLanes(base, raceId, request.agents.length);
     } catch (error) {
-      void raceHost.cleanup(base.root, created).catch(() => {});
       void message(String(error), {
         title: "Can't start a race",
         kind: "error",
@@ -8252,6 +9099,10 @@ export default function App({
       return false;
     }
     const runtimeMode = request.runtimeMode ?? loadDefaultRuntimeMode();
+    // Each lane's chat is named for the task and its agent: "Reset button ·
+    // Codex", the model only where two of one app race.
+    const laneNames = raceAgentNames(request.agents);
+    const taskWords = raceTaskWords(request.text);
     const laneSessions: Session[] = request.agents.map((agent, index) => ({
       ...newSession(
         agent.harness,
@@ -8261,26 +9112,38 @@ export default function App({
         index === 0 ? request.modelSettings : undefined,
       ),
       worktreeCwd: created[index].path,
-      title: `Race · ${agent.label}`,
+      title: raceLaneTitle(agent.harness, taskWords, laneNames[index]),
     }));
+    // Sent from a chat: your message stays there, followed by the race's
+    // card, and you stay in that chat while the agents work.
+    const origin = request.origin
+      ? sessionsRef.current.find((session) => session.id === request.origin)
+      : undefined;
+    const startedAt = Date.now();
+    const originBlock = origin
+      ? raceOriginBlock(raceId, request.text, request.attachments, startedAt)
+      : undefined;
     saveRace({
       id: raceId,
       project: request.project,
       root: base.root,
       base: base.base,
       prompt: request.text,
-      createdAt: Date.now(),
+      createdAt: startedAt,
       uncommitted: base.uncommitted,
       untracked: base.untracked,
       state: "running",
-      lanes: request.agents.map((agent, index) => ({
-        sessionId: laneSessions[index].id,
-        harness: agent.harness,
-        model: agent.model,
-        label: agent.label,
-        path: created[index].path,
-        branch: created[index].branch,
-      })),
+      lanes: raceLaneRecords(
+        request.agents,
+        laneSessions.map((session) => session.id),
+        created,
+      ),
+      // Every lane starts at once; this window posts the race's notices.
+      ends: laneSessions.map(() => null),
+      window: currentWindowLabel(),
+      ...(origin && originBlock
+        ? { origin: { sessionId: origin.id, blockId: originBlock.id } }
+        : {}),
     });
     const laneTab: WorkspaceTab = {
       ...newTab(laneSessions[0].id),
@@ -8292,21 +9155,61 @@ export default function App({
         sizes: laneSessions.map(() => 1 / laneSessions.length),
       },
     };
-    // The overview opens on request (tab menu), so the agents get the room.
-    setSessions((previous) => [...previous, ...laneSessions]);
+    // The overview opens on request (Compare), so the agents get the room.
+    const withLanes = [
+      ...sessionsRef.current.map((session) =>
+        originBlock && session.id === origin?.id
+          ? { ...session, blocks: [...session.blocks, originBlock] }
+          : session,
+      ),
+      ...laneSessions,
+    ];
+    sessionsRef.current = withLanes;
+    setSessions(withLanes);
     appendTab(laneTab, request.project);
-    setHomeViewOpen(false);
-    leaveExpandedPreview();
-    closeUtilityViews();
-    if (!sameProjectPath(request.project, projectCwdRef.current)) {
-      revealProjectTask(request.project);
-      setProjectCwd(request.project);
-      rememberRecentProject(request.project);
+    if (!origin) {
+      setHomeViewOpen(false);
+      leaveExpandedPreview();
+      closeUtilityViews();
+      if (!sameProjectPath(request.project, projectCwdRef.current)) {
+        revealProjectTask(request.project);
+        setProjectCwd(request.project);
+        rememberRecentProject(request.project);
+      }
+      setActiveTabId(laneTab.id);
     }
-    setActiveTabId(laneTab.id);
     const prompt = racePrompt(request.text, laneSessions.length);
     for (const session of laneSessions)
-      onSubmit(session.id, prompt, request.attachments ?? []);
+      onSubmit(session.id, prompt, request.attachments ?? [], {
+        teamMember: { id: `race:${raceId}`, kind: "race" },
+      });
+    // Then the task's words as a new chat gets them, once for every lane.
+    const [first] = laneSessions;
+    if (first && request.text.trim())
+      void generateHarnessTitle(first.harness, {
+        sessionId: first.id,
+        cwd: created[0].path,
+        message: request.text,
+      })
+        .then((title) => {
+          const words = title?.trim();
+          if (!words) return;
+          setSessions((prev) =>
+            prev.map((session) => {
+              const index = laneSessions.findIndex(
+                (lane) => lane.id === session.id,
+              );
+              // A title the user changed meanwhile stays.
+              if (index < 0 || session.title !== laneSessions[index].title)
+                return session;
+              return {
+                ...session,
+                title: raceLaneTitle(session.harness, words, laneNames[index]),
+              };
+            }),
+          );
+        })
+        .catch(() => undefined);
     return true;
   };
   startRaceRef.current = startRace;
@@ -8361,14 +9264,19 @@ export default function App({
     );
   };
   startScheduledAgentRef.current = (agent) => void startScheduledAgent(agent);
-  const openRaceOverview = (tabId: string) => {
-    const tab = tabsRef.current.find((entry) => entry.id === tabId);
-    const race = tab
-      ? leafIds(tab.layout)
-          .map((id) => raceLaneFor(id)?.race)
-          .find((entry) => entry != null)
-      : undefined;
+  /** The race's overview tab, opened or brought forward in its project. */
+  const showRaceOverview = (raceId: string) => {
+    const race = getRace(raceId);
     if (!race) return;
+    flushSync(() => {
+      setHomeViewOpen(false);
+      closeUtilityViews();
+      leaveExpandedPreview();
+      if (!sameProjectPath(race.project, projectCwdRef.current)) {
+        revealProjectTask(race.project);
+        setProjectCwd(race.project);
+      }
+    });
     const existing = tabsRef.current.find((entry) =>
       entry.editorPanes.some((pane) =>
         pane.files.some((file) => file.race?.raceId === race.id),
@@ -8385,6 +9293,87 @@ export default function App({
     );
     appendTab(overview, race.project);
     setActiveTabId(overview.id);
+  };
+  /**
+   * The project's board (the current project unless named), opened as a
+   * workspace tab, or brought forward when one is already open.
+   */
+  const openBoard = (path?: string) => {
+    const project = normalizeProjectPath(path ?? projectCwdRef.current);
+    if (!looksLikeProject(project) || isProjectlessCwd(project)) return;
+    flushSync(() => {
+      setHomeViewOpen(false);
+      closeUtilityViews();
+      leaveExpandedPreview();
+      if (!sameProjectPath(project, projectCwdRef.current)) {
+        revealProjectTask(project);
+        profilesRef.current.selectProjectProfile(project);
+        setProjectCwd(project);
+      }
+    });
+    setComposerFocused(false);
+    const existing = boardTabFor(tabsRef.current, project, sameProjectPath);
+    if (existing) {
+      activateTab(existing.id);
+      return;
+    }
+    const board = newBoardWorkspaceTab(project);
+    appendTab(board, project);
+    viewRef.current.focus(project, board.id);
+    setActiveTabId(board.id);
+  };
+  const openBoardRef = useRef(openBoard);
+  openBoardRef.current = openBoard;
+  const onOpenBoard = useCallback(
+    (path?: string) => openBoardRef.current(path),
+    [],
+  );
+  const onOpenDiffRef = useRef(onOpenDiff);
+  onOpenDiffRef.current = onOpenDiff;
+  const onOpenCommitRef = useRef(onOpenCommit);
+  onOpenCommitRef.current = onOpenCommit;
+  /** Open a chat, then run `then` once its tab is the active one. */
+  const inChat = (sessionId: string, then: () => void) =>
+    void onOpenApprovalSession(sessionId).then((opened) => {
+      if (opened) requestAnimationFrame(then);
+    });
+  boardActionsRef.current = {
+    openChat: (id) => void onOpenApprovalSession(id),
+    allow: (id, requestId) => onApproval(id, requestId, "allow"),
+    review: (id, cwd) =>
+      inChat(id, () =>
+        onOpenDiffRef.current(undefined, { sessionId: id, cwd }),
+      ),
+    ship: (id, cwd) => {
+      // A chat in the project's own folder ships from beside the board; one
+      // in another copy opens first, so the Changes panel shows its copy.
+      if (sameProjectPath(cwd, sidebarCwdRef.current)) requestShip(cwd, id);
+      else inChat(id, () => requestShip(cwd, id));
+    },
+    watch: (teamId) => openTeamPanel(teamId),
+    compare: (raceId) => showRaceOverview(raceId),
+    preview: (key) => void openDevPreview(key),
+    openCommit: (id, _cwd, commit) =>
+      inChat(id, () =>
+        onOpenCommitRef.current({
+          ...commit,
+          parents: [],
+          author: "",
+          timestamp: 0,
+          refs: [],
+          head: false,
+        }),
+      ),
+    openUrl: (url) => void openInAppUrl(url),
+  };
+  const openRaceOverview = (tabId: string) => {
+    const tab = tabsRef.current.find((entry) => entry.id === tabId);
+    const race = tab
+      ? leafIds(tab.layout)
+          .map((id) => raceLaneFor(id)?.race)
+          .find((entry) => entry != null)
+      : undefined;
+    if (race) showRaceOverview(race.id);
   };
   raceActionsRef.current = {
     stop: (ids) => {
@@ -8481,8 +9470,75 @@ export default function App({
       );
       notifyGitChanged();
       nudgeWatchedFiles();
+      // The agents whose work was not kept leave the project's live chats;
+      // they stay readable under Archived.
+      const finished = getRace(race.id);
+      for (const lane of finished ? raceLanesNotKept(finished) : [])
+        void onRemoveHistorySession(finished!.lanes[lane].sessionId, "archive");
     },
-    openChat: (id) => onFocusPane(id),
+    // The same open-or-restore path as a notification: a lane whose tab was
+    // closed comes back into one.
+    openChat: (id) => void onOpenApprovalSession(id),
+    compare: showRaceOverview,
+    retry: async (race, lane) => {
+      const record = race.lanes[lane];
+      if (!record || getRace(race.id)?.state !== "running")
+        return "This race has already finished.";
+      const session = await ensureOpenSession(record.sessionId);
+      if (getRace(race.id)?.state !== "running")
+        return "This race has already finished.";
+      if (!session)
+        return "Couldn't retry: the agent's chat couldn't be opened.";
+      if (session.busy) return "Couldn't retry: the agent's chat is busy.";
+      // The task as the lane first got it, with its attachments: its
+      // first message carries them.
+      const first = session.blocks.find(
+        (block) => block.role === "user" && !block.internal,
+      );
+      onSubmit(
+        session.id,
+        racePrompt(race.prompt, race.lanes.length),
+        first?.attachments ?? [],
+        { teamMember: { id: `race:${race.id}`, kind: "race" } },
+      );
+      return null;
+    },
+  };
+
+  teamActionsRef.current = {
+    reviewChanges: (project) => {
+      flushSync(() => {
+        setHomeViewOpen(false);
+        if (!sameProjectPath(project, projectCwdRef.current)) {
+          revealProjectTask(project);
+          setProjectCwd(project);
+        }
+      });
+      onShowSourceControl();
+    },
+    openChat: (id) => void onOpenApprovalSession(id),
+    watch: (teamId) => openTeamPanel(teamId),
+    send: async (id, compose, options) => {
+      const opened = await ensureOpenSession(id);
+      if (!opened) return false;
+      await onOpenApprovalSession(id);
+      const session =
+        sessionsRef.current.find((entry) => entry.id === id) ?? opened;
+      // Queued behind other messages or steered into a turn, the message
+      // would never report how its own turn ended.
+      if (
+        options?.whenIdle &&
+        (session.busy || !!session.queuedMessages?.length)
+      )
+        return false;
+      const { text, shown } = compose(session.blocks);
+      return (
+        onSubmit(session.id, text, [], {
+          ...(shown ? { displayText: shown } : {}),
+          ...(options?.onSettled ? { onSettled: options.onSettled } : {}),
+        }) !== false
+      );
+    },
   };
 
   showAgentPageRef.current = (notice) => {
@@ -8519,6 +9575,8 @@ export default function App({
     sessions,
     activity: activityEntries,
     projectPaths: profiles.profileProjects.map((project) => project.path),
+    leadDecided,
+    teams,
   });
   const homeShown =
     (profileHome || homeViewOpen || view.order.length === 0) &&
@@ -8539,6 +9597,28 @@ export default function App({
     activity: activityEntries,
     projects: profiles.profileProjects,
     standaloneCwds,
+    teams,
+    leadDecided,
+  });
+  // The project boards on screen read the chats as small rows (workBoard).
+  const boardOnScreen =
+    workspaceVisible &&
+    tabs.some(
+      (tab) =>
+        visibleSurfaceIds.includes(tab.id) &&
+        tab.editorPanes.some((pane) =>
+          pane.files.some(
+            (file) => file.id === pane.activeFileId && isBoardTab(file),
+          ),
+        ),
+    );
+  useWorkBoardPublisher({
+    enabled: boardOnScreen,
+    sessions,
+    inFlightIds: busySessionIds,
+    leadDecided,
+    statuses: chatStatus,
+    teams,
   });
   const sidebarProps: Omit<
     SidebarProps,
@@ -8583,6 +9663,8 @@ export default function App({
         : sidebarHistory,
     busySessionIds,
     approvalSessionIds,
+    teamNeedIds,
+    chatStatus,
     activeSessionId: profileHome ? undefined : active?.id,
     status: historyFailed ? "error" : "idle",
     pending: historyPending,
@@ -8618,10 +9700,12 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
+    onOpenBoard,
     onOpenProject: pickProject,
     onRemoveProject,
     onNew,
@@ -8667,6 +9751,7 @@ export default function App({
         orchestrator.cancelTask(leadId, taskId),
       startOrchestration: (...args: Parameters<typeof orchestrator.start>) =>
         orchestrator.start(...args),
+      stopOrchestration: (leadId: string) => orchestrator.stopRun(leadId),
       inspectWorker: (sessionId: string | null) =>
         orchestrationWorkers.inspect(sessionId),
       openWorkerDetails: orchestrationWorkers.openDetails
@@ -8677,7 +9762,8 @@ export default function App({
     },
     extra: () => ({
       orchestration: {
-        runs: encodeSidebarValue(orchestrator.snapshot()),
+        // States and task rows only: never prompts, results or receipts.
+        runs: encodedSidebarRuns(orchestrator.snapshot(), encodeSidebarValue),
         agentsByLead: encodeSidebarValue(orchestrationWorkers.agentsByLead),
         selectedId: orchestrationWorkers.selectedId,
         details: !!orchestrationWorkers.openDetails,
@@ -8726,9 +9812,23 @@ export default function App({
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
     paneLayout: true,
+    openFile: (path) => onOpenFile(path),
+    orchestration: {
+      run: (leadId) => orchestrator.run(leadId),
+      submissionError: (sessionId) => orchestrator.submissionError(sessionId),
+    },
+    race: {
+      races: listRaces,
+      listDir,
+      readFile: readTextFile,
+      resolveGrok: resolveGrokBinary,
+      probe: () => probeHarnessAvailability({ force: true }),
+      chooseAgents: saveRaceLaneChoice,
+    },
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
+    board: true,
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),
@@ -8835,6 +9935,7 @@ export default function App({
                           void onSelectHistorySession(id);
                         }}
                         onNewProjectTask={onNewProjectTask}
+                        onOpenBoard={onOpenBoard}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
                         onLoadProjects={(paths) => {
@@ -8966,13 +10067,17 @@ export default function App({
                                           favicon: tab.favicon,
                                           kept: tab.kept,
                                           url: tab.url,
-                                          title:
+                                          // A race agent's page says whose
+                                          // version it shows.
+                                          title: racePreviewTitle(
                                             tab.title ||
-                                            (tab.url
-                                              ? tab.url
-                                                  .replace(/^https?:\/\//, "")
-                                                  .split("/")[0]
-                                              : "New browser tab"),
+                                              (tab.url
+                                                ? tab.url
+                                                    .replace(/^https?:\/\//, "")
+                                                    .split("/")[0]
+                                                : "New browser tab"),
+                                            racePreviewLabelFor(tab.url),
+                                          ),
                                         }))}
                                       browserOpen={browserState.open}
                                       browserActive={browserFocused}
@@ -9040,6 +10145,20 @@ export default function App({
                                         );
                                         onNewBrowserTab();
                                       }}
+                                      onOpenBoard={
+                                        looksLikeProject(projectCwd) &&
+                                        !isProjectlessCwd(projectCwd)
+                                          ? () => {
+                                              workspaceViews.change((view) =>
+                                                selectWorkspaceView(
+                                                  view,
+                                                  owner,
+                                                ),
+                                              );
+                                              onOpenBoard();
+                                            }
+                                          : undefined
+                                      }
                                       onNewView={
                                         members.length > 1 ||
                                         visibleSurfaceIds.length > 1
@@ -9404,12 +10523,9 @@ export default function App({
                   />
                 </div>
                 <WorkspaceFooter
-                  active={
-                    !settingsOpen &&
-                    !searchViewOpen &&
-                    !inboxViewOpen &&
-                    !automationsViewOpen &&
-                    !notesViewOpen
+                  active={footerShown}
+                  teams={
+                    <TeamWatchPills panel={teamWatch} sessions={sessions} />
                   }
                   cwd={profileHome ? "~" : gitCwd}
                   onToggleTerminal={() => {
@@ -9550,6 +10666,14 @@ export default function App({
               </LazyViewSlot>
             ) : null}
 
+            <TeamWatchFloat
+              panel={teamWatch}
+              sessions={sessions}
+              host={discussions.host}
+              onOpenFile={onOpenFile}
+              onStop={onStop}
+              pillsDocked={footerShown}
+            />
             <ApprovalToasts
               notices={hiddenApprovalToasts}
               onFocusSession={onOpenApprovalSession}
@@ -9597,6 +10721,8 @@ function isBlankSession(session: Session | undefined): boolean {
     uncertainSessionAgents(session).length
   )
     return false;
+  // A new chat waiting for its first discussion turn is not a free pane.
+  if (discussionStore().forSession(session.id)) return false;
   return !session.blocks.some((block) => block.role === "user");
 }
 
@@ -9637,6 +10763,7 @@ function toTitleTab(
   tab: WorkspaceTab,
   sessions: Session[],
   dirtyFiles: Set<string>,
+  leadDecided: LeadDecided,
 ): TitleTab {
   const paneIds = leafIds(tab.layout);
   const multiPane = paneIds.length > 1;
@@ -9696,7 +10823,6 @@ function toTitleTab(
     seenKeys.add(key);
     files.push(
       file.plan?.title?.trim() ||
-        file.discussion?.title ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal
@@ -9729,6 +10855,8 @@ function toTitleTab(
     pane.files.some(isTerminalTab),
   );
   const focusedFile = focusedFileTab(tab);
+  const board =
+    tabSessions.length === 0 && !!focusedFile && isBoardTab(focusedFile);
 
   return {
     id: tab.id,
@@ -9745,6 +10873,7 @@ function toTitleTab(
         : "",
     more,
     sessionCount: tabSessions.length,
+    sessionIds: tabSessions.map((session) => session.id),
     models: ordered.map(sessionModelIdentity),
     harnesses,
     busyHarnesses,
@@ -9759,8 +10888,11 @@ function toTitleTab(
     ),
     terminal: hasTerminal && harnesses.length === 0,
     groupId: tab.groupId,
-    needsInput: tabSessions.some(sessionNeedsInput),
+    needsInput: tabSessions.some((session) =>
+      sessionNeedsUser(session, leadDecided),
+    ),
     race: Boolean(race),
+    board,
   };
 }
 

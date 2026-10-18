@@ -1,6 +1,9 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
+import { previewTabsOnServer } from "../lib/devPreviews";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
-import { sessionNeedsInput, sessionWorkCwd } from "../lib/session";
+import { sessionWorkCwd } from "../lib/session";
+import { leadDecidedIds, sessionNeedsUser } from "../lib/teamAttention";
+import { orchestrator } from "../lib/orchestration";
 import { useBootSplashReady } from "../lib/bootSplash";
 import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";
@@ -17,6 +20,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -680,15 +684,24 @@ export function DetachedWorkspace() {
                   state.browsers
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view:
-                value.activate === false
-                  ? presentAgentBrowserView(
-                      view,
-                      browser.id,
-                      [...state.browsers.map((page) => page.id), browser.id],
-                      requester?.id,
-                      value.arrange !== false,
-                    )
-                  : selectWorkspaceView(view, browser.id),
+                // arrange:false never moves a page that was already open.
+                value.activate === false && exists && value.arrange === false
+                  ? view
+                  : value.activate === false
+                    ? presentAgentBrowserView(
+                        view,
+                        browser.id,
+                        [...state.browsers.map((page) => page.id), browser.id],
+                        requester?.id,
+                        value.arrange !== false,
+                        previewTabsOnServer(
+                          state.browsers.filter(
+                            (page) => page.id !== browser.id,
+                          ),
+                          browser.url,
+                        ).map((page) => page.id),
+                      )
+                    : selectWorkspaceView(view, browser.id),
             };
           });
         if (value.file && value.sessionId) {
@@ -835,6 +848,13 @@ export function DetachedWorkspace() {
     envelope?.state.sessions,
     report,
   ]);
+  // A worker's request is its lead's only while its run is open: as the
+  // window holding the run says, or a run this window holds itself.
+  const runs = useSyncExternalStore(
+    orchestrator.subscribe,
+    orchestrator.snapshot,
+    orchestrator.snapshot,
+  );
   if (!envelope)
     return (
       <main className="detached-workspace">
@@ -842,6 +862,12 @@ export function DetachedWorkspace() {
       </main>
     );
   const { state } = envelope;
+  const leadDecided = leadDecidedIds(
+    runs,
+    (id) => state.sessions.find((entry) => entry.session.id === id)?.session,
+  );
+  for (const entry of state.sessions)
+    if (entry.leadDecides) leadDecided.add(entry.session.id);
   const updateTab = (id: string, fn: (tab: WorkspaceTab) => WorkspaceTab) =>
     change((s) => ({
       ...s,
@@ -876,6 +902,7 @@ export function DetachedWorkspace() {
       title: focused?.title ?? "",
       more: sessions.filter((s) => s.id !== focused?.id).map((s) => s.title),
       sessionCount: sessions.length,
+      sessionIds: sessions.map((s) => s.id),
       harnesses: [...new Set(sessions.map((s) => s.harness))],
       busyHarnesses: [
         ...new Set(sessions.filter((s) => s.busy).map((s) => s.harness)),
@@ -889,7 +916,9 @@ export function DetachedWorkspace() {
       terminal: !sessions.length && files.some((f) => f.terminal),
       dirty: files.some((f) => state.dirtyFileIds?.includes(f.id)),
       groupId: tab.groupId,
-      needsInput: sessions.some(sessionNeedsInput),
+      needsInput: sessions.some((session) =>
+        sessionNeedsUser(session, leadDecided),
+      ),
     };
   });
   const dragMove = (id: string, x: number, y: number) => {
@@ -1128,6 +1157,7 @@ export function DetachedWorkspace() {
             if (!pane) return [];
             const props: ComponentProps<typeof FilePane> = {
               pane,
+              boards: false,
               focused: tab.focusedId === id,
               dirtyFileIds: new Set(state.dirtyFileIds ?? []),
               fileErrorCounts: new Map(),

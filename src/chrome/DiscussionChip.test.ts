@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { DiscussionCandidate, DiscussionHost } from "../lib/discussions";
 import {
   defaultDiscussionPick,
+  discussionChipFitLabel,
   discussionChipLabel,
+  newChatLabel,
   partnerChoice,
   type DiscussionPick,
 } from "./DiscussionChip";
@@ -24,6 +26,70 @@ const chat = (
 });
 
 describe("Discuss mode's partner", () => {
+  it("starts with a new chat with the best other agent", () => {
+    const fresh = { harness: "codex" as const, model: "codex:gpt-5" };
+    expect(
+      defaultDiscussionPick(host([chat("b"), chat("c")]), "a", null, fresh),
+    ).toEqual({ kind: "new", harness: "codex", model: "codex:gpt-5" });
+    const picked: DiscussionPick = {
+      kind: "chat",
+      sessionId: "c",
+      harness: "codex",
+      model: "GPT-5",
+      title: "Chat c",
+    };
+    // A chat you chose stays chosen while it can join.
+    expect(
+      defaultDiscussionPick(host([chat("c")]), "a", picked, fresh),
+    ).toMatchObject({ kind: "chat", sessionId: "c" });
+    expect(
+      defaultDiscussionPick(host([chat("c", "working")]), "a", picked, fresh),
+    ).toMatchObject({ kind: "new", harness: "codex" });
+  });
+
+  it("names the new chat by its agent once chosen, first in the list", () => {
+    expect(newChatLabel(null)).toBe("New chat with…");
+    expect(
+      newChatLabel({ kind: "new", harness: "codex", model: "codex:gpt-5" }),
+    ).toBe("New chat with Codex");
+    expect(
+      newChatLabel({
+        kind: "chat",
+        sessionId: "b",
+        harness: "codex",
+        model: "GPT-5",
+        title: "Review",
+      }),
+    ).toBe("New chat with…");
+  });
+
+  it("shortens the chip's words when space is short, never the meaning", () => {
+    const pick: DiscussionPick = {
+      kind: "chat",
+      sessionId: "b",
+      harness: "codex",
+      model: "GPT-5",
+      title: "Review",
+    };
+    expect(discussionChipFitLabel(pick, 3, "skeptic", "full")).toBe(
+      "Discuss with Codex as Skeptic · 3 rounds",
+    );
+    expect(discussionChipFitLabel(pick, 3, "skeptic", "compact")).toBe(
+      "Discuss · Codex · 3",
+    );
+    expect(
+      discussionChipFitLabel(
+        { kind: "new", harness: "claude", model: "claude:sonnet-5" },
+        4,
+        undefined,
+        "narrow",
+      ),
+    ).toBe("Discuss · Claude · 4");
+    expect(discussionChipFitLabel(null, 2, undefined, "narrow")).toBe(
+      "Discuss · … · 2",
+    );
+  });
+
   it("starts with the first chat that can join", () => {
     expect(
       defaultDiscussionPick(host([chat("b", "working"), chat("c")]), "a", null),

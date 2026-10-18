@@ -7,10 +7,11 @@ import {
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import {
+  BOARD_STAYS_MESSAGE,
   isAgentTab,
+  isBoardTab,
   isChangesTab,
   isCommitTab,
-  isDiscussionTab,
   isPlanTab,
   isRaceTab,
   isReleaseNotesTab,
@@ -24,7 +25,7 @@ import { isImagePath, isPdfPath } from "../lib/filePreview";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
 import type { EditorNavigationTarget } from "../lib/search";
 import { editorPathsEqual } from "../lib/search";
-import type { DiscussionHost } from "../lib/discussions";
+import { getRace } from "../lib/race";
 import type { PlanBuildTarget, Session } from "../lib/session";
 import { Play } from "../chrome/icons";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
@@ -33,7 +34,9 @@ import { loadDiffViewer, subscribeDiffViewer } from "../lib/settings";
 import { AgentTabView } from "./AgentTabView";
 import { MarkdownPreview } from "./AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
+import { WorkBoard } from "./lazyViews";
 import { ReleaseNotesSurface } from "./ReleaseNotesSurface";
+import { WorkBoardFrame } from "./WorkBoardFrame";
 
 const PdfViewer = retryableLazy(() =>
   import("./PdfViewer").then((module) => module.default),
@@ -56,9 +59,6 @@ const WorkingTreeDiff = retryableLazy(() =>
 );
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
-);
-const DiscussionView = retryableLazy(() =>
-  import("./DiscussionView").then((module) => module.DiscussionView),
 );
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
@@ -87,8 +87,11 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
-  /** The window's discussions; a discussion's page builds through it. */
-  discussion?: DiscussionHost;
+  /**
+   * This window runs the workspace that boards read and act through. A
+   * workspace window does not, so a board there only says where it lives.
+   */
+  boards?: boolean;
 };
 
 function FilePaneComponent({
@@ -110,7 +113,7 @@ function FilePaneComponent({
   editorNavigation,
   onPaneDragStart,
   onTerminalMetaChange,
-  discussion,
+  boards = true,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -126,23 +129,29 @@ function FilePaneComponent({
     (isChangesTab(activeFile) ||
       (diffViewer === "unified" && isReviewTab(activeFile)));
   const commitReview = !!activeFile && isCommitTab(activeFile);
+  // A board alone in its tab is named by that tab, like a browser page, so
+  // it draws no strip of its own. Beside other panes it has one like any.
+  const bareBoard =
+    !onPaneDragStart && pane.files.length === 1 && isBoardTab(pane.files[0]);
 
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(pane.id)}
     >
-      <SurfaceTabs
-        files={pane.files}
-        activeFileId={pane.activeFileId}
-        dirtyFileIds={dirtyFileIds}
-        fileErrorCounts={fileErrorCounts}
-        onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
-        onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
-        onReorder={(ids) => onReorderFiles(pane.id, ids)}
-        onPaneDragStart={onPaneDragStart}
-        paneFocused={focused}
-      />
+      {bareBoard ? null : (
+        <SurfaceTabs
+          files={pane.files}
+          activeFileId={pane.activeFileId}
+          dirtyFileIds={dirtyFileIds}
+          fileErrorCounts={fileErrorCounts}
+          onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
+          onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
+          onReorder={(ids) => onReorderFiles(pane.id, ids)}
+          onPaneDragStart={onPaneDragStart}
+          paneFocused={focused}
+        />
+      )}
       <div className="relative min-h-0 flex-1">
         <SurfaceBoundary
           label="diff"
@@ -156,6 +165,7 @@ function FilePaneComponent({
                   cwd={sessionReview.cwd}
                   sessionId={sessionReview.sessionChanges.sessionId}
                   focusPath={sessionReview.path}
+                  onClose={() => onCloseFile(pane.id, sessionReview.id)}
                 />
               </div>
             ) : commitReview && activeFile?.commit ? (
@@ -218,19 +228,27 @@ function FilePaneComponent({
                       sessions={sessions}
                       visible={presented && file.id === pane.activeFileId}
                     />
-                  ) : isDiscussionTab(file) ? (
-                    <DiscussionView
-                      discussionId={file.discussion.discussionId}
-                      a={sessions.find(
-                        (entry) => entry.id === file.discussion.a,
-                      )}
-                      b={sessions.find(
-                        (entry) => entry.id === file.discussion.b,
-                      )}
-                      focused={focused && file.id === pane.activeFileId}
-                      onOpenFile={onOpenFile}
-                      host={discussion}
-                    />
+                  ) : isBoardTab(file) ? (
+                    boards ? (
+                      // Its title and columns show at once while it loads.
+                      <Suspense
+                        fallback={
+                          <WorkBoardFrame project={file.board.project} />
+                        }
+                      >
+                        <WorkBoard
+                          project={file.board.project}
+                          visible={presented && file.id === pane.activeFileId}
+                        />
+                      </Suspense>
+                    ) : (
+                      <p
+                        className="grid h-full place-items-center text-ui-body text-content/45"
+                        data-board-elsewhere
+                      >
+                        {BOARD_STAYS_MESSAGE}
+                      </p>
+                    )
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -309,15 +327,16 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
     previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
-    previous.discussion !== next.discussion
+    previous.boards !== next.boards
   ) {
     return false;
   }
 
   for (const file of next.pane.files) {
-    // Plans, agent tabs and discussions read live session objects here.
-    const sessionIds = file.discussion
-      ? [file.discussion.a, file.discussion.b]
+    // Plans and agent tabs read live session objects here, and a race
+    // overview its lanes' sessions, which say whether each agent still works.
+    const sessionIds = file.race
+      ? (getRace(file.race.raceId)?.lanes.map((lane) => lane.sessionId) ?? [])
       : [file.plan?.sessionId ?? file.agent?.sessionId];
     for (const sessionId of sessionIds) {
       if (!sessionId) continue;

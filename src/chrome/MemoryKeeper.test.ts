@@ -95,14 +95,42 @@ function button(label: string) {
   );
 }
 
+/** The offer's props in one chat's message box. */
+const offerIn = (sessionId: string, focused = true) => ({
+  project: PROJECT,
+  sessionId,
+  focused,
+});
+
 describe("the offer above the message box", () => {
+  it("is asked only in the chat whose turn brought it, focused or not", async () => {
+    offerMemoryKeeper(PROJECT, Date.now(), "chat");
+    await render(createElement(MemoryKeeperOffer, offerIn("other")));
+    expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
+    await render(createElement(MemoryKeeperOffer, offerIn("chat", false)));
+    expect(
+      container.querySelector("[data-memory-keeper-offer]"),
+    ).not.toBeNull();
+  });
+
+  it("shows an older offer, made in no chat, only in the focused one", async () => {
+    offerMemoryKeeper(PROJECT);
+    await render(createElement(MemoryKeeperOffer, offerIn("chat", false)));
+    expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
+    await render(createElement(MemoryKeeperOffer, offerIn("chat", true)));
+    expect(
+      container.querySelector("[data-memory-keeper-offer]"),
+    ).not.toBeNull();
+  });
+
   it("asks once, and Turn on starts keeping", async () => {
-    await render(createElement(MemoryKeeperOffer, { project: PROJECT }));
+    await render(createElement(MemoryKeeperOffer, offerIn("chat")));
     expect(container.textContent).toBe("");
     await act(async () => offerMemoryKeeper(PROJECT));
     expect(container.textContent).toContain(
-      "Let Aven keep this project's memory up to date?",
+      "Keep this project's memory up to date?",
     );
+    expect(container.textContent).not.toContain("Let Aven");
     await act(async () => button("Turn on")!.click());
     expect(getKeeperProject(PROJECT).consent).toBe("on");
     expect(container.textContent).toBe("");
@@ -110,16 +138,29 @@ describe("the offer above the message box", () => {
 
   it("Not now is remembered for the project", async () => {
     offerMemoryKeeper(PROJECT);
-    await render(createElement(MemoryKeeperOffer, { project: PROJECT }));
+    await render(createElement(MemoryKeeperOffer, offerIn("chat")));
     await act(async () => button("Not now")!.click());
     expect(getKeeperProject(PROJECT).consent).toBe("off");
     expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
+    // For good: a later turn in any chat never asks again.
+    await act(async () => offerMemoryKeeper(PROJECT, Date.now(), "chat"));
+    expect(getKeeperProject(PROJECT).offeredAt).toBeUndefined();
+    expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
+  });
+
+  it("wraps its question in a narrow chat instead of cutting it off", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync("src/chrome/MemoryKeeper.css", "utf8");
+    const rule = css.match(/\.memory-keeper-offer-copy \{([^}]*)\}/)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/white-space:\s*nowrap/);
+    expect(rule).not.toMatch(/text-overflow:\s*ellipsis/);
   });
 
   it("stays hidden when no model could keep the memory", async () => {
     native.available = new Set();
     offerMemoryKeeper(PROJECT);
-    await render(createElement(MemoryKeeperOffer, { project: PROJECT }));
+    await render(createElement(MemoryKeeperOffer, offerIn("chat")));
     expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
   });
 });

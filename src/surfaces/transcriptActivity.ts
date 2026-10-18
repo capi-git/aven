@@ -1,5 +1,5 @@
+import { toolDisplayLabel } from "../lib/commandLabel";
 import {
-  composeToolTitle,
   isAgentTool,
   isEditTool,
   isExecuteTool,
@@ -55,7 +55,7 @@ export function toolCallLabel(block: Block, cwd?: string): string {
     ? displayPath(preview.path, cwd)
     : preview?.fileName;
   return (
-    composeToolTitle({
+    toolDisplayLabel({
       kind: block.tool?.kind,
       title: block.text || block.tool?.title,
       path,
@@ -195,7 +195,8 @@ export function groupTurns(blocks: Block[], managed = false): Block[][] {
     // message. Dropping it here folds the reply into the turn above, so a
     // supervised run reads as one conversation.
     if (block.internal && !managed) continue;
-    if (block.role === "handoff") {
+    // A handoff, and your message that started a team here, stand alone.
+    if (block.role === "handoff" || block.team) {
       if (current.length > 0) turns.push(current);
       turns.push([block]);
       current = [];

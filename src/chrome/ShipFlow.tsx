@@ -16,12 +16,13 @@ import {
   type GitPr,
 } from "../lib/fs";
 import { filesLabel } from "../lib/gitChangesView";
-import { generateCommitMessage } from "../lib/harness";
+import { generateCommitMessage, textModelLabel } from "../lib/harness";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { MOD } from "../lib/platform";
 import type { PrCheck } from "../lib/prChecks";
 import type { HarnessId } from "../lib/session";
+import { recordShip } from "../lib/shippedChats";
 import {
   defaultShipScope,
   loadShipMode,
@@ -123,6 +124,8 @@ export function ShipFlow({
   const [scope, setScope] = useState<ShipScope>(() => defaultShipScope(files));
   const [phase, setPhase] = useState<Phase>({ kind: "compose" });
   const [generating, setGenerating] = useState(false);
+  // Who is writing the message, named while it does: "Claude Haiku 4.5".
+  const [writer, setWriter] = useState("");
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [shipped, setShipped] = useState<ShipSummary | null>(null);
   const generateAbort = useRef<AbortController | null>(null);
@@ -172,15 +175,20 @@ export function ShipFlow({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [message, enabled, phase.kind]);
 
+  const stopGenerating = () => {
+    generateAbort.current?.abort();
+    generateAbort.current = null;
+    setGenerating(false);
+  };
+
   const generate = async () => {
     if (generateAbort.current) {
-      generateAbort.current.abort();
-      generateAbort.current = null;
-      setGenerating(false);
+      stopGenerating();
       return;
     }
     const controller = new AbortController();
     generateAbort.current = controller;
+    setWriter(textModelLabel(textHarness));
     setGenerating(true);
     setGenerateError(null);
     try {
@@ -252,6 +260,13 @@ export function ShipFlow({
       });
       onMessageChange("");
       setPhase({ kind: "done", result });
+      // The chats it carried read Shipped, with this commit or pull request.
+      void recordShip({
+        cwd,
+        requestedId: sessionId,
+        result,
+        sessions: live?.list() ?? [],
+      }).catch((error) => logError("record ship", error));
     } catch (error) {
       logError("ship", error);
       setPhase({
@@ -339,10 +354,17 @@ export function ShipFlow({
               ref={messageRef}
               rows={2}
               value={message}
-              placeholder="Commit message"
+              placeholder={
+                generating ? "Or type your own message" : "Commit message"
+              }
               aria-label="Commit message"
               disabled={running}
-              onChange={(event) => onMessageChange(event.target.value)}
+              onChange={(event) => {
+                // Typing over it takes the message back; what was being
+                // written is dropped.
+                if (generating) stopGenerating();
+                onMessageChange(event.target.value);
+              }}
               onKeyDown={(event) => {
                 if (
                   (event.metaKey || event.ctrlKey) &&
@@ -359,12 +381,12 @@ export function ShipFlow({
               className="ship-flow-generate"
               aria-label={
                 generating
-                  ? "Cancel commit message generation"
+                  ? `Writing with ${writer}. Cancel`
                   : "Write the commit message"
               }
               title={
                 generating
-                  ? "Cancel"
+                  ? `Writing with ${writer}. Press to cancel, or type your own.`
                   : summary.toStage > 0
                     ? `Stage all ${summary.files} files and write a message`
                     : "Write a message from the changes"
@@ -377,7 +399,9 @@ export function ShipFlow({
               ) : (
                 <WandSparkles className="size-3.5" strokeWidth={1.25} />
               )}
-              <span>{generating ? "Writing…" : "Write"}</span>
+              <span className="ship-flow-generate-label">
+                {generating ? `Writing with ${writer}…` : "Write"}
+              </span>
             </button>
           </div>
           {generateError ? (

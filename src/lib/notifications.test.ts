@@ -13,6 +13,7 @@ import {
   probeNotificationPermission,
 } from "./notifications";
 import { newSession, type Session } from "./session";
+import { NO_LEAD_DECIDED, sessionNeedsUser } from "./teamAttention";
 
 import { invoke } from "@tauri-apps/api/core";
 import { getActivitySnapshot } from "./activity";
@@ -370,6 +371,28 @@ describe("Activity delivery policy", () => {
       finished: true,
     });
   });
+  it("alerts for a team waiting on you as it does for a request, not a failure", async () => {
+    saveNotificationsEnabled(true);
+    await probeNotificationPermission();
+    vi.mocked(invoke).mockImplementation(async () => "granted");
+    const need = {
+      outcome: "failed" as const,
+      summary: "Discussion paused · “Review” isn't open in this window.",
+      team: { id: "discuss:d1", kind: "discuss" as const, need: true as const },
+    };
+    // Failures off: a team that needs you still says so.
+    saveNotificationPreferences({ failures: false });
+    expect(
+      (await publishSessionActivity(chat(), { ...need, id: "n1" }, false))
+        .bannerSent,
+    ).toBe(true);
+    // "Needs input" off: it doesn't.
+    saveNotificationPreferences({ failures: true, needsInput: false });
+    expect(
+      (await publishSessionActivity(chat(), { ...need, id: "n2" }, false))
+        .bannerSent,
+    ).toBe(false);
+  });
   it("uses separate request identities for consecutive approvals and reused IDs in another turn", () => {
     const session = chat({
       id: "task",
@@ -390,7 +413,7 @@ describe("Activity delivery policy", () => {
       ],
     });
     session.blocks[0].startedAt = 100;
-    const events = pendingSessionActivityEvents(session);
+    const events = pendingSessionActivityEvents(session, NO_LEAD_DECIDED);
     const steered = {
       ...session,
       blocks: [
@@ -399,7 +422,9 @@ describe("Activity delivery policy", () => {
       ],
     };
     expect(
-      pendingSessionActivityEvents(steered).map((event) => event.id),
+      pendingSessionActivityEvents(steered, NO_LEAD_DECIDED).map(
+        (event) => event.id,
+      ),
     ).toEqual(events.map((event) => event.id));
     expect(new Set(events.map((event) => event.id)).size).toBe(2);
     expect(events.map((event) => event.summary)).toEqual([
@@ -413,6 +438,46 @@ describe("Activity delivery policy", () => {
         session.blocks[1],
       ],
     };
-    expect(pendingSessionActivityEvents(next)[0].id).not.toBe(events[0].id);
+    expect(pendingSessionActivityEvents(next, NO_LEAD_DECIDED)[0].id).not.toBe(
+      events[0].id,
+    );
+  });
+  it("never announces an orchestration worker's request: its lead decides", () => {
+    const blocks: Session["blocks"] = [
+      { id: "u1", role: "user", text: "Do it" },
+      {
+        id: "a1",
+        role: "approval",
+        text: "Run tests",
+        approval: { requestId: 1 },
+      },
+    ];
+    const worker = chat({ id: "worker", orchestrationLeadId: "lead", blocks });
+    const deciding = new Set(["worker"]);
+    expect(pendingSessionActivityEvents(worker, deciding)).toEqual([]);
+    expect(sessionNeedsUser(worker, deciding)).toBe(false);
+    // The lead asking in its own chat is the user's to answer.
+    const lead = chat({ id: "lead", blocks });
+    expect(pendingSessionActivityEvents(lead, deciding)).toHaveLength(1);
+    expect(sessionNeedsUser(lead, deciding)).toBe(true);
+  });
+  it("announces a former worker's request once its run is over", () => {
+    const worker = chat({
+      id: "worker",
+      orchestrationLeadId: "lead",
+      blocks: [
+        { id: "u1", role: "user", text: "One more fix" },
+        {
+          id: "a1",
+          role: "approval",
+          text: "Run tests",
+          approval: { requestId: 1 },
+        },
+      ],
+    });
+    expect(pendingSessionActivityEvents(worker, NO_LEAD_DECIDED)).toHaveLength(
+      1,
+    );
+    expect(sessionNeedsUser(worker, NO_LEAD_DECIDED)).toBe(true);
   });
 });

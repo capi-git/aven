@@ -16,7 +16,9 @@ import {
   Search,
 } from "./icons";
 import {
+  createContext,
   memo,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -121,6 +123,13 @@ import { PersonalWorkspaceSwitcher } from "./PersonalWorkspaceSwitcher";
 import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 import { PersonalProjectRow } from "./PersonalProjectRow";
 import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
+import { TeamMiniFaces } from "./TeamCard";
+import {
+  foldTeamRows,
+  teamAgentsText,
+  teamsByOrigin,
+  type SidebarTeam,
+} from "../lib/teamGrouping";
 import {
   DEFAULT_WORKSPACE_PROFILES,
   type WorkspaceProfile,
@@ -141,7 +150,11 @@ import {
 } from "../lib/discussions";
 import { SettingsNav } from "./SettingsRail";
 import { WorkConflictMark } from "./WorkConflictMark";
+import { MotionList } from "./MotionList";
+import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
+import type { ChatStatusWord } from "../lib/chatStatus";
+import { ChatStatusPill } from "./ChatStatusPill";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -164,6 +177,17 @@ export type SidebarProps = {
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
   approvalSessionIds: Set<string>;
+  /**
+   * Chats among `approvalSessionIds` that wait on you for their team (a
+   * paused discussion, race or run) rather than their own request; they
+   * read "Needs you".
+   */
+  teamNeedIds?: ReadonlySet<string>;
+  /**
+   * Each chat's one-word status (see `chatStatus`), shown as a pill on its
+   * row; chats with none are left out.
+   */
+  chatStatus?: Readonly<Record<string, ChatStatusWord>>;
   activeSessionId?: string;
   /** Open tabs, including blank ones not yet in history. */
   openSessions?: readonly SessionSummary[];
@@ -230,12 +254,19 @@ export type SidebarProps = {
   liveAgents?: LiveAgent[];
   /** Chats discussing with each other; their rows talk and are linked. */
   discussions?: readonly SidebarDiscussion[];
-  /** Show a discussion's conversation page; its connector opens it. */
+  /**
+   * Open races as one row each: the chat a race was sent from shows its
+   * lanes' mascots and status, and the lanes fold into it.
+   */
+  teams?: readonly SidebarTeam[];
+  /** Show a discussion in the team panel; its connector opens it. */
   onOpenDiscussion?: (id: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
+  /** Open the project's board tab. */
+  onOpenBoard?: (path: string) => void;
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   /** The macOS floating sidebar resolves this in its workspace window. */
@@ -270,6 +301,14 @@ export type SidebarProps = {
 };
 
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
+const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
+const NO_TEAMS: readonly SidebarTeam[] = [];
+/** Rows whose amber comes from their team needing you (see `teamNeedIds`). */
+const TeamNeeds = createContext<ReadonlySet<string>>(NO_TEAM_NEEDS);
+const NO_CHAT_STATUS: Readonly<Record<string, ChatStatusWord>> = {};
+/** Each row's one-word status (see `chatStatus`). */
+const ChatStatuses =
+  createContext<Readonly<Record<string, ChatStatusWord>>>(NO_CHAT_STATUS);
 const NO_CONFLICTS: WorkConflictMap = {};
 
 /** Personal is the default home for every project, so it cannot be deleted. */
@@ -355,9 +394,13 @@ function SidebarComponent({
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
+  teams = NO_TEAMS,
+  teamNeedIds = NO_TEAM_NEEDS,
+  chatStatus = NO_CHAT_STATUS,
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
+  onOpenBoard,
   onOpenProject,
   onRemoveProject,
   onNew,
@@ -585,13 +628,16 @@ function SidebarComponent({
   // Revisits render straight from cache, so this is only ever true the first
   // time a project is opened.
   const pendingFirstLoad = pending && sessions.length === 0;
+  // An open race is one row: its lanes fold into the chat it came from,
+  // wherever that chat's row is listed. Several races can start from one.
+  const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
     openSessions,
     sessionFolders,
   ).filter((session) => !session.orchestrationLeadId);
-  const visibleSessions = [
-    ...filterSessionsByQuery(
+  const visibleSessions = foldTeamRows(
+    filterSessionsByQuery(
       filterSessionsByStatus(
         filterSessionsByTime(
           filterSessionsByHarness(
@@ -611,7 +657,8 @@ function SidebarComponent({
       ),
       searchQuery,
     ),
-  ].sort(compareSessionSummaries);
+    teams,
+  ).sort(compareSessionSummaries);
   const filtersActive = hasActiveSessionFilters(sessionFilters);
   const searchNarrowed = Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
@@ -657,6 +704,17 @@ function SidebarComponent({
   const visibleFolderIds = sessionListEntries.flatMap((entry) =>
     entry.kind === "folder" ? [entry.folder.id] : [],
   );
+  // Rows glide when a chat's order or status changes (see MotionList).
+  const sessionListKeys = sessionListEntries.map(sessionListEntryKey);
+  const sessionListState = sessionListEntries
+    .map((entry) =>
+      entry.kind === "session"
+        ? `${busySessionIds.has(entry.session.id) ? "b" : ""}${
+            approvalSessionIds.has(entry.session.id) ? "a" : ""
+          }${unseenFinishedIds.has(entry.session.id) ? "d" : ""}`
+        : "",
+    )
+    .join(",");
   const folderSortable = useSortable(
     visibleFolderIds,
     (ids) => {
@@ -992,6 +1050,20 @@ function SidebarComponent({
       <DiscussionTalkBadge talk={talk} />
     ) : null;
   };
+  /** A plain row's one-word status, if it has one. */
+  const plainStatus = (sessionId: string) => {
+    const word = chatStatus[sessionId];
+    return word ? (
+      <span className="personal-task-status">
+        <ChatStatusPill word={word} />
+      </span>
+    ) : null;
+  };
+  /** The races this row stands for: their lanes' mascots and status. */
+  const teamBadge = (sessionId: string) =>
+    teamByOrigin
+      .get(sessionId)
+      ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
   const plainRowProps = (sessionId: string) =>
@@ -1214,6 +1286,7 @@ function SidebarComponent({
       <SessionCard
         session={session}
         talk={talks.get(session.id)}
+        teams={teamByOrigin.get(session.id)}
         talkLinked={discussionLinks.linked.has(session.id)}
         conflict={workConflicts[session.id]}
         isActive={session.id === activeSessionId}
@@ -1273,7 +1346,7 @@ function SidebarComponent({
       ref={searchInputRef}
       type="text"
       value={searchQuery}
-      placeholder="Filter tasks..."
+      placeholder="Filter tasks…"
       aria-label="Filter tasks"
       spellCheck={false}
       autoComplete="off"
@@ -1322,7 +1395,7 @@ function SidebarComponent({
               {pendingFirstLoad ? null : status === "error" &&
                 sessions.length === 0 ? (
                 <p className="px-3 py-2 text-ui-label text-content/50">
-                  Couldn’t load sessions
+                  Couldn't load chats
                 </p>
               ) : visibleSessions.length === 0 ? (
                 // A narrowed-down result is a transient answer to what the user
@@ -1338,12 +1411,17 @@ function SidebarComponent({
                   <p className="personal-tasks-empty">No tasks yet.</p>
                 )
               ) : (
-                <ul className="personal-task-list flex flex-col gap-0.5 p-1.5">
+                <MotionList
+                  className="personal-task-list relative flex flex-col gap-0.5 p-1.5"
+                  motionKeys={sessionListKeys}
+                  motionState={sessionListState}
+                >
                   {sessionListEntries.map((entry, index) => {
                     if (entry.kind === "divider") {
                       return (
                         <li
-                          key={`divider-${index}`}
+                          key={sessionListKeys[index]}
+                          data-motion-key={sessionListKeys[index]}
                           className="personal-sidebar-section-label list-none"
                         >
                           Recent
@@ -1380,6 +1458,7 @@ function SidebarComponent({
                           ref={(el) =>
                             folderSortable.setItemRef(entry.folder.id, el)
                           }
+                          data-motion-key={entry.folder.id}
                           data-session-folder={entry.folder.id}
                           className={`relative ${
                             expanded || beforeUngrouped ? "mb-1.5" : ""
@@ -1502,7 +1581,10 @@ function SidebarComponent({
                       );
                     }
                     return (
-                      <li key={entry.session.id}>
+                      <li
+                        key={entry.session.id}
+                        data-motion-key={entry.session.id}
+                      >
                         {sessionListEntries[index - 1]?.kind !== "session" &&
                         sessionListEntries[index - 1]?.kind !== "divider" ? (
                           <p className="personal-sidebar-section-label">
@@ -1520,7 +1602,7 @@ function SidebarComponent({
                       className="h-px list-none"
                     />
                   ) : null}
-                </ul>
+                </MotionList>
               )}
             </div>
           )}
@@ -1749,11 +1831,13 @@ function SidebarComponent({
                       currentProjectTasks
                     ) : (
                       <div className="personal-project-tasks">
-                        {standaloneSessions
-                          .filter(
+                        {foldTeamRows(
+                          standaloneSessions.filter(
                             (session) =>
                               !session.archived && !session.orchestrationLeadId,
-                          )
+                          ),
+                          teams,
+                        )
                           .slice(0, SESSION_LIST_PAGE)
                           .map((session) =>
                             session.orchestration ? (
@@ -1792,16 +1876,21 @@ function SidebarComponent({
                                     )}
                                   </span>
                                   {talkBadge(session.id)}
+                                  {teamBadge(session.id)}
                                   <WorkConflictMark
                                     conflict={workConflicts[session.id]}
                                   />
+                                  {plainStatus(session.id)}
                                 </button>
                               ))
                             ),
                           )}
-                        {standaloneSessions.filter(
-                          (session) =>
-                            !session.archived && !session.orchestrationLeadId,
+                        {foldTeamRows(
+                          standaloneSessions.filter(
+                            (session) =>
+                              !session.archived && !session.orchestrationLeadId,
+                          ),
+                          teams,
                         ).length > SESSION_LIST_PAGE ? (
                           <button
                             type="button"
@@ -1861,12 +1950,13 @@ function SidebarComponent({
                     : expandedProjects.has(project.path);
                   const otherSessions =
                     !active && expanded
-                      ? (projectSessions[project.path] ?? [])
-                          .filter(
+                      ? foldTeamRows(
+                          (projectSessions[project.path] ?? []).filter(
                             (session) =>
                               !session.archived && !session.orchestrationLeadId,
-                          )
-                          .sort(compareSessionSummaries)
+                          ),
+                          teams,
+                        ).sort(compareSessionSummaries)
                       : [];
                   const historyLoaded = loadedProjectPaths
                     ? loadedProjectPaths.has(project.path)
@@ -1915,6 +2005,11 @@ function SidebarComponent({
                                   onNew();
                                 }
                               : undefined
+                        }
+                        onOpenBoard={
+                          onOpenBoard
+                            ? () => onOpenBoard(project.path)
+                            : undefined
                         }
                         onMove={onMoveProject}
                         onRemove={onRemoveProject}
@@ -2011,15 +2106,18 @@ function SidebarComponent({
                                       )}
                                     </span>
                                     {talkBadge(session.id)}
+                                    {teamBadge(session.id)}
                                     <WorkConflictMark
                                       conflict={workConflicts[session.id]}
                                     />
                                     {session.pinned ? (
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
-                                    <span className="personal-task-status">
-                                      {formatRelative(session.updatedAt, now)}
-                                    </span>
+                                    {plainStatus(session.id) ?? (
+                                      <span className="personal-task-status">
+                                        {formatRelative(session.updatedAt, now)}
+                                      </span>
+                                    )}
                                   </button>
                                 ))
                               ),
@@ -2165,7 +2263,11 @@ function SidebarComponent({
       inert={!sidebarVisible || undefined}
       style={{ "--nav-width": `${resize.width}px` } as CSSProperties}
     >
-      {sidebarContent}
+      <TeamNeeds.Provider value={teamNeedIds}>
+        <ChatStatuses.Provider value={chatStatus}>
+          {sidebarContent}
+        </ChatStatuses.Provider>
+      </TeamNeeds.Provider>
     </div>
   );
 }
@@ -2181,16 +2283,31 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "projectStatus",
   "liveAgents",
   "discussions",
+  "teams",
   "workConflicts",
   "standaloneSessions",
   "busySessionIds",
   "approvalSessionIds",
+  "teamNeedIds",
+  "chatStatus",
   "loadedProjectPaths",
   "projectHistoryErrors",
   "unseenFinishedIds",
 ];
 export function Sidebar(props: SidebarProps) {
   return <MemoSidebar {...useChromeProps(props, SIDEBAR_DATA)} />;
+}
+
+/** A row of the task list: its folder, chat or divider. */
+function sessionListEntryKey(
+  entry: ReturnType<typeof buildSessionList>[number],
+  index: number,
+): string {
+  return entry.kind === "folder"
+    ? entry.folder.id
+    : entry.kind === "session"
+      ? entry.session.id
+      : `divider-${index}`;
 }
 
 function SessionsHeaderButton({
@@ -2217,7 +2334,7 @@ function SessionsHeaderButton({
       aria-haspopup={hasPopup ? "menu" : undefined}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
+      className={`aven-press relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
         open || active ? "bg-content/10 text-content" : ""
       }`}
     >
@@ -2460,6 +2577,7 @@ function FolderRenameRow({
 function SessionCard({
   session,
   talk,
+  teams,
   talkLinked = false,
   conflict,
   isActive,
@@ -2484,6 +2602,8 @@ function SessionCard({
   session: SessionSummary;
   /** Its part in a discussion with another chat, if any. */
   talk?: SidebarTalk;
+  /** The races this row stands for, their lanes folded in. */
+  teams?: readonly SidebarTeam[];
   /** The partner's row is on screen and linked to this one. */
   talkLinked?: boolean;
   /** Editing another working chat's files, or running a second dev server. */
@@ -2512,6 +2632,8 @@ function SessionCard({
 }) {
   const skipClickUntil = useRef(0);
   const cancelDrag = useRef<(() => void) | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useTurnEndFlash(rowRef, session.id);
   const listDropRef = useRef(onListDrop);
   listDropRef.current = onListDrop;
   useEffect(() => () => cancelDrag.current?.(), [session.id]);
@@ -2520,17 +2642,25 @@ function SessionCard({
   const gitLabel = formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
   const model = resolveModel(session.harness, session.model).name;
-  const approvalLabel = session.orchestration
-    ? "Needs input"
-    : "Needs approval";
+  const teamNeeds = useContext(TeamNeeds);
+  const approvalLabel = teamNeeds.has(session.id)
+    ? "Needs you"
+    : session.orchestration
+      ? "Needs you"
+      : "Needs approval";
   const statusClass = needsApproval
-    ? "text-amber-400"
+    ? "text-[color:var(--aven-needs-you)]"
     : busy
       ? "text-accent"
       : done
         ? "text-emerald-400"
         : "text-content/45";
-  const status = (
+  const word = useContext(ChatStatuses)[session.id];
+  const status = word ? (
+    <span className="personal-task-status flex shrink-0 items-center">
+      <ChatStatusPill word={word} />
+    </span>
+  ) : (
     <span
       className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
       title={
@@ -2719,7 +2849,7 @@ function SessionCard({
   // so expanding or stopping a worker cannot accidentally open the lead.
   if (session.orchestration)
     return (
-      <div className="personal-task-row group relative">
+      <div ref={rowRef} className="personal-task-row group relative">
         <div
           data-session-card={session.id}
           data-orchestration-card="true"
@@ -2786,6 +2916,8 @@ function SessionCard({
           <OrchestrationSidebarAgents
             leadId={session.id}
             summary={session.orchestration}
+            endedAt={session.updatedAt}
+            now={now}
           />
           {onArchive ? (
             <div className="flex justify-end">
@@ -2810,6 +2942,7 @@ function SessionCard({
 
   return (
     <div
+      ref={rowRef}
       className="personal-task-row group relative"
       data-has-archive={!!onArchive}
       data-compact={compact || undefined}
@@ -2903,6 +3036,9 @@ function SessionCard({
             {title}
           </span>
           {talk && !talkLinked ? <DiscussionTalkBadge talk={talk} /> : null}
+          {teams?.map((team) => (
+            <SidebarTeamBadge key={team.id} team={team} />
+          ))}
           <WorkConflictMark conflict={conflict} />
           {compact ? status : null}
         </span>
@@ -3059,4 +3195,21 @@ function formatRelative(value: number, now: number): string {
   } catch {
     return "";
   }
+}
+
+/** A race as one sidebar row: its lanes' mascots and how far it is. */
+function SidebarTeamBadge({ team }: { team: SidebarTeam }) {
+  return (
+    <span
+      className="sidebar-team-badge"
+      data-sidebar-team={team.id}
+      data-needs-you={team.needsYou || undefined}
+      title={`${team.status} · ${teamAgentsText(team)}`}
+    >
+      <TeamMiniFaces members={team.members} active={team.working > 0} />
+      <span className="sidebar-team-badge-text">
+        {team.status.replace(/^Racing · /, "")}
+      </span>
+    </span>
+  );
 }

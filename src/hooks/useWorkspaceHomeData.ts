@@ -9,6 +9,9 @@ import {
 import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
+import { groupHomeRunning } from "../lib/teamGrouping";
+import { NO_LEAD_DECIDED, type LeadDecided } from "../lib/teamAttention";
+import type { TeamRun } from "../lib/teamRuns";
 import {
   homeFinished,
   homeLiveSessions,
@@ -40,6 +43,7 @@ export type WorkspaceHomeData = {
 };
 
 const RECENT_ROWS = 24;
+const NO_TEAMS: readonly TeamRun[] = Object.freeze([]);
 const EMPTY_LIVE: readonly HomeLiveSession[] = Object.freeze([]);
 const EMPTY_INDEX: HomeSessionIndex = Object.freeze({
   at: new Map<string, number>(),
@@ -69,6 +73,8 @@ export function useWorkspaceHomeData({
   activity,
   projects,
   standaloneCwds,
+  teams = NO_TEAMS,
+  leadDecided = NO_LEAD_DECIDED,
 }: {
   enabled: boolean;
   sessions: readonly Session[];
@@ -80,10 +86,17 @@ export function useWorkspaceHomeData({
   projects: readonly RecentProject[];
   /** The workspace's folders for tasks without a project. */
   standaloneCwds: readonly string[];
+  /** Discussions, races and orchestrations, for the teams that need you. */
+  teams?: readonly TeamRun[];
+  /** Workers whose requests their lead decides (see `teamAttention`). */
+  leadDecided?: LeadDecided;
 }): WorkspaceHomeData {
   const next = useMemo(
-    () => (enabled ? homeLiveSessions(sessions, inFlightIds) : EMPTY_LIVE),
-    [enabled, sessions, inFlightIds],
+    () =>
+      enabled
+        ? homeLiveSessions(sessions, inFlightIds, leadDecided)
+        : EMPTY_LIVE,
+    [enabled, sessions, inFlightIds, leadDecided],
   );
   const stable = useRef(next);
   if (stable.current !== next && !equalChromeData(stable.current, next))
@@ -116,21 +129,29 @@ export function useWorkspaceHomeData({
   const needsYou = useStable(
     useMemo(
       () =>
-        enabled ? homeNeedsYou(live, activity, scope, index) : EMPTY.needsYou,
-      [enabled, live, activity, scope, index],
+        enabled
+          ? homeNeedsYou(live, activity, scope, index, teams)
+          : EMPTY.needsYou,
+      [enabled, live, activity, scope, index, teams],
     ),
   );
-  const running = useMemo(
-    () => (enabled ? homeRunning(live, scope) : EMPTY.running),
-    [enabled, live, scope],
+  // A team runs as one row: its members fold into the chat it started from.
+  const running = useStable(
+    useMemo(
+      () =>
+        enabled
+          ? groupHomeRunning(homeRunning(live, scope), teams)
+          : EMPTY.running,
+      [enabled, live, scope, teams],
+    ),
   );
   const cards = useStable(
     useMemo(
       () =>
         enabled
-          ? homeProjects(ordered, recent, activity, live, index)
+          ? homeProjects(ordered, recent, activity, live, index, teams)
           : EMPTY.projects,
-      [enabled, ordered, recent, activity, live, index],
+      [enabled, ordered, recent, activity, live, index, teams],
     ),
   );
   const finished = useStable(

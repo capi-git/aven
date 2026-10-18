@@ -471,7 +471,7 @@ describe("project status in the sidebar", () => {
       );
     const site = row("Site")!;
     expect(site.title).toBe(
-      "1 agent running · 1 waiting for you · 2 unread · 5 files changed\n/projects/Site",
+      "1 agent running · 1 needs you · 2 unread · 5 files changed\n/projects/Site",
     );
     expect(site.querySelector(".mascot-active")).not.toBeNull();
     expect(site.querySelector(".personal-project-files")?.textContent).toBe(

@@ -20,6 +20,7 @@ import {
   type HarnessId,
   type RuntimeMode,
 } from "../lib/session";
+import type { ComposerFit } from "../lib/composerFit";
 import { MOD } from "../lib/platform";
 import { popoverWidth } from "../lib/popover";
 import { usageAlternatives } from "../lib/usageAlternatives";
@@ -41,7 +42,6 @@ import {
 } from "./ModelSettings";
 import { PanelSection } from "./PanelSection";
 import { Popover } from "./Popover";
-import { RaceOptions, type RaceProps } from "./RaceOptions";
 import "./AgentPill.css";
 
 type Props = {
@@ -54,13 +54,17 @@ type Props = {
   busy: boolean;
   /** Cmd+. and the menu command open this pill's panel. */
   hotkeys: boolean;
-  /** Absent where the chat can't race. */
-  race?: RaceProps;
   onModelChange: (harness: HarnessId, model: string) => void;
   onModelSettingsChange?: (settings: Record<string, string>) => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   /** Hands focus back to the message field. */
   onClose?: () => void;
+  /**
+   * How much room the message box gives the pill: `compact` leaves out the
+   * effort, `narrow` the model too, keeping the mark. The tooltip and
+   * accessible name always say all of it.
+   */
+  fit?: ComposerFit;
 };
 
 /**
@@ -162,7 +166,8 @@ function noResize() {
 /**
  * The composer's one control for who answers and how: the provider mark, the
  * model and its effort. It opens a single panel with the model list, the
- * model's settings, access and Race. Full access stays visible on the pill.
+ * model's settings and access. Full access stays visible on the pill. Race
+ * is a mode of the message box, in its + menu.
  *
  * Memoized with stable props, so typing in the composer never renders it.
  */
@@ -174,11 +179,11 @@ export const AgentPill = memo(function AgentPill({
   showAccess,
   busy,
   hotkeys,
-  race,
   onModelChange,
   onModelSettingsChange,
   onRuntimeModeChange,
   onClose,
+  fit = "full",
 }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -219,7 +224,7 @@ export const AgentPill = memo(function AgentPill({
   ]
     .filter(Boolean)
     .join(" · ");
-  const hasSide = settings.length > 0 || showAccess || Boolean(race);
+  const hasSide = settings.length > 0 || showAccess;
   // Follows the window only while the panel is open.
   const subscribeResize = useCallback(
     (onChange: () => void) => {
@@ -239,6 +244,7 @@ export const AgentPill = memo(function AgentPill({
       <button
         type="button"
         data-agent-pill
+        data-fit={fit === "full" ? undefined : fit}
         aria-label={description}
         aria-keyshortcuts={`${MOD}.`}
         aria-expanded={open}
@@ -249,10 +255,15 @@ export const AgentPill = memo(function AgentPill({
         className="agent-pill model-control"
       >
         <HarnessIcon harness={current.harness} className="agent-pill-mark" />
-        <span key={current.id} className="agent-pill-model model-control-value">
-          {current.name}
-        </span>
-        {summary.effort ? (
+        {fit === "narrow" ? null : (
+          <span
+            key={current.id}
+            className="agent-pill-model model-control-value"
+          >
+            {current.name}
+          </span>
+        )}
+        {summary.effort && fit === "full" ? (
           <>
             <span className="agent-pill-separator" aria-hidden="true">
               ·
@@ -350,7 +361,6 @@ export const AgentPill = memo(function AgentPill({
                     />
                   </PanelSection>
                 ) : null}
-                {race ? <RaceOptions {...race} /> : null}
               </div>
             ) : null}
           </div>

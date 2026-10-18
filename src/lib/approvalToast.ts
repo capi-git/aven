@@ -1,6 +1,7 @@
 import { leafIds, type WorkspaceTab } from "./layout";
 import type { Block, Session } from "./session";
 import { toolCallLabel } from "../surfaces/transcriptActivity";
+import { requestsAreUsers, type LeadDecided } from "./teamAttention";
 
 export type PendingApprovalNotice = {
   sessionId: string;
@@ -58,12 +59,14 @@ export function hiddenApprovalNotices(
   activeTabId: string,
   tabs: WorkspaceTab[],
   composerFocused: boolean,
+  leadDecided: LeadDecided,
 ): Array<PendingApprovalNotice & { session: Session }> {
   const notices: Array<PendingApprovalNotice & { session: Session }> = [];
   for (const session of sessions) {
     if (session.inboxAsk) continue;
-    // An orchestrated worker answers to its lead, never to the user directly.
-    if (session.orchestrationLeadId) continue;
+    // An orchestration worker answers to its lead while its run is open,
+    // unless the lead left the request to you (see teamAttention).
+    if (!requestsAreUsers(session, leadDecided)) continue;
     const pending = pendingApprovalForSession(session);
     if (!pending) continue;
     if (

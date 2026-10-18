@@ -1,0 +1,10 @@
+/* A discussion in the chat that started it: its card is a TeamCard (see
+   chrome/TeamCard.css). */
+/* The other agent's last reply, when the turns are unfolded in the chat. */
+.discussion-chat-messages {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}

@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { isWindowActive, subscribeWindowActivity } from "./windowActivity";
+import {
+  isWindowActive,
+  isWindowVisible,
+  mayRefresh,
+  subscribeWindowActivity,
+} from "./windowActivity";
 
 const native = vi.hoisted(() => ({ listen: vi.fn(), focused: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({
@@ -103,4 +108,19 @@ it("disposes a delayed native registration and ignores old focus reads after rem
   await Promise.resolve();
   expect(oldOff).toHaveBeenCalledOnce();
   expect(isWindowActive()).toBe(true);
+});
+it("lets events refresh while visible and polls only while focused", () => {
+  subscribe();
+  expect(mayRefresh("event")).toBe(true);
+  expect(mayRefresh("poll")).toBe(true);
+  // Watched from a second screen: on screen, but another app has focus.
+  window.dispatchEvent(new Event("blur"));
+  expect(isWindowVisible()).toBe(true);
+  expect(mayRefresh("event")).toBe(true);
+  expect(mayRefresh("poll")).toBe(false);
+  hidden = true;
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(isWindowVisible()).toBe(false);
+  expect(mayRefresh("event")).toBe(false);
+  expect(mayRefresh("poll")).toBe(false);
 });

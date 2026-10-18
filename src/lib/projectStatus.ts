@@ -2,7 +2,14 @@ import type { ActivityEntry } from "./activity";
 import { projectKey } from "./paths";
 import { hasPendingApproval, type Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
+import {
+  requestsAreUsers,
+  teamsNeedingYou,
+  type LeadDecided,
+} from "./teamAttention";
+import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
+import { plural } from "./words";
 
 /** What is happening in one project, at a glance. Zero counts mean nothing. */
 export type ProjectStatus = {
@@ -36,15 +43,26 @@ function keyFor(cwd: string | undefined): string | null {
 export function sessionProjectCounts(
   sessions: readonly Pick<
     Session,
-    "cwd" | "busy" | "blocks" | "pendingQuestion" | "liveAgents"
+    "id" | "cwd" | "busy" | "blocks" | "pendingQuestion" | "liveAgents"
   >[],
+  leadDecided: LeadDecided,
+  /**
+   * Teams waiting on you themselves (paused, stalled, a race no agent
+   * finished): each one's chat counts as waiting in its project, as its
+   * sidebar row and the Dock count it.
+   */
+  teamNeeds: readonly { sessionId: string; project: string }[] = [],
 ): SessionCounts {
   const counts: SessionCounts = {};
+  const waitingIds = new Set<string>();
   for (const session of sessions) {
     const key = keyFor(session.cwd);
     if (!key) continue;
-    const approval = hasPendingApproval(session.blocks);
-    const question = session.pendingQuestion;
+    // A request an orchestration worker's lead decides for it: the worker
+    // still counts as working, never as waiting for you.
+    const managed = !requestsAreUsers(session, leadDecided);
+    const approval = !managed && hasPendingApproval(session.blocks);
+    const question = managed ? undefined : session.pendingQuestion;
     const waiting = approval || question != null;
     const running =
       (!!session.busy ||
@@ -54,9 +72,29 @@ export function sessionProjectCounts(
     if (!waiting && !running) continue;
     const entry = (counts[key] ??= { running: 0, waiting: 0 });
     if (running) entry.running += 1;
-    if (waiting) entry.waiting += 1;
+    if (waiting) {
+      entry.waiting += 1;
+      waitingIds.add(session.id);
+    }
+  }
+  for (const need of teamNeeds) {
+    const key = keyFor(need.project);
+    if (!key || waitingIds.has(need.sessionId)) continue;
+    waitingIds.add(need.sessionId);
+    (counts[key] ??= { running: 0, waiting: 0 }).waiting += 1;
   }
   return counts;
+}
+
+/** The teams waiting on you themselves, by the chat and project they wait in. */
+export function teamNeedPlaces(
+  teams: readonly TeamRun[],
+): { sessionId: string; project: string }[] {
+  return teamsNeedingYou(teams).flatMap((team) =>
+    team.need && team.need.kind !== "approval" && team.need.kind !== "question"
+      ? [{ sessionId: team.need.sessionId, project: team.project }]
+      : [],
+  );
 }
 
 const FINISHED = new Set(["completed", "failed", "stopped"]);
@@ -137,11 +175,7 @@ export function projectStatusFor(
   return map?.[projectKey(path)];
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-/** "2 agents running · 1 waiting for you · 3 unread · 12 files changed". */
+/** "2 agents running · 1 needs you · 3 unread · 12 files changed". */
 export function describeProjectStatus(
   status: ProjectStatus | undefined,
 ): string {
@@ -149,7 +183,10 @@ export function describeProjectStatus(
   const parts: string[] = [];
   if (status.running)
     parts.push(`${plural(status.running, "agent", "agents")} running`);
-  if (status.waiting) parts.push(`${status.waiting} waiting for you`);
+  if (status.waiting)
+    parts.push(
+      `${status.waiting} ${status.waiting === 1 ? "needs" : "need"} you`,
+    );
   if (status.unread) parts.push(`${status.unread} unread`);
   if (status.files)
     parts.push(`${plural(status.files, "file", "files")} changed`);

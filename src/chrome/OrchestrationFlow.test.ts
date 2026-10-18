@@ -313,11 +313,11 @@ describe("orchestration composer and card", () => {
     );
     await click(
       [
-        ...document.querySelectorAll('[aria-label="Parallel workers"] button'),
+        ...document.querySelectorAll('[aria-label="Agents at once"] button'),
       ].find((option) => option.textContent === "1")!,
     );
     expect(confirm).not.toHaveBeenCalled();
-    await click(button("Confirm & start"));
+    await click(button("Confirm and start"));
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         settings: expect.objectContaining({ maxWorkers: 1 }),
@@ -360,9 +360,9 @@ describe("orchestration composer and card", () => {
       ),
     );
     expect(container.querySelector("[data-orchestration-review]")).toBeNull();
-    expect(container.textContent).not.toContain("Confirm & start");
+    expect(container.textContent).not.toContain("Confirm and start");
   });
-  it("opens worker panes from View agents instead of the sidebar", async () => {
+  it("opens worker panes from Open agents instead of the sidebar", async () => {
     const open = vi.fn();
     const openAgents = vi.fn();
     const task: OrchestrationTask = {
@@ -464,7 +464,7 @@ describe("orchestration composer and card", () => {
         ),
       ),
     );
-    await click(button("View agents"));
+    await click(button("Open agents"));
     expect(open).not.toHaveBeenCalled();
     expect(openAgents).toHaveBeenCalledWith([
       {
@@ -584,17 +584,29 @@ describe("orchestration composer and card", () => {
     }
     await act(async () => root.render(createElement(LeadPane, {})));
     // Detailed worker panes stay on the sidebar. Compact status is available
-    // above the composer without narrowing the lead's transcript.
+    // above the composer without narrowing the lead's transcript: the run's
+    // one bar says what the team does, with its agents behind one button,
+    // and no second status row repeats it.
     expect(container.querySelector("[data-orchestration-agents]")).toBeNull();
     expect(container.textContent).toContain("I am coordinating the work.");
-    const agentStatus = container.querySelector<HTMLDetailsElement>(
-      ".session-run-agents",
+    expect(container.querySelector(".session-run-status")).toBeNull();
+    const runBar = container.querySelector<HTMLElement>(
+      '[data-orchestration-bar="lead"]',
     )!;
-    expect(agentStatus.open).toBe(false);
-    expect(agentStatus.textContent).toContain("UI worker");
-    expect(container.querySelector(".session-run-copy")?.textContent).toContain(
-      "Agents still working",
+    expect(runBar.querySelector("[data-team-bar-text]")?.textContent).toBe(
+      "Orchestrating · 2 working",
     );
+    const agents = runBar.querySelector<HTMLButtonElement>(
+      "[data-team-bar-agents]",
+    )!;
+    expect(agents.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("UI worker");
+    await act(async () => agents.click());
+    expect(
+      document.querySelector('[role="dialog"][aria-label="Agents"]')
+        ?.textContent,
+    ).toContain("UI worker");
+    await act(async () => agents.click());
     expect(open).not.toHaveBeenCalled();
     const composer = container.querySelector("textarea")!;
     await input(composer, "Ask the UI worker to check keyboard navigation.");
@@ -667,14 +679,19 @@ describe("orchestration composer and card", () => {
     }
     await act(async () => root.render(createElement(Card)));
     expect(container.textContent).toContain("UI worker");
-    // A blocked agent expands itself so its model is visible, but the
-    // approval still belongs to the lead, not to this card.
-    expect(
-      container.querySelector(
-        '[data-orchestration-agent="worker"] [aria-expanded="true"]',
-      ),
-    ).not.toBeNull();
+    // The lead decides: the row says so in a neutral colour, without an
+    // alert mark, and does not unfold itself to get your attention.
+    const row = container.querySelector<HTMLElement>(
+      '[data-orchestration-agent="worker"]',
+    )!;
+    expect(row.dataset.leadDeciding).toBe("true");
+    expect(row.textContent).toContain("Lead deciding");
+    expect(row.querySelector('[aria-expanded="true"]')).toBeNull();
+    expect(row.innerHTML).not.toContain("amber");
+    expect(container.textContent).not.toContain("Needs input");
+    await click(row.querySelector("button")!);
     expect(container.textContent).toContain("Worker Two");
+    expect(container.textContent).toContain("the lead is deciding.");
     expect(button("Allow")).toBeUndefined();
     expect(button("Deny")).toBeUndefined();
     expect(container.textContent).not.toContain("Which check should I run?");
@@ -717,7 +734,7 @@ describe("orchestration composer and card", () => {
     );
     // Expanding a row is not a request to open the lead's tab.
     expect(selectCard).not.toHaveBeenCalled();
-    await click(button("See details"));
+    await click(button("Open chat"));
     expect(openDetails).toHaveBeenCalledWith({
       sessionId: "worker",
       leadId: "lead",

@@ -366,7 +366,7 @@ export function SearchView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onQueryKeyDown}
-            placeholder="Search everything..."
+            placeholder="Search everything…"
             aria-label="Search"
             spellCheck={false}
             autoComplete="off"

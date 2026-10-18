@@ -7,6 +7,7 @@ import { codexAdapter } from "../lib/harness/codexAdapter";
 import { claudeAdapter } from "../lib/harness/claudeAdapter";
 import {
   DISCUSSION_ROUNDS_KEY,
+  discussionStore,
   resetDiscussionStore,
   type DiscussionCandidate,
   type DiscussionHost,
@@ -43,6 +44,14 @@ vi.mock("./SecondOpinionButton", async () => {
   };
 });
 
+// The best other agent for a new partner chat; null when there is none.
+const partner = vi.hoisted(() => ({
+  fresh: null as { harness: HarnessId; model: string } | null,
+}));
+vi.mock("../lib/discussionPartner", () => ({
+  bestDiscussionAgent: () => partner.fresh,
+}));
+
 let root: Root;
 let container: HTMLDivElement;
 let props: ComponentProps<typeof Composer>;
@@ -66,6 +75,7 @@ beforeEach(() => {
   resetDiscussionStore("main");
   registerHarness(codexAdapter);
   registerHarness(claudeAdapter);
+  partner.fresh = { harness: "claude", model: "claude:sonnet-5" };
   blocked = undefined;
   candidates = [
     {
@@ -191,11 +201,11 @@ describe("Discuss mode in the composer", () => {
     );
     await click(item);
     expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
-    // The first open chat that can join, with three rounds.
-    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    // A new chat with the best other agent, with three rounds.
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     expect(
       chip()?.querySelector("[aria-haspopup]")?.getAttribute("title"),
-    ).toBe("GPT-5 in “Review”");
+    ).toMatch(/^A new chat with /);
     expect(menu()).toBeNull();
     expect(field().placeholder).toBe("What should they discuss?");
     await openPlus();
@@ -211,7 +221,7 @@ describe("Discuss mode in the composer", () => {
     await press("Enter");
     expect(host.start).toHaveBeenCalledExactlyOnceWith({
       sessionId: "a",
-      partner: { kind: "chat", sessionId: "b" },
+      partner: { kind: "new", harness: "claude", model: "claude:sonnet-5" },
       topic: "Compare our caching options",
       rounds: 3,
     });
@@ -221,6 +231,7 @@ describe("Discuss mode in the composer", () => {
   });
 
   it("chooses the partner and rounds from the chip's dropdown", async () => {
+    candidates[0].lastUsedAt = Date.now() - 2 * 3_600_000;
     await render();
     await turnOn();
     await openMenu();
@@ -234,7 +245,20 @@ describe("Discuss mode in the composer", () => {
       "c",
       "d",
     ]);
-    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+    // New chat with… comes first; the new chat is the one chosen.
+    const newChat = menu()!.querySelector("[data-new-chat]")!;
+    expect(
+      newChat.compareDocumentPosition(rows[0]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(rows[0].getAttribute("aria-checked")).toBe("false");
+    // Each chat says its model, its project and when it was last used.
+    expect(
+      rows[0].querySelector("[data-discussion-candidate-detail]")?.textContent,
+    ).toBe("GPT-5 · site · 2h ago");
+    expect(
+      rows[2].querySelector("[data-discussion-candidate-detail]")?.textContent,
+    ).toBe("Sonnet · site");
     // A chat that can't join says why and can't be chosen.
     expect(rows[1].disabled).toBe(true);
     expect(rows[1].textContent).toContain("Working");
@@ -256,10 +280,57 @@ describe("Discuss mode in the composer", () => {
     );
   });
 
+  it("gives the other chat a role for this discussion only", async () => {
+    await render();
+    await turnOn();
+    await openMenu();
+    const picker = menu()!.querySelector("[data-role-picker]")!;
+    expect(
+      [...picker.querySelectorAll("[data-role-choice]")].map(
+        (choice) => choice.textContent,
+      ),
+    ).toEqual(["None", "Reviewer", "Tester", "Skeptic", "Designer"]);
+    const skeptic = picker.querySelector<HTMLButtonElement>(
+      '[data-role-choice="skeptic"]',
+    )!;
+    // Its instruction shows on hover.
+    expect(skeptic.title).toBe(
+      "Push back on weak points and look for what could go wrong; agree only when convinced.",
+    );
+    await click(skeptic);
+    expect(skeptic.getAttribute("aria-checked")).toBe("true");
+    expect(chipLabel()).toBe(
+      "Discuss with new Claude chat as Skeptic · 3 rounds",
+    );
+    await type("Is the index worth it?");
+    await press("Enter");
+    expect(host.start).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "skeptic" }),
+    );
+    // Never remembered: the next discussion starts without one.
+    expect(
+      [...values.values()].some((value) => value.includes("skeptic")),
+    ).toBe(false);
+    await turnOn();
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
+  });
+
+  it("starts with the first open chat when no other agent can", async () => {
+    partner.fresh = null;
+    await render();
+    await turnOn();
+    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    expect(
+      chip()?.querySelector("[aria-haspopup]")?.getAttribute("title"),
+    ).toBe("GPT-5 in “Review”");
+  });
+
   it("can start a new chat with a chosen model instead", async () => {
     await render();
     await turnOn();
     await openMenu();
+    await click(menu()!.querySelector("[data-discussion-candidate='b']"));
+    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
     await click(menu()!.querySelector("[data-new-chat]"));
     expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     await type("Plan the migration");
@@ -275,11 +346,12 @@ describe("Discuss mode in the composer", () => {
     values.set(DISCUSSION_ROUNDS_KEY, "2");
     await render();
     await turnOn();
-    expect(chipLabel()).toBe("Discuss with Codex · 2 rounds");
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 2 rounds");
   });
 
   it("opens the dropdown with a reason instead of starting when it can't", async () => {
     candidates = [];
+    partner.fresh = null;
     await render();
     await turnOn();
     // Nobody to talk to: the dropdown opens at once.
@@ -319,7 +391,7 @@ describe("Discuss mode in the composer", () => {
     )!;
     expect(command).toBeTruthy();
     await click(command);
-    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     expect(field().value).toBe("");
     expect(host.start).not.toHaveBeenCalled();
   });
@@ -399,5 +471,120 @@ describe("Discuss mode in the composer", () => {
       [],
       expect.anything(),
     );
+  });
+});
+
+describe("the message box while this chat's discussion runs", () => {
+  const party = (sessionId: string, title: string) => ({
+    sessionId,
+    harness: "codex" as const,
+    model: "GPT-5",
+    title,
+    cwd: "/work/site",
+  });
+  function startHere() {
+    discussionStore().start({
+      id: "d1",
+      a: party("a", "Caching"),
+      b: party("b", "Review"),
+      topic: "Cache the lookups?",
+      rounds: 2,
+    });
+  }
+  const added = () =>
+    (discussionStore().get("d1")?.interjections ?? []).map(
+      (entry) => entry.text,
+    );
+
+  it("sends what you write to both chats instead of this agent", async () => {
+    startHere();
+    await render();
+    expect(field().placeholder).toBe("Add something for both of them…");
+    expect(
+      container.querySelector('[aria-label="Send to both"]'),
+    ).not.toBeNull();
+    await type("Keep it under 50 lines.");
+    await press("Enter");
+    expect(added()).toEqual(["Keep it under 50 lines."]);
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    expect(field().value).toBe("");
+  });
+
+  it("resumes a paused discussion with your message", async () => {
+    startHere();
+    discussionStore().pause("d1", "“Review” needs your approval.");
+    await render();
+    expect(field().placeholder).toBe("Add something for both of them…");
+    await type("Go ahead.");
+    await press("Enter");
+    expect(added()).toEqual(["Go ahead."]);
+    expect(discussionStore().get("d1")?.status).toBe("active");
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("goes back to messaging this agent once it has ended", async () => {
+    startHere();
+    await render();
+    await act(async () => discussionStore().stop("d1"));
+    expect(field().placeholder).not.toBe("Add something for both of them…");
+    await type("Now build it.");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      "Now build it.",
+      [],
+      expect.anything(),
+    );
+  });
+
+  it("offers no mode while it runs, since what you send goes to both", async () => {
+    startHere();
+    await render();
+    await openPlus();
+    expect(discussItem()).toBeNull();
+    expect(document.body.querySelector("[data-composer-race]")).toBeNull();
+    expect(
+      document.body.querySelector("[data-composer-modes-off]")?.textContent,
+    ).toContain("what you send goes to both chats");
+  });
+
+  it("says why it won't send a command or a long message to both", async () => {
+    startHere();
+    await render();
+    await type("/compact");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(container.textContent).toContain(
+      "Commands aren't sent to both chats.",
+    );
+    const long = "x".repeat(1_600);
+    await type(long);
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(container.textContent).toContain(
+      "Messages for both chats are limited to 1,500 characters; this one has 1,600. Shorten it to send.",
+    );
+    expect(field().value).toBe(long);
+  });
+
+  it("sends a message that starts with a path to both, as it isn't a command", async () => {
+    startHere();
+    await render();
+    await type("/Users/me/app/src/cache.ts fails on the second load");
+    await press("Enter");
+    expect(added()).toEqual([
+      "/Users/me/app/src/cache.ts fails on the second load",
+    ]);
+  });
+
+  it("leaves the other chat's message box as it is", async () => {
+    startHere();
+    props.sessionId = "b";
+    await render();
+    expect(field().placeholder).not.toBe("Add something for both of them…");
+    await type("Hello");
+    await press("Enter");
+    expect(added()).toEqual([]);
+    expect(props.onSubmit).toHaveBeenCalled();
   });
 });

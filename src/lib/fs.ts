@@ -105,9 +105,19 @@ export type GitWorktree = {
   mergedIntoDefault: boolean;
 };
 
-/** Every checkout of the repository containing `cwd`, with its uncommitted work. */
-export function gitWorktrees(cwd: string): Promise<GitWorktree[]> {
-  return invoke<GitWorktree[]>("git_worktrees", { cwd });
+/**
+ * Every checkout of the repository containing `cwd`, with its uncommitted
+ * work. `bases` measures the named checkouts (race lanes) against the commit
+ * they started from instead of the default branch.
+ */
+export function gitWorktrees(
+  cwd: string,
+  bases?: Record<string, string>,
+): Promise<GitWorktree[]> {
+  return invoke<GitWorktree[]>(
+    "git_worktrees",
+    bases && Object.keys(bases).length ? { cwd, bases } : { cwd },
+  );
 }
 
 /**

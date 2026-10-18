@@ -552,7 +552,7 @@ export function ComposerRunner({
           project={project}
           name={appearance.name}
           color={appearance.color}
-          className="size-4"
+          className="size-[18px]"
           active={!ownReaction}
           reaction={ownReaction?.kind}
           reactionId={ownReaction?.id}

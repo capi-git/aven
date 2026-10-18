@@ -1,7 +1,6 @@
 import type { ActivityEntry } from "./activity";
 import { basename } from "./fs";
-import { composeToolTitle, isWeakToolTitle } from "./harness/preview";
-import { displayPath, projectKey } from "./paths";
+import { projectKey } from "./paths";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
@@ -12,7 +11,17 @@ import {
 import { isActiveSessionAgent } from "./sessionAgents";
 import { summaryFromSession } from "./sessionHistory";
 import type { SessionSummary } from "./sessionStore";
+import {
+  requestsAreUsers,
+  teamsNeedingYou,
+  type LeadDecided,
+} from "./teamAttention";
+import type { TeamRowInfo } from "./teamGrouping";
+import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
+import { currentActivity } from "./sessionDoing";
+
+export { currentActivity };
 
 /**
  * A loaded session reduced to what the workspace home shows. Small and
@@ -45,6 +54,12 @@ export type HomeLiveSession = {
   doing?: string;
   /** Paused on an approval or a question, with what it asks. */
   waiting?: { kind: "approval" | "question"; detail: string };
+  /**
+   * An orchestration worker whose requests are yours (its run is over, or
+   * its lead left one to you): listed while it works or asks, never in
+   * Recent, which leaves workers out as saved history does.
+   */
+  worker?: true;
 };
 
 /** A row in Recent sessions, from saved history and loaded sessions. */
@@ -59,11 +74,14 @@ export type HomeSession = {
   running?: true;
 };
 
-/** Something waiting on the user: an approval, a question or an unread reply. */
+/**
+ * Something waiting on the user: an approval, a question, a team that paused
+ * for them, or an unread reply.
+ */
 export type HomeAttention = {
   /** Session id. */
   id: string;
-  kind: "approval" | "question" | "completed" | "failed" | "stopped";
+  kind: "approval" | "question" | "paused" | "completed" | "failed" | "stopped";
   title: string;
   cwd: string;
   /** What it asks, or the first line of the reply. */
@@ -78,6 +96,8 @@ export type HomeRunning = {
   cwd: string;
   startedAt?: number;
   doing?: string;
+  /** A team shown as one row (see `teamGrouping`): its mascots and count. */
+  team?: TeamRowInfo;
 };
 
 export type HomeProject = {
@@ -177,52 +197,23 @@ function pendingApproval(blocks: readonly Block[]): Block | undefined {
 }
 
 /**
- * What a working session is doing now, from its current turn only: the
- * latest tool call (worded as the live agents list words it), a reply being
- * written, or thinking. A turn's earlier tools never stand in for it.
- */
-export function currentActivity(session: Session): string {
-  const blocks = session.blocks;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i];
-    if (block.role === "user") break;
-    if (block.role === "reasoning") return "Thinking";
-    if (block.role === "assistant") return "Writing a reply";
-    if (block.role === "handoff" && block.handoff?.status === "preparing")
-      return "Preparing a handoff";
-    if (block.role !== "tool") continue;
-    const preview = block.tool?.preview;
-    const path = preview?.path
-      ? displayPath(preview.path, session.cwd)
-      : preview?.fileName;
-    const label = composeToolTitle({
-      kind: block.tool?.kind,
-      title: block.text || block.tool?.title,
-      path,
-      query: preview?.query,
-      previewKind: preview?.kind,
-      cwd: session.cwd,
-    });
-    // A bare verb ("Edit") gains the file it acts on; a bubble is narrow, so
-    // the file name rather than its path.
-    if (label && path && isWeakToolTitle(label))
-      return clip(`${label} ${basename(path)}`);
-    return clip(label || "Working");
-  }
-  if (!session.busy && session.liveAgents?.some(isActiveSessionAgent))
-    return "Background agents working";
-  return "Thinking";
-}
-
-/**
  * Running and waiting, as the sidebar's project status defines them
  * (`sessionProjectCounts`): waiting on any approval or question; running while
  * busy or with background agents, unless an approval or blocking question
  * pauses it.
  */
-function applyActivity(row: HomeLiveSession, session: Session) {
-  const approval = pendingApproval(session.blocks);
-  const question = session.pendingQuestion;
+function applyActivity(
+  row: HomeLiveSession,
+  session: Session,
+  leadDecided: LeadDecided,
+) {
+  // A worker's approval or question is its lead's to decide, not yours: the
+  // lead's row keeps working ("Lead deciding") instead of asking for you.
+  const managed = !requestsAreUsers(session, leadDecided);
+  const approval = managed ? undefined : pendingApproval(session.blocks);
+  const question = managed ? undefined : session.pendingQuestion;
+  const deciding =
+    managed && (!!pendingApproval(session.blocks) || !!session.pendingQuestion);
   if ((approval || question) && !row.waiting) {
     row.waiting = approval
       ? {
@@ -246,7 +237,8 @@ function applyActivity(row: HomeLiveSession, session: Session) {
     !!session.busy || (session.liveAgents?.some(isActiveSessionAgent) ?? false);
   if (working && !approval && !isBlockingQuestion(question)) {
     row.running = true;
-    if (row.doing === undefined) row.doing = currentActivity(session);
+    if (row.doing === undefined)
+      row.doing = deciding ? "Lead deciding" : currentActivity(session);
     if (row.startedAt === undefined) {
       const startedAt = turnOf(session.blocks).startedAt;
       if (startedAt !== undefined) row.startedAt = startedAt;
@@ -257,22 +249,26 @@ function applyActivity(row: HomeLiveSession, session: Session) {
 /**
  * One pass over the loaded sessions. Only sessions in `inFlight` (the app's
  * busy set, which already includes leads of busy workers) are inspected for
- * approvals and questions. Inbox discussions are left out; orchestration
- * workers count toward their lead.
+ * approvals and questions. Inbox discussions are left out. An orchestration
+ * worker counts toward its lead while the lead decides for it
+ * (`leadDecided`); otherwise it is a chat of its own that asks you itself.
  */
 export function homeLiveSessions(
   sessions: readonly Session[],
   inFlight: ReadonlySet<string>,
+  leadDecided: LeadDecided,
 ): HomeLiveSession[] {
   const rows: HomeLiveSession[] = [];
   const byId = new Map<string, HomeLiveSession>();
   const workers: Session[] = [];
   for (const session of sessions) {
     if (session.inboxAsk) continue;
-    if (session.orchestrationLeadId) {
+    const worker = !!session.orchestrationLeadId;
+    if (worker && leadDecided.has(session.id)) {
       if (inFlight.has(session.id)) workers.push(session);
       continue;
     }
+    if (worker && !inFlight.has(session.id)) continue;
     const row: HomeLiveSession = {
       id: session.id,
       cwd: session.cwd,
@@ -283,13 +279,14 @@ export function homeLiveSessions(
     const turn = turnOf(session.blocks);
     if (turn.activeAt !== undefined) row.activeAt = turn.activeAt;
     if (!turn.hasUser) row.empty = true;
-    if (inFlight.has(session.id)) applyActivity(row, session);
+    if (worker) row.worker = true;
+    if (inFlight.has(session.id)) applyActivity(row, session, leadDecided);
     rows.push(row);
     byId.set(session.id, row);
   }
   for (const worker of workers) {
     const lead = byId.get(worker.orchestrationLeadId!);
-    if (lead) applyActivity(lead, worker);
+    if (lead) applyActivity(lead, worker, leadDecided);
   }
   return rows;
 }
@@ -384,7 +381,7 @@ export function homeRecentSessions(
     });
   }
   for (const session of live) {
-    if (!inHomeScope(scope, session.cwd)) continue;
+    if (session.worker || !inHomeScope(scope, session.cwd)) continue;
     const saved = rows.get(session.id);
     if (session.empty && !session.running && !saved) continue;
     rows.set(session.id, {
@@ -418,6 +415,7 @@ export function homeNeedsYou(
   activity: readonly ActivityEntry[],
   scope: HomeScope,
   index: HomeSessionIndex = NO_INDEX,
+  teams: readonly TeamRun[] = [],
 ): HomeAttention[] {
   const requested = new Map<string, number>();
   const replies = new Map<string, ActivityEntry>();
@@ -429,7 +427,12 @@ export function homeNeedsYou(
       const at = requested.get(entry.sessionId);
       if (at === undefined || entry.createdAt > at)
         requested.set(entry.sessionId, entry.createdAt);
-    } else if (entry.readAt === null && FINISHED.has(entry.outcome)) {
+    } else if (
+      entry.readAt === null &&
+      entry.resolvedAt === null &&
+      FINISHED.has(entry.outcome) &&
+      !entry.team?.member
+    ) {
       const newest = replies.get(entry.sessionId);
       if (!newest || entry.createdAt > newest.createdAt)
         replies.set(entry.sessionId, entry);
@@ -450,6 +453,22 @@ export function homeNeedsYou(
         session.updatedAt,
     });
   }
+  // A paused team, or a race no agent finished: the chat to open about it.
+  // Its members' own requests are already listed above.
+  for (const team of teamsNeedingYou(teams)) {
+    const need = team.need;
+    if (!need || need.kind === "approval" || need.kind === "question") continue;
+    if (!inHomeScope(scope, team.project)) continue;
+    if (waiting.some((item) => item.id === need.sessionId)) continue;
+    waiting.push({
+      id: need.sessionId,
+      kind: "paused",
+      title: index.title.get(need.sessionId) ?? team.title,
+      cwd: team.project,
+      detail: clip(need.text),
+      at: index.at.get(need.sessionId) ?? need.since,
+    });
+  }
   const listed = new Set(waiting.map((item) => item.id));
   const unread: HomeAttention[] = [];
   for (const entry of replies.values()) {
@@ -467,7 +486,11 @@ export function homeNeedsYou(
 }
 
 export function isWaitingAttention(item: HomeAttention): boolean {
-  return item.kind === "approval" || item.kind === "question";
+  return (
+    item.kind === "approval" ||
+    item.kind === "question" ||
+    item.kind === "paused"
+  );
 }
 
 /** Sessions with an agent at work, longest-running first, like the sidebar. */
@@ -506,6 +529,7 @@ export function homeProjects(
   activity: readonly ActivityEntry[],
   live: readonly HomeLiveSession[] = [],
   index: HomeSessionIndex = NO_INDEX,
+  teams: readonly TeamRun[] = [],
 ): HomeProject[] {
   const timeOf = (session: HomeLiveSession) =>
     index.at.get(session.id) ?? session.updatedAt;
@@ -530,6 +554,26 @@ export function homeProjects(
         working.set(key, session);
     }
   }
+  // A team waiting on you itself asks from its chat, as a request would.
+  const teamAsks = new Map<
+    string,
+    { id: string; text: string; title: string }
+  >();
+  for (const team of teamsNeedingYou(teams)) {
+    const need = team.need;
+    if (!need || need.kind === "approval" || need.kind === "question") continue;
+    const key = projectKey(team.project);
+    // The tile names the chat it opens, never another chat of the project.
+    const member = team.members.find(
+      (entry) => entry.sessionId === need.sessionId,
+    );
+    if (!waiting.has(key) && !teamAsks.has(key))
+      teamAsks.set(key, {
+        id: need.sessionId,
+        text: clip(need.text),
+        title: member?.title ?? team.title,
+      });
+  }
   const lastEvent = new Map<string, number>();
   for (const entry of activity) {
     if (!entry.cwd) continue;
@@ -541,6 +585,7 @@ export function homeProjects(
     const key = projectKey(project.path);
     const recentSession = latest.get(key);
     const asking = waiting.get(key);
+    const teamAsk = asking ? undefined : teamAsks.get(key);
     const doing = working.get(key);
     const opens = asking ?? doing ?? recentSession;
     const branch = branches.get(key);
@@ -552,9 +597,20 @@ export function homeProjects(
       name: basename(project.path),
       ...(branch ? { branch } : {}),
       ...(lastActivity > 0 ? { lastActivity } : {}),
-      ...(opens ? { resumeId: opens.id, resumeTitle: opens.title } : {}),
+      ...(teamAsk
+        ? {
+            resumeId: teamAsk.id,
+            resumeTitle: index.title.get(teamAsk.id) ?? teamAsk.title,
+          }
+        : opens
+          ? { resumeId: opens.id, resumeTitle: opens.title }
+          : {}),
       ...(doing?.doing ? { doing: doing.doing } : {}),
-      ...(asking?.waiting ? { asking: asking.waiting.detail } : {}),
+      ...(asking?.waiting
+        ? { asking: asking.waiting.detail }
+        : teamAsk
+          ? { asking: teamAsk.text }
+          : {}),
     };
   });
 }
@@ -570,7 +626,12 @@ export function homeFinished(
 ): HomeFinished[] {
   const rows: HomeFinished[] = [];
   for (const entry of activity) {
-    if (!FINISHED.has(entry.outcome) || !inHomeScope(scope, entry.cwd))
+    // A team member's own turn is its team's: the team's entry stands for it.
+    if (
+      !FINISHED.has(entry.outcome) ||
+      entry.team?.member ||
+      !inHomeScope(scope, entry.cwd)
+    )
       continue;
     rows.push({
       id: entry.id,

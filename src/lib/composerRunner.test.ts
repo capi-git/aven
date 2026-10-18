@@ -140,7 +140,7 @@ describe("composerRunner", () => {
     expect(exitJumpY(0.9)).toBeLessThan(0);
     expect(spriteClipBottom(8)).toBe(0);
     expect(spriteClipBottom(-4)).toBe(4);
-    expect(spriteClipBottom(-40)).toBe(16);
+    expect(spriteClipBottom(-40)).toBe(RUNNER_SIZE);
   });
 
   it("ignores a control that is not sitting on the top border", () => {

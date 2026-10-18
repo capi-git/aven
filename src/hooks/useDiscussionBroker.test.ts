@@ -4,14 +4,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DiscussionStore,
+  discussionBuildSent,
   type Discussion,
   type DiscussionHost,
   type DiscussionSummary,
 } from "../lib/discussions";
 import type { DiscussionTranscripts } from "../lib/discussionThread";
 import { appendUser, stopStreaming } from "../lib/harness/apply";
-import { newSession, type Session } from "../lib/session";
 import {
+  newSession,
+  type DiscussionRelayMeta,
+  type DiscussionWrapUpMeta,
+  type Session,
+} from "../lib/session";
+import {
+  discussionCandidates,
   discussionChatTitle,
   useDiscussionBroker,
   type DiscussionTurnOptions,
@@ -30,10 +37,21 @@ let sent: Sent[];
 let messages: { sessionId: string; text: string }[];
 let focused: string[];
 let notes: { sessionId: string; text: string }[];
+/** What closing notes carried to show where they landed. */
+let wrapUps: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Where they landed, copied into a note once written. */
+let recorded: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Discussions this window started, and those that used up their rounds. */
+let started: string[];
+let endedIds: string[];
+/** The other chat's last reply, copied into the starting chat. */
+let replies: { sessionId: string; text: string; meta: DiscussionRelayMeta }[];
 let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
 let ref: () => Session[];
 let accept: boolean;
+/** Chats this window parked, which `loadChat` brings back. */
+let parked: Map<string, Session>;
 let openPartner: ReturnType<typeof vi.fn>;
 let openView: ReturnType<typeof vi.fn<(id: string) => void>>;
 let summarise: ReturnType<
@@ -89,10 +107,44 @@ function Harness({ initial }: { initial: Session[] }) {
       );
       return undefined;
     },
-    postNote: (sessionId, text) => notes.push({ sessionId, text }),
+    postNote: (sessionId, text, wrapUp) => {
+      notes.push({ sessionId, text });
+      if (wrapUp) wrapUps.push({ sessionId, wrapUp });
+    },
+    recordWrapUp: (sessionId, wrapUp) => recorded.push({ sessionId, wrapUp }),
+    postReply: (sessionId, text, meta) => {
+      replies.push({ sessionId, text, meta });
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                blocks: [
+                  ...session.blocks,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    text,
+                    discussionReply: meta,
+                  },
+                ],
+              }
+            : session,
+        ),
+      );
+    },
     openPartner: openPartner as never,
     openView,
+    onStarted: (id) => started.push(id),
+    onEnded: (discussion) => endedIds.push(discussion.id),
     focusChat: (sessionId) => focused.push(sessionId),
+    loadChat: async (sessionId) => {
+      const session = parked.get(sessionId);
+      if (!session) return null;
+      parked.delete(sessionId);
+      setSessions((list) => [...list, session]);
+      return session;
+    },
     summarise,
   });
   host = broker.host;
@@ -141,8 +193,14 @@ beforeEach(() => {
   messages = [];
   focused = [];
   notes = [];
+  wrapUps = [];
+  recorded = [];
+  replies = [];
+  started = [];
+  endedIds = [];
   summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
+  parked = new Map();
   openPartner = vi.fn();
   openView = vi.fn<(id: string) => void>();
   root = createRoot(document.createElement("div"));
@@ -187,16 +245,43 @@ describe("useDiscussionBroker", () => {
     await finish("b", "Agreed.");
     expect(sent).toHaveLength(2);
     expect(notes).toEqual([
-      { sessionId: "a", text: "Discussion ended after 1 round." },
-      { sessionId: "b", text: "Discussion ended after 1 round." },
+      { sessionId: "a", text: "Discussion finished after 1 round." },
+      { sessionId: "b", text: "Discussion finished after 1 round." },
     ]);
-    // Finished: kept for its conversation page, with nothing left to do.
+    // Finished: kept for the team panel, with nothing left to do.
     expect(store.snapshot()).toEqual([
       expect.objectContaining({ status: "ended", settled: 2, notes: [] }),
     ]);
   });
 
-  it("opens the conversation page when one starts, and on request", async () => {
+  it("gives the other chat its role once, in its first relayed message", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 2,
+        role: "skeptic",
+      });
+    });
+    expect(store.snapshot()[0].b.role).toBe("skeptic");
+    expect(sent[0].text).not.toContain("Your role");
+    await finish("a", "Yes, briefly.");
+    const brief =
+      "Your role in this discussion: Skeptic. Push back on weak points and look for what could go wrong; agree only when convinced.";
+    expect(sent[1].sessionId).toBe("b");
+    expect(sent[1].text.split(brief)).toHaveLength(2);
+    // Shown in its transcript as part of the relayed message.
+    expect(sent[1].options.displayText).toBe(`${brief}\n\nYes, briefly.`);
+    await finish("b", "Not so fast.");
+    await finish("a", "Fair.");
+    expect(sent.map((entry) => entry.sessionId)).toEqual(["a", "b", "a", "b"]);
+    expect(sent[3].text).not.toContain("Your role");
+    expect(sent[3].options.displayText).toBe("Fair.");
+  });
+
+  it("opens the discussion in the panel only on request", async () => {
     await mount([chat("a", "Caching"), chat("b", "Review")]);
     await act(async () => {
       host.start({
@@ -207,12 +292,13 @@ describe("useDiscussionBroker", () => {
       });
     });
     const id = store.snapshot()[0].id;
-    expect(openView).toHaveBeenCalledExactlyOnceWith(id);
+    // It plays out in the chat that started it.
+    expect(openView).not.toHaveBeenCalled();
     host.open?.(id);
-    expect(openView).toHaveBeenCalledTimes(2);
+    expect(openView).toHaveBeenCalledExactlyOnceWith(id);
     // Nothing to open for a discussion this window has never heard of.
     host.open?.("unknown");
-    expect(openView).toHaveBeenCalledTimes(2);
+    expect(openView).toHaveBeenCalledTimes(1);
   });
 
   it("opens nothing when the start is refused", async () => {
@@ -329,8 +415,8 @@ describe("useDiscussionBroker", () => {
       sent[0].options.onSettled({ status: "cancelled", text: "" }),
     );
     expect(notes.map((note) => note.text)).toEqual([
-      "Discussion ended: “Caching” was stopped.",
-      "Discussion ended: “Caching” was stopped.",
+      "Discussion stopped because “Caching” was stopped.",
+      "Discussion stopped because “Caching” was stopped.",
     ]);
   });
 
@@ -379,7 +465,7 @@ describe("useDiscussionBroker", () => {
     });
   });
 
-  it("starts with a new chat opened beside this one", async () => {
+  it("starts with a new chat it does not show", async () => {
     await mount([chat("a", "Caching")]);
     openPartner.mockImplementation(() => {
       setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
@@ -401,6 +487,45 @@ describe("useDiscussionBroker", () => {
     );
     expect(store.snapshot()[0].b.sessionId).toBe("new");
     expect(sent[0].sessionId).toBe("a");
+    // Nothing opens: neither the new chat nor the page.
+    expect(openView).not.toHaveBeenCalled();
+    expect(focused).toEqual([]);
+  });
+
+  it("leaves a chat that is already open where it is", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    expect(openPartner).not.toHaveBeenCalled();
+    expect(focused).toEqual([]);
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("shows either side's chat when the page asks", async () => {
+    await mount([chat("a", "Caching")]);
+    openPartner.mockImplementation(() => {
+      setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
+      return "new";
+    });
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "new", harness: "codex", model: "gpt-5" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    host.show?.(id, "b");
+    host.show?.(id, "a");
+    host.show?.("unknown", "a");
+    expect(focused).toEqual(["new", "a"]);
   });
 
   it("lists other chats and refuses busy ones", async () => {
@@ -490,9 +615,12 @@ describe("useDiscussionBroker with the user jumping in", () => {
     expect(sent[2].text).toContain(
       "says:\n\nFor how long?\n\nThe user adds: Keep it small.",
     );
-    expect(sent[2].options.displayText).toBe(
-      "For how long?\n\nYou added: Keep it small.",
-    );
+    // The chat that started it shows the reply, then the user's message
+    // as their own.
+    expect(sent[2].options.displayText).toBe("For how long?");
+    expect(sent[2].options.discussion.added).toEqual({
+      after: ["Keep it small."],
+    });
 
     await finish("a", "Five minutes.");
     expect(sent[3].sessionId).toBe("b");
@@ -545,11 +673,92 @@ describe("useDiscussionBroker with the user jumping in", () => {
       ended: { kind: "completed" },
     });
     expect(notes.map((note) => note.text)).toEqual([
-      "Discussion ended after 1 round.",
-      "Discussion ended after 1 round.",
-      "Discussion ended after 2 rounds.",
-      "Discussion ended after 2 rounds.",
+      "Discussion finished after 1 round.",
+      "Discussion finished after 1 round.",
+      "Discussion finished after 2 rounds.",
+      "Discussion finished after 2 rounds.",
     ]);
+  });
+
+  it("brings back a parked partner to continue, instead of pausing", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    await finish("b", "Agreed, five minutes.");
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      expect(store.interject(id, "Now eviction?")).toBeNull();
+    });
+    await finish("a", "LRU.");
+    // The partner is loaded and gets its turn; nothing paused.
+    expect(store.get(id)?.status).toBe("active");
+    expect(sent.at(-1)?.sessionId).toBe("b");
+    expect(ref().some((session) => session.id === "b")).toBe(true);
+  });
+
+  it("pauses for a partner that can't be brought back, and tries again on Resume", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    await finish("b", "Agreed.");
+    const b = ref().find((session) => session.id === "b")!;
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      store.interject(id, "Now eviction?");
+    });
+    await finish("a", "LRU.");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(store.get(id)).toMatchObject({
+      status: "paused",
+      reason:
+        "“Review” couldn't be opened. Open it from the sidebar to continue.",
+    });
+    // It can be opened again (unarchived, say): Resume tries once more.
+    parked.set("b", b);
+    await act(async () => {
+      store.resume(id);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(store.get(id)?.status).toBe("active");
+    expect(ref().some((session) => session.id === "b")).toBe(true);
+  });
+
+  it("copies the partner's last reply in when its turn ended before a reload", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    // B answers, but this page never hears its turn end (a reload).
+    const turn = sent.at(-1)!;
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "b"
+            ? stopStreaming({
+                ...session,
+                blocks: [
+                  ...session.blocks,
+                  { id: "late", role: "assistant", text: "Agreed, later." },
+                ],
+              })
+            : session,
+        ),
+      ),
+    );
+    expect(turn.sessionId).toBe("b");
+    // A new page drives it: its turn in flight is forgotten.
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    await mount(ref());
+    expect(store.get(id)).toMatchObject({ status: "ended", settled: 2 });
+    expect(replies.map((reply) => reply.text)).toEqual(["Agreed, later."]);
+    expect(endedIds).toEqual([id]);
   });
 });
 
@@ -630,10 +839,162 @@ describe("useDiscussionBroker's wrap-up", () => {
     });
   });
 
+  it("shows where they landed under the starting chat's closing note, and keeps the lists there", async () => {
+    let write: (summary: DiscussionSummary) => void = () => {};
+    summarise.mockImplementationOnce(
+      () =>
+        new Promise<DiscussionSummary>((resolve) => {
+          write = resolve;
+        }),
+    );
+    const id = await complete();
+    // Both chats get the note; only the starting chat's shows the wrap-up,
+    // which is still being written.
+    expect(notes.map((note) => note.sessionId)).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([{ sessionId: "a", wrapUp: { id, settled: 2 } }]);
+    expect(recorded).toEqual([]);
+    await act(async () =>
+      write({
+        status: "done",
+        agreed: ["Cache by URL"],
+        open: ["Errors"],
+        model: "Claude Haiku 4.5",
+      }),
+    );
+    expect(recorded).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: ["Errors"] },
+      },
+    ]);
+    // Nothing is sent to either agent.
+    expect(sent).toHaveLength(2);
+    expect(messages).toEqual([]);
+  });
+
+  it("copies the other chat's last reply into the starting chat, shown only", async () => {
+    const id = await complete();
+    expect(replies).toEqual([
+      {
+        sessionId: "a",
+        text: "Agreed, with a TTL.",
+        meta: expect.objectContaining({
+          id,
+          turn: 2,
+          partner: expect.objectContaining({ title: "Review", sessionId: "b" }),
+          self: expect.objectContaining({ sessionId: "a" }),
+          at: expect.any(Number),
+        }),
+      },
+    ]);
+    // Neither agent is sent anything more.
+    expect(sent).toHaveLength(2);
+    // Continued from the chat: that reply is passed on to the starting chat
+    // again, but not shown twice.
+    await act(async () => {
+      store.interject(id, "And eviction?");
+    });
+    expect(sent).toHaveLength(3);
+    expect(sent[2].sessionId).toBe("a");
+    expect(sent[2].text).toContain("Agreed, with a TTL.");
+    expect(sent[2].options.displayText).toBe("");
+    expect(sent[2].options.discussion).toMatchObject({
+      turn: 2,
+      replyShown: true,
+      added: { after: ["And eviction?"] },
+    });
+  });
+
+  it("opens the panel when one starts, and says so when it used up its rounds", async () => {
+    const id = await complete();
+    expect(started).toEqual([id]);
+    expect(endedIds).toEqual([id]);
+  });
+
+  it("copies nothing when the discussion was stopped", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await finish("a", "Cache by URL.");
+    await act(async () => store.stop(store.snapshot()[0].id));
+    await finish("b", "Too late.");
+    expect(replies).toEqual([]);
+    expect(endedIds).toEqual([]);
+  });
+
+  it("puts the lists in the note itself when they are written first", async () => {
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Cache by URL"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 1,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    await finish("a", "Cache by URL.");
+    // The starting chat is busy with your own turn when the discussion ends.
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: true } : session,
+        ),
+      ),
+    );
+    await finish("b", "Agreed.");
+    expect(store.get(id)?.summary?.status).toBe("done");
+    expect(wrapUps).toEqual([]);
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: false } : session,
+        ),
+      ),
+    );
+    expect(wrapUps).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: [] },
+      },
+    ]);
+  });
+
+  it("shows no wrap-up after a stopped discussion's note", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await act(async () => store.stop(store.snapshot()[0].id));
+    // The starting chat's note waits for the turn it was sent to end.
+    await finish("a", "Cache by URL.");
+    expect(notes.map((note) => note.sessionId).sort()).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([]);
+  });
+
   it("keeps a failed summary as failed and never retries it", async () => {
     summarise.mockRejectedValue(new Error("No model"));
     const id = await complete();
     expect(store.get(id)?.summary).toEqual({ status: "failed" });
+    // No lists to keep.
+    expect(recorded).toEqual([]);
     await act(async () =>
       setSessions((list) => list.map((session) => ({ ...session }))),
     );
@@ -664,7 +1025,7 @@ describe("useDiscussionBroker's wrap-up", () => {
     const id = await complete();
     let refused: string | null = "unset";
     await act(async () => {
-      refused = host.build!(id, "b");
+      refused = await host.build!(id, "b");
     });
     expect(refused).toBeNull();
     expect(focused).toEqual(["b"]);
@@ -682,6 +1043,44 @@ describe("useDiscussionBroker's wrap-up", () => {
     ).toMatchObject({ role: "user", text: messages[0].text });
     // Nothing new is relayed.
     expect(sent).toHaveLength(2);
+    // The card and the panel both read that it went, and it never goes twice.
+    expect(discussionBuildSent(store.get(id)!, "b")).toBe(true);
+    expect(discussionBuildSent(store.get(id)!, "a")).toBe(false);
+    await act(async () => {
+      refused = await host.build!(id, "b");
+    });
+    expect(refused).toBeNull();
+    expect(messages).toHaveLength(1);
+  });
+
+  it("brings back a chat that was parked once the discussion ended, then builds", async () => {
+    const id = await complete();
+    // The new partner had no tab: it was parked after the closing notes.
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    let refused: string | null = "unset";
+    await act(async () => {
+      refused = await host.build!(id, "b");
+    });
+    expect(refused).toBeNull();
+    expect(messages.map((message) => message.sessionId)).toEqual(["b"]);
+    expect(focused).toEqual(["b"]);
+  });
+
+  it("sends the plan once, however often Build is pressed while it loads", async () => {
+    const id = await complete();
+    const b = ref().find((session) => session.id === "b")!;
+    parked.set("b", b);
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "b")),
+    );
+    await act(async () => {
+      await Promise.all([host.build!(id, "b"), host.build!(id, "b")]);
+    });
+    expect(messages.map((message) => message.sessionId)).toEqual(["b"]);
   });
 
   it("says why it can't build when the chat is gone or refuses", async () => {
@@ -689,11 +1088,48 @@ describe("useDiscussionBroker's wrap-up", () => {
     await act(async () =>
       setSessions((list) => list.filter((session) => session.id !== "a")),
     );
-    expect(host.build!(id, "a")).toBe("“Caching” isn't open in this window.");
+    expect(await host.build!(id, "a")).toBe("Couldn't open “Caching”.");
     accept = false;
-    expect(host.build!(id, "b")).toBe("Couldn't send to “Review”.");
-    expect(host.build!("gone", "b")).toBe(
+    expect(await host.build!(id, "b")).toBe("Couldn't send to “Review”.");
+    expect(store.get(id)?.built).toBeUndefined();
+    expect(await host.build!("gone", "b")).toBe(
       "This discussion is no longer available.",
     );
+  });
+});
+
+describe("the chats Discuss lists", () => {
+  const candidate = (sessionId: string, cwd: string, lastUsedAt?: number) => ({
+    sessionId,
+    title: sessionId,
+    harness: "codex" as const,
+    model: "GPT-5",
+    cwd,
+    ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+  });
+
+  it("shows only this project's chats, most recently used first", () => {
+    const listed = discussionCandidates(
+      [
+        candidate("old", "/work/site", 1_000),
+        candidate("elsewhere", "/work/api", 9_000),
+        candidate("unused", "/work/site"),
+        candidate("recent", "/work/site", 5_000),
+      ],
+      "/work/site",
+    );
+    expect(listed.map((entry) => entry.sessionId)).toEqual([
+      "recent",
+      "old",
+      "unused",
+    ]);
+  });
+
+  it("falls back to other projects' chats when this one has none", () => {
+    const listed = discussionCandidates(
+      [candidate("api", "/work/api", 1), candidate("docs", "/work/docs", 2)],
+      "/work/site",
+    );
+    expect(listed.map((entry) => entry.sessionId)).toEqual(["docs", "api"]);
   });
 });

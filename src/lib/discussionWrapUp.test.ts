@@ -10,7 +10,7 @@ import {
   discussionBuildMessage,
   parseWrapUp,
   runDiscussionWrapUp,
-  spokenName,
+  discussionAgentName,
   WRAP_UP_SIGNATURE,
   WRAP_UP_SYSTEM_PROMPT,
   wrapUpDigest,
@@ -111,9 +111,9 @@ describe("wrapUpDigest", () => {
     const order = [
       "Topic from the user:\nShould we cache the lookups?",
       "--- Round 1 of 1 ---",
-      "Claude · Sonnet 5 (opened the topic):\nCache by URL.",
+      "Claude (opened the topic):\nCache by URL.",
       "The user added:\nKeep it small.",
-      "Codex · GPT-5.5 (responding):\nAgreed, add a TTL.",
+      "Codex (joined the topic):\nAgreed, add a TTL.",
     ].map((part) => digest.indexOf(part));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((x, y) => x - y)).toEqual(order);
@@ -275,31 +275,38 @@ describe("discussionBuildMessage", () => {
       },
     };
     expect(discussionBuildMessage(summed, "a")).toBe(
-      "Please carry out the plan from your discussion with Codex GPT-5.5. You agreed on:\n\n- Cache by URL\n- Add a TTL",
+      "Please carry out the plan from your discussion with Codex. You agreed on:\n\n- Cache by URL\n- Add a TTL",
     );
     expect(discussionBuildMessage(summed, "b")).toBe(
-      "Please carry out the plan from your discussion with Claude Sonnet 5. You agreed on:\n\n- Cache by URL\n- Add a TTL",
+      "Please carry out the plan from your discussion with Claude. You agreed on:\n\n- Cache by URL\n- Add a TTL",
     );
   });
 
   it("refers to the plan from the discussion without a summary", () => {
     const { discussion } = finished();
     expect(discussionBuildMessage(discussion, "a")).toBe(
-      "Please carry out the plan from your discussion with Codex GPT-5.5.",
+      "Please carry out the plan from your discussion with Codex.",
     );
     expect(
       discussionBuildMessage(
         { ...discussion, summary: { status: "failed" } },
         "b",
       ),
-    ).toBe(
-      "Please carry out the plan from your discussion with Claude Sonnet 5.",
-    );
+    ).toBe("Please carry out the plan from your discussion with Claude.");
   });
 
-  it("names each side by its provider and model", () => {
-    expect(spokenName(A)).toBe("Claude Sonnet 5");
-    expect(spokenName(B)).toBe("Codex GPT-5.5");
-    expect(spokenName({ harness: "claude", model: "Default" })).toBe("Claude");
+  it("names each side by its app, with the model only beside the same app", () => {
+    const { discussion } = finished();
+    expect(discussionAgentName(discussion, "a")).toBe("Claude");
+    expect(discussionAgentName(discussion, "b")).toBe("Codex");
+    const twins = {
+      a: A,
+      b: { ...B, harness: "claude" as const, model: "Claude Opus 4.6" },
+    };
+    expect(discussionAgentName(twins, "a")).toBe("Claude Sonnet 5");
+    expect(discussionAgentName(twins, "b")).toBe("Claude Opus 4.6");
+    expect(discussionBuildMessage({ ...discussion, ...twins }, "a")).toBe(
+      "Please carry out the plan from your discussion with Claude Opus 4.6.",
+    );
   });
 });

@@ -1,0 +1,482 @@
+/* A race's or a run's panel, in the window that owns it or popped out into
+   a window of its own. It shares the discussion panel's frame, header and
+   face-off (DiscussionPanel.css); the bodies below render team data only:
+   a race's lanes as columns, a run's lead and agents as rows. Theme tokens
+   only; each member is tinted with its provider's colour through
+   --discussion-voice. */
+.team-watch-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  container: team-watch / inline-size;
+}
+
+/* The face-off for any number of members: their mascots on tiles, the
+   ones at work glowing, then one status line. */
+.team-watch-faceoff {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.team-watch-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-watch-tile {
+  --discussion-voice: var(--color-content);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  min-width: 0;
+}
+.team-watch-tile .discussion-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  transition: box-shadow 200ms ease;
+}
+.team-watch-tile .discussion-avatar-sprite {
+  width: 24px;
+  height: 24px;
+}
+.team-watch-tile[data-active] .discussion-avatar {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--discussion-voice) 14%, transparent),
+    0 0 22px color-mix(in srgb, var(--discussion-voice) 30%, transparent);
+}
+.team-watch-tile[data-tone="needs-you"] .discussion-avatar {
+  box-shadow: 0 0 0 3px var(--aven-needs-you-edge);
+}
+.team-watch-tile[data-tone="muted"] .discussion-avatar {
+  opacity: 0.6;
+}
+.team-watch-tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-watch-tile[data-active] .team-watch-tile-name {
+  color: color-mix(in srgb, var(--discussion-voice) 75%, var(--color-content));
+}
+.team-watch-more {
+  align-self: center;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.team-watch-status {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  text-align: center;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.team-watch-status[data-tone="needs-you"] {
+  color: var(--aven-needs-you);
+}
+
+.team-watch-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: none;
+}
+
+/* A race: one column per lane, stacked while the panel is narrow. */
+.team-watch-lanes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@container team-watch (min-width: 400px) {
+  .team-watch-lanes[data-lanes="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container team-watch (min-width: 560px) {
+  .team-watch-lanes[data-lanes="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .team-watch-lanes[data-lanes="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container team-watch (min-width: 720px) {
+  .team-watch-lanes[data-lanes="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.team-watch-lane {
+  --discussion-voice: var(--color-content);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 10px;
+  /* Cards inside the panel sit on its own material. */
+  background: var(--aven-inset-card);
+}
+.team-watch-lane[data-tone="live"] {
+  border-color: color-mix(
+    in srgb,
+    var(--discussion-voice) 32%,
+    var(--aven-glass-card-edge, var(--aven-line))
+  );
+}
+.team-watch-lane[data-tone="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+}
+.team-watch-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.team-watch-member-face .discussion-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+.team-watch-member-face .discussion-avatar-sprite {
+  width: 18px;
+  height: 18px;
+}
+.team-watch-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-watch-name-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.team-watch-lane-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.team-watch-state {
+  flex-shrink: 0;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  white-space: nowrap;
+}
+.team-watch-state[data-tone="live"] {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+}
+.team-watch-state[data-tone="needs-you"] {
+  color: var(--aven-needs-you);
+}
+.team-watch-state[data-tone="done"] {
+  color: var(--color-content);
+}
+.team-watch-state[data-tone="failed"] {
+  color: color-mix(in srgb, var(--color-red-400) 80%, var(--color-content));
+}
+.team-watch-doing,
+.team-watch-asking,
+.team-watch-numbers,
+.team-watch-reply {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+}
+.team-watch-doing,
+.team-watch-asking {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-watch-doing {
+  color: color-mix(in srgb, var(--discussion-voice) 70%, var(--color-content));
+}
+.team-watch-asking {
+  color: var(--aven-needs-you);
+}
+.team-watch-numbers {
+  display: flex;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+}
+.team-watch-reply {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.team-watch-reply span {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+.team-watch-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+}
+.team-watch-suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.team-watch-suggestion svg {
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+}
+
+.team-watch-suggestion .team-watch-member-face {
+  flex-shrink: 0;
+}
+
+/* A run: what holds it up, the lead, then a row per agent. */
+.team-watch-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--aven-needs-you-edge);
+  border-radius: 10px;
+  background: var(--aven-needs-you-wash);
+}
+.team-watch-notice p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
+.team-watch-verdict {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.team-watch-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-watch-row[data-role="lead"] {
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.team-watch-row-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 8px;
+  text-align: left;
+  color: inherit;
+}
+button.team-watch-row-open:hover {
+  background: var(--aven-hover);
+}
+button.team-watch-row-open:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
+.team-watch-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.team-watch-detail {
+  overflow: hidden;
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-watch-row[data-member-state="lead-deciding"] .team-watch-detail {
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.team-watch-row-side {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  max-width: 40%;
+}
+.team-watch-files {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The actions at the bottom. */
+.team-watch-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--aven-line);
+}
+/* The panel's buttons are the team family's one button (TeamCard.css). */
+.team-watch-problem {
+  margin: 0;
+  padding: 0 12px 6px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-red-400) 80%, var(--color-content));
+}
+
+/* A pill for any team (its states live with the pill, DiscussionPanel.css). */
+.team-pill-progress {
+  flex-shrink: 0;
+}
+
+/* Docked in the footer: the same pills, footer height and flat, side by
+   side in a slot the workspace leaves for them. Where it stands gives way
+   before what is happening when the row is short of room. */
+.team-pill-tray {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.team-pill-tray .discussion-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  height: 22px;
+  gap: 6px;
+  padding: 0 8px 0 3px;
+  border-color: var(--aven-line);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  box-shadow: none;
+  font-size: var(--text-ui-caption);
+}
+.team-pill-tray .discussion-pill[data-state="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+}
+.team-pill-tray .discussion-pill .discussion-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+}
+.team-pill-tray .team-pill-progress {
+  flex: 0 8 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--aven-muted);
+}
+.team-pill-tray .discussion-pill-status {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-watch-tile .discussion-avatar {
+    transition: none;
+  }
+}
+
+/* Popped out: the panel fills a window of its own, its header doubling as
+   the title bar beside the window's traffic lights. */
+html.team-watch-window,
+html.team-watch-window body,
+html.team-watch-window #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--team-watch-window-bg, var(--aven-popup)) !important;
+  background-image: none !important;
+}
+.team-watch-window-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-sans);
+  color: var(--color-content);
+  container: discussion-view / inline-size;
+}
+.team-watch-window-root .discussion-float-head {
+  padding-top: 3px;
+}
+.team-watch-window-root .discussion-float-bar {
+  min-height: 22px;
+  padding-left: 68px;
+  cursor: default;
+}
+/* The owning window was closed while the team still runs there. */
+.team-watch-owner-hidden {
+  flex: none;
+  margin: 0 10px 10px;
+}
+.team-watch-closed {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}

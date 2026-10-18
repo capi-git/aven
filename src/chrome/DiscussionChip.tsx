@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react";
+import { agentRole, type AgentRoleId } from "../lib/agentRoles";
 import {
   BLOCKER_LABEL,
   DISCUSSION_MAX_ROUNDS,
@@ -7,14 +8,28 @@ import {
   type DiscussionHost,
   type DiscussionPartnerChoice,
 } from "../lib/discussions";
+import type { ComposerFit } from "../lib/composerFit";
 import { providerShortName } from "../lib/discussionVoices";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
+
+/** ↑, ↓, Home and End through a dropdown's buttons, never mid-composition. */
+const menuKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+  if (isImeComposition(event.nativeEvent)) return;
+  moveMenuFocus(event);
+};
+import { chatChoiceDetail } from "../lib/chatChoice";
 import { resolveModel } from "../lib/models";
+import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
 import type { HarnessId } from "../lib/session";
+import { RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, MessageMultiple, Plus, X } from "./icons";
 import { Popover } from "./Popover";
 import { ProjectMark } from "./ProjectMark";
+import { plural } from "../lib/words";
 import { SecondOpinionButton } from "./SecondOpinionButton";
 
 /** Who the composer's Discuss mode talks to, with what its chip shows. */
@@ -51,16 +66,18 @@ function chatPick(candidate: DiscussionCandidate): DiscussionPick {
 }
 
 /**
- * The partner Discuss mode starts with: the chat already picked while it can
- * still join, else the first open chat that can (same project first).
+ * The partner Discuss mode starts with: the one already picked while it can
+ * still join, else a new chat with `fresh`, the best other agent (see
+ * `bestDiscussionAgent`), else the first open chat that can join.
  */
 export function defaultDiscussionPick(
   host: DiscussionHost,
   sessionId: string,
   current: DiscussionPick | null,
+  fresh: { harness: HarnessId; model: string } | null = null,
 ): DiscussionPick | null {
-  const { candidates } = host.options(sessionId);
   if (current?.kind === "new") return current;
+  const { candidates } = host.options(sessionId);
   if (current?.kind === "chat") {
     const still = candidates.find(
       (candidate) =>
@@ -68,25 +85,49 @@ export function defaultDiscussionPick(
     );
     if (still) return chatPick(still);
   }
+  if (fresh) return { kind: "new", harness: fresh.harness, model: fresh.model };
   const open = candidates.find((candidate) => !candidate.blocked);
   return open ? chatPick(open) : null;
 }
 
-function plural(count: number, word: string) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
+/** "New chat with Codex": the dropdown's first row once one is chosen. */
+export function newChatLabel(pick: DiscussionPick | null): string {
+  return pick?.kind === "new"
+    ? `New chat with ${providerShortName(pick.harness)}`
+    : NEW_CHAT_TITLE;
 }
 
-/** "Discuss with Codex · 3 rounds". */
+/** The new-chat row's name before one is chosen, and its accessible name. */
+export const NEW_CHAT_TITLE = "New chat with…";
+
+/** "Discuss with Codex · 3 rounds", or "Discuss with Codex as Skeptic · 3 rounds". */
 export function discussionChipLabel(
   pick: DiscussionPick | null,
   rounds: number,
+  role?: AgentRoleId,
 ): string {
   const who = !pick
     ? "…"
     : pick.kind === "chat"
       ? providerShortName(pick.harness)
       : `new ${providerShortName(pick.harness)} chat`;
-  return `Discuss with ${who} · ${plural(rounds, "round")}`;
+  const as = role ? ` as ${agentRole(role).name}` : "";
+  return `Discuss with ${who}${as} · ${plural(rounds, "round")}`;
+}
+
+/**
+ * The chip's words for the room it has: the full label, or "Discuss ·
+ * Codex · 3" when space is short. The tooltip keeps the full text.
+ */
+export function discussionChipFitLabel(
+  pick: DiscussionPick | null,
+  rounds: number,
+  role: AgentRoleId | undefined,
+  fit: ComposerFit,
+): string {
+  if (fit === "full") return discussionChipLabel(pick, rounds, role);
+  const who = pick ? providerShortName(pick.harness) : "…";
+  return `Discuss · ${who} · ${rounds}`;
 }
 
 function pickTooltip(pick: DiscussionPick | null): string {
@@ -112,17 +153,22 @@ type Props = {
   model: string;
   pick: DiscussionPick | null;
   rounds: number;
+  /** The other chat's role for this discussion, if any. */
+  role?: AgentRoleId;
   /** Why sending would not start it yet, or the last refusal. */
   reason: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (pick: DiscussionPick) => void;
   onRoundsChange: (rounds: number) => void;
+  onRoleChange: (role: AgentRoleId | undefined) => void;
   onTurnOff: () => void;
   /** Development builds: show it without sending anything. */
   onPreview?: () => void;
   /** Return the keyboard to the message box. */
   onDone: () => void;
+  /** How much room the message box gives the chip's words. */
+  fit?: ComposerFit;
 };
 
 /**
@@ -137,26 +183,33 @@ export function DiscussionChip({
   model,
   pick,
   rounds,
+  role,
   reason,
   open,
   onOpenChange,
   onPick,
   onRoundsChange,
+  onRoleChange,
   onTurnOff,
   onPreview,
   onDone,
+  fit = "full",
 }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
-  const label = discussionChipLabel(pick, rounds);
+  const full = discussionChipLabel(pick, rounds, role);
+  const label = discussionChipFitLabel(pick, rounds, role, fit);
   return (
     <div
       className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
       data-discussion-chip
+      data-full-label={full}
     >
       <button
         ref={anchor}
         type="button"
-        title={pickTooltip(pick)}
+        title={
+          label === full ? pickTooltip(pick) : `${full}: ${pickTooltip(pick)}`
+        }
         aria-haspopup="dialog"
         aria-expanded={open}
         onMouseDown={(event) => event.preventDefault()}
@@ -189,6 +242,9 @@ export function DiscussionChip({
           tabIndex={-1}
           ignore={PROVIDER_MENUS}
           aria-label="Discuss with another chat"
+          // On the surface itself: it holds the keyboard when the dropdown
+          // opens, so the arrow keys move through it from the start.
+          onKeyDown={menuKeys}
           onDismiss={(dismissed) => {
             onOpenChange(false);
             if (dismissed === "escape") onDone();
@@ -203,9 +259,11 @@ export function DiscussionChip({
             model={model}
             pick={pick}
             rounds={rounds}
+            role={role}
             reason={reason}
             onPick={onPick}
             onRoundsChange={onRoundsChange}
+            onRoleChange={onRoleChange}
             onPreview={onPreview}
           />
         </Popover>
@@ -225,9 +283,11 @@ function DiscussionMenu({
   model,
   pick,
   rounds,
+  role,
   reason,
   onPick,
   onRoundsChange,
+  onRoleChange,
   onPreview,
 }: Pick<
   Props,
@@ -237,78 +297,43 @@ function DiscussionMenu({
   | "model"
   | "pick"
   | "rounds"
+  | "role"
   | "reason"
   | "onPick"
   | "onRoundsChange"
+  | "onRoleChange"
   | "onPreview"
 >) {
   const [{ blocked, candidates }] = useState(() => host.options(sessionId));
+  // Ages are worked out when the dropdown opens; nothing ticks.
+  const [now] = useState(() => Date.now());
+  const labels = useProjectLabels();
   const notice = blocked ?? reason;
   const newChat = pick?.kind === "new" ? pick : null;
-  const rowClass = (selected: boolean) =>
-    `flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body ${
+  const rowClass = (selected: boolean, twoLines = false) =>
+    `flex ${twoLines ? "min-h-10 py-1" : "h-8"} w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body ${
       selected
         ? "bg-content/10 text-content"
         : "text-content/85 hover:bg-content/5 hover:text-content"
     }`;
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (isImeComposition(event.nativeEvent)) return;
-    moveMenuFocus(event);
-  };
   return (
-    <div onKeyDown={onKeyDown}>
+    <div>
       <p className="px-2.5 pb-1 pt-2 text-ui-micro font-medium uppercase tracking-wide text-content/40">
         Discuss with
       </p>
       <div
         role="radiogroup"
         aria-label="Chat to discuss with"
-        className="max-h-[min(176px,30vh)] overflow-y-auto overscroll-none px-1 pb-1"
+        className="max-h-[min(208px,34vh)] overflow-y-auto overscroll-none px-1 pb-1"
       >
-        {candidates.map((candidate) => {
-          const selected =
-            pick?.kind === "chat" && pick.sessionId === candidate.sessionId;
-          return (
-            <button
-              key={candidate.sessionId}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={!!candidate.blocked}
-              data-discussion-candidate={candidate.sessionId}
-              title={
-                candidate.blocked
-                  ? `${candidate.title}: ${BLOCKER_LABEL[candidate.blocked]}`
-                  : `${candidate.title} · ${candidate.model}`
-              }
-              onClick={() => onPick(chatPick(candidate))}
-              className={`${rowClass(selected)} disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent`}
-            >
-              <ProjectMark path={candidate.cwd} />
-              <HarnessIcon
-                harness={candidate.harness}
-                className="size-3.5 shrink-0"
-              />
-              <span className="min-w-0 flex-1 truncate">{candidate.title}</span>
-              <span className="max-w-[40%] shrink-0 truncate text-ui-caption text-content/45">
-                {candidate.blocked
-                  ? BLOCKER_LABEL[candidate.blocked]
-                  : candidate.model}
-              </span>
-              <Check
-                className={`size-3.5 shrink-0 text-accent ${selected ? "" : "invisible"}`}
-              />
-            </button>
-          );
-        })}
         <SecondOpinionButton
           from={harness}
           fromModel={model}
           includeCurrent
           icon={Plus}
-          title="New chat with…"
-          disabledTitle="No providers are available for a new chat"
-          description="Open a new chat beside this one with the model you choose."
+          title={NEW_CHAT_TITLE}
+          disabledTitle="No agents are installed for a new chat"
+          description="Start a new chat with the model you choose. It talks in the background, listed in the sidebar, without a tab of its own."
           menuLabel="Choose the model for the new chat"
           onPick={(pickedHarness, pickedModel) =>
             onPick({ kind: "new", harness: pickedHarness, model: pickedModel })
@@ -316,7 +341,9 @@ function DiscussionMenu({
           triggerClassName={`${rowClass(!!newChat)} disabled:opacity-45`}
           label={
             <>
-              <span className="min-w-0 flex-1 truncate">New chat with…</span>
+              <span className="min-w-0 flex-1 truncate" data-discussion-new>
+                {newChatLabel(newChat)}
+              </span>
               {newChat ? (
                 <>
                   <HarnessIcon
@@ -334,6 +361,59 @@ function DiscussionMenu({
             </>
           }
         />
+        {candidates.length ? (
+          <p className="px-2 pb-0.5 pt-1.5 text-ui-micro font-medium uppercase tracking-wide text-content/40">
+            Open chats
+          </p>
+        ) : null}
+        {candidates.map((candidate) => {
+          const selected =
+            pick?.kind === "chat" && pick.sessionId === candidate.sessionId;
+          const where = chatChoiceDetail(
+            projectDisplayName(candidate.cwd, labels),
+            candidate.lastUsedAt,
+            now,
+          );
+          return (
+            <button
+              key={candidate.sessionId}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={!!candidate.blocked}
+              data-discussion-candidate={candidate.sessionId}
+              title={
+                candidate.blocked
+                  ? `${candidate.title}: ${BLOCKER_LABEL[candidate.blocked]}`
+                  : [candidate.title, candidate.model, where]
+                      .filter(Boolean)
+                      .join(" · ")
+              }
+              onClick={() => onPick(chatPick(candidate))}
+              className={`${rowClass(selected, true)} disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent`}
+            >
+              <ProjectMark path={candidate.cwd} />
+              <HarnessIcon
+                harness={candidate.harness}
+                className="size-3.5 shrink-0"
+              />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{candidate.title}</span>
+                <span
+                  className="truncate text-ui-caption leading-4 text-content/45"
+                  data-discussion-candidate-detail
+                >
+                  {candidate.blocked
+                    ? BLOCKER_LABEL[candidate.blocked]
+                    : [candidate.model, where].filter(Boolean).join(" · ")}
+                </span>
+              </span>
+              <Check
+                className={`size-3.5 shrink-0 text-accent ${selected ? "" : "invisible"}`}
+              />
+            </button>
+          );
+        })}
       </div>
       <div className="flex items-center gap-2 border-t border-content/10 px-2.5 py-2">
         <span
@@ -365,6 +445,21 @@ function DiscussionMenu({
             </button>
           ))}
         </div>
+      </div>
+      <div className="flex items-start gap-2 border-t border-content/10 px-2.5 py-2">
+        <span
+          id={`${sessionId}-discussion-role`}
+          className="mt-1 text-ui-caption text-content/50"
+          title="Added once to the other chat's first message, for this discussion only"
+        >
+          Role
+        </span>
+        <RolePicker
+          label="The other chat's role"
+          value={role}
+          onChange={onRoleChange}
+          className="min-w-0 flex-1"
+        />
       </div>
       <div className="flex min-h-9 items-center gap-1 border-t border-content/10 py-1 pl-2.5 pr-1">
         <p

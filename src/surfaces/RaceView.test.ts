@@ -9,6 +9,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => path,
 }));
 
+import { recordActivity } from "../lib/activity";
+import { INTERRUPT_MESSAGE } from "../lib/inFlight";
 import {
   getRace,
   installRaceWorkspace,
@@ -41,6 +43,8 @@ const stop = vi.fn();
 const settle = vi.fn();
 const release = vi.fn();
 const openChat = vi.fn();
+const compare = vi.fn();
+const retry = vi.fn();
 let uninstall: () => void;
 
 const record: RaceRecord = {
@@ -78,6 +82,54 @@ const session = (id: string, busy = false): Session => ({
   id,
   busy,
 });
+
+/** A lane whose race turn ended with `outcome` after `seconds`. */
+function ended(
+  id: string,
+  outcome: "completed" | "failed" | "stopped",
+  seconds = 42,
+): Session {
+  const startedAt = Date.now() - 600_000;
+  recordActivity({
+    id: `${id}:turn:${id}-turn:${outcome}`,
+    sessionId: id,
+    outcome,
+    title: "Race",
+    summary: "",
+    cwd: "/work/site",
+    harness: "claude",
+    model: "opus",
+    createdAt: startedAt + seconds * 1000,
+  });
+  return {
+    ...session(id),
+    blocks: [
+      {
+        id: `${id}-user`,
+        role: "user",
+        text: "Fix the login loop",
+        startedAt,
+        durationMs: seconds * 1000,
+      },
+      { id: `${id}-reply`, role: "assistant", text: "Done." },
+    ],
+  };
+}
+
+/** A lane whose race turn started `seconds` ago and is still running. */
+function workingFor(id: string, seconds: number): Session {
+  return {
+    ...session(id, true),
+    blocks: [
+      {
+        id: `${id}-user`,
+        role: "user",
+        text: "Fix the login loop",
+        startedAt: Date.now() - seconds * 1000,
+      },
+    ],
+  };
+}
 
 function answer(command: string, args: Record<string, unknown>) {
   if (command === "race_diff")
@@ -125,7 +177,16 @@ beforeEach(async () => {
   settle.mockReset().mockResolvedValue(undefined);
   release.mockReset().mockResolvedValue(undefined);
   openChat.mockReset();
-  uninstall = installRaceWorkspace({ stop, settle, release, openChat });
+  compare.mockReset();
+  retry.mockReset();
+  uninstall = installRaceWorkspace({
+    stop,
+    settle,
+    release,
+    openChat,
+    compare,
+    retry,
+  });
   saveRace(record);
   root = createRoot(document.createElement("div"));
 });
@@ -156,11 +217,28 @@ const button = (container: HTMLElement, label: string) =>
     item.textContent?.includes(label),
   )!;
 
-it("shows each lane's status and changes and explains what was copied", async () => {
-  const view = await render([session("s0"), session("s1", true)]);
+/** The open confirmation, if any (it is portalled to the page). */
+const dialog = () =>
+  document.body.querySelector<HTMLElement>('[role="dialog"]');
+
+async function confirmDialog() {
+  const confirm = dialog()?.querySelector<HTMLButtonElement>("[data-confirm]");
+  if (!confirm) throw new Error("No confirmation is open");
+  await act(async () => confirm.click());
+}
+
+/** Keep a lane, confirming that the other agents' changes go with it. */
+async function keepThis(view: HTMLElement) {
+  await act(async () => button(view, "Keep this").click());
+  expect(dialog()?.textContent).toContain("deletes Codex's work (1 file)");
+  await confirmDialog();
+}
+
+it("shows each lane's status and changes and explains what it started from", async () => {
+  const view = await render([ended("s0", "completed"), session("s1", true)]);
   const text = view.textContent ?? "";
-  expect(text).toContain("started from your uncommitted changes");
-  expect(text).toContain("new untracked files were not copied");
+  expect(text).toContain("started from your files as they are now");
+  expect(text).toContain("new files not yet added to Git weren't included");
   expect(text).toContain("Done");
   expect(text).toContain("Working");
   expect(text).toContain("+3");
@@ -168,7 +246,7 @@ it("shows each lane's status and changes and explains what was copied", async ()
   expect(text).toContain("b.ts");
   await act(async () => button(view, "Open chat").click());
   expect(openChat).toHaveBeenCalledWith("s0");
-  await act(async () => button(view, "Stop all").click());
+  await act(async () => button(view, "Stop race").click());
   expect(stop).toHaveBeenCalledWith(["s1"]);
 });
 
@@ -191,19 +269,19 @@ it("keeps a lane working during an optional question while blocking questions wa
 
 it("keeps one lane: applies its files, stops the lanes and removes the copies", async () => {
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(host.invoke).toHaveBeenCalledWith("race_apply", {
     root: "/work/site",
     base: record.base,
     choices: [{ worktree: "/data/races/r1/0", paths: ["a.ts"] }],
   });
-  expect(settle).toHaveBeenCalledWith(record);
+  expect(settle).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(host.invoke).toHaveBeenCalledWith("race_cleanup", {
     root: "/work/site",
     lanes: record.lanes,
   });
   expect(getRace("r1")?.state).toBe("kept");
-  expect(release).toHaveBeenCalledWith(record);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
 });
 
 it("waits for every lane writer before applying or deleting its copy", async () => {
@@ -219,12 +297,14 @@ it("waits for every lane writer before applying or deleting its copy", async () 
     ([command]) => command === "race_diff" || command === "race_file_diff",
   ).length;
   await act(async () => button(view, "Keep this").click());
+  await confirmDialog();
   await act(async () => {
     const file = [...view.querySelectorAll("span")].find(
       (span) => span.textContent === "b.ts",
     );
     file?.parentElement?.click();
   });
+  // Nothing reads the copies while their writers are still being stopped.
   expect(
     host.invoke.mock.calls.filter(
       ([command]) => command === "race_diff" || command === "race_file_diff",
@@ -239,14 +319,14 @@ it("waits for every lane writer before applying or deleting its copy", async () 
   await act(async () => stopped());
   expect(host.invoke).toHaveBeenCalledWith("race_apply", expect.anything());
   expect(host.invoke).toHaveBeenCalledWith("race_cleanup", expect.anything());
-  expect(release).toHaveBeenCalledWith(record);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
   expect(isFinishingRaceCheckout(record.lanes[0].path)).toBe(false);
 });
 
 it.each([
-  ["Keep this", "kept", "Changes kept in your project"],
-  ["Discard race", "discarded", "Your project is unchanged"],
+  ["Keep this", "kept", "Kept in your project."],
+  ["Discard race", "discarded", "Your project didn't change."],
 ] as const)(
   "shows completion after %s without reading removed copies",
   async (action, state, summary) => {
@@ -264,10 +344,13 @@ it.each([
     );
     const view = await render([session("s0"), session("s1")]);
     await act(async () => button(view, action).click());
+    // Keeping one deletes the other's changes, so it asks too.
+    await confirmDialog();
     const cleanupIndex = host.invoke.mock.calls.findIndex(
       ([command]) => command === "race_cleanup",
     );
     expect(cleanupIndex).toBeGreaterThan(-1);
+    expect(dialog()).toBeNull();
     expect(
       host.invoke.mock.calls
         .slice(cleanupIndex + 1)
@@ -278,15 +361,24 @@ it.each([
     ).toEqual([]);
     expect(getRace("r1")?.state).toBe(state);
     expect(view.textContent).toContain(summary);
-    expect(view.textContent).toContain(record.project);
+    // The project by its name, never its folder's path.
+    expect(view.textContent).toContain(
+      state === "kept" ? "Kept in site." : "site didn't change.",
+    );
+    expect(view.textContent).not.toContain(record.project);
     expect(view.textContent).not.toContain("Files · pick");
     expect(view.textContent).not.toContain("a.ts");
     expect(view.textContent).not.toContain("Keep this");
     expect(view.textContent).not.toContain("Select files to combine");
-    expect(view.textContent).not.toContain("Couldn’t load diff");
+    expect(view.textContent).not.toContain("Couldn't show this file");
+    // A kept race offers its result's next steps; a discarded one does not.
     expect(
       [...view.querySelectorAll("button")].map((entry) => entry.textContent),
-    ).toEqual(["Open chat", "Open chat"]);
+    ).toEqual(
+      state === "kept"
+        ? ["Open chat", "Open chat", "Review changes", "Continue with Claude"]
+        : ["Open chat", "Open chat"],
+    );
     await act(async () => button(view, "Open chat").click());
     expect(openChat).toHaveBeenCalledWith("s0");
   },
@@ -296,8 +388,9 @@ it("opens a completed race without requesting deleted copies", async () => {
   saveRace({ ...record, state: "kept" });
   const view = await render([session("s0"), session("s1")]);
   expect(host.invoke).not.toHaveBeenCalled();
-  expect(view.textContent).toContain("Changes kept in your project");
-  expect(view.textContent).toContain(record.project);
+  expect(view.textContent).toContain("Kept in your project.");
+  expect(view.textContent).toContain("Kept in site.");
+  expect(view.textContent).not.toContain(record.project);
 });
 
 it("ignores a refresh that fails after the copies have been removed", async () => {
@@ -314,8 +407,9 @@ it("ignores a refresh that fails after the copies have been removed", async () =
   const view = await render([session("s0"), session("s1")]);
   expect(failRefresh).toHaveLength(2);
   await act(async () => button(view, "Discard race").click());
+  await confirmDialog();
   await act(async () => failRefresh.forEach((fail) => fail()));
-  expect(view.textContent).toContain("Your project is unchanged");
+  expect(view.textContent).toContain("Your project didn't change.");
   expect(view.textContent).not.toContain("Couldn’t read");
   expect(view.textContent).not.toContain("copy no longer exists");
   expect(view.textContent).not.toContain("Reading changes");
@@ -324,8 +418,10 @@ it("ignores a refresh that fails after the copies have been removed", async () =
 it("keeps copies available when a writer cannot be stopped", async () => {
   settle.mockRejectedValue(new Error("Could not stop the provider"));
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
-  expect(view.textContent).toContain("Could not stop the provider");
+  await keepThis(view);
+  expect(view.textContent).toContain(
+    "Couldn't stop every agent, so nothing changed. Try again.",
+  );
   expect(host.invoke).not.toHaveBeenCalledWith("race_apply", expect.anything());
   expect(host.invoke).not.toHaveBeenCalledWith(
     "race_cleanup",
@@ -344,11 +440,13 @@ it("releases chats after a successful keep even when a copy cannot be removed", 
     },
   );
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
-  expect(release).toHaveBeenCalledWith(record);
+  await keepThis(view);
+  expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
-  expect(view.textContent).toContain("Some race copies could not be removed");
-  expect(view.textContent).toContain("copy is locked");
+  expect(view.textContent).toContain(
+    "Some leftover race files couldn't be cleaned up.",
+  );
+  expect(view.textContent).not.toContain("copy is locked");
 });
 
 it("leaves the race running and explains a conflicting keep", async () => {
@@ -360,7 +458,7 @@ it("leaves the race running and explains a conflicting keep", async () => {
     },
   );
   const view = await render([session("s0"), session("s1")]);
-  await act(async () => button(view, "Keep this").click());
+  await keepThis(view);
   expect(view.textContent).toContain("conflict with edits in your project");
   expect(host.invoke).not.toHaveBeenCalledWith(
     "race_cleanup",
@@ -372,6 +470,273 @@ it("leaves the race running and explains a conflicting keep", async () => {
 it("discards without applying anything", async () => {
   const view = await render([session("s0"), session("s1")]);
   await act(async () => button(view, "Discard race").click());
+  await confirmDialog();
   expect(host.invoke).not.toHaveBeenCalledWith("race_apply", expect.anything());
   expect(getRace("r1")?.state).toBe("discarded");
+});
+
+it("keeps the files a lane wrote after the overview last refreshed", async () => {
+  const view = await render([workingFor("s0", 30), workingFor("s1", 30)]);
+  expect(view.querySelector('[data-race-file="a.ts"]')).not.toBeNull();
+  // The agent writes another file; the overview has not refreshed since.
+  host.invoke.mockImplementation(
+    async (command: string, args: Record<string, unknown>) =>
+      command === "race_diff" && args.worktree === "/data/races/r1/0"
+        ? {
+            files: ["a.ts", "late.ts"].map((path) => ({
+              path,
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              binary: false,
+            })),
+            additions: 2,
+            deletions: 0,
+          }
+        : answer(command, args),
+  );
+  expect(view.querySelector('[data-race-file="late.ts"]')).toBeNull();
+  await act(async () => button(view, "Keep this").click());
+  expect(dialog()?.textContent).toContain("Keep Claude's version?");
+  expect(dialog()?.textContent).toContain(
+    "Claude is still working; you get what it has written so far. This stops 2 agents still working and deletes Codex's work (1 file).",
+  );
+  await confirmDialog();
+  expect(host.invoke).toHaveBeenCalledWith("race_apply", {
+    root: "/work/site",
+    base: record.base,
+    choices: [{ worktree: "/data/races/r1/0", paths: ["a.ts", "late.ts"] }],
+  });
+  expect(getRace("r1")?.outcome).toEqual({ kind: "lane", lane: 0, files: 2 });
+  expect(view.textContent).toContain("Kept Claude's version · 2 files");
+});
+
+it("asks before keeping while another agent still works, and not once all are done", async () => {
+  const view = await render([ended("s0", "completed"), workingFor("s1", 5)]);
+  await act(async () => button(view, "Keep this").click());
+  expect(dialog()?.querySelector("h2")?.textContent).toBe(
+    "Keep Claude's version?",
+  );
+  expect(dialog()?.textContent).toContain(
+    "This stops 1 agent still working and deletes Codex's work (1 file).",
+  );
+  const cancel = [...dialog()!.querySelectorAll("button")].find(
+    (entry) => entry.textContent === "Cancel",
+  )!;
+  await act(async () => cancel.click());
+  expect(dialog()).toBeNull();
+  expect(settle).not.toHaveBeenCalled();
+  expect(getRace("r1")?.state).toBe("running");
+});
+
+it("names what discarding deletes and changes nothing when cancelled", async () => {
+  const view = await render([session("s0"), workingFor("s1", 5)]);
+  await act(async () => button(view, "Discard race").click());
+  expect(dialog()?.querySelector("h2")?.textContent).toBe("Discard this race?");
+  expect(dialog()?.textContent).toContain(
+    "This stops 1 agent still working and deletes Claude's work (1 file) and Codex's (1 file). Your project doesn't change.",
+  );
+  await act(async () =>
+    [...dialog()!.querySelectorAll("button")]
+      .find((entry) => entry.textContent === "Cancel")!
+      .click(),
+  );
+  expect(settle).not.toHaveBeenCalled();
+  expect(getRace("r1")?.state).toBe("running");
+});
+
+it("shows each lane's real outcome, stops its clock at its own end and offers Retry", async () => {
+  const interrupted: Session = {
+    ...ended("s1", "completed", 12),
+    blocks: [
+      ...ended("s1", "completed", 12).blocks,
+      { id: "note", role: "system", text: INTERRUPT_MESSAGE },
+    ],
+  };
+  const view = await render([ended("s0", "failed", 42), interrupted]);
+  const lanes = view.querySelectorAll("section");
+  expect(lanes[0].querySelector("[data-lane-state]")?.textContent).toBe(
+    "Failed · 0:42",
+  );
+  expect(lanes[1].querySelector("[data-lane-state]")?.textContent).toBe(
+    "Interrupted · 0:12",
+  );
+  await act(async () => button(lanes[1] as HTMLElement, "Retry").click());
+  expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: "r1" }), 1);
+});
+
+it("says why it could not retry an agent", async () => {
+  retry.mockResolvedValueOnce("Couldn't retry: the agent's chat is busy.");
+  const view = await render([
+    ended("s0", "failed", 42),
+    ended("s1", "failed", 9),
+  ]);
+  const lanes = view.querySelectorAll("section");
+  await act(async () => button(lanes[0] as HTMLElement, "Retry").click());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const banner = view.querySelector('[role="alert"]');
+  expect(banner?.textContent).toBe("Couldn't retry: the agent's chat is busy.");
+});
+
+it("tells a stopped lane from a working one and offers Retry only for the stopped one", async () => {
+  const stopped = await render([
+    ended("s0", "stopped", 7),
+    workingFor("s1", 75),
+  ]);
+  const [first, second] = stopped.querySelectorAll("section");
+  expect(first.querySelector("[data-lane-state]")?.textContent).toBe(
+    "Stopped · 0:07",
+  );
+  expect(second.querySelector("[data-lane-state]")?.textContent).toBe(
+    "Working · 1:15",
+  );
+  expect(first.textContent).toContain("Retry");
+  expect(second.textContent).not.toContain("Retry");
+});
+
+it("reads a closed lane's outcome from activity and opens its chat", async () => {
+  ended("s1", "completed");
+  const view = await render([session("s0")]);
+  const lanes = view.querySelectorAll("section");
+  expect(lanes[0].querySelector("[data-lane-state]")?.textContent).toBe(
+    "Not started",
+  );
+  expect(lanes[1].querySelector("[data-lane-state]")?.textContent).toBe("Done");
+  await act(async () => button(lanes[1] as HTMLElement, "Open chat").click());
+  expect(openChat).toHaveBeenCalledWith("s1");
+});
+
+it("saves per-file picks with the race and keeps a mix after asking", async () => {
+  const view = await render([session("s0"), workingFor("s1", 5)]);
+  const pickIn = (container: HTMLElement, path: string, lane: number) =>
+    container
+      .querySelector(`[data-race-file="${path}"]`)!
+      .querySelectorAll("button")[lane];
+  await act(async () => pickIn(view, "a.ts", 0).click());
+  await act(async () => pickIn(view, "b.ts", 1).click());
+  expect(getRace("r1")?.picks).toEqual({ "a.ts": 0, "b.ts": 1 });
+  await act(async () => root.unmount());
+
+  const reopened = await render([session("s0"), workingFor("s1", 5)]);
+  expect(pickIn(reopened, "a.ts", 0).getAttribute("aria-pressed")).toBe("true");
+  await act(async () => button(reopened, "Keep 2 selected files").click());
+  expect(dialog()?.querySelector("h2")?.textContent).toBe(
+    "Keep 2 selected files?",
+  );
+  expect(dialog()?.textContent).toContain(
+    "This stops 1 agent still working and deletes any changes you didn't pick.",
+  );
+  await confirmDialog();
+  expect(host.invoke).toHaveBeenCalledWith("race_apply", {
+    root: "/work/site",
+    base: record.base,
+    choices: [
+      { worktree: "/data/races/r1/0", paths: ["a.ts"] },
+      { worktree: "/data/races/r1/1", paths: ["b.ts"] },
+    ],
+  });
+  expect(getRace("r1")?.outcome).toEqual({ kind: "mix", files: 2 });
+  expect(reopened.textContent).toContain("Kept 2 files from 2 agents");
+});
+
+it("fetches the open file's diff again only when its size changes", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    let additions = 3;
+    host.invoke.mockImplementation(
+      async (command: string, args: Record<string, unknown>) => {
+        const reply = answer(command, args) as { files?: unknown[] };
+        if (command === "race_diff" && args.worktree === "/data/races/r1/0")
+          return {
+            files: [
+              {
+                path: "a.ts",
+                status: "modified",
+                additions,
+                deletions: 1,
+                binary: false,
+              },
+            ],
+            additions,
+            deletions: 1,
+          };
+        return reply;
+      },
+    );
+    await render([workingFor("s0", 5), workingFor("s1", 5)]);
+    const fileDiffs = () =>
+      host.invoke.mock.calls.filter(([command]) => command === "race_file_diff")
+        .length;
+    expect(fileDiffs()).toBe(1);
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+    expect(
+      host.invoke.mock.calls.filter(([command]) => command === "race_diff")
+        .length,
+    ).toBeGreaterThan(2);
+    expect(fileDiffs()).toBe(1);
+    additions = 4;
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+    expect(fileDiffs()).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("shows each lane's last reply, and records why when you keep the suggested lane", async () => {
+  saveRace({
+    ...record,
+    suggestion: {
+      status: "done",
+      lane: 0,
+      why: "Smaller change, with a test.",
+      model: "Claude Haiku 4.5",
+      at: 1,
+    },
+  });
+  const view = await render([
+    ended("s0", "completed"),
+    ended("s1", "completed"),
+  ]);
+  expect(
+    [...view.querySelectorAll("[data-race-reply]")].map((p) => p.textContent),
+  ).toEqual(["Done.", "Done."]);
+  expect(view.querySelector("[data-race-suggestion]")?.textContent).toBe(
+    "Aven suggests Claude: Smaller change, with a test.",
+  );
+  expect(
+    view.querySelector('[data-race-lane="0"] [data-race-suggested]'),
+  ).not.toBeNull();
+  // Already suggested: not offered again.
+  expect(view.querySelector("[data-race-suggest]")).toBeNull();
+  await keepThis(view);
+  expect(getRace("r1")?.outcome).toMatchObject({
+    kind: "lane",
+    lane: 0,
+    why: "Smaller change, with a test.",
+  });
+  expect(view.textContent).toContain("Why: Smaller change, with a test.");
+});
+
+it("offers Suggest a winner once no lane is working", async () => {
+  const busy = await render([ended("s0", "completed"), session("s1", true)]);
+  expect(busy.querySelector("[data-race-suggest]")).toBeNull();
+  await act(async () => root.unmount());
+  busy.remove();
+  const settled = await render([
+    ended("s0", "completed"),
+    ended("s1", "failed"),
+  ]);
+  expect(settled.querySelector("[data-race-suggest]")?.textContent).toBe(
+    "Suggest a winner",
+  );
 });

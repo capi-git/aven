@@ -5,6 +5,7 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { describe, expect, it, vi } from "vitest";
 import {
   createBoundedCodePlugin,
+  highlightFromFinishedLines,
   type BoundedCodePlugin,
 } from "./codeHighlightPlugin";
 
@@ -178,5 +179,149 @@ describe("bounded code highlight plugin", () => {
     expect(colors.size).toBeGreaterThan(1);
     const plain = await highlight(plugin, "anything", "not-a-language");
     expect(text(plain)).toBe("anything");
+  }, 20_000);
+});
+
+const STREAMED_CODE: Record<string, string> = {
+  typescript: [
+    'import { useEffect, useState } from "react";',
+    "",
+    "/** Rows that are still open. */",
+    "export function visible(rows: Row[], limit: number): Row[] {",
+    "  const text = `rows: ${rows.length}",
+    "  and more`;",
+    "  return rows.filter((row) => !row.archived).slice(0, limit);",
+    "}",
+    "/* a block",
+    "   comment */ const total = rows.reduce((sum, row) => sum + row.size, 0);",
+    "if (total > 10) console.log(`big: ${total}`);",
+    "",
+  ].join("\n"),
+  python: [
+    "def visible(rows, limit):",
+    '    """Rows that are',
+    '    still open."""',
+    "    return [row for row in rows if not row.archived][:limit]",
+    "",
+    "print(f'{len(rows)} rows')",
+  ].join("\n"),
+  markdown: [
+    "# Notes",
+    "",
+    "```ts",
+    "const a = 1;",
+    "```",
+    "",
+    "- **bold** and `code`",
+  ].join("\n"),
+  html: [
+    "<!doctype html>",
+    "<style>",
+    "  body { color: red; }",
+    "</style>",
+    "<script>",
+    "  const x = `a",
+    "  b`;",
+    "</script>",
+    "<p>Done</p>",
+  ].join("\n"),
+  json: '{\n  "name": "aven",\n  "list": [1, 2, {"a": "b"}],\n  "ok": true\n}',
+  bash: 'for f in *.ts; do\n  echo "$f" <<EOF\nheredoc $f\nEOF\ndone',
+  rust: 'fn main() {\n    let s = r#"raw\n    string"#;\n    println!("{s}");\n}',
+  text: "plain\ntext\n\nlines",
+};
+
+describe("highlighting a streamed code block", () => {
+  it("gives the tokens a full highlight would at every step", async () => {
+    const highlighter = await shiki.createHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: Object.keys(STREAMED_CODE).filter((lang) => lang !== "text"),
+      engine: createJavaScriptRegexEngine({ forgiving: true }),
+    });
+    const strip = ({ grammarState: _state, ...result }: HighlightResult) =>
+      result;
+    for (const [lang, source] of Object.entries(STREAMED_CODE)) {
+      const options = {
+        lang: lang as BundledLanguage,
+        themes: { light: "github-light", dark: "github-dark" },
+      };
+      let finished:
+        ReturnType<typeof highlightFromFinishedLines>["finished"] | undefined;
+      for (let length = 0; length <= source.length; length += 1) {
+        const code = source.slice(0, length);
+        const step = highlightFromFinishedLines(
+          highlighter,
+          code,
+          options,
+          finished && code.startsWith(`${finished.text}\n`)
+            ? { key: lang, ...finished }
+            : undefined,
+        );
+        if (step.finished) finished = step.finished;
+        expect(strip(step.result), `${lang}: ${JSON.stringify(code)}`).toEqual(
+          strip(highlighter.codeToTokens(code, options)),
+        );
+      }
+    }
+  }, 60_000);
+
+  it("leaves no carriage return on finished lines with Windows line endings", async () => {
+    const highlighter = await shiki.createHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: ["typescript"],
+      engine: createJavaScriptRegexEngine({ forgiving: true }),
+    });
+    const options = {
+      lang: "typescript" as BundledLanguage,
+      themes: { light: "github-light", dark: "github-dark" },
+    };
+    const strip = ({ grammarState: _state, ...result }: HighlightResult) =>
+      result;
+    const source = STREAMED_CODE.typescript.split("\n").join("\r\n");
+    let finished:
+      ReturnType<typeof highlightFromFinishedLines>["finished"] | undefined;
+    for (let length = 0; length <= source.length; length += 1) {
+      const code = source.slice(0, length);
+      const step = highlightFromFinishedLines(
+        highlighter,
+        code,
+        options,
+        finished && code.startsWith(`${finished.text}\n`)
+          ? { key: "typescript", ...finished }
+          : undefined,
+      );
+      if (step.finished) finished = step.finished;
+      const label = JSON.stringify(code);
+      expect(strip(step.result), label).toEqual(
+        strip(highlighter.codeToTokens(code, options)),
+      );
+      // Only a line still being written can end in one, as in a full run.
+      const done = step.result.tokens.slice(0, -1).flat();
+      expect(
+        done.some((token) => token.content.includes("\r")),
+        label,
+      ).toBe(false);
+    }
+  }, 60_000);
+
+  it("tokenizes only the lines a streamed update added", async () => {
+    const plugin = createBoundedCodePlugin();
+    const highlighter = await shiki.createHighlighter({
+      themes: plugin.getThemes(),
+      langs: ["typescript"],
+      engine: createJavaScriptRegexEngine({ forgiving: true }),
+    });
+    vi.mocked(shiki.createHighlighter)
+      .mockClear()
+      .mockResolvedValueOnce(highlighter);
+    const codeToTokens = vi.spyOn(highlighter, "codeToTokens");
+    const line = "const row = rows[index] ?? fallback;\n";
+    const first = line.repeat(40);
+    await highlight(plugin, first, "ts");
+    codeToTokens.mockClear();
+    const next = await highlight(plugin, `${first}const done`, "ts");
+    expect(text(next)).toBe(`${first}const done`);
+    const tokenized = codeToTokens.mock.calls.map(([code]) => code);
+    expect(tokenized.join("").length).toBeLessThan(line.length * 2);
   }, 20_000);
 });

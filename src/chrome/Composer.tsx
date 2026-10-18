@@ -79,7 +79,8 @@ import type {
   RuntimeMode,
   ComposerTurnOptions,
 } from "../lib/session";
-import { HARNESS_TITLE, harnessSupportsAttachments } from "../lib/session";
+import { appName } from "../lib/agentNames";
+import { harnessSupportsAttachments } from "../lib/session";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
@@ -140,10 +141,13 @@ import {
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
-import type { RaceProps } from "./RaceOptions";
+import { RaceChip } from "./RaceChip";
+import type { AgentRoleId } from "../lib/agentRoles";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
+import { loadRaceLaneChoice, nextRaceAgent } from "../lib/raceAgents";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import {
   consumeOrchestratorCommand,
@@ -152,11 +156,14 @@ import {
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
 import {
+  discussionStore,
+  INTERJECTION_CHAR_LIMIT,
   loadDiscussionRounds,
   saveDiscussionRounds,
   type DiscussionHost,
 } from "../lib/discussions";
-import { DiscussionBar } from "./DiscussionBar";
+import { useStartedDiscussionId } from "../hooks/useDiscussions";
+import { useWidth } from "../hooks/useNarrow";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -164,7 +171,10 @@ import {
   partnerChoice,
   type DiscussionPick,
 } from "./DiscussionChip";
+import { composerFit } from "../lib/composerFit";
+import { bestDiscussionAgent } from "../lib/discussionPartner";
 import { resizeComposer } from "../lib/composerResize";
+import { useTurnNoteHint } from "../lib/turnNotes";
 
 type Props = {
   enabled?: boolean;
@@ -237,6 +247,16 @@ type Props = {
   onAttachmentsChange?: (attachments: Attachment[]) => void;
   /** Starts a discussion with another chat; absent hides Discuss mode. */
   discussion?: DiscussionHost;
+  /**
+   * The bar of the team this chat started or belongs to, shown at the top
+   * of the message box (see `TeamBar`).
+   */
+  teamBar?: ReactNode;
+  /**
+   * The bar's Stop stops what this box's own Stop would (a lead's run), so
+   * the box shows none while busy.
+   */
+  stopInBar?: boolean;
   children?: ReactNode;
 };
 
@@ -447,7 +467,7 @@ function MessageQueue({
                       disabled={!onSteer}
                       title={
                         !onSteer
-                          ? "This provider will send the queued message after its current turn"
+                          ? "This agent will send the queued message after its current turn"
                           : undefined
                       }
                       className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:opacity-40"
@@ -567,11 +587,16 @@ function ComposerComponent({
   onDraftChange,
   onAttachmentsChange,
   discussion,
+  teamBar,
+  stopInBar = false,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const plusRef = useRef<HTMLDivElement>(null);
+  // How much the controls row can say: in a narrow chat, chips shorten and
+  // the agent pill keeps its mark, never cutting a word off.
+  const [controlsRef, controlsWidth] = useWidth<HTMLDivElement>();
   const highlightRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>(initialAttachments ?? []);
   const draftCallbacks = useRef({ onDraftChange, onAttachmentsChange });
@@ -611,8 +636,11 @@ function ComposerComponent({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
+  // Race mode: sending gives the message to the lanes the chip shows.
   const [raceOn, setRaceOn] = useState(false);
-  // This chat's agent races on the chat's model unless the Race menu picks
+  const [raceMenuOpen, setRaceMenuOpen] = useState(false);
+  const [raceError, setRaceError] = useState<string | null>(null);
+  // This chat's agent races on the chat's model unless the Race chip picks
   // another one for it; changing the chat's model starts over.
   const [raceModel, setRaceModel] = useState<string>();
   useEffect(() => setRaceModel(undefined), [harness, model]);
@@ -621,24 +649,63 @@ function ComposerComponent({
     harness,
     raceModel ?? model,
   );
-  // A card is consumed by a normal send; a race would leave it attached.
-  const raceBlocked =
-    inboxCard || noteCard || handoffCard
-      ? "Send or remove the attached card before racing"
-      : undefined;
-  const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
+  const raceReady = raceLanes.length >= RACE_MIN_LANES;
+  /** Turn Race mode on, with the dropdown open when it can't race yet. */
+  const startRaceMode = useCallback(
+    (openMenu = false) => {
+      // The saved lanes' providers may list their models only once asked.
+      const saved = [
+        ...new Set(loadRaceLaneChoice().map((lane) => lane.harness)),
+      ];
+      if (saved.length)
+        void refreshHarnessCatalogs(saved).catch(() => undefined);
+      setRaceOn(true);
+      setPlanSelected(false);
+      setOrchestrationSelected(false);
+      setDiscussSelected(false);
+      setDiscussMenuOpen(false);
+      setRaceError(null);
+      setRaceMenuOpen(openMenu || !raceReady);
+    },
+    [raceReady],
+  );
+  const stopRaceMode = useCallback(() => {
+    setRaceOn(false);
+    setRaceMenuOpen(false);
+    setRaceError(null);
+    // "For this race only": the chat's own model next time.
+    setRaceModel(undefined);
+  }, []);
+  // A refusal ("Add another agent…") no longer holds once the lanes change.
+  const raceLaneKey = raceLanes
+    .map((lane) => `${lane.harness}:${lane.model}`)
+    .join(",");
+  useEffect(() => setRaceError(null), [raceLaneKey]);
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   // Discuss mode: sending starts a discussion with the message as its topic.
   const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
+  // The discussion this chat started: while it runs or is paused, what the
+  // user sends goes to both chats with the next replies, not to this agent.
+  const jumpInId = useStartedDiscussionId(
+    discussAvailable ? sessionId : undefined,
+  );
   const [discussSelected, setDiscussSelected] = useState(false);
   const discussActive = discussAvailable && discussSelected;
+  // What Aven left for this agent's next turn ("Codex knows which version
+  // you kept"), said in the empty field until that turn takes it.
+  const noteHint = useTurnNoteHint(sessionId);
   const [discussPick, setDiscussPick] = useState<DiscussionPick | null>(null);
   const [discussRounds, setDiscussRounds] = useState(loadDiscussionRounds);
+  // The partner's role is for the next discussion only, never remembered.
+  const [discussRole, setDiscussRole] = useState<AgentRoleId>();
   const [discussMenuOpen, setDiscussMenuOpen] = useState(false);
   const [discussError, setDiscussError] = useState<string | null>(null);
   const discussPickRef = useRef(discussPick);
   discussPickRef.current = discussPick;
-  /** Turn Discuss mode on, with the partner it had or the first that can join. */
+  /**
+   * Turn Discuss mode on, with the partner it had, else a new chat with the
+   * best other agent (see `defaultDiscussionPick`).
+   */
   const startDiscussMode = useCallback(
     (openMenu = false) => {
       if (!discussion || !sessionId) return;
@@ -646,22 +713,25 @@ function ComposerComponent({
         discussion,
         sessionId,
         discussPickRef.current,
+        bestDiscussionAgent(harness),
       );
       setDiscussPick(pick);
       setDiscussSelected(true);
       setPlanSelected(false);
       setOrchestrationSelected(false);
       setRaceOn(false);
+      setRaceMenuOpen(false);
       setDiscussError(null);
       // Nobody to talk to yet: the dropdown offers a new chat.
       setDiscussMenuOpen(openMenu || !pick);
     },
-    [discussion, sessionId],
+    [discussion, sessionId, harness],
   );
   const stopDiscussMode = useCallback(() => {
     setDiscussSelected(false);
     setDiscussMenuOpen(false);
     setDiscussError(null);
+    setDiscussRole(undefined);
   }, []);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   // The highlighted `/` row, for the list it was chosen in (see skillActive).
@@ -692,42 +762,23 @@ function ComposerComponent({
   // A typed /orchestrator works like choosing Orchestrator, where it exists.
   const draftOrchestrating =
     !hideTopBar && !draftPlanning && consumeOrchestratorCommand(draft).matched;
-  // Plan mode and Orchestrator are exclusive with Race; a typed /plan wins.
+  // Race, Plan mode, Orchestrator and Discuss are exclusive; a typed /plan
+  // or /orchestrator wins over Race.
+  // While this chat's discussion runs, what you send goes to both of its
+  // chats, so no mode applies and none is offered.
   const raceActive =
     raceOn &&
-    raceReady &&
+    !!onRace &&
+    !jumpInId &&
     !draftPlanning &&
     !draftOrchestrating &&
     !planSelected &&
     !orchestrationSelected &&
     !discussActive;
-  const changeRaceActive = useCallback((on: boolean) => {
-    setRaceOn(on);
-    if (!on) return;
-    setPlanSelected(false);
-    setOrchestrationSelected(false);
-    setDiscussSelected(false);
-  }, []);
-  const raceOptions = useMemo<RaceProps | undefined>(
-    () =>
-      onRace
-        ? {
-            active: raceActive,
-            available: raceAvailable,
-            lanes: raceLanes,
-            disabledReason: raceBlocked,
-            onActiveChange: changeRaceActive,
-            onFirstModelChange: setRaceModel,
-          }
-        : undefined,
-    [
-      changeRaceActive,
-      onRace,
-      raceActive,
-      raceAvailable,
-      raceBlocked,
-      raceLanes,
-    ],
+  const fit = composerFit(
+    controlsWidth,
+    !jumpInId &&
+      (raceActive || discussActive || planSelected || orchestrationSelected),
   );
   const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
@@ -968,10 +1019,6 @@ function ComposerComponent({
   }, [busy, runnerEnabled]);
 
   useEffect(() => {
-    if (!raceReady) setRaceOn(false);
-  }, [raceReady]);
-
-  useEffect(() => {
     if (!mentionOpen) return;
     let cancelled = false;
     // A new list rebuilds the `@` index; let typing take priority over it.
@@ -1062,6 +1109,13 @@ function ComposerComponent({
   // an unchanged token object lets the repeats skip a composer render.
   const syncTokensFromTextarea = (el: HTMLTextAreaElement) => {
     if (creatingSkill) return;
+    // What goes to both chats of a discussion is plain text: a skill or a
+    // reference would arrive as its literal name.
+    if (jumpInId) {
+      setSlash(null);
+      setMention(null);
+      return;
+    }
     const text = el.value;
     const cursor = el.selectionStart ?? 0;
     let slashToken = slashTokenAt(text, cursor, hasNativeCommands(harness));
@@ -1171,19 +1225,26 @@ function ComposerComponent({
       if (planCommand) {
         setPlanSelected(true);
         setOrchestrationSelected(false);
+        stopRaceMode();
         setDiscussSelected(false);
       }
       if (orchestratorCommand) {
         setOrchestrationSelected(true);
         setPlanSelected(false);
-        setRaceOn(false);
+        stopRaceMode();
         setDiscussSelected(false);
       }
       // The rest of the message becomes the discussion's topic.
       if (discussCommand) startDiscussMode();
       el.focus();
     },
-    [rememberUsedSkills, startDiscussMode, syncHasValue, updateDraft],
+    [
+      rememberUsedSkills,
+      startDiscussMode,
+      stopRaceMode,
+      syncHasValue,
+      updateDraft,
+    ],
   );
 
   const pickSkill = useCallback(
@@ -1332,6 +1393,29 @@ function ComposerComponent({
     };
   }, [addAttachments, attachmentsSupported, enabled]);
 
+  /** Why sending would not start the race, or null. */
+  const raceReason = (task: string): string | null => {
+    // A card is consumed by a normal send; a race would leave it attached.
+    if (inboxCard || noteCard || handoffCard)
+      return "Send or remove the attached card before racing.";
+    if (raceLanes.length < RACE_MIN_LANES)
+      return raceAvailable.some((agent) =>
+        nextRaceAgent(raceAvailable, raceLanes, agent.harness),
+      )
+        ? "Add another agent or model above to race."
+        : "Install or enable another agent to race.";
+    if (!task.trim()) return "Type the task in the message box, then send.";
+    // Every lane gets the attachments: none may race without them.
+    if (attachmentsRef.current.length) {
+      const without = raceLanes.find(
+        (lane) => !harnessSupportsAttachments(lane.harness),
+      );
+      if (without)
+        return `${appName(without.harness)} can't take attachments. Remove them, or leave it out of the race.`;
+    }
+    return null;
+  };
+
   /** Why sending would not start the discussion yet, or null. */
   const discussReason = (topic: string): string | null =>
     !discussPick
@@ -1357,6 +1441,7 @@ function ComposerComponent({
       partner: partnerChoice(discussPick),
       topic: preview ? topic || "Preview" : topic,
       rounds: discussRounds,
+      ...(discussRole ? { role: discussRole } : {}),
       ...(preview ? { preview: true } : {}),
     });
     if (failure) {
@@ -1371,7 +1456,46 @@ function ComposerComponent({
     if (!preview) clearField();
   };
 
+  /** Send with this chat's discussion running: add it for both chats. */
+  const jumpIn = (discussionId: string, value: string) => {
+    if (!value.trim()) return;
+    if (attachmentsRef.current.length) {
+      setCommandNotice(
+        "Messages for both chats are text only. Remove the attachments to send.",
+      );
+      return;
+    }
+    // A command would reach both agents as text, not run. A path such as
+    // "/Users/me/app.ts" is not a command.
+    if (/^\/[A-Za-z][\w:-]*(?:\s|$)/.test(value.trim())) {
+      setCommandNotice(
+        "Commands aren't sent to both chats. Send it once the discussion ends, or stop it first.",
+      );
+      return;
+    }
+    if (value.length > INTERJECTION_CHAR_LIMIT) {
+      setCommandNotice(
+        `Messages for both chats are limited to ${INTERJECTION_CHAR_LIMIT.toLocaleString("en-US")} characters; this one has ${value.length.toLocaleString("en-US")}. Shorten it to send.`,
+      );
+      return;
+    }
+    const refused = discussionStore().interject(discussionId, value);
+    if (refused) {
+      setCommandNotice(refused);
+      return;
+    }
+    setCommandNotice(null);
+    setPlusOpen(false);
+    setSlash(null);
+    setMention(null);
+    clearField();
+  };
+
   const submit = (value: string) => {
+    if (jumpInId) {
+      jumpIn(jumpInId, value);
+      return;
+    }
     if (discussAvailable) {
       // A typed /discuss turns Discuss mode on; the rest is the topic.
       const discussCommand = consumeDiscussCommand(value);
@@ -1430,10 +1554,16 @@ function ComposerComponent({
       raceActive &&
       onRace &&
       !command.planning &&
-      !orchestratorCommand.matched &&
-      text
+      !orchestratorCommand.matched
     ) {
-      setRaceOn(false);
+      // Race mode never sends normally: it says what's missing instead.
+      const reason = raceReason(text);
+      if (reason) {
+        setRaceError(reason);
+        setRaceMenuOpen(true);
+        return;
+      }
+      stopRaceMode();
       setPlusOpen(false);
       setSlash(null);
       setMention(null);
@@ -1455,6 +1585,8 @@ function ComposerComponent({
         updateDraft(value);
         updateAttachments(files);
         syncHasValue(value, files);
+        // As it was: the error said why, so sending can race again.
+        setRaceOn(true);
       });
       return;
     }
@@ -1635,9 +1767,8 @@ function ComposerComponent({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
-      {discussion ? (
-        <DiscussionBar sessionId={sessionId} onOpen={discussion.open} />
-      ) : null}
+      {/* The team this chat started or belongs to (see TeamBar). */}
+      {teamBar}
       <SharedWorkBar sessionId={sessionId} />
       {children}
       <MessageQueue
@@ -1821,22 +1952,26 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               placeholder={
-                discussActive
-                  ? "What should they discuss?"
-                  : inboxCard
-                    ? "Add a note, or send to start…"
-                    : noteCard
-                      ? "Add a message, or send…"
-                      : handoffCard
-                        ? "Add context, or send to continue…"
-                        : composerHint(
-                            hasNativeCommands(harness),
-                            looksLikeProject(cwd)
-                              ? "files"
-                              : notesEnabled
-                                ? "notes"
-                                : null,
-                          )
+                jumpInId
+                  ? "Add something for both of them…"
+                  : discussActive
+                    ? "What should they discuss?"
+                    : inboxCard
+                      ? "Add a note, or send to start…"
+                      : noteCard
+                        ? "Add a message, or send…"
+                        : handoffCard
+                          ? "Add context, or send to continue…"
+                          : noteHint
+                            ? `${noteHint}. Say what's next…`
+                            : composerHint(
+                                hasNativeCommands(harness),
+                                looksLikeProject(cwd)
+                                  ? "files"
+                                  : notesEnabled
+                                    ? "notes"
+                                    : null,
+                              )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -1874,7 +2009,11 @@ function ComposerComponent({
             />
           </div>
 
-          <div className="personal-composer-controls flex items-center gap-1 px-2 pb-2">
+          <div
+            ref={controlsRef}
+            className="personal-composer-controls flex items-center gap-1 px-2 pb-2"
+            data-fit={fit === "full" ? undefined : fit}
+          >
             <div
               ref={plusRef}
               className="personal-composer-add relative shrink-0"
@@ -1922,44 +2061,56 @@ function ComposerComponent({
                       <span className="block text-ui-caption leading-4 text-content/45">
                         {attachmentsSupported
                           ? "Attach files or images to this message"
-                          : `${HARNESS_TITLE[harness]} does not support attachments`}
+                          : `${appName(harness)} can't take attachments`}
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={planSelected}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlanSelected((selected) => !selected);
-                      setOrchestrationSelected(false);
-                      setRaceOn(false);
-                      stopDiscussMode();
-                      setPlusOpen(false);
-                      ref.current?.focus();
-                    }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
-                  >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-ui-body">Plan mode</span>
-                      <span className="block text-ui-caption leading-4 text-content/45">
-                        Create a plan to review before building
+                  {jumpInId ? (
+                    <p
+                      className="px-2 py-1.5 text-ui-caption leading-4 text-content/45"
+                      data-composer-modes-off
+                    >
+                      While this chat's discussion runs, what you send goes to
+                      both chats. Modes return when it ends.
+                    </p>
+                  ) : null}
+                  {jumpInId ? null : (
+                    <button
+                      type="button"
+                      aria-pressed={planSelected}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPlanSelected((selected) => !selected);
+                        setOrchestrationSelected(false);
+                        stopRaceMode();
+                        stopDiscussMode();
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-ui-body">Plan mode</span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
+                          Create a plan to review before building
+                        </span>
                       </span>
-                    </span>
-                    {planSelected ? (
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
-                    ) : null}
-                  </button>
-                  {!hideTopBar ? (
+                      {planSelected ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  )}
+                  {!hideTopBar && !jumpInId ? (
                     <button
                       type="button"
                       aria-pressed={orchestrationSelected}
+                      data-composer-orchestrator
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
-                        setRaceOn(false);
+                        stopRaceMode();
                         stopDiscussMode();
                         setPlusOpen(false);
                         ref.current?.focus();
@@ -1978,7 +2129,7 @@ function ComposerComponent({
                       ) : null}
                     </button>
                   ) : null}
-                  {discussAvailable ? (
+                  {discussAvailable && !jumpInId ? (
                     <button
                       type="button"
                       aria-pressed={discussActive}
@@ -2004,10 +2155,40 @@ function ComposerComponent({
                       ) : null}
                     </button>
                   ) : null}
+                  {onRace && !jumpInId ? (
+                    <button
+                      type="button"
+                      aria-pressed={raceActive}
+                      data-composer-race
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setPlusOpen(false);
+                        if (raceActive) stopRaceMode();
+                        else startRaceMode();
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <Race
+                        className="mt-0.5 size-4 shrink-0 text-accent"
+                        strokeWidth={1.75}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-ui-body">Race</span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
+                          Give this message to several agents and keep the best
+                          result
+                        </span>
+                      </span>
+                      {raceActive ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  ) : null}
                 </Popover>
               ) : null}
             </div>
-            {orchestrationSelected ? (
+            {orchestrationSelected && !jumpInId ? (
               <button
                 type="button"
                 title="Turn off Orchestrator mode"
@@ -2020,14 +2201,15 @@ function ComposerComponent({
                 className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
               >
                 <Share className="size-3.5" />
-                Orchestrator
+                {fit === "narrow" ? null : "Orchestrator"}
                 <X className="size-3" />
               </button>
             ) : null}
-            {planSelected ? (
+            {planSelected && !jumpInId ? (
               <button
                 type="button"
                 title="Turn off Plan mode"
+                aria-label="Turn off Plan mode"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setPlanSelected(false);
@@ -2036,35 +2218,40 @@ function ComposerComponent({
                 className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-ui-caption text-yellow-200/90 hover:bg-yellow-300/18"
               >
                 <AiIdea className="size-3.5" />
-                Plan
+                {fit === "narrow" ? null : "Plan"}
                 <X className="size-3" />
               </button>
             ) : null}
             {raceActive ? (
-              <button
-                type="button"
-                title="Turn off Race"
-                aria-label="Turn off Race"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  setRaceOn(false);
+              <RaceChip
+                fit={fit}
+                available={raceAvailable}
+                lanes={raceLanes}
+                onFirstModelChange={setRaceModel}
+                reason={raceError ?? raceReason(draft)}
+                failed={!!raceError}
+                open={raceMenuOpen}
+                onOpenChange={(open) => {
+                  setRaceMenuOpen(open);
+                  if (!open) setRaceError(null);
+                }}
+                onTurnOff={() => {
+                  stopRaceMode();
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
-              >
-                <Race className="size-3.5" strokeWidth={1.75} />
-                Race · {raceLanes.length}
-                <X className="size-3" />
-              </button>
+                onDone={() => ref.current?.focus()}
+              />
             ) : null}
             {discussActive && discussion && sessionId ? (
               <DiscussionChip
+                fit={fit}
                 host={discussion}
                 sessionId={sessionId}
                 harness={harness}
                 model={model}
                 pick={discussPick}
                 rounds={discussRounds}
+                role={discussRole}
                 reason={discussError ?? discussReason(draft)}
                 open={discussMenuOpen}
                 onOpenChange={(open) => {
@@ -2079,6 +2266,7 @@ function ComposerComponent({
                   setDiscussRounds(rounds);
                   saveDiscussionRounds(rounds);
                 }}
+                onRoleChange={setDiscussRole}
                 onTurnOff={() => {
                   stopDiscussMode();
                   ref.current?.focus();
@@ -2106,6 +2294,7 @@ function ComposerComponent({
             </div>
             <div className="personal-composer-agent">
               <AgentPill
+                fit={fit}
                 harness={harness}
                 model={model}
                 modelSettings={modelSettings}
@@ -2113,7 +2302,6 @@ function ComposerComponent({
                 showAccess={harnessDescriptor(harness).supportsAccessMode}
                 busy={busy}
                 hotkeys={hotkeys && enabled}
-                race={raceOptions}
                 onModelChange={onModelChange}
                 onModelSettingsChange={onModelSettingsChange}
                 onRuntimeModeChange={onRuntimeModeChange}
@@ -2134,17 +2322,21 @@ function ComposerComponent({
               <ComposerAction
                 busy={busy}
                 actionLabel={
-                  raceActive
-                    ? `Race ${raceLanes.length} agents`
-                    : queueSubmission
-                      ? "Queue message"
-                      : busy
-                        ? "Steer active turn"
-                        : "Send"
+                  jumpInId
+                    ? "Send to both"
+                    : raceActive
+                      ? raceReady
+                        ? `Race ${raceLanes.length} agents`
+                        : "Choose agents to race"
+                      : queueSubmission
+                        ? "Queue message"
+                        : busy
+                          ? "Steer active turn"
+                          : "Send"
                 }
                 hasValue={hasValue}
                 onSend={() => submit(ref.current?.value ?? "")}
-                onStop={() => onStop?.()}
+                onStop={stopInBar ? undefined : () => onStop?.()}
               />
             </div>
           </div>
@@ -2264,7 +2456,8 @@ function ComposerAction({
   actionLabel: string;
   hasValue: boolean;
   onSend: () => void;
-  onStop: () => void;
+  /** Absent where the team bar's Stop stops the same thing. */
+  onStop?: () => void;
 }) {
   if (busy) {
     return (
@@ -2275,20 +2468,22 @@ function ComposerAction({
             title={actionLabel}
             aria-label={actionLabel}
             onClick={onSend}
-            className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+            className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
             <ArrowUp className="size-3.5" strokeWidth={2.25} />
           </button>
         ) : null}
-        <button
-          type="button"
-          title="Stop"
-          aria-label="Stop"
-          onClick={onStop}
-          className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
-        >
-          <Square className="size-2.5 fill-current" strokeWidth={0} />
-        </button>
+        {onStop ? (
+          <button
+            type="button"
+            title="Stop"
+            aria-label="Stop"
+            onClick={onStop}
+            className="aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+          >
+            <Square className="size-2.5 fill-current" strokeWidth={0} />
+          </button>
+        ) : null}
       </>
     );
   }
@@ -2300,7 +2495,7 @@ function ComposerAction({
       aria-label={actionLabel}
       disabled={!hasValue}
       onClick={onSend}
-      className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
+      className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>

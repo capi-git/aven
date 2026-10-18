@@ -1,4 +1,4 @@
-import { ChevronDown, GripVertical, X } from "../chrome/icons";
+import { ChevronDown } from "../chrome/icons";
 import {
   memo,
   useCallback,
@@ -15,11 +15,33 @@ import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
-import { orchestrator, sameCheckout } from "../lib/orchestration";
+import { PaneNameStrip } from "../chrome/PaneNameStrip";
+import { ProviderMarks } from "../chrome/ProviderMarks";
+import {
+  leadIsIdle,
+  orchestrator,
+  sameCheckout,
+  type OrchestrationRun,
+} from "../lib/orchestration";
+import {
+  useOrchestrationRun,
+  useOrchestrationSelector,
+} from "../hooks/useOrchestrationRun";
+import { isDetachedWorkspace } from "../lib/workspaceTransfers";
+import {
+  TeamBar,
+  teamBarOwnsStop,
+  teamBarShows,
+  teamBarTakesBoxStop,
+} from "../chrome/TeamBar";
+import { TeamRunStatusContext } from "../chrome/TeamRunDetails";
+import { useTeamOf } from "../hooks/useTeamRuns";
+import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
+import { teamIsOpen, teamRole } from "../lib/teamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
-import { DiscussionOpenContext } from "../chrome/DiscussionRelayCard";
+import { DiscussionActions } from "../chrome/DiscussionWrapUpNote";
 import { SessionReview } from "../chrome/SessionReview";
 import { PromptOutline } from "../chrome/PromptOutline";
 import {
@@ -30,6 +52,7 @@ import {
 import { looksLikeProject, type RecentProject } from "../lib/recents";
 import {
   sessionDisplayTitle,
+  sessionIsWaitingForInput,
   sessionWorkCwd,
   type Attachment,
   type Block,
@@ -53,7 +76,8 @@ import {
 import { createNote, noteTitle } from "../lib/notes";
 import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
-import { sessionPaneLabel } from "../lib/sessionLabels";
+import { sessionModelIdentity, sessionPaneLabel } from "../lib/sessionLabels";
+import { isInFlightSession } from "../lib/inFlight";
 import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
@@ -77,7 +101,10 @@ import {
 } from "../lib/appearance";
 import type { PaletteAgent } from "../lib/commandPalette";
 import type { DiscussionHost } from "../lib/discussions";
-import "./SessionPane.css";
+
+const NO_RUNS: readonly OrchestrationRun[] = [];
+const runIsOpen = (run: OrchestrationRun) =>
+  run.status === "active" || run.status === "paused";
 
 type Props = {
   session: Session;
@@ -85,12 +112,8 @@ type Props = {
   visible: boolean;
   focused: boolean;
   addToChatTarget?: boolean;
+  /** Shares its tab with another pane, so it shows its own name strip. */
   inSplit: boolean;
-  /**
-   * Name the pane in its split controls. Off when it is the tab's only chat,
-   * whose tab already carries the title.
-   */
-  namedInSplit?: boolean;
   composerFocused: boolean;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
@@ -182,7 +205,6 @@ export const SessionPane = memo(function SessionPane({
   focused,
   addToChatTarget = focused,
   inSplit,
-  namedInSplit = true,
   composerFocused,
   recents,
   hideProjectPicker,
@@ -222,25 +244,51 @@ export const SessionPane = memo(function SessionPane({
   const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(
     session.id,
   );
-  const orchestrationRuns = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
+  // Only what this pane shows: another run's save re-renders nothing here.
+  const runsCwd = sessionWorkCwd(session);
+  const managed = useOrchestrationSelector((runs) =>
+    runs.some((run) => runIsOpen(run) && sameCheckout(run.cwd, runsCwd)),
   );
-  const managed = orchestrationRuns.some(
-    (run) =>
-      (run.status === "active" || run.status === "paused") &&
-      sameCheckout(run.cwd, sessionWorkCwd(session)),
+  const ownRun = useOrchestrationRun(session.id);
+  // The team bar's Stop stops what this chat's own Stop would (a lead's
+  // run, a discussion): one Stop is enough.
+  const team = useTeamOf(session.inboxAsk ? undefined : session.id, {
+    previews: true,
+  });
+  // The run status shows no Stop where the bar's does the same. The box
+  // keeps its Stop except for a lead: in a discussion it interrupts this
+  // chat's agent at once, where the bar's End discussion lets it finish.
+  const barStops = teamBarOwnsStop(team, session.id);
+  const boxStopInBar = teamBarTakesBoxStop(team, session.id);
+  // While the team runs, its bar carries this chat's status too: one row
+  // says what the team and this chat are doing, with the run's time.
+  const teamRow = !session.inboxAsk && teamBarShows(team, session.id);
+  const raceLane = raceLaneFor(session.id);
+  // Never in a lane, partner, worker or Inbox chat, nor during its own run.
+  const offersMemoryKeeper = chatMayOfferMemoryKeeper(session, {
+    lane: !!raceLane,
+    teamRole: team ? teamRole(team, session.id) : null,
+    teamOpen: !!team && teamIsOpen(team),
+  });
+  const runLocked = useOrchestrationSelector((runs) =>
+    runs.some(
+      (run) =>
+        runIsOpen(run) &&
+        (run.leadId === session.id ||
+          run.tasks.some((task) => task.sessionId === session.id)),
+    ),
   );
   useEffect(() => {
-    if (!session.inboxAsk)
+    // Only the window that holds a chat's runs loads them. A detached
+    // workspace shows chats the main window runs; loading a live run there
+    // would pause it and save that over the real one.
+    if (!session.inboxAsk && !isDetachedWorkspace())
       void orchestrator.hydrate(session.id).catch(console.error);
   }, [session.id, session.inboxAsk]);
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
-  const paneLabel = sessionPaneLabel(
-    session,
-    raceLaneFor(session.id)?.lane.label,
-  );
+  const paneLabel = sessionPaneLabel(session, raceLane?.lane.label);
+  // The provider at work, as the chat's tab marks it.
+  const paneHarness = sessionModelIdentity(session).harness;
   const backgroundRevision = useSyncExternalStore(
     subscribeProjectChatBackground,
     projectChatBackgroundRevision,
@@ -319,6 +367,17 @@ export const SessionPane = memo(function SessionPane({
     subscribeNotesEnabled,
     loadNotesEnabled,
     () => true,
+  );
+  // Stable, so finished turns in the transcript skip rendering while it streams.
+  const secondOpinion = useCallback(
+    (harness: HarnessId, turn: Block[], model: string) =>
+      onSecondOpinion?.(session.id, harness, turn, model),
+    [onSecondOpinion, session.id],
+  );
+  const handoff = useCallback(
+    (harness: HarnessId, turn: Block[], model: string) =>
+      onHandoff?.(session.id, harness, turn, model),
+    [onHandoff, session.id],
   );
   const saveNote = useCallback(
     (text: string) => {
@@ -422,6 +481,10 @@ export const SessionPane = memo(function SessionPane({
     () => onFocus(sessionId),
     [onFocus, sessionId],
   );
+  const closeSession = useCallback(
+    () => onClose(sessionId),
+    [onClose, sessionId],
+  );
   const changeCwd = useCallback(
     (cwd: string) => onCwdChange(sessionId, cwd),
     [onCwdChange, sessionId],
@@ -498,15 +561,42 @@ export const SessionPane = memo(function SessionPane({
     },
     [onModelChange, sessionId],
   );
-  const reviewUndoBlocked =
-    reviewUndoLocked ||
-    orchestrationRuns.some(
-      (run) =>
-        (run.status === "active" || run.status === "paused") &&
-        (run.leadId === sessionId ||
-          run.tasks.some((task) => task.sessionId === sessionId)),
-    );
+  const reviewUndoBlocked = reviewUndoLocked || runLocked;
+  const submitText = useCallback(
+    (id: string, text: string) => void onSubmit(id, text, []),
+    [onSubmit],
+  );
   const busy = !!session.busy;
+  // Kept while its inputs hold, so the memoized message box skips streams.
+  const idle = leadIsIdle(session);
+  const openDiscussion = discussion?.open;
+  const teamBar = useMemo(
+    () =>
+      inboxAsk ? undefined : (
+        <TeamBar
+          sessionId={sessionId}
+          cwd={runsCwd}
+          idle={idle}
+          onSubmit={submitText}
+          onStop={onStop}
+          onOpenDiscussion={openDiscussion}
+        />
+      ),
+    [idle, inboxAsk, onStop, openDiscussion, runsCwd, sessionId, submitText],
+  );
+  const statusSession = useMemo(
+    () =>
+      sessionWithManagedAgents(
+        session,
+        ownRun ? [ownRun] : NO_RUNS,
+        workerAgents,
+      ),
+    [session, ownRun, workerAgents],
+  );
+  const teamRunStatus = useMemo(
+    () => ({ session: statusSession, visible }),
+    [statusSession, visible],
+  );
   const review = useMemo(
     () =>
       inboxAsk ? null : (
@@ -587,6 +677,8 @@ export const SessionPane = memo(function SessionPane({
       onOpenFile={onOpenFile}
       busy={busy}
       discussion={session.inboxAsk ? undefined : discussion}
+      teamBar={teamBar}
+      stopInBar={boxStopInBar}
     >
       {review}
     </Composer>
@@ -605,60 +697,30 @@ export const SessionPane = memo(function SessionPane({
       {astraWelcomeRun !== null && visible ? (
         <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
       ) : null}
-      {/* The tab strip above is this pane's only bar. In a split, moving and
-          closing the pane appear over its top corner on hover or focus, so
-          they take no row of their own. */}
+      {/* Sharing a tab, the pane names itself in a strip above its content. */}
       {inSplit ? (
-        <div
-          className="session-pane-controls"
-          data-session-pane-controls
-          data-focused={focused || undefined}
-          data-draggable={onPaneDragStart ? "true" : undefined}
-          title={
-            onPaneDragStart ? "Drag to move or split this pane" : undefined
-          }
-          onPointerDown={(event) => {
-            if (event.button !== 0 || !onPaneDragStart) return;
-            if (
-              (event.target as HTMLElement | null)?.closest("[data-no-drag]")
-            ) {
-              return;
-            }
-            onPaneDragStart(event);
-          }}
-        >
-          {onPaneDragStart ? (
-            <GripVertical
-              className="size-3.5 shrink-0"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-          ) : null}
-          {namedInSplit ? (
-            <span
-              className="session-pane-controls-label"
-              data-session-pane-label
-              title={paneLabel.tooltip}
-            >
-              {paneLabel.headline}
+        <PaneNameStrip
+          name={paneLabel.headline}
+          tooltip={paneLabel.tooltip}
+          icon={
+            <span className="personal-title-tab-identity">
+              <ProviderMarks
+                harnesses={[paneHarness]}
+                busyHarnesses={
+                  isInFlightSession(session) &&
+                  !sessionIsWaitingForInput(session)
+                    ? [paneHarness]
+                    : []
+                }
+                dimmed={!focused}
+              />
             </span>
-          ) : null}
-          <button
-            type="button"
-            title={`Close Pane (${MOD}W)`}
-            aria-label="Close pane"
-            data-no-drag
-            className="session-pane-close"
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose(session.id);
-            }}
-          >
-            <X className="size-3" strokeWidth={1.75} />
-          </button>
-        </div>
+          }
+          focused={focused}
+          closeTitle={`Close pane (${MOD}W)`}
+          onClose={closeSession}
+          onDragStart={onPaneDragStart}
+        />
       ) : null}
       <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {isEmpty ? (
@@ -678,9 +740,7 @@ export const SessionPane = memo(function SessionPane({
           )
         ) : (
           <>
-            <DiscussionOpenContext.Provider
-              value={session.inboxAsk ? undefined : discussion?.open}
-            >
+            <DiscussionActions host={session.inboxAsk ? undefined : discussion}>
               <AgentTranscript
                 blocks={session.blocks}
                 busy={!!session.busy}
@@ -699,21 +759,15 @@ export const SessionPane = memo(function SessionPane({
                 onBuildPlan={buildPlan}
                 onSecondOpinion={
                   !session.inboxAsk && onSecondOpinion
-                    ? (harness, turn, model) =>
-                        onSecondOpinion(session.id, harness, turn, model)
+                    ? secondOpinion
                     : undefined
                 }
-                onHandoff={
-                  !session.inboxAsk && onHandoff
-                    ? (harness, turn, model) =>
-                        onHandoff(session.id, harness, turn, model)
-                    : undefined
-                }
+                onHandoff={!session.inboxAsk && onHandoff ? handoff : undefined}
                 onJumpToBottomChange={setShowJumpToBottom}
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
               />
-            </DiscussionOpenContext.Provider>
+            </DiscussionActions>
             <PromptOutline
               blocks={session.blocks}
               scope={transcriptScope}
@@ -739,9 +793,13 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
-          {/* Asked once per project, in the chat the user is looking at. */}
-          {visible && focused && !session.inboxAsk && memoryProject ? (
-            <MemoryKeeperOffer project={memoryProject} />
+          {/* Asked once per project, in the chat whose turn brought it. */}
+          {visible && memoryProject && offersMemoryKeeper ? (
+            <MemoryKeeperOffer
+              project={memoryProject}
+              sessionId={session.id}
+              focused={focused}
+            />
           ) : null}
           {/* One chat per tab offers the project's dev server: the focused one. */}
           {visible && focused && !session.inboxAsk ? (
@@ -756,16 +814,16 @@ export const SessionPane = memo(function SessionPane({
             <DuplicateServerChip placement="chat" sessionId={session.id} />
           ) : null}
           <SessionRunStatus
-            session={sessionWithManagedAgents(
-              session,
-              orchestrationRuns,
-              workerAgents,
-            )}
+            session={statusSession}
             visible={visible}
+            stopElsewhere={barStops}
+            placement={teamRow ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
-          {composer}
+          <TeamRunStatusContext.Provider value={teamRunStatus}>
+            {composer}
+          </TeamRunStatusContext.Provider>
         </div>
       ) : null}
     </div>

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../lib/activity";
 import type { ProjectStatusMap } from "../lib/projectStatus";
 import type { Session } from "../lib/session";
+import { NO_LEAD_DECIDED } from "../lib/teamAttention";
 import { useProjectStatus } from "./useProjectStatus";
 
 const { readStats } = vi.hoisted(() => ({ readStats: vi.fn() }));
@@ -25,7 +26,7 @@ function Probe(props: {
   activity: ActivityEntry[];
   projectPaths: string[];
 }) {
-  latest = useProjectStatus(props);
+  latest = useProjectStatus({ ...props, leadDecided: NO_LEAD_DECIDED });
   return null;
 }
 

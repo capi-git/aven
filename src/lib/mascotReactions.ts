@@ -9,7 +9,7 @@ import { projectKey } from "./paths";
 
 /**
  * One-shot mascot reactions to a turn's end: a happy hop when it completed, a
- * slump when it failed, a blink when it was stopped. A discussion's page also
+ * slump when it failed, a blink when it was stopped. A discussion's panel also
  * uses a nod and a head-tilt when a reply agrees or pushes back.
  *
  * A reaction plays once per turn end. A window reacts only to ledger entries
@@ -70,7 +70,15 @@ export function newTurnEnds(
   const ids = new Set<string>();
   for (const entry of entries) {
     ids.add(entry.id);
-    if (known.has(entry.id) || !reactionKindFor(entry.outcome)) continue;
+    // A team member's own turn never cheers: its team's end does, once.
+    // A team waiting on you is a question for you, not a failure to slump at.
+    if (
+      known.has(entry.id) ||
+      entry.team?.member ||
+      entry.team?.need ||
+      !reactionKindFor(entry.outcome)
+    )
+      continue;
     if (Math.abs(now - entry.createdAt) <= REACTION_FRESH_MS) fresh.push(entry);
   }
   known.clear();
@@ -216,4 +224,14 @@ export function mascotReactionFor(
   key: string | null | undefined,
 ): MascotReaction | null {
   return (key && playing.get(key)) || null;
+}
+
+/** The reaction playing for a turn of one of these chats, if any. */
+export function mascotReactionForSessions(
+  sessionIds: readonly string[],
+): MascotReaction | null {
+  if (!sessionIds.length) return null;
+  for (const reaction of playing.values())
+    if (sessionIds.includes(reaction.sessionId)) return reaction;
+  return null;
 }

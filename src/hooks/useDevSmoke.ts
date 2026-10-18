@@ -4,10 +4,15 @@ import {
   finishDevSmoke,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
+  SMOKE_ECHO_NOTE_WORD,
   SMOKE_HEARD_WORD,
   SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
+  SMOKE_ORCHESTRATE_WORD,
   SMOKE_REPLY,
+  SMOKE_STALL_WORD,
+  SMOKE_SUMMARY_WORD,
+  SMOKE_WINNER_WORD,
   SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
@@ -23,6 +28,7 @@ import {
   launchRevealSummary,
   readLaunchReveal,
 } from "../lib/devSmokeReveal";
+import { agentRole, roleBrief, type AgentRoleId } from "../lib/agentRoles";
 import { errorText } from "../lib/errors";
 import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
@@ -33,7 +39,25 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
-import type { Session } from "../lib/session";
+import { providerShortName } from "../lib/discussionVoices";
+import { pickerModelsFor } from "../lib/models";
+import type { RaceRecord } from "../lib/race";
+import type { RaceLaneChoice } from "../lib/raceAgents";
+import { raceLaneName } from "../lib/raceLanes";
+import { raceAgentNames } from "../lib/raceNames";
+import { teamWorkspace } from "../lib/teamWorkspace";
+import { possessive } from "../lib/words";
+import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
+import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
+import { isInFlightSession } from "../lib/inFlight";
+import type { OrchestrationRun } from "../lib/orchestration";
+import { leadDecidedIds } from "../lib/teamAttention";
+import {
+  homeLiveSessions,
+  homeNeedsYou,
+  homeScope,
+  isWaitingAttention,
+} from "../lib/workspaceHome";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -55,8 +79,11 @@ type Options = DevPerfOptions & {
     toggle: () => void;
     terminalIds: (projectPath: string) => string[];
   };
-  /** Delete a project and its chats, as the sidebar's Delete does. */
-  deleteProject?: (projectPath: string) => Promise<void>;
+  /**
+   * Delete a project and its chats, as the sidebar's Delete does; resolves
+   * with why it could not.
+   */
+  deleteProject?: (projectPath: string) => Promise<string | null | void>;
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats; the check drives the composer's Discuss mode. */
@@ -67,6 +94,30 @@ type Options = DevPerfOptions & {
   sharedWork?: boolean;
   /** Panes are drawn as cards with one bar each and the shared tab style. */
   paneLayout?: boolean;
+  /** Open a file beside the current chat, as a file link does. */
+  openFile?: (path: string) => void;
+  /** The orchestrator's runs, as the check drives one from a chat. */
+  orchestration?: {
+    run: (leadId: string) => OrchestrationRun | undefined;
+    submissionError: (sessionId: string) => string | null;
+  };
+  /** Races a message from the message box; the check keeps a lane mid-run. */
+  race?: SmokeRace;
+  /** The title bar opens the project's board, which the check watches. */
+  board?: boolean;
+};
+
+/** What the race check reads and sets outside the page. */
+export type SmokeRace = {
+  races: () => readonly RaceRecord[];
+  listDir: (path: string) => Promise<{ name: string }[]>;
+  readFile: (path: string) => Promise<string>;
+  /** Grok Build, which must be the stand-in before anything is sent. */
+  resolveGrok: () => Promise<{ path: string }>;
+  /** Looks for installed providers again, so the stand-in Grok counts. */
+  probe: () => Promise<void>;
+  /** The lanes the next race adds, as the Race chip saves them. */
+  chooseAgents: (lanes: RaceLaneChoice[]) => void;
 };
 
 type SmokeUtilities = {
@@ -90,6 +141,9 @@ type SmokeMotion = {
   showWorkspace?: () => void;
 };
 
+/** The line the discussion's second chat, a Skeptic, is first sent. */
+const SKEPTIC_BRIEF = roleBrief("skeptic", "in this discussion");
+
 /** How long the stand-in holds a turn open while the checks watch it. */
 const HOLD_MS = 4_000;
 /**
@@ -98,10 +152,20 @@ const HOLD_MS = 4_000;
  */
 const DISCUSSION_HOLD_MS = 8_000;
 const DISCUSSION_ROUNDS = 2;
-/** What the check adds to the discussion from its page. */
+/** The Discuss dropdown's row for a new chat, and the providers it lists. */
+const NEW_CHAT_LABEL = "New chat with…";
+const NEW_CHAT_MENU = "Choose the model for the new chat";
+/** What the check adds to the discussion from its panel. */
 const JUMP_IN_TEXT = `Keep it short. ${SMOKE_JUMP_IN_WORD}`;
 /** The stand-in plays the cheapest model; its first call starts a process. */
 const WRAP_UP_WAIT_MS = 60_000;
+/**
+ * The race's task. Each stand-in writes a file into its lane's copy at once,
+ * then another every half second while the turn holds; the stand-in Grok
+ * fails its first try in each copy.
+ */
+const RACE_TEXT =
+  "Build the change. AVEN_SMOKE_RACE AVEN_SMOKE_FAIL_ONCE AVEN_SMOKE_HOLD 20000";
 /** Ports the stand-in pretends two chats' dev servers announce; nothing listens. */
 const FIRST_SERVER_PORT = 5199;
 const SECOND_SERVER_PORT = 5200;
@@ -339,6 +403,154 @@ function chatComposer(sessionId: string): HTMLElement | null {
   );
 }
 
+/**
+ * Why starting a discussion with a new chat did not fold it into one card in
+ * the chat that started it, or null: the new chat in no tab or pane, the
+ * topic as the user's message, then the live card, and none of the turns
+ * it stands for drawn.
+ */
+function startProblem(a: string, b: string, id: string): string | null {
+  if (document.querySelector(`[data-session-drop="${b}"]`))
+    return "the new chat opened in a tab or pane";
+  const pane = document.querySelector<HTMLElement>(
+    `[data-session-drop="${a}"]`,
+  );
+  if (!pane) return "the first chat is not on screen";
+  return cardProblem(pane, id, "live");
+}
+
+/** Why the discussion's card in a chat is not as expected, or null. */
+function cardProblem(
+  pane: HTMLElement,
+  id: string,
+  state: "live" | "done",
+): string | null {
+  const card = pane.querySelector<HTMLElement>(
+    `[data-discussion-card="${id}"]`,
+  );
+  if (!card) return "the first chat has no card for the discussion";
+  if (card.dataset.state !== state)
+    return `the card is ${card.dataset.state ?? "unmarked"}, not ${state}`;
+  if (card.querySelectorAll("[data-discussion-avatar]").length !== 2)
+    return "the card does not show both mascots";
+  const topic = [
+    ...pane.querySelectorAll<HTMLElement>(".personal-user-message"),
+  ].find((message) => message.textContent?.includes("Compare notes."));
+  if (!follows(topic ?? null, card)) return "the card is not after the topic";
+  if (pane.querySelector(".personal-transcript-response"))
+    return "the turns the card stands for are drawn in the chat";
+  const title = card.querySelector(".team-card-title")?.textContent;
+  if (state === "live") {
+    if (!title?.endsWith("are discussing"))
+      return `the card reads "${title ?? ""}"`;
+    if (!card.querySelector("[data-discussion-card-watch]"))
+      return "the card has no Watch";
+    // One Stop for the discussion: the bar's, in the message box.
+    if (card.querySelector("[data-discussion-card-stop]"))
+      return "the card has a Stop of its own";
+    const stops = stopsIn(pane);
+    if (stops.join() !== "discussion")
+      return `the chat offers ${stops.length} Stops (${stops.join(", ") || "none"}), not the bar's one`;
+  } else {
+    if (title !== `Discussion finished · ${DISCUSSION_ROUNDS} rounds`)
+      return `the finished card reads "${title ?? ""}"`;
+    if (
+      card.querySelector("[data-discussion-card-watch]")?.textContent !==
+      "Watch"
+    )
+      return "the finished card has no Watch";
+  }
+  return null;
+}
+
+/**
+ * The Stops a chat's pane offers for its work besides its message box's own
+ * square: the team bar's (by its kind) and the run status's.
+ */
+function stopsIn(pane: Element): string[] {
+  return [
+    ...[...pane.querySelectorAll<HTMLElement>("[data-team-stop]")].map(
+      (button) => button.dataset.teamStop ?? "team",
+    ),
+    ...[...pane.querySelectorAll(".session-run-stop")]
+      .filter((button) => button.textContent?.includes("Stop"))
+      .map(() => "run status"),
+  ];
+}
+
+/** The discussion's floating panel, when it is on screen. */
+function discussionPanel(id?: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        id ? `[data-discussion-panel="${id}"]` : "[data-discussion-panel]",
+      ),
+    ].find((panel) => panel.getClientRects().length > 0) ?? null
+  );
+}
+
+/** The pill a shrunk discussion becomes, when it is on screen. */
+function discussionPill(id: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-discussion-pill="${id}"]`,
+      ),
+    ].find((pill) => pill.getClientRects().length > 0) ?? null
+  );
+}
+
+/** Type into the panel's own message box and press Enter. */
+function jumpIn(id: string, text: string) {
+  const field = discussionPanel(id)?.querySelector<HTMLTextAreaElement>(
+    "[data-discussion-jump] textarea",
+  );
+  if (!field) throw new Error("The discussion's panel has no message box");
+  if (field.placeholder !== "Add something for both of them…")
+    throw new Error(`The panel's message box reads "${field.placeholder}"`);
+  typeInComposer(field, text);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * Why the first chat does not end with where they landed after the card,
+ * or null: the finished card, then the wrap-up with both lists, a build
+ * button for each chat and a link to the panel.
+ */
+function transcriptWrapUpProblem(a: string, id: string): string | null {
+  const pane = document.querySelector<HTMLElement>(
+    `[data-session-drop="${a}"]`,
+  );
+  if (!pane) return "the first chat is not on screen";
+  const card = cardProblem(pane, id, "done");
+  if (card) return card;
+  const holder = pane.querySelector<HTMLElement>(
+    `[data-discussion-wrapup-note="${id}"]`,
+  );
+  if (!holder) return "the first chat has no wrap-up after its card";
+  if (!follows(pane.querySelector(`[data-discussion-card="${id}"]`), holder))
+    return "the wrap-up is not after the card";
+  const wrapUp = holder.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (wrapUp?.dataset.discussionWrapup !== "done")
+    return `the first chat's wrap-up is ${wrapUp?.dataset.discussionWrapup ?? "missing"}, without its lists`;
+  const agreed = [
+    ...wrapUp.querySelectorAll('[data-discussion-list="agreed"] li'),
+  ].map((item) => item.textContent ?? "");
+  if (!agreed.includes(SMOKE_WRAP_UP_WORD))
+    return `the first chat's Agreed lists ${agreed.join(" | ") || "nothing"}`;
+  if (wrapUp.querySelectorAll("[data-discussion-build]").length !== 2)
+    return "the first chat's wrap-up has no build buttons";
+  if (!wrapUp.querySelector("[data-discussion-wrapup-open]"))
+    return "the first chat's wrap-up has no Watch";
+  return null;
+}
+
 /** Type into a message box the way a paste reaches React. */
 function typeInComposer(field: HTMLTextAreaElement, text: string) {
   field.focus();
@@ -351,14 +563,16 @@ function typeInComposer(field: HTMLTextAreaElement, text: string) {
 
 /**
  * Start a discussion the way a person does: the chat's + menu turns on
- * Discuss, the chip's dropdown picks the partner and rounds, and sending
- * the message starts it with the message as the topic.
+ * Discuss, the chip's dropdown picks the partner (another chat, or a new
+ * chat with a provider from New chat with…) and rounds, and sending the
+ * message starts it with the message as the topic.
  */
 async function startDiscussionFromComposer(
   sessionId: string,
-  partnerId: string,
+  partner: { chat: string } | { newWith: HarnessId },
   topic: string,
   rounds: number,
+  role?: AgentRoleId,
 ) {
   // Everything is looked up again after each press: the box re-renders.
   const inBox = <T extends Element>(selector: string) =>
@@ -388,32 +602,83 @@ async function startDiscussionFromComposer(
   item.click();
   const toggle = () =>
     inBox<HTMLElement>("[data-discussion-chip] [aria-haspopup]");
+  // The chip's full words; a narrow message box shows them shortened.
+  const chipText = () =>
+    inBox<HTMLElement>("[data-discussion-chip]")?.dataset.fullLabel;
   (await waitFor(toggle, 5_000, "the Discuss chip in the message box")).click();
   await waitFor(
     () => document.querySelector("[data-discussion-menu]"),
     5_000,
     "the Discuss chip's dropdown",
   );
-  const partner = inMenu<HTMLButtonElement>(
-    `[data-discussion-candidate="${partnerId}"]`,
-  );
-  if (!partner)
-    throw new Error("The Discuss dropdown does not list the other chat");
-  if (partner.disabled)
-    throw new Error(`The other chat can't join: ${partner.title}`);
-  partner.click();
+  if ("chat" in partner) {
+    const row = inMenu<HTMLButtonElement>(
+      `[data-discussion-candidate="${partner.chat}"]`,
+    );
+    if (!row)
+      throw new Error("The Discuss dropdown does not list the other chat");
+    if (row.disabled)
+      throw new Error(`The other chat can't join: ${row.title}`);
+    row.click();
+  } else {
+    const newChat = inMenu<HTMLButtonElement>(
+      `button[aria-label="${NEW_CHAT_LABEL}"]`,
+    );
+    if (!newChat)
+      throw new Error("The Discuss dropdown does not offer New chat with…");
+    if (newChat.disabled)
+      throw new Error(`New chat with… is off: ${newChat.title}`);
+    newChat.click();
+    const providers = await waitFor(
+      () =>
+        document.querySelector<HTMLElement>(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ),
+      5_000,
+      "New chat with…'s providers",
+    );
+    const title = HARNESS_TITLE[partner.newWith];
+    const provider = [
+      ...providers.querySelectorAll<HTMLButtonElement>(
+        "button[data-provider-index]",
+      ),
+    ].find((row) => row.textContent?.trim() === title);
+    if (!provider || provider.disabled)
+      throw new Error(`New chat with… does not offer ${title}`);
+    provider.click();
+    const picked = `Discuss with new ${providerShortName(partner.newWith)} chat`;
+    await waitFor(
+      () =>
+        !document.querySelector(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ) && chipText()?.includes(picked),
+      5_000,
+      `the chip to read "${picked}"`,
+    );
+  }
   const count = inMenu<HTMLElement>(`[data-discussion-rounds="${rounds}"]`);
   if (!count)
     throw new Error(`The Discuss dropdown offers no ${rounds} rounds`);
   count.click();
   await waitFor(
-    () =>
-      inBox("[data-discussion-chip-label]")?.textContent?.includes(
-        `${rounds} rounds`,
-      ),
+    () => chipText()?.includes(`${rounds} rounds`),
     5_000,
     `the chip to read ${rounds} rounds`,
   );
+  if (role) {
+    const choice = inMenu<HTMLButtonElement>(
+      `[data-role-picker] [data-role-choice="${role}"]`,
+    );
+    if (!choice)
+      throw new Error(`The Discuss dropdown offers no ${agentRole(role).name}`);
+    choice.click();
+    const as = `as ${agentRole(role).name}`;
+    await waitFor(
+      () => chipText()?.includes(as),
+      5_000,
+      `the chip to read "${as}"`,
+    );
+  }
   toggle()?.click();
   await waitFor(
     () => !document.querySelector("[data-discussion-menu]"),
@@ -432,52 +697,1259 @@ async function startDiscussionFromComposer(
   );
 }
 
-/** The discussion's conversation page, when it is on screen. */
-function discussionPage(id?: string): HTMLElement | null {
+/** The first element matching a selector that is drawn on screen. */
+function firstOnScreen<T extends Element>(selector: string): T | null {
   return (
-    [
-      ...document.querySelectorAll<HTMLElement>(
-        id ? `[data-discussion-view="${id}"]` : "[data-discussion-view]",
-      ),
-    ].find((page) => page.getClientRects().length > 0) ?? null
+    [...document.querySelectorAll<T>(selector)].find(
+      (element) => element.getClientRects().length > 0,
+    ) ?? null
   );
 }
 
 /**
- * Why a tab holding a chat beside a file pane (here, a discussion's page)
- * does not draw one bar per pane, panes as cards and one tab style, or null
- * with what it measured.
+ * Turn on Race from a chat's + menu and send the message, the way a person
+ * does: the chip names the lanes and its dropdown lists them. Nothing is
+ * sent unless the lanes' providers are exactly `providers`, in order, each
+ * named apart. Returns the lanes' labels.
  */
-export function paneLayoutProblem(page: HTMLElement): {
+async function startRaceFromComposer(
+  sessionId: string,
+  text: string,
+  providers: readonly HarnessId[],
+): Promise<string[]> {
+  // Everything is looked up again after each press: the box re-renders.
+  const inBox = <T extends Element>(selector: string) =>
+    chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
+  const plus = await waitFor(
+    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
+    5_000,
+    "the chat's + menu",
+  );
+  plus.click();
+  const menu = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
+    5_000,
+    "the + menu",
+  );
+  const item = menu.querySelector<HTMLElement>("[data-composer-race]");
+  if (!item?.textContent?.includes("Race")) {
+    inBox<HTMLButtonElement>(
+      '[aria-label="Add files or choose a mode"]',
+    )?.click();
+    throw new Error("The + menu does not offer Race");
+  }
+  item.click();
+  const toggle = () => inBox<HTMLElement>("[data-race-chip] [aria-haspopup]");
+  await waitFor(toggle, 5_000, "the Race chip in the message box");
+  // The chip's full words; a narrow message box shows them shortened.
+  const label = inBox<HTMLElement>("[data-race-chip]")?.dataset.fullLabel ?? "";
+  // Two agents can race, so the dropdown opens only when asked.
+  if (!document.querySelector("[data-race-menu]")) toggle()?.click();
+  const dropdown = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-race-menu]"),
+    5_000,
+    "the Race chip's dropdown",
+  );
+  const lanes = [
+    ...dropdown.querySelectorAll<HTMLElement>("[data-race-lane-choice]"),
+  ].map((row) => row.dataset.raceLaneLabel ?? "");
+  toggle()?.click();
+  await waitFor(
+    () => !document.querySelector("[data-race-menu]"),
+    5_000,
+    "the dropdown to close",
+  );
+  const expected = providers.map((harness) => HARNESS_TITLE[harness]);
+  const named = lanes.map((lane) => lane.split(" · ")[0]);
+  if (
+    named.join(" + ") !== expected.join(" + ") ||
+    new Set(lanes).size !== lanes.length ||
+    !label.startsWith("Race · ") ||
+    label.split(" · ").length !== lanes.length + 1
+  ) {
+    inBox<HTMLButtonElement>('[aria-label="Turn off Race"]')?.click();
+    throw new Error(
+      `The race would go to ${lanes.join(", ") || "no agents"} ("${label}"), not ${expected.join(" + ")}`,
+    );
+  }
+  const field = inBox<HTMLTextAreaElement>("textarea");
+  if (!field) throw new Error("The message box has no text field");
+  typeInComposer(field, text);
+  await waitFor(
+    () => inBox(`[aria-label="Race ${lanes.length} agents"]`),
+    5_000,
+    `the send button to read Race ${lanes.length} agents`,
+  );
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  return lanes;
+}
+
+/**
+ * A two-lane race from the message box: your message stays in the chat you
+ * sent it from, followed by the race's card, and the chat's bar has one
+ * Stop race; separate copies; Compare from the card; truthful lane states
+ * and Retry, with no entry in Activity for a lane's turn; then Keep one
+ * lane while the other still works. The kept files must include one the
+ * overview had not shown yet, the copies must go, the kept lane's chat
+ * must point back at the project while the other's is archived, and the
+ * card must become the result.
+ */
+export async function checkRace(
+  get: () => Options,
+  config: DevSmokeConfig,
+  race: SmokeRace,
+): Promise<string> {
+  const grok = await race.resolveGrok();
+  if (!grok.path.startsWith(`${config.binDir}/`))
+    throw new Error(`Grok Build resolved to ${grok.path}, not the stand-in`);
+  await race.probe();
+  race.chooseAgents([{ harness: "grok" }]);
+  get().motion?.showWorkspace?.();
+  const names = async (path: string) =>
+    (await race.listDir(path)).map((entry) => entry.name);
+  const session = (id: string) =>
+    get().sessions.find((entry) => entry.id === id);
+  const before = new Set(race.races().map((entry) => entry.id));
+  const chat = await openNewTask(get, config.projectPath);
+  const since = Date.now();
+  await startRaceFromComposer(chat.id, RACE_TEXT, ["claude", "grok"]);
+  const record = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => !before.has(entry.id) && entry.state === "running"),
+    20_000,
+    "the race to start",
+  );
+  const [claude, grokLane] = record.lanes;
+  if (record.lanes.map((lane) => lane.harness).join(" + ") !== "claude + grok")
+    throw new Error(
+      `The race has ${record.lanes.map((lane) => lane.label).join(", ")}`,
+    );
+
+  // Each lane is a chat in the project, working in its own copy.
+  if (
+    claude.path === grokLane.path ||
+    record.lanes.some((lane) => sameProjectPath(lane.path, config.projectPath))
+  )
+    throw new Error("The lanes do not have copies of their own");
+  for (const lane of record.lanes) {
+    const lanes = await waitFor(
+      () => session(lane.sessionId),
+      5_000,
+      `${lane.label}'s chat`,
+    );
+    if (
+      lanes.worktreeCwd !== lane.path ||
+      !sameProjectPath(lanes.cwd, config.projectPath)
+    )
+      throw new Error(`${lane.label}'s chat works in ${lanes.worktreeCwd}`);
+  }
+  await waitForAsync(
+    async () => (await names(claude.path)).includes("race-claude.txt"),
+    20_000,
+    "Claude's lane to write into its copy",
+  );
+
+  // Your message stays where you sent it, followed by the race's card, and
+  // you stay in that chat while the lanes work in their own tab.
+  if (record.origin?.sessionId !== chat.id)
+    throw new Error("The race does not record the chat it was sent from");
+  const card = () =>
+    chatPane(chat.id)?.querySelector<HTMLElement>(
+      `[data-race-card="${record.id}"]`,
+    ) ?? null;
+  const message = await waitFor(
+    () =>
+      chatPane(chat.id)?.querySelector<HTMLElement>(
+        `[data-team-origin="${record.id}"] .personal-user-message`,
+      ),
+    10_000,
+    "your message to stay in the chat you raced it from",
+  );
+  if (!message.textContent?.includes("Build the change"))
+    throw new Error(`The chat shows "${message.textContent}" for the race`);
+  if (!follows(message, card()))
+    throw new Error("The race's card does not follow your message");
+  const lanesOf = () =>
+    [...(card()?.querySelectorAll("[data-race-card-lane]") ?? [])].map((row) =>
+      row.getAttribute("data-lane-state"),
+    );
+  try {
+    await waitFor(
+      () => lanesOf().join() === "working,failed",
+      20_000,
+      "the card to show Claude working and Grok failed",
+    );
+  } catch (error) {
+    throw new Error(`${errorText(error)}; it shows ${lanesOf().join(", ")}`);
+  }
+  // The chat's bar reads the race, with its one Stop for every lane.
+  const barOf = () =>
+    chatComposer(chat.id)?.querySelector<HTMLElement>(
+      `[data-race-bar="${record.id}"]`,
+    ) ?? null;
+  const bar = barOf()?.querySelector("[data-team-bar-text]")?.textContent ?? "";
+  if (!bar.startsWith("Racing · ")) throw new Error(`The bar reads "${bar}"`);
+  const stops = stopsIn(chatPane(chat.id)!);
+  if (stops.join() !== "race")
+    throw new Error(
+      `The chat offers ${stops.join(", ") || "no"} Stop for the race, not one Stop race`,
+    );
+  // Grok's failed try is its lane's own turn: recorded quietly, not posted.
+  const lanes = record.lanes.map((lane) => lane.sessionId);
+  const loud = getActivitySnapshot().filter(
+    (entry) =>
+      entry.createdAt >= since &&
+      lanes.includes(entry.sessionId) &&
+      !entry.team?.member,
+  );
+  if (loud.length)
+    throw new Error(
+      `Activity posted ${loud.map((entry) => `"${entry.summary}"`).join(", ")} for a lane`,
+    );
+  // Watched from the card, the team panel shows each lane as the card does.
+  let watched = "";
+  if (teamWorkspace()?.watch) {
+    const teamId = `race:${record.id}`;
+    watched = await checkTeamPanel(
+      teamId,
+      () => card()?.querySelector<HTMLElement>(`[data-team-watch="${teamId}"]`),
+      (panel) => {
+        const lanes = [...panel.querySelectorAll("[data-team-lane]")].map(
+          (lane) => lane.getAttribute("data-lane-state"),
+        );
+        if (lanes.join() !== lanesOf().join())
+          return `its lanes read ${lanes.join(", ") || "nothing"}, the card's ${lanesOf().join(", ")}`;
+        if (
+          panel.querySelectorAll(".team-watch-tile").length !==
+          record.lanes.length
+        )
+          return "its header has no mascot for each lane";
+        if (!buttonNamed(panel, "Compare") || !buttonNamed(panel, "Stop race"))
+          return "it offers no Compare or Stop race";
+        return null;
+      },
+    );
+    closeTeamPanel(teamId);
+  }
+  // Compare from the card.
+  const compare = card()?.querySelector<HTMLButtonElement>(
+    "[data-race-compare]",
+  );
+  if (!compare) throw new Error("The race's card has no Compare");
+  compare.click();
+  const opened = await waitFor(
+    () => firstOnScreen<HTMLElement>(`[data-race-view="${record.id}"]`),
+    10_000,
+    "the race overview",
+  );
+  // Looked up again each time, in case the page drew it afresh.
+  const view = () =>
+    firstOnScreen<HTMLElement>(`[data-race-view="${record.id}"]`) ?? opened;
+  const state = (lane: number) =>
+    view()
+      .querySelector(`[data-race-lane="${lane}"] [data-lane-state]`)
+      ?.getAttribute("data-lane-state");
+  try {
+    await waitFor(
+      () => state(1) === "failed" && state(0) === "working",
+      20_000,
+      "Grok's lane to read Failed while Claude's works",
+    );
+  } catch (error) {
+    throw new Error(
+      `${errorText(error)}; the lanes read ${state(0) ?? "nothing"} and ${state(1) ?? "nothing"}`,
+    );
+  }
+  const retry = [
+    ...view().querySelectorAll<HTMLButtonElement>(
+      '[data-race-lane="1"] button',
+    ),
+  ].find((button) => button.textContent?.includes("Retry"));
+  if (!retry) throw new Error("The failed lane offers no Retry");
+  if (
+    [...view().querySelectorAll('[data-race-lane="0"] button')].some((button) =>
+      button.textContent?.includes("Retry"),
+    )
+  )
+    throw new Error("The working lane offers Retry");
+  retry.click();
+  await waitFor(
+    () => state(1) === "working",
+    15_000,
+    "Grok's lane to work again after Retry",
+  );
+  await waitForAsync(
+    async () => (await names(grokLane.path)).includes("race-grok.txt"),
+    15_000,
+    "Grok's lane to write into its copy",
+  );
+  const [claudeFiles, grokFiles, projectFiles] = await Promise.all([
+    names(claude.path),
+    names(grokLane.path),
+    names(config.projectPath),
+  ]);
+  if (
+    claudeFiles.some((name) => name.startsWith("race-grok")) ||
+    grokFiles.some((name) => name.startsWith("race-claude")) ||
+    projectFiles.some((name) => name.startsWith("race-"))
+  )
+    throw new Error("A lane wrote outside its own copy");
+
+  // Keep Claude's lane while Grok's still works, at a moment when Claude has
+  // written a file the overview has not shown: the keep must still take it.
+  await waitFor(
+    () => view().querySelector('[data-race-file="race-claude.txt"]'),
+    15_000,
+    "the overview to list Claude's first file",
+  );
+  const shown = () =>
+    new Set(
+      [...view().querySelectorAll("[data-race-file]")].map((row) =>
+        row.getAttribute("data-race-file"),
+      ),
+    );
+  let unseen: string[] = [];
+  let question = "";
+  let working = 0;
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    if (Date.now() > deadline)
+      throw new Error("Claude never wrote a file the overview had not shown");
+    if (state(1) !== "working")
+      throw new Error(`Grok's lane reads ${state(1)} before the keep`);
+    const listed = shown();
+    unseen = (await names(claude.path)).filter(
+      (name) => name.startsWith("race-claude") && !listed.has(name),
+    );
+    if (!unseen.length) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const keep = [
+      ...view().querySelectorAll<HTMLButtonElement>(
+        '[data-race-lane="0"] button',
+      ),
+    ].find((button) => button.textContent === "Keep this");
+    if (!keep || keep.disabled) throw new Error("Keep this is not available");
+    keep.click();
+    const dialog = await waitFor(
+      () =>
+        document
+          .querySelector<HTMLElement>('[role="dialog"] [data-confirm]')
+          ?.closest<HTMLElement>('[role="dialog"]') ?? null,
+      5_000,
+      "Keep's confirmation",
+    );
+    question = dialog.textContent ?? "";
+    working = view().querySelectorAll(
+      '[data-lane-state="working"], [data-lane-state="waiting"]',
+    ).length;
+    const still = shown();
+    unseen = unseen.filter((name) => !still.has(name));
+    if (unseen.length) {
+      dialog.querySelector<HTMLButtonElement>("[data-confirm]")?.click();
+      break;
+    }
+    // The overview refreshed meanwhile; ask again once Claude writes more.
+    [...dialog.querySelectorAll("button")]
+      .find((button) => button.textContent === "Cancel")
+      ?.click();
+    await waitFor(
+      () => !document.querySelector('[role="dialog"] [data-confirm]'),
+      5_000,
+      "the confirmation to close",
+    );
+  }
+  for (const part of [
+    `Keep ${raceLaneName(record, 0)}'s version?`,
+    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes`,
+  ])
+    if (!question.includes(part))
+      throw new Error(`Keep asked: ${question || "nothing"}`);
+  const kept = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => entry.id === record.id && entry.state !== "running"),
+    30_000,
+    "the race to finish",
+  );
+  if (kept.state !== "kept" || kept.error)
+    throw new Error(`The race ended ${kept.state}: ${kept.error ?? ""}`);
+
+  for (const name of ["race-claude.txt", ...unseen])
+    await race
+      .readFile(`${config.projectPath}/${name}`)
+      .catch((error: unknown) => {
+        throw new Error(`${name} was not kept: ${errorText(error)}`);
+      });
+  if (
+    (await names(config.projectPath)).some((name) =>
+      name.startsWith("race-grok"),
+    )
+  )
+    throw new Error("Grok's files reached the project");
+  for (const lane of record.lanes)
+    if (
+      await race.listDir(lane.path).then(
+        () => true,
+        () => false,
+      )
+    )
+      throw new Error(`${lane.label}'s copy is still there`);
+  // The kept agent's chat carries on in the project; Grok's, whose work
+  // went with its copy, is archived.
+  await waitFor(
+    () => {
+      const keptChat = session(record.lanes[0].sessionId);
+      return (
+        !!keptChat &&
+        !keptChat.worktreeCwd &&
+        sameProjectPath(keptChat.cwd, config.projectPath) &&
+        !session(record.lanes[1].sessionId)
+      );
+    },
+    5_000,
+    "the kept chat to point back at the project and Grok's to be archived",
+  );
+  // Close the finished overview as a person would, leaving only chats.
+  pressShortcut("w");
+  await waitFor(
+    () => !document.querySelector(`[data-race-view="${record.id}"]`),
+    5_000,
+    "Cmd+W to close the overview",
+  );
+  // The card in the chat you raced from is now the result.
+  if (!chatPane(chat.id)) teamWorkspace()?.openChat(chat.id);
+  const result = await waitFor(
+    () => {
+      const found = card();
+      return found?.dataset.raceCardState === "kept" && found;
+    },
+    10_000,
+    "the race's card to become its result",
+  );
+  const headline = result.querySelector(".team-card-title")?.textContent ?? "";
+  if (!headline.startsWith(`Kept ${raceLaneName(record, 0)}'s version · `))
+    throw new Error(`The result reads "${headline}"`);
+  if (
+    !buttonNamed(result, "Review changes") ||
+    !buttonNamed(result, `Continue with ${raceLaneName(record, 0)}`)
+  )
+    throw new Error("The result has no Review changes or Continue with");
+  if (barOf()) throw new Error("The race's bar stayed after the keep");
+  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, the kept chat back on the project and Grok's archived; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
+}
+
+/** The second race: both lanes write their file and finish within seconds. */
+const RESULT_RACE_TEXT = "Choose one. AVEN_SMOKE_RACE AVEN_SMOKE_HOLD 1500";
+
+/**
+ * A race that runs to its end, with a second model of the chat's own
+ * provider as a third lane: each lane has its own copy and branch and is
+ * named apart; the card reads Ready to compare and Activity holds one "Race
+ * ready to compare" entry, the lanes' turns recorded quietly; Suggest a
+ * winner shows the stand-in judge's pick and reason; keeping that lane
+ * (Grok's) turns the card into the result with why, and Continue with sends
+ * that lane's chat a recap of its work.
+ */
+export async function checkRaceResult(
+  get: () => Options,
+  config: DevSmokeConfig,
+  race: SmokeRace,
+): Promise<string> {
+  get().motion?.showWorkspace?.();
+  const before = new Set(race.races().map((entry) => entry.id));
+  const chat = await openNewTask(get, config.projectPath);
+  const other = pickerModelsFor("claude").find(
+    (model) => model.id !== chat.model,
+  );
+  if (!other) throw new Error("Claude offers no second model to race");
+  race.chooseAgents([
+    { harness: "grok" },
+    { harness: "claude", model: other.id },
+  ]);
+  const since = Date.now();
+  const labels = await startRaceFromComposer(chat.id, RESULT_RACE_TEXT, [
+    "claude",
+    "grok",
+    "claude",
+  ]);
+  const record = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => !before.has(entry.id) && entry.state === "running"),
+    20_000,
+    "the second race to start",
+  );
+  const grok = record.lanes[1];
+  // Two models of one provider: a copy, a branch and a name each.
+  const twins = [record.lanes[0], record.lanes[2]];
+  if (
+    record.lanes.map((lane) => lane.label).join(" + ") !== labels.join(" + ") ||
+    twins[1].model !== other.id ||
+    twins[0].model === twins[1].model ||
+    new Set(record.lanes.map((lane) => lane.path)).size !== 3 ||
+    new Set(record.lanes.map((lane) => lane.branch)).size !== 3
+  )
+    throw new Error(
+      `The race has ${record.lanes.map((lane) => `${lane.label} in ${lane.path}`).join(", ")}`,
+    );
+  for (const lane of twins)
+    await waitForAsync(
+      async () =>
+        (await race.listDir(lane.path))
+          .map((entry) => entry.name)
+          .includes("race-claude.txt"),
+      20_000,
+      `${lane.label} to write into its own copy`,
+    );
+  const card = () =>
+    chatPane(chat.id)?.querySelector<HTMLElement>(
+      `[data-race-card="${record.id}"]`,
+    ) ?? null;
+  const status = () =>
+    card()?.querySelector(".team-card-status")?.textContent ?? "";
+  // Calm once both are done: ready, not amber, with no Stop left to press.
+  await waitFor(
+    () => card()?.dataset.state === "ready",
+    40_000,
+    "the card to read Ready to compare",
+  );
+  const title = card()?.querySelector(".team-card-title")?.textContent;
+  if (title !== "Ready to compare")
+    throw new Error(`The ready card reads "${title ?? ""}"`);
+  const bar =
+    chatComposer(chat.id)?.querySelector(
+      `[data-race-bar="${record.id}"] [data-team-bar-text]`,
+    )?.textContent ?? "";
+  if (!bar.startsWith("Racing · Ready to compare"))
+    throw new Error(`The bar reads "${bar}"`);
+  if (stopsIn(chatPane(chat.id)!).length)
+    throw new Error("A ready race still offers Stop");
+  const names = [
+    ...(card()?.querySelectorAll(".team-card-member-name") ?? []),
+  ].map((name) => name.textContent ?? "");
+  // Two Claudes are named by their models, the one Grok by its app.
+  if (names.join(" + ") !== raceAgentNames(record.lanes).join(" + "))
+    throw new Error(`The card names the agents ${names.join(", ")}`);
+  const lanes = record.lanes.map((lane) => lane.sessionId);
+  const told = () =>
+    teamEntriesProblem(
+      [chat.id, ...lanes],
+      since,
+      chat.id,
+      "Race ready to compare · 3 of 3 done",
+      3,
+    );
+  try {
+    await waitFor(() => !told(), 10_000, "one Race ready to compare entry");
+  } catch (error) {
+    // How each agent read when the race became ready, to tell a race
+    // announced early from one worded differently.
+    const ended = race.races().find((entry) => entry.id === record.id)?.ends;
+    const states = [
+      ...(card()?.querySelectorAll(".team-card-member-state") ?? []),
+    ].map((state) => state.textContent?.trim());
+    const failures = getActivitySnapshot()
+      .filter(
+        (entry) =>
+          lanes.includes(entry.sessionId) &&
+          entry.outcome === "failed" &&
+          entry.createdAt >= since,
+      )
+      .map((entry) => entry.summary);
+    throw new Error(
+      `${errorText(error)}: ${told() ?? ""} (agents now ${states.join(", ")}; recorded ${JSON.stringify(ended ?? null)}; failures ${JSON.stringify(failures)})`,
+    );
+  }
+  // Winner and why, from the cheapest model (the stand-in judge).
+  const suggest = buttonNamed(card(), "Suggest a winner");
+  if (!suggest) throw new Error("The ready card offers no Suggest a winner");
+  suggest.click();
+  await waitFor(
+    () => status().includes(SMOKE_WINNER_WORD),
+    30_000,
+    "the card to show the suggested winner",
+  );
+  if (!status().startsWith(`Aven suggests ${raceLaneName(record, 1)}: `))
+    throw new Error(`The card reads "${status()}"`);
+  if (status().includes("Note to AI"))
+    throw new Error("A line addressed to agents reached the card");
+  // Keep the suggested lane from the overview. Nothing works, but the other
+  // agents' finished work goes with their copies, so it asks, naming them.
+  card()?.querySelector<HTMLButtonElement>("[data-race-compare]")?.click();
+  const view = await waitFor(
+    () => firstOnScreen<HTMLElement>(`[data-race-view="${record.id}"]`),
+    10_000,
+    "the race overview",
+  );
+  const keep = await waitFor(
+    () =>
+      [
+        ...view.querySelectorAll<HTMLButtonElement>(
+          '[data-race-lane="1"] button',
+        ),
+      ].find(
+        (button) => button.textContent === "Keep this" && !button.disabled,
+      ),
+    15_000,
+    "Keep this on Grok's lane",
+  );
+  keep.click();
+  const keepQuestion = await waitFor(
+    () =>
+      document
+        .querySelector<HTMLElement>('[role="dialog"] [data-confirm]')
+        ?.closest<HTMLElement>('[role="dialog"]') ?? null,
+    5_000,
+    "Keep's question",
+  );
+  const question = keepQuestion.textContent ?? "";
+  if (
+    !question.includes(`Keep ${raceLaneName(record, 1)}'s version?`) ||
+    !question.includes(`deletes ${raceLaneName(record, 0)}'s work (`) ||
+    question.includes("still working")
+  )
+    throw new Error(`Keep asked "${question}"`);
+  keepQuestion.querySelector<HTMLButtonElement>("[data-confirm]")?.click();
+  const kept = await waitFor(
+    () =>
+      race
+        .races()
+        .find((entry) => entry.id === record.id && entry.state !== "running"),
+    30_000,
+    "the race to finish",
+  );
+  if (kept.state !== "kept" || kept.outcome?.kind !== "lane")
+    throw new Error(`The race ended ${kept.state}`);
+  await race
+    .readFile(`${config.projectPath}/race-grok.txt`)
+    .catch((error: unknown) => {
+      throw new Error(`Grok's file was not kept: ${errorText(error)}`);
+    });
+  pressShortcut("w");
+  await waitFor(
+    () => !document.querySelector(`[data-race-view="${record.id}"]`),
+    5_000,
+    "Cmd+W to close the overview",
+  );
+  if (!chatPane(chat.id)) teamWorkspace()?.openChat(chat.id);
+  const result = await waitFor(
+    () => {
+      const found = card();
+      return found?.dataset.raceCardState === "kept" && found;
+    },
+    10_000,
+    "the race's card to become its result",
+  );
+  const headline = result.querySelector(".team-card-title")?.textContent ?? "";
+  if (!headline.startsWith(`Kept ${raceLaneName(record, 1)}'s version · `))
+    throw new Error(`The result reads "${headline}"`);
+  if (!status().startsWith("Why: ") || !status().includes(SMOKE_WINNER_WORD))
+    throw new Error(`The result says "${status()}", not why`);
+  // Continue with the kept agent: its chat opens with the cursor in its
+  // message box and nothing is sent; your next message there carries the
+  // recap of its own work, hidden from the transcript.
+  const keptName = raceLaneName(record, 1);
+  const asked = sentTexts(get().sessions, grok.sessionId).length;
+  const next = buttonNamed(result, `Continue with ${keptName}`);
+  if (!next) throw new Error("The result has no Continue with");
+  next.click();
+  const field = await waitFor(
+    () => {
+      const box = firstOnScreen<HTMLTextAreaElement>(
+        `[data-session-drop="${grok.sessionId}"] [data-composer] textarea`,
+      );
+      return box && document.activeElement === box ? box : null;
+    },
+    10_000,
+    `Continue with to put the cursor in ${possessive(keptName)} message box`,
+  );
+  if (!field.placeholder.startsWith(`${keptName} knows which version you kept`))
+    throw new Error(
+      `${possessive(keptName)} message box reads "${field.placeholder}"`,
+    );
+  const grokChat = () =>
+    get().sessions.find((session) => session.id === grok.sessionId);
+  if (
+    sentTexts(get().sessions, grok.sessionId).length !== asked ||
+    grokChat()?.busy
+  )
+    throw new Error(`Continue with sent ${keptName} a message on its own`);
+  const repliesBefore = replyCount(get().sessions, grok.sessionId);
+  get().submit(grok.sessionId, `What was kept? ${SMOKE_ECHO_NOTE_WORD}`);
+  await waitFor(
+    () =>
+      !grokChat()?.busy &&
+      replyCount(get().sessions, grok.sessionId) > repliesBefore,
+    20_000,
+    `${possessive(keptName)} reply`,
+  );
+  const recap =
+    [...(grokChat()?.blocks ?? [])]
+      .reverse()
+      .find(
+        (block) =>
+          block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+      )?.text ?? "";
+  if (!recap.includes("Your version was kept"))
+    throw new Error(`${keptName}'s next message was told: ${recap}`);
+  if (
+    sentTexts(get().sessions, grok.sessionId).at(-1) !==
+    `What was kept? ${SMOKE_ECHO_NOTE_WORD}`
+  )
+    throw new Error("The recap showed in the kept agent's transcript");
+  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with opened its chat with the cursor in the message box, and the next message carried the recap`;
+}
+
+/** The file the board check's turn edits, in the check's project. */
+export const BOARD_EDIT_FILE = "aven-board-check.txt";
+const BOARD_COLUMN_IDS = ["needs-you", "working", "review", "shipped"];
+
+/** The project's board on screen, if it is. */
+function boardOnScreen(project: string): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>("[data-work-board]")].find(
+      (board) =>
+        sameProjectPath(board.dataset.workBoard ?? "", project) &&
+        board.getClientRects().length > 0,
+    ) ?? null
+  );
+}
+
+/** A chat's card on the project's board on screen, and its column. */
+function boardCard(
+  project: string,
+  sessionId: string,
+): { card: HTMLElement; column: string | undefined } | null {
+  const card = boardOnScreen(project)?.querySelector<HTMLElement>(
+    `[data-board-card="chat:${sessionId}"]`,
+  );
+  return card
+    ? {
+        card,
+        column: card.closest<HTMLElement>("[data-board-column]")?.dataset
+          .boardColumn,
+      }
+    : null;
+}
+
+/**
+ * Open the project's board from the title bar's button while a new chat's
+ * turn edits a file: the board must show its four columns, the chat's card
+ * under Working while the turn runs and under Ready to review, naming the
+ * file, once it ends; pressing the card must open the chat.
+ */
+export async function checkBoard(
+  get: () => Options,
+  project: string,
+): Promise<string> {
+  get().motion?.showWorkspace?.();
+  const chat = await openNewTask(get, project);
+  const reply = await startHeldTurn(
+    get,
+    chat.id,
+    // Held long enough for the board to open and show it at work.
+    `Write the board note. AVEN_SMOKE_EDIT ${BOARD_EDIT_FILE} AVEN_SMOKE_HOLD 8000`,
+  );
+  const open = await waitFor(
+    () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Open board"]',
+        ),
+      ].find((button) => button.getClientRects().length > 0),
+    5_000,
+    "the title bar's Open board button",
+  );
+  open.click();
+  const board = await waitFor(
+    () => boardOnScreen(project),
+    5_000,
+    "the project's board",
+  );
+  const columns = [
+    ...board.querySelectorAll<HTMLElement>("[data-board-column]"),
+  ].map((column) => column.dataset.boardColumn);
+  if (columns.join() !== BOARD_COLUMN_IDS.join())
+    throw new Error(`The board's columns are ${columns.join(", ")}`);
+  await waitFor(
+    () => boardCard(project, chat.id)?.column === "working",
+    10_000,
+    "the chat's card under Working",
+  );
+  await reply();
+  const { card } = await waitFor(
+    () => {
+      const found = boardCard(project, chat.id);
+      return found?.column === "review" && found;
+    },
+    15_000,
+    "the chat's card to move to Ready to review",
+  );
+  const line = card.textContent ?? "";
+  if (!line.includes(BOARD_EDIT_FILE))
+    throw new Error(`The review card reads "${line}"`);
+  const buttons = [...card.querySelectorAll(".work-board-action")]
+    .map((button) => button.textContent?.trim())
+    .filter(Boolean);
+  if (!buttons.includes("Review") || !buttons.includes("Ship it"))
+    throw new Error(`The review card offers ${buttons.join(", ")}`);
+  card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
+  // The chat must be the focused surface. The board may stay on screen
+  // beside it when the workspace shows two groups of tabs side by side.
+  const surfaceOf = (element: Element | null) =>
+    element?.closest<HTMLElement>("[data-workspace-surface]")?.dataset
+      .workspaceSurface;
+  const chatFocused = () => {
+    const pane = chatPane(chat.id);
+    const focused = get().focusedSurfaceId;
+    return !!pane && (focused === undefined || surfaceOf(pane) === focused);
+  };
+  try {
+    await waitFor(chatFocused, 5_000, "the card to open its chat");
+  } catch (error) {
+    const pane = chatPane(chat.id);
+    throw new Error(
+      `${errorText(error)} (chat ${pane ? `on screen in ${surfaceOf(pane) ?? "no surface"}` : "not on screen"}, focused ${get().focusedSurfaceId ?? "unknown"}, board ${boardOnScreen(project) ? `on screen in ${surfaceOf(boardOnScreen(project))}` : "gone"})`,
+    );
+  }
+  // Leave no board open: bring it forward and close it as a person would.
+  const again = await waitFor(
+    () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Open board"]',
+        ),
+      ].find((button) => button.getClientRects().length > 0),
+    5_000,
+    "the Open board button again",
+  );
+  again.click();
+  await waitFor(
+    () => boardOnScreen(project),
+    5_000,
+    "Open board to bring the board forward",
+  );
+  pressShortcut("w");
+  await waitFor(
+    () =>
+      ![...document.querySelectorAll<HTMLElement>("[data-work-board]")].some(
+        (board) => sameProjectPath(board.dataset.workBoard ?? "", project),
+      ),
+    5_000,
+    "Cmd+W to close the board",
+  );
+  return `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat; Cmd+W closed the board`;
+}
+
+/** A chat's pane on screen. */
+function chatPane(sessionId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-session-drop="${sessionId}"]`,
+      ),
+    ].find((pane) => pane.getClientRects().length > 0) ?? null
+  );
+}
+
+function buttonNamed(
+  scope: Element | null | undefined,
+  label: string,
+): HTMLButtonElement | null {
+  return (
+    [...(scope?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null
+  );
+}
+
+/** A team's floating panel, when it is on screen. */
+function teamPanel(teamId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-team-panel="${teamId}"]`,
+      ),
+    ].find((panel) => panel.getClientRects().length > 0) ?? null
+  );
+}
+
+/** The pill a shrunk team panel becomes, when it is on screen. */
+function teamPill(teamId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(`[data-team-pill="${teamId}"]`),
+    ].find((pill) => pill.getClientRects().length > 0) ?? null
+  );
+}
+
+/** A native window, as far as the check needs one. */
+export type SmokeWindow = {
+  label: string;
+  isVisible(): Promise<boolean>;
+  close(): Promise<void>;
+};
+
+const nativeWindows = async (): Promise<SmokeWindow[]> =>
+  (await import("@tauri-apps/api/window")).getAllWindows();
+
+/**
+ * A team's floating panel from Watch: it must open with the body `problem`
+ * accepts, shrink to a pill and come back from it, and, where the platform
+ * offers ↗, open in a window of its own that draws and shows itself, and
+ * come back as a pill when that window is closed.
+ */
+export async function checkTeamPanel(
+  teamId: string,
+  watch: () => HTMLElement | null | undefined,
+  problem: (panel: HTMLElement) => string | null,
+  windows: () => Promise<SmokeWindow[]> = nativeWindows,
+): Promise<string> {
+  const button = watch();
+  if (!button) throw new Error(`There is no Watch for ${teamId}`);
+  button.click();
+  await waitFor(
+    () => teamPanel(teamId),
+    5_000,
+    "Watch to open the team's panel",
+  );
+  let seen: string | null = "the panel never drew its body";
+  try {
+    await waitFor(
+      () => {
+        const panel = teamPanel(teamId);
+        seen = panel ? problem(panel) : "the panel closed";
+        return !seen;
+      },
+      10_000,
+      "the panel to show the team",
+    );
+  } catch (error) {
+    throw new Error(`${errorText(error)}: ${seen ?? ""}`);
+  }
+  teamPanel(teamId)?.querySelector<HTMLElement>("[data-team-shrink]")?.click();
+  const pill = await waitFor(
+    () => teamPill(teamId),
+    5_000,
+    "the panel to shrink to a pill",
+  );
+  if (teamPanel(teamId))
+    throw new Error("The panel stayed open beside its pill");
+  const pillText = [...pill.children]
+    .map((part) => part.textContent?.trim())
+    .filter(Boolean)
+    .join(" · ");
+  pill.click();
+  await waitFor(
+    () => teamPanel(teamId) && !teamPill(teamId),
+    5_000,
+    "the pill to bring the panel back",
+  );
+  const popOut = teamPanel(teamId)?.querySelector<HTMLElement>(
+    "[data-team-pop-out]",
+  );
+  if (!popOut)
+    return `Watch opened its panel; it shrank to "${pillText}" and came back; no pop-out here`;
+  const before = new Set((await windows()).map((window) => window.label));
+  popOut.click();
+  await waitFor(
+    () => !teamPanel(teamId) && !teamPill(teamId),
+    5_000,
+    "the panel to leave for a window of its own",
+  );
+  let opened: SmokeWindow | undefined;
+  try {
+    await waitForAsync(
+      async () => {
+        opened = (await windows()).find(
+          (window) =>
+            window.label.startsWith("team-watch-") && !before.has(window.label),
+        );
+        return !!opened && (await opened.isVisible());
+      },
+      15_000,
+      "the pop-out to draw and show itself",
+    );
+  } catch (error) {
+    // Leave no hidden window behind for the steps after this one.
+    await opened?.close().catch(() => {});
+    throw new Error(
+      `${errorText(error)} (${opened ? "its window was made but stayed hidden" : "no window was made"})`,
+    );
+  }
+  await opened!.close();
+  await waitFor(
+    () => teamPill(teamId) && !teamPanel(teamId),
+    10_000,
+    "closing the pop-out to leave a pill here",
+  );
+  teamPill(teamId)!.click();
+  await waitFor(
+    () => teamPanel(teamId),
+    5_000,
+    "the pill to bring the panel back after the pop-out",
+  );
+  return `Watch opened its panel; it shrank to "${pillText}" and came back; it popped out into a window that showed itself, and closing that left a pill`;
+}
+
+/** Close a team's panel so the workspace is as the check found it. */
+function closeTeamPanel(teamId: string) {
+  teamPanel(teamId)?.querySelector<HTMLElement>("[data-team-close]")?.click();
+}
+
+/** The newest proposal card in a lead's chat. */
+function proposalCard(sessionId: string): HTMLElement | null {
+  return (
+    [
+      ...(chatPane(sessionId)?.querySelectorAll<HTMLElement>(
+        "[data-orchestration-review]",
+      ) ?? []),
+    ].at(-1) ?? null
+  );
+}
+
+/**
+ * Ask for an orchestration the way a person does: the chat's + menu turns
+ * on Orchestrator, and sending the message asks the lead for a plan.
+ */
+async function startOrchestrationFromComposer(
+  sessionId: string,
+  request: string,
+) {
+  const inBox = <T extends Element>(selector: string) =>
+    chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
+  const plus = await waitFor(
+    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
+    5_000,
+    "the chat's + menu",
+  );
+  plus.click();
+  const menu = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
+    5_000,
+    "the + menu",
+  );
+  const item = menu.querySelector<HTMLElement>("[data-composer-orchestrator]");
+  if (!item?.textContent?.includes("Orchestrator")) {
+    plus.click();
+    throw new Error("The + menu does not offer Orchestrator");
+  }
+  item.click();
+  await waitFor(
+    () => inBox('[aria-label="Turn off Orchestrator mode"]'),
+    5_000,
+    "the Orchestrator chip in the message box",
+  );
+  const field = inBox<HTMLTextAreaElement>("textarea");
+  if (!field) throw new Error("The message box has no text field");
+  typeInComposer(field, request);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** Wait for the lead's plan and press Confirm and start; the run's tasks. */
+async function confirmProposal(
+  get: () => Options,
+  leadId: string,
+): Promise<{ card: HTMLElement; scopes: number }> {
+  const card = await waitFor(
+    () => {
+      const found = proposalCard(leadId);
+      const confirm = buttonNamed(found, "Confirm and start");
+      return confirm && !confirm.disabled && found;
+    },
+    90_000,
+    "the lead's plan with Confirm and start",
+  );
+  const scopes = card.querySelectorAll("[data-orchestration-scope]").length;
+  if (scopes < 2)
+    throw new Error(`The plan shows ${scopes} file chips, not one per task`);
+  buttonNamed(card, "Confirm and start")!.click();
+  await waitFor(
+    () => get().orchestration?.run(leadId)?.status === "active",
+    20_000,
+    "the run to start",
+  );
+  return { card, scopes };
+}
+
+/** Why something asks you to answer a worker the lead decides for, or null. */
+function needsYouProblem(
+  get: () => Options,
+  leadId: string,
+  workerId: string,
+  since: number,
+  projectPath: string,
+): string | null {
+  const ids = new Set([leadId, workerId]);
+  const asked = getActivitySnapshot().filter(
+    (entry) =>
+      ids.has(entry.sessionId) &&
+      entry.createdAt >= since &&
+      (entry.outcome === "approval" || entry.outcome === "question"),
+  );
+  if (asked.length)
+    return `Activity asks you to answer it (${asked
+      .map((entry) => `"${entry.summary}"`)
+      .join(", ")}), so a banner would too`;
+  const sessions = get().sessions;
+  const run = get().orchestration?.run(leadId);
+  const live = homeLiveSessions(
+    sessions,
+    new Set(sessions.filter(isInFlightSession).map((session) => session.id)),
+    leadDecidedIds(run ? [run] : [], (id) =>
+      sessions.find((session) => session.id === id),
+    ),
+  );
+  const home = homeNeedsYou(
+    live,
+    getActivitySnapshot(),
+    homeScope([{ path: projectPath }], []),
+  ).filter((item) => ids.has(item.id) && isWaitingAttention(item));
+  if (home.length) return "Home's Needs you lists the worker's question";
+  if (
+    document.querySelector(
+      `[data-session-card="${leadId}"][data-needs-approval]`,
+    )
+  )
+    return "The lead's sidebar card asks for your input";
+  return null;
+}
+
+/**
+ * Why Activity does not hold exactly one entry for a team since `since`,
+ * on `origin` and reading `summary`, with its members' own turns recorded
+ * quietly (`members` of them, when given), or null.
+ */
+function teamEntriesProblem(
+  chats: readonly string[],
+  since: number,
+  origin: string,
+  summary: string,
+  members?: number,
+): string | null {
+  const entries = getActivitySnapshot().filter(
+    (entry) =>
+      entry.createdAt >= since &&
+      chats.includes(entry.sessionId) &&
+      entry.outcome !== "approval" &&
+      entry.outcome !== "question",
+  );
+  const own = entries.filter((entry) => !entry.team?.member);
+  const quiet = entries.filter((entry) => entry.team?.member);
+  if (
+    own.length !== 1 ||
+    own[0].sessionId !== origin ||
+    own[0].summary !== summary
+  )
+    return `Activity holds ${own.length} entries for the team (${own
+      .map((entry) => `"${entry.summary}"`)
+      .join(", ")}), not one "${summary}"`;
+  if (quiet.some((entry) => entry.readAt === null))
+    return "A member's own turn is unread in Activity";
+  if (members !== undefined && quiet.length !== members)
+    return `Activity recorded ${quiet.length} of the members' ${members} turns quietly`;
+  return null;
+}
+
+function runEntries(
+  leadId: string,
+  workerIds: ReadonlySet<string>,
+  since: number,
+): { finished: ActivityEntry[]; noisy: ActivityEntry[] } {
+  const entries = getActivitySnapshot().filter(
+    (entry) => entry.createdAt >= since,
+  );
+  const finished = entries.filter(
+    (entry) =>
+      entry.sessionId === leadId && entry.summary.startsWith("Run finished"),
+  );
+  const noisy = entries.filter(
+    (entry) =>
+      workerIds.has(entry.sessionId) ||
+      (entry.sessionId === leadId && !finished.includes(entry)),
+  );
+  return { finished, noisy };
+}
+
+const onScreen = (element: Element) => element.getClientRects().length > 0;
+
+/** A pane's tab-style bars: a chat's name strip or a file pane's tab row. */
+function paneStrips(pane: Element): HTMLElement[] {
+  return [...pane.querySelectorAll<HTMLElement>(".aven-tab-bar")].filter(
+    onScreen,
+  );
+}
+
+/**
+ * Why a tab holding a chat beside a file pane does not give each pane one
+ * strip laid out above its content (the file's tab row is its strip), draw
+ * panes as cards and use one tab style, or null with what it measured.
+ * `file` is any element in the file's pane.
+ */
+export function paneLayoutProblem(file: HTMLElement): {
   problem: string | null;
   summary: string;
 } {
   const fail = (problem: string) => ({ problem, summary: "" });
-  const card = page.closest<HTMLElement>(".workspace-stage-surface");
+  const card = file.closest<HTMLElement>(".workspace-stage-surface");
   const stage = card?.closest<HTMLElement>("[data-workspace-stage]");
-  if (!card || !stage) return fail("the page is not in a workspace pane");
-  const chat = [
-    ...card.querySelectorAll<HTMLElement>("[data-session-drop]"),
-  ].find((pane) => pane.getClientRects().length > 0);
-  if (!chat) return fail("no chat is beside the page");
-  // One bar: moving and closing the chat float over it, taking no row.
-  const controls = chat.querySelector<HTMLElement>(
-    ":scope > [data-session-pane-controls]",
+  if (!card || !stage) return fail("the file is not in a workspace pane");
+  const filePane = file.closest<HTMLElement>("[data-pane-id]");
+  const chatPane = [
+    ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
+  ].find(
+    (pane) =>
+      pane !== filePane &&
+      onScreen(pane) &&
+      pane.querySelector("[data-session-drop]"),
   );
-  if (!controls) return fail("the split chat has no move and close controls");
-  if (getComputedStyle(controls).position !== "absolute")
-    return fail("the split chat's controls take a row of their own");
-  const chatTop = chat.getBoundingClientRect().top;
-  const content = [...chat.children].find(
-    (child) =>
-      child instanceof HTMLElement &&
-      getComputedStyle(child).position !== "absolute",
-  );
-  const offset = content ? content.getBoundingClientRect().top - chatTop : 0;
-  if (Math.abs(offset) > 1)
-    return fail(
-      `the split chat's content starts ${Math.round(offset)}px below a second header`,
-    );
+  if (!filePane) return fail("the file is not in a pane of its own");
+  if (!chatPane) return fail("no chat is beside the file");
+  if (chatPane.querySelector("[data-session-pane-controls]"))
+    return fail("the chat still has the floating chip");
+  // One strip per pane, in the pane's layout: its content starts below it.
+  const strips: HTMLElement[] = [];
+  for (const [who, pane] of [
+    ["chat", chatPane],
+    ["file", filePane],
+  ] as const) {
+    const found = paneStrips(pane);
+    if (found.length !== 1)
+      return fail(`the ${who} has ${found.length} strips, not one`);
+    const strip = found[0];
+    const position = getComputedStyle(strip).position;
+    if (position === "absolute" || position === "fixed")
+      return fail(`the ${who}'s strip floats over its content`);
+    const content = strip.nextElementSibling;
+    if (!content) return fail(`the ${who} has no content below its strip`);
+    const overlap =
+      strip.getBoundingClientRect().bottom -
+      content.getBoundingClientRect().top;
+    if (overlap > 0.5)
+      return fail(
+        `the ${who}'s strip covers ${Math.round(overlap)}px of its content`,
+      );
+    strips.push(strip);
+  }
+  const [chatStrip, fileStrip] = strips;
   // A card: rounded, with a hairline edge, clear of the workspace's edges.
   const style = getComputedStyle(card);
   const radius = parseFloat(style.borderTopLeftRadius);
@@ -493,90 +1965,91 @@ export function paneLayoutProblem(page: HTMLElement): {
     stageRect.bottom - cardRect.bottom,
   );
   if (inset < 3) return fail(`the card is ${inset}px from the workspace edge`);
-  // One tab style: the tab strip above the chat and the page's own tabs.
+  // One tab style: the tab's own bar, the chat's strip and the file's tabs.
   const header = stage.querySelector<HTMLElement>(
     `:scope > [data-workspace-header="${card.dataset.workspaceSurface}"]`,
   );
-  const chatTab = header?.querySelector<HTMLElement>(".aven-tab-button");
-  const fileBar = page
-    .closest<HTMLElement>("[data-pane-id]")
-    ?.querySelector<HTMLElement>(".aven-surface-tabs");
-  const fileTab = fileBar?.querySelector<HTMLElement>(".aven-tab-button");
-  if (!header || !chatTab || !fileBar || !fileTab)
-    return fail("the chat or the page has no tab");
+  const headerTab = header?.querySelector<HTMLElement>(".aven-tab-button");
+  const chatTab = chatStrip.querySelector<HTMLElement>(".aven-tab-button");
+  const fileTab = fileStrip.querySelector<HTMLElement>(".aven-tab-button");
+  if (!header || !headerTab || !chatTab || !fileTab)
+    return fail("the tab, the chat or the file has no tab");
   const height = (element: HTMLElement) =>
     Math.round(element.getBoundingClientRect().height);
-  if (height(header) !== height(fileBar))
+  if (
+    height(chatStrip) !== height(header) ||
+    height(fileStrip) !== height(header)
+  )
     return fail(
-      `the chat's tab bar is ${height(header)}px and the page's is ${height(fileBar)}px`,
+      `the tab's bar is ${height(header)}px, the chat's strip ${height(chatStrip)}px and the file's ${height(fileStrip)}px`,
     );
   const look = (element: HTMLElement) => {
     const tab = getComputedStyle(element);
     return `${height(element)}px tall, ${tab.borderTopLeftRadius} corners`;
   };
-  if (look(chatTab) !== look(fileTab))
-    return fail(
-      `the chat's tab is ${look(chatTab)} and the page's is ${look(fileTab)}`,
-    );
+  for (const [who, tab] of [
+    ["chat's strip", chatTab],
+    ["file's", fileTab],
+  ] as const)
+    if (look(tab) !== look(headerTab))
+      return fail(
+        `the tab is ${look(headerTab)} and the ${who} is ${look(tab)}`,
+      );
   return {
     problem: null,
-    summary: `one bar per pane; cards with ${radius}px corners ${Math.round(inset)}px from the edge; chat and page tabs ${look(chatTab)}`,
+    summary: `one ${height(header)}px strip per pane above its content; cards with ${radius}px corners ${Math.round(inset)}px from the edge; tab, chat and file tabs ${look(headerTab)}`,
   };
 }
 
+/** Why a chat alone in its tab shows a pane strip, or null. */
+export function singlePaneProblem(chat: HTMLElement): string | null {
+  const card = chat.closest<HTMLElement>(".workspace-stage-surface");
+  if (!card) return "the chat is not in a workspace pane";
+  const panes = [
+    ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
+  ].filter(onScreen);
+  if (panes.length !== 1) return `the chat's tab shows ${panes.length} panes`;
+  const strips = paneStrips(panes[0]).length;
+  return strips
+    ? `a chat alone in its tab shows ${strips} ${strips === 1 ? "strip" : "strips"}`
+    : null;
+}
+
 /**
- * Why the page does not show the discussion as expected, or null: both
- * avatars in its header, the replies so far alternating from A, and the
- * answering side typing (or, once ended, the closing note).
+ * Why the discussion's panel does not show the discussion as expected, or
+ * null: both mascots in its face-off row, the replies so far alternating
+ * from A, and the answering side typing (or, once ended, the closing note).
  */
-function pageProblem(
-  page: HTMLElement,
+function panelProblem(
+  panel: HTMLElement,
   replies: number,
   end: { typing: "a" | "b" } | { closing: string },
 ): string | null {
-  const cast = page.querySelector("[data-discussion-cast]");
+  const cast = panel.querySelector("[data-discussion-cast]");
   for (const side of ["a", "b"])
     if (!cast?.querySelector(`[data-discussion-avatar="${side}"]`))
-      return `the page's header has no avatar for side ${side}`;
+      return `the panel's face-off has no mascot for side ${side}`;
   const sides = [
-    ...page.querySelectorAll<HTMLElement>("[data-discussion-message]"),
+    ...panel.querySelectorAll<HTMLElement>("[data-discussion-message]"),
   ].map((message) => message.dataset.side ?? "?");
   const expected = Array.from({ length: replies }, (_, turn) =>
     turn % 2 === 0 ? "a" : "b",
   );
   if (sides.join() !== expected.join())
-    return `the page shows replies on sides ${sides.join(",") || "none"}, not ${expected.join(",")}`;
-  const typing = page.querySelector<HTMLElement>("[data-discussion-typing]");
+    return `the panel shows replies on sides ${sides.join(",") || "none"}, not ${expected.join(",")}`;
+  const typing = panel.querySelector<HTMLElement>("[data-discussion-typing]");
   if ("typing" in end) {
     if (typing?.dataset.discussionTyping !== end.typing)
-      return `the page shows ${typing?.dataset.discussionTyping ?? "nobody"} typing, not ${end.typing}`;
+      return `the panel shows ${typing?.dataset.discussionTyping ?? "nobody"} typing, not ${end.typing}`;
     return null;
   }
-  if (typing) return "the page still shows a side typing";
-  const closing = page
+  if (typing) return "the panel still shows a side typing";
+  const closing = panel
     .querySelector("[data-discussion-closing]")
     ?.textContent?.trim();
   return closing === end.closing
     ? null
-    : `the page's closing note reads "${closing ?? ""}"`;
-}
-
-/** Type into the discussion page's own message box and press Enter. */
-function jumpIn(id: string, text: string) {
-  const field = discussionPage(id)?.querySelector<HTMLTextAreaElement>(
-    "[data-discussion-jump] textarea",
-  );
-  if (!field) throw new Error("The discussion's page has no message box");
-  if (field.placeholder !== "Add something for both of them…")
-    throw new Error(`The page's message box reads "${field.placeholder}"`);
-  typeInComposer(field, text);
-  field.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Enter",
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
+    : `the panel's closing note reads "${closing ?? ""}"`;
 }
 
 function follows(first: Element | null, then: Element | null): boolean {
@@ -588,17 +2061,17 @@ function follows(first: Element | null, then: Element | null): boolean {
 }
 
 /**
- * Why the page does not show the message the check added where the chats
+ * Why the panel does not show the message the check added where the chats
  * read it, or null: a "You" bubble, waiting below the second chat's typing
  * while that turn runs, then between the second chat's first reply and the
  * first chat's answer to it.
  */
 function jumpInProblem(
-  page: HTMLElement,
+  panel: HTMLElement,
   state: "queued" | "sent",
 ): string | null {
-  const bubble = page.querySelector<HTMLElement>("[data-discussion-you]");
-  if (!bubble) return "the page shows no message from you";
+  const bubble = panel.querySelector<HTMLElement>("[data-discussion-you]");
+  if (!bubble) return "the panel shows no message from you";
   const said = bubble
     .querySelector(".discussion-you-bubble")
     ?.textContent?.trim();
@@ -608,11 +2081,13 @@ function jumpInProblem(
   if (bubble.dataset.state !== state)
     return `your message is ${bubble.dataset.state ?? "unmarked"}, not ${state}`;
   if (state === "queued")
-    return follows(page.querySelector("[data-discussion-typing]"), bubble)
+    return follows(panel.querySelector("[data-discussion-typing]"), bubble)
       ? null
       : "your message is not below the answering chat's typing";
-  return follows(page.querySelector('[data-discussion-message="1"]'), bubble) &&
-    follows(bubble, page.querySelector('[data-discussion-message="2"]'))
+  return follows(
+    panel.querySelector('[data-discussion-message="1"]'),
+    bubble,
+  ) && follows(bubble, panel.querySelector('[data-discussion-message="2"]'))
     ? null
     : "your message is not between the second chat's reply and the answer to it";
 }
@@ -631,14 +2106,14 @@ function relayedText(
 }
 
 /**
- * Why the page's wrap-up is not as expected, or null: both lists, the
+ * Why the panel's wrap-up is not as expected, or null: both lists, the
  * stand-in's word agreed, its line addressed to agents gone, and a build
  * button for each chat named by its provider.
  */
-function wrapUpProblem(page: HTMLElement): string | null {
-  const card = page.querySelector<HTMLElement>("[data-discussion-wrapup]");
-  if (!card) return "the page has no wrap-up after the closing note";
-  if (!follows(page.querySelector("[data-discussion-closing]"), card))
+function wrapUpProblem(panel: HTMLElement): string | null {
+  const card = panel.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (!card) return "the panel has no wrap-up after the closing note";
+  if (!follows(panel.querySelector("[data-discussion-closing]"), card))
     return "the wrap-up is not after the closing note";
   if (card.dataset.discussionWrapup !== "done")
     return `the wrap-up is ${card.dataset.discussionWrapup ?? "unmarked"}, without its lists`;
@@ -1175,15 +2650,19 @@ export async function runDevSmoke(
       }
     });
 
-  // Two chats discuss a topic, started from the first chat's message box in
-  // Discuss mode. Its conversation page opens beside it; while the second
-  // chat answers, the page shows that side typing, the sidebar links both
-  // rows and the bar counts the round. Every reply is relayed once, both
-  // chats get the closing note, and the page shows the replies alternating.
+  // A chat discusses a topic with a new chat, started from its message box
+  // in Discuss mode. The chat that started it folds the discussion into one
+  // live card, and its floating panel opens the first time; the new chat
+  // gets no tab. While the new chat answers, the panel shows it typing, the
+  // sidebar links both rows and the bar counts the round; what the user
+  // sends from the panel goes to both, and the panel shrinks to a pill and
+  // back. Every reply is relayed once, both chats get the closing note, the
+  // card says how long they discussed and is followed by where they landed,
+  // and the finished card opens the panel again.
   const discussion = get().discussion;
   if (safe && discussion)
     await step(
-      "two chats discuss for two rounds on one page, linked in the sidebar",
+      "two chats discuss for two rounds behind a card and a floating panel",
       async () => {
         get().motion?.showWorkspace?.();
         if (!get().sidebarOpen) {
@@ -1194,23 +2673,58 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
-        // The second chat opened is the one on screen; it starts.
-        const b = await openNewTask(get, config.projectPath);
         const a = await openNewTask(get, config.projectPath);
+        const before = new Set(get().sessions.map((entry) => entry.id));
+        const discussedSince = Date.now();
         await startDiscussionFromComposer(
           a.id,
-          b.id,
+          { newWith: "claude" },
           `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
           DISCUSSION_ROUNDS,
+          "skeptic",
         );
-        const opened = await waitFor(
-          () => discussionPage(),
-          5_000,
-          "the discussion's page to open beside the chat",
-        );
-        const id = opened.dataset.discussionView!;
         const session = (chat: string) =>
           get().sessions.find((entry) => entry.id === chat);
+        const b = await waitFor(
+          () =>
+            get().sessions.find(
+              (entry) =>
+                !before.has(entry.id) &&
+                sameProjectPath(entry.cwd, config.projectPath),
+            ),
+          5_000,
+          "the new chat to discuss with",
+        );
+        const topic = await waitFor(
+          () =>
+            session(a.id)?.blocks.find((block) => block.discussion?.turn === 0)
+              ?.discussion,
+          5_000,
+          "the topic in the first chat",
+        );
+        const id = topic.id;
+        // One card in the first chat, no tab for the new one, and the
+        // panel open the first time.
+        try {
+          await waitFor(
+            () => !startProblem(a.id, b.id, id),
+            5_000,
+            "the first chat to fold the discussion into its card",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${startProblem(a.id, b.id, id) ?? "shown too late"}`,
+          );
+        }
+        const opened = await waitFor(
+          () => discussionPanel(id),
+          5_000,
+          "the discussion's panel to open the first time",
+        );
+        const title =
+          opened.querySelector(".discussion-float-title")?.textContent ?? "";
+        if (!title.startsWith("Discussion · “Compare notes."))
+          throw new Error(`The panel's header reads "${title}"`);
 
         // B's first turn: A's reply, relayed and held open by the stand-in.
         await waitFor(
@@ -1227,38 +2741,57 @@ export async function runDevSmoke(
             `The second chat received "${relayed?.text ?? ""}", not the first chat's reply`,
           );
         if (relayed.discussion!.id !== id)
-          throw new Error("The page shows a different discussion");
+          throw new Error("The second chat is in a different discussion");
+        // Its role leads that first message, in its own transcript.
+        if (!relayed.text.startsWith(`${SKEPTIC_BRIEF}\n\n`))
+          throw new Error(
+            `The second chat's first message does not start with its role: "${relayed.text.slice(0, 120)}"`,
+          );
+        const badged = () =>
+          [
+            discussionPanel(id),
+            chatPane(a.id)?.querySelector(`[data-discussion-card="${id}"]`),
+          ].map(
+            (scope) =>
+              scope?.querySelectorAll(
+                '[data-discussion-avatar][data-role="skeptic"]',
+              ).length ?? 0,
+          );
+        if (badged().some((count) => count === 0))
+          throw new Error(
+            `The Skeptic's mascot is badged ${badged().join(" and ")} times in the panel and the card`,
+          );
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !pageProblem(page, 1, { typing: "b" });
+              const panel = discussionPanel(id);
+              return panel && !panelProblem(panel, 1, { typing: "b" });
             },
             5_000,
-            "the page to show the first reply and the second chat typing",
+            "the panel to show the first reply and the second chat typing",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? pageProblem(page, 1, { typing: "b" }) : "it is not on screen"}`,
+            `${errorText(error)}: ${panel ? panelProblem(panel, 1, { typing: "b" }) : "it is not on screen"}`,
           );
         }
-        // Jump in from the page while the second chat answers: the message
+        // Jump in from the panel while the second chat answers: the message
         // waits below its typing, for the next reply.
         jumpIn(id, JUMP_IN_TEXT);
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !jumpInProblem(page, "queued");
+              const panel = discussionPanel(id);
+              return panel && !jumpInProblem(panel, "queued");
             },
             5_000,
-            "your message on the page, waiting for the next reply",
+            "your message in the panel, waiting for the next reply",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? jumpInProblem(page, "queued") : "it is not on screen"}`,
+            `${errorText(error)}: ${panel ? jumpInProblem(panel, "queued") : "it is not on screen"}`,
           );
         }
         const bar = await waitFor(
@@ -1270,10 +2803,23 @@ export async function runDevSmoke(
           "the discussion bar above the message box",
         );
         const barText = bar.textContent?.replace(/\s+/g, " ").trim() ?? "";
-        if (!barText.includes(`round 1 of ${DISCUSSION_ROUNDS}`))
+        if (!barText.includes(`Round 1 of ${DISCUSSION_ROUNDS}`))
           throw new Error(`The discussion bar reads "${barText}"`);
-        if (!barText.includes("Open discussion"))
-          throw new Error("The discussion bar has no Open discussion");
+        if (!bar.querySelector(`[data-team-watch="discuss:${id}"]`))
+          throw new Error("The discussion bar has no Watch");
+        if (
+          bar.querySelector('[data-agent-role="skeptic"]')?.textContent !==
+          "Skeptic"
+        )
+          throw new Error("The discussion bar does not badge the Skeptic");
+        // The chat's own message box goes to both while they talk, too.
+        const box = chatComposer(a.id)?.querySelector<HTMLTextAreaElement>(
+          "textarea",
+        );
+        if (box?.placeholder !== "Add something for both of them…")
+          throw new Error(
+            `During the discussion the first chat's message box reads "${box?.placeholder ?? ""}"`,
+          );
         try {
           await waitFor(
             () => !linkProblem(id, a.id, b.id),
@@ -1285,8 +2831,32 @@ export async function runDevSmoke(
             `${errorText(error)}: ${linkProblem(id, a.id, b.id) ?? "linked too late"}`,
           );
         }
-        // The second chat, opened from its sidebar row, shows the relayed
-        // reply with its card; the connector brings the page back.
+        // Shrunk, the panel is a pill with the round and who is replying;
+        // pressing it brings the panel back.
+        discussionPanel(id)
+          ?.querySelector<HTMLElement>("[data-discussion-shrink]")
+          ?.click();
+        const pill = await waitFor(
+          () => discussionPill(id),
+          5_000,
+          "the panel to shrink to a pill",
+        );
+        const pillText = pill.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (
+          !pillText.includes(`Round 1 of ${DISCUSSION_ROUNDS}`) ||
+          !pillText.includes("is replying…")
+        )
+          throw new Error(`The pill reads "${pillText}"`);
+        if (discussionPanel(id))
+          throw new Error("The panel stayed open beside its pill");
+        pill.click();
+        await waitFor(
+          () => discussionPanel(id) && !discussionPill(id),
+          5_000,
+          "the pill to bring the panel back",
+        );
+        // The second chat opens from its sidebar row like any chat,
+        // showing the first chat's reply as a relayed message with its card.
         sidebarDiscussionRow(b.id)?.click();
         await waitFor(
           () =>
@@ -1297,16 +2867,14 @@ export async function runDevSmoke(
           5_000,
           "the relay card on the relayed message",
         );
-        document
-          .querySelector<HTMLElement>(`[data-discussion-link="${id}"]`)
-          ?.click();
+        sidebarDiscussionRow(a.id)?.click();
         await waitFor(
-          () => discussionPage(id),
+          () => chatComposer(a.id),
           5_000,
-          "the connector to bring back the discussion's page",
+          "the first chat to come back from its sidebar row",
         );
 
-        const note = `Discussion ended after ${DISCUSSION_ROUNDS} rounds.`;
+        const note = `Discussion finished after ${DISCUSSION_ROUNDS} rounds.`;
         await waitFor(
           () =>
             notesIn(get().sessions, a.id, note) > 0 &&
@@ -1323,24 +2891,6 @@ export async function runDevSmoke(
           5_000,
           "the connector and the bar to go once it ended",
         );
-        try {
-          await waitFor(
-            () => {
-              const page = discussionPage(id);
-              return (
-                page &&
-                !pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note })
-              );
-            },
-            5_000,
-            "the page to show all four replies and the closing note",
-          );
-        } catch (error) {
-          const page = discussionPage(id);
-          throw new Error(
-            `${errorText(error)}: ${page ? pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note }) : "it is not on screen"}`,
-          );
-        }
         // Nothing more arrives after the end, and nothing came twice.
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         const turnsA = relayedTurns(get().sessions, a.id);
@@ -1348,6 +2898,17 @@ export async function runDevSmoke(
         if (turnsA.join() !== "0,2" || turnsB.join() !== "1,3")
           throw new Error(
             `Relayed turns were ${turnsA.join(",") || "none"} in the first chat and ${turnsB.join(",") || "none"} in the second, not 0,2 and 1,3`,
+          );
+        // The role went to the second chat once, and never to the first.
+        const briefs = [a.id, b.id].map(
+          (chat) =>
+            (session(chat)?.blocks ?? []).filter((block) =>
+              block.text.includes("Your role in this discussion"),
+            ).length,
+        );
+        if (briefs.join() !== "0,1")
+          throw new Error(
+            `The role was given ${briefs[0]} times to the first chat and ${briefs[1]} to the second, not 0 and 1`,
           );
         const notes = [a.id, b.id].map((chat) =>
           notesIn(get().sessions, chat, note),
@@ -1360,15 +2921,22 @@ export async function runDevSmoke(
           throw new Error("A chat kept working after the discussion ended");
         // Your message rode the next two relays, one to each chat, and each
         // chat's agent received it (the stand-in says so, and agrees).
-        for (const [chat, turn, name] of [
-          [a.id, 2, "first"],
-          [b.id, 3, "second"],
+        const toA = session(a.id)?.blocks.find(
+          (block) => block.role === "user" && block.discussion?.turn === 2,
+        )?.discussion;
+        if (!toA?.added?.after?.includes(JUMP_IN_TEXT))
+          throw new Error(
+            "The first chat's relayed message for turn 2 does not carry your message",
+          );
+        const toB = relayedText(get().sessions, b.id, 3) ?? "";
+        if (!toB.includes(`You added: ${JUMP_IN_TEXT}`))
+          throw new Error(
+            `The second chat's relayed message for turn 3 does not carry your message: "${toB}"`,
+          );
+        for (const [chat, name] of [
+          [a.id, "first"],
+          [b.id, "second"],
         ] as const) {
-          const shown = relayedText(get().sessions, chat, turn) ?? "";
-          if (!shown.includes(`You added: ${JUMP_IN_TEXT}`))
-            throw new Error(
-              `The ${name} chat's relayed message for turn ${turn} does not carry your message: "${shown}"`,
-            );
           const heard = session(chat)?.blocks.some(
             (block) =>
               block.role === "assistant" &&
@@ -1377,61 +2945,87 @@ export async function runDevSmoke(
           if (!heard)
             throw new Error(`The ${name} chat's agent never got your message`);
         }
-        const ended = discussionPage(id);
-        const placed = ended ? jumpInProblem(ended, "sent") : "the page closed";
-        if (placed) throw new Error(`After the end, ${placed}`);
-        const stance = ended?.querySelector<HTMLElement>(
-          '[data-discussion-message="2"] [data-discussion-stance]',
-        );
-        if (stance?.dataset.discussionStance !== "agree")
-          throw new Error(
-            `The first chat's agreeing reply is marked ${stance?.dataset.discussionStance ?? "with nothing"}`,
-          );
-        if (stance.title !== "Agrees")
-          throw new Error(`The agree mark's tooltip reads "${stance.title}"`);
-        // Ended, its connector and bar gone: the second chat's relay card
-        // still opens the page.
-        [
-          ...document.querySelectorAll<HTMLElement>(
-            `.personal-navigation [data-session-card="${b.id}"]`,
-          ),
-        ]
-          .find((row) => row.getClientRects().length > 0)
-          ?.click();
-        const card = await waitFor(
-          () =>
-            chatComposer(b.id) &&
-            document.querySelector<HTMLElement>(
-              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"][data-discussion-open]`,
-            ),
-          5_000,
-          "the second chat's relay card to offer the discussion's page",
-        );
-        card.click();
-        await waitFor(
-          () => discussionPage(id),
-          5_000,
-          "the relay card to open the discussion's page",
-        );
-        // Where they landed: summed up by the stand-in playing the cheapest
-        // model, then built by the first chat through the normal send path.
+        // The panel shows the whole thread: four replies alternating, your
+        // message where the chats read it, the agreeing reply marked, the
+        // closing note, and where they landed.
         try {
           await waitFor(
             () => {
-              const page = discussionPage(id);
-              return page && !wrapUpProblem(page);
+              const panel = discussionPanel(id);
+              return (
+                panel &&
+                !panelProblem(panel, DISCUSSION_ROUNDS * 2, {
+                  closing: note,
+                }) &&
+                !jumpInProblem(panel, "sent") &&
+                !wrapUpProblem(panel)
+              );
             },
             WRAP_UP_WAIT_MS,
-            "the wrap-up with both lists",
+            "the panel to show the whole discussion and where they landed",
           );
         } catch (error) {
-          const page = discussionPage(id);
+          const panel = discussionPanel(id);
           throw new Error(
-            `${errorText(error)}: ${page ? wrapUpProblem(page) : "the page is not on screen"}`,
+            `${errorText(error)}: ${
+              panel
+                ? (panelProblem(panel, DISCUSSION_ROUNDS * 2, {
+                    closing: note,
+                  }) ??
+                  jumpInProblem(panel, "sent") ??
+                  wrapUpProblem(panel))
+                : "it is not on screen"
+            }`,
           );
         }
-        const build = discussionPage(id)?.querySelector<HTMLElement>(
-          '[data-discussion-build="a"]',
+        const stance = discussionPanel(id)?.querySelector<HTMLElement>(
+          '[data-discussion-message="3"] [data-discussion-stance]',
+        );
+        if (stance?.dataset.discussionStance !== "agree")
+          throw new Error(
+            `The second chat's agreeing reply is marked ${stance?.dataset.discussionStance ?? "with nothing"}`,
+          );
+        // The first chat: the finished card, then where they landed, its
+        // lists kept in the closing note; none in the second chat.
+        try {
+          await waitFor(
+            () => chatComposer(a.id) && !transcriptWrapUpProblem(a.id, id),
+            10_000,
+            "the finished card and where they landed in the first chat",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${transcriptWrapUpProblem(a.id, id) ?? "the first chat is not on screen"}`,
+          );
+        }
+        const kept = session(a.id)?.blocks.find(
+          (block) => block.discussionEnd?.id === id,
+        )?.discussionEnd;
+        if (!kept?.agreed?.includes(SMOKE_WRAP_UP_WORD))
+          throw new Error(
+            "The first chat's closing note did not keep what they agreed on",
+          );
+        if (session(b.id)?.blocks.some((block) => block.discussionEnd))
+          throw new Error("The second chat's transcript shows the wrap-up too");
+        // One entry for the discussion, none per relayed turn: those are
+        // recorded quietly for each chat's own status.
+        const told = teamEntriesProblem(
+          [a.id, b.id],
+          discussedSince,
+          a.id,
+          `Discussion finished · ${DISCUSSION_ROUNDS} rounds`,
+          DISCUSSION_ROUNDS * 2,
+        );
+        if (told) throw new Error(told);
+        // The message box is back to messaging this chat's agent, and the
+        // wrap-up's button has it build the plan through the normal send path.
+        const field = chatComposer(a.id)?.querySelector<HTMLTextAreaElement>(
+          "textarea",
+        );
+        if (field?.placeholder === "Add something for both of them…")
+          throw new Error("After the end the message box still goes to both");
+        const build = document.querySelector<HTMLElement>(
+          `[data-session-drop="${a.id}"] [data-discussion-wrapup-note="${id}"] [data-discussion-build="a"]`,
         );
         const label = build?.textContent?.trim() ?? "";
         const asked = sentTexts(get().sessions, a.id).length;
@@ -1454,30 +3048,67 @@ export async function runDevSmoke(
           30_000,
           "the build button to send the plan to the first chat",
         );
+        // With its plan sent, the finished discussion's panel gets out of
+        // the way as its pill; the finished card's Watch brings it back.
+        await waitFor(
+          () => !discussionPanel(id) && discussionPill(id),
+          5_000,
+          "the finished panel to shrink to its pill once the plan was sent",
+        );
+        document
+          .querySelector<HTMLElement>(
+            `[data-session-drop="${a.id}"] [data-discussion-card="${id}"] [data-discussion-card-watch]`,
+          )
+          ?.click();
+        await waitFor(
+          () => {
+            const panel = discussionPanel(id);
+            return (
+              panel &&
+              !panelProblem(panel, DISCUSSION_ROUNDS * 2, { closing: note })
+            );
+          },
+          5_000,
+          "the finished card to open the panel with the whole thread",
+        );
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode; 4 replies relayed once each and shown alternating on one page; ${moved}; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "${label}" sent the plan`;
+        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan and the panel shrank to its pill; the finished card reopens the panel`;
       },
     );
 
-  // The discussion's page stays open beside the chat that started it: a tab
-  // with a chat and a file pane, drawn with one bar per pane, as cards, and
-  // with one tab style.
-  if (safe && discussion && get().paneLayout)
+  // A file opened beside a chat: a tab with a chat and a file pane, each with
+  // one strip above its content (the file's tab row is its strip), drawn as
+  // cards and with one tab style. A chat alone in its tab has no strip.
+  const openFile = get().openFile;
+  if (safe && get().paneLayout && openFile)
     await step(
-      "a chat beside a page has one bar, a card and the shared tabs",
+      "a chat beside a file has one strip each, cards and the shared tabs",
       async () => {
-        const page = await waitFor(
-          () => discussionPage(),
+        get().motion?.showWorkspace?.();
+        await openNewTask(get, config.projectPath);
+        openFile(`${config.projectPath.replace(/\/+$/, "")}/README.md`);
+        const tabs = await waitFor(
+          () =>
+            [
+              ...document.querySelectorAll<HTMLElement>(".aven-surface-tabs"),
+            ].find(
+              (bar) =>
+                bar.getClientRects().length > 0 &&
+                bar.querySelector('[title="Close README.md"]') &&
+                bar
+                  .closest(".workspace-stage-surface")
+                  ?.querySelector("[data-session-drop]"),
+            ),
           5_000,
-          "the discussion's page beside its chat",
+          "README.md beside the chat",
         );
-        let result = paneLayoutProblem(page);
+        let result = paneLayoutProblem(tabs);
         try {
           await waitFor(
             () => {
-              result = paneLayoutProblem(page);
+              result = paneLayoutProblem(tabs);
               return !result.problem;
             },
             3_000,
@@ -1486,7 +3117,31 @@ export async function runDevSmoke(
         } catch {
           throw new Error(result.problem ?? "the panes did not settle");
         }
-        return result.summary;
+        const alone = await openNewTask(get, config.projectPath);
+        const chat = await waitFor(
+          () =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                `[data-session-drop="${alone.id}"]`,
+              ),
+            ].find(onScreen),
+          5_000,
+          "a new chat alone in its tab",
+        );
+        let single = singlePaneProblem(chat);
+        try {
+          await waitFor(
+            () => {
+              single = singlePaneProblem(chat);
+              return !single;
+            },
+            3_000,
+            "the lone chat to settle",
+          );
+        } catch {
+          throw new Error(single ?? "the lone chat did not settle");
+        }
+        return `${result.summary}; a chat alone in its tab has none`;
       },
     );
 
@@ -1592,6 +3247,306 @@ export async function runDevSmoke(
         );
         return `:${SECOND_SERVER_PORT} flagged beside :${FIRST_SERVER_PORT}; the next turn named :${FIRST_SERVER_PORT}`;
       },
+    );
+
+  // An orchestration, asked for from a chat's + menu. The stand-in lead
+  // plans two tasks; one worker asks its lead a question, which the lead
+  // answers while nothing asks you; the lead accepts both and finishes. The
+  // run posts one "Run finished" entry and the card reads Finished.
+  const orchestration = get().orchestration;
+  let firstLeadId: string | undefined;
+  if (safe && orchestration)
+    await step(
+      "an orchestration runs its agents and posts one Run finished",
+      async () => {
+        get().motion?.showWorkspace?.();
+        const lead = await openNewTask(get, config.projectPath);
+        firstLeadId = lead.id;
+        await waitFor(
+          () => chatComposer(lead.id),
+          5_000,
+          "the new chat's message box",
+        );
+        await startOrchestrationFromComposer(
+          lead.id,
+          `Write two notes. ${SMOKE_ORCHESTRATE_WORD}`,
+        );
+        const since = Date.now();
+        const { scopes } = await confirmProposal(get, lead.id);
+        // While it runs, the bar's Stop run is the one way to stop it: the
+        // card, the run status and the message box offer no second one.
+        const stopProblem = () => {
+          const pane = chatPane(lead.id);
+          if (!pane) return "the lead's chat is not on screen";
+          const stops = stopsIn(pane);
+          if (stops.join() !== "run")
+            return `the lead's chat offers ${stops.join(", ") || "no"} Stop`;
+          if (chatComposer(lead.id)?.querySelector('[aria-label="Stop"]'))
+            return "the lead's message box has a Stop of its own";
+          if (buttonNamed(proposalCard(lead.id), "Stop run"))
+            return "the run's card has a Stop run of its own";
+          return null;
+        };
+        // What was wrong while the lead worked, for the error.
+        let seen: string | null = "the lead never started working";
+        try {
+          await waitFor(
+            () => {
+              if (
+                !get().sessions.find((session) => session.id === lead.id)?.busy
+              )
+                return false;
+              seen = stopProblem();
+              return !seen;
+            },
+            30_000,
+            "one Stop run, in the bar, while the lead works",
+          );
+        } catch (error) {
+          throw new Error(`${errorText(error)}: ${seen ?? ""}`);
+        }
+        const asking = await waitFor(
+          () =>
+            get().sessions.find(
+              (session) =>
+                session.orchestrationLeadId === lead.id &&
+                session.pendingQuestion,
+            ),
+          60_000,
+          "a worker to ask its lead",
+        );
+        const asked = needsYouProblem(
+          get,
+          lead.id,
+          asking.id,
+          since,
+          config.projectPath,
+        );
+        if (asked) throw new Error(asked);
+        const row = document.querySelector(
+          `[data-orchestration-agent="${asking.id}"]`,
+        );
+        if (row && !row.hasAttribute("data-lead-deciding"))
+          throw new Error(
+            `The sidebar shows the waiting worker as "${row.textContent}"`,
+          );
+        await waitFor(
+          () => orchestration.run(lead.id)?.status === "finished",
+          90_000,
+          "the lead to finish the run",
+        );
+        await waitFor(
+          () => !get().sessions.find((session) => session.id === lead.id)?.busy,
+          30_000,
+          "the lead's last turn to end",
+        );
+        // The lead must have seen its own finish call succeed.
+        const said =
+          [
+            ...(get().sessions.find((session) => session.id === lead.id)
+              ?.blocks ?? []),
+          ]
+            .reverse()
+            .find(
+              (block) =>
+                block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+            )?.text ?? "";
+        if (!said.includes("Both notes are written"))
+          throw new Error(`The lead's finish call failed: ${said}`);
+        // Anything a hidden turn would post lands as that turn settles.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        const workers = new Set(
+          orchestration.run(lead.id)!.tasks.map((task) => task.sessionId),
+        );
+        const { finished, noisy } = runEntries(lead.id, workers, since);
+        if (finished.length !== 1)
+          throw new Error(
+            `Activity has ${finished.length} "Run finished" entries, not one`,
+          );
+        if (noisy.length)
+          throw new Error(
+            `Activity also has ${noisy
+              .map(
+                (entry) =>
+                  `"${entry.summary}" for ${entry.sessionId === lead.id ? "the lead" : "a worker"}`,
+              )
+              .join(", ")}`,
+          );
+        await waitFor(
+          () =>
+            proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
+              ?.textContent === "Finished",
+          5_000,
+          "the card to read Finished",
+        );
+        // The plan card became the result: the lead's verdict, then each
+        // agent accepted, with a line on what it did from the cheap model.
+        const resultProblem = () => {
+          const card = proposalCard(lead.id);
+          if (card?.dataset.orchestrationEnded !== "finished")
+            return "the card is not the run's result";
+          const verdict =
+            card.querySelector(".team-card-status")?.textContent ?? "";
+          if (!verdict.includes("Both notes are written"))
+            return `the result's verdict reads "${verdict}"`;
+          const rows = [
+            ...card.querySelectorAll<HTMLElement>("[data-orchestration-agent]"),
+          ];
+          if (rows.length !== workers.size)
+            return `the result lists ${rows.length} agents`;
+          const states = rows.map(
+            (row) => row.dataset.orchestrationTaskStatus ?? "",
+          );
+          if (states.some((state) => state !== "Accepted"))
+            return `the agents read ${states.join(", ")}`;
+          if (
+            !rows.every((row) => row.textContent?.includes(SMOKE_SUMMARY_WORD))
+          )
+            return "the agents have no line on what they did";
+          if (
+            !buttonNamed(card, "Review changes") ||
+            !buttonNamed(card, "Open agents")
+          )
+            return "the result has no Review changes or Open agents";
+          return null;
+        };
+        try {
+          await waitFor(
+            () => !resultProblem(),
+            30_000,
+            "the result card with what each agent did",
+          );
+        } catch (error) {
+          throw new Error(`${errorText(error)}: ${resultProblem() ?? ""}`);
+        }
+        return `${workers.size} agents, ${scopes} file chips; one Stop run, in the bar; a worker's question went to the lead and nowhere else; one "${finished[0].summary}" entry; the card became the result, with the lead's verdict and a line per agent`;
+      },
+    );
+
+  // The lead reads the results and stops without finishing. The bar above
+  // its message box says so and offers Finish run, which ends the run; while
+  // it runs, other chats in the project are told plainly where it is.
+  if (safe && orchestration)
+    await step("a run the lead leaves open offers Finish run", async () => {
+      get().motion?.showWorkspace?.();
+      const lead = await openNewTask(get, config.projectPath);
+      await waitFor(
+        () => chatComposer(lead.id),
+        5_000,
+        "the new chat's message box",
+      );
+      await startOrchestrationFromComposer(
+        lead.id,
+        `Write two notes. ${SMOKE_ORCHESTRATE_WORD} ${SMOKE_STALL_WORD}`,
+      );
+      await confirmProposal(get, lead.id);
+      const other =
+        firstLeadId ??
+        get().sessions.find(
+          (session) =>
+            session.id !== lead.id &&
+            !session.orchestrationLeadId &&
+            sameProjectPath(session.cwd, config.projectPath),
+        )?.id;
+      const refused = other ? orchestration.submissionError(other) : null;
+      if (other && !refused?.includes("is busy with a run in “"))
+        throw new Error(
+          `Another chat in the project is told: ${refused ?? "nothing"}`,
+        );
+      const stalledBar = () => {
+        const found = chatPane(lead.id)?.querySelector<HTMLElement>(
+          `[data-orchestration-bar="${lead.id}"]`,
+        );
+        return found?.querySelector('[data-state="stalled"]') && found;
+      };
+      await waitFor(
+        stalledBar,
+        90_000,
+        "the bar to say the lead stopped without finishing",
+      );
+      // Watched from the bar, the team panel says so too, with the lead
+      // and each agent.
+      let watched = "";
+      if (teamWorkspace()?.watch) {
+        const teamId = `orchestrate:${lead.id}`;
+        const tasks = orchestration.run(lead.id)?.tasks.length ?? 0;
+        watched = await checkTeamPanel(
+          teamId,
+          () =>
+            stalledBar()?.querySelector<HTMLElement>(
+              `[data-team-watch="${teamId}"]`,
+            ),
+          (panel) => {
+            if (
+              !panel.querySelector(
+                `[data-team-member="${lead.id}"][data-role="lead"]`,
+              )
+            )
+              return "it has no row for the lead";
+            const rows = panel.querySelectorAll(
+              '[data-team-member][data-role="worker"]',
+            ).length;
+            if (rows !== tasks) return `it lists ${rows} agents, not ${tasks}`;
+            const notice = panel.querySelector('[data-team-notice="stalled"]');
+            if (!notice || !buttonNamed(notice as Element, "Finish run"))
+              return "it does not say the lead stopped, with Finish run";
+            if (!buttonNamed(panel, "Stop run")) return "it has no Stop run";
+            return null;
+          },
+        );
+        closeTeamPanel(teamId);
+      }
+      const bar = await waitFor(
+        stalledBar,
+        5_000,
+        "the bar to still say the lead stopped",
+      );
+      const said = bar.textContent ?? "";
+      if (!said.includes("The lead stopped without finishing"))
+        throw new Error(`The bar reads "${said}"`);
+      const finish = buttonNamed(bar, "Finish run");
+      if (!finish || !buttonNamed(bar, "Ask the lead to wrap up"))
+        throw new Error(
+          `The bar offers ${[...bar.querySelectorAll("button")].map((button) => `"${button.textContent?.trim()}"`).join(", ")}`,
+        );
+      finish.click();
+      await waitFor(
+        () => orchestration.run(lead.id)?.status === "finished",
+        10_000,
+        "Finish run to end the run",
+      );
+      await waitFor(
+        () =>
+          !chatPane(lead.id)?.querySelector("[data-orchestration-bar]") &&
+          proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
+            ?.textContent === "Finished",
+        5_000,
+        "the bar to go and the card to read Finished",
+      );
+      return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run${watched ? `; ${watched}` : ""}`;
+    });
+
+  // A two-lane race from the message box, with the stand-in Grok as the
+  // second agent: compare, retry its failed lane, and keep Claude's mid-run.
+  const race = get().race;
+  if (safe && race)
+    await step(
+      "a race keeps one lane mid-run, with the files it wrote last",
+      () => checkRace(get, config, race),
+    );
+  if (safe && race)
+    await step(
+      "a finished race is ready to compare, suggests a winner and continues with it",
+      () => checkRaceResult(get, config, race),
+    );
+
+  // The project's board, opened from the title bar like a browser tab: a
+  // chat's card moves from Working to Ready to review once a turn that
+  // edits a file ends, and pressing the card opens the chat.
+  if (safe && get().board)
+    await step(
+      "the board follows a chat from Working to Review and opens it",
+      () => checkBoard(get, config.projectPath),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
@@ -1725,11 +3680,18 @@ export async function runDevSmoke(
           "the panel's shell to start and go idle",
         );
         projectPanel.toggle();
-        await withTimeout(deleteProject(path), 30_000, "deleting the project");
+        const refused = await withTimeout(
+          deleteProject(path),
+          30_000,
+          "deleting the project",
+        );
         const listed = (get().projects ?? []).some((project) =>
           sameProjectPath(project.path, path),
         );
-        if (listed) throw new Error("The project is still listed after Delete");
+        if (listed)
+          throw new Error(
+            `The project is still listed after Delete${refused ? `: ${refused}` : ""}`,
+          );
         if (projectPanel.terminalIds(path).length > 0)
           throw new Error("The project's terminal panel was kept");
         await waitForAsync(

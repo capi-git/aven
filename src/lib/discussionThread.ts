@@ -1,12 +1,12 @@
 /**
- * The conversation page of a discussion: both chats' replies as one thread.
+ * A discussion as the team panel shows it: both chats' replies as one thread.
  *
  * Nothing here is stored twice. The discussion store says who took part, the
  * topic, how many turns have finished and how it ended; each reply is read
  * from the transcript of the chat that wrote it, exactly as the broker reads
  * the reply it relays (`discussionReply`). Only finished turns are shown, so
- * a reply streaming in one chat never changes the thread; the page shows that
- * side typing instead. What the user added from the page is kept with the
+ * a reply streaming in one chat never changes the thread; the panel shows that
+ * side typing instead. What the user added from the panel is kept with the
  * discussion and shown where the chats read it: just before the reply of the
  * turn whose relay first carried it.
  */
@@ -117,7 +117,13 @@ export function buildDiscussionThread(
     for (const entry of added) if (entry.turn === turn) user(entry);
     const side: DiscussionSide = turn % 2 === 0 ? "a" : "b";
     const blocks = transcripts[side];
-    const read = blocks ? discussionReply(blocks, discussion.id, turn) : null;
+    // The other chat may no longer be loaded once it is over: the chat that
+    // started it received each of its replies.
+    const read = blocks
+      ? discussionReply(blocks, discussion.id, turn)
+      : side === "b" && transcripts.a
+        ? relayedReply(transcripts.a, discussion.id, turn)
+        : null;
     const text = read === null ? null : read.trim();
     const key = `turn-${turn}`;
     const old = before.get(key);
@@ -153,6 +159,30 @@ export function buildDiscussionThread(
     items.every((item, index) => item === previous[index])
     ? previous
     : items;
+}
+
+/**
+ * The other chat's reply for `turn`, as the chat that started the
+ * discussion received it: the relay that carried it there, or the last
+ * reply copied in when it ended. Null when it never arrived there.
+ */
+export function relayedReply(
+  blocks: readonly Block[],
+  id: string,
+  turn: number,
+): string | null {
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index];
+    const meta =
+      block.role === "user"
+        ? block.discussion
+        : block.role === "system"
+          ? block.discussionReply
+          : undefined;
+    if (meta?.id === id && meta.turn === turn + 1 && !meta.replyShown)
+      return block.text;
+  }
+  return null;
 }
 
 /** Whether a message the user added has reached a chat yet. */

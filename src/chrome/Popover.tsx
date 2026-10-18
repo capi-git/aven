@@ -315,8 +315,8 @@ export function Popover({
         visibility: "hidden",
       };
 
-  // Keep the opaque frame stable. Only the content animates, so the page
-  // underneath cannot bleed through while a popover opens.
+  // Keep the frame opaque. It springs in by scale alone and its content
+  // settles, so the page underneath cannot bleed through while it opens.
   const frameInset = bare || panel ? 0 : 2;
   const contentMaxHeight = position
     ? Math.max(0, position.maxHeight - frameInset)
@@ -324,11 +324,12 @@ export function Popover({
       ? Math.max(0, maxHeight - frameInset)
       : `calc(100vh - ${16 + frameInset}px)`;
 
+  const transformOrigin = origin(position?.side ?? side, align);
   return createPortal(
     <div
       ref={frame}
       data-popover-side={position?.side ?? side}
-      style={{ ...placed, zIndex: layer }}
+      style={{ ...placed, zIndex: layer, transformOrigin }}
       className={
         bare ? undefined : `${FRAME}${panel ? " aven-popover-panel" : ""}`
       }
@@ -346,7 +347,7 @@ export function Popover({
         data-popover-side={position?.side ?? side}
         style={{
           maxHeight: contentMaxHeight,
-          transformOrigin: origin(position?.side ?? side, align),
+          transformOrigin,
           ...style,
         }}
         className={`${position ? "popover-open " : ""}${panel ? "aven-popover-panel-content " : ""}relative z-[1] outline-none ${className ?? ""}`}

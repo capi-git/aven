@@ -1,10 +1,13 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createRefreshGate } from "../lib/refreshGate";
+import { watchGitReader } from "../lib/gitRefresh";
+import { isWindowVisible } from "../lib/windowActivity";
 import {
   ArrowUp,
   ChevronRight,
   ExternalLink,
   GitBranch,
+  GitCompare,
   MessageSquare,
   Trash2,
 } from "./icons";
@@ -19,16 +22,31 @@ import {
   notifyGitChanged,
   removeGitWorktree,
   revealPath,
-  subscribeGitChanged,
   type GitDiffIndex,
   type GitPr,
   type GitWorktree,
 } from "../lib/fs";
+import { useActivity } from "../lib/activity";
 import { errorText, logError } from "../lib/errors";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { isEqualOrInside, pathKey, prettyCwd } from "../lib/paths";
-import { finishRace, raceHost, raceLaneAtPath } from "../lib/race";
+import {
+  finishRace,
+  raceHost,
+  raceLaneAtPath,
+  raceLaneBases,
+  raceWorkspace,
+  type RaceRecord,
+} from "../lib/race";
+import {
+  raceDiscardQuestion,
+  raceLaneName,
+  raceLaneState,
+  raceProgress,
+  type RaceLaneState,
+} from "../lib/raceLanes";
+import { listText } from "../lib/words";
 import {
   sessionDisplayTitle,
   sessionNeedsInput,
@@ -112,13 +130,63 @@ export function partitionCopies(copies: readonly CopySummary[]): {
  * folder is listed for reference but is not work in progress.
  */
 export function parallelWorkCount(active: readonly CopySummary[]): number {
-  return active.filter(
-    ({ worktree }) => !worktree.primary || worktree.files.length > 0,
-  ).length;
+  // A running race is one piece of work, however many agents it has.
+  const races = new Set<string>();
+  let count = 0;
+  for (const copy of active) {
+    if (copy.race?.race.state === "running") races.add(copy.race.race.id);
+    else if (!copy.worktree.primary || copy.worktree.files.length > 0) count++;
+  }
+  return count + races.size;
+}
+
+/** A running race's lane copies, shown as one row. */
+export type RaceGroup = {
+  race: RaceRecord;
+  /** Each lane's copy, in lane order; absent when it is the one open here. */
+  copies: (CopySummary | undefined)[];
+};
+
+/** Running races' lanes grouped per race; every other copy on its own. */
+export function groupParallelWork(active: readonly CopySummary[]): {
+  races: RaceGroup[];
+  copies: CopySummary[];
+} {
+  const races = new Map<string, RaceGroup>();
+  const copies: CopySummary[] = [];
+  for (const copy of active) {
+    const race = copy.race?.race;
+    if (!race || race.state !== "running") {
+      copies.push(copy);
+      continue;
+    }
+    let group = races.get(race.id);
+    if (!group) {
+      group = { race, copies: race.lanes.map(() => undefined) };
+      races.set(race.id, group);
+    }
+    const lane = race.lanes.findIndex(
+      (entry) => pathKey(entry.path) === pathKey(copy.worktree.path),
+    );
+    if (lane >= 0) group.copies[lane] = copy;
+  }
+  return { races: [...races.values()], copies };
+}
+
+/** "Race · Fix the login loop" and "2 of 3 done". */
+export function raceGroupLine(
+  race: RaceRecord,
+  lanes: readonly RaceLaneState[],
+): { name: string; short: string } {
+  const done = lanes.filter((lane) => lane.kind === "done").length;
+  return {
+    name: `Race · ${firstLine(race.prompt)}`,
+    short: `${done} of ${race.lanes.length} done`,
+  };
 }
 
 export type CopyStatus = {
-  /** One plain sentence, e.g. "3 commits not in main yet · 2 files uncommitted". */
+  /** One plain line, e.g. "Has work not in main yet · 2 changed files". */
   text: string;
   tone: "merged" | "uncommitted" | "ahead" | "quiet";
   /** More detail for a tooltip, when the sentence can't say it all. */
@@ -135,17 +203,32 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
   if (copy.finished) return { text: `Merged into ${base}`, tone: "merged" };
   const files = worktree.files.length;
   const parts: string[] = [];
-  if (worktree.aheadOfDefault > 0)
-    parts.push(
-      `${count(worktree.aheadOfDefault, "commit", "commits")} not in ${base} yet`,
+  // The counts go in the tooltip; the line says what it means.
+  const counts: string[] = [];
+  if (worktree.aheadOfDefault > 0) {
+    parts.push(`Has work not in ${base} yet`);
+    counts.push(
+      `${count(worktree.aheadOfDefault, "commit", "commits")} not in ${base} yet.`,
     );
-  if (worktree.behindDefault > 0)
-    parts.push(
-      `${base} has ${count(worktree.behindDefault, "newer commit", "newer commits")}`,
+  }
+  if (worktree.behindDefault > 0) {
+    parts.push(`${base} has newer work`);
+    counts.push(
+      `${base} has ${count(worktree.behindDefault, "newer commit", "newer commits")}.`,
     );
-  if (files > 0) parts.push(`${count(files, "file", "files")} uncommitted`);
+  }
+  if (files > 0) {
+    parts.push(count(files, "changed file", "changed files"));
+    counts.push(
+      `${count(files, "file has", "files have")} changes not saved to Git.`,
+    );
+  }
   if (parts.length === 0)
     parts.push(worktree.primary ? `Up to date with ${base}` : "No changes yet");
+  if (files === 0 && worktree.aheadOfDefault > 0 && !worktree.mergedIntoDefault)
+    counts.push(
+      `If this branch was squash-merged, its changes may already be in ${base}.`,
+    );
   return {
     text: parts.join(" · "),
     tone:
@@ -154,21 +237,20 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
         : worktree.aheadOfDefault > 0
           ? "ahead"
           : "quiet",
-    ...(files === 0 &&
-    worktree.aheadOfDefault > 0 &&
-    !worktree.mergedIntoDefault
-      ? {
-          hint: `If this branch was squash-merged, its changes may already be in ${base}.`,
-        }
-      : {}),
+    ...(counts.length ? { hint: counts.join(" ") } : {}),
   };
 }
 
 /** The short status at the end of a copy's one-line row. */
 export function copyShortStatus(copy: CopySummary): string {
   if (copy.finished) return "Merged";
+  const files = copy.worktree.files.length;
   const ahead = copy.worktree.aheadOfDefault;
-  return ahead > 0 ? `${ahead} to merge` : "Up to date";
+  const parts = [
+    files > 0 ? `${count(files, "file", "files")} changed` : "",
+    ahead > 0 ? `${ahead} to merge` : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "Up to date";
 }
 
 /** The conversation that works, or last worked, in a copy. */
@@ -189,6 +271,20 @@ function latestTurnAt(session: Session): number {
 }
 
 const CHAT_RANK = { working: 2, waiting: 1, idle: 0 } as const;
+
+/** One row of Parallel work: a copy, or a running race with its lanes. */
+type ParallelRow =
+  | { kind: "copy"; copy: CopySummary; chat: CopyChat | null }
+  | {
+      kind: "race";
+      group: RaceGroup;
+      lanes: RaceLaneState[];
+      chat: CopyChat | null;
+    };
+
+function raceKey(race: RaceRecord): string {
+  return `race:${race.id}`;
+}
 
 /**
  * The chat to show for a copy: one with an agent working or waiting there
@@ -241,10 +337,10 @@ export function chatForCopy(
   return best;
 }
 
-/** "Fix tab groups — agent working" / "Fix tab groups · last active 2h ago". */
+/** "Fix tab groups · agent working" / "Fix tab groups · last active 2h ago". */
 export function describeCopyChat(chat: CopyChat, now: number): string {
-  if (chat.state === "working") return `${chat.title} — agent working`;
-  if (chat.state === "waiting") return `${chat.title} — waiting for you`;
+  if (chat.state === "working") return `${chat.title} · agent working`;
+  if (chat.state === "waiting") return `${chat.title} · needs you`;
   const age = shortTimeAgo(chat.at, now);
   return age ? `${chat.title} · last active ${age}` : chat.title;
 }
@@ -282,9 +378,16 @@ export function cleanupSkipReason(
   if (race?.race.state === "running") return "its race is still running";
   if (copyInUse(worktree.path, sessions)) return "an agent is using it";
   if (!race && !worktree.branch) return "it has no branch";
-  if (!race && worktree.branch?.startsWith("aven/race/"))
-    return "its race is no longer recorded";
   return null;
+}
+
+/**
+ * A race's copy, recorded or not: a race whose record was pruned after
+ * its cleanup failed leaves a copy on an `aven/race/` branch, which is
+ * removed the way its race would have removed it.
+ */
+function isRaceCopy(copy: CopySummary): boolean {
+  return !!copy.race || !!copy.worktree.branch?.startsWith("aven/race/");
 }
 
 export type CleanupPlan = {
@@ -323,7 +426,7 @@ export async function cleanUpCopies(
   sessions: () => readonly Session[],
   onProgress?: (done: number) => void,
 ): Promise<CleanupResult> {
-  const latest = summarizeCopies(await gitWorktrees(cwd));
+  const latest = summarizeCopies(await gitWorktrees(cwd, raceLaneBases()));
   const result: CleanupResult = { removed: [], failures: [] };
   for (const [index, planned] of copies.entries()) {
     onProgress?.(index);
@@ -358,17 +461,12 @@ export async function cleanUpCopies(
   return result;
 }
 
-/** "A", "A and B", "A, B and C". */
-function listNames(names: readonly string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
 /** What removing a copy throws away, for its confirmation. */
 export function removalWarning(copy: CopySummary): string {
-  const { worktree, race } = copy;
-  if (race?.race.state === "running")
-    return `This race is still running. Removing it stops its agents and deletes all ${race.race.lanes.length} of its copies, including unsaved and ignored files.`;
+  const { worktree } = copy;
+  const race = isRaceCopy(copy);
+  if (copy.race?.race.state === "running")
+    return "This race is still running. Removing it stops its agents and deletes their work, including files Git ignores.";
   if (!race && !worktree.branch)
     return "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.";
   const parts = [
@@ -392,10 +490,16 @@ export function removalWarning(copy: CopySummary): string {
 
 /** Remove a copy the right way: races clean up through their race. */
 export async function removeCopy(cwd: string, copy: CopySummary) {
-  const { race } = copy;
-  if (!race) return removeGitWorktree(cwd, copy.worktree.path);
-  if (race.race.state === "running") return finishRace(race.race, null);
-  return raceHost.cleanup(race.race.root, [race.lane]);
+  const { race, worktree } = copy;
+  if (race?.race.state === "running") return finishRace(race.race, null);
+  if (race) return raceHost.cleanup(race.race.root, [race.lane]);
+  // A race copy whose race is no longer recorded: the host removes only
+  // copies in its races folder on an aven/race/ branch.
+  if (worktree.branch?.startsWith("aven/race/"))
+    return raceHost.cleanup(cwd, [
+      { path: worktree.path, branch: worktree.branch },
+    ]);
+  return removeGitWorktree(cwd, worktree.path);
 }
 
 function firstLine(text: string): string {
@@ -424,7 +528,7 @@ export function copyName(
   worktree: Pick<GitWorktree, "branch" | "path">,
 ): string {
   const branch = worktree.branch ?? "";
-  if (branch.startsWith("aven/race/")) return "Race copy";
+  if (branch.startsWith("aven/race/")) return "Race folder";
   const segments = branch.split("/").filter(Boolean);
   while (segments.length > 1 && BRANCH_KIND.test(segments[0])) segments.shift();
   const words = (segments.join(" ") || basename(worktree.path))
@@ -445,9 +549,10 @@ function useWorktrees(
     if (!enabled || !cwd || cwd === "~") return;
     let cancelled = false;
     const gate = createRefreshGate(async () => {
-      if (cancelled || document.hidden) return;
+      if (cancelled || !isWindowVisible()) return;
       try {
-        const next = await gitWorktrees(cwd);
+        // Race lanes count from where their race started, not from main.
+        const next = await gitWorktrees(cwd, raceLaneBases());
         if (!cancelled) setWorktrees(next);
       } catch {
         if (!cancelled) setWorktrees([]);
@@ -455,36 +560,16 @@ function useWorktrees(
     }, COPIES_POLL_MS);
     // Git changes arrive every couple of seconds while an agent edits; each
     // scan runs several git commands per copy, so scans are spaced out.
-    const load = () => gate.request();
     // After the user's own change (removing a copy), scan straight away.
     refreshNow.current = () => gate.request(true);
-    // Poll only while the window is visible, like the open folder's index.
-    let timer: number | null = null;
-    const onFocus = () => load();
-    const onVisibility = () => {
-      if (document.hidden) {
-        if (timer !== null) window.clearInterval(timer);
-        timer = null;
-        return;
-      }
-      timer ??= window.setInterval(() => {
-        // Watching another app: wait for focus, which scans straight away.
-        if (document.hasFocus()) load();
-      }, COPIES_POLL_MS);
-      load();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    const unsubscribe = subscribeGitChanged(onFocus);
-    onVisibility();
+    // Like the open folder's index: Git changes are read while the window is
+    // on screen, focused or not, and the periodic scan runs only with focus.
+    const stop = watchGitReader(() => gate.request(), COPIES_POLL_MS);
     return () => {
       cancelled = true;
       gate.stop();
       refreshNow.current = () => {};
-      if (timer !== null) window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      unsubscribe();
+      stop();
     };
   }, [cwd, enabled]);
   const refresh = useCallback(() => refreshNow.current(), []);
@@ -509,7 +594,8 @@ export function currentCopyLabel(
   if (!current) return null;
   if (current.primary) return "Main folder";
   const race = raceLaneAtPath(current.path);
-  if (race) return `Race · ${race.lane.label}`;
+  if (race)
+    return `Race · ${raceLaneName(race.race, race.race.lanes.indexOf(race.lane))}`;
   return `Parallel · ${copyName(current)}`;
 }
 
@@ -718,6 +804,8 @@ export function GitCopies({
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
   const sessions = () => live?.list() ?? [];
+  // A finished, failed or stopped lane records an outcome; recount then.
+  const entries = useActivity();
   // Folded to one header line until opened; the choice is remembered.
   const [sectionOpen, setSectionOpen] = useState(loadParallelWorkOpen);
   const [showAll, setShowAll] = useState(false);
@@ -743,6 +831,26 @@ export function GitCopies({
     path: string;
     message: string;
   } | null>(null);
+  const discardRace = async (race: RaceRecord) => {
+    const key = raceKey(race);
+    setRemoving(key);
+    setFailure(null);
+    try {
+      await finishRace(race, null);
+      setConfirming(null);
+      setOpen(null);
+    } catch (error) {
+      logError("Discard the race", error);
+      setFailure({
+        path: key,
+        message: "Couldn't discard the race. Try again, or use Compare.",
+      });
+    } finally {
+      setRemoving(null);
+      notifyGitChanged(cwd);
+      refreshCopies();
+    }
+  };
   const remove = async (copy: CopySummary) => {
     const { path } = copy.worktree;
     setRemoving(path);
@@ -767,9 +875,10 @@ export function GitCopies({
       );
       setCleanup({ phase: "done", result });
     } catch (error) {
+      logError("Clean up finished copies", error);
       setCleanup({
         phase: "error",
-        message: `Couldn't check the copies again. Nothing was removed. ${errorText(error)}`,
+        message: "Couldn't check the copies again. Nothing was removed.",
       });
     } finally {
       notifyGitChanged(cwd);
@@ -792,7 +901,42 @@ export function GitCopies({
           history.get(copy.worktree.path),
         ),
   });
-  const rows = orderParallelWork(active.map(withChat));
+  const grouped = groupParallelWork(active);
+  const raceRow = (group: RaceGroup): ParallelRow => {
+    let chat: CopyChat | null = null;
+    for (const copy of group.copies) {
+      if (!copy) continue;
+      const lane = withChat(copy).chat;
+      if (
+        lane &&
+        (!chat ||
+          CHAT_RANK[lane.state] > CHAT_RANK[chat.state] ||
+          (CHAT_RANK[lane.state] === CHAT_RANK[chat.state] &&
+            lane.at > chat.at))
+      )
+        chat = lane;
+    }
+    return {
+      kind: "race",
+      group,
+      lanes: group.race.lanes.map((lane, index) =>
+        raceLaneState(
+          lane.sessionId,
+          live?.session(lane.sessionId),
+          entries,
+          group.race.ends?.[index],
+        ),
+      ),
+      chat,
+    };
+  };
+  const rows = orderParallelWork<ParallelRow>([
+    ...grouped.copies.map((copy) => ({
+      kind: "copy" as const,
+      ...withChat(copy),
+    })),
+    ...grouped.races.map(raceRow),
+  ]);
   const working = rows.filter(({ chat }) => chat?.state === "working");
   const visible = showAll ? rows : rows.slice(0, PARALLEL_ROWS_SHOWN);
   const hidden = rows.length - visible.length;
@@ -815,10 +959,11 @@ export function GitCopies({
     const files = worktree.files.length;
     const status = copyStatus(copy, base);
     const chatLine = chat ? describeCopyChat(chat, now) : null;
+    // A race's copy is kept or discarded through its race, never shipped.
     const canShip =
       !copy.finished &&
       (files > 0 || worktree.aheadOfDefault > 0) &&
-      race?.race.state !== "running";
+      !isRaceCopy(copy);
     const where = worktree.branch ?? "No branch";
     return (
       <div key={worktree.path}>
@@ -832,7 +977,12 @@ export function GitCopies({
             type="button"
             className="git-copy-line"
             aria-expanded={expanded}
-            title={[status.text, chatLine, `${where} · ${worktree.path}`]
+            title={[
+              status.text,
+              status.hint,
+              chatLine,
+              `${where} · ${worktree.path}`,
+            ]
               .filter(Boolean)
               .join("\n")}
             onClick={() => setOpen(expanded ? null : worktree.path)}
@@ -851,7 +1001,7 @@ export function GitCopies({
                   className="git-copy-dot"
                   data-dot="uncommitted"
                   role="img"
-                  aria-label="Uncommitted files"
+                  aria-label="Has changed files"
                 />
               ) : null}
             </span>
@@ -1010,6 +1160,193 @@ export function GitCopies({
     );
   };
 
+  const renderRace = (
+    group: RaceGroup,
+    lanes: readonly RaceLaneState[],
+    chat: CopyChat | null,
+  ) => {
+    const { race } = group;
+    const key = raceKey(race);
+    const expanded = open === key;
+    const line = raceGroupLine(race, lanes);
+    const files = group.copies.reduce(
+      (sum, copy) => sum + (copy?.worktree.files.length ?? 0),
+      0,
+    );
+    // Each agent's changes since the race began, committed or not: its
+    // last read numbers, or at least its uncommitted files.
+    const question = raceDiscardQuestion(
+      race,
+      lanes,
+      group.copies.map((copy, index) =>
+        Math.max(
+          race.stats?.[index]?.files ?? 0,
+          copy?.worktree.files.length ?? 0,
+        ),
+      ),
+    );
+    return (
+      <div key={key}>
+        <div
+          className="git-copy"
+          data-race-group={race.id}
+          data-open={expanded || undefined}
+          data-tone={files > 0 ? "uncommitted" : "quiet"}
+        >
+          <button
+            type="button"
+            className="git-copy-line"
+            aria-expanded={expanded}
+            title={[race.prompt, raceProgress(lanes)].join("\n")}
+            onClick={() => setOpen(expanded ? null : key)}
+          >
+            <span className="git-copy-dots">
+              {chat?.state === "working" ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="working"
+                  role="img"
+                  aria-label="Agent working"
+                />
+              ) : null}
+              {files > 0 ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="uncommitted"
+                  role="img"
+                  aria-label="Has changed files"
+                />
+              ) : null}
+            </span>
+            <span className="git-copy-name">{line.name}</span>
+            <span className="git-copy-short">{line.short}</span>
+          </button>
+          {expanded ? (
+            <div className="git-copy-files">
+              <p className="git-copy-status">{raceProgress(lanes)}</p>
+              {race.lanes.map((lane, index) => {
+                const copy = group.copies[index];
+                const state = lanes[index];
+                const text = `${raceLaneName(race, index)} · ${state?.label ?? "Closed"}`;
+                return (
+                  <p
+                    key={lane.sessionId}
+                    className="git-copy-chat"
+                    data-race-lane={index}
+                    data-state={
+                      state?.kind === "working"
+                        ? "working"
+                        : state?.kind === "waiting"
+                          ? "waiting"
+                          : "idle"
+                    }
+                    title={text}
+                  >
+                    {state?.kind === "working" && mark ? (
+                      <ProjectMark path={mark} active />
+                    ) : (
+                      <ProviderMarks harnesses={[lane.harness]} />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{text}</span>
+                    <span className="git-copy-short">
+                      {copy ? copyShortStatus(copy) : "In this window"}
+                    </span>
+                  </p>
+                );
+              })}
+              {confirming === key ? (
+                <div
+                  className="git-copy-confirm"
+                  role="group"
+                  aria-label={question.title}
+                >
+                  <p>{`${question.title} ${question.body}`}</p>
+                  <div>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      data-tone="danger"
+                      disabled={removing === key}
+                      onClick={() => void discardRace(race)}
+                    >
+                      {removing === key ? "Discarding…" : question.confirm}
+                    </button>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      disabled={removing === key}
+                      // The question replaced Discard race: the keyboard
+                      // comes here, and goes back there on Cancel.
+                      autoFocus
+                      onClick={() => {
+                        setConfirming(null);
+                        requestAnimationFrame(() =>
+                          document
+                            .querySelector<HTMLElement>(
+                              `[data-race-discard="${race.id}"]`,
+                            )
+                            ?.focus(),
+                        );
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="git-copy-actions">
+                  <button
+                    type="button"
+                    className="git-copy-action"
+                    data-race-compare
+                    title="Compare the agents' changes and keep one"
+                    onClick={() => raceWorkspace()?.compare(race.id)}
+                  >
+                    <GitCompare className="size-3" strokeWidth={1.75} />
+                    Compare
+                  </button>
+                  {chat ? (
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      title={`Open “${chat.title}”`}
+                      onClick={() => requestOpenChat(chat.id)}
+                    >
+                      <MessageSquare className="size-3" strokeWidth={1.75} />
+                      Open chat
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="git-copy-action"
+                    data-race-discard={race.id}
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirming(key);
+                    }}
+                  >
+                    <Trash2 className="size-3" strokeWidth={1.75} />
+                    Discard race
+                  </button>
+                </div>
+              )}
+              {failure?.path === key ? (
+                <p className="git-copy-error" role="alert">
+                  {failure.message}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRow = (row: ParallelRow) =>
+    row.kind === "race"
+      ? renderRace(row.group, row.lanes, row.chat)
+      : renderCopy(row);
+
   const renderCleanup = () => {
     if (!cleanup) return null;
     if (cleanup.phase === "error")
@@ -1060,11 +1397,11 @@ export function GitCopies({
         <p>
           {removable === 0
             ? "Nothing can be cleaned up right now."
-            : `Remove ${removable} finished ${removable === 1 ? "copy" : "copies"}: ${listNames(plan.remove.map((copy) => copy.name))}? Their changes are already on ${base}. ${races ? "Race copies are deleted entirely, including ignored files; other copies" : "Copies"} with ignored files are kept.`}
+            : `Remove ${removable} finished ${removable === 1 ? "copy" : "copies"}: ${listText(plan.remove.map((copy) => copy.name))}? Their changes are already on ${base}. ${races ? "Race folders are deleted entirely, including files Git ignores; copies" : "Copies"} with ignored files are kept.`}
         </p>
         {plan.skip.length > 0 ? (
           <p>
-            {`Keeping ${listNames(plan.skip.map(({ copy, reason }) => `${copy.name} (${reason})`))}.`}
+            {`Keeping ${listText(plan.skip.map(({ copy, reason }) => `${copy.name} (${reason})`))}.`}
           </p>
         ) : null}
         <div>
@@ -1125,8 +1462,16 @@ export function GitCopies({
               className="git-copies-working"
               aria-label={`${working.length} ${working.length === 1 ? "agent" : "agents"} working`}
             >
-              {working.slice(0, 3).map(({ copy }) => (
-                <ProjectMark key={copy.worktree.path} path={mark} active />
+              {working.slice(0, 3).map((row) => (
+                <ProjectMark
+                  key={
+                    row.kind === "race"
+                      ? raceKey(row.group.race)
+                      : row.copy.worktree.path
+                  }
+                  path={mark}
+                  active
+                />
               ))}
             </span>
           ) : null}
@@ -1137,7 +1482,7 @@ export function GitCopies({
           {explained ? null : (
             <p className="git-copies-explainer">{PARALLEL_WORK_EXPLAINER}</p>
           )}
-          {visible.map(renderCopy)}
+          {visible.map(renderRow)}
           {hidden > 0 ? (
             <button
               type="button"

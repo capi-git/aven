@@ -1,3 +1,5 @@
+import { agentFullName } from "./agentNames";
+import { agentRole, readAgentRole, type AgentRoleId } from "./agentRoles";
 import { isProviderFailureText } from "./plan";
 import { HARNESSES, type Block, type HarnessId, type Session } from "./session";
 
@@ -18,6 +20,8 @@ export type ProposedTask = {
   model: string;
   files: string[];
   dependsOn: string[];
+  /** A role you gave this task's worker on the card. */
+  role?: AgentRoleId;
 };
 export type OrchestrationProposal = {
   version: 1;
@@ -26,7 +30,9 @@ export type OrchestrationProposal = {
   request: string;
   author: OrchestrationChoice;
   settings: OrchestrationSettings;
-  status: "planning" | "ready" | "invalid" | "starting" | "approved";
+  /** `discarded`: the user dropped the plan; it stays in the chat, read-only. */
+  status:
+    "planning" | "ready" | "invalid" | "starting" | "approved" | "discarded";
   title: string;
   summary: string;
   tasks: ProposedTask[];
@@ -64,14 +70,14 @@ export function validateOrchestrationSettings(
     Number(input.maxWorkers) < 1 ||
     Number(input.maxWorkers) > 4
   )
-    throw new Error("Choose 1 to 4 parallel workers");
+    throw new Error("Choose 1 to 4 agents at once");
   if (
     !Array.isArray(input.choices) ||
     !input.choices.length ||
     input.choices.length > 4096
   )
     throw new Error(
-      "No worker models are available, or the model catalog is too large. Check your connected harnesses.",
+      "No agents are available to share the work. Install or turn on an agent, then try again.",
     );
   const choices = input.choices.map((value) => {
     const item = record(value);
@@ -130,6 +136,7 @@ export function validateProposedTasks(
       throw new Error(
         "Use project-relative file scopes, or '.' for the whole project",
       );
+    const role = readAgentRole(task.role);
     return {
       id,
       title: required(task.title, "a task title", 160),
@@ -138,6 +145,7 @@ export function validateProposedTasks(
       model,
       files,
       dependsOn: stringList(task.dependsOn ?? [], "dependencies", 40),
+      ...(role ? { role } : {}),
     };
   });
   const ids = new Set(tasks.map((task) => task.id));
@@ -158,6 +166,50 @@ export function validateProposedTasks(
   };
   tasks.forEach((task) => visit(task.id));
   return tasks;
+}
+
+/**
+ * The plan without one task. Tasks that waited for it now wait for what it
+ * waited for, since it will not run: with A → B → C, removing B leaves C
+ * after A, never beside it. The rest of the graph is checked again. A plan
+ * keeps at least one task: discard it instead.
+ */
+export function withoutProposedTask(
+  proposal: Pick<OrchestrationProposal, "tasks" | "settings">,
+  taskId: string,
+): ProposedTask[] {
+  const removed = proposal.tasks.find((task) => task.id === taskId);
+  const inherited = removed?.dependsOn ?? [];
+  const rest = proposal.tasks
+    .filter((task) => task.id !== taskId)
+    .map((task) =>
+      task.dependsOn.includes(taskId)
+        ? {
+            ...task,
+            dependsOn: [
+              ...new Set([
+                ...task.dependsOn.filter((id) => id !== taskId),
+                ...inherited,
+              ]),
+            ],
+          }
+        : task,
+    );
+  if (!rest.length)
+    throw new Error(
+      "A plan needs at least one task. Discard the plan instead.",
+    );
+  return validateProposedTasks(rest, proposal.settings);
+}
+
+/**
+ * The newest proposal card in a chat. Only it can be confirmed: an older
+ * card describes a plan the lead has since replaced.
+ */
+export function latestProposalId(blocks: readonly Block[]): string | undefined {
+  for (let index = blocks.length - 1; index >= 0; index--)
+    if (blocks[index].orchestration) return blocks[index].id;
+  return undefined;
 }
 
 export function orchestrationPlanningPrompt(
@@ -181,6 +233,17 @@ const INCOMPLETE_PROPOSAL =
   "The lead did not return a complete assignment proposal. No assignments were started. Try again when the lead is available.";
 const INTERRUPTED_PROPOSAL =
   "Planning was interrupted. Generate the assignments again.";
+
+/**
+ * What the plan card says when a plan could not be made: one plain
+ * sentence. The lead's own words, or a provider's error, stay in the
+ * tooltip.
+ */
+export function planProblemText(error: string): string {
+  return error === INTERRUPTED_PROPOSAL
+    ? "Planning was interrupted. Try again."
+    : "The lead's plan wasn't complete, so nothing started. Try again.";
+}
 
 /** Commentary and native plan prose are not assignment data. */
 function proposalCandidates(responses: readonly string[]): string[] {
@@ -227,7 +290,10 @@ export function completeOrchestrationProposal(
           ...draft,
           title: required(input.title, "a proposal title", 160),
           summary: required(input.summary, "a proposal summary", 2000),
-          tasks: validateProposedTasks(input.tasks, draft.settings),
+          // Roles are yours to give on the card, never the lead's.
+          tasks: validateProposedTasks(input.tasks, draft.settings).map(
+            ({ role: _role, ...task }) => task,
+          ),
           status: "ready",
           error: undefined,
         };
@@ -334,7 +400,7 @@ export function proposalMarkdown(proposal: OrchestrationProposal): string {
     proposal.summary,
     ...proposal.tasks.map(
       (task) =>
-        `## ${task.title}\n${task.harness} · ${proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.join(", ") || "None"}`,
+        `## ${task.title}\n${agentFullName({ harness: task.harness, model: proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model })}${task.role ? `\nRole: ${agentRole(task.role).name}` : ""}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.map((id) => proposal.tasks.find((entry) => entry.id === id)?.title ?? id).join(", ") || "None"}`,
     ),
   ].join("\n\n");
 }

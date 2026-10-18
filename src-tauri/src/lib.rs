@@ -41,7 +41,6 @@ mod github_account;
 mod harness;
 mod inbox_media;
 mod keep_awake;
-mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mcp_manage;
@@ -62,6 +61,7 @@ mod provider_updates;
 mod pty;
 mod race;
 mod rate_limits;
+mod retired_files;
 mod scheduled_agents;
 mod search;
 #[cfg(target_os = "macos")]
@@ -71,6 +71,7 @@ mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+mod team_watch;
 mod turn_shots;
 mod update_restart;
 mod usage_panel;
@@ -277,6 +278,7 @@ pub fn run() {
         .manage(window_transfer::WindowTransferState::new())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
+        .manage(team_watch::TeamWatchState::default())
         .manage(access_panel::AccessPanelState::default())
         .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
@@ -286,6 +288,7 @@ pub fn run() {
                 harness::reap_orphaned_harness_processes();
             }
             session_store::init(app.handle());
+            retired_files::remove(app.handle());
             control::init(app.handle())?;
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;
@@ -345,6 +348,16 @@ pub fn run() {
             usage_panel::usage_panel_ready,
             usage_panel::usage_panel_action,
             usage_panel::usage_panel_close,
+            team_watch::team_watch_open,
+            team_watch::team_watch_update,
+            team_watch::team_watch_close,
+            team_watch::team_watch_reset,
+            team_watch::team_watch_reply,
+            team_watch::team_watch_get_state,
+            team_watch::team_watch_ready,
+            team_watch::team_watch_action,
+            team_watch::team_watch_dismiss,
+            team_watch::team_watch_show_owner,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
@@ -378,6 +391,7 @@ pub fn run() {
             browser::browser_download_action,
             browser_snapshot::browser_snapshot,
             projectless::projectless_cwd,
+            window::workspace_window_labels,
             workspace_window::workspace_window_open,
             workspace_window::workspace_window_update,
             workspace_window::workspace_window_get_state,
@@ -444,13 +458,6 @@ pub fn run() {
             git::git_github_work_item_comment,
             git::git_github_pr_diff,
             inbox_media::fetch_inbox_media,
-            linear::linear_status,
-            linear::linear_set_token,
-            linear::linear_list_teams,
-            linear::linear_list_issues,
-            linear::linear_issue_details,
-            linear::linear_issue_thread,
-            linear::linear_issue_comment,
             git::git_branches,
             git::git_checkout,
             git::git_create_branch,
@@ -517,6 +524,7 @@ pub fn run() {
             control::control_attach_worker,
             control::control_authorize_turn,
             control::control_turn_finished,
+            control::control_page_loaded,
             session_store::session_upsert,
             session_store::session_list_by_project,
             session_store::session_list_project_ids,
@@ -591,13 +599,16 @@ pub fn run() {
             usage_panel::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
             workspace_menu_panel::window_event(handle, label, event);
+            team_watch::window_event(handle, label, event);
         }
         match event {
+            // A pop-out or panel on screen counts as a visible window, so a
+            // Dock click must also bring back workspaces it would hide.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen {
-                has_visible_windows: false,
+                has_visible_windows,
                 ..
-            } => {
+            } if !has_visible_windows || !window::any_workspace_visible(handle) => {
                 let _ = window::show_hidden_or_open_new(handle);
             }
             tauri::RunEvent::Ready => {
@@ -616,6 +627,7 @@ pub fn run() {
                 ..
             } => {
                 control::window_closed(handle, &label);
+                window::workspace_closed(handle, &label);
                 browser_agent::window_destroyed(&label);
                 keep_awake::forget_window(&label);
                 browser::window_destroyed(handle, &label);

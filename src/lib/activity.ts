@@ -3,6 +3,18 @@ import { HARNESSES, type HarnessId } from "./session";
 
 export type ActivityOutcome =
   "completed" | "failed" | "stopped" | "approval" | "question";
+/**
+ * The team run an entry belongs to (see `teamRuns`). A member's own turn
+ * (`member`) is recorded quietly, already read, for its chat's status; the
+ * team posts its own entries instead, one per need (`need`) and one at its
+ * end, so lists and counts leave members out.
+ */
+export type ActivityTeam = {
+  id: string;
+  kind: "discuss" | "race" | "orchestrate";
+  member?: true;
+  need?: true;
+};
 export type ActivityEntry = {
   id: string;
   sessionId: string;
@@ -15,6 +27,13 @@ export type ActivityEntry = {
   createdAt: number;
   readAt: number | null;
   resolvedAt: number | null;
+  team?: ActivityTeam;
+  /**
+   * What a team did, once known, under its short end entry: a run's
+   * verdict and a line per agent, what a race kept and why, where a
+   * discussion landed (see `amendTeamEnd`).
+   */
+  detail?: string;
 };
 export type ActivityInput = Omit<
   ActivityEntry,
@@ -44,6 +63,39 @@ function timestamp(value: unknown): value is number {
     value <= 8.64e15
   );
 }
+const TEAM_KINDS = new Set(["discuss", "race", "orchestrate"]);
+function teamFrom(value: unknown): ActivityTeam | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const team = value as Record<string, unknown>;
+  if (
+    typeof team.id !== "string" ||
+    !team.id ||
+    team.id.length > 256 ||
+    !TEAM_KINDS.has(String(team.kind))
+  )
+    return undefined;
+  return {
+    id: team.id,
+    kind: team.kind as ActivityTeam["kind"],
+    ...(team.member === true ? { member: true as const } : {}),
+    ...(team.need === true ? { need: true as const } : {}),
+  };
+}
+/**
+ * Whether an entry is a chat's own turn ending (`<chat>:turn:…`), rather
+ * than a notice a team or a run posted on that chat.
+ */
+export function isTurnActivity(sessionId: string, id: string): boolean {
+  return id.startsWith(`${sessionId}:turn:`);
+}
+
+/** A team member's own turn: kept for its chat's status, never listed or counted. */
+export function isMemberActivity(entry: Pick<ActivityEntry, "team">): boolean {
+  return entry.team?.member === true;
+}
+/** The longest summary an entry keeps. */
+const SUMMARY_CHARS = 240;
+
 function entryFrom(value: unknown): ActivityEntry | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -60,13 +112,20 @@ function entryFrom(value: unknown): ActivityEntry | null {
     )
   )
     return null;
+  const team = teamFrom(row.team);
+  const detail =
+    typeof row.detail === "string" && row.detail
+      ? row.detail.slice(0, SUMMARY_CHARS)
+      : undefined;
   return {
+    ...(team ? { team } : {}),
+    ...(detail ? { detail } : {}),
     id: row.id.slice(0, 512),
     sessionId: row.sessionId.slice(0, 256),
     outcome: row.outcome as ActivityOutcome,
     harness: row.harness as HarnessId,
     title: (row.title as string).slice(0, 180),
-    summary: (row.summary as string).slice(0, 240),
+    summary: (row.summary as string).slice(0, SUMMARY_CHARS),
     cwd: (row.cwd as string).slice(0, 2048),
     model: (row.model as string).slice(0, 256),
     createdAt: row.createdAt,
@@ -166,6 +225,23 @@ export function recordActivity(
   });
   if (!entry) return { added: false };
   const previous = current.entries.find((item) => item.id === entry.id);
+  // A request settled while it was someone else's (a worker's, while its
+  // lead decided) and now waits on you again: it is news again.
+  if (
+    previous &&
+    previous.resolvedAt !== null &&
+    isPendingActivity(entry) &&
+    previous.outcome === entry.outcome
+  ) {
+    const reopened = { ...previous, ...entry };
+    writeLedger({
+      ...current,
+      entries: current.entries
+        .map((item) => (item === previous ? reopened : item))
+        .sort((a, b) => b.createdAt - a.createdAt),
+    });
+    return { added: true, entry: reopened };
+  }
   if (previous || current.seen.includes(entry.id))
     return { added: false, entry: previous };
   writeLedger({
@@ -232,12 +308,98 @@ export function reconcileSessionActivityInputs(
       : entry,
   );
 }
+/**
+ * A team's "needs you" entries ("Run paused", "Discussion paused", "Race
+ * needs you") once the team no longer needs you: resolved and read, so they
+ * leave Activity's and Home's "Needs you" wherever the need was settled.
+ */
+export function resolveTeamNeedActivity(teamIds: ReadonlySet<string>) {
+  if (!teamIds.size) return;
+  const now = Date.now();
+  updateEntries((entry) =>
+    entry.team?.need &&
+    teamIds.has(entry.team.id) &&
+    (entry.resolvedAt === null || entry.readAt === null)
+      ? {
+          ...entry,
+          resolvedAt: entry.resolvedAt ?? now,
+          readAt: entry.readAt ?? now,
+        }
+      : entry,
+  );
+}
+/**
+ * The longest detail a team's end entry carries: what an entry keeps when
+ * read back, so an amended entry reads back unchanged and is never written
+ * again, here or by another window.
+ */
+const TEAM_END_CHARS = SUMMARY_CHARS;
+
+/**
+ * Give a team's end entry ("Run finished · 4 agents", "Race ready to
+ * compare · 3 agents", "Discussion ended · 2 rounds") what the team did
+ * once that is known, as its detail: the lead's verdict and a line per
+ * agent, what a race kept, where a discussion landed. The entry's own words
+ * stay as short as any other; Activity shows the detail beneath them and
+ * the memory keeper reads it. Only the team's newest end entry changes, and
+ * only when its detail does.
+ */
+export function amendTeamEnd(teamId: string, detail: string) {
+  const text =
+    detail.length > TEAM_END_CHARS
+      ? `${detail.slice(0, TEAM_END_CHARS - 1).trimEnd()}…`
+      : detail;
+  const target = readLedger().entries.find(
+    (entry) =>
+      entry.team?.id === teamId &&
+      !entry.team.member &&
+      !entry.team.need &&
+      entry.outcome === "completed",
+  );
+  if (!target || !text || target.detail === text) return;
+  updateEntries((entry) =>
+    entry === target ? { ...entry, detail: text } : entry,
+  );
+}
+
+/**
+ * A turn's entries no longer stand on their own: the plan a run then
+ * started from, which the run's own entries speak for. They leave the
+ * ledger and are never recorded again.
+ */
+export function retractActivityTurn(turnId: string) {
+  const current = readLedger();
+  const prefix = `${turnId}:`;
+  const entries = current.entries.filter(
+    (entry) => !entry.id.startsWith(prefix),
+  );
+  if (entries.length !== current.entries.length)
+    writeLedger({ ...current, entries });
+}
+
+/**
+ * Whether "Clear finished" has anything to clear: an entry that is neither
+ * a request still waiting nor a team member's quiet entry, which it keeps.
+ */
+export function canClearActivity(entries: readonly ActivityEntry[]): boolean {
+  return entries.some(
+    (entry) => !isPendingActivity(entry) && !isMemberActivity(entry),
+  );
+}
+
+/**
+ * "Clear finished" empties the visible history. It keeps pending requests
+ * when asked, and always keeps team members' quiet entries, which no list
+ * shows but which say how a closed chat's last turn ended.
+ */
 export function clearActivityHistory({
   keepPending = false,
 }: { keepPending?: boolean } = {}) {
   const current = readLedger();
   const entries = keepPending
-    ? current.entries.filter(isPendingActivity)
+    ? current.entries.filter(
+        (entry) => isPendingActivity(entry) || isMemberActivity(entry),
+      )
     : EMPTY;
   if (entries.length !== current.entries.length)
     writeLedger({ ...current, entries });

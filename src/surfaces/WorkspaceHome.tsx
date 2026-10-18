@@ -18,6 +18,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe,
+  Kanban,
   MessageSquare,
   MoreHorizontal,
   Plus,
@@ -25,6 +26,7 @@ import {
   Square,
   X,
 } from "../chrome/icons";
+import { TeamMiniFaces } from "../chrome/TeamCard";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
@@ -76,6 +78,7 @@ import {
   subscribeScheduledRuns,
 } from "../lib/scheduledAgents";
 import { HARNESS_TITLE } from "../lib/session";
+import { teamAgentsText } from "../lib/teamGrouping";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { UsageForecastNote } from "../chrome/UsageForecastNote";
 import type { ProviderUsageForecast } from "../lib/usageHistory";
@@ -91,6 +94,7 @@ import {
   type HomeRunning,
   type HomeSession,
 } from "../lib/workspaceHome";
+import { plural } from "../lib/words";
 import "./EmptySession.css";
 import "./WorkspaceHome.css";
 
@@ -122,6 +126,8 @@ export type WorkspaceHomeProps = {
   onProject: (path: string) => void;
   onSession: (id: string) => void;
   onNewProjectTask?: (path: string) => void;
+  /** Open a project's board. */
+  onOpenBoard?: (path: string) => void;
   onAddProject: () => void;
   /** Asks for the projects' saved sessions, for Resume and last activity. */
   onLoadProjects?: (paths: readonly string[]) => void;
@@ -155,6 +161,7 @@ const NO_PROVIDERS: readonly RateLimitProvider[] = [];
 const ATTENTION_LABEL: Record<HomeAttention["kind"], string> = {
   approval: "Needs approval",
   question: "Has a question",
+  paused: "Needs you",
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
@@ -209,6 +216,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onProject,
   onSession,
   onNewProjectTask,
+  onOpenBoard,
   onAddProject,
   onLoadProjects,
 }: WorkspaceHomeProps) {
@@ -238,9 +246,17 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
     if (count) changedProjects += 1;
   }
   const busyProjects = new Set(running.map((row) => row.cwd)).size;
+  // A team's row stands for each of its agents at work.
+  const agentsWorking = running.reduce(
+    (count, row) => count + (row.team ? Math.max(1, row.team.working) : 1),
+    0,
+  );
   const listed = new Set([
     ...needsYou.map((item) => item.id),
-    ...running.map((item) => item.id),
+    ...running.flatMap((item) => [
+      item.id,
+      ...(item.team?.members.map((member) => member.sessionId) ?? []),
+    ]),
   ]);
   const recentRows = recent
     .filter((row) => !listed.has(row.id))
@@ -270,7 +286,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               onActivity={() => reveal(activityRef)}
             />
             <HomePulse
-              running={running.length}
+              running={agentsWorking}
               busyProjects={busyProjects}
               waiting={waiting}
               unread={unread}
@@ -327,6 +343,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                 onSession={onSession}
                 onProject={onProject}
                 onNewProjectTask={onNewProjectTask}
+                onOpenBoard={onOpenBoard}
               />
             ))}
             <li className="workspace-home-agent-add">
@@ -403,26 +420,45 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                   role="list"
                 >
                   {running.map((item) => (
-                    <li key={item.id}>
+                    <li
+                      key={item.team?.id ?? item.id}
+                      data-home-team={item.team?.id}
+                    >
                       <SessionRow
                         cwd={item.cwd}
-                        title={
-                          discussing.has(item.id)
-                            ? `↔ ${item.title}`
-                            : item.title
-                        }
+                        title={item.title}
                         active
-                        line={
-                          item.doing
-                            ? `${nameFor(item.cwd)} · ${item.doing}`
-                            : nameFor(item.cwd)
+                        // A team is one row: its mascots, its status and
+                        // how many agents; it opens the chat it began in.
+                        mark={
+                          item.team ? (
+                            <TeamMiniFaces members={item.team.members} active />
+                          ) : undefined
                         }
+                        line={[
+                          nameFor(item.cwd),
+                          !item.team && discussing.has(item.id)
+                            ? "Discussing"
+                            : "",
+                          item.doing ?? "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                         aside={
-                          item.startedAt !== undefined ? (
-                            <Elapsed since={item.startedAt} />
-                          ) : (
-                            <span className="workspace-home-time">Working</span>
-                          )
+                          <>
+                            {item.team ? (
+                              <span className="workspace-home-row-project">
+                                {teamAgentsText(item.team)}
+                              </span>
+                            ) : null}
+                            {item.startedAt !== undefined ? (
+                              <Elapsed since={item.startedAt} />
+                            ) : (
+                              <span className="workspace-home-time">
+                                Working
+                              </span>
+                            )}
+                          </>
                         }
                         onClick={() => onSession(item.id)}
                       />
@@ -436,7 +472,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               className="workspace-home-section"
               aria-labelledby={`${ids}-recent`}
             >
-              <h2 id={`${ids}-recent`}>Recent sessions</h2>
+              <h2 id={`${ids}-recent`}>Recent chats</h2>
               {recentRows.length ? (
                 <ul
                   className="workspace-home-panel workspace-home-list"
@@ -622,10 +658,6 @@ function HomePulse({
       ))}
     </ul>
   );
-}
-
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
 }
 
 /**
@@ -818,7 +850,7 @@ function BriefingCard({
                 className="workspace-home-briefing-link"
                 onClick={onNeeds}
               >
-                {content.waiting} waiting for you
+                {content.waiting} {content.waiting === 1 ? "needs" : "need"} you
               </button>
             </div>
           </li>
@@ -917,6 +949,7 @@ type AgentTileProps = {
   onSession: (id: string) => void;
   onProject: (path: string) => void;
   onNewProjectTask?: (path: string) => void;
+  onOpenBoard?: (path: string) => void;
 };
 
 /**
@@ -932,6 +965,7 @@ const AgentTile = memo(
     onSession,
     onProject,
     onNewProjectTask,
+    onOpenBoard,
   }: AgentTileProps) {
     const appearance = useProjectAppearance(project.path);
     const now = useMinuteClock();
@@ -955,7 +989,7 @@ const AgentTile = memo(
     const dozing = state === "resting" && !!project.lastActivity;
     const described = describeProjectStatus(status);
     const saying = waiting
-      ? `Waiting for you${project.asking ? `: ${project.asking}` : ""}`
+      ? `Needs you${project.asking ? `: ${project.asking}` : ""}`
       : running
         ? (project.doing ?? "Working")
         : "";
@@ -1057,6 +1091,17 @@ const AgentTile = memo(
               <Plus size={13} />
             </button>
           ) : null}
+          {onOpenBoard ? (
+            <button
+              type="button"
+              className="workspace-home-agent-board"
+              aria-label={`Open ${name} board`}
+              title={`Open ${name} board`}
+              onClick={() => onOpenBoard(project.path)}
+            >
+              <Kanban size={13} />
+            </button>
+          ) : null}
           <button
             ref={moreRef}
             type="button"
@@ -1086,6 +1131,7 @@ const AgentTile = memo(
     a.onSession === b.onSession &&
     a.onProject === b.onProject &&
     a.onNewProjectTask === b.onNewProjectTask &&
+    a.onOpenBoard === b.onOpenBoard &&
     equalChromeData(a.project, b.project) &&
     equalChromeData(a.status, b.status),
 );
@@ -1116,6 +1162,7 @@ function SessionRow({
   active = false,
   attention,
   outcome,
+  mark,
   onClick,
 }: {
   cwd: string;
@@ -1123,6 +1170,8 @@ function SessionRow({
   line: ReactNode;
   aside: ReactNode;
   active?: boolean;
+  /** In place of the project's mascot, such as a team's. */
+  mark?: ReactNode;
   attention?: HomeAttention["kind"];
   outcome?: HomeFinished["kind"];
   onClick: () => void;
@@ -1133,10 +1182,12 @@ function SessionRow({
       className="workspace-home-row"
       data-attention={attention}
       data-outcome={outcome}
+      // Title and line are cut off when long; the tooltip has them whole.
+      title={typeof line === "string" ? `${title} · ${line}` : title}
       onClick={onClick}
     >
       <span className="workspace-home-row-mark">
-        <HomeMark cwd={cwd} active={active} />
+        {mark ?? <HomeMark cwd={cwd} active={active} />}
         {outcome ? <OutcomeIcon kind={outcome} /> : null}
       </span>
       <span className="workspace-home-row-text">

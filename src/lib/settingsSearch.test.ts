@@ -119,14 +119,14 @@ describe("settings search", () => {
   });
 
   it("exposes only the public result fields and deterministic anchors", () => {
-    const [result] = searchSettings("Linear API key");
+    const [result] = searchSettings("Agent connections");
     expect(Object.keys(result).sort()).toEqual([
       "description",
       "id",
       "label",
       "section",
     ]);
-    expect(result.id).toBe("setting-linear-api-key");
+    expect(result.id).toBe("setting-agent-connections");
     expect(settingSearchAnchor("  Follow-up behavior! ")).toBe(
       "setting-follow-up-behavior",
     );

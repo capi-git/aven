@@ -7,8 +7,11 @@ import {
   listRaces,
   raceChoices,
   raceFileRows,
+  raceLaneBases,
   raceLaneProject,
+  raceLanesNotKept,
   racePrompt,
+  racesSnapshot,
   releaseRaceCheckout,
   saveRace,
   selectLane,
@@ -98,10 +101,56 @@ describe("race records", () => {
   it("ignores corrupt storage", () => {
     localStorage.setItem("aven.races.v1", "{not json");
     expect(listRaces()).toEqual([]);
-    localStorage.setItem("aven.races.v1", JSON.stringify([{ id: 1 }, race()]));
+    otherWindowWrites(JSON.stringify([{ id: 1 }, race()]));
     expect(listRaces().map((item) => item.id)).toEqual(["r1"]);
   });
+
+  it("reads storage once, and again only after another window writes", () => {
+    saveRace(race());
+    const getItem = vi.spyOn(localStorage, "getItem");
+    const first = racesSnapshot();
+    expect(listRaces()).toBe(first);
+    expect(getRace("r1")).toBe(first[0]);
+    expect(getItem).not.toHaveBeenCalled();
+    otherWindowWrites(JSON.stringify([race({ prompt: "From elsewhere" })]));
+    expect(getRace("r1")?.prompt).toBe("From elsewhere");
+    expect(getItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps every running race and the newest 20 finished ones", () => {
+    for (let index = 0; index < 25; index++)
+      saveRace(
+        race({
+          id: `done-${index}`,
+          state: index % 2 ? "kept" : "discarded",
+          createdAt: index,
+          finishedAt: 1000 + index,
+        }),
+      );
+    saveRace(race({ id: "old-but-running", createdAt: -5 }));
+    const ids = listRaces().map((item) => item.id);
+    expect(ids).toHaveLength(21);
+    expect(ids).toContain("old-but-running");
+    expect(ids).not.toContain("done-4");
+    expect(ids).toContain("done-5");
+    expect(ids).toContain("done-24");
+    const stored = JSON.parse(localStorage.getItem("aven.races.v1")!);
+    expect(stored).toHaveLength(21);
+  });
+
+  it("measures each lane folder against its race's starting commit", () => {
+    saveRace(race());
+    expect(raceLaneBases()).toEqual({
+      "/data/races/r1/0": "a".repeat(40),
+      "/data/races/r1/1": "a".repeat(40),
+    });
+  });
 });
+
+function otherWindowWrites(raw: string) {
+  localStorage.setItem("aven.races.v1", raw);
+  window.dispatchEvent(new StorageEvent("storage", { key: "aven.races.v1" }));
+}
 
 describe("restoring race lanes", () => {
   it("repairs legacy handoffs whose saved project was a lane, without escaping a running race", () => {
@@ -216,5 +265,51 @@ describe("choosing results", () => {
     expect(prompt.startsWith("Fix it\n\n")).toBe(true);
     expect(prompt).toContain("3 agents");
     expect(prompt).toContain("Do not push");
+  });
+});
+
+describe("chats whose work a kept race did not keep", () => {
+  const three = (patch: Partial<RaceRecord>) =>
+    race({
+      lanes: [0, 1, 2].map((slot) => ({
+        sessionId: `s${slot}`,
+        harness: "claude" as const,
+        model: "m",
+        label: "Claude Code · M",
+        path: `/data/races/r1/${slot}`,
+        branch: `aven/race/r1-${slot}`,
+      })),
+      ...patch,
+    });
+
+  it("are every lane but the kept one", () => {
+    expect(
+      raceLanesNotKept(
+        three({ state: "kept", outcome: { kind: "lane", lane: 1, files: 2 } }),
+      ),
+    ).toEqual([0, 2]);
+  });
+
+  it("are, for a mix, the lanes no file came from", () => {
+    expect(
+      raceLanesNotKept(
+        three({
+          state: "kept",
+          outcome: { kind: "mix", files: 2 },
+          picks: { "a.ts": 0, "b.ts": 2 },
+        }),
+      ),
+    ).toEqual([1]);
+    // Without its picks, every chat stays.
+    expect(
+      raceLanesNotKept(
+        three({ state: "kept", outcome: { kind: "mix", files: 2 } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("are none while it runs or once it is discarded", () => {
+    expect(raceLanesNotKept(three({}))).toEqual([]);
+    expect(raceLanesNotKept(three({ state: "discarded" }))).toEqual([]);
   });
 });

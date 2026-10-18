@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replyOpening, replyStance } from "./discussionStance";
+import { stanceOpening, replyStance } from "./discussionStance";
 
 describe("replyStance", () => {
   it.each([
@@ -122,13 +122,13 @@ describe("replyStance", () => {
   });
 });
 
-describe("replyOpening", () => {
+describe("stanceOpening", () => {
   it("is the first sentence or two in plain lower-case words", () => {
-    expect(replyOpening("**Agreed.** Ship it. Then test.")).toBe(
+    expect(stanceOpening("**Agreed.** Ship it. Then test.")).toBe(
       "agreed. ship it.",
     );
-    expect(replyOpening("# Pushback\nThe TTL")).toBe("pushback");
-    expect(replyOpening("I’d say “yes”.")).toBe(`i'd say "yes".`);
-    expect(replyOpening("word ".repeat(100)).length).toBeLessThanOrEqual(180);
+    expect(stanceOpening("# Pushback\nThe TTL")).toBe("pushback");
+    expect(stanceOpening("I’d say “yes”.")).toBe(`i'd say "yes".`);
+    expect(stanceOpening("word ".repeat(100)).length).toBeLessThanOrEqual(180);
   });
 });

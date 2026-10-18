@@ -1,6 +1,6 @@
 import { projectKey, projectName } from "./paths";
 import { projectLogoSrc } from "./projectLogos";
-import { projectMascot } from "./projectMascots";
+import { currentMascotName, projectMascot } from "./projectMascots";
 import { isProjectlessCwd } from "./projectlessWorkspace";
 import {
   PROJECT_APPEARANCE_CHANGED,
@@ -41,6 +41,7 @@ export type ProjectAppearance = {
   logoSrc: string | null;
   /** Mascot shown: the saved pick, or the one hashed from the name. */
   mascot: string;
+  /** The saved pick, an old sprite's name read as today's critter. */
   mascotOverride: string | null;
 };
 
@@ -162,7 +163,9 @@ export function resolveProjectAppearance(
   const key = projectKey(path);
   const name = projectName(path);
   const customLabel = saved.labels[key]?.trim() || null;
-  const mascotOverride = saved.mascots[key] ?? null;
+  const savedMascot = saved.mascots[key];
+  const mascotOverride =
+    savedMascot == null ? null : currentMascotName(savedMascot);
   const logoPath = saved.logos[key] ?? null;
   const automatic = tabGroupColor(name);
   return {

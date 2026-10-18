@@ -14,12 +14,18 @@ let host: HTMLDivElement;
 let session: Session;
 const stop = vi.fn();
 const openTerminal = vi.fn();
-async function render(visible = true) {
+async function render(
+  visible = true,
+  stopElsewhere = false,
+  placement: "row" | "attention" = "row",
+) {
   await act(async () =>
     root.render(
       createElement(SessionRunStatus, {
         session,
         visible,
+        stopElsewhere,
+        placement,
         onStop: stop,
         onOpenTerminal: openTerminal,
       }),
@@ -72,6 +78,57 @@ afterEach(async () => {
 });
 
 describe("persistent agent run status", () => {
+  it("says what the agent is doing instead of repeating Working", async () => {
+    await render();
+    const status = () => host.querySelector('[role="status"]')?.textContent;
+    // Nothing nameable yet: plain "Working…", once.
+    expect(status()).toBe("Working…");
+    expect(host.querySelector(".session-run-detail")).toBeNull();
+    session = {
+      ...session,
+      blocks: [
+        ...session.blocks,
+        {
+          id: "edit",
+          role: "tool",
+          text: "Edit",
+          streaming: true,
+          tool: {
+            kind: "edit",
+            status: "in_progress",
+            preview: { kind: "write", path: "/repo/app.js" },
+          },
+        },
+      ],
+    };
+    await render();
+    expect(status()).toContain("app.js");
+    expect(status()).not.toContain("Agent is working");
+  });
+
+  it("beside a team's bar, keeps a row only for what asks for more", async () => {
+    // Working, waiting or done: the team's bar says it, so no second row.
+    await render(true, false, "attention");
+    expect(host.childElementCount).toBe(0);
+    session = { ...session, busy: false };
+    ledger.entries = [outcome("completed")];
+    await render(true, false, "attention");
+    expect(host.childElementCount).toBe(0);
+    // A failure still has its own row.
+    ledger.entries = [outcome("failed")];
+    session = { ...session };
+    await render(true, false, "attention");
+    expect(state()).toBe("failed");
+  });
+
+  it("leaves Stop to the run bar for an orchestration's lead", async () => {
+    await render(true, true);
+    expect(state()).toBe("working");
+    expect(host.querySelector('[aria-label="Stop agent"]')).toBeNull();
+    await render(true, false);
+    expect(host.querySelector('[aria-label="Stop agent"]')).not.toBeNull();
+  });
+
   it("shows inspectable child activity after the main reply and updates through completion", async () => {
     session = {
       ...session,
@@ -160,7 +217,7 @@ describe("persistent agent run status", () => {
     await render();
     expect(state()).toBe("waiting");
     expect(host.querySelector('[role="status"]')?.textContent).toContain(
-      "Waiting for you",
+      "Needs you",
     );
     expect(vi.getTimerCount()).toBe(0);
     session = {

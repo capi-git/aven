@@ -400,7 +400,7 @@ export function openDevPreview(
 }
 
 /** One server whichever loopback name or page a tab uses for it. */
-function serverIdentity(url: string): string | undefined {
+export function serverIdentity(url: string): string | undefined {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -427,6 +427,23 @@ export function previewTabMatch<T extends { id: string; url: string }>(
   const matches = (tab: T) => serverIdentity(tab.url) === target;
   const preferred = tabs.find((tab) => tab.id === preferredId);
   return preferred && matches(preferred) ? preferred : tabs.find(matches);
+}
+
+/**
+ * The server an address is on, the same whichever loopback name or page it
+ * uses ("http://loopback:5180"), or undefined for no web address.
+ */
+export function devServerIdentity(url: string): string | undefined {
+  return serverIdentity(url);
+}
+
+/** Every browser tab already showing the server `url` is on, on any page. */
+export function previewTabsOnServer<T extends { url: string }>(
+  tabs: readonly T[],
+  url: string,
+): T[] {
+  const target = serverIdentity(url);
+  return target ? tabs.filter((tab) => serverIdentity(tab.url) === target) : [];
 }
 
 type ShownServers = { project: string; servers: ReadonlySet<string> };

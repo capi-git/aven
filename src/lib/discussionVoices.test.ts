@@ -3,22 +3,11 @@ import {
   discussionMascots,
   discussionVoices,
   providerVoiceColor,
-  voiceName,
+  teamMascots,
 } from "./discussionVoices";
 import { PROJECT_MASCOTS } from "./projectMascots";
 
 describe("discussion voices", () => {
-  it("names the provider and the model without repeating the provider", () => {
-    expect(voiceName({ harness: "claude", model: "Claude Sonnet 5" })).toBe(
-      "Claude · Sonnet 5",
-    );
-    expect(voiceName({ harness: "codex", model: "GPT-5.4" })).toBe(
-      "Codex · GPT-5.4",
-    );
-    expect(voiceName({ harness: "grok", model: "Grok 4.6" })).toBe("Grok 4.6");
-    expect(voiceName({ harness: "claude", model: "Default" })).toBe("Claude");
-  });
-
   it("colours Claude coral and Codex blue, and others neutral", () => {
     expect(providerVoiceColor("claude")).toBe("#d97757");
     expect(providerVoiceColor("codex")).toBe("#7a9dff");
@@ -41,6 +30,25 @@ describe("discussion voices", () => {
     }
   });
 
+  it("gives every member of a team of up to twelve its own critter", () => {
+    const names = new Set(PROJECT_MASCOTS.map((mascot) => mascot.name));
+    for (let size = 1; size <= 12; size += 1) {
+      for (const prefix of ["run", "race", "x"]) {
+        const ids = Array.from({ length: size }, (_, i) => `${prefix}-${i}`);
+        const picks = teamMascots(ids);
+        expect(picks).toHaveLength(size);
+        expect(new Set(picks).size).toBe(size);
+        for (const pick of picks) expect(names.has(pick)).toBe(true);
+        // Each member keeps its critter as the team grows.
+        expect(teamMascots([...ids, `${prefix}-extra`]).slice(0, size)).toEqual(
+          picks,
+        );
+      }
+    }
+    // Members whose ids hash alike still look different.
+    expect(new Set(teamMascots(Array(12).fill("same"))).size).toBe(12);
+  });
+
   it("tags who opened the topic and who responds", () => {
     const voices = discussionVoices({
       a: {
@@ -59,15 +67,38 @@ describe("discussion voices", () => {
       },
     });
     expect(voices.a).toMatchObject({
-      name: "Claude · Sonnet 5",
+      name: "Claude",
+      fullName: "Claude Code · Sonnet 5",
       persona: "Opened the topic",
       title: "Caching plan",
       color: "#d97757",
     });
     expect(voices.b).toMatchObject({
-      name: "Codex · GPT-5",
-      persona: "Responding",
+      name: "Codex",
+      fullName: "Codex · GPT-5",
+      persona: "Joined the topic",
       color: "#7a9dff",
     });
+  });
+
+  it("adds the model when both sides are the same app", () => {
+    const voices = discussionVoices({
+      a: {
+        sessionId: "chat-a",
+        harness: "claude",
+        model: "Claude Opus 4.6",
+        title: "Plan",
+        cwd: "/work",
+      },
+      b: {
+        sessionId: "chat-b",
+        harness: "claude",
+        model: "Claude Sonnet 5",
+        title: "Review",
+        cwd: "/work",
+      },
+    });
+    expect(voices.a.name).toBe("Claude Opus 4.6");
+    expect(voices.b.name).toBe("Claude Sonnet 5");
   });
 });

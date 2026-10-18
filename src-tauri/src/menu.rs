@@ -134,6 +134,10 @@ pub fn dispatch(app: &AppHandle, id: &str) {
             return;
         }
     }
+    // A team's popped-out panel closes itself on ⌘W; it has no panes.
+    if id == "close_tab" && crate::team_watch::close_focused(app) {
+        return;
+    }
     match id {
         "new_window" => {
             let _ = crate::window::open_new_window(app);

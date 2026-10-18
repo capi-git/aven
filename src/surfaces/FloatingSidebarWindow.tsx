@@ -185,6 +185,8 @@ export function FloatingSidebarWindow() {
       call("cancelOrchestrationTask", [leadId, taskId]).then(() => undefined);
     orchestrator.start = ((...args: unknown[]) =>
       call("startOrchestration", args)) as typeof orchestrator.start;
+    orchestrator.stopRun = (leadId: string) =>
+      call("stopOrchestration", [leadId]).then(() => undefined);
     return () => {
       setPaneDropBridge(null);
       mirrorUpdater(null);

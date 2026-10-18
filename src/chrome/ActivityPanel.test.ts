@@ -2,12 +2,24 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ActivityPanel, type ActivityPanelProps } from "./ActivityPanel";
 import {
+  ActivityPanel,
+  activityOutcomeLabel,
+  activitySections,
+  type ActivityPanelProps,
+} from "./ActivityPanel";
+import {
+  type ActivityEntry,
   getActivitySnapshot,
   recordActivity,
   type ActivityOutcome,
 } from "../lib/activity";
+import {
+  createLiveSessionStore,
+  LiveSessionsContext,
+} from "../lib/liveSessions";
+import { saveRace } from "../lib/race";
+import type { TeamRun } from "../lib/teamRuns";
 import { newSession } from "../lib/session";
 
 let host: HTMLDivElement;
@@ -73,6 +85,77 @@ afterEach(async () => {
 });
 
 describe("Activity panel", () => {
+  it("shows a running team as one row, and leaves its members' turns out", async () => {
+    saveRace({
+      id: "r1",
+      project: "/tmp/project",
+      root: "/tmp/project",
+      base: "a".repeat(40),
+      prompt: "Fix the login loop",
+      createdAt: 0,
+      uncommitted: false,
+      untracked: false,
+      state: "running",
+      origin: { sessionId: "chat", blockId: "msg" },
+      lanes: ["l0", "l1"].map((sessionId, slot) => ({
+        sessionId,
+        harness: slot ? ("codex" as const) : ("claude" as const),
+        model: "m",
+        label: slot ? "Codex · GPT-5" : "Claude Code · Opus",
+        path: `/data/races/r1/${slot}`,
+        branch: `aven/race/r1-${slot}`,
+      })),
+    });
+    recordActivity(
+      {
+        id: "l0:turn:t:completed",
+        sessionId: "l0",
+        outcome: "completed",
+        title: "Race · Claude",
+        summary: "Done.",
+        harness: "claude",
+        model: "m",
+        cwd: "/tmp/project",
+        team: { id: "race:r1", kind: "race", member: true },
+      },
+      true,
+    );
+    const lane = (id: string) => ({
+      ...newSession("claude", "/tmp/project"),
+      id,
+      title: `Race · ${id}`,
+      busy: true,
+      blocks: [
+        { id: `${id}-u`, role: "user" as const, text: "Go", startedAt: 1 },
+      ],
+    });
+    const lanes = [lane("l0"), lane("l1")];
+    await act(async () =>
+      root.render(
+        createElement(
+          LiveSessionsContext.Provider,
+          { value: createLiveSessionStore(lanes) },
+          createElement(ActivityPanel, {
+            sessions: lanes,
+            onOpen: open,
+            onOpenSession: openSession,
+          }),
+        ),
+      ),
+    );
+    const running = host.querySelector<HTMLElement>('[aria-label="Running"]')!;
+    expect(running.querySelector("h3")?.textContent).toBe("Running1");
+    const row = running.querySelector("[data-activity-team='race:r1']")!;
+    expect(row.textContent).toContain("Fix the login loop");
+    expect(row.textContent).toContain("Racing · 0 of 2 done · project");
+    expect(row.textContent).not.toContain("2 agents");
+    // The lane's own turn is its team's, so Finished does not list it.
+    expect(host.querySelector('[aria-label="Finished"]')).toBeNull();
+    await act(async () =>
+      button("Open “Fix the login loop”: Racing · 0 of 2 done").click(),
+    );
+    expect(openSession).toHaveBeenCalledWith("chat");
+  });
   it("updates the shared workspace palette and closes without changing activity", async () => {
     record("Saved result", "completed");
     const close = vi.fn();
@@ -135,7 +218,7 @@ describe("Activity panel", () => {
     expect(host.querySelector('[aria-label="Running"]')?.textContent).toContain(
       "Working task",
     );
-    await act(async () => button("Open Working task").click());
+    await act(async () => button("Open “Working task”").click());
     expect(openSession).toHaveBeenCalledWith("running");
   });
 
@@ -168,13 +251,13 @@ describe("Activity panel", () => {
     record("Result", "completed");
     open.mockReturnValue(false);
     await mount();
-    await act(async () => button("Open Result: Finished").click());
+    await act(async () => button("Open “Result”: Finished").click());
     expect(getActivitySnapshot()[0].readAt).toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toContain(
       "could not be opened",
     );
     open.mockReturnValue(true);
-    await act(async () => button("Open Result: Finished").click());
+    await act(async () => button("Open “Result”: Finished").click());
     expect(open).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: "Result", sessionId: "Result" }),
     );
@@ -189,7 +272,7 @@ describe("Activity panel", () => {
       }),
     );
     await mount();
-    await act(async () => button("Open Restored: Finished").click());
+    await act(async () => button("Open “Restored”: Finished").click());
     expect(getActivitySnapshot()[0].readAt).toBeNull();
     await act(async () => restored(true));
     expect(getActivitySnapshot()[0].readAt).not.toBeNull();
@@ -198,7 +281,7 @@ describe("Activity panel", () => {
     record("Question", "question");
     record("Done", "completed");
     await mount();
-    await act(async () => button("Mark Question as read").click());
+    await act(async () => button("Mark “Question” as read").click());
     expect(
       host.querySelector('[aria-label="Needs you"]')?.textContent,
     ).toContain("Question");
@@ -210,5 +293,57 @@ describe("Activity panel", () => {
     expect(getActivitySnapshot().map((entry) => entry.id)).toEqual([
       "Question",
     ]);
+  });
+});
+
+describe("teams waiting on you", () => {
+  const paused = (since: number): TeamRun => ({
+    id: "discuss:d1",
+    kind: "discuss",
+    key: "d1",
+    origin: { sessionId: "a" },
+    project: "/tmp/project",
+    title: "Cache the lookups?",
+    status: "needs-you",
+    progress: "Round 1 of 2",
+    need: {
+      sessionId: "b",
+      kind: "paused",
+      text: "Paused when its window reloaded.",
+      since,
+    },
+    members: [],
+    startedAt: 0,
+    updatedAt: 0,
+  });
+  const entry = (patch: Partial<ActivityEntry>): ActivityEntry => ({
+    id: "b:team:d1:paused:5",
+    sessionId: "b",
+    outcome: "failed",
+    title: "Review",
+    summary: "Discussion paused · Paused when its window reloaded.",
+    cwd: "/tmp/project",
+    harness: "codex",
+    model: "",
+    createdAt: 5,
+    readAt: null,
+    resolvedAt: null,
+    team: { id: "discuss:d1", kind: "discuss", need: true },
+    ...patch,
+  });
+
+  it("lists one while it waits, read or not, as the Dock and Home count it", () => {
+    const read = entry({ readAt: 6 });
+    expect(activitySections([read], [paused(5)]).needsYou).toEqual([read]);
+    // Already waiting when Aven started: no entry, still listed.
+    const [live] = activitySections([], [paused(5)]).needsYou;
+    expect(live).toMatchObject({
+      sessionId: "b",
+      title: "Cache the lookups?",
+      summary: "Paused when its window reloaded.",
+    });
+    expect(activityOutcomeLabel(live)).toBe("Needs you");
+    // Once it no longer waits, its entry is history.
+    expect(activitySections([read], []).needsYou).toEqual([]);
   });
 });

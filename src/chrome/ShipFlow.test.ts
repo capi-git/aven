@@ -9,6 +9,7 @@ import {
   LiveSessionsContext,
 } from "../lib/liveSessions";
 import { newSession, type Session } from "../lib/session";
+import { shippedChatsSnapshot } from "../lib/shippedChats";
 import { ShipFlow } from "./ShipFlow";
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +28,22 @@ vi.mock("@tauri-apps/api/core", () => ({
       throw reason;
     }
     if (command === "git_pr_create") return "https://github.com/o/r/pull/12\n";
+    if (command === "git_history")
+      return {
+        head: "4c19b02aa",
+        commits: [
+          {
+            sha: "4c19b02aa",
+            shortSha: "4c19b02",
+            parents: [],
+            author: "",
+            timestamp: 1,
+            subject: "Add the ship flow",
+            refs: [],
+            head: true,
+          },
+        ],
+      };
     if (command === "git_pr_checks")
       return {
         number: 12,
@@ -40,6 +57,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: mocks.ask }));
 vi.mock("../lib/harness", () => ({
   generateCommitMessage: vi.fn(async () => "Add the ship flow"),
+  textModelLabel: () => "Claude Haiku 4.5",
   generatePrContent: vi.fn(async () => ({
     title: "Add the ship flow",
     body: "## Summary",
@@ -213,9 +231,19 @@ describe("ShipFlow", () => {
       "git_commit",
       "git_push",
       "git_pr_create",
+      // The chat it carried reads Shipped, naming the commit it made.
+      "git_history",
       "git_pr_checks",
     ]);
     expect(localStorage.getItem("aven.shipMode")).toBe("pr");
+    expect(shippedChatsSnapshot().s1).toMatchObject({
+      sessionId: "s1",
+      project: "/repo",
+      cwd: "/repo",
+      commit: { sha: "4c19b02aa", shortSha: "4c19b02" },
+      pr: { number: 12, url: "https://github.com/o/r/pull/12" },
+      pushed: true,
+    });
     expect(container.textContent).toContain("Shipped");
     expect(container.textContent).toContain("Opened PR #12");
     expect(container.textContent).toContain("1 of 2 checks running");
@@ -225,6 +253,43 @@ describe("ShipFlow", () => {
     expect(container.textContent).toContain("All 2 checks passed");
     expect(vi.getTimerCount()).toBe(0);
     expect(onMutated).toHaveBeenCalled();
+  });
+
+  it("names who writes the message and lets you type over it", async () => {
+    let finish!: (message: string) => void;
+    let signal: AbortSignal | undefined;
+    vi.mocked(generateCommitMessage).mockImplementationOnce(
+      (_cwd, _harness, abort) =>
+        new Promise<string>((resolve) => {
+          signal = abort;
+          finish = resolve;
+        }),
+    );
+    await render({ index: index() });
+    await act(async () => button("Write the commit message").click());
+    await settle();
+    const write = container.querySelector<HTMLButtonElement>(
+      ".ship-flow-generate",
+    )!;
+    expect(write.textContent).toBe("Writing with Claude Haiku 4.5…");
+    expect(write.title).toContain("Claude Haiku 4.5");
+    const field = container.querySelector("textarea")!;
+    expect(field.disabled).toBe(false);
+    expect(field.placeholder).toBe("Or type your own message");
+    // Typing takes the message back from the model at once.
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(field, "Fix the footer");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(write.textContent).toBe("Write");
+    await act(async () => finish("Add the ship flow"));
+    await settle();
+    expect(container.querySelector("textarea")?.value).toBe("Fix the footer");
   });
 
   it("resumes after a failed push without committing twice", async () => {

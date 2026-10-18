@@ -67,7 +67,11 @@ import {
   saveChangesView,
   type ChangesView,
 } from "../lib/appearance";
-import { generateCommitMessage, generatePrContent } from "../lib/harness";
+import {
+  generateCommitMessage,
+  generatePrContent,
+  textModelLabel,
+} from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
@@ -75,7 +79,13 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { currentCopyLabel, GitCopies } from "./GitCopies";
 import { GitHousekeeping } from "./GitHousekeeping";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
-import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
+import {
+  isWindowActive,
+  isWindowVisible,
+  mayRefresh,
+  subscribeWindowActivity,
+  type RefreshReason,
+} from "../lib/windowActivity";
 import { errorText, logError } from "../lib/errors";
 import { headCommit, useGitHistory } from "../hooks/useGitHistory";
 import {
@@ -107,7 +117,11 @@ function confirmNative(message: string, okLabel?: string): Promise<boolean> {
 }
 
 /** An open Ship flow, and the conversation it describes when one was named. */
-type ShipState = { sessionId?: string };
+type ShipState = {
+  sessionId?: string;
+  /** When Ship it was pressed: each press starts the flow afresh. */
+  opened?: number;
+};
 
 let stagedOpen = true;
 let changesOpen = true;
@@ -183,11 +197,14 @@ export function GitChangesPanel({
     if (!enabled) return;
     const pick = () => {
       const request = takeShipRequest(cwd);
-      if (request) setShip({ sessionId: request.sessionId });
+      if (!request) return;
+      setShip({ sessionId: request.sessionId, opened: request.at });
+      // Ship it reads the folder afresh, even with the window out of focus.
+      reload();
     };
     pick();
     return subscribeShipRequests(pick);
-  }, [cwd, enabled, setShip]);
+  }, [cwd, enabled, setShip, reload]);
   const historyShown = graphExpanded && !(ship && historyYields);
   const showHistory = useCallback(() => {
     graphOpen = true;
@@ -366,6 +383,10 @@ function ChangedFiles({
   );
   const largest = useMemo(() => largestChurn(files), [files]);
   const totals = useMemo(() => lineTotals(files), [files]);
+  // A new Ship it starts a fresh flow, replacing a finished one's "Shipped"
+  // card, but never interrupts a ship that is still running.
+  const shipKey = useRef(0);
+  if (ship && busy !== "ship") shipKey.current = ship.opened ?? 0;
   const onShipBusy = useCallback((shipping: boolean) => {
     setBusy((current) =>
       shipping ? (current ?? "ship") : current === "ship" ? null : current,
@@ -396,7 +417,8 @@ function ChangedFiles({
     ((index?.ahead ?? 0) > 0 || (index?.behind ?? 0) > 0);
   const canCommitPush = canCommit && hasRemote && !diverged;
   const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
-  const canEditMessage = staged.length > 0 && !busy;
+  // Typing over a message being written takes it back at once.
+  const canEditMessage = staged.length > 0 && (!busy || busy === "generate");
 
   // Abandon an in-flight generation when the project changes or the panel
   // unmounts, so a late result never lands in another project's message.
@@ -644,6 +666,7 @@ function ChangedFiles({
       <div className="flex shrink-0 flex-col gap-2 border-b border-content/10 p-2">
         {ship && index ? (
           <ShipFlow
+            key={shipKey.current}
             cwd={cwd}
             index={index}
             files={files}
@@ -675,7 +698,7 @@ function ChangedFiles({
             additions={totals.additions}
             deletions={totals.deletions}
             disabled={!!busy}
-            onShip={() => onShipChange({})}
+            onShip={() => onShipChange({ opened: Date.now() })}
           />
         ) : null}
         <div className={files.length === 0 || ship ? "hidden" : "relative"}>
@@ -685,7 +708,10 @@ function ChangedFiles({
             value={message}
             placeholder={`Message (${MOD}↩ to commit)`}
             disabled={!canEditMessage}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => {
+              if (busy === "generate") cancelGenerate();
+              setMessage(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (
                 (event.metaKey || event.ctrlKey) &&
@@ -702,7 +728,7 @@ function ChangedFiles({
             type="button"
             title={
               busy === "generate"
-                ? "Cancel commit message generation"
+                ? `Writing with ${textModelLabel(textHarness)}. Press to cancel, or type your own.`
                 : "Generate commit message"
             }
             aria-label={
@@ -930,23 +956,27 @@ function usePrStatus(
     setPr(cachedPr(cwd, branch));
     let cancelled = false;
     let request = 0;
-    const load = () => {
-      if (cancelled || !isWindowActive()) return;
+    // Opening the panel and a reload (after Ship it) read while the window is
+    // on screen; coming back to the window reads again (see `mayRefresh`).
+    const load = (reason: RefreshReason) => {
+      if (cancelled || !mayRefresh(reason)) return;
       const current = ++request;
+      const stale = () =>
+        cancelled || current !== request || !isWindowVisible();
       void gitPrStatus(cwd)
         .then((next) => {
-          if (cancelled || current !== request || !isWindowActive()) return;
+          if (stale()) return;
           prByCwd.set(cwd, next);
           setPr(next);
         })
         .catch(() => {
-          if (cancelled || current !== request || !isWindowActive()) return;
+          if (stale()) return;
           prByCwd.set(cwd, null);
           setPr(null);
         });
     };
-    const unsubscribe = subscribeWindowActivity(load);
-    load();
+    const unsubscribe = subscribeWindowActivity(() => load("poll"));
+    load("event");
     return () => {
       cancelled = true;
       unsubscribe();
@@ -1048,7 +1078,7 @@ function GitSyncActions({
     index.upstream ?? `${index.remote ?? "origin"}/${index.branch ?? "HEAD"}`;
   const syncing = busy === "sync";
   const syncTitle = syncing
-    ? "Synchronizing Changes..."
+    ? "Synchronizing changes…"
     : canPublish
       ? index.branch
         ? `Publish Branch "${index.branch}"`
@@ -1707,20 +1737,31 @@ function useDiffIndex(
     let inFlight = false;
     let pending = false;
     let pendingSync = false;
+    // A queued read keeps the strongest reason it was asked for.
+    let pendingReason: RefreshReason = "poll";
     let publishing = false;
     let lastSync = 0;
     // Checks in a row that found nothing new; spaces the next check out.
     let quietPolls = 0;
+    let visible = isWindowVisible();
+    const dropPending = () => {
+      pending = false;
+      pendingSync = false;
+      pendingReason = "poll";
+    };
 
-    const load = async (forceSync = false) => {
-      if (cancelled || !isWindowActive()) {
-        pending = false;
-        pendingSync = false;
+    // An event (Git changed, a turn ended, Ship it, opening the panel) reads
+    // whenever the window is on screen; the periodic check only while it has
+    // focus (see `mayRefresh`).
+    const load = async (forceSync = false, reason: RefreshReason = "poll") => {
+      if (cancelled || !mayRefresh(reason)) {
+        if (!isWindowVisible()) dropPending();
         return;
       }
       if (inFlight) {
         pending = true;
         pendingSync ||= forceSync;
+        if (reason === "event") pendingReason = "event";
         return;
       }
       inFlight = true;
@@ -1729,7 +1770,7 @@ function useDiffIndex(
         const sync =
           forceSync || !prev || Date.now() - lastSync >= GIT_SYNC_POLL_MS;
         let next = await (sync ? gitDiffIndex(cwd) : gitDiffFiles(cwd));
-        if (cancelled || !isWindowActive()) return;
+        if (cancelled || !mayRefresh(reason)) return;
         if (sync) lastSync = Date.now();
         else if (prev && next.branch === prev.branch) {
           // The cheap status command omits remote and divergence metadata.
@@ -1742,7 +1783,7 @@ function useDiffIndex(
         } else {
           // An external checkout must not show the previous branch's sync state.
           next = await gitDiffIndex(cwd);
-          if (cancelled || !isWindowActive()) return;
+          if (cancelled || !mayRefresh(reason)) return;
           lastSync = Date.now();
         }
         if (sameIndex(prev, next)) {
@@ -1769,7 +1810,7 @@ function useDiffIndex(
           }
         }
       } catch {
-        if (!cancelled && isWindowActive()) {
+        if (!cancelled && mayRefresh(reason)) {
           indexByCwd.delete(cwd);
           indexRef.current = null;
           setIndex(null);
@@ -1778,9 +1819,9 @@ function useDiffIndex(
         inFlight = false;
         if (pending) {
           const sync = pendingSync;
-          pending = false;
-          pendingSync = false;
-          if (!cancelled && isWindowActive()) void load(sync);
+          const next = pendingReason;
+          dropPending();
+          if (!cancelled && mayRefresh(next)) void load(sync, next);
         }
       }
     };
@@ -1792,7 +1833,7 @@ function useDiffIndex(
       timer = null;
     };
     const schedule = () => {
-      if (cancelled || timer !== null || !isWindowActive()) return;
+      if (cancelled || timer !== null || !mayRefresh("poll")) return;
       // The first quiet check keeps the usual pace; later ones slow down.
       const delay = Math.min(
         GIT_POLL_MS * 1.5 ** Math.max(0, quietPolls - 1),
@@ -1803,27 +1844,37 @@ function useDiffIndex(
         void load().finally(schedule);
       }, delay);
     };
+    /** Read in full now; polling resumes after it only while focused. */
     const checkNow = () => {
       quietPolls = 0;
       stopPolling();
-      void load(true).finally(schedule);
+      void load(true, "event").finally(schedule);
     };
     const onActivity = () => {
       if (cancelled) return;
-      if (!isWindowActive()) {
-        pending = false;
-        pendingSync = false;
+      const wasVisible = visible;
+      visible = isWindowVisible();
+      if (!visible) {
+        dropPending();
         stopPolling();
         return;
       }
-      checkNow();
+      if (isWindowActive()) {
+        checkNow();
+        return;
+      }
+      // On screen without focus: polling rests, but a window that comes
+      // back on screen reads once what changed while it was hidden.
+      stopPolling();
+      if (!wasVisible) checkNow();
     };
     const unsubActivity = subscribeWindowActivity(onActivity);
     const unsubGit = subscribeGitChanged(() => {
       // Notify sibling panels without feeding our own poll back into a full refresh.
       if (!publishing) checkNow();
     });
-    onActivity();
+    // Opening (or reloading) the panel reads once if the window is on screen.
+    if (visible) checkNow();
     return () => {
       cancelled = true;
       pending = false;

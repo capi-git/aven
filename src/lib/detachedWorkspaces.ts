@@ -7,7 +7,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { WorkspaceTab } from "./layout";
 import type { WorkspaceReturnPlacement } from "./workspaceArrangement";
-import { leafIds, newFileTab, openEditorTab } from "./layout";
+import {
+  BOARD_STAYS_MESSAGE,
+  holdsBoard,
+  leafIds,
+  newFileTab,
+  openEditorTab,
+} from "./layout";
 import { browserIdForTab } from "./personalWorkspace";
 import {
   resolveWorkspaceView,
@@ -185,6 +191,16 @@ export const nativeWorkspaceWindow = {
   listen: <T>(name: string, receive: (value: T) => void) =>
     getCurrentWebview().listen<T>(name, (e) => receive(e.payload)),
 };
+/**
+ * Why these tabs cannot move to a workspace window, or null. A project's
+ * board reads the main window's chats and acts through it, so it stays.
+ */
+export function detachProblem(
+  state: Pick<DetachedWorkspaceState, "tabs">,
+): string | null {
+  return state.tabs.some(holdsBoard) ? BOARD_STAYS_MESSAGE : null;
+}
+
 export function detachedSessionIds(state: DetachedWorkspaceState): string[] {
   const leaves = new Set(state.tabs.flatMap((tab) => leafIds(tab.layout)));
   return state.sessions
@@ -308,6 +324,8 @@ export function mergeDetachedWorkspaces(
 type Options = {
   sessions: Session[];
   sessionProps: Partial<SessionPaneProps>;
+  /** Workers whose requests their lead decides (see `leadDecidedIds`). */
+  leadDecided?: ReadonlySet<string>;
   onReturned: (state: DetachedWorkspaceState) => void | Promise<void>;
   onCheckpoint?: (state: DetachedWorkspaceState) => void;
   onError?: (error: string) => void;
@@ -399,6 +417,9 @@ export function useDetachedWorkspaces(options: Options) {
               draft: readComposerDraft(session.id),
               catalog: allModels(),
               catalogVersion: getModelSnapshot(),
+              ...(latest.current.leadDecided?.has(session.id)
+                ? { leadDecides: true }
+                : {}),
               actions: SESSION_PIP_CALLBACKS.filter(
                 (name) =>
                   typeof latest.current.sessionProps[name] === "function",
@@ -676,6 +697,10 @@ export function useDetachedWorkspaces(options: Options) {
             SESSION_PIP_CALLBACKS.filter(
               (name) => typeof latest.current.sessionProps[name] === "function",
             ),
+            // A run ending hands its workers' requests to you.
+            sessions
+              .filter((session) => latest.current.leadDecided?.has(session.id))
+              .map((session) => session.id),
           ]);
           const transferToken = entry.state.transferToken;
           const previous = sent.current.get(entry.id);
@@ -756,6 +781,8 @@ export function useDetachedWorkspaces(options: Options) {
       target?: string,
       point?: WorkspaceDropPoint,
     ) => {
+      const refused = detachProblem(input);
+      if (refused) throw new Error(refused);
       await ready.current;
       if (target && busyTargets.current.has(target))
         throw new Error(

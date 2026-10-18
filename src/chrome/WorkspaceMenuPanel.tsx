@@ -120,7 +120,7 @@ export function WorkspaceMenuPanelContent({
               ref={search}
               type="search"
               aria-label={`Search ${snapshot.title}`}
-              placeholder="Search..."
+              placeholder="Search…"
               value={query}
               autoComplete="off"
               spellCheck={false}

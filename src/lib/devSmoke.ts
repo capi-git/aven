@@ -21,10 +21,20 @@ export const SMOKE_REPLY = "AVEN_SMOKE_OK";
 export const SMOKE_KEEPER_WORD = "AVEN_KEEPER_OK";
 /** In the Agreed list the stand-in writes when it sums up a discussion. */
 export const SMOKE_WRAP_UP_WORD = "AVEN_WRAP_UP_OK";
+/** In each agent's line the stand-in writes when it sums up a run. */
+export const SMOKE_SUMMARY_WORD = "AVEN_SMOKE_SUMMARY";
+/** In the reason the stand-in gives when it judges a race. */
+export const SMOKE_WINNER_WORD = "AVEN_SMOKE_WINNER";
 /** In a message added to a discussion: the stand-in agrees and says it heard. */
 export const SMOKE_JUMP_IN_WORD = "AVEN_SMOKE_JUMP_IN";
 /** In the stand-in's reply when a relay carried the user's added message. */
 export const SMOKE_HEARD_WORD = "AVEN_SMOKE_HEARD";
+/** In a request: the stand-in plans two tasks and leads the run. */
+export const SMOKE_ORCHESTRATE_WORD = "AVEN_SMOKE_ORCHESTRATE";
+/** With it, the stand-in lead reads the results and never finishes. */
+export const SMOKE_STALL_WORD = "AVEN_SMOKE_STALL";
+/** With it, the stand-in puts the notes Aven sent ahead of the message in its reply. */
+export const SMOKE_ECHO_NOTE_WORD = "AVEN_SMOKE_ECHO_NOTE";
 /** Workspace → floating sidebar: drive Settings and Back. */
 export const SMOKE_OVERLAY_EVENT = "aven-dev-smoke-overlay";
 /** Floating sidebar → workspace: how that went. */

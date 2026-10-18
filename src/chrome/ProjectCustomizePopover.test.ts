@@ -50,7 +50,7 @@ const mascots = () => [
 ];
 
 describe("mascot picker", () => {
-  it("lays every mascot out in wrapping cells, five to a row", async () => {
+  it("lays every mascot out in wrapping cells, six to a row", async () => {
     await open();
     const group = document.body.querySelector<HTMLElement>(
       '[role="radiogroup"][aria-label="Mascot"]',
@@ -58,12 +58,17 @@ describe("mascot picker", () => {
     // One row of fixed cells overflowed the popover and cut the last mascot
     // in half; equal grid cells wrap instead.
     expect(group.classList.contains("grid")).toBe(true);
-    expect(group.classList.contains("grid-cols-5")).toBe(true);
+    expect(group.classList.contains("grid-cols-6")).toBe(true);
     expect(group.classList.contains("flex")).toBe(false);
-    expect(PROJECT_MASCOTS.length).toBeGreaterThan(5);
+    // All twelve critters, by the names people call them.
+    expect(PROJECT_MASCOTS).toHaveLength(12);
     expect(mascots().map((button) => button.title)).toEqual(
-      PROJECT_MASCOTS.map((mascot) => mascot.name),
+      PROJECT_MASCOTS.map((mascot) => mascot.label),
     );
+    expect(
+      mascots().map((button) => button.getAttribute("aria-label")),
+    ).toEqual(PROJECT_MASCOTS.map((mascot) => mascot.label));
+    expect(mascots()[4].title).toBe("Jellyfish");
     for (const button of mascots()) {
       // A cell takes its column's width rather than a size of its own.
       expect(button.classList.contains("shrink-0")).toBe(false);

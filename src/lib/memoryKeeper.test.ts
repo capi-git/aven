@@ -9,6 +9,8 @@ import {
   KEEPER_TURN_BATCH,
   keeperDecision,
   keeperOfferPending,
+  keeperOfferShownIn,
+  keeperProjects,
   markKeeperChangeSeen,
   MEMORY_KEEPER_KEY,
   offerMemoryKeeper,
@@ -64,6 +66,28 @@ describe("consent, once per project", () => {
     // Not now is final: Aven does not ask again.
     offerMemoryKeeper(PROJECT, NOW + 3);
     expect(keeperOfferPending(getKeeperProject(PROJECT))).toBe(false);
+  });
+
+  it("is asked in the chat whose turn brought it, and Not now outlives pruning", () => {
+    offerMemoryKeeper(PROJECT, NOW, "chat-a");
+    const offered = getKeeperProject(PROJECT);
+    expect(offered.offeredIn).toBe("chat-a");
+    expect(keeperOfferShownIn(offered, "chat-a")).toBe(true);
+    expect(keeperOfferShownIn(offered, "chat-b")).toBe(false);
+    // An older offer, made in no chat, may show in any.
+    offerMemoryKeeper("/work/old", NOW);
+    expect(keeperOfferShownIn(getKeeperProject("/work/old"), "chat-b")).toBe(
+      true,
+    );
+
+    setMemoryKeeper(PROJECT, false, NOW + 2);
+    expect(getKeeperProject(PROJECT)).toMatchObject({ declinedAt: NOW + 2 });
+    expect(getKeeperProject(PROJECT).offeredIn).toBeUndefined();
+    // Two hundred newer projects do not push the answer out of the store.
+    for (let index = 0; index < 205; index += 1)
+      offerMemoryKeeper(`/work/p${index}`, NOW - 10_000 + index);
+    expect(Object.keys(keeperProjects())).toHaveLength(200);
+    expect(getKeeperProject(PROJECT).consent).toBe("off");
   });
 
   it("turning it on asks for a pass and starts counting turns", () => {

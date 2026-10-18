@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendUser } from "./harness/apply";
 import {
+  DISCUSSION_HISTORY_LIMIT,
   capRelay,
   createDiscussion,
   discussionEndNote,
   discussionReply,
+  DISCUSSION_TOPIC_LIMIT,
   DiscussionStore,
-  DISCUSSION_HISTORY_LIMIT,
   DISCUSSIONS_KEY,
   isHistory,
   discussionRound,
@@ -99,7 +100,10 @@ describe("relay rules", () => {
         model: "GPT-5",
         title: "Review",
         cwd: "/work/api",
+        sessionId: B.sessionId,
       },
+      // The chat it goes to, for its own name and mascot in its transcript.
+      self: { sessionId: A.sessionId, harness: A.harness, model: A.model },
     });
   });
 
@@ -117,7 +121,7 @@ describe("relay rules", () => {
     expect(discussion.ended).toEqual({ kind: "completed" });
     expect(discussion.notes).toEqual(["a", "b"]);
     expect(discussionEndNote(discussion)).toBe(
-      "Discussion ended after 2 rounds.",
+      "Discussion finished after 2 rounds.",
     );
   });
 
@@ -188,7 +192,7 @@ describe("relay rules", () => {
     );
     expect(cancelled.status).toBe("ended");
     expect(discussionEndNote(cancelled)).toBe(
-      "Discussion ended: “Caching plan” was stopped.",
+      "Discussion stopped because “Caching plan” was stopped.",
     );
   });
 
@@ -209,7 +213,7 @@ describe("relay rules", () => {
     let later = reply(reply(reply(fresh(), "1"), "2"), "3");
     later = { ...later, status: "ended", ended: { kind: "stopped" } };
     expect(discussionEndNote(later)).toBe(
-      "Discussion stopped after 1 round of 3.",
+      "Discussion stopped after 1 of 3 rounds.",
     );
   });
 });
@@ -350,17 +354,64 @@ describe("planning the broker's work", () => {
     });
   });
 
-  it("pauses when a chat is no longer open here", () => {
+  it("loads a chat that isn't loaded, and pauses only when it can't be", () => {
     expect(
-      planDiscussions([fresh()], "main", [chat("chat-a")], new Set()),
+      planDiscussions(
+        [fresh()],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(),
+      ),
+    ).toEqual([{ kind: "load", id: "d1", sessionId: "chat-b" }]);
+    expect(
+      planDiscussions(
+        [fresh()],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(["chat-b"]),
+      ),
     ).toEqual([
       {
         kind: "pause",
         id: "d1",
-        reason: "“Review” isn't open in this window. Open it to continue.",
+        reason:
+          "“Review” couldn't be opened. Open it from the sidebar to continue.",
         blockedBy: "chat-b",
       },
     ]);
+  });
+
+  it("never loads a chat into a window that took the discussion over", () => {
+    // Resumed from a second window: the chat may still be open in the first.
+    expect(
+      planDiscussions(
+        [{ ...fresh(), adopted: true }],
+        "main",
+        [chat("chat-a")],
+        new Set(),
+        new Set(),
+      ),
+    ).toEqual([
+      {
+        kind: "pause",
+        id: "d1",
+        reason: "“Review” isn't open in this window. Open it here to continue.",
+        blockedBy: "chat-b",
+      },
+    ]);
+    // Taking one over marks it so, and it reads back so.
+    const storage = memoryStorage();
+    const main = new DiscussionStore(storage, "main");
+    main.start({ id: "d2", a: A, b: B, topic: "Cache?", rounds: 1 });
+    main.pause("d2", "Its window reloaded or closed. Resume to continue.");
+    const other = new DiscussionStore(storage, "window-2");
+    other.resume("d2");
+    expect(other.get("d2")).toMatchObject({ owner: "window-2", adopted: true });
+    expect(new DiscussionStore(storage, "window-2").get("d2")?.adopted).toBe(
+      true,
+    );
   });
 
   it("says when the chat it paused for is free again", () => {
@@ -429,7 +480,7 @@ describe("planning the broker's work", () => {
         kind: "note",
         id: "d1",
         side: "b",
-        text: "Discussion ended after 1 round.",
+        text: "Discussion finished after 1 round.",
       },
     ]);
   });
@@ -597,7 +648,7 @@ describe("DiscussionStore", () => {
     expect(new DiscussionStore(storage, "main").get("d1")).toEqual(kept);
   });
 
-  it("keeps only the newest finished discussions", () => {
+  it("keeps finished discussions while their chats exist, however many", () => {
     let clock = 0;
     const store = new DiscussionStore(memoryStorage(), "main", () => clock);
     const finish = (id: string) => {
@@ -613,15 +664,119 @@ describe("DiscussionStore", () => {
       store.notePosted(id, "a");
       store.notePosted(id, "b");
     };
-    for (let index = 0; index < DISCUSSION_HISTORY_LIMIT + 2; index += 1)
-      finish(`d${index}`);
+    // More than the twenty the window once kept.
+    for (let index = 0; index < 22; index += 1) finish(`d${index}`);
     store.start({ id: "live", a: A, b: B, topic: "Still going", rounds: 2 });
     const ids = store.snapshot().map((discussion) => discussion.id);
-    expect(ids).toHaveLength(DISCUSSION_HISTORY_LIMIT + 1);
-    expect(ids).not.toContain("d0");
-    expect(ids).not.toContain("d1");
-    expect(ids).toContain(`d${DISCUSSION_HISTORY_LIMIT + 1}`);
+    expect(ids).toHaveLength(23);
+    expect(ids).toContain("d0");
     expect(ids).toContain("live");
+    // Deleting the chat that started one forgets it; deleting the chat
+    // that answered keeps it, since the starting chat holds the replies.
+    store.forgetChat("d0-a");
+    store.forgetChat("d1-b");
+    const left = store.snapshot().map((discussion) => discussion.id);
+    expect(left).not.toContain("d0");
+    expect(left).toContain("d1");
+    // A running discussion whose partner is deleted stops.
+    store.forgetChat(B.sessionId);
+    expect(store.get("live")?.ended).toEqual({ kind: "stopped" });
+  });
+
+  it("is taken over by a window when the one driving it is gone", () => {
+    const storage = memoryStorage();
+    const gone = new DiscussionStore(storage, "window-1");
+    gone.start({ id: "d1", a: A, b: B, topic: "Cache?", rounds: 2 });
+    gone.pause("d1", "Its window reloaded or closed. Resume to continue.");
+    gone.start({
+      id: "done",
+      a: { ...A, sessionId: "x" },
+      b: { ...B, sessionId: "y" },
+      topic: "Old",
+      rounds: 1,
+    });
+    gone.stop("done");
+    gone.notePosted("done", "a");
+    gone.notePosted("done", "b");
+    const main = new DiscussionStore(storage, "main");
+    // window-1 still open: left to it.
+    main.adoptOrphans(new Set(["main", "window-1"]));
+    expect(main.get("d1")?.owner).toBe("window-1");
+    // Closed, or from an earlier launch: main drives it now, without
+    // loading its chats; finished history stays where it was.
+    main.adoptOrphans(new Set(["main"]));
+    expect(main.get("d1")).toMatchObject({ owner: "main", adopted: true });
+    expect(main.get("done")?.owner).toBe("window-1");
+  });
+
+  it("trims history windows since closed left behind, oldest first", () => {
+    const storage = memoryStorage();
+    // Closed windows each left their own history, more than all together keep.
+    for (const label of [
+      "window-7",
+      "window-8",
+      "window-9",
+      "window-10",
+      "window-11",
+    ]) {
+      const gone = new DiscussionStore(storage, label, () => 0);
+      for (let index = 0; index < DISCUSSION_HISTORY_LIMIT; index += 1) {
+        const id = `${label}-${index}`;
+        gone.start({
+          id,
+          a: { ...A, sessionId: `${id}-a` },
+          b: { ...B, sessionId: `${id}-b` },
+          topic: "Topic",
+          rounds: 1,
+        });
+        gone.stop(id);
+        gone.notePosted(id, "a");
+        gone.notePosted(id, "b");
+      }
+    }
+    const main = new DiscussionStore(storage, "main");
+    main.start({ id: "live", a: A, b: B, topic: "Now", rounds: 1 });
+    const saved = JSON.parse(storage.getItem("aven.discussions") ?? "[]") as {
+      owner: string;
+    }[];
+    const others = saved.filter((entry) => entry.owner !== "main");
+    expect(others).toHaveLength(4 * DISCUSSION_HISTORY_LIMIT);
+    expect(saved.some((entry) => entry.owner === "main")).toBe(true);
+  });
+
+  it("loads the twenty finished discussions an earlier version kept, smaller", () => {
+    const storage = memoryStorage();
+    const old = new DiscussionStore(storage, "main");
+    for (let index = 0; index < 20; index += 1) {
+      const id = `old-${index}`;
+      old.start({
+        id,
+        a: { ...A, sessionId: `${id}-a` },
+        b: { ...B, sessionId: `${id}-b` },
+        topic: "Topic",
+        rounds: 1,
+      });
+      old.stop(id);
+      old.notePosted(id, "a");
+      old.notePosted(id, "b");
+    }
+    // As an earlier version stored them: with a pause reason left behind.
+    const stored = JSON.parse(storage.getItem(DISCUSSIONS_KEY)!) as Record<
+      string,
+      unknown
+    >[];
+    storage.setItem(
+      DISCUSSIONS_KEY,
+      JSON.stringify(stored.map((entry) => ({ ...entry, reason: "Old" }))),
+    );
+    const loaded = new DiscussionStore(storage, "main");
+    expect(loaded.snapshot()).toHaveLength(20);
+    expect(loaded.snapshot().every((entry) => entry.reason === undefined)).toBe(
+      true,
+    );
+    expect(
+      (JSON.parse(storage.getItem(DISCUSSIONS_KEY)!) as unknown[]).length,
+    ).toBe(20);
   });
 
   it("keeps a development preview out of storage", () => {
@@ -678,5 +833,103 @@ describe("sidebar data", () => {
       paused: false,
     });
     expect(talks.get("chat-b")?.speaking).toBe(true);
+  });
+});
+
+describe("keeping discussions", () => {
+  it("puts away finished ones a chat started when it is archived, and refuses a topic too long to keep", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    };
+    const store = new DiscussionStore(storage, "main");
+    const party = (sessionId: string) => ({
+      sessionId,
+      harness: "claude" as const,
+      model: "Opus",
+      title: sessionId,
+      cwd: "/work",
+    });
+    store.start({
+      id: "done",
+      a: party("a"),
+      b: party("b"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.stop("done");
+    store.notePosted("done", "a");
+    store.notePosted("done", "b");
+    store.start({
+      id: "live",
+      a: party("a"),
+      b: party("c"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.forgetArchived("a");
+    expect(store.get("done")).toBeUndefined();
+    // A running one pauses, saying why, rather than bring the chat back.
+    expect(store.get("live")).toMatchObject({
+      status: "paused",
+      reason:
+        "“a” was archived. Unarchive it to continue, or stop the discussion.",
+    });
+    // Archiving the other chat does the same.
+    store.start({
+      id: "other",
+      a: party("d"),
+      b: party("e"),
+      topic: "T",
+      rounds: 1,
+    });
+    store.forgetArchived("e");
+    expect(store.get("other")?.status).toBe("paused");
+    expect(() =>
+      store.start({
+        a: party("x"),
+        b: party("y"),
+        topic: "x".repeat(DISCUSSION_TOPIC_LIMIT + 1),
+        rounds: 1,
+      }),
+    ).toThrow("can be up to 16,000 characters");
+  });
+
+  it("says when it couldn't save, instead of failing quietly", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new DiscussionStore(
+      {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("QuotaExceededError");
+        },
+        removeItem: () => {},
+      },
+      "main",
+    );
+    store.start({
+      a: {
+        sessionId: "a",
+        harness: "claude",
+        model: "M",
+        title: "a",
+        cwd: "/w",
+      },
+      b: {
+        sessionId: "b",
+        harness: "claude",
+        model: "M",
+        title: "b",
+        cwd: "/w",
+      },
+      topic: "T",
+      rounds: 1,
+    });
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining("Couldn't save discussions: QuotaExceededError"),
+    );
+    errors.mockRestore();
   });
 });

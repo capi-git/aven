@@ -63,7 +63,7 @@ async function render(value: DiscussionRelayMeta) {
 it("labels the opening topic with the chat it will discuss with", async () => {
   await render(meta({}));
   expect(container.textContent).toBe(
-    "Discussion withGPT-5 in “Review”· 3 rounds",
+    "Discussion withCodex in “Review”· 3 rounds",
   );
   expect(
     container.querySelector('[data-project-mark="/work/api"]'),
@@ -73,7 +73,7 @@ it("labels the opening topic with the chat it will discuss with", async () => {
 it("marks a relayed reply with its sender, round and shortening", async () => {
   await render(meta({ turn: 3, truncated: true }));
   expect(container.textContent).toBe(
-    "Relayed fromGPT-5 in “Review”· round 2 of 3 · shortened",
+    "FromCodex in “Review”· Round 2 of 3 · shortened",
   );
 });
 
@@ -113,9 +113,7 @@ it("opens its discussion's page while it runs and after it has ended", async () 
   const open = await renderInChat(meta({ turn: 1 }));
   expect(link()?.dataset.discussionRelay).toBe("d1");
   // The same words as a plain card.
-  expect(container.textContent).toBe(
-    "Relayed fromGPT-5 in “Review”· round 1 of 3",
-  );
+  expect(container.textContent).toBe("FromCodex in “Review”· Round 1 of 3");
   await act(async () => link()!.click());
   expect(open).toHaveBeenCalledExactlyOnceWith("d1");
 
@@ -130,7 +128,7 @@ it("opens its discussion's page while it runs and after it has ended", async () 
   expect(open).toHaveBeenCalledTimes(2);
 });
 
-it("is plain text once the discussion has dropped out of history", async () => {
+it("stays openable while among the newest kept, until its chat is deleted", async () => {
   // Each finished discussion is newer than the one before.
   let clock = 1_000;
   vi.spyOn(Date, "now").mockImplementation(() => (clock += 1));
@@ -151,10 +149,25 @@ it("is plain text once the discussion has dropped out of history", async () => {
   await renderInChat(meta({}));
   expect(link()).not.toBeNull();
   await act(async () => {
-    for (let index = 0; index < DISCUSSION_HISTORY_LIMIT; index += 1)
+    // More than the twenty finished discussions once kept.
+    for (let index = 0; index < 25; index += 1) finish(`later-${index}`);
+  });
+  expect(store.get("d1")).toBeDefined();
+  expect(link()).not.toBeNull();
+  // History is bounded: once enough newer ones finished, the oldest goes.
+  await act(async () => {
+    for (let index = 25; index < DISCUSSION_HISTORY_LIMIT; index += 1)
       finish(`later-${index}`);
   });
   expect(store.get("d1")).toBeUndefined();
+  expect(store.get("later-0")).toBeDefined();
+  expect(
+    store.snapshot().filter((discussion) => discussion.status === "ended"),
+  ).toHaveLength(DISCUSSION_HISTORY_LIMIT);
+  // Deleting the chat that started one takes it too.
+  await act(async () => store.forgetChat("later-0-a"));
+  expect(store.get("later-0")).toBeUndefined();
+  // d1's card, its discussion no longer kept, is plain text.
   expect(link()).toBeNull();
   expect(container.querySelector("button")).toBeNull();
   expect(container.querySelector("[data-discussion-relay='d1']")).not.toBe(

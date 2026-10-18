@@ -75,6 +75,9 @@ describe("agent browser session connection", () => {
       "Markdown images labelled Before and After on consecutive lines",
     );
     expect(text).toContain("find pages first");
+    expect(text).toContain(
+      "Navigating a page to a different local server opens a new page instead, so use the id it returns.",
+    );
     expect(text).toContain('"newTab":true');
     expect(text).toContain('"action":"openfile"');
     expect(text).toContain("no slash command is required");

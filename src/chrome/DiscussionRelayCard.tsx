@@ -1,4 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
+import { agentFullName, agentNameIn } from "../lib/agentNames";
 import { discussionStore } from "../lib/discussions";
 import type { DiscussionRelayMeta } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
@@ -6,7 +7,7 @@ import { ExternalLink, MessageMultiple } from "./icons";
 import { ProjectMark } from "./ProjectMark";
 
 /**
- * Opens a discussion's conversation page from a chat's transcript. Provided
+ * Opens a discussion in the team panel from a chat's transcript. Provided
  * by chat panes in a window that drives discussions; absent elsewhere (Inbox
  * chats, read-only worker transcripts), where relay cards stay plain text.
  */
@@ -20,7 +21,7 @@ const idle = () => () => {};
  * Marks a user-side message Aven relayed in a discussion: who said it (or,
  * on the opening topic, who this chat is talking with) and the round. While
  * the discussion is still known here (running, or kept as history once it
- * ended), pressing the card opens its conversation page.
+ * ended), pressing the card shows it in the team panel.
  */
 export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
   const open = useContext(DiscussionOpenContext);
@@ -34,25 +35,28 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
   const opening = meta.turn === 0;
   const round = Math.min(meta.rounds, Math.floor(meta.turn / 2) + 1);
   const { partner } = meta;
+  // "Codex", or "Claude Opus 4.6" when this chat is a Claude too.
+  const name = agentNameIn(
+    partner,
+    meta.self ? [partner, meta.self] : [partner],
+  );
   const content = (
     <>
       <MessageMultiple className="size-3 shrink-0" />
-      <span className="shrink-0">
-        {opening ? "Discussion with" : "Relayed from"}
-      </span>
+      <span className="shrink-0">{opening ? "Discussion with" : "From"}</span>
       <ProjectMark path={partner.cwd} />
       <HarnessIcon harness={partner.harness} className="size-3 shrink-0" />
       <span
         className="min-w-0 truncate text-content/80"
-        title={`${partner.model} in “${partner.title}”`}
+        title={`${agentFullName(partner)} in “${partner.title}”`}
       >
-        {partner.model} in “{partner.title}”
+        {name} in “{partner.title}”
       </span>
       <span className="shrink-0 text-content/40">
         ·{" "}
         {opening
           ? `${meta.rounds} ${meta.rounds === 1 ? "round" : "rounds"}`
-          : `round ${round} of ${meta.rounds}`}
+          : `Round ${round} of ${meta.rounds}`}
         {meta.truncated ? " · shortened" : ""}
       </span>
     </>

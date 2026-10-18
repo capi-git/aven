@@ -1,0 +1,440 @@
+/* One card family for a team in the chat it started from: a header with the
+   members' mascots, a title and a badge, a status line, a row per member,
+   and actions at the bottom. Theme tokens only. */
+.team-card-row {
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}
+.team-card {
+  --team-accent: var(--color-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 680px;
+  padding: 12px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(
+    --aven-glass-card,
+    color-mix(in srgb, var(--color-content) 4%, transparent)
+  );
+  box-shadow: var(--aven-glass-sheen, none);
+  color: var(--color-content);
+}
+.team-card[data-state="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.team-card-faces {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+.team-card-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.team-card-tile .discussion-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+/* The pair's link: three square pixel dots, like the typing dots. */
+.team-card-link {
+  display: inline-flex;
+  justify-content: center;
+  gap: 3px;
+  width: 18px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.team-card-link i {
+  width: 2px;
+  height: 2px;
+  background: currentColor;
+}
+.team-card[data-state="live"] .team-card-link {
+  animation: team-card-link 1.6s steps(3, end) infinite;
+}
+@keyframes team-card-link {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+.team-card-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.team-card-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.team-card-title {
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  white-space: nowrap;
+}
+.team-card-badge[data-tone="live"] {
+  color: color-mix(in srgb, var(--team-accent) 80%, var(--color-content));
+}
+.team-card-badge[data-tone="live"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--team-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-accent) 22%, transparent);
+}
+.team-card-badge[data-tone="needs-you"] {
+  color: var(--aven-needs-you);
+}
+.team-card-badge[data-tone="ready"] {
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-content));
+}
+.team-card-status {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-card-member-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: var(--aven-radius-control, 8px);
+  text-align: left;
+  color: inherit;
+}
+button.team-card-member-open:hover {
+  background: var(--aven-hover);
+}
+/* A member looks the same on the card and in the panel. */
+.team-card-member-face .discussion-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+.team-card-member-face .discussion-avatar-sprite {
+  width: 18px;
+  height: 18px;
+}
+/* The role is named beside the member; its letter on the mascot would say
+   it twice. */
+.team-card-member-face .discussion-avatar-role,
+.team-watch-member-face .discussion-avatar-role {
+  display: none;
+}
+.team-card-member-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.team-card-member-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.team-card-member-name,
+.team-card-member-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-member-name {
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  line-height: 17px;
+}
+.team-card-member-detail {
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.team-card-member-state {
+  flex-shrink: 0;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  white-space: nowrap;
+}
+.team-card-member-state[data-tone="live"] {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+}
+.team-card-member-state[data-tone="needs-you"] {
+  color: var(--aven-needs-you);
+}
+.team-card-member-state[data-tone="done"] {
+  color: var(--color-content);
+}
+.team-card-member-state[data-tone="failed"] {
+  color: color-mix(in srgb, var(--color-red-400) 80%, var(--color-content));
+}
+.team-card-member-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  white-space: nowrap;
+}
+.team-card-lines [data-sign="add"] {
+  color: var(--aven-git-add);
+}
+.team-card-lines [data-sign="del"] {
+  color: var(--aven-git-del);
+}
+
+.team-card-note {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: var(--aven-muted);
+}
+
+.team-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* The one button of the team family: the card, the message-box bar, the
+   floating panel and the board all use it. */
+.team-card-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 7%, transparent)
+  );
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  color: var(--color-content);
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.team-card-button[data-size="compact"] {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.team-card-button:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
+}
+.team-card-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.team-card-button[data-variant="primary"] {
+  border-color: transparent;
+  background: var(--color-content);
+  color: var(--color-background-base);
+}
+.team-card-button[data-variant="primary"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-content) 82%, transparent);
+}
+.team-card-button[data-variant="ghost"] {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.team-card-button[data-variant="ghost"]:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-content);
+}
+/* The way to what needs you reads in its amber. */
+.team-card-button[data-variant="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+  background: var(--aven-needs-you-wash);
+  color: var(--aven-needs-you);
+}
+.team-card-button[data-variant="needs-you"]:hover:not(:disabled) {
+  border-color: var(--aven-needs-you-edge);
+  background: var(--aven-needs-you-wash-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .team-card-button {
+    transition: none;
+  }
+}
+.team-card-toggle {
+  margin-left: auto;
+  border-radius: 4px;
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+}
+.team-card-toggle:hover {
+  color: var(--color-content);
+}
+.team-card-button:focus-visible,
+.team-card-toggle:focus-visible,
+.team-card-member-open:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
+
+@container (max-width: 520px) {
+  .team-card-member-meta {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-card[data-state="live"] .team-card-link {
+    animation: none;
+  }
+}
+
+/* A team's members as one row's mark: small mascots, overlapping. The
+   sprites draw at 12px, one pixel to each of their 12. */
+.team-mini-faces {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+.team-mini-faces .discussion-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: color-mix(
+    in srgb,
+    var(--discussion-voice) 16%,
+    var(--color-background-base)
+  );
+}
+.team-mini-faces .discussion-avatar + .discussion-avatar {
+  margin-left: -5px;
+}
+.team-mini-faces .discussion-avatar-sprite {
+  width: 12px;
+  height: 12px;
+}
+.team-mini-faces .discussion-avatar-role {
+  display: none;
+}
+
+/* A race as one sidebar row: its lanes' mascots and how far it is. */
+.sidebar-team-badge {
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 50%;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.sidebar-team-badge[data-needs-you] {
+  color: var(--aven-needs-you);
+}
+.sidebar-team-badge .team-mini-faces .discussion-avatar {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+}
+.sidebar-team-badge .team-mini-faces .discussion-avatar-sprite {
+  width: 12px;
+  height: 12px;
+}
+.sidebar-team-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The message-box bar: amber while the team waits on you. */
+.team-bar[data-state="paused"],
+.team-bar[data-state="needs-you"],
+.team-bar[data-state="stalled"] {
+  border-color: var(--aven-needs-you-edge);
+}
+
+/* The chat's own run inside its bar (TeamRunDetails): what it is doing
+   takes what room the team's words leave and is cut first; the run's
+   elapsed time sits beside the buttons. */
+.team-bar:has([data-team-bar-doing]) [data-team-bar-text] {
+  flex: 0 1 auto;
+}
+.team-bar-doing::before {
+  content: "· ";
+}
+.team-bar-clock {
+  flex-shrink: 0;
+  padding-inline: 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+/* A narrow chat keeps the bar on one line. What the chat is doing goes
+   first, before it is cut to a bare ellipsis; then the time and the word
+   Agents, before any of the team's own buttons would be squeezed. */
+@container personal-composer-dock (max-width: 640px) {
+  .team-bar-doing {
+    display: none;
+  }
+}
+@container personal-composer-dock (max-width: 520px) {
+  .team-bar-clock,
+  .team-bar-agents-label {
+    display: none;
+  }
+}

@@ -283,12 +283,6 @@ export const SETTINGS = {
     rowDescription:
       "Run your configured Claude Code hooks. Changes apply on the next turn.",
   }),
-  linearApiKey: defineSetting({
-    section: "connections",
-    label: "Linear API key",
-    description: "Connect Linear to access your teams and issues.",
-    keywords: "integration account token disconnect",
-  }),
   version: defineSetting({
     section: "general",
     label: "Version",
@@ -332,6 +326,21 @@ export const SETTINGS = {
     disabledDescription:
       "Light mode always uses a solid window. Glass applies in dark mode.",
     nativeGlass: true,
+  }),
+  reduceMotion: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.reduceMotion",
+      ...storedBoolean(false),
+      changeEvent: "aven:reduce-motion-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Reduce motion",
+    description: "Show changes at once instead of sliding and fading.",
+    keywords:
+      "animation animations transitions motion movement fade slide spring accessibility calm",
+    rowDescription:
+      "Messages, menus, panes and lists change at once instead of sliding or fading. Aven also follows your system’s Reduce motion setting.",
   }),
   chatBackground: defineSetting({
     section: "appearance",

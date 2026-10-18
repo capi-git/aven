@@ -36,6 +36,7 @@ export type PaletteCommandId =
   | "new_chat"
   | "new_terminal"
   | "new_browser_tab"
+  | "open_board"
   | "open_search"
   | "go_to_file"
   | "find_in_project"
@@ -86,6 +87,11 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
     id: "new_browser_tab",
     label: "Open browser tab",
     keywords: "web preview localhost page",
+  },
+  {
+    id: "open_board",
+    label: "Open board",
+    keywords: "work status kanban progress review shipped needs you",
   },
   {
     id: "open_search",
@@ -145,7 +151,7 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
   {
     id: "open_inbox",
     label: "Open Inbox",
-    keywords: "github linear issues pull requests",
+    keywords: "github issues pull requests",
   },
   {
     id: "open_automations",

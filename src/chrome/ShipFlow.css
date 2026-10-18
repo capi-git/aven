@@ -203,6 +203,17 @@ html.theme-light .ship-flow {
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   background: color-mix(in srgb, var(--color-content) 9%, transparent);
 }
+/* "Writing with Claude Haiku 4.5…" shortens before it covers the message;
+   its tooltip names the model in full. */
+.ship-flow-generate {
+  max-width: calc(100% - 10px);
+}
+.ship-flow-generate-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ship-flow-generate:hover:enabled {
   color: var(--color-content);
   background: color-mix(in srgb, var(--color-content) 14%, transparent);

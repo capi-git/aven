@@ -40,6 +40,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../lib/harness", () => ({
   generateCommitMessage: vi.fn(),
   generatePrContent: vi.fn(),
+  textModelLabel: () => "Claude Haiku 4.5",
 }));
 vi.mock("../lib/fileWatch", () => ({
   invalidateWatchedFiles: mocks.invalidate,
@@ -171,6 +172,39 @@ describe("GitChangesPanel commit message generation", () => {
 
     await act(async () => resolveFirst("Old message"));
     expect(container.querySelector("textarea")?.value).toBe("New message");
+  });
+});
+
+describe("GitChangesPanel typing over a message being written", () => {
+  it("names who writes it and hands the message back when you type", async () => {
+    index.files = [changed("change.ts", true, false)];
+    let finish!: (message: string) => void;
+    vi.mocked(generateCommitMessage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render();
+    await act(async () => button("Generate commit message")!.click());
+    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
+    const cancel = button("Cancel commit message generation")!;
+    expect(cancel.title).toContain("Writing with Claude Haiku 4.5");
+    const field = container.querySelector<HTMLTextAreaElement>(
+      '[placeholder^="Message"]',
+    )!;
+    expect(field.disabled).toBe(false);
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(field, "My own words");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => finish("Model words"));
+    expect(field.value).toBe("My own words");
   });
 });
 
@@ -468,19 +502,57 @@ describe("Changes header", () => {
 });
 
 describe("active window Git polling", () => {
-  it("suspends while unfocused and refreshes full status immediately on focus", async () => {
+  it("stops polling while unfocused and refreshes full status immediately on focus", async () => {
     await render();
     await act(async () => window.dispatchEvent(new Event("blur")));
     expect(vi.getTimerCount()).toBe(0);
-    await act(async () => {
-      notifyGitChanged();
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(mocks.diffIndex).toHaveBeenCalledOnce();
     expect(mocks.diffFiles).not.toHaveBeenCalled();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("shows an agent's changes while on screen without focus", async () => {
+    await render();
+    expect(container.textContent).not.toContain("app.js");
+    // Aven on a second screen while another app has focus.
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    mocks.diffIndex.mockResolvedValue({
+      ...index,
+      files: [
+        changed("app.js", false, true),
+        changed("style.css", false, true),
+      ],
+      additions: 2,
+    });
+    // The agent's turn ended.
+    await act(async () => notifyGitChanged(cwd));
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("app.js");
+    expect(container.textContent).toContain("style.css");
+    // One read for the event; polling still waits for focus.
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(mocks.diffFiles).not.toHaveBeenCalled();
+  });
+
+  it("reads the folder again for Ship it while the window is out of focus", async () => {
+    await render();
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    mocks.diffIndex.mockResolvedValue({
+      ...index,
+      files: [changed("app.js", false, true)],
+      additions: 1,
+    });
+    // Pressed in the floating panel's own window: this one stays unfocused.
+    await act(async () => requestShip(cwd, "chat-1"));
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    const flow = container.querySelector('[aria-label="Ship it"]');
+    expect(flow?.textContent).toContain("1 file");
+    expect(flow?.textContent).not.toContain("Nothing to commit");
   });
 
   it("polls changed files cheaply while retaining sync metadata, spaces quiet checks out, then refreshes divergence", async () => {
@@ -607,6 +679,23 @@ describe("Ship it", () => {
     takeShipRequest("/somewhere-else");
     await act(async () => requestShip(cwd, "s1"));
     expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
+  });
+
+  it("starts the flow afresh each time Ship it is pressed again", async () => {
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    await act(async () => requestShip(cwd, "s1"));
+    const first = container.querySelector('[aria-label="Ship it"]');
+    expect(first).not.toBeNull();
+    // A later press, as after a finished ship whose "Shipped" card is still
+    // shown, replaces that card with a new flow.
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      requestShip(cwd, "s1");
+    });
+    const second = container.querySelector('[aria-label="Ship it"]');
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
   });
 });
 

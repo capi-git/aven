@@ -12,6 +12,7 @@ import {
   jumpInPlan,
   pauseDiscussion,
   readDiscussion,
+  relayBlockMeta,
   relayDisplayText,
   relayInterjections,
   relayPrompt,
@@ -105,9 +106,12 @@ describe("jumping in", () => {
     expect(promptA.indexOf("The user adds:")).toBeLessThan(
       promptA.indexOf("(Round 2 of 2."),
     );
-    expect(relayDisplayText(toA)).toBe(
-      "Agreed, with a TTL.\n\nYou added: Keep it under 50 lines.",
-    );
+    // The chat that started it shows the reply alone, and the user's
+    // message as their own, after it.
+    expect(relayDisplayText(toA)).toBe("Agreed, with a TTL.");
+    expect(relayBlockMeta(toA).added).toEqual({
+      after: ["Keep it under 50 lines."],
+    });
 
     // Turn 3 goes to B, which A answered having seen it: the user's message
     // comes first this time.
@@ -119,6 +123,7 @@ describe("jumping in", () => {
     expect(relayDisplayText(toB)).toBe(
       "You added: Keep it under 50 lines.\n\nFine, 30 seconds.",
     );
+    expect(relayBlockMeta(toB).added).toBeUndefined();
     expect(relayInterjections(toB, 4)).toEqual({ carried: [], fresh: [] });
   });
 
@@ -234,9 +239,10 @@ describe("jumping in", () => {
     expect(relayPrompt(continued)).toContain(
       "Topic: Should we cache the lookups?\n\nThe user adds: Start with reads.",
     );
-    expect(relayDisplayText(continued)).toBe(
-      "Should we cache the lookups?\n\nYou added: Start with reads.",
-    );
+    expect(relayDisplayText(continued)).toBe("Should we cache the lookups?");
+    expect(relayBlockMeta(continued).added).toEqual({
+      after: ["Start with reads."],
+    });
   });
 
   it("refuses previews, more than the limit and more rounds than allowed", () => {

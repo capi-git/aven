@@ -54,6 +54,8 @@ type PerfSettings = {
   pageUrl?: string;
   /** Chunks in a long streamed reply (about 12 ms each). */
   streamChunks?: number;
+  /** Lines in a streamed code block (two chunks each). */
+  codeLines?: number;
   /** Seconds of idle to measure. */
   idleSeconds?: number;
   /** Run only scenarios whose names contain one of these (setup always runs). */
@@ -329,6 +331,10 @@ export async function runDevPerf(
       ).length >= count
     );
   };
+  const replies = (id: string) =>
+    sessionIn(id)?.blocks.filter(
+      (block) => block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+    ).length ?? 0;
   const chatIds: string[] = [];
   const openChat = async (measure?: Measure) => {
     const known = new Set(get().sessions.map((session) => session.id));
@@ -525,6 +531,19 @@ export async function runDevPerf(
       () => pause((settings.idleSeconds ?? 10) * 1000),
       { frames: false },
     );
+
+    // Last, so the scenarios above run as they always have. Agents often
+    // write whole files, and each update colors the open code block again.
+    await scenario("agent streaming a long code block", async () => {
+      const id = chatIds[chatIds.length - 1];
+      pressShortcut(String(chatIds.length));
+      await pause(300);
+      await turn(
+        id,
+        `Write it out. AVEN_PERF_CODE ${settings.codeLines ?? 240}`,
+        replies(id) + 1,
+      );
+    });
   } catch (error) {
     steps.push({
       name: "speed test setup",

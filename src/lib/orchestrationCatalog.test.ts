@@ -109,14 +109,14 @@ describe("automatic orchestration catalog", () => {
     ).toBe(false);
     savePickerProviderVisible("claude", false);
     await expect(discoverOrchestrationSettings()).rejects.toThrow(
-      "No worker models are available",
+      "No agents are available to share the work",
     );
   });
 
   it("fails planning clearly when no harness is available", async () => {
     vi.mocked(isHarnessAvailable).mockReturnValue(false);
     await expect(discoverOrchestrationSettings()).rejects.toThrow(
-      "No worker models are available",
+      "No agents are available to share the work",
     );
   });
 });

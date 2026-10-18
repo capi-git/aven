@@ -44,6 +44,27 @@ describe("WorkspaceFooter", () => {
     expect(toggle).toHaveBeenCalledOnce();
   });
 
+  it("keeps a slot for shrunk teams between usage and the terminal", async () => {
+    await render({
+      active: true,
+      cwd: "/project",
+      onToggleTerminal: vi.fn(),
+      usage: createElement("span", { "data-usage": "" }, "usage"),
+      teams: createElement("span", { "data-teams": "" }, "pills"),
+    });
+    const footer = container.querySelector("footer")!;
+    expect([...footer.children].map((child) => child.className)).toEqual([
+      "workspace-footer-usage",
+      "workspace-footer-teams",
+      "workspace-footer-tools",
+    ]);
+    expect(
+      footer.querySelector(".workspace-footer-teams [data-teams]"),
+    ).not.toBeNull();
+    await render({ active: true, cwd: "/project", onToggleTerminal: vi.fn() });
+    expect(container.querySelector(".workspace-footer-teams")).toBeNull();
+  });
+
   it("reflects the open terminal and renders nothing while inactive", async () => {
     await render({
       active: true,

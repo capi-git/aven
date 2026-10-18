@@ -9,6 +9,7 @@ import {
   markSessionActivityRead,
   recordActivity,
   reconcileSessionActivityInputs,
+  retractActivityTurn,
   subscribeActivity,
   type ActivityInput,
 } from "./activity";
@@ -66,6 +67,37 @@ describe("durable Activity", () => {
         ?.readAt,
     ).toBeNull();
   });
+  it("announces a request again when it waits on you a second time", () => {
+    const ask = row("w1:turn:u:approval:b:9", { outcome: "approval" });
+    expect(recordActivity(ask).added).toBe(true);
+    markActivityRead(ask.id);
+    // Back with the worker's lead for a moment: settled here.
+    reconcileSessionActivityInputs("session", []);
+    expect(getActivitySnapshot()[0].resolvedAt).not.toBeNull();
+    // Handed to you again: news again, unread and open.
+    expect(recordActivity({ ...ask, createdAt: 300 }).added).toBe(true);
+    expect(getActivitySnapshot()).toHaveLength(1);
+    expect(getActivitySnapshot()[0]).toMatchObject({
+      resolvedAt: null,
+      readAt: null,
+      createdAt: 300,
+    });
+    // A finished turn is never announced twice.
+    recordActivity(row("t:completed"));
+    expect(recordActivity(row("t:completed")).added).toBe(false);
+  });
+
+  it("takes back a planning turn's entry once a run starts from its plan", () => {
+    recordActivity(row("lead:turn:plan:completed"));
+    recordActivity(row("lead:turn:other:completed"));
+    retractActivityTurn("lead:turn:plan");
+    expect(getActivitySnapshot().map((entry) => entry.id)).toEqual([
+      "lead:turn:other:completed",
+    ]);
+    // Never recorded again.
+    expect(recordActivity(row("lead:turn:plan:completed")).added).toBe(false);
+  });
+
   it("resolves only obsolete inputs from the specified session without marking them read", () => {
     recordActivity(row("old", { outcome: "approval" }));
     recordActivity(row("current", { outcome: "question" }));

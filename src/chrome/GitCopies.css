@@ -111,7 +111,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   background: var(--color-accent);
 }
 .git-copy-dot[data-dot="uncommitted"] {
-  background: var(--color-warning, #d99c45);
+  background: var(--aven-needs-you);
 }
 .git-copy-name {
   min-width: 0;
@@ -191,16 +191,10 @@ html.theme-light .git-copy[data-tone="merged"] {
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .git-copy-added {
-  color: #4ade80;
+  color: var(--aven-git-add);
 }
 .git-copy-deleted {
-  color: #f87171;
-}
-html.theme-light .git-copy-added {
-  color: #1a7f37;
-}
-html.theme-light .git-copy-deleted {
-  color: #c2303a;
+  color: var(--aven-git-del);
 }
 .git-copy-files {
   margin: 2px 8px 0 26px;

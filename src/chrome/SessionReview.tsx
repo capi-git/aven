@@ -1,5 +1,20 @@
-import { ArrowUp, ChevronDown, ChevronRight } from "./icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FileDiff,
+  Undo2,
+  type IconComponent,
+} from "./icons";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+} from "react";
+import { useNarrow } from "../hooks/useNarrow";
 import {
   keepSessionChanges,
   sessionCheckpointStatus,
@@ -12,6 +27,9 @@ import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { basename, notifyGitChanged, subscribeGitChanged } from "../lib/fs";
 import { requestShip } from "../lib/shipRequest";
 import { FileTypeIcon } from "./FileTypeIcon";
+
+/** Below this width the bar's buttons keep their icons and tooltips only. */
+export const REVIEW_BAR_NARROW_PX = 400;
 
 type Props = {
   sessionId: string;
@@ -36,6 +54,7 @@ export function SessionReview({
   const [files, setFiles] = useState<CheckpointFile[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
+  const [barRef, narrow] = useNarrow<HTMLDivElement>(REVIEW_BAR_NARROW_PX);
   const filesRef = useRef(files);
   filesRef.current = files;
 
@@ -114,8 +133,10 @@ export function SessionReview({
   return (
     <div className="px-2" data-session-review-shell>
       <div
+        ref={barRef}
         className="relative z-0 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1"
         data-session-review
+        data-narrow={narrow || undefined}
       >
         <div className="flex min-w-0 items-center gap-2">
           {many ? (
@@ -147,8 +168,10 @@ export function SessionReview({
             />
           )}
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
+            <BarButton
+              narrow={narrow}
+              icon={Undo2}
+              label="Undo All"
               title={
                 canUndoAll
                   ? "Undo all session changes"
@@ -158,37 +181,33 @@ export function SessionReview({
               }
               disabled={disabled || !canUndoAll}
               onClick={() => run("undo")}
-              className="h-6 rounded-md px-1.5  text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
-            >
-              Undo All
-            </button>
-            <button
-              type="button"
+            />
+            <BarButton
+              narrow={narrow}
+              icon={Check}
+              label="Keep All"
               title="Keep all session changes"
               disabled={disabled}
               onClick={() => run("keep")}
-              className="h-6 rounded-md px-1.5  text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
-            >
-              Keep All
-            </button>
-            <button
-              type="button"
+            />
+            <BarButton
+              narrow={narrow}
+              primary
+              icon={FileDiff}
+              label="Review"
               title="Review changes"
               onClick={() => onOpenDiff(undefined, { sessionId, cwd })}
-              className="h-6 rounded-md bg-content/15 px-2 text-ui-caption text-content/80 hover:bg-content/20 hover:text-content"
-            >
-              Review
-            </button>
-            <button
-              type="button"
+            />
+            <BarButton
+              narrow={narrow}
+              primary
+              icon={ArrowUp}
+              iconAlways
+              label="Ship it"
               title="Commit, push and open a pull request from the Changes panel"
               disabled={busy}
               onClick={() => requestShip(cwd, sessionId)}
-              className="flex h-6 items-center gap-1 rounded-md bg-content/15 px-2 text-ui-caption text-content/80 hover:bg-content/20 hover:text-content disabled:opacity-40"
-            >
-              <ArrowUp className="size-3" strokeWidth={2} />
-              Ship it
-            </button>
+            />
           </div>
         </div>
         {many && expanded ? (
@@ -207,6 +226,54 @@ export function SessionReview({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * One of the bar's buttons: its word, or in a narrow chat its icon alone,
+ * named by its tooltip and accessible name, so nothing is ever cut off.
+ */
+function BarButton({
+  narrow,
+  icon: Icon,
+  iconAlways = false,
+  label,
+  title,
+  primary = false,
+  ...button
+}: {
+  narrow: boolean;
+  icon: IconComponent;
+  /** Shown beside the word too, not only when narrow. */
+  iconAlways?: boolean;
+  label: string;
+  title: string;
+  primary?: boolean;
+} & Pick<ButtonHTMLAttributes<HTMLButtonElement>, "disabled" | "onClick">) {
+  return (
+    <button
+      type="button"
+      title={narrow && title !== label ? `${label}: ${title}` : title}
+      aria-label={label}
+      data-review-action={label}
+      className={`flex h-6 shrink-0 items-center justify-center gap-1 rounded-md text-ui-caption disabled:opacity-40 ${
+        narrow ? "w-6" : primary ? "px-2" : "px-1.5"
+      } ${
+        primary
+          ? "bg-content/15 text-content/80 hover:bg-content/20 hover:text-content"
+          : "text-content/55 hover:bg-content/10 hover:text-content"
+      }`}
+      {...button}
+    >
+      {narrow || iconAlways ? (
+        <Icon
+          className="size-3 shrink-0"
+          strokeWidth={iconAlways ? 2 : 1.75}
+          aria-hidden
+        />
+      ) : null}
+      {narrow ? null : <span className="whitespace-nowrap">{label}</span>}
+    </button>
   );
 }
 

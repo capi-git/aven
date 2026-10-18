@@ -1,3 +1,4 @@
+import { isProjectView, type FilePaneTab, type WorkspaceTab } from "./layout";
 import { projectKey } from "./paths";
 import { clearProjectLogo } from "./projectLogos";
 import { clearProjectChatBackground } from "./chatBackground";
@@ -5,7 +6,27 @@ import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
 import { clearProjectMemory } from "./projectMemory";
 import { normalizeProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
+import type { Session } from "./session";
 import { clearTabGroupSettings } from "./tabGroups";
+import { filterTabsForProject } from "./workspaceTabGroups";
+
+/**
+ * Files the project still has open as work, which keep it from being
+ * deleted. Its board and race overviews only show its work: they close with
+ * the project instead.
+ */
+export function openProjectFiles(
+  tabs: readonly WorkspaceTab[],
+  sessions: Session[],
+  project: string,
+): FilePaneTab[] {
+  return filterTabsForProject([...tabs], sessions, project)
+    .flatMap((tab) => [
+      ...tab.editorPanes.flatMap((pane) => pane.files),
+      ...(tab.terminalPanes ?? []).flatMap((pane) => pane.files),
+    ])
+    .filter((file) => !isProjectView(file));
+}
 
 /** Saved chats filed under this project, so the confirm prompt can count them. */
 export async function projectSessionCount(path: string): Promise<number> {

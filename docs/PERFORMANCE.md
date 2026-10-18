@@ -114,3 +114,52 @@ For integrated verification, retain Before/After images for the native glass cha
 Agent stdout is now sent in ordered batches capped at 16 ms, 64 lines or 128 KiB (an individual larger protocol line stays intact). A bounded line channel applies backpressure; its dispatcher blocks without an idle timer. EOF flushes the remaining batch before the existing exit barrier, and a descendant-held pipe still uses the bounded drain and closes delivery before exit. Stderr and exit share the spawning webview's owner-qualified event names. Qualifying the name matters: Tauri 2.11 evaluates even targeted events in every webview subscribed to the same event name. Each frontend expands the batch into the existing provider line callbacks. The deterministic 130-line native fixture produces three stdout events, with original ordering and blank lines retained; this is an event-count check, not an end-to-end throughput benchmark. OpenCode SSE retains its existing separate stream path.
 
 Detached workspace updates now send only changed session records plus their ID order and transfer token, with at most one update in flight per child. Intermediate changes coalesce to the latest state, acknowledged references suppress redundant sends, and stale transfer tokens cannot undo a move or append. Native code retains the complete recovery snapshot while moving unchanged JSON values without cloning their transcripts. The child retains local selection, layouts, theme and drafts. Streaming continues while the parent is inactive because a detached window may be active. These are whole-session deltas, not per-block transcript deltas; updates to one long running session still carry that session's full current transcript.
+
+## Incremental streaming, October 16, 2026
+
+Streamdown repaired the whole reply with `remend` and split all of it into blocks on every streamed update, then rendered the blocks in a second, deferred commit. Measured in the macOS JavaScriptCore shell (the engine of Aven's interface) on the speed test's streamed reply:
+
+- `remend`'s link handler rescans the text from the start for every `[`, so it grew with the square of the reply's length: 181 ms of the 238 ms that repairing the 24 KB reply took over its 166 updates. Its bold handler scans the text twice, copying a three-character substring at every position; it was most of what remained.
+- Shiki's JavaScript regex engine tokenizes about 0.5 ms per line in JavaScriptCore (0.1 ms in V8). Each update to an open fence highlighted the whole block again, so a 150-line block cost about 77 ms per update and the code on screen lagged until the highlight caught up.
+- Every update also re-rendered every visible turn of the chat, up to 20, with each finished turn's copy text joined again.
+
+Changes:
+
+- `src/lib/streamingMarkdown.ts` repairs the text with exact single-pass copies of `remend`'s link and bold handlers (the rest of `remend` runs as before), keeps finished blocks while a reply streams and splits only its last three blocks again, works out each block's direction once, and lets AgentMarkdown render the blocks in the same commit. A final render splits everything. Repairing and splitting through all updates fell from about 310 ms to 30 ms for the 24 KB reply, and from about 14 s to 0.4 s for a 96 KB one (from 41 ms to 1.3 ms per update at its end).
+- The code highlighter keeps each recent block's finished lines, their tokens and the grammar state after them, and tokenizes only added lines from that state.
+- Transcript turns render through a memoized component; a turn whose blocks are unchanged keeps its block array, so finished turns skip rendering.
+
+Equivalence is tested, not assumed: the repaired text against `remend` on random fragments and every prefix of tricky replies; the blocks against a full split for streams, single characters, random input and rewrites; the rendered HTML against Streamdown's own rendering at each step and at the end; highlight tokens against a full Shiki run at every character in eight languages; the transcript against re-rendering every turn. Outside the suite, three seeds of streaming 401 Markdown files from the repository and its dependencies (about 436,000 updates) found no difference in blocks, and about 24,000 sampled prefixes none in repaired text. Streamdown's elements skip re-rendering while their source position is unchanged, so a mounted reply can still differ from a fresh one after earlier text is rewritten; that behaviour is unchanged.
+
+The speed test gained a last scenario, an agent writing a 240-line code block (`AVEN_PERF_CODE` in the stand-in), after the existing ones so their numbers stay comparable. Hidden tabs were already not re-rendered while streaming (`PaneTree` and `AgentTranscript` skip renders while hidden and catch up when shown), and typing re-rendered only the composer (0.2 ms in 1.1 commits per character in the baseline run).
+
+The before run of the speed test on the base commit is `target/perf/perf-20261016-201036.json` (streaming a long reply: 56.5% CPU, 143 React commits per second, Streamdown 641 ms of render time over 8 s; typing while streaming: 13.1 ms of React work per character in 15.3 commits; background tab: 22.6% CPU, 53.8 wakeups per second). The after run, and a before run that includes the new code-block scenario, had not been made when this was written: the Mac was locked.
+
+## Motion, October 17, 2026
+
+Aven's animations exist to make it feel faster: each shows a change that has already happened, so nothing a click or key does waits for one. The rules follow the WebKit costs measured above.
+
+- **Compositor only.** Animate `transform` and `opacity`, never width, height, top, left or margin, and never `backdrop-filter`. The bottom bar's usage fill used to animate its width; it is now a full-width bar slid by `translateX`.
+- **Short and one place.** Every duration and curve is a CSS variable in `src/motion.css` (`--aven-motion-fast` 120 ms, `--aven-motion-base` 150 ms, `--aven-motion-glide` 160 ms, `--aven-ease-out`, `--aven-ease-spring`). `src/lib/motion.ts` mirrors them for the one animation script starts itself (sidebar rows gliding), and a test keeps the two equal and checks that every animation in `motion.css` is timed by a token, touches only `transform` and `opacity`, and never loops.
+- **One switch.** `html[data-motion="reduce"]`, set from the system's Reduce motion or **Settings › Appearance › Reduce motion**, zeroes every duration and the pressed scale, and `playMotion()` starts nothing. Older animations that predate the tokens still follow the system setting through their own media queries.
+- **Nothing left running.** A one-shot is started by a `data-aven-motion` attribute that `playMotion()` removes on `animationend` or `animationcancel`, with backwards fill only, so nothing stays composited. No `will-change`, no timers, nothing loops: an idle window draws no frames for motion.
+- **No broad restyles.** No universal `*` rules, no selectors that name descendants of `[hidden]`, and no animated custom properties; the motion tokens are set on the root and change only with the preference.
+- **No motion on a switch.** Hidden tabs keep their layout and use `visibility` as before, and the pane a tab switch or closing Settings brings into view appears at once. Only a newly opened split pane, added beside the panes already on screen, fades in (120 ms of opacity); one layout effect compares the shown set to find it, and nothing is measured or re-rendered for it.
+- **Read layout only when something moved.** Sidebar rows glide by FLIP: `MotionList` reads row positions in `getSnapshotBeforeUpdate` (before React moves them) and once after the commit, reading every row before starting any animation, and only when the rows' keys or statuses changed. React still owns the DOM order and focus.
+- **Popups stay solid.** Menus, dialogs and the team panel spring in by scaling an opaque frame (0.97 to 1); only their contents fade, from 0.4.
+
+Cut for cost:
+
+- **Closing animations for popups, dialogs and removed sidebar rows.** A popup's owner removes it from React, so animating it out means leaving a copy in the page for the length of the fade. That copy kept a closed menu over a native browser page (the test that the page is restored without delay failed), was found by anything that checks a menu or dialog is gone (75 tests failed), and would be found by the real-app check's queries. Popups and rows close at once instead, which is faster than they open, and the rows below a removed row glide into its place.
+- **Fading the pane a switch brings into view.** It gave the pane a compositing layer of its own for 120 ms. Alternating speed tests against main measured tab switches at about 36 ms p50 input to frame instead of 31 ms, and CPU during switching at 97–100% instead of 81–90%. Switches and closing Settings now show the pane at once.
+- **Transforms on panes.** A native browser page is placed from its pane's on-screen rectangle; scaling or moving a pane while it appears would misplace the page until the animation ended. A new split pane fades only.
+
+Measured on October 17 with `npm run perf:app -- --perf-only "switching chat tabs,between a chat,Settings"`, alternating main (origin/main) and this work, two runs each, after the switch fade was removed (main → this work, per run):
+
+| Scenario | p50 input to frame (ms) | p95 (ms) | CPU (%) |
+|---|---|---|---|
+| Switching chat tabs | 29, 30 → 30, 30 | 31, 31 → 32, 32 | 85.6, 90.9 → 85.5, 90.5 |
+| Settings open and close | 43, 43 → 42, 44 | 48, 47 → 48, 48 | 67.3, 65.6 → 65.2, 65.9 |
+| Chat and browser | 33, 32 → 34, 32 | 34, 33 → 35, 35 | 56.7, 65.5 → 56.3, 65.1 |
+
+Medians and CPU are within run-to-run noise. The work compared also contains everything else on `next`, which renders App more often while switching (101 → 121 React commits over the run); the motion code adds no React state, so that, and the remaining 1–2 ms at p95, were not attributed to motion. Idle wakeups during these active scenarios varied between runs of the same build (10–20 per second on main, 16–32 here) as they did before. Source checks: the frontend suite and type check pass, lint stays at 152 warnings, and tests cover reduced motion starting nothing and zeroing every token, a sent message being in the transcript in the same render, a switch with unchanged rows reading no layout, FLIP keeping React's order and focus, and switches showing panes at once.

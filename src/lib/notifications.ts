@@ -1,7 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "./session";
 import { loadSoundsEnabled } from "./sounds";
-import { recordActivity, type ActivityOutcome } from "./activity";
+import {
+  recordActivity,
+  type ActivityOutcome,
+  type ActivityTeam,
+} from "./activity";
+import {
+  NO_LEAD_DECIDED,
+  requestsAreUsers,
+  type LeadDecided,
+} from "./teamAttention";
 
 const KEY = "monocode.notifications";
 
@@ -110,6 +119,11 @@ export type SessionActivityEvent = {
   outcome: ActivityOutcome;
   summary?: string;
   occurredAt?: number;
+  /**
+   * The team run it belongs to. A member's own turn is recorded already
+   * read, with no banner or sound: its team announces itself instead.
+   */
+  team?: ActivityTeam;
 };
 export type NotificationPreferences = {
   needsInput: boolean;
@@ -176,11 +190,17 @@ export function sessionTurnActivityId(session: Session): string {
     users[0];
   return `${session.id}:turn:${user?.id ?? "initial"}`;
 }
-/** Each request gets its own identity, including consecutive requests in one turn. */
+/**
+ * Each request gets its own identity, including consecutive requests in one
+ * turn. Only requests that are the user's are announced (see
+ * `teamAttention`): an orchestration worker's are its lead's to decide
+ * while its run is open.
+ */
 export function pendingSessionActivityEvents(
   session: Session,
+  leadDecided: LeadDecided,
 ): SessionActivityEvent[] {
-  if (session.inboxAsk) return [];
+  if (session.inboxAsk || !requestsAreUsers(session, leadDecided)) return [];
   const turn = sessionTurnActivityId(session);
   const events: SessionActivityEvent[] = session.blocks.flatMap((block) =>
     block.approval && !block.approval.decided
@@ -294,6 +314,7 @@ export async function publishSessionActivity(
   const turnModel = [...session.blocks]
     .reverse()
     .find((block) => block.role === "user" && block.turnModel)?.turnModel;
+  const member = event.team?.member === true;
   const recorded = recordActivity(
     {
       id: event.id,
@@ -305,12 +326,18 @@ export async function publishSessionActivity(
       harness: turnModel?.harness ?? session.harness,
       model: turnModel?.model ?? session.model,
       createdAt: event.occurredAt,
+      ...(event.team ? { team: event.team } : {}),
     },
-    presentationFocused && sessionVisible,
+    member || (presentationFocused && sessionVisible),
   );
-  if (!recorded.added) return quietResult;
+  if (!recorded.added || member)
+    return { ...quietResult, added: recorded.added };
   const prefs = loadNotificationPreferences();
-  const interrupts = activityInterruptionsEnabled(event.outcome, prefs);
+  // A team waiting on you (paused, stalled, a race no agent finished) is
+  // recorded as a failure but asks for you, so it follows "Needs input".
+  const interrupts = event.team?.need
+    ? !prefs.quiet && prefs.needsInput
+    : activityInterruptionsEnabled(event.outcome, prefs);
   // Only successful completion has a success cue. Failure/stop never reuse it.
   const playSound =
     event.outcome === "completed" &&
@@ -356,7 +383,7 @@ export async function notifySession(
           ? "question"
           : "approval"
         : event;
-  const pending = pendingSessionActivityEvents(session).find(
+  const pending = pendingSessionActivityEvents(session, NO_LEAD_DECIDED).find(
     (item) => item.outcome === outcome,
   );
   const result = await publishSessionActivity(

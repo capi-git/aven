@@ -49,6 +49,25 @@ export function sessionModelName({
   return selected ? `Selected: ${name}` : name;
 }
 
+/**
+ * A saved model id as people read it, wherever a model is named: a name
+ * given for it with the work (an orchestration plan's choices), else the
+ * catalog's (`sessionModelName`), which keeps an unknown id's own identity
+ * rather than borrowing another model's name.
+ */
+export function modelDisplayName(
+  harness: HarnessId,
+  model: string,
+  named: readonly { harness: HarnessId; model: string; name: string }[] = [],
+): string {
+  // Saved before models were kept: no name to give, and no guess.
+  if (!model?.trim()) return "";
+  const given = named.find(
+    (entry) => entry.harness === harness && entry.model === model,
+  )?.name;
+  return given?.trim() || sessionModelName({ harness, model });
+}
+
 export function sessionModelNames(
   models: readonly SessionModelIdentity[] = [],
 ): string[] {

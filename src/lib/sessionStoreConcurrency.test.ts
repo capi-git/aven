@@ -60,6 +60,19 @@ describe("session persistence concurrency", () => {
     expect(mocks.invoke).toHaveBeenCalledTimes(2);
   });
 
+  it("remembers which chats it archived, so a team never loads one back", async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+    const { chatIsArchived, setSessionArchived } = await loadStore();
+    expect(chatIsArchived("s1")).toBe(false);
+    // Archived in an earlier session: its history row says so.
+    expect(chatIsArchived("s1", true)).toBe(true);
+    await setSessionArchived("s1", true);
+    expect(chatIsArchived("s1")).toBe(true);
+    await setSessionArchived("s1", false);
+    // Unarchived here, whatever an older history row says.
+    expect(chatIsArchived("s1", true)).toBe(false);
+  });
+
   it("preserves A-B-A ordering when a changed snapshot intervenes", async () => {
     const write = deferred<unknown>();
     mocks.invoke

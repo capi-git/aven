@@ -513,7 +513,7 @@ describe("While you were away", () => {
       ).click(),
     );
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("s2");
-    await act(async () => button("1 waiting for you", card).click());
+    await act(async () => button("1 needs you", card).click());
     expect(document.activeElement?.textContent).toBe("Needs you");
     await act(async () => button("me/app#7Fix login", card).click());
     expect(links.open).toHaveBeenCalledExactlyOnceWith(
@@ -618,7 +618,7 @@ describe("Your agents", () => {
     const bubble = app.querySelector(".workspace-home-agent-bubble")!;
     expect(bubble.getAttribute("data-kind")).toBe("asking");
     expect(bubble.textContent).toBe("!");
-    expect(app.textContent).toContain("Waiting for you: Run npm test");
+    expect(app.textContent).toContain("Needs you: Run npm test");
     expect(app.querySelector("[data-mark]")?.hasAttribute("data-active")).toBe(
       false,
     );
@@ -817,6 +817,44 @@ describe("Running now", () => {
   });
 });
 
+describe("a team in Running now", () => {
+  it("is one row with its mascots, status and count, opening the chat it began in", async () => {
+    const value = props({
+      running: [
+        {
+          id: "chat",
+          title: "Fix the login loop",
+          cwd: APP,
+          startedAt: Date.now() - 3 * MINUTE,
+          doing: "Racing · 1 of 2 done",
+          team: {
+            id: "race:r1",
+            kind: "race",
+            status: "Racing · 1 of 2 done",
+            members: [
+              { sessionId: "l0", harness: "claude" },
+              { sessionId: "l1", harness: "codex" },
+            ],
+            count: 2,
+            working: 1,
+            needsYou: false,
+          },
+        },
+      ] satisfies HomeRunning[],
+    });
+    await render(value);
+    const running = section("Running now")!;
+    expect(rowTitles(running)).toEqual(["Fix the login loop"]);
+    const row = running.querySelector<HTMLElement>(".workspace-home-row")!;
+    expect(row.textContent).toContain("app · Racing · 1 of 2 done");
+    expect(row.textContent).toContain("2 agents");
+    expect(row.querySelectorAll("[data-discussion-avatar]")).toHaveLength(2);
+    expect(running.querySelector("[data-home-team='race:r1']")).not.toBeNull();
+    await act(async () => row.click());
+    expect(value.onSession).toHaveBeenCalledExactlyOnceWith("chat");
+  });
+});
+
 describe("Activity", () => {
   it("feeds finished turns with their outcome, summary and time", async () => {
     const value = props({
@@ -901,7 +939,7 @@ describe("Usage", () => {
   });
 });
 
-describe("Recent sessions", () => {
+describe("Recent chats", () => {
   it("lists recent sessions not already shown above, with their project and time", async () => {
     const value = props({
       needsYou: [attention({ id: "waiting", kind: "question" })],
@@ -913,7 +951,7 @@ describe("Recent sessions", () => {
       ],
     });
     await render(value);
-    const recent = section("Recent sessions")!;
+    const recent = section("Recent chats")!;
     expect(rowTitles(recent)).toEqual(["Plain task"]);
     const row = recent.querySelector(".workspace-home-row")!;
     expect(row.textContent).toContain("site · Codex");
@@ -930,12 +968,12 @@ describe("Recent sessions", () => {
         ),
       }),
     );
-    expect(rowTitles(section("Recent sessions"))).toHaveLength(5);
+    expect(rowTitles(section("Recent chats"))).toHaveLength(5);
   });
 
   it("explains an empty list", async () => {
     await render(props());
-    expect(section("Recent sessions")?.textContent).toContain(
+    expect(section("Recent chats")?.textContent).toContain(
       "Your sessions will appear here.",
     );
     await render(
@@ -944,7 +982,7 @@ describe("Recent sessions", () => {
         recent: [recentRow({ id: "busy" })],
       }),
     );
-    expect(section("Recent sessions")?.textContent).toContain(
+    expect(section("Recent chats")?.textContent).toContain(
       "Everything recent is listed above.",
     );
   });
@@ -1015,7 +1053,7 @@ describe("a renamed session", () => {
       return createElement(WorkspaceHome, { ...props(), ...data });
     }
     await act(async () => root.render(createElement(Shell)));
-    const recent = section("Recent sessions")!;
+    const recent = section("Recent chats")!;
     expect(rowTitles(recent)).toEqual(["Your mum"]);
     expect(recent.textContent).toContain("1h ago");
     expect(tiles()[0].textContent).toContain("1h ago");
@@ -1058,7 +1096,7 @@ describe("windows and accessibility", () => {
       "Your agents",
       "Needs you",
       "Running now",
-      "Recent sessions",
+      "Recent chats",
       "Activity",
       "Open windows",
     ])

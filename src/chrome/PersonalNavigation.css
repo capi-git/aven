@@ -264,13 +264,16 @@
   .personal-project-row-action:not(.personal-project-disclosure) {
   color: var(--personal-muted);
 }
-.personal-shell .personal-navigation .personal-project-more {
+.personal-shell .personal-navigation .personal-project-more,
+.personal-shell .personal-navigation .personal-project-board {
   width: 22px;
   opacity: 0;
   pointer-events: none;
 }
 .personal-shell .personal-project-row:hover .personal-project-more,
-.personal-shell .personal-project-row:focus-within .personal-project-more {
+.personal-shell .personal-project-row:focus-within .personal-project-more,
+.personal-shell .personal-project-row:hover .personal-project-board,
+.personal-shell .personal-project-row:focus-within .personal-project-board {
   opacity: 1;
   pointer-events: auto;
 }

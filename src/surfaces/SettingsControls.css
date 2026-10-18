@@ -331,9 +331,7 @@
     border-color 120ms ease,
     transform 120ms ease;
 }
-.settings-button:active:not(:disabled) {
-  transform: scale(0.97);
-}
+/* Pressed: the shared rule in motion.css. */
 .settings-select {
   width: auto;
   max-width: min(100%, 240px);
@@ -426,9 +424,6 @@
   .settings-select,
   .settings-button {
     transition: none;
-  }
-  .settings-button:active:not(:disabled) {
-    transform: none;
   }
 }
 

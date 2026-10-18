@@ -4,19 +4,32 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { agentFullName, appName } from "../lib/agentNames";
+import { logError } from "../lib/errors";
 import { HARNESS_TITLE, type Block } from "../lib/session";
-import type {
-  OrchestrationChoice,
-  ProposedTask,
+import { modelDisplayName } from "../lib/sessionLabels";
+import {
+  planProblemText,
+  withoutProposedTask,
+  type OrchestrationChoice,
+  type OrchestrationProposal,
+  type ProposedTask,
 } from "../lib/orchestrationPlan";
-import { orchestrator } from "../lib/orchestration";
+import {
+  orchestrator,
+  type OrchestrationRun,
+  type OrchestrationTask,
+} from "../lib/orchestration";
+import { orchestrationStatusWord } from "../lib/orchestrationSummary";
+import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import { resizeComposer } from "../lib/composerResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
+import { RoleBadge, RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
+import { OrchestrationTeamCard } from "./OrchestrationTeamCard";
 import { Popover } from "./Popover";
 import {
   Check,
@@ -24,7 +37,7 @@ import {
   ChevronRight,
   CircleDashed,
   CircleHelp,
-  MessageMultiple,
+  Share,
   Play,
   Search,
 } from "./icons";
@@ -113,7 +126,10 @@ function AssignmentModel({
       >
         <HarnessIcon harness={task.harness} className="size-3.5 shrink-0" />
         <span className="truncate">
-          {selected?.name ?? task.model} · {HARNESS_TITLE[task.harness]}
+          {agentFullName({
+            harness: task.harness,
+            model: selected?.name ?? task.model,
+          })}
         </span>
         <ChevronDown className="size-3 shrink-0" />
       </button>
@@ -134,7 +150,7 @@ function AssignmentModel({
               ref={search}
               type="text"
               aria-label="Search assignment models"
-              placeholder="Search models or harnesses…"
+              placeholder="Search models or agents…"
               spellCheck={false}
               autoComplete="off"
               value={query}
@@ -175,7 +191,7 @@ function AssignmentModel({
                     {choice.name}
                   </span>
                   <span className="mt-0.5 block truncate text-ui-caption leading-tight text-content/45">
-                    {HARNESS_TITLE[choice.harness]}
+                    {appName(choice.harness)}
                   </span>
                 </span>
                 {choice === selected && (
@@ -207,7 +223,7 @@ function WorkerHelp() {
       <button
         type="button"
         ref={anchor}
-        aria-label="What parallel workers means"
+        aria-label="What agents at once means"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         onMouseEnter={() => setHovered(true)}
@@ -228,13 +244,13 @@ function WorkerHelp() {
           className={`px-2.5 py-2 ${open ? "" : "pointer-events-none"}`}
         >
           <div className="text-ui-label leading-4 text-content">
-            How many workers run at once
+            How many agents work at once
           </div>
           <div className="mt-1 text-ui-caption leading-4 text-content/50">
             The rest of the tasks wait their turn, and a task that depends on
-            another waits for it either way. Every worker edits this same
-            project folder, so a lower number means fewer changes landing in it
-            at the same time.
+            another waits for it either way. Every agent edits this same project
+            folder, so a lower number means fewer changes landing in it at the
+            same time.
           </div>
         </Popover>
       )}
@@ -276,36 +292,78 @@ function InstructionsField({
   );
 }
 
+/** A task's write scope as a person reads it: "." is the whole project. */
+export function scopeLabel(path: string): string {
+  return path === "." || path === "./" ? "Whole project" : path;
+}
+
+/** The card's footer: the run's state, or where the plan stands. */
+export function proposalStatusText(
+  proposal: OrchestrationProposal,
+  run: OrchestrationRun | undefined,
+  superseded: boolean,
+): string {
+  if (run) return orchestrationStatusWord(run.status);
+  if (superseded && ["ready", "invalid", "starting"].includes(proposal.status))
+    return "Replaced by a newer plan";
+  // It ran, and this chat has started another run since: its result is
+  // that run's history, which the chat keeps only for its latest run.
+  if (proposal.status === "approved" && superseded)
+    return "Ran earlier · replaced by a newer run";
+  return {
+    planning: "",
+    ready: "Needs you · Confirm to start",
+    invalid: "",
+    starting: "Starting…",
+    approved: "Started",
+    discarded: "Discarded",
+  }[proposal.status];
+}
+
+const TASK_STATUS: Record<OrchestrationTask["status"], string> = {
+  queued: "Queued",
+  running: "Working",
+  cancelling: "Stopping",
+  completed: "Done",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
 export function OrchestrationPreview({
   block,
   busy,
+  superseded = false,
 }: {
   block: Block;
   busy?: boolean;
+  /** A newer proposal exists in this chat, so this one can no longer start. */
+  superseded?: boolean;
 }) {
   const actions = useContext(OrchestrationActions);
-  const runs = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
-  );
   const proposal = block.orchestration!;
-  const run = runs.find(
-    (entry) =>
-      entry.leadId === proposal.leadId && entry.proposalId === block.id,
-  );
+  // Only this lead's run: other runs' saves do not re-render the card.
+  const leadRun = useOrchestrationRun(proposal.leadId);
+  const run = leadRun?.proposalId === block.id ? leadRun : undefined;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
+  // Once confirmed, the run's card stands for the plan; it can show it.
+  const [planShown, setPlanShown] = useState(false);
   useEffect(() => {
     if (actions)
-      void orchestrator
-        .hydrate(proposal.leadId)
-        .catch((reason: unknown) => setError(String(reason)));
+      void orchestrator.hydrate(proposal.leadId).catch((reason: unknown) => {
+        logError("Run plan", reason);
+        setError("Couldn't load this run's progress.");
+      });
   }, [actions, proposal.leadId]);
   const editable =
-    proposal.status === "ready" && !run && !pending && !busy && !!actions;
+    proposal.status === "ready" &&
+    !superseded &&
+    !run &&
+    !pending &&
+    !busy &&
+    !!actions;
   const planning = proposal.status === "planning";
   const starting = pending || proposal.status === "starting";
   const visible = showAll ? proposal.tasks : proposal.tasks.slice(0, 3);
@@ -315,7 +373,8 @@ export function OrchestrationPreview({
     try {
       await fn();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      logError("Run plan", reason);
+      setError("Couldn't start the run. Try again.");
     } finally {
       setPending(false);
     }
@@ -329,23 +388,39 @@ export function OrchestrationPreview({
       ),
     });
   };
+  const remove = (id: string) => {
+    setError(undefined);
+    try {
+      const tasks = withoutProposedTask(proposal, id);
+      setExpanded((prev) => prev.filter((entry) => entry !== id));
+      actions?.update(proposal.leadId, block.id, { ...proposal, tasks });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  const statusOf = (task: ProposedTask) => {
+    const live = run?.tasks.find((entry) => entry.assignmentId === task.id);
+    return live ? TASK_STATUS[live.status] : undefined;
+  };
   const secondary =
     "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-ui-caption text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35";
   const field =
     "w-full rounded-md border border-content/12 bg-background-base/40 px-2 py-1.5 text-ui-label leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/30";
   const fieldLabel = "mb-1 block text-ui-caption leading-tight text-content/45";
-  return (
+  const planCard = (
     <div
       className="aven-inset-card mb-2 overflow-hidden font-sans"
-      aria-label="Orchestration proposal"
-      data-orchestration-review
+      aria-label="Run plan"
+      {...(run
+        ? { "data-orchestration-plan": "" }
+        : { "data-orchestration-review": "" })}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2.5 px-3 py-2.5">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/8 text-content/55">
           {planning || proposal.status === "starting" ? (
             <CircleDashed className="size-4 animate-spin" />
           ) : (
-            <MessageMultiple className="size-4" strokeWidth={1.75} />
+            <Share className="size-4" strokeWidth={1.75} />
           )}
         </span>
         <div className="min-w-0 flex-1">
@@ -359,7 +434,10 @@ export function OrchestrationPreview({
             />
             <span
               className="truncate"
-              title={HARNESS_TITLE[proposal.author.harness]}
+              title={agentFullName({
+                harness: proposal.author.harness,
+                model: proposal.author.name,
+              })}
             >
               Lead · {proposal.author.name}
             </span>
@@ -372,51 +450,57 @@ export function OrchestrationPreview({
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {!run && proposal.status === "invalid" && (
+          {!run && !superseded && proposal.status === "invalid" && (
             <button
               className={secondary}
               disabled={busy || !actions}
+              title={
+                busy
+                  ? "Wait for this chat to finish its turn, then start."
+                  : "Ask the lead for a new plan"
+              }
               onClick={() => actions?.retry(proposal.leadId, block.id)}
             >
               Try again
             </button>
           )}
-          {!run && ["ready", "starting"].includes(proposal.status) && (
-            <button
-              className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
-              disabled={!editable}
-              onClick={() =>
-                void perform(() => actions!.confirm(proposal.leadId, block.id))
-              }
-            >
-              <Play className="size-3" strokeWidth={1.75} />
-              {starting ? "Starting…" : "Confirm & start"}
-            </button>
-          )}
-          {run && (
+          {editable && actions?.discard && (
             <button
               className={secondary}
-              onClick={() =>
-                actions?.openAgents?.(
-                  run.tasks.map((task) => ({
-                    sessionId: task.sessionId,
-                    leadId: run.leadId,
-                    title: task.title,
-                    harness: task.harness,
-                  })),
-                )
-              }
+              title="Drop this plan without starting it"
+              onClick={() => actions.discard?.(proposal.leadId, block.id)}
             >
-              View agents
+              Discard plan
             </button>
           )}
+          {!run &&
+            !superseded &&
+            ["ready", "starting"].includes(proposal.status) && (
+              <button
+                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+                disabled={!editable}
+                title={
+                  busy && !starting
+                    ? "Wait for this chat to finish its turn, then start."
+                    : undefined
+                }
+                onClick={() =>
+                  void perform(() =>
+                    actions!.confirm(proposal.leadId, block.id),
+                  )
+                }
+              >
+                <Play className="size-3" strokeWidth={1.75} />
+                {starting ? "Starting…" : "Confirm and start"}
+              </button>
+            )}
         </div>
       </div>
       {planning && (
         <p className="px-3 pb-2.5 text-ui-label leading-5 text-content/50">
           {proposal.settings.choices.length
-            ? "Your lead is choosing tasks and worker models. Review the assignments here before starting."
-            : "Checking available harnesses and models…"}
+            ? "The lead is choosing tasks and models for its agents. Check the plan here before starting."
+            : "Checking which agents and models you have…"}
         </p>
       )}
       {!!proposal.tasks.length && (
@@ -448,7 +532,16 @@ export function OrchestrationPreview({
                     <span className="truncate text-ui-label" title={task.title}>
                       {task.title}
                     </span>
+                    {task.role ? <RoleBadge role={task.role} /> : null}
                   </button>
+                  {statusOf(task) && (
+                    <span
+                      className="shrink-0 text-ui-caption text-content/50"
+                      data-orchestration-task-status
+                    >
+                      {statusOf(task)}
+                    </span>
+                  )}
                   <div className="max-w-[60%] min-w-0">
                     {editable ? (
                       <AssignmentModel
@@ -464,7 +557,15 @@ export function OrchestrationPreview({
                     ) : (
                       <span
                         className="flex min-w-0 items-center gap-1.5 text-ui-caption text-content/50"
-                        title={HARNESS_TITLE[task.harness]}
+                        title={agentFullName({
+                          harness: task.harness,
+                          model:
+                            proposal.settings.choices.find(
+                              (choice) =>
+                                choice.harness === task.harness &&
+                                choice.model === task.model,
+                            )?.name ?? task.model,
+                        })}
                       >
                         <HarnessIcon
                           harness={task.harness}
@@ -480,6 +581,23 @@ export function OrchestrationPreview({
                       </span>
                     )}
                   </div>
+                  {!!task.files.length && (
+                    <ul
+                      aria-label={`Files for ${task.title}`}
+                      className="flex w-full min-w-0 flex-wrap gap-1 pb-0.5 pl-5.5"
+                    >
+                      {task.files.map((path) => (
+                        <li
+                          key={path}
+                          title={path}
+                          data-orchestration-scope
+                          className="max-w-full truncate rounded bg-content/6 px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
+                        >
+                          {scopeLabel(path)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 {open && (
                   <div className="space-y-2.5 px-3 pb-3 pl-8 text-ui-caption leading-4 text-content/45">
@@ -505,6 +623,17 @@ export function OrchestrationPreview({
                             onChange={(prompt) => change(task.id, { prompt })}
                           />
                         </label>
+                        <div>
+                          <span className={fieldLabel}>
+                            Role · added to this agent's task, for this run only
+                          </span>
+                          <RolePicker
+                            label={`Role for task ${index + 1}`}
+                            value={task.role}
+                            onChange={(role) => change(task.id, { role })}
+                            className="-ml-1.5"
+                          />
+                        </div>
                       </>
                     ) : (
                       <p className="whitespace-pre-wrap text-ui-label leading-5 text-content/60">
@@ -522,6 +651,21 @@ export function OrchestrationPreview({
                           )
                           .join(", ")}
                       </p>
+                    )}
+                    {editable && (
+                      <button
+                        type="button"
+                        className={`${secondary} -ml-2.5`}
+                        disabled={proposal.tasks.length < 2}
+                        title={
+                          proposal.tasks.length < 2
+                            ? "A plan needs at least one task. Discard the plan instead."
+                            : "Leave this task out. Tasks that waited for it no longer do."
+                        }
+                        onClick={() => remove(task.id)}
+                      >
+                        Remove task
+                      </button>
                     )}
                   </div>
                 )}
@@ -548,8 +692,12 @@ export function OrchestrationPreview({
         </button>
       )}
       {(error || proposal.error) && (
-        <p role="alert" className="px-3 py-2 text-ui-label text-red-400">
-          {error ?? proposal.error}
+        <p
+          role="alert"
+          className="px-3 py-2 text-ui-label text-red-600 dark:text-red-400"
+          title={error ? undefined : proposal.error}
+        >
+          {error ?? planProblemText(proposal.error!)}
         </p>
       )}
       {!planning && (
@@ -557,10 +705,10 @@ export function OrchestrationPreview({
           <div className="flex items-center gap-1.5">
             {editable ? (
               <>
-                <span>Parallel workers</span>
+                <span>Agents at once</span>
                 <div
                   role="radiogroup"
-                  aria-label="Parallel workers"
+                  aria-label="Agents at once"
                   className="flex items-center gap-0.5 rounded-md bg-content/5 p-0.5"
                 >
                   {[1, 2, 3, 4].map((number) => (
@@ -590,21 +738,29 @@ export function OrchestrationPreview({
                 </div>
               </>
             ) : (
-              <span>{proposal.settings.maxWorkers} parallel</span>
+              <span>{proposal.settings.maxWorkers} at once</span>
             )}
             <WorkerHelp />
           </div>
-          <span>
-            {run?.status ??
-              (proposal.status === "approved"
-                ? "Approved"
-                : proposal.status === "ready"
-                  ? "Awaiting confirmation"
-                  : "")}{" "}
-            · Shared project folder
+          <span data-orchestration-status>
+            {proposalStatusText(proposal, run, superseded)}
           </span>
         </div>
       )}
     </div>
+  );
+  if (!run) return planCard;
+  return (
+    <>
+      <OrchestrationTeamCard
+        run={run}
+        modelName={(harness, model) =>
+          modelDisplayName(harness, model, proposal.settings.choices)
+        }
+        planShown={planShown}
+        onTogglePlan={() => setPlanShown((shown) => !shown)}
+      />
+      {planShown ? <div className="mt-2">{planCard}</div> : null}
+    </>
   );
 }

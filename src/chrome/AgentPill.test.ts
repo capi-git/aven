@@ -133,7 +133,7 @@ describe("the agent pill", () => {
     );
   });
 
-  it("holds the model list, its settings and access in one panel, Race only where offered", async () => {
+  it("holds the model list, its settings and access in one panel, and no Race", async () => {
     await render();
     await open();
     expect(
@@ -142,31 +142,14 @@ describe("the agent pill", () => {
     expect(section("Reasoning")).toBeDefined();
     expect(section("Access")).toBeDefined();
     expect(panel()!.querySelector('[aria-label="Fast"]')).not.toBeNull();
+    // Race is a mode of the message box, started from its + menu.
     expect(section("Race")).toBeUndefined();
+    expect(panel()!.querySelector("[data-race-options]")).toBeNull();
     await act(async () => pill().click());
-    props.race = {
-      active: false,
-      available: [
-        { harness: "claude", model: "opus", label: "Claude Code · Opus" },
-        { harness: "codex", model: "gpt-5", label: "Codex · GPT-5" },
-      ],
-      lanes: [
-        { harness: "claude", model: "opus", label: "Claude Code · Opus" },
-        { harness: "codex", model: "gpt-5", label: "Codex · GPT-5" },
-      ],
-      onActiveChange: vi.fn(),
-    };
     props.showAccess = false;
     await render();
     await open();
-    expect(section("Race")).toBeDefined();
     expect(section("Access")).toBeUndefined();
-    await act(async () =>
-      section("Race")!
-        .querySelector<HTMLButtonElement>('[role="switch"]')!
-        .click(),
-    );
-    expect(props.race.onActiveChange).toHaveBeenCalledWith(true);
   });
 
   it("changes effort and access in place and stays open", async () => {

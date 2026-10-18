@@ -216,9 +216,18 @@ describe("sidebar orchestration card", () => {
       );
       expect(card().textContent).not.toContain("Orchestrator");
       expect(card().textContent).toContain("3 agents");
-      expect(card().textContent).toContain("1/3 done");
+      expect(card().textContent).toContain("1 of 3 done");
       expect(card().textContent).toContain("Build settings");
-      expect(card().textContent).toContain("Needs input");
+      // The lead answers its agents' requests: the row says so calmly, and
+      // the lead itself is not flagged as needing you.
+      expect(card().textContent).toContain("Lead deciding");
+      expect(card().textContent).not.toContain("Needs you");
+      expect(card().dataset.needsApproval).toBeUndefined();
+      expect(
+        card().querySelector(
+          '[data-orchestration-agent="worker-b"] [aria-expanded] span:last-child',
+        )?.className,
+      ).not.toContain("amber");
       const archive = card().querySelector<HTMLButtonElement>(
         '[aria-label^="Archive "]',
       )!;
@@ -236,7 +245,7 @@ describe("sidebar orchestration card", () => {
         card()
           .querySelector('[data-orchestration-agent="worker-a"] button')
           ?.getAttribute("title"),
-      ).toContain("codex:worker-a");
+      ).toContain("Codex · worker-a");
       expect(
         card().querySelectorAll("[data-orchestration-agent]"),
       ).toHaveLength(3);
@@ -274,16 +283,17 @@ describe("sidebar orchestration card", () => {
           .querySelector('[data-orchestration-agent="worker-a"] button')
           ?.getAttribute("aria-expanded"),
       ).not.toBe(wasOpen);
-      // A blocked agent stays expanded while it needs the lead's attention.
+      // A request the lead decides does not unfold its row to get attention.
       expect(
         card()
           .querySelector('[data-orchestration-agent="worker-b"] button')
           ?.getAttribute("aria-expanded"),
-      ).toBe("true");
+      ).toBe("false");
+      // The lead asking you itself does flag the card.
       props.approvalSessionIds = new Set([lead.id]);
       act(() => render());
       expect(card().className).toContain("border-dashed");
-      expect(card().textContent).toContain("Needs input");
+      expect(card().textContent).toContain("Needs you");
     },
   );
 
@@ -303,7 +313,8 @@ describe("sidebar orchestration card", () => {
     };
     act(() => render());
     expect(card().textContent).toContain("Saved task");
-    expect(card().textContent).toContain("Saved");
+    // Work read back from an earlier session was cut short, and says so.
+    expect(card().textContent).toContain("Interrupted");
     expect(card().textContent).not.toContain("Working");
     expect(card().querySelector(".motion-safe\\:animate-pulse")).toBeNull();
   });

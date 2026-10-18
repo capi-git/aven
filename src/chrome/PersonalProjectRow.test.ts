@@ -140,9 +140,9 @@ it("spells out what is happening in the tooltip and keeps the marks quiet", asyn
   await render({ running: 2, waiting: 1, unread: 3, files: 12 });
   const open = host.querySelector<HTMLButtonElement>(".personal-project-open")!;
   expect(open.title).toBe(
-    `2 agents running · 1 waiting for you · 3 unread · 12 files changed\n${PATH}`,
+    `2 agents running · 1 needs you · 3 unread · 12 files changed\n${PATH}`,
   );
-  expect(open.getAttribute("aria-label")).toContain("1 waiting for you");
+  expect(open.getAttribute("aria-label")).toContain("1 needs you");
   const status = host.querySelector(".personal-project-status")!;
   expect(status.querySelector(".personal-project-waiting")).not.toBeNull();
   expect(status.querySelector(".personal-project-unread")?.textContent).toBe(
@@ -194,11 +194,11 @@ it("customizes the name, colour and mascot from the actions menu, and resets", a
   );
   await act(async () =>
     dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Mascot ghost"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Jellyfish"]')!
       .click(),
   );
   expect(loadTabGroupColors()[projectKey(PATH)]).toBe(2);
-  expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("ghost");
+  expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("jelly");
 
   await act(async () =>
     [...dialog()!.querySelectorAll<HTMLButtonElement>("button")]

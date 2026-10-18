@@ -8,16 +8,21 @@ import {
 } from "react";
 import {
   BLOCKER_PHRASE,
+  capRelay,
   continuationRelay,
   discussionBlocker,
+  discussionBuildSent,
   discussionParty as partyOf,
   discussionReply,
   discussionStore,
+  discussionWrapUpMeta,
+  finalReplyMeta,
   planDiscussions,
   relayBlockMeta,
   relayDisplayText,
   relayPrompt,
   sidebarDiscussions,
+  speakingSide,
   type Discussion,
   type DiscussionBlocker,
   type DiscussionCandidate,
@@ -33,6 +38,7 @@ import {
   discussionBuildMessage,
   runDiscussionWrapUp,
 } from "../lib/discussionWrapUp";
+import { chatChoiceTitle, chatLastUsedAt } from "../lib/chatChoice";
 import { errorText, logError } from "../lib/errors";
 import { orchestrator } from "../lib/orchestration";
 import { resolveModel } from "../lib/models";
@@ -41,6 +47,7 @@ import {
   sessionDisplayTitle,
   type Attachment,
   type DiscussionRelayMeta,
+  type DiscussionWrapUpMeta,
   type HarnessId,
   type Session,
 } from "../lib/session";
@@ -75,14 +82,46 @@ type Options = {
   ) => void | boolean;
   /** Show a chat in this window, as its sidebar row does. */
   focusChat?: (sessionId: string) => void;
+  /**
+   * Load a chat this window has parked (a new partner has no tab), without
+   * opening a tab for it; null when it can't be. Without it, a chat that
+   * isn't loaded is treated as gone.
+   */
+  loadChat?: (sessionId: string) => Promise<Session | null | undefined>;
   /** Sums up a finished discussion; tests replace the model call. */
   summarise?: (
     discussion: Discussion,
     transcripts: DiscussionTranscripts,
   ) => Promise<DiscussionSummary>;
-  /** Add a short notice to a chat's transcript. */
-  postNote: (sessionId: string, text: string) => void;
-  /** Open a new chat beside `sourceId`; returns its id. */
+  /**
+   * Add a short notice to a chat's transcript. The closing note in the chat
+   * that started a finished discussion carries `wrapUp`, so its transcript
+   * shows where they landed; it is shown only, never sent to the agent.
+   */
+  postNote: (
+    sessionId: string,
+    text: string,
+    wrapUp?: DiscussionWrapUpMeta,
+  ) => void;
+  /**
+   * Where a discussion landed is written: copy it into the starting chat's
+   * closing note for that ending, if the note is there yet.
+   */
+  recordWrapUp?: (sessionId: string, wrapUp: DiscussionWrapUpMeta) => void;
+  /**
+   * Show the other chat's last reply in the chat that started the
+   * discussion, which never receives it as a relay. Shown only: the agent
+   * is not sent it.
+   */
+  postReply?: (
+    sessionId: string,
+    text: string,
+    meta: DiscussionRelayMeta,
+  ) => void;
+  /**
+   * Start a new chat for `sourceId` to discuss with; returns its id. It is
+   * not shown: the discussion plays out in `sourceId`.
+   */
   openPartner: (
     sourceId: string,
     harness: HarnessId,
@@ -90,10 +129,14 @@ type Options = {
     title: string,
   ) => string | undefined;
   /**
-   * Show a discussion's conversation page beside the chat that started it,
-   * focused. Called when one starts, and by the bar's Open discussion.
+   * Show a discussion in this window's team panel: the bar's and the
+   * wrap-up's Open discussion, and relay cards.
    */
   openView?: (id: string) => void;
+  /** A discussion started here: open its panel, or a pill. */
+  onStarted?: (id: string) => void;
+  /** A discussion used up its rounds: where they landed is on its way. */
+  onEnded?: (discussion: Discussion) => void;
   store?: DiscussionStore;
 };
 
@@ -108,6 +151,28 @@ export function discussionParty(session: Session): DiscussionParty {
     title: sessionDisplayTitle(session.title, session.harness),
     cwd: session.cwd,
   };
+}
+
+/**
+ * The chats Discuss lists, most recently used first: only this project's,
+ * unless it has no other chat, then the rest.
+ */
+export function discussionCandidates(
+  candidates: readonly DiscussionCandidate[],
+  project: string,
+): DiscussionCandidate[] {
+  const here = candidates.filter((candidate) =>
+    sameProjectPath(candidate.cwd, project),
+  );
+  const shown = here.length ? here : [...candidates];
+  return shown
+    .map((candidate, index) => ({ candidate, index }))
+    .sort(
+      (left, right) =>
+        (right.candidate.lastUsedAt ?? -1) -
+          (left.candidate.lastUsedAt ?? -1) || left.index - right.index,
+    )
+    .map(({ candidate }) => candidate);
 }
 
 /** Orchestration leads answer to their run, so they sit discussions out. */
@@ -140,9 +205,14 @@ export function useDiscussionBroker({
   sessionsRef,
   onSubmit,
   postNote,
+  recordWrapUp,
+  postReply,
   openPartner,
   openView,
+  onStarted,
+  onEnded,
   focusChat,
+  loadChat,
   summarise = runDiscussionWrapUp,
   store: given,
 }: Options): { host: DiscussionHost; sidebar: SidebarDiscussion[] } {
@@ -156,22 +226,59 @@ export function useDiscussionBroker({
     sessionsRef,
     onSubmit,
     postNote,
+    recordWrapUp,
+    postReply,
     openPartner,
     openView,
+    onStarted,
+    onEnded,
     focusChat,
+    loadChat,
     summarise,
   });
   latest.current = {
     sessionsRef,
     onSubmit,
     postNote,
+    recordWrapUp,
+    postReply,
     openPartner,
     openView,
+    onStarted,
+    onEnded,
     focusChat,
+    loadChat,
     summarise,
   };
   /** Discussion id → the turn this window sent and is waiting on. */
   const inFlight = useRef(new Map<string, number>());
+  /** Chats being loaded for a discussion, and those that could not be. */
+  const loading = useRef(new Set<string>());
+  const unavailable = useRef(new Set<string>());
+  /** "Have … build it" sends under way, by discussion and side. */
+  const building = useRef(new Set<string>());
+  /** Loads a parked chat once; resolves it, or null when it can't be. */
+  const load = useCallback(
+    async (sessionId: string): Promise<Session | null> => {
+      const loaded = latest.current.sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (loaded) return loaded;
+      const loadChat = latest.current.loadChat;
+      if (!loadChat) return null;
+      try {
+        const session = await loadChat(sessionId);
+        if (session) unavailable.current.delete(sessionId);
+        else unavailable.current.add(sessionId);
+        return session ?? null;
+      } catch (error) {
+        logError("Couldn't open a discussion's chat", error);
+        unavailable.current.add(sessionId);
+        return null;
+      }
+    },
+    [],
+  );
 
   const settle = useCallback(
     (
@@ -195,6 +302,24 @@ export function useDiscussionBroker({
         if (reply) text = reply;
       }
       store.settle(id, turn, { status: outcome.status, text });
+      // The other chat's last reply is never relayed to the chat that
+      // started it, which shows the discussion: copy it in, shown only.
+      const ended = store.get(id);
+      if (
+        turn % 2 === 1 &&
+        ended?.status === "ended" &&
+        ended.ended?.kind === "completed" &&
+        ended.settled === turn + 1
+      ) {
+        const capped = capRelay(text);
+        if (capped.text)
+          latest.current.postReply?.(
+            ended.a.sessionId,
+            capped.text,
+            finalReplyMeta(ended, capped.truncated, Date.now()),
+          );
+        latest.current.onEnded?.(ended);
+      }
     },
     [store],
   );
@@ -225,10 +350,25 @@ export function useDiscussionBroker({
       // Marked first, so a re-run while onSubmit works never sends twice.
       store.markDelivered(id);
       let accepted: void | boolean = false;
+      // A continued discussion's last reply is already in the starting
+      // chat, copied in when it ended: show only what the user added.
+      const recipient = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      const shown =
+        speakingSide(discussion) === "a" &&
+        !!recipient?.blocks.some(
+          (block) =>
+            block.discussionReply?.id === id &&
+            block.discussionReply.turn === turn,
+        );
       try {
         accepted = onSubmit(sessionId, relayPrompt(discussion), [], {
-          displayText: relayDisplayText(discussion),
-          discussion: relayBlockMeta(discussion),
+          displayText: shown ? "" : relayDisplayText(discussion),
+          discussion: {
+            ...relayBlockMeta(discussion),
+            ...(shown ? { replyShown: true as const } : {}),
+          },
           // The topic is the user's own, so it keeps skills and @ references.
           verbatim: turn > 0,
           followUpBehavior: "queue",
@@ -272,19 +412,45 @@ export function useDiscussionBroker({
       void latest.current
         .summarise(discussion, { a: blocks("a"), b: blocks("b") })
         .catch((): DiscussionSummary => ({ status: "failed" }))
-        .then((summary) => store.finishSummary(id, discussion.settled, summary))
+        .then((summary) => {
+          store.finishSummary(id, discussion.settled, summary);
+          // Kept for this ending: the starting chat's note keeps the lists.
+          const current = store.get(id);
+          const wrapUp =
+            current?.summary === summary
+              ? discussionWrapUpMeta(current)
+              : undefined;
+          if (current && wrapUp?.agreed)
+            latest.current.recordWrapUp?.(current.a.sessionId, wrapUp);
+        })
         .finally(() => summarising.current.delete(ending));
     },
     [store],
   );
 
+  const rerun = useRef(() => {});
+  /** Each discussion's status as last planned, to see a Resume. */
+  const lastStatus = useRef(new Map<string, Discussion["status"]>());
   const run = useCallback(() => {
-    const { sessionsRef, postNote } = latest.current;
+    const { sessionsRef, postNote, loadChat } = latest.current;
+    // A chat that couldn't be loaded is tried again when its discussion is
+    // resumed: it may have been unarchived, or opened, since.
+    for (const discussion of store.snapshot()) {
+      if (
+        lastStatus.current.get(discussion.id) === "paused" &&
+        discussion.status === "active"
+      ) {
+        unavailable.current.delete(discussion.a.sessionId);
+        unavailable.current.delete(discussion.b.sessionId);
+      }
+      lastStatus.current.set(discussion.id, discussion.status);
+    }
     const actions = planDiscussions(
       store.snapshot(),
       store.owner,
       sessionsRef.current,
       new Set(inFlight.current.keys()),
+      loadChat ? unavailable.current : undefined,
     );
     for (const action of actions) {
       switch (action.kind) {
@@ -298,14 +464,33 @@ export function useDiscussionBroker({
           store.ready(action.id);
           break;
         case "note":
-          if (action.sessionId) postNote(action.sessionId, action.text);
+          if (action.sessionId)
+            postNote(action.sessionId, action.text, action.wrapUp);
           store.notePosted(action.id, action.side);
           break;
-        case "recover":
-          store.settle(action.id, action.turn, {
-            status: "completed",
-            text: action.reply,
-          });
+        case "recover": {
+          // The same ending as a turn heard here: the final reply is
+          // copied into the starting chat, and its end is announced.
+          const discussion = store.get(action.id);
+          if (discussion)
+            settle(
+              action.id,
+              action.turn,
+              partyOf(discussion, action.turn % 2 === 0 ? "a" : "b").sessionId,
+              { status: "completed", text: action.reply },
+            );
+          break;
+        }
+        case "load":
+          if (!loading.current.has(action.sessionId)) {
+            loading.current.add(action.sessionId);
+            // Loading changes the chats, which plans again; so does a chat
+            // that can't be loaded, which then pauses it.
+            void load(action.sessionId).then((session) => {
+              loading.current.delete(action.sessionId);
+              if (!session) rerun.current();
+            });
+          }
           break;
         case "redeliver":
           store.redeliver(action.id);
@@ -315,7 +500,8 @@ export function useDiscussionBroker({
           break;
       }
     }
-  }, [deliver, store, summariseOnce]);
+  }, [deliver, load, settle, store, summariseOnce]);
+  rerun.current = run;
 
   const driving = list.some(
     (discussion) => store.owns(discussion) && !discussion.preview,
@@ -354,32 +540,31 @@ export function useDiscussionBroker({
         const blocked = source
           ? joinBlocker(source, discussions)
           : "unsupported";
-        const candidates = sessions
-          .filter(
-            (session) =>
-              session.id !== sessionId &&
-              !session.inboxAsk &&
-              !session.orchestrationLeadId,
-          )
-          .map((session): DiscussionCandidate => {
-            const party = discussionParty(session);
-            const reason = joinBlocker(session, discussions);
-            return {
-              sessionId: session.id,
-              title: party.title,
-              harness: party.harness,
-              model: party.model,
-              cwd: party.cwd,
-              ...(reason ? { blocked: reason } : {}),
-            };
-          })
-          .reverse()
-          // The same project first, then the rest; newest first in each.
-          .sort(
-            (left, right) =>
-              Number(!sameProjectPath(left.cwd, source?.cwd ?? "")) -
-              Number(!sameProjectPath(right.cwd, source?.cwd ?? "")),
-          );
+        const candidates = discussionCandidates(
+          sessions
+            .filter(
+              (session) =>
+                session.id !== sessionId &&
+                !session.inboxAsk &&
+                !session.orchestrationLeadId,
+            )
+            .map((session): DiscussionCandidate => {
+              const party = discussionParty(session);
+              const reason = joinBlocker(session, discussions);
+              const lastUsedAt = chatLastUsedAt(session);
+              return {
+                sessionId: session.id,
+                title: chatChoiceTitle(session),
+                harness: party.harness,
+                model: party.model,
+                cwd: party.cwd,
+                ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+                ...(reason ? { blocked: reason } : {}),
+              };
+            })
+            .reverse(),
+          source?.cwd ?? "",
+        );
         return {
           ...(blocked
             ? { blocked: `This chat ${BLOCKER_PHRASE[blocked]}.` }
@@ -422,7 +607,10 @@ export function useDiscussionBroker({
         try {
           started = store.start({
             a: discussionParty(source),
-            b: discussionParty(partner),
+            b: {
+              ...discussionParty(partner),
+              ...(request.role ? { role: request.role } : {}),
+            },
             topic,
             rounds: request.rounds,
             preview: Boolean(request.preview && import.meta.env.DEV),
@@ -430,37 +618,54 @@ export function useDiscussionBroker({
         } catch (error) {
           return errorText(error);
         }
-        latest.current.openView?.(started.id);
+        // The card in this chat stands for it; its panel opens, or a pill.
+        latest.current.onStarted?.(started.id);
         return null;
       },
       open(id) {
         if (store.get(id)) latest.current.openView?.(id);
       },
-      build(id, side) {
-        const { sessionsRef, onSubmit, focusChat } = latest.current;
+      show(id, side) {
+        const discussion = store.get(id);
+        if (discussion)
+          latest.current.focusChat?.(partyOf(discussion, side).sessionId);
+      },
+      async build(id, side) {
         const discussion = store.get(id);
         if (!discussion) return "This discussion is no longer available.";
+        // Sent from the card or the panel already: never twice.
+        if (discussionBuildSent(discussion, side)) return null;
         const party = partyOf(discussion, side);
-        const session = sessionsRef.current.find(
-          (entry) => entry.id === party.sessionId,
-        );
-        if (!session) return `“${party.title}” isn't open in this window.`;
-        focusChat?.(session.id);
-        let accepted: void | boolean = false;
+        // A second press while the first loads the chat sends nothing more.
+        const key = `${id}:${side}`;
+        if (building.current.has(key)) return null;
+        building.current.add(key);
         try {
-          accepted = onSubmit(
-            session.id,
-            discussionBuildMessage(discussion, side),
-            [],
-            { followUpBehavior: "queue" },
-          );
-        } catch (error) {
-          logError("Discussion build", error);
+          // A new partner has no tab, and is parked once the discussion ends.
+          const session = await load(party.sessionId);
+          if (!session) return `Couldn't open “${party.title}”.`;
+          const { onSubmit, focusChat } = latest.current;
+          focusChat?.(session.id);
+          let accepted: void | boolean = false;
+          try {
+            accepted = onSubmit(
+              session.id,
+              discussionBuildMessage(discussion, side),
+              [],
+              { followUpBehavior: "queue" },
+            );
+          } catch (error) {
+            logError("Discussion build", error);
+          }
+          if (accepted === false) return `Couldn't send to “${party.title}”.`;
+          store.markBuilt(id, side);
+          return null;
+        } finally {
+          building.current.delete(key);
         }
-        return accepted === false ? `Couldn't send to “${party.title}”.` : null;
       },
     }),
-    [store],
+    [load, store],
   );
 
   const sidebar = useMemo(() => sidebarDiscussions(list), [list]);

@@ -42,6 +42,41 @@ describe("Activity transcript visibility", () => {
         .size,
     ).toBe(0);
   });
+  it("counts the chat that started a discussion as showing its partner", () => {
+    // "c" discusses with "a", which shows its replies; "c" has no tab.
+    const shown = {
+      ...base,
+      tabs: [{ ...newTab("a"), id: "tab1" }],
+      sessionIds: new Set(["a", "c"]),
+      companions: new Map([["a", ["c"]]]),
+    };
+    expect([...visibleActivitySessionIds(shown)].sort()).toEqual(["a", "c"]);
+    expect(
+      visibleActivitySessionIds({ ...shown, visibleSurfaceIds: [] }).size,
+    ).toBe(0);
+    expect(
+      visibleActivitySessionIds({ ...shown, floatingSessionIds: ["c"] }).has(
+        "c",
+      ),
+    ).toBe(false);
+  });
+  it("counts the open discussion panel as showing both of its chats", () => {
+    const shown = {
+      ...base,
+      sessionIds: new Set(["a", "b", "c", "d"]),
+      panel: ["c", "d"],
+    };
+    expect([...visibleActivitySessionIds(shown)].sort()).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+    // Covered by Home, Settings or a full browser, it shows nothing.
+    expect(
+      visibleActivitySessionIds({ ...shown, workspaceVisible: false }).size,
+    ).toBe(0);
+  });
   it("excludes floating placeholders and editor/terminal leaves", () => {
     expect([
       ...visibleActivitySessionIds({

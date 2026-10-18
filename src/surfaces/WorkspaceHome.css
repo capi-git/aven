@@ -85,10 +85,6 @@ html.has-chat-background .workspace-home::before {
     transform 120ms ease;
 }
 
-.workspace-home-actions button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
 .workspace-home .workspace-home-actions button:hover:not(:disabled) {
   background: var(--aven-control-hover, var(--aven-hover));
 }
@@ -522,12 +518,13 @@ html.has-chat-background .workspace-home::before {
   filter: saturate(0.4);
 }
 
-/* Thirteen pixels across at 2px each, above the mascot's right shoulder. It
-   drifts up into place once when the tile appears, then stays still. */
+/* Thirteen pixels across at 2px each, above the mascot's right shoulder and
+   just clear of its box, so it never sits on a critter's ear or eye stalk.
+   It drifts up into place once when the tile appears, then stays still. */
 .workspace-home-agent-zzz {
   position: absolute;
   top: -8px;
-  right: -16px;
+  right: -18px;
   width: 26px;
   height: 24px;
   color: var(--aven-muted);
@@ -564,7 +561,7 @@ html.has-chat-background .workspace-home::before {
   height: 48px;
 }
 
-/* Eight pixels across, so 48px keeps every pixel crisp. */
+/* Twelve pixels across, so 48px keeps every pixel crisp. */
 .workspace-home-agent .workspace-home-agent-mark .project-mark-mascot {
   width: 48px;
   height: 48px;
@@ -820,6 +817,11 @@ html.has-chat-background .workspace-home::before {
   width: 18px;
   height: 18px;
 }
+/* A team's mascots take the width they need, never the row's text. */
+.workspace-home-row-mark:has(.team-mini-faces) {
+  width: auto;
+  min-width: 18px;
+}
 
 .workspace-home-row-text {
   flex: 1;
@@ -870,13 +872,13 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-mark {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-home-mark .project-mark-mascot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-home-mark-none {
@@ -919,8 +921,9 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-row[data-attention="approval"] .workspace-home-kind,
-.workspace-home-row[data-attention="question"] .workspace-home-kind {
-  color: color-mix(in srgb, var(--color-content) 35%, var(--color-amber-400));
+.workspace-home-row[data-attention="question"] .workspace-home-kind,
+.workspace-home-row[data-attention="paused"] .workspace-home-kind {
+  color: var(--aven-needs-you);
 }
 
 .workspace-home-row[data-attention="completed"] .workspace-home-kind {

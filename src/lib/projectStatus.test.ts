@@ -10,6 +10,7 @@ import {
   unreadProjectCounts,
 } from "./projectStatus";
 import type { Session } from "./session";
+import { NO_LEAD_DECIDED } from "./teamAttention";
 
 const APP = "/Users/me/Developer/app";
 const SITE = "/Users/me/Developer/site";
@@ -52,13 +53,16 @@ function activity(overrides: Partial<ActivityEntry>): ActivityEntry {
 
 describe("sessionProjectCounts", () => {
   it("counts running and waiting sessions per project, ignoring idle ones", () => {
-    const counts = sessionProjectCounts([
-      session({ id: "1", busy: true }),
-      session({ id: "2", busy: true, cwd: `${APP}/` }),
-      session({ id: "3" }),
-      session({ id: "4", cwd: SITE, blocks: [approval()] }),
-      session({ id: "5", cwd: SITE, blocks: [approval(true)] }),
-    ]);
+    const counts = sessionProjectCounts(
+      [
+        session({ id: "1", busy: true }),
+        session({ id: "2", busy: true, cwd: `${APP}/` }),
+        session({ id: "3" }),
+        session({ id: "4", cwd: SITE, blocks: [approval()] }),
+        session({ id: "5", cwd: SITE, blocks: [approval(true)] }),
+      ],
+      NO_LEAD_DECIDED,
+    );
     expect(counts).toEqual({
       [APP]: { running: 2, waiting: 0 },
       [SITE]: { running: 0, waiting: 1 },
@@ -67,29 +71,38 @@ describe("sessionProjectCounts", () => {
 
   it("does not count a turn paused on an approval as running", () => {
     expect(
-      sessionProjectCounts([session({ busy: true, blocks: [approval()] })]),
+      sessionProjectCounts(
+        [session({ busy: true, blocks: [approval()] })],
+        NO_LEAD_DECIDED,
+      ),
     ).toEqual({ [APP]: { running: 0, waiting: 1 } });
   });
 
   it("keeps working through an optional question, which still waits for the user", () => {
-    const counts = sessionProjectCounts([
-      session({
-        busy: true,
-        pendingQuestion: { blocking: false } as Session["pendingQuestion"],
-      }),
-    ]);
+    const counts = sessionProjectCounts(
+      [
+        session({
+          busy: true,
+          pendingQuestion: { blocking: false } as Session["pendingQuestion"],
+        }),
+      ],
+      NO_LEAD_DECIDED,
+    );
     expect(counts).toEqual({ [APP]: { running: 1, waiting: 1 } });
   });
 
   it("counts live background agents as running and skips home", () => {
-    const counts = sessionProjectCounts([
-      session({
-        liveAgents: [
-          { id: "w", status: "running" },
-        ] as unknown as Session["liveAgents"],
-      }),
-      session({ id: "home", cwd: "~", busy: true }),
-    ]);
+    const counts = sessionProjectCounts(
+      [
+        session({
+          liveAgents: [
+            { id: "w", status: "running" },
+          ] as unknown as Session["liveAgents"],
+        }),
+        session({ id: "home", cwd: "~", busy: true }),
+      ],
+      NO_LEAD_DECIDED,
+    );
     expect(counts).toEqual({ [APP]: { running: 1, waiting: 0 } });
   });
 });
@@ -160,12 +173,28 @@ describe("describeProjectStatus", () => {
   it("spells out every part in order", () => {
     expect(
       describeProjectStatus({ running: 2, waiting: 1, unread: 3, files: 12 }),
-    ).toBe(
-      "2 agents running · 1 waiting for you · 3 unread · 12 files changed",
-    );
+    ).toBe("2 agents running · 1 needs you · 3 unread · 12 files changed");
     expect(
       describeProjectStatus({ running: 1, waiting: 0, unread: 0, files: 1 }),
     ).toBe("1 agent running · 1 file changed");
     expect(describeProjectStatus(undefined)).toBe("");
+  });
+});
+
+describe("a team waiting on you", () => {
+  it("counts its chat as waiting in its project, once", () => {
+    const counts = sessionProjectCounts(
+      [session({ id: "a", busy: true })],
+      NO_LEAD_DECIDED,
+      [
+        { sessionId: "b", project: SITE },
+        { sessionId: "b", project: SITE },
+        { sessionId: "a", project: APP },
+      ],
+    );
+    expect(counts).toEqual({
+      [APP]: { running: 1, waiting: 1 },
+      [SITE]: { running: 0, waiting: 1 },
+    });
   });
 });

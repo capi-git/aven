@@ -1,0 +1,252 @@
+// @vitest-environment happy-dom
+import { act, createElement, type ComponentProps } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  newEditorPane,
+  newFileTab,
+  type EditorPane,
+  type LayoutNode,
+} from "../lib/layout";
+import { newSession, type Session } from "../lib/session";
+import { paneDropFromPoint } from "../lib/paneDrop";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => []),
+  isTauri: () => false,
+  convertFileSrc: (path: string) => path,
+}));
+vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
+vi.mock("../lib/paneDrop", () => ({
+  paneDropFromPoint: vi.fn(),
+  useExternalPaneDrop: () => null,
+}));
+vi.mock("../lib/composerDrafts", () => ({
+  readComposerDraft: () => undefined,
+  updateComposerDraft: () => {},
+  retainComposerDraft: () => () => {},
+}));
+// The panes' bodies are not under test: only what frames them.
+vi.mock("../chrome/Composer", () => ({ Composer: () => null }));
+vi.mock("../chrome/SessionReview", () => ({ SessionReview: () => null }));
+vi.mock("../chrome/PromptOutline", () => ({ PromptOutline: () => null }));
+vi.mock("../chrome/DevPreviewChip", () => ({ DevPreviewChip: () => null }));
+vi.mock("../chrome/MemoryKeeper", () => ({ MemoryKeeperOffer: () => null }));
+vi.mock("../chrome/DuplicateServerChip", () => ({
+  DuplicateServerChip: () => null,
+}));
+vi.mock("./SessionRunStatus", () => ({ SessionRunStatus: () => null }));
+vi.mock("./EmptySession", () => ({ EmptySession: () => null }));
+vi.mock("./AgentTranscript", () => ({
+  AgentTranscript: () => createElement("p", { "data-transcript": "" }),
+}));
+vi.mock("./FileEditor", () => ({
+  FileEditor: () => createElement("div", { "data-file-editor": "" }),
+}));
+
+import { PaneTree } from "./PaneTree";
+
+const chat = (id: string, title: string): Session => ({
+  ...newSession("claude", "/repo"),
+  id,
+  title,
+  blocks: [{ id: `${id}-hello`, role: "user", text: "Hello" }],
+});
+const split = (a: string, b: string): LayoutNode => ({
+  type: "split",
+  id: "split",
+  dir: "right",
+  sizes: [0.5, 0.5],
+  children: [
+    { type: "leaf", id: a },
+    { type: "leaf", id: b },
+  ],
+});
+
+let root: Root;
+let container: HTMLDivElement;
+let props: ComponentProps<typeof PaneTree>;
+let files: EditorPane;
+
+async function render(patch: Partial<ComponentProps<typeof PaneTree>> = {}) {
+  props = { ...props, ...patch };
+  await act(async () => root.render(createElement(PaneTree, props)));
+}
+const pane = (id: string) =>
+  container.querySelector<HTMLElement>(`[data-pane-id="${id}"]`)!;
+const strips = (id: string) => [...pane(id).querySelectorAll(".aven-tab-bar")];
+const strip = (id: string) =>
+  pane(id).querySelector<HTMLElement>("[data-pane-strip]")!;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("localStorage", {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  files = newEditorPane(newFileTab("/repo/README.md", "/repo"));
+  props = {
+    visible: true,
+    layout: { type: "leaf", id: "a" },
+    sessions: [chat("a", "Alpha"), chat("b", "Beta")],
+    editorPanes: [files],
+    dirtyFileIds: new Set(),
+    fileErrorCounts: new Map(),
+    focusedId: "a",
+    composerFocused: false,
+    recents: [],
+    onFocus: vi.fn(),
+    onClose: vi.fn(),
+    onMovePane: vi.fn(),
+    onRatio: vi.fn(),
+  } as unknown as ComponentProps<typeof PaneTree>;
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe("pane name strips", () => {
+  it("leaves a tab with a single pane without a strip", async () => {
+    await render();
+    expect(container.querySelector("[data-session-drop='a']")).not.toBeNull();
+    expect(container.querySelector("[data-pane-strip]")).toBeNull();
+    expect(container.querySelector(".aven-tab-bar")).toBeNull();
+    expect(container.querySelector("[data-session-pane-controls]")).toBeNull();
+  });
+
+  it("gives each pane of a split exactly one strip, above its content", async () => {
+    await render({ layout: split("a", files.id) });
+    // The chat's strip is its own; the file keeps its tab row and gets no other.
+    expect(strips("a")).toHaveLength(1);
+    expect(strips(files.id)).toHaveLength(1);
+    expect(pane(files.id).querySelector("[data-pane-strip]")).toBeNull();
+    expect(pane(files.id).textContent).toContain("README.md");
+    // Laid out in the pane's column, before the transcript, not over it.
+    const chatStrip = strip("a");
+    expect(chatStrip.parentElement?.dataset.sessionDrop).toBe("a");
+    expect(chatStrip.className).not.toMatch(/\babsolute\b/);
+    expect(
+      chatStrip.nextElementSibling?.querySelector("[data-transcript]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-session-pane-controls]")).toBeNull();
+    expect(container.querySelector(".session-pane-controls")).toBeNull();
+  });
+
+  it("names each chat and marks only the focused pane active, in the shared tab style", async () => {
+    await render({ layout: split("a", "b"), focusedId: "b" });
+    expect(strips("a")).toHaveLength(1);
+    expect(strips("b")).toHaveLength(1);
+    const name = (id: string) =>
+      strip(id).querySelector("[data-pane-strip-label]")?.textContent;
+    expect(name("a")).toBe("Alpha");
+    expect(name("b")).toBe("Beta");
+    expect(strip("a").getAttribute("aria-label")).toBe("Alpha");
+    const tab = (id: string) =>
+      strip(id).querySelector<HTMLElement>(".aven-tab")!;
+    expect(tab("a").dataset.active).toBe("false");
+    expect(tab("b").dataset.active).toBe("true");
+    expect(tab("b").classList).toContain("aven-tab-slot");
+    expect(
+      tab("b").querySelector(".aven-tab-button .aven-tab-label"),
+    ).not.toBeNull();
+    expect(tab("b").querySelector("button.aven-tab-close")).not.toBeNull();
+    // The provider mark sits in the tab, like the chat's own tab.
+    expect(
+      tab("b").querySelector(
+        ".personal-title-tab-identity [data-provider='claude']",
+      ),
+    ).not.toBeNull();
+    // Its tooltip names the chat and its model, as the tab's did.
+    expect(
+      strip("b")
+        .querySelector("[data-pane-strip-label]")
+        ?.getAttribute("title"),
+    ).toBe("Beta · Claude Sonnet 5");
+
+    await render({ focusedId: "a" });
+    expect(tab("a").dataset.active).toBe("true");
+    expect(tab("b").dataset.active).toBe("false");
+
+    // Beside a file pane, the file pane's own row takes the focus state.
+    await render({ layout: split("a", files.id), focusedId: files.id });
+    expect(tab("a").dataset.active).toBe("false");
+    expect(
+      pane(files.id)
+        .querySelector(".aven-tab-bar")
+        ?.getAttribute("data-pane-focused"),
+    ).toBe("true");
+  });
+
+  it("shows a cut-off name, with its model, in a tooltip", async () => {
+    await render({ layout: split("a", "b") });
+    const label = strip("a").querySelector<HTMLElement>(
+      "[data-pane-strip-label]",
+    )!;
+    Object.defineProperty(label, "scrollWidth", { value: 300 });
+    Object.defineProperty(label, "clientWidth", { value: 120 });
+    await act(async () =>
+      label.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })),
+    );
+    expect(label.title).toBe("Alpha · Claude Sonnet 5");
+  });
+
+  it("closes its own pane from the keyboard-reachable close button", async () => {
+    await render({ layout: split("a", "b") });
+    const close = strip("a").querySelector<HTMLButtonElement>(
+      'button[aria-label="Close pane"]',
+    )!;
+    expect(close.title).toMatch(/^Close pane \(.+W\)$/);
+    expect(close.tabIndex).toBe(0);
+    close.focus();
+    expect(document.activeElement).toBe(close);
+    await act(async () => close.click());
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
+    expect(props.onMovePane).not.toHaveBeenCalled();
+  });
+
+  it("moves the pane when its strip is dragged", async () => {
+    await render({ layout: split("a", "b") });
+    const handle = strip("a");
+    // The grip is a pointer affordance only: its tooltip says what it does,
+    // and screen readers skip it.
+    const grip = handle.querySelector(
+      '[title="Drag to move or split this pane"]',
+    );
+    expect(grip).not.toBeNull();
+    expect(grip?.getAttribute("aria-hidden")).toBe("true");
+    handle.setPointerCapture = vi.fn();
+    handle.releasePointerCapture = vi.fn();
+    vi.mocked(paneDropFromPoint).mockImplementation((x) =>
+      x > 100 ? { id: "b", edge: "right" } : null,
+    );
+    const pointer = (target: EventTarget, type: string, x: number) =>
+      act(async () =>
+        target.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            button: 0,
+            pointerId: 1,
+            clientX: x,
+            clientY: 10,
+          }),
+        ),
+      );
+    // Anywhere on the strip, even its name, picks the pane up.
+    await pointer(
+      handle.querySelector("[data-pane-strip-label]")!,
+      "pointerdown",
+      20,
+    );
+    await pointer(window, "pointermove", 180);
+    await pointer(window, "pointerup", 180);
+    expect(props.onMovePane).toHaveBeenCalledExactlyOnceWith("a", "b", "right");
+  });
+});

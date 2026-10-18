@@ -1,6 +1,6 @@
 import { AgentTranscript } from "./AgentTranscript";
 import { HarnessIcon } from "../chrome/HarnessIcon";
-import { findModel } from "../lib/models";
+import { modelDisplayName } from "../lib/sessionLabels";
 import { HARNESS_TITLE, sessionWorkCwd, type Session } from "../lib/session";
 import { useLiveSession } from "../lib/liveSessions";
 
@@ -34,7 +34,7 @@ export function AgentTabView({
       </div>
     );
   }
-  const model = findModel(session.model)?.name ?? session.model;
+  const model = modelDisplayName(session.harness, session.model);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">

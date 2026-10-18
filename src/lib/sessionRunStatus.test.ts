@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry } from "./activity";
 import type { Block, Session } from "./session";
-import { sessionRunStatus } from "./sessionRunStatus";
+import { runStatusNeedsOwnRow, sessionRunStatus } from "./sessionRunStatus";
+import { currentActivity } from "./workspaceHome";
 
 function user(id = "user", startedAt: number | null = 1_000): Block {
   return {
@@ -40,13 +41,18 @@ function activity(patch: Partial<ActivityEntry> = {}): ActivityEntry {
     ...patch,
   };
 }
-function tool(kind: string, status = "in_progress"): Block {
+function tool(
+  kind: string,
+  status = "in_progress",
+  text = "npm test",
+  preview?: NonNullable<Block["tool"]>["preview"],
+): Block {
   return {
     id: "tool",
     role: "tool",
-    text: "private lengthy command and arguments",
+    text,
     streaming: true,
-    tool: { kind, status },
+    tool: { kind, status, ...(preview ? { preview } : {}) },
   };
 }
 const queue = [{ id: "queued", text: "Next request", attachments: [] }];
@@ -122,10 +128,43 @@ describe("sessionRunStatus", () => {
     expect(value).toEqual({
       kind: "working",
       label: "Working",
-      detail: "Agent is working",
+      detail: "npm test",
+      doing: "npm test",
       startedAt: 1_000,
       canStop: true,
     });
+  });
+
+  it("says what the agent is doing in the words Home uses", () => {
+    const editing = session({
+      busy: true,
+      blocks: [
+        user(),
+        tool("edit", "in_progress", "Edit", {
+          kind: "write",
+          path: "/tmp/project/src/app.js",
+        }),
+      ],
+    });
+    const status = sessionRunStatus(editing, []);
+    expect(status?.label).toBe("Working");
+    expect(status?.detail).toBe(currentActivity(editing));
+    expect(status?.detail).toContain("app.js");
+    expect(status?.detail).not.toBe("Agent is working");
+    const testing = session({
+      busy: true,
+      blocks: [user(), tool("execute")],
+    });
+    expect(sessionRunStatus(testing, [])?.detail).toBe(
+      currentActivity(testing),
+    );
+    expect(sessionRunStatus(testing, [])?.detail).toContain("npm test");
+  });
+
+  it("says plain Working… until the turn does something it can name", () => {
+    expect(
+      sessionRunStatus(session({ busy: true, blocks: [user()] }), []),
+    ).toMatchObject({ kind: "working", label: "Working…", detail: "" });
   });
 
   it.each([
@@ -135,10 +174,13 @@ describe("sessionRunStatus", () => {
     ["search", "Searching"],
     ["agent", "Subagents are working"],
     ["other", "Using a tool"],
-  ])("shows a short %s phase without raw command text", (kind, detail) => {
+  ])("names an unnamed %s tool by its kind", (kind, detail) => {
     expect(
       sessionRunStatus(
-        session({ busy: true, blocks: [user(), tool(kind)] }),
+        session({
+          busy: true,
+          blocks: [user(), tool(kind, "in_progress", "")],
+        }),
         [],
       )?.detail,
     ).toBe(detail);
@@ -146,7 +188,7 @@ describe("sessionRunStatus", () => {
 
   it.each([
     ["reasoning", "Thinking"],
-    ["assistant", "Writing response"],
+    ["assistant", "Writing a reply"],
     ["plan", "Planning"],
   ] as const)("shows active %s output", (role, detail) => {
     expect(
@@ -171,8 +213,8 @@ describe("sessionRunStatus", () => {
           blocks: [user("old", 100), tool("execute"), user("new", 1_000)],
         }),
         [],
-      )?.detail,
-    ).toBe("Agent is working");
+      ),
+    ).toMatchObject({ label: "Working…", detail: "" });
   });
 
   it("keeps the original run clock and active tools across untimed steering", () => {
@@ -187,7 +229,7 @@ describe("sessionRunStatus", () => {
     ).toMatchObject({
       kind: "working",
       startedAt: 1_000,
-      detail: "Running command",
+      detail: "npm test",
     });
   });
 
@@ -198,7 +240,7 @@ describe("sessionRunStatus", () => {
     );
     expect(value).toMatchObject({
       kind: "waiting",
-      label: "Waiting for you",
+      label: "Needs you",
       detail: "Answer the question below",
       canStop: true,
     });
@@ -217,7 +259,7 @@ describe("sessionRunStatus", () => {
     ).toMatchObject({
       kind: "working",
       label: "Working",
-      detail: "Running command",
+      detail: "npm test",
       canStop: true,
     });
   });
@@ -488,5 +530,44 @@ describe("sessionRunStatus", () => {
     expect(value).toMatchObject({ kind: "working", canStop: true });
     expect(value?.durationMs).toBeUndefined();
     expect(value?.startedAt).toBeUndefined();
+  });
+
+  it("names what a busy turn does apart from how many agents are active", () => {
+    const value = sessionRunStatus(
+      session({
+        busy: true,
+        blocks: [user(), tool("execute")],
+        liveAgents: [
+          { id: "one", title: "Asset inventory", status: "running" },
+          { id: "two", title: "Review", status: "running" },
+        ],
+      }),
+      [],
+    );
+    expect(value).toMatchObject({
+      kind: "working",
+      detail: "2 agents active · npm test",
+      doing: "npm test",
+    });
+  });
+
+  it("keeps a row of its own only for what asks for more than the team bar shows", () => {
+    const status = (patch: Partial<Session>, entries = [activity()]) =>
+      sessionRunStatus(session(patch), entries)!;
+    expect(runStatusNeedsOwnRow(status({ busy: true }))).toBe(false);
+    expect(runStatusNeedsOwnRow(status({}))).toBe(false);
+    expect(
+      runStatusNeedsOwnRow(
+        status({}, [
+          activity({
+            outcome: "failed",
+            id: "session:turn:runtime-uuid:failed",
+          }),
+        ]),
+      ),
+    ).toBe(true);
+    expect(runStatusNeedsOwnRow(status({ queuedMessages: queue }, []))).toBe(
+      true,
+    );
   });
 });

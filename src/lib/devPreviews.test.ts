@@ -13,6 +13,7 @@ import {
   pendingAutoOpen,
   previewBelongsTo,
   previewTabMatch,
+  previewTabsOnServer,
   publishDevPreviewTabs,
   reportDevServer,
   resetDevPreviews,
@@ -270,6 +271,16 @@ describe("previewTabMatch", () => {
     expect(previewTabMatch(both, "http://localhost:5173/", "home")?.id).toBe(
       "home",
     );
+  });
+
+  it("lists every tab on the server a page is on", () => {
+    const both = [...tabs, { id: "home", url: "http://localhost:5173/" }];
+    expect(
+      previewTabsOnServer(both, "http://localhost:5173/test.html").map(
+        (tab) => tab.id,
+      ),
+    ).toEqual(["about", "home"]);
+    expect(previewTabsOnServer(both, "not a url")).toEqual([]);
   });
 });
 
