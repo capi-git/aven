@@ -45,7 +45,7 @@ import {
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import { RaceReviewerPicker } from "./RaceReviewerPicker";
-import { listText, plural } from "../lib/words";
+import { listText, plural, possessive } from "../lib/words";
 
 /** How a race explains itself while its agents work. */
 export const RACE_EXPLAINER =
@@ -382,28 +382,20 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
               {continueWith ? (
                 <TeamCardButton
                   data-race-continue
-                  disabled={!!race.continuedAt || continuing}
-                  title={
-                    race.continuedAt
-                      ? `Recap sent to ${continueWith}`
-                      : "Send this agent a short recap so it can carry on in your project"
-                  }
+                  disabled={continuing}
+                  title={`Open ${possessive(continueWith)} chat. It learns which version you kept with your next message.`}
                   onClick={() => {
                     setContinuing(true);
                     setContinueError(null);
-                    void continueRace(race.id, teamActions?.send).then(
-                      (error) => {
-                        setContinuing(false);
-                        setContinueError(error);
-                      },
-                    );
+                    void continueRace(race.id, teamActions, (id) =>
+                      live?.session(id),
+                    ).then((error) => {
+                      setContinuing(false);
+                      setContinueError(error);
+                    });
                   }}
                 >
-                  {race.continuedAt
-                    ? `Continued with ${continueWith}`
-                    : continuing
-                      ? "Sending recap…"
-                      : `Continue with ${continueWith}`}
+                  {`Continue with ${continueWith}`}
                 </TeamCardButton>
               ) : null}
             </>

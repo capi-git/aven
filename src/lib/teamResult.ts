@@ -36,6 +36,8 @@ import {
 } from "./race";
 import { getSession } from "./sessionStore";
 import { CONTINUE_PROMPT } from "./inFlight";
+import { raceLaneName } from "./raceLanes";
+import { queueTurnNote } from "./turnNotes";
 import { finalReply } from "./replyText";
 import type { Block, HarnessId, Session } from "./session";
 import type { TeamWorkspace } from "./teamWorkspace";
@@ -534,12 +536,14 @@ function files(count: number): string {
 }
 
 /**
- * What Continue with <agent> sends to a kept lane's chat. Its provider
- * session was reset when the race ended (the copy it worked in is gone),
- * so it gets a short recap of its own work to carry on from: for a mix of
- * files, which of the kept files are its own and which came from others.
+ * What Continue with <agent> leaves for a kept lane's chat, hidden ahead of
+ * the next message you send it (see `turnNotes`). Its provider session was
+ * reset when the race ended (the copy it worked in is gone), so it gets a
+ * short recap of its own work to carry on from: for a mix of files, which
+ * of the kept files are its own and which came from others. It asks the
+ * agent for nothing; your message says what comes next.
  */
-export function raceContinueMessage(
+export function raceRecapNote(
   race: Pick<RaceRecord, "prompt" | "project" | "outcome" | "picks">,
   lane: number,
   reply: string,
@@ -569,47 +573,60 @@ export function raceContinueMessage(
     const count = outcome?.files ?? 0;
     kept = `Your version was kept: ${files(count)} ${count === 1 ? "is" : "are"} now in the project at ${race.project}`;
   }
-  return `You worked on this task in a separate copy of the project, while other agents tried it too:\n\n${task}\n\n${kept}, and you work there directly from now on. Your earlier conversation was not carried over.${last}\n\nPlease continue from here: check the kept changes in the project and finish anything that is still open.`;
+  return `You worked on this task in a separate copy of the project, while other agents tried it too:\n\n${task}\n\n${kept}, and you work there directly from now on. Your earlier conversation was not carried over.${last}`;
+}
+
+/** The words the kept agent's message box shows while its recap waits. */
+export function raceRecapHint(
+  race: Pick<RaceRecord, "outcome">,
+  name: string,
+): string {
+  return race.outcome?.kind === "mix"
+    ? `${name} knows which files you kept`
+    : `${name} knows which version you kept`;
 }
 
 const continuing = new Set<string>();
 
 /**
- * Continue with <agent>: send the kept lane's chat its recap, once. A
- * second press while it sends, or after it was sent, does nothing.
- * Resolves with what went wrong, or null.
+ * Continue with <agent>: open the kept lane's chat with the cursor in its
+ * message box, and leave it the recap for your next message there, once.
+ * Nothing is sent until you write. `session` reads a loaded chat's last
+ * reply; a closed one's saved transcript is read. Resolves with what went
+ * wrong, or null.
  */
 export async function continueRace(
   raceId: string,
-  send: TeamWorkspace["send"] | undefined,
+  workspace: Pick<TeamWorkspace, "openChat"> | null | undefined,
+  session: LaneChat = () => undefined,
+  load: (id: string) => Promise<readonly Block[]> = savedBlocks,
 ): Promise<string | null> {
   const race = getRace(raceId);
   const lane = race ? continueLane(race) : undefined;
   const record = lane !== undefined ? race?.lanes[lane] : undefined;
-  const failed =
-    "Couldn't send the recap. Open the agent's chat and try again.";
   if (!race || lane === undefined || !record)
     return "Nothing was kept to continue from.";
-  if (race.continuedAt || continuing.has(raceId)) return null;
-  if (!send) return failed;
-  continuing.add(raceId);
-  try {
-    const sent = await send(record.sessionId, (blocks) => ({
-      text: raceContinueMessage(race, lane, finalReply(blocks)),
-      shown:
-        race.outcome?.kind === "mix"
-          ? "Carry on from the race: part of your version was kept."
-          : "Carry on from the race: your version was kept.",
-    }));
-    if (!sent) return failed;
-    updateRace(raceId, { continuedAt: Date.now() });
-    return null;
-  } catch (error) {
-    logError("Continue the race", error);
-    return failed;
-  } finally {
-    continuing.delete(raceId);
+  if (!workspace) return "Couldn't open the agent's chat. Try again.";
+  if (!race.continuedAt && !continuing.has(raceId)) {
+    continuing.add(raceId);
+    try {
+      const reply = finalReply(
+        session(record.sessionId)?.blocks ?? (await load(record.sessionId)),
+      );
+      queueTurnNote(record.sessionId, {
+        kind: "race",
+        text: raceRecapNote(race, lane, reply),
+        hint: raceRecapHint(race, raceLaneName(race, lane)),
+      });
+      updateRace(raceId, { continuedAt: Date.now() });
+    } catch (error) {
+      logError("Continue the race", error);
+    } finally {
+      continuing.delete(raceId);
+    }
   }
+  workspace.openChat(record.sessionId);
+  return null;
 }
 
 // --- Orchestration: what each agent did -----------------------------------------

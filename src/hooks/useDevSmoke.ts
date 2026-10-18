@@ -4,6 +4,7 @@ import {
   finishDevSmoke,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
+  SMOKE_ECHO_NOTE_WORD,
   SMOKE_HEARD_WORD,
   SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
@@ -45,6 +46,7 @@ import type { RaceLaneChoice } from "../lib/raceAgents";
 import { raceLaneName } from "../lib/raceLanes";
 import { raceAgentNames } from "../lib/raceNames";
 import { teamWorkspace } from "../lib/teamWorkspace";
+import { possessive } from "../lib/words";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
 import { isInFlightSession } from "../lib/inFlight";
@@ -1352,29 +1354,59 @@ export async function checkRaceResult(
     throw new Error(`The result reads "${headline}"`);
   if (!status().startsWith("Why: ") || !status().includes(SMOKE_WINNER_WORD))
     throw new Error(`The result says "${status()}", not why`);
-  // Continue with the kept agent: its chat gets a recap of its own work.
+  // Continue with the kept agent: its chat opens with the cursor in its
+  // message box and nothing is sent; your next message there carries the
+  // recap of its own work, hidden from the transcript.
+  const keptName = raceLaneName(record, 1);
   const asked = sentTexts(get().sessions, grok.sessionId).length;
-  const next = buttonNamed(result, `Continue with ${raceLaneName(record, 1)}`);
+  const next = buttonNamed(result, `Continue with ${keptName}`);
   if (!next) throw new Error("The result has no Continue with");
   next.click();
-  await waitFor(
+  const field = await waitFor(
     () => {
-      const texts = sentTexts(get().sessions, grok.sessionId);
-      return (
-        texts.length > asked &&
-        texts.at(-1) === "Carry on from the race: your version was kept."
+      const box = firstOnScreen<HTMLTextAreaElement>(
+        `[data-session-drop="${grok.sessionId}"] [data-composer] textarea`,
       );
+      return box && document.activeElement === box ? box : null;
     },
-    20_000,
-    "Continue with to send the kept agent a recap",
+    10_000,
+    `Continue with to put the cursor in ${possessive(keptName)} message box`,
   );
+  if (!field.placeholder.startsWith(`${keptName} knows which version you kept`))
+    throw new Error(
+      `${possessive(keptName)} message box reads "${field.placeholder}"`,
+    );
+  const grokChat = () =>
+    get().sessions.find((session) => session.id === grok.sessionId);
+  if (
+    sentTexts(get().sessions, grok.sessionId).length !== asked ||
+    grokChat()?.busy
+  )
+    throw new Error(`Continue with sent ${keptName} a message on its own`);
+  const repliesBefore = replyCount(get().sessions, grok.sessionId);
+  get().submit(grok.sessionId, `What was kept? ${SMOKE_ECHO_NOTE_WORD}`);
   await waitFor(
     () =>
-      !get().sessions.find((session) => session.id === grok.sessionId)?.busy,
+      !grokChat()?.busy &&
+      replyCount(get().sessions, grok.sessionId) > repliesBefore,
     20_000,
-    "the kept agent's turn to end",
+    `${possessive(keptName)} reply`,
   );
-  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
+  const recap =
+    [...(grokChat()?.blocks ?? [])]
+      .reverse()
+      .find(
+        (block) =>
+          block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+      )?.text ?? "";
+  if (!recap.includes("Your version was kept"))
+    throw new Error(`${keptName}'s next message was told: ${recap}`);
+  if (
+    sentTexts(get().sessions, grok.sessionId).at(-1) !==
+    `What was kept? ${SMOKE_ECHO_NOTE_WORD}`
+  )
+    throw new Error("The recap showed in the kept agent's transcript");
+  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with opened its chat with the cursor in the message box, and the next message carried the recap`;
 }
 
 /** The file the board check's turn edits, in the check's project. */

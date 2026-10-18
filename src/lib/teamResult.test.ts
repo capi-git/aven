@@ -7,6 +7,7 @@ import type { WrapUpDeps } from "./discussionWrapUp";
 import { filesTouched, type OrchestrationTask } from "./orchestration";
 import { getRace, saveRace, updateRace, type RaceRecord } from "./race";
 import type { Block } from "./session";
+import { forgetTurnNotes, pendingTurnNotes } from "./turnNotes";
 import {
   continueLane,
   continueRace,
@@ -16,8 +17,9 @@ import {
   parseRaceJudge,
   parseRunSummary,
   RACE_JUDGE_SIGNATURE,
-  raceContinueMessage,
   raceDigest,
+  raceRecapHint,
+  raceRecapNote,
   replyOpening,
   requestRaceSuggestion,
   RUN_SUMMARY_SIGNATURE,
@@ -233,56 +235,80 @@ describe("continuing after a race", () => {
   });
 
   it("recaps the lane's work, since its provider session was reset", () => {
-    const message = raceContinueMessage(
+    const note = raceRecapNote(
       race({ state: "kept", outcome: { kind: "lane", lane: 1, files: 7 } }),
       1,
       "Fixed the loop.",
     );
-    expect(message).toContain("Fix the login loop");
-    expect(message).toContain(
+    expect(note).toContain("Fix the login loop");
+    expect(note).toContain(
       "Your version was kept: 7 files are now in the project at /work/site",
     );
-    expect(message).toContain("Your final reply then was:\n\nFixed the loop.");
+    expect(note).toContain("Your final reply then was:\n\nFixed the loop.");
+    // It asks for nothing: the user's own message says what comes next.
+    expect(note).not.toMatch(/please|continue from here/i);
   });
 
   it("tells an agent which kept files of a mix are its own", () => {
-    const message = raceContinueMessage(
-      race({
-        state: "kept",
-        outcome: { kind: "mix", files: 3 },
-        picks: { "a.ts": 0, "b.ts": 1, "c.ts": 1 },
-      }),
-      1,
-      "",
-    );
-    expect(message).toContain(
+    const kept = race({
+      state: "kept",
+      outcome: { kind: "mix", files: 3 },
+      picks: { "a.ts": 0, "b.ts": 1, "c.ts": 1 },
+    });
+    const note = raceRecapNote(kept, 1, "");
+    expect(note).toContain(
       "Part of your version was kept: 2 files of yours (b.ts, c.ts), together with 1 file from the other agents' versions (a.ts), which you did not write. They are now in the project at /work/site",
     );
-    expect(message).not.toContain("Your version was kept");
+    expect(note).not.toContain("Your version was kept");
+    expect(raceRecapHint(kept, "Codex")).toBe(
+      "Codex knows which files you kept",
+    );
+    expect(
+      raceRecapHint(
+        race({ state: "kept", outcome: { kind: "lane", lane: 1, files: 1 } }),
+        "Codex",
+      ),
+    ).toBe("Codex knows which version you kept");
   });
 
-  it("sends Continue with once, and says when the chat can't be opened", async () => {
+  it("opens the kept agent's chat and leaves it the recap once, sending nothing", async () => {
     saveRace(
-      race({ state: "kept", outcome: { kind: "lane", lane: 0, files: 2 } }),
+      race({ state: "kept", outcome: { kind: "lane", lane: 1, files: 2 } }),
     );
-    expect(await continueRace("r1", async () => false)).toBe(
-      "Couldn't send the recap. Open the agent's chat and try again.",
+    expect(await continueRace("r1", null)).toBe(
+      "Couldn't open the agent's chat. Try again.",
     );
     expect(getRace("r1")?.continuedAt).toBeUndefined();
-    let release!: (sent: boolean) => void;
-    const send = vi.fn(
-      () => new Promise<boolean>((resolve) => (release = resolve)),
-    );
-    const first = continueRace("r1", send);
-    // A second press while it sends does nothing.
-    expect(await continueRace("r1", send)).toBeNull();
-    release(true);
-    expect(await first).toBeNull();
-    expect(send).toHaveBeenCalledTimes(1);
+    const openChat = vi.fn();
+    const chat = () => ({
+      blocks: [{ id: "a", role: "assistant", text: "Fixed it." } as Block],
+    });
+    expect(await continueRace("r1", { openChat }, chat)).toBeNull();
+    expect(openChat).toHaveBeenCalledWith("l1");
     expect(getRace("r1")?.continuedAt).toEqual(expect.any(Number));
-    // Nor once it was sent.
-    expect(await continueRace("r1", send)).toBeNull();
-    expect(send).toHaveBeenCalledTimes(1);
+    const notes = pendingTurnNotes("l1");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({
+      kind: "race",
+      hint: "Codex knows which version you kept",
+    });
+    expect(notes[0].text).toContain("Your final reply then was:\n\nFixed it.");
+    // A second press opens the chat again without a second recap.
+    expect(await continueRace("r1", { openChat }, chat)).toBeNull();
+    expect(openChat).toHaveBeenCalledTimes(2);
+    expect(pendingTurnNotes("l1")).toHaveLength(1);
+    // A chat that is not loaded has its saved transcript read.
+    forgetTurnNotes("l1");
+    updateRace("r1", { continuedAt: undefined });
+    const load = vi.fn(async () => [
+      { id: "a", role: "assistant", text: "Saved reply." } as Block,
+    ]);
+    await continueRace("r1", { openChat }, () => undefined, load);
+    expect(load).toHaveBeenCalledWith("l1");
+    expect(pendingTurnNotes("l1")[0].text).toContain("Saved reply.");
+    expect(await continueRace("r2", { openChat })).toBe(
+      "Nothing was kept to continue from.",
+    );
   });
 
   it("reads a chat's last reply and its opening lines", () => {

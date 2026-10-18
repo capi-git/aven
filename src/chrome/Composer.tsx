@@ -174,6 +174,7 @@ import {
 import { composerFit } from "../lib/composerFit";
 import { bestDiscussionAgent } from "../lib/discussionPartner";
 import { resizeComposer } from "../lib/composerResize";
+import { useTurnNoteHint } from "../lib/turnNotes";
 
 type Props = {
   enabled?: boolean;
@@ -690,6 +691,9 @@ function ComposerComponent({
   );
   const [discussSelected, setDiscussSelected] = useState(false);
   const discussActive = discussAvailable && discussSelected;
+  // What Aven left for this agent's next turn ("Codex knows which version
+  // you kept"), said in the empty field until that turn takes it.
+  const noteHint = useTurnNoteHint(sessionId);
   const [discussPick, setDiscussPick] = useState<DiscussionPick | null>(null);
   const [discussRounds, setDiscussRounds] = useState(loadDiscussionRounds);
   // The partner's role is for the next discussion only, never remembered.
@@ -1958,14 +1962,16 @@ function ComposerComponent({
                         ? "Add a message, or send…"
                         : handoffCard
                           ? "Add context, or send to continue…"
-                          : composerHint(
-                              hasNativeCommands(harness),
-                              looksLikeProject(cwd)
-                                ? "files"
-                                : notesEnabled
-                                  ? "notes"
-                                  : null,
-                            )
+                          : noteHint
+                            ? `${noteHint}. Say what's next…`
+                            : composerHint(
+                                hasNativeCommands(harness),
+                                looksLikeProject(cwd)
+                                  ? "files"
+                                  : notesEnabled
+                                    ? "notes"
+                                    : null,
+                              )
               }
               aria-label="Message"
               title="/ for commands, @ for references"

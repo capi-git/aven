@@ -39,6 +39,7 @@ import {
 } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
 import { installTeamWorkspace } from "../lib/teamWorkspace";
+import { pendingTurnNotes } from "../lib/turnNotes";
 import { RaceCard, readyText } from "./RaceCard";
 
 const record: RaceRecord = {
@@ -284,19 +285,14 @@ describe("a race's card in the chat it was sent from", () => {
     await press("Review changes");
     expect(review).toHaveBeenCalledWith("/work/site");
     await press("Continue with");
-    expect(send).toHaveBeenCalledWith("l1", expect.any(Function));
-    const compose = (
-      send.mock.calls[0] as unknown as [
-        string,
-        (blocks: Session["blocks"]) => { text: string; shown?: string },
-      ]
-    )[1];
-    const message = compose(lane("l1", false).blocks);
-    expect(message.shown).toBe(
-      "Carry on from the race: your version was kept.",
-    );
-    expect(message.text).toContain("7 files are now in the project");
-    expect(message.text).toContain("Fixed it.");
+    // It opens the kept agent's chat and sends nothing: the recap waits,
+    // hidden, for the next message there.
+    expect(openChat).toHaveBeenCalledWith("l1");
+    expect(send).not.toHaveBeenCalled();
+    const [note] = pendingTurnNotes("l1");
+    expect(note?.hint).toBe("Codex knows which version you kept");
+    expect(note?.text).toContain("7 files are now in the project");
+    expect(labels()).toEqual(["Review changes", "Continue with Codex"]);
   });
 
   it("asks a chat of your choice to review it as a Reviewer, never a lane", async () => {

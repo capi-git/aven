@@ -60,6 +60,7 @@ import {
 } from "../lib/teamResult";
 import { teamWorkspace } from "../lib/teamWorkspace";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
+import { possessive } from "../lib/words";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
 type Props = {
@@ -804,17 +805,16 @@ function RaceBody({
               {continueWith ? (
                 <button
                   type="button"
-                  disabled={!!race.continuedAt}
+                  data-race-continue
+                  title={`Open ${possessive(continueWith)} chat. It learns which version you kept with your next message.`}
                   onClick={() =>
-                    void continueRace(race.id, teamWorkspace()?.send).then(
-                      setActionError,
-                    )
+                    void continueRace(race.id, teamWorkspace(), (id) =>
+                      sessions.find((entry) => entry.id === id),
+                    ).then(setActionError)
                   }
                   className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
                 >
-                  {race.continuedAt
-                    ? `Continued with ${continueWith}`
-                    : `Continue with ${continueWith}`}
+                  {`Continue with ${continueWith}`}
                 </button>
               ) : null}
             </div>

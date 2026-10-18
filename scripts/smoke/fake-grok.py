@@ -8,7 +8,9 @@ AVEN_SMOKE_OK. A prompt carrying AVEN_SMOKE_RACE writes race-grok.txt in its
 working folder (the lane's copy), then holds the turn open for
 AVEN_SMOKE_HOLD milliseconds, writing one more file every half second. With
 AVEN_SMOKE_FAIL_ONCE, the first such prompt in each folder fails instead, so
-the check can watch a lane fail and be retried. Any other command (--help,
+the check can watch a lane fail and be retried. With AVEN_SMOKE_ECHO_NOTE,
+the reply repeats the notes Aven sent ahead of the message (a kept race's
+recap), so the check can read what the agent was told. Any other command (--help,
 models, updates) succeeds without doing anything. It never contacts a
 network or an account. Every invocation is logged beside it.
 """
@@ -26,6 +28,8 @@ LOG = HERE / "fake-grok.log"
 # Folders whose first race prompt already failed, shared across processes.
 FAILED = HERE / "fake-grok-failed.json"
 HOLD_PATTERN = re.compile(r"AVEN_SMOKE_HOLD (\d+)")
+ECHO_NOTE = "AVEN_SMOKE_ECHO_NOTE"
+NOTE_PATTERN = re.compile(r"<(aven-note|aven-shared-work)>\s*(.*?)\s*</\1>", re.S)
 HOLD_MAX_SECONDS = 20
 WRITE_EVERY = 0.5
 
@@ -46,6 +50,12 @@ def prompt_text(params):
         for block in (params or {}).get("prompt") or []
         if isinstance(block, dict)
     )
+
+
+def echoed_notes(text):
+    notes = [" | ".join(line.strip() for line in body.splitlines())
+             for _, body in NOTE_PATTERN.findall(text)]
+    return " NOTE[" + (" || ".join(notes) or "none") + "]"
 
 
 def fail_once(folder):
@@ -100,7 +110,8 @@ def main():
         elif method == "session/prompt":
             text = prompt_text(params)
             log({"pid": os.getpid(), "turn": True, "race": "AVEN_SMOKE_RACE" in text,
-                 "failOnce": "AVEN_SMOKE_FAIL_ONCE" in text, "folder": folder})
+                 "failOnce": "AVEN_SMOKE_FAIL_ONCE" in text, "folder": folder,
+                 "note": "<aven-note>" in text})
             if "AVEN_SMOKE_RACE" in text:
                 if "AVEN_SMOKE_FAIL_ONCE" in text and fail_once(folder):
                     emit({"id": ident, "error": {
@@ -109,10 +120,11 @@ def main():
                     }})
                     continue
                 race(text, folder)
+            reply = REPLY + (echoed_notes(text) if ECHO_NOTE in text else "")
             emit({"method": "session/update", "params": {
                 "sessionId": session,
                 "update": {"sessionUpdate": "agent_message_chunk",
-                           "content": {"type": "text", "text": REPLY}},
+                           "content": {"type": "text", "text": reply}},
             }})
             emit({"id": ident, "result": {"stopReason": "end_turn"}})
         else:

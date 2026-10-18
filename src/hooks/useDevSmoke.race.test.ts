@@ -526,8 +526,14 @@ type ResultFlaws = {
   injected?: boolean;
   /** The result card does not say why. */
   noWhy?: boolean;
-  /** Continue with sends nothing. */
+  /** The kept agent's next message carries no recap. */
   noRecap?: boolean;
+  /** The recap is promised in the message box but never reaches the agent. */
+  lostRecap?: boolean;
+  /** Continue with sends the kept agent a message on its own. */
+  autoSends?: boolean;
+  /** Continue with leaves the cursor where it was. */
+  noFocus?: boolean;
   /** The two Claude lanes share one copy. */
   sharedCopy?: boolean;
   /** The card names both Claude lanes by their provider alone. */
@@ -552,18 +558,48 @@ function resultApp(flaws: ResultFlaws = {}) {
   const mode: RaceMode = { plus: false, on: false, menu: false };
   let chosen: RaceLaneChoice[] = [];
   let status = "Every agent is done. Compare their changes and keep one.";
+  /** Continue with pressed: Grok's chat is on screen, its recap waiting. */
+  let continued = false;
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== "w" || screen !== "overview") return;
     screen = "chat";
     draw();
   };
   window.addEventListener("keydown", onKey);
+  const say = (id: string, text: string, reply: string) => {
+    state.sessions = state.sessions.map((session) =>
+      session.id === id
+        ? ({
+            ...session,
+            blocks: [
+              ...session.blocks,
+              { id: `u${session.blocks.length}`, role: "user", text },
+              {
+                id: `a${session.blocks.length}`,
+                role: "assistant",
+                text: reply,
+              },
+            ],
+          } as Session)
+        : session,
+    );
+  };
   const state = {
     sessions: [] as Session[],
     floatingSidebarLabel: null,
     expectFloatingSidebar: false,
     sidebarOpen: true,
-    submit: vi.fn(),
+    submit: vi.fn((id: string, text: string) => {
+      const recap =
+        continued && !flaws.noRecap && !flaws.lostRecap
+          ? " NOTE[From Aven, about this chat. | Your version was kept: 1 file is now in the project]"
+          : " NOTE[none]";
+      say(
+        id,
+        text,
+        `AVEN_SMOKE_OK${text.includes("AVEN_SMOKE_ECHO_NOTE") ? recap : ""}`,
+      );
+    }),
     newProjectTask: vi.fn((path: string) => {
       chats += 1;
       state.sessions = [...state.sessions, chat(`chat-${chats}`, path)];
@@ -698,21 +734,10 @@ function resultApp(flaws: ResultFlaws = {}) {
       element.append(
         button("Review changes", () => {}),
         button("Continue with Grok", () => {
-          if (flaws.noRecap) return;
-          state.sessions = state.sessions.map((session) =>
-            session.id === "lane-1"
-              ? ({
-                  ...session,
-                  blocks: [
-                    {
-                      id: "u",
-                      role: "user",
-                      text: "Carry on from the race: your version was kept.",
-                    },
-                  ],
-                } as Session)
-              : session,
-          );
+          continued = true;
+          if (flaws.autoSends)
+            say("lane-1", "Carry on from the race.", "AVEN_SMOKE_OK");
+          draw();
         }),
       );
     else
@@ -790,6 +815,21 @@ function resultApp(flaws: ResultFlaws = {}) {
     const pane = document.createElement("div");
     pane.dataset.sessionDrop = id;
     if (races.length) pane.append(card());
+    if (continued) {
+      // Grok's chat beside it, with the cursor in its message box.
+      const lane = document.createElement("div");
+      lane.dataset.sessionDrop = "lane-1";
+      const laneBox = document.createElement("div");
+      laneBox.dataset.composer = "";
+      const laneField = document.createElement("textarea");
+      laneField.placeholder = flaws.noRecap
+        ? "Ask anything"
+        : "Grok knows which version you kept. Say what's next…";
+      laneBox.append(laneField);
+      lane.append(laneBox);
+      document.body.append(lane);
+      if (!flaws.noFocus) laneField.focus();
+    }
     const box = document.createElement("div");
     box.dataset.composer = "";
     if (races.length && record().state === "running") {
@@ -818,7 +858,7 @@ function resultApp(flaws: ResultFlaws = {}) {
     box.append(field);
     if (controls.send) box.append(controls.send);
     pane.append(box);
-    document.body.append(pane, ...controls.popovers);
+    document.body.prepend(pane, ...controls.popovers);
   }
   const host: SmokeRace = {
     races: () => races,
@@ -880,7 +920,7 @@ describe("the real-app check's finished race step", () => {
     const { detail, error } = await runResult();
     expect(error).toBeUndefined();
     expect(detail).toBe(
-      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok\'s version · 1 file" with why; Continue with sent it a recap',
+      'Claude Code · Claude Opus 5.5, Grok Build · Grok 4.6, Claude Code · claude:sonnet-5 each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane\'s turn quiet; the stand-in judge suggested Grok Build · Grok 4.6; kept it: "Kept Grok\'s version · 1 file" with why; Continue with opened its chat with the cursor in the message box, and the next message carried the recap',
     );
   });
 
@@ -892,7 +932,16 @@ describe("the real-app check's finished race step", () => {
     [{ loudLane: true }, "Activity holds 2 entries for the team"],
     [{ injected: true }, "A line addressed to agents reached the card"],
     [{ noWhy: true }, "not why"],
-    [{ noRecap: true }, "Continue with to send the kept agent a recap"],
+    [{ noRecap: true }, 'Grok\'s message box reads "Ask anything"'],
+    [
+      { lostRecap: true },
+      "Grok's next message was told: AVEN_SMOKE_OK NOTE[none]",
+    ],
+    [{ autoSends: true }, "Continue with sent Grok a message on its own"],
+    [
+      { noFocus: true },
+      "Continue with to put the cursor in Grok's message box",
+    ],
     [{ sharedCopy: true }, "The race has"],
     [{ sameNames: true }, "The card names the agents Claude Code, Grok Build"],
   ])("fails when %o", async (flaws, message) => {

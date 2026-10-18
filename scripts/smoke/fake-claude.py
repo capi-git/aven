@@ -209,10 +209,11 @@ HEARD_WORD = "AVEN_SMOKE_HEARD"
 # tool whose output announces a Vite server on that port, the way an agent
 # starting a dev server looks to Aven. Nothing listens on the port.
 DEV_SERVER_PATTERN = re.compile(r"AVEN_SMOKE_DEV_SERVER (\d{2,5})")
-# "AVEN_SMOKE_ECHO_NOTE" puts the shared-work note Aven sent with this message
-# into the reply (tags dropped), so the check can read what the agent was told.
+# "AVEN_SMOKE_ECHO_NOTE" puts the notes Aven sent with this message (the
+# shared-work note, a one-time note such as a kept race's recap) into the
+# reply (tags dropped), so the check can read what the agent was told.
 ECHO_NOTE = "AVEN_SMOKE_ECHO_NOTE"
-NOTE_PATTERN = re.compile(r"<aven-shared-work>\s*(.*?)\s*</aven-shared-work>", re.S)
+NOTE_PATTERN = re.compile(r"<(aven-shared-work|aven-note)>\s*(.*?)\s*</\1>", re.S)
 
 
 def emit_dev_server(session, turn, port):
@@ -296,9 +297,9 @@ def emit_edit(session, turn, name):
 
 
 def echoed_note(text):
-    found = NOTE_PATTERN.search(text)
-    body = " | ".join(line.strip() for line in found.group(1).splitlines()) if found else "none"
-    return " NOTE[" + body + "]"
+    notes = [" | ".join(line.strip() for line in body.splitlines())
+             for _, body in NOTE_PATTERN.findall(text)]
+    return " NOTE[" + (" || ".join(notes) or "none") + "]"
 
 
 # Orchestration (see useDevSmoke.ts). The planning prompt starts with these
