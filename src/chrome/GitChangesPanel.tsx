@@ -117,7 +117,11 @@ function confirmNative(message: string, okLabel?: string): Promise<boolean> {
 }
 
 /** An open Ship flow, and the conversation it describes when one was named. */
-type ShipState = { sessionId?: string };
+type ShipState = {
+  sessionId?: string;
+  /** When Ship it was pressed: each press starts the flow afresh. */
+  opened?: number;
+};
 
 let stagedOpen = true;
 let changesOpen = true;
@@ -194,7 +198,7 @@ export function GitChangesPanel({
     const pick = () => {
       const request = takeShipRequest(cwd);
       if (!request) return;
-      setShip({ sessionId: request.sessionId });
+      setShip({ sessionId: request.sessionId, opened: request.at });
       // Ship it reads the folder afresh, even with the window out of focus.
       reload();
     };
@@ -379,6 +383,10 @@ function ChangedFiles({
   );
   const largest = useMemo(() => largestChurn(files), [files]);
   const totals = useMemo(() => lineTotals(files), [files]);
+  // A new Ship it starts a fresh flow, replacing a finished one's "Shipped"
+  // card, but never interrupts a ship that is still running.
+  const shipKey = useRef(0);
+  if (ship && busy !== "ship") shipKey.current = ship.opened ?? 0;
   const onShipBusy = useCallback((shipping: boolean) => {
     setBusy((current) =>
       shipping ? (current ?? "ship") : current === "ship" ? null : current,
@@ -658,6 +666,7 @@ function ChangedFiles({
       <div className="flex shrink-0 flex-col gap-2 border-b border-content/10 p-2">
         {ship && index ? (
           <ShipFlow
+            key={shipKey.current}
             cwd={cwd}
             index={index}
             files={files}
@@ -689,7 +698,7 @@ function ChangedFiles({
             additions={totals.additions}
             deletions={totals.deletions}
             disabled={!!busy}
-            onShip={() => onShipChange({})}
+            onShip={() => onShipChange({ opened: Date.now() })}
           />
         ) : null}
         <div className={files.length === 0 || ship ? "hidden" : "relative"}>

@@ -680,6 +680,23 @@ describe("Ship it", () => {
     await act(async () => requestShip(cwd, "s1"));
     expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
   });
+
+  it("starts the flow afresh each time Ship it is pressed again", async () => {
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    await act(async () => requestShip(cwd, "s1"));
+    const first = container.querySelector('[aria-label="Ship it"]');
+    expect(first).not.toBeNull();
+    // A later press, as after a finished ship whose "Shipped" card is still
+    // shown, replaces that card with a new flow.
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      requestShip(cwd, "s1");
+    });
+    const second = container.querySelector('[aria-label="Ship it"]');
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
 });
 
 describe("clean copy", () => {
