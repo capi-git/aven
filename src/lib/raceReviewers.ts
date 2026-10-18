@@ -1,14 +1,11 @@
 import { agentFullName, agentNameWithModel } from "./agentNames";
+import { chatChoiceTitle, chatLastUsedAt } from "./chatChoice";
 import { orchestrator } from "./orchestration";
 import type { LiveSessionStore } from "./liveSessions";
 import { modelDisplayName } from "./sessionLabels";
 import { raceLaneFor, type RaceRecord } from "./race";
 import { sameProjectPath } from "./recents";
-import {
-  sessionDisplayTitle,
-  sessionIsWaitingForInput,
-  type HarnessId,
-} from "./session";
+import { sessionIsWaitingForInput, type HarnessId } from "./session";
 
 /** A chat that could review the race, and why it can't now, if so. */
 export type ReviewerChoice = {
@@ -18,13 +15,16 @@ export type ReviewerChoice = {
   label: string;
   /** "Claude Code · Opus 4.6", for tooltips. */
   fullName: string;
+  /** Its title, or its first message while it has none, or "Empty chat". */
   title: string;
+  /** When it was last used, if known. */
+  lastUsedAt?: number;
   busy?: "Working" | "Needs you";
 };
 
 /**
  * Chats in the race's project that could review it: the chat it was sent
- * from first, then the others, newest first. Never a lane of any race, an
+ * from first, then the others, most recently used first. Never a lane of any race, an
  * orchestration's worker, a lead whose run is open (the comparison would
  * land in its run as an instruction), or a chat a run keeps from working.
  */
@@ -55,12 +55,14 @@ export function reviewerChoices(
         harness: session.harness,
         model: modelDisplayName(session.harness, session.model),
       };
+      const lastUsedAt = chatLastUsedAt(session);
       return {
         sessionId: session.id,
         harness: session.harness,
         label: agentNameWithModel(agent),
         fullName: agentFullName(agent),
-        title: sessionDisplayTitle(session.title, session.harness) || "Chat",
+        title: chatChoiceTitle(session),
+        ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
         ...(sessionIsWaitingForInput(session)
           ? { busy: "Needs you" as const }
           : session.busy
@@ -72,6 +74,7 @@ export function reviewerChoices(
     .sort(
       (a, b) =>
         Number(b.sessionId === race.origin?.sessionId) -
-        Number(a.sessionId === race.origin?.sessionId),
+          Number(a.sessionId === race.origin?.sessionId) ||
+        (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1),
     );
 }

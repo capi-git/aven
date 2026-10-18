@@ -172,6 +172,7 @@ import {
   type DiscussionPick,
 } from "./DiscussionChip";
 import { composerFit } from "../lib/composerFit";
+import { bestDiscussionAgent } from "../lib/discussionPartner";
 import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
@@ -697,7 +698,10 @@ function ComposerComponent({
   const [discussError, setDiscussError] = useState<string | null>(null);
   const discussPickRef = useRef(discussPick);
   discussPickRef.current = discussPick;
-  /** Turn Discuss mode on, with the partner it had or the first that can join. */
+  /**
+   * Turn Discuss mode on, with the partner it had, else a new chat with the
+   * best other agent (see `defaultDiscussionPick`).
+   */
   const startDiscussMode = useCallback(
     (openMenu = false) => {
       if (!discussion || !sessionId) return;
@@ -705,6 +709,7 @@ function ComposerComponent({
         discussion,
         sessionId,
         discussPickRef.current,
+        bestDiscussionAgent(harness),
       );
       setDiscussPick(pick);
       setDiscussSelected(true);
@@ -716,7 +721,7 @@ function ComposerComponent({
       // Nobody to talk to yet: the dropdown offers a new chat.
       setDiscussMenuOpen(openMenu || !pick);
     },
-    [discussion, sessionId],
+    [discussion, sessionId, harness],
   );
   const stopDiscussMode = useCallback(() => {
     setDiscussSelected(false);

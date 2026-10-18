@@ -3,6 +3,7 @@ import { HarnessIcon } from "../chrome/HarnessIcon";
 import { Popover } from "../chrome/Popover";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { moveMenuFocus } from "../lib/keyboard";
+import { timeAgo } from "../lib/orchestrationSummary";
 import type { ReviewerChoice } from "../lib/raceReviewers";
 
 /**
@@ -37,6 +38,8 @@ export function RaceReviewerPicker({
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const shown = open ? choices() : [];
+  // Ages are worked out when the list opens; nothing ticks.
+  const now = Date.now();
   return (
     <>
       <TeamCardButton
@@ -105,8 +108,19 @@ export function RaceReviewerPicker({
                     ? "The chat you raced from"
                     : choice.title}
                 </span>
-                <span className="max-w-[45%] shrink-0 truncate text-ui-caption text-content/45">
-                  {choice.busy ?? choice.label}
+                <span
+                  className="max-w-[50%] shrink-0 truncate text-ui-caption text-content/45"
+                  data-race-reviewer-detail
+                >
+                  {choice.busy ??
+                    [
+                      choice.label,
+                      choice.lastUsedAt === undefined
+                        ? ""
+                        : timeAgo(choice.lastUsedAt, now),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                 </span>
               </button>
             ))

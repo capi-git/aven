@@ -37,6 +37,7 @@ import {
   discussionBuildMessage,
   runDiscussionWrapUp,
 } from "../lib/discussionWrapUp";
+import { chatChoiceTitle, chatLastUsedAt } from "../lib/chatChoice";
 import { errorText, logError } from "../lib/errors";
 import { orchestrator } from "../lib/orchestration";
 import { resolveModel } from "../lib/models";
@@ -149,6 +150,28 @@ export function discussionParty(session: Session): DiscussionParty {
     title: sessionDisplayTitle(session.title, session.harness),
     cwd: session.cwd,
   };
+}
+
+/**
+ * The chats Discuss lists, most recently used first: only this project's,
+ * unless it has no other chat, then the rest.
+ */
+export function discussionCandidates(
+  candidates: readonly DiscussionCandidate[],
+  project: string,
+): DiscussionCandidate[] {
+  const here = candidates.filter((candidate) =>
+    sameProjectPath(candidate.cwd, project),
+  );
+  const shown = here.length ? here : [...candidates];
+  return shown
+    .map((candidate, index) => ({ candidate, index }))
+    .sort(
+      (left, right) =>
+        (right.candidate.lastUsedAt ?? -1) -
+          (left.candidate.lastUsedAt ?? -1) || left.index - right.index,
+    )
+    .map(({ candidate }) => candidate);
 }
 
 /** Orchestration leads answer to their run, so they sit discussions out. */
@@ -516,32 +539,31 @@ export function useDiscussionBroker({
         const blocked = source
           ? joinBlocker(source, discussions)
           : "unsupported";
-        const candidates = sessions
-          .filter(
-            (session) =>
-              session.id !== sessionId &&
-              !session.inboxAsk &&
-              !session.orchestrationLeadId,
-          )
-          .map((session): DiscussionCandidate => {
-            const party = discussionParty(session);
-            const reason = joinBlocker(session, discussions);
-            return {
-              sessionId: session.id,
-              title: party.title,
-              harness: party.harness,
-              model: party.model,
-              cwd: party.cwd,
-              ...(reason ? { blocked: reason } : {}),
-            };
-          })
-          .reverse()
-          // The same project first, then the rest; newest first in each.
-          .sort(
-            (left, right) =>
-              Number(!sameProjectPath(left.cwd, source?.cwd ?? "")) -
-              Number(!sameProjectPath(right.cwd, source?.cwd ?? "")),
-          );
+        const candidates = discussionCandidates(
+          sessions
+            .filter(
+              (session) =>
+                session.id !== sessionId &&
+                !session.inboxAsk &&
+                !session.orchestrationLeadId,
+            )
+            .map((session): DiscussionCandidate => {
+              const party = discussionParty(session);
+              const reason = joinBlocker(session, discussions);
+              const lastUsedAt = chatLastUsedAt(session);
+              return {
+                sessionId: session.id,
+                title: chatChoiceTitle(session),
+                harness: party.harness,
+                model: party.model,
+                cwd: party.cwd,
+                ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+                ...(reason ? { blocked: reason } : {}),
+              };
+            })
+            .reverse(),
+          source?.cwd ?? "",
+        );
         return {
           ...(blocked
             ? { blocked: `This chat ${BLOCKER_PHRASE[blocked]}.` }

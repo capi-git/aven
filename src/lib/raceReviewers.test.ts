@@ -67,3 +67,27 @@ it("names a chat by its own model, never another one's", () => {
   );
   expect(choice.label).toBe("Claude not-a-model");
 });
+
+it("tells untitled chats apart and lists the most recently used first", () => {
+  const turn = (text: string, startedAt?: number) => ({
+    id: crypto.randomUUID(),
+    role: "user" as const,
+    text,
+    ...(startedAt !== undefined ? { startedAt, durationMs: 1_000 } : {}),
+  });
+  const sessions = [
+    chat("empty", { title: "claude" }),
+    chat("older", { title: "claude", blocks: [turn("Fix the footer", 1_000)] }),
+    chat("newer", { title: "claude", blocks: [turn("Add tests", 9_000)] }),
+  ];
+  const choices = reviewerChoices(
+    race,
+    { list: () => sessions },
+    { run: () => undefined, blockingRun: () => undefined },
+  );
+  expect(choices.map((choice) => [choice.title, choice.lastUsedAt])).toEqual([
+    ["Add tests", 10_000],
+    ["Fix the footer", 2_000],
+    ["Empty chat", undefined],
+  ]);
+});

@@ -44,6 +44,14 @@ vi.mock("./SecondOpinionButton", async () => {
   };
 });
 
+// The best other agent for a new partner chat; null when there is none.
+const partner = vi.hoisted(() => ({
+  fresh: null as { harness: HarnessId; model: string } | null,
+}));
+vi.mock("../lib/discussionPartner", () => ({
+  bestDiscussionAgent: () => partner.fresh,
+}));
+
 let root: Root;
 let container: HTMLDivElement;
 let props: ComponentProps<typeof Composer>;
@@ -67,6 +75,7 @@ beforeEach(() => {
   resetDiscussionStore("main");
   registerHarness(codexAdapter);
   registerHarness(claudeAdapter);
+  partner.fresh = { harness: "claude", model: "claude:sonnet-5" };
   blocked = undefined;
   candidates = [
     {
@@ -192,11 +201,11 @@ describe("Discuss mode in the composer", () => {
     );
     await click(item);
     expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
-    // The first open chat that can join, with three rounds.
-    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    // A new chat with the best other agent, with three rounds.
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     expect(
       chip()?.querySelector("[aria-haspopup]")?.getAttribute("title"),
-    ).toBe("GPT-5 in “Review”");
+    ).toMatch(/^A new chat with /);
     expect(menu()).toBeNull();
     expect(field().placeholder).toBe("What should they discuss?");
     await openPlus();
@@ -212,7 +221,7 @@ describe("Discuss mode in the composer", () => {
     await press("Enter");
     expect(host.start).toHaveBeenCalledExactlyOnceWith({
       sessionId: "a",
-      partner: { kind: "chat", sessionId: "b" },
+      partner: { kind: "new", harness: "claude", model: "claude:sonnet-5" },
       topic: "Compare our caching options",
       rounds: 3,
     });
@@ -222,6 +231,7 @@ describe("Discuss mode in the composer", () => {
   });
 
   it("chooses the partner and rounds from the chip's dropdown", async () => {
+    candidates[0].lastUsedAt = Date.now() - 2 * 3_600_000;
     await render();
     await turnOn();
     await openMenu();
@@ -235,7 +245,20 @@ describe("Discuss mode in the composer", () => {
       "c",
       "d",
     ]);
-    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+    // New chat with… comes first; the new chat is the one chosen.
+    const newChat = menu()!.querySelector("[data-new-chat]")!;
+    expect(
+      newChat.compareDocumentPosition(rows[0]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(rows[0].getAttribute("aria-checked")).toBe("false");
+    // Each chat says its model, its project and when it was last used.
+    expect(
+      rows[0].querySelector("[data-discussion-candidate-detail]")?.textContent,
+    ).toBe("GPT-5 · site · 2h ago");
+    expect(
+      rows[2].querySelector("[data-discussion-candidate-detail]")?.textContent,
+    ).toBe("Sonnet · site");
     // A chat that can't join says why and can't be chosen.
     expect(rows[1].disabled).toBe(true);
     expect(rows[1].textContent).toContain("Working");
@@ -276,7 +299,9 @@ describe("Discuss mode in the composer", () => {
     );
     await click(skeptic);
     expect(skeptic.getAttribute("aria-checked")).toBe("true");
-    expect(chipLabel()).toBe("Discuss with Codex as Skeptic · 3 rounds");
+    expect(chipLabel()).toBe(
+      "Discuss with new Claude chat as Skeptic · 3 rounds",
+    );
     await type("Is the index worth it?");
     await press("Enter");
     expect(host.start).toHaveBeenCalledWith(
@@ -287,13 +312,25 @@ describe("Discuss mode in the composer", () => {
       [...values.values()].some((value) => value.includes("skeptic")),
     ).toBe(false);
     await turnOn();
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
+  });
+
+  it("starts with the first open chat when no other agent can", async () => {
+    partner.fresh = null;
+    await render();
+    await turnOn();
     expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    expect(
+      chip()?.querySelector("[aria-haspopup]")?.getAttribute("title"),
+    ).toBe("GPT-5 in “Review”");
   });
 
   it("can start a new chat with a chosen model instead", async () => {
     await render();
     await turnOn();
     await openMenu();
+    await click(menu()!.querySelector("[data-discussion-candidate='b']"));
+    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
     await click(menu()!.querySelector("[data-new-chat]"));
     expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     await type("Plan the migration");
@@ -309,11 +346,12 @@ describe("Discuss mode in the composer", () => {
     values.set(DISCUSSION_ROUNDS_KEY, "2");
     await render();
     await turnOn();
-    expect(chipLabel()).toBe("Discuss with Codex · 2 rounds");
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 2 rounds");
   });
 
   it("opens the dropdown with a reason instead of starting when it can't", async () => {
     candidates = [];
+    partner.fresh = null;
     await render();
     await turnOn();
     // Nobody to talk to: the dropdown opens at once.
@@ -353,7 +391,7 @@ describe("Discuss mode in the composer", () => {
     )!;
     expect(command).toBeTruthy();
     await click(command);
-    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+    expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     expect(field().value).toBe("");
     expect(host.start).not.toHaveBeenCalled();
   });

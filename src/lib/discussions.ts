@@ -855,11 +855,14 @@ export function discussionBlocker(
 /** A chat the user can pick to discuss with. */
 export type DiscussionCandidate = {
   sessionId: string;
+  /** Its title, or its first message while it has none, or "Empty chat". */
   title: string;
   harness: HarnessId;
   /** Model display name. */
   model: string;
   cwd: string;
+  /** When it was last used, if known. */
+  lastUsedAt?: number;
   blocked?: DiscussionBlocker;
 };
 

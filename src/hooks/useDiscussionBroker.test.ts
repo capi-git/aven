@@ -17,6 +17,7 @@ import {
   type Session,
 } from "../lib/session";
 import {
+  discussionCandidates,
   discussionChatTitle,
   useDiscussionBroker,
   type DiscussionTurnOptions,
@@ -1084,5 +1085,41 @@ describe("useDiscussionBroker's wrap-up", () => {
     expect(await host.build!("gone", "b")).toBe(
       "This discussion is no longer available.",
     );
+  });
+});
+
+describe("the chats Discuss lists", () => {
+  const candidate = (sessionId: string, cwd: string, lastUsedAt?: number) => ({
+    sessionId,
+    title: sessionId,
+    harness: "codex" as const,
+    model: "GPT-5",
+    cwd,
+    ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+  });
+
+  it("shows only this project's chats, most recently used first", () => {
+    const listed = discussionCandidates(
+      [
+        candidate("old", "/work/site", 1_000),
+        candidate("elsewhere", "/work/api", 9_000),
+        candidate("unused", "/work/site"),
+        candidate("recent", "/work/site", 5_000),
+      ],
+      "/work/site",
+    );
+    expect(listed.map((entry) => entry.sessionId)).toEqual([
+      "recent",
+      "old",
+      "unused",
+    ]);
+  });
+
+  it("falls back to other projects' chats when this one has none", () => {
+    const listed = discussionCandidates(
+      [candidate("api", "/work/api", 1), candidate("docs", "/work/docs", 2)],
+      "/work/site",
+    );
+    expect(listed.map((entry) => entry.sessionId)).toEqual(["docs", "api"]);
   });
 });
