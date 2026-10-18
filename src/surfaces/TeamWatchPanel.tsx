@@ -45,8 +45,9 @@ import {
   raceWorkspace,
   subscribeRaces,
   useRaceWorkspace,
-  type RaceSuggestion,
+  type RaceRecord,
 } from "../lib/race";
+import { raceNamedText } from "../lib/raceLanes";
 import { sessionWorkCwd, type Session } from "../lib/session";
 import { reviewerChoices, type ReviewerChoice } from "../lib/raceReviewers";
 import {
@@ -343,14 +344,15 @@ export function useTeamWatchPerformer({
 // --- What a panel shows ----------------------------------------------------------------
 
 function suggestionView(
-  suggestion: RaceSuggestion | undefined,
+  race: RaceRecord | undefined,
 ): TeamWatchSuggestion | undefined {
-  if (!suggestion) return undefined;
+  const suggestion = race?.suggestion;
+  if (!race || !suggestion) return undefined;
   if (suggestion.status === "done")
     return {
       status: "done",
       lane: suggestion.lane,
-      why: suggestion.why,
+      why: raceNamedText(race, suggestion.why),
       ...(suggestion.by === "reviewer" ? { by: suggestion.model } : {}),
     };
   if (suggestion.status === "failed") return { status: "failed" };
@@ -385,7 +387,7 @@ export function useTeamWatchView(teamId: string): TeamWatchView | null {
   const compare = !!raceActions;
   const openAgents = !!orchestration?.openAgents;
   const openChat = !!teamActions || !!orchestration;
-  const suggestion = suggestionView(race?.suggestion);
+  const suggestion = suggestionView(race);
   const suggestionKey = suggestion ? JSON.stringify(suggestion) : "";
   // The reviewer, and the chats that could be one once the race is ready.
   const live = useContext(LiveSessionsContext);

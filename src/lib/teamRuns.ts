@@ -25,6 +25,7 @@ import {
 } from "./orchestration";
 import type { RaceRecord } from "./race";
 import {
+  raceKeptWhy,
   raceLaneState,
   raceOutcomeText,
   raceProgress,
@@ -467,10 +468,7 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
     since: race.createdAt,
   });
   const headline = raceHeadline(race);
-  const why =
-    race.outcome?.kind === "lane" && race.outcome.why
-      ? race.outcome.why
-      : undefined;
+  const why = raceKeptWhy(race);
   const progress = running
     ? status === "ready"
       ? `Ready to compare · ${raceProgress(laneStates)}`

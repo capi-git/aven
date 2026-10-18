@@ -5,11 +5,13 @@ import {
   raceDiscardQuestion,
   raceKeepAsks,
   raceKeepQuestion,
+  raceKeptWhy,
   raceLaneCanRetry,
   raceLaneSeconds,
   raceLaneState,
   raceOutcomeText,
   raceProgress,
+  raceSuggestionText,
   type RaceLaneKind,
   type RaceLaneState,
 } from "./raceLanes";
@@ -193,5 +195,34 @@ describe("race wording", () => {
       ),
     ).toBe("Kept Codex's version · 1 file");
     expect(raceOutcomeText(race(3, { state: "discarded" }))).toBeNull();
+  });
+
+  it("never says Lane N: a judge's numbers read as the agents' names", () => {
+    const suggested = race(3, {
+      suggestion: {
+        status: "done",
+        lane: 1,
+        why: "Lane 2 tested it, unlike lane 1 and agent 3.",
+        model: "Claude Haiku 4.5",
+        at: 1,
+      },
+    });
+    expect(raceSuggestionText(suggested)).toBe(
+      "Aven suggests Codex: Codex tested it, unlike Claude and Grok.",
+    );
+    expect(
+      raceKeptWhy(
+        race(3, {
+          state: "kept",
+          outcome: {
+            kind: "lane",
+            lane: 1,
+            files: 2,
+            why: "Lane 2 says it tested.",
+          },
+        }),
+      ),
+    ).toBe("Codex says it tested.");
+    expect(raceKeptWhy(race(3))).toBeUndefined();
   });
 });

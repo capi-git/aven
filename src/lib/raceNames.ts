@@ -43,6 +43,32 @@ export function raceAgentNames(agents: readonly LaneLike[]): string[] {
   return agentNames(agents.map(raceAgent));
 }
 
+/**
+ * Each agent's name as `raceAgentNames` gives it, told apart even when two
+ * lanes share one ("Claude Opus 4.6 (2)"), so a name points at one lane: what
+ * a judge or reviewer is shown and answers with.
+ */
+export function raceDistinctNames(agents: readonly LaneLike[]): string[] {
+  const names = raceAgentNames(agents);
+  return names.map((name, index) => {
+    if (names.indexOf(name) === names.lastIndexOf(name)) return name;
+    const nth = names.slice(0, index + 1).filter((other) => other === name);
+    return `${name} (${nth.length})`;
+  });
+}
+
+/**
+ * Model text with "Lane 2" or "agent 2" said as that agent's name, so a
+ * judge's or reviewer's numbering never reaches the screen. `names` are the
+ * lanes' names in order; a number outside them stays as it is.
+ */
+export function namedLanes(text: string, names: readonly string[]): string {
+  return text.replace(
+    /\b(?:lane|agent)\s*#?(\d+)\b/gi,
+    (said, number: string) => names[Number(number) - 1] ?? said,
+  );
+}
+
 /** "Claude Opus 4.6", "Codex GPT-5", "Grok 4.6": an agent with its model. */
 export function raceShortName(agent: LaneLike): string {
   return agentNameWithModel(raceAgent(agent));

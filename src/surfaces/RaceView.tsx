@@ -36,6 +36,7 @@ import {
   raceDiscardQuestion,
   raceKeepAsks,
   raceKeepQuestion,
+  raceKeptWhy,
   raceLaneActive,
   raceLaneCanRetry,
   raceLaneName,
@@ -399,7 +400,7 @@ function RaceBody({
       (id) => sessions.find((entry) => entry.id === id),
       states.map((state) => state.label),
     );
-  const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+  const why = raceKeptWhy(race);
   const continueAt = continueLane(race);
   const continueWith =
     continueAt !== undefined && race.lanes[continueAt]

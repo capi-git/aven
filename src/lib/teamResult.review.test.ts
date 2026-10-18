@@ -102,14 +102,19 @@ it("sends the comparison once, as a Reviewer, with each lane's copy", async () =
   const [message] = reviewing.sent;
   expect(message.startsWith("Your role for this race: Reviewer. ")).toBe(true);
   expect(message.match(/Your role/g)).toHaveLength(1);
-  expect(message).toMatch(
-    /--- #[0-9a-f]{12} Lane 1: Claude Code · Opus \(Done; 2 files changed, \+12 −3\) in \/data\/races\/r1\/0 ---\nFixed the redirect\./,
+  // The agents by name, never numbered: the reviewer answers with a name.
+  expect(message).toContain(
+    "Aven gave the same task to 2 agents (Claude and Codex)",
   );
+  expect(message).toMatch(
+    /--- #[0-9a-f]{12} Claude \(Done; 2 files changed, \+12 −3\) in \/data\/races\/r1\/0 ---\nFixed the redirect\./,
+  );
+  expect(message).not.toMatch(/\bLane \d/);
   expect(message).toContain("in /data/races/r1/1 ---");
   // The agents' words stay data: wrapped, with lines addressed to a model gone.
   expect(message).toContain("<race-lanes>");
   expect(message).not.toContain("Note to AI");
-  expect(message.endsWith("Winner: <lane number>\nWhy: <one sentence>")).toBe(
+  expect(message.endsWith("Winner: <agent name>\nWhy: <one sentence>")).toBe(
     true,
   );
   expect(getRace("r1")?.review).toMatchObject({
@@ -131,12 +136,12 @@ it("makes the reviewer's pick the race's suggestion", async () => {
   await askRaceReviewer("r1", reviewer, session, [], reviewing.send, () => 7);
   reviewing.end({
     status: "completed",
-    text: "Lane 2 tests its fix.\n\nWinner: 2\nWhy: It fixes the loop and adds a test.",
+    text: "Codex tests its fix.\n\nWinner: Codex\nWhy: Unlike lane 1, it fixes the loop and adds a test.",
   });
   expect(getRace("r1")?.suggestion).toEqual({
     status: "done",
     lane: 1,
-    why: "It fixes the loop and adds a test.",
+    why: "Unlike Claude, it fixes the loop and adds a test.",
     model: "Claude · Opus 4.6",
     at: 7,
     by: "reviewer",
@@ -353,8 +358,8 @@ it("lets a review cut short by a reload be asked again", () => {
 
 it("names the task even when no agent left a reply", () => {
   const message = raceReviewMessage(race(), [
-    { label: "Claude Code · Opus", state: "Failed", reply: "" },
-    { label: "Codex · GPT-5", state: "Stopped", reply: "" },
+    { name: "Claude", state: "Failed", reply: "" },
+    { name: "Codex", state: "Stopped", reply: "" },
   ]);
   expect(message).toContain("Task from the user:\nFix the login loop");
   expect(message).toContain("(No agent left a final reply.)");
