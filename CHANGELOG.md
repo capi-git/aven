@@ -31,6 +31,9 @@
 - When two panes share a tab, each now has a slim strip at its top in the same style as tabs, with its name, a handle to drag it and a button to close it. The strip sits above the pane's content, so it no longer covers a chat's first message the way the floating controls did. A tab with one pane still has no strip.
 - Discussions, races, runs and the board share one look: one amber for "Needs you", one button style across the cards, the bar, the floating panel and the board, Git's green and red for lines added and removed, soft shadows on the floating panel and pills in light mode, card buttons that brighten on hover in dark mode and mascots that sit clear of the row text on Home, in Activity and on the board. Discuss and Orchestrator have icons of their own.
 - Long agent replies stream smoothly and use far less of your Mac, even while an agent writes a long file, and they look exactly as before. Long orchestrator runs are lighter on the workspace and the floating sidebar too.
+- The status card above the message box says what the agent is doing, in the words Home uses ("Edit app.js", "npm test"), instead of "Working · Agent is working". Until the agent does something it can name, it reads "Working…".
+- Discuss starts with a new chat with another agent, such as "New chat with Codex" for a Claude chat, listed first. Your open chats follow, most recently used first, each with its model, its project and when you last used it. A chat without a title is named by its first message, or "Empty chat", and chats in other projects are listed only when this project has none. A race's **Ask a reviewer** list names and orders chats the same way.
+- While a commit message is being written, Ship it says which model is writing it ("Writing with Claude Haiku 4.5…"), and you can type your own at any time, which stops the writing. The commit box in the Changes panel works the same way.
 
 ### Removed
 
@@ -53,6 +56,11 @@
 - Racing a message from a chat no longer makes it vanish from that chat or jump you to another tab.
 - **Where they landed** no longer leaves an empty card when it can't be written: it says "Couldn't sum this up." with **Try again**.
 - **Have Claude build it** sends the plan once, then reads "Sent to Claude", so a second press no longer sends it again.
+- The Changes panel, Parallel work and Ship it no longer go stale while Aven is on screen but another app has focus, as when you watch it on a second screen. When an agent's turn ends, its changes show at once, and Ship it no longer says "Nothing to commit". Between changes, Aven still waits for you to come back before it checks Git on its own.
+- With the live preview open beside a chat, **Review** opens Session Changes as a tab beside the preview, in the same group of tabs, instead of squeezing a third narrow column between the chat and the preview.
+- In a narrow chat, the review bar and the message box no longer cut their words off. The review bar's **Undo All**, **Keep All**, **Review** and **Ship it** become icons with tooltips, the Race chip reads "Race · 2 agents" or "Race · 2", the Discuss chip "Discuss · Codex · 3", Plan and Orchestrator keep their icons and the agent pill keeps its mark. Tooltips give the full text.
+- After Ship it, Session Changes reads "Shipped · 1a2b3c4 · nothing left to review" with **Close**, instead of still showing the diff that went out. It also updates when the changes are kept or undone.
+- The memory keeper's offer no longer cuts itself off in a narrow chat. It asks "Keep this project's memory up to date?" and wraps to a second line when it has to.
 
 ## [0.1.144] - 2026-10-16
 
