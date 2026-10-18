@@ -3048,14 +3048,12 @@ export async function runDevSmoke(
           30_000,
           "the build button to send the plan to the first chat",
         );
-        // Closed, the panel comes back from the finished card's Open.
-        discussionPanel(id)
-          ?.querySelector<HTMLElement>("[data-discussion-close]")
-          ?.click();
+        // With its plan sent, the finished discussion's panel gets out of
+        // the way as its pill; the finished card's Watch brings it back.
         await waitFor(
-          () => !discussionPanel(id) && !discussionPill(id),
+          () => !discussionPanel(id) && discussionPill(id),
           5_000,
-          "the panel to close",
+          "the finished panel to shrink to its pill once the plan was sent",
         );
         document
           .querySelector<HTMLElement>(
@@ -3076,7 +3074,7 @@ export async function runDevSmoke(
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
+        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan and the panel shrank to its pill; the finished card reopens the panel`;
       },
     );
 
