@@ -221,6 +221,15 @@ export type BrowserPresentation = {
   update(): void;
   /** Refresh an occluded backing after native-confirmed zoom or menu changes. */
   updateZoom(): void;
+  /**
+   * Hold the page behind a still image the caller supplies, such as the
+   * lossless picture being marked up. Resolves true once the image is
+   * painted and the native page is being hidden; false if the pane changed
+   * or `thaw` came first. Overlay captures never replace a frozen image.
+   */
+  freeze(src: string): Promise<boolean>;
+  /** Show the live page again, or abandon a freeze still in progress. */
+  thaw(): void;
   dispose(): void;
 };
 
@@ -261,6 +270,10 @@ export function createBrowserPresentation({
   let lastGeometry = "";
   let lastBounds: BrowserBounds | null = null;
   let lastNativeBounds: BrowserBounds | null = null;
+  // "covering": a supplied image is going up; "frozen": it stands in for
+  // the hidden page. Either way no overlay capture may replace it.
+  let freezeState: "none" | "covering" | "frozen" = "none";
+  let freezeGeneration = 0;
   // WK may report itself occluded by the native Chromium child. Presentation
   // belongs to the selected workspace pane; macOS hides minimized windows.
   const isPaused = () => {
@@ -304,6 +317,7 @@ export function createBrowserPresentation({
       const stillRelevant = () => {
         if (
           disposed ||
+          freezeState !== "none" ||
           generation !== captureGeneration ||
           readState().nativeId !== pageId ||
           readState().url !== capturedUrl ||
@@ -367,6 +381,7 @@ export function createBrowserPresentation({
     return bounds ? clipHoverSidebars(bounds) : null;
   };
   const occluded = (bounds: BrowserBounds) =>
+    freezeState === "frozen" ||
     hasOccludingOverlay(bounds, readState().holesSupported);
   // Menus cut out of the live page change size without a style mutation
   // (late content, filtering). Track exactly the surfaces that own holes.
@@ -383,9 +398,9 @@ export function createBrowserPresentation({
     for (const element of elements) overlaySizes.observe(element);
   };
   const placement = (bounds: BrowserBounds | null) => {
-    if (!bounds) {
+    if (!bounds || freezeState === "frozen") {
       trackHoleElements([]);
-      return { bounds, capture: false };
+      return { bounds, capture: !!bounds };
     }
     const overlay = browserOverlayState(bounds, readState().holesSupported);
     trackHoleElements(overlay.elements);
@@ -395,7 +410,7 @@ export function createBrowserPresentation({
     };
   };
   const refreshZoomSnapshot = (refresh: boolean) => {
-    if (!refresh) {
+    if (!refresh || freezeState !== "none") {
       if (zoomRefreshActive) cancelOverlayCapture();
       return;
     }
@@ -452,6 +467,7 @@ export function createBrowserPresentation({
     try {
       if (
         !show &&
+        freezeState === "none" &&
         bounds &&
         hasVisibleBrowserArea(bounds) &&
         lastLayout &&
@@ -508,7 +524,13 @@ export function createBrowserPresentation({
       lastGeometry = JSON.stringify(sentBounds);
       lastLayout = nextLayout;
       if (show && !disposed) onSnapshot(null);
-      else if (!disposed && bounds && viewportChanged && occluded(bounds)) {
+      else if (
+        !disposed &&
+        freezeState === "none" &&
+        bounds &&
+        viewportChanged &&
+        occluded(bounds)
+      ) {
         // A retained overlay can outlive a pane resize. Resize the hidden
         // native viewport first, then replace its backing at the new size.
         cancelOverlayCapture();
@@ -676,10 +698,58 @@ export function createBrowserPresentation({
     observePresentation();
     present();
   };
+  const freeze = async (src: string) => {
+    const generation = ++freezeGeneration;
+    const current = () =>
+      !disposed && generation === freezeGeneration && !isPaused();
+    const bounds = current() ? currentBounds() : null;
+    if (!bounds || !hasVisibleBrowserArea(bounds) || !lastBounds) return false;
+    freezeState = "covering";
+    cancelOverlayCapture();
+    try {
+      await adapter.decode(src);
+    } catch {
+      if (generation === freezeGeneration) freezeState = "none";
+      return false;
+    }
+    if (!current()) return false;
+    // The same handoff as an overlay backing: decoded pixels committed and
+    // painted beneath the page before Chromium is hidden.
+    onSnapshot({ src, ...snapshotViewport(lastNativeBounds ?? lastBounds) });
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cancelAnimationFrame(paint);
+        window.clearTimeout(deadline);
+        resolve();
+      };
+      const paint = requestAnimationFrame(finish);
+      const deadline = window.setTimeout(finish, SNAPSHOT_PAINT_DEADLINE_MS);
+    });
+    if (!current()) return false;
+    freezeState = "frozen";
+    present();
+    return true;
+  };
+  const thaw = () => {
+    ++freezeGeneration;
+    const previous = freezeState;
+    freezeState = "none";
+    if (disposed || previous === "none") return;
+    // A freeze abandoned before hiding the page leaves it shown; drop the
+    // image it put beneath. Otherwise the next layout shows the page and
+    // releases the image itself.
+    if (previous === "covering" && lastLayout !== "hidden") onSnapshot(null);
+    present();
+  };
   updatePresentation();
   return {
     update: updatePresentation,
     updateZoom,
+    freeze,
+    thaw,
     dispose: () => {
       if (disposed) return;
       disposed = true;
