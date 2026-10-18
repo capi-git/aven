@@ -56,6 +56,17 @@ export type KeeperProject = {
   consent?: "on" | "off";
   /** When Aven offered to keep the memory; shown until answered. */
   offeredAt?: number;
+  /**
+   * The chat whose finished turn brought the offer: it is asked there
+   * alone, never in every chat of the project. Unset for older offers.
+   */
+  offeredIn?: string;
+  /**
+   * When the user said Not now. Kept so the answer outlives the store
+   * dropping projects it has not touched in a while, and is never asked
+   * again.
+   */
+  declinedAt?: number;
   /** When the user turned it on; turns are counted from here at first. */
   enabledAt?: number;
   /** The keeper's block as it last wrote it. */
@@ -127,6 +138,7 @@ function write(store: Store) {
         project.lastAttemptAt ?? 0,
         project.offeredAt ?? 0,
         project.enabledAt ?? 0,
+        project.declinedAt ?? 0,
       );
     entries.sort(([, a], [, b]) => touched(b) - touched(a));
     store = {
@@ -193,18 +205,43 @@ export function resetMemoryKeeperCache() {
   cacheRaw = undefined;
 }
 
-/** Ask once: the first time the project is worked in while its memory is empty. */
-export function offerMemoryKeeper(path: string, now = Date.now()) {
+/**
+ * Ask once: the first time the project is worked in while its memory is
+ * empty, in the chat (`sessionId`) whose turn just finished.
+ */
+export function offerMemoryKeeper(
+  path: string,
+  now = Date.now(),
+  sessionId?: string,
+) {
   updateKeeperProject(path, (project) =>
     project.consent || project.offeredAt
       ? project
-      : { ...project, offeredAt: now },
+      : {
+          ...project,
+          offeredAt: now,
+          ...(sessionId ? { offeredIn: sessionId } : {}),
+        },
   );
 }
 
 /** True while the offer waits for an answer. */
 export function keeperOfferPending(project: KeeperProject): boolean {
   return !project.consent && project.offeredAt != null;
+}
+
+/**
+ * Whether this chat shows the waiting offer: the chat it was made in, or
+ * (for an offer from before chats were recorded) any chat it may show in.
+ */
+export function keeperOfferShownIn(
+  project: KeeperProject,
+  sessionId: string,
+): boolean {
+  return (
+    keeperOfferPending(project) &&
+    (!project.offeredIn || project.offeredIn === sessionId)
+  );
 }
 
 /**
@@ -219,12 +256,15 @@ export function setMemoryKeeper(path: string, on: boolean, now = Date.now()) {
           consent: "on",
           enabledAt: project.consent === "on" ? project.enabledAt : now,
           offeredAt: undefined,
+          offeredIn: undefined,
           requested: { at: now, manual: false },
         }
       : {
           ...project,
           consent: "off",
           offeredAt: undefined,
+          offeredIn: undefined,
+          declinedAt: now,
           requested: undefined,
         },
   );

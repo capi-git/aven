@@ -26,6 +26,8 @@ export type SessionRunStatus = {
     | "idle";
   label: string;
   detail: string;
+  /** While working: what the turn does now, without the agent count. */
+  doing?: string;
   startedAt?: number;
   durationMs?: number;
   canStop: boolean;
@@ -191,6 +193,7 @@ export function sessionRunStatus(
       // Plain "Working…" until the turn does something it can name.
       label: doing || active ? "Working" : "Working…",
       detail: [active, doing].filter(Boolean).join(" · "),
+      ...(doing ? { doing } : {}),
       ...(startedAt !== undefined && !validTime(turn?.block.durationMs)
         ? { startedAt }
         : {}),
@@ -310,4 +313,14 @@ export function sessionRunStatus(
         canStop: false,
       }
     : null;
+}
+
+/**
+ * Whether the status needs a row of its own even where the chat's team bar
+ * shows its work: a failure, signing in again, or messages waiting to send.
+ */
+export function runStatusNeedsOwnRow(status: SessionRunStatus): boolean {
+  return (
+    status.kind === "failed" || status.kind === "queued" || !!status.recovery
+  );
 }

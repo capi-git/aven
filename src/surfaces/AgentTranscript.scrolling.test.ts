@@ -16,13 +16,19 @@ let container: HTMLDivElement;
 let jumpToBottom: () => void;
 const showJump = vi.fn();
 const prompt: Block = { id: "user", role: "user", text: "Review the project" };
+/** Every observer's callback, to report a later resize as a browser would. */
+const resizeReports: (() => void)[] = [];
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      constructor(private callback: ResizeObserverCallback) {}
+      constructor(private callback: ResizeObserverCallback) {
+        resizeReports.push(() =>
+          this.callback([], this as unknown as ResizeObserver),
+        );
+      }
       // A real observer reports each element once it starts watching it,
       // after layout and before paint.
       observe(target: Element) {
@@ -38,6 +44,7 @@ beforeEach(() => {
     },
   );
   showJump.mockReset();
+  resizeReports.length = 0;
   jumpToBottom = () => {};
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -304,6 +311,26 @@ describe("transcript native scrolling", () => {
 });
 
 describe("transcript bottom following", () => {
+  it("keeps the last message above the stack over the message box as it grows", async () => {
+    // The stack (a team's bar, the review bar, an offer) sits below the
+    // transcript, not over it: a taller stack makes the viewport shorter,
+    // and a following transcript keeps its end in view.
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    metrics.resize(250);
+    await act(async () => {
+      for (const report of resizeReports) report();
+    });
+    expect(el.scrollTop).toBe(750);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    // And Jump to latest lands on the same end once the reader left it.
+    await wheel(el, -40);
+    await scrollTo(el, 500);
+    act(() => jumpToBottom());
+    expect(el.scrollTop).toBe(750);
+  });
+
   it("keeps following when a queued scroll event from the last pin lands after content grows", async () => {
     const el = await render(answer("One"));
     const metrics = scrollMetrics(el, 400, 1000);

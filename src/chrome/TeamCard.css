@@ -407,3 +407,28 @@ button.team-card-member-open:hover {
 .team-bar[data-state="stalled"] {
   border-color: var(--aven-needs-you-edge);
 }
+
+/* The chat's own run inside its bar (TeamRunDetails): what it is doing
+   takes what room the team's words leave and is cut first; the run's
+   elapsed time sits beside the buttons. */
+.team-bar:has([data-team-bar-doing]) [data-team-bar-text] {
+  flex: 0 1 auto;
+}
+.team-bar-doing::before {
+  content: "· ";
+}
+.team-bar-clock {
+  flex-shrink: 0;
+  padding-inline: 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+/* A narrow chat keeps the bar on one line: the time and the word Agents
+   go before any of the team's own buttons would be squeezed. */
+@container personal-composer-dock (max-width: 520px) {
+  .team-bar-clock,
+  .team-bar-agents-label {
+    display: none;
+  }
+}

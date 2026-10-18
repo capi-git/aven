@@ -6,9 +6,13 @@ import {
   Pause,
   Square,
 } from "../chrome/icons";
+import { SessionAgentList } from "../chrome/SessionAgentList";
 import { useActivity } from "../lib/activity";
 import type { Session, SessionAgent } from "../lib/session";
-import { sessionRunStatus } from "../lib/sessionRunStatus";
+import {
+  runStatusNeedsOwnRow,
+  sessionRunStatus,
+} from "../lib/sessionRunStatus";
 import { sessionAgentSummary } from "../lib/sessionAgents";
 import { visibleInterval } from "../lib/visibleInterval";
 import "./SessionRunStatus.css";
@@ -22,6 +26,12 @@ type Props = {
    * `teamBarOwnsStop`); one Stop is enough.
    */
   stopElsewhere?: boolean;
+  /**
+   * `attention`: the chat's team bar already shows its work, elapsed time
+   * and agents (see `TeamRunDetails`), so this row appears only for what
+   * asks for more: a failure, signing in, or queued messages.
+   */
+  placement?: "row" | "attention";
   onStop: (sessionId: string) => void;
   onOpenTerminal?: (sessionId: string) => void;
 };
@@ -35,12 +45,14 @@ export const SessionRunStatus = memo(function SessionRunStatus(props: Props) {
 function VisibleRunStatus({
   session,
   stopElsewhere = false,
+  placement = "row",
   onStop,
   onOpenTerminal,
 }: Props) {
   const entries = useActivity();
   const status = sessionRunStatus(session, entries);
   if (!status) return null;
+  if (placement === "attention" && !runStatusNeedsOwnRow(status)) return null;
   const running = status.kind === "working";
   const Icon = running
     ? LoaderCircle
@@ -149,54 +161,13 @@ function VisibleRunStatus({
   );
 }
 
-const agentStatusLabels: Record<SessionAgent["status"], string> = {
-  running: "Working",
-  waiting: "Waiting",
-  completed: "Done",
-  failed: "Failed",
-  stopped: "Stopped",
-  unknown: "Status unknown",
-};
-
 function AgentDetails({ agents }: { agents: SessionAgent[] }) {
   return (
     <details className="session-run-agents">
       <summary>
         Agents <span>{sessionAgentSummary(agents)}</span>
       </summary>
-      <ul aria-label="Agent status" className="session-run-agent-list">
-        {agents.map((agent) => {
-          const Icon =
-            agent.status === "running"
-              ? LoaderCircle
-              : agent.status === "completed"
-                ? Check
-                : agent.status === "waiting"
-                  ? Pause
-                  : agent.status === "stopped"
-                    ? Square
-                    : AlertCircle;
-          return (
-            <li key={agent.id} data-agent-state={agent.status}>
-              <span
-                aria-hidden="true"
-                className={
-                  agent.status === "running" ? "session-run-spinner" : undefined
-                }
-              >
-                <Icon className="size-3.5" />
-              </span>
-              <div className="session-run-agent-copy">
-                <strong>{agent.title}</strong>
-                {agent.detail ? <span>{agent.detail}</span> : null}
-              </div>
-              <span className="session-run-agent-label">
-                {agentStatusLabels[agent.status]}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+      <SessionAgentList agents={agents} />
     </details>
   );
 }

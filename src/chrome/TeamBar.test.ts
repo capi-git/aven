@@ -45,6 +45,10 @@ import { newSession, type Session } from "../lib/session";
 import { installTeamWorkspace } from "../lib/teamWorkspace";
 import { OrchestrationActions } from "./OrchestrationActions";
 import {
+  TeamRunStatusContext,
+  type TeamRunStatusValue,
+} from "./TeamRunDetails";
+import {
   runningSummary,
   STALLED_AFTER_MS,
   TeamBar,
@@ -162,12 +166,23 @@ async function show(
     idle = true,
     cwd = "/Users/me/app",
     onOpenDiscussion,
+    status = null,
   }: {
     idle?: boolean;
     cwd?: string;
     onOpenDiscussion?: (id: string) => void;
+    /** The chat as its pane provides it to the bar. */
+    status?: TeamRunStatusValue | null;
   } = {},
 ) {
+  const bar = createElement(TeamBar, {
+    sessionId,
+    cwd,
+    idle,
+    onSubmit: submit,
+    onStop: stop,
+    onOpenDiscussion,
+  });
   await act(async () =>
     root.render(
       createElement(
@@ -186,14 +201,7 @@ async function show(
                 id === "lead" ? "Build settings" : undefined,
             },
           },
-          createElement(TeamBar, {
-            sessionId,
-            cwd,
-            idle,
-            onSubmit: submit,
-            onStop: stop,
-            onOpenDiscussion,
-          }),
+          createElement(TeamRunStatusContext.Provider, { value: status }, bar),
         ),
       ),
     ),
@@ -550,6 +558,67 @@ describe("while orchestrating", () => {
         true,
       ),
     ).toBe("Orchestrating · 1 working");
+  });
+});
+
+describe("as the chat's own status", () => {
+  const leadAt = (patch: Partial<Session> = {}): Session => ({
+    ...newSession("claude", "/Users/me/app"),
+    id: "lead",
+    busy: true,
+    blocks: [
+      { id: "u", role: "user", text: "Go", startedAt: 1_000 },
+      {
+        id: "t",
+        role: "tool",
+        text: "npm test",
+        streaming: true,
+        tool: { kind: "execute", status: "in_progress" },
+      },
+    ],
+    liveAgents: [
+      { id: "a", title: "Task a", status: "running" },
+      { id: "b", title: "Task b", status: "completed" },
+    ],
+    ...patch,
+  });
+
+  it("says once what the team and this chat are doing, with the run's time and its agents", async () => {
+    vi.useFakeTimers({ now: 61_000 });
+    store.runs = [
+      run({ startedAt: 1_000, tasks: [task("a", { status: "running" })] }),
+    ];
+    await show("lead", {
+      idle: false,
+      status: { session: leadAt(), visible: true },
+    });
+    expect(text()).toBe("Orchestrating · 1 working");
+    expect(bar()?.querySelector("[data-team-bar-doing]")?.textContent).toBe(
+      "npm test",
+    );
+    expect(bar()?.querySelector("[data-team-bar-clock]")?.textContent).toBe(
+      "1:00",
+    );
+    // The agents sit behind one button, before the run's own actions.
+    expect(labels()).toEqual(["Agents2", "Open agents", "Stop run"]);
+    await press("Agents2");
+    const list = document.querySelector('[role="dialog"][aria-label="Agents"]');
+    expect(list?.textContent).toContain("1 active · 1 done");
+    expect(
+      [...(list?.querySelectorAll("li") ?? [])].map(
+        (row) => row.querySelector("strong")?.textContent,
+      ),
+    ).toEqual(["Task a", "Task b"]);
+  });
+
+  it("adds nothing in a parked pane, or where no pane provides the chat", async () => {
+    store.runs = [run({ tasks: [task("a", { status: "running" })] })];
+    await show("lead", { status: { session: leadAt(), visible: false } });
+    expect(bar()?.querySelector("[data-team-bar-clock]")).toBeNull();
+    expect(labels()).toEqual(["Open agents", "Stop run"]);
+    await show("lead");
+    expect(bar()?.querySelector("[data-team-bar-doing]")).toBeNull();
+    expect(labels()).toEqual(["Open agents", "Stop run"]);
   });
 });
 

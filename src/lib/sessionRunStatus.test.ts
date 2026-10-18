@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry } from "./activity";
 import type { Block, Session } from "./session";
-import { sessionRunStatus } from "./sessionRunStatus";
+import { runStatusNeedsOwnRow, sessionRunStatus } from "./sessionRunStatus";
 import { currentActivity } from "./workspaceHome";
 
 function user(id = "user", startedAt: number | null = 1_000): Block {
@@ -129,6 +129,7 @@ describe("sessionRunStatus", () => {
       kind: "working",
       label: "Working",
       detail: "npm test",
+      doing: "npm test",
       startedAt: 1_000,
       canStop: true,
     });
@@ -529,5 +530,44 @@ describe("sessionRunStatus", () => {
     expect(value).toMatchObject({ kind: "working", canStop: true });
     expect(value?.durationMs).toBeUndefined();
     expect(value?.startedAt).toBeUndefined();
+  });
+
+  it("names what a busy turn does apart from how many agents are active", () => {
+    const value = sessionRunStatus(
+      session({
+        busy: true,
+        blocks: [user(), tool("execute")],
+        liveAgents: [
+          { id: "one", title: "Asset inventory", status: "running" },
+          { id: "two", title: "Review", status: "running" },
+        ],
+      }),
+      [],
+    );
+    expect(value).toMatchObject({
+      kind: "working",
+      detail: "2 agents active · npm test",
+      doing: "npm test",
+    });
+  });
+
+  it("keeps a row of its own only for what asks for more than the team bar shows", () => {
+    const status = (patch: Partial<Session>, entries = [activity()]) =>
+      sessionRunStatus(session(patch), entries)!;
+    expect(runStatusNeedsOwnRow(status({ busy: true }))).toBe(false);
+    expect(runStatusNeedsOwnRow(status({}))).toBe(false);
+    expect(
+      runStatusNeedsOwnRow(
+        status({}, [
+          activity({
+            outcome: "failed",
+            id: "session:turn:runtime-uuid:failed",
+          }),
+        ]),
+      ),
+    ).toBe(true);
+    expect(runStatusNeedsOwnRow(status({ queuedMessages: queue }, []))).toBe(
+      true,
+    );
   });
 });

@@ -140,14 +140,34 @@ describe("which projects are busy", () => {
 
 describe("the consent offer", () => {
   it("appears after the first finished turn in a project with an empty memory", async () => {
-    await render();
+    await render([session("s1")]);
     await act(async () => void recordActivity(turn("t1")));
     await advance(0);
     expect(getKeeperProject(PROJECT).offeredAt).toBeDefined();
+    // It is asked in that chat alone.
+    expect(getKeeperProject(PROJECT).offeredIn).toBe("s1");
+  });
+
+  it("is brought only by a chat the user works in, in this window", async () => {
+    const inbox = { item: "x" } as unknown as Session["inboxAsk"];
+    for (const chat of [
+      session("s1", { orchestrationLeadId: "lead" }),
+      session("s1", { inboxAsk: inbox }),
+    ]) {
+      await render([chat]);
+      await act(async () => void recordActivity(turn(`t-${Math.random()}`)));
+      await advance(0);
+      expect(getKeeperProject(PROJECT).offeredAt).toBeUndefined();
+    }
+    // A chat another window holds: that window asks.
+    await render([session("elsewhere")]);
+    await act(async () => void recordActivity(turn("t-away")));
+    await advance(0);
+    expect(getKeeperProject(PROJECT).offeredAt).toBeUndefined();
   });
 
   it("is not offered when the memory has text, no model is installed, or the turn did not finish", async () => {
-    await render();
+    await render([session("s1")]);
     native.memory = { body: "- Use pnpm", updatedAt: 1 };
     await act(async () => void recordActivity(turn("t1")));
     await advance(0);

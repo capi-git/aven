@@ -35,6 +35,7 @@ import { RoleBadge } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationActions } from "./OrchestrationActions";
 import { TeamCardButton } from "./TeamCard";
+import { TeamRunDetails } from "./TeamRunDetails";
 import {
   ArrowRight,
   Check,
@@ -193,21 +194,35 @@ type Props = {
  * reads "<Discussing | Racing | Orchestrating> · <status>" with Watch,
  * Compare or Open agents, Resume while paused, Stop discussion, Stop race
  * or Stop run (see `teamBarStop`), and Go to <agent> when another chat
- * needs you.
+ * needs you. It also stands in for the chat's own status row while the
+ * team runs: what the chat is doing, the run's elapsed time and its agents
+ * (`TeamRunDetails`), so "2 working" is said once.
  * Another chat in a project an orchestration holds gets the reason and a
  * way to the lead. It renders only `TeamRun` data, so streaming in any of
- * the chats never renders it.
+ * the chats never renders it; the chat's own details are a leaf that reads
+ * the chat from its pane.
  */
 export const TeamBar = memo(function TeamBar(props: Props) {
   const team = useTeamOf(props.sessionId, { previews: true });
-  const shown =
-    !!team &&
-    teamIsOpen(team) &&
-    // An orchestration's bar is its lead's; workers have no message box.
-    (team.kind !== "orchestrate" || team.origin.sessionId === props.sessionId);
-  if (shown) return <OpenTeamBar team={team} {...props} />;
+  if (teamBarShows(team, props.sessionId))
+    return <OpenTeamBar team={team} {...props} />;
   return <BusyBar {...props} />;
 });
+
+/**
+ * Whether this chat draws its team's bar: the team is still open and, for
+ * an orchestration, this is its lead (workers have no message box).
+ */
+export function teamBarShows(
+  team: TeamRun | null | undefined,
+  sessionId: string,
+): team is TeamRun {
+  return (
+    !!team &&
+    teamIsOpen(team) &&
+    (team.kind !== "orchestrate" || team.origin.sessionId === sessionId)
+  );
+}
 
 function Frame({
   team,
@@ -430,6 +445,8 @@ function OpenTeamBar({
       <span className="sr-only" aria-live="polite">
         {announce}
       </span>
+      {/* Waiting on you, the row keeps to what the team needs. */}
+      {parts.reason ? null : <TeamRunDetails team={team} />}
       {elsewhere && actions ? (
         <TeamCardButton
           size="compact"

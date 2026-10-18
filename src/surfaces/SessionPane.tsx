@@ -31,9 +31,13 @@ import { isDetachedWorkspace } from "../lib/workspaceTransfers";
 import {
   TeamBar,
   teamBarOwnsStop,
+  teamBarShows,
   teamBarTakesBoxStop,
 } from "../chrome/TeamBar";
+import { TeamRunStatusContext } from "../chrome/TeamRunDetails";
 import { useTeamOf } from "../hooks/useTeamRuns";
+import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
+import { teamIsOpen, teamRole } from "../lib/teamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
@@ -256,6 +260,16 @@ export const SessionPane = memo(function SessionPane({
   // chat's agent at once, where the bar's End discussion lets it finish.
   const barStops = teamBarOwnsStop(team, session.id);
   const boxStopInBar = teamBarTakesBoxStop(team, session.id);
+  // While the team runs, its bar carries this chat's status too: one row
+  // says what the team and this chat are doing, with the run's time.
+  const teamRow = !session.inboxAsk && teamBarShows(team, session.id);
+  const raceLane = raceLaneFor(session.id);
+  // Never in a lane, partner, worker or Inbox chat, nor during its own run.
+  const offersMemoryKeeper = chatMayOfferMemoryKeeper(session, {
+    lane: !!raceLane,
+    teamRole: team ? teamRole(team, session.id) : null,
+    teamOpen: !!team && teamIsOpen(team),
+  });
   const runLocked = useOrchestrationSelector((runs) =>
     runs.some(
       (run) =>
@@ -272,10 +286,7 @@ export const SessionPane = memo(function SessionPane({
       void orchestrator.hydrate(session.id).catch(console.error);
   }, [session.id, session.inboxAsk]);
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
-  const paneLabel = sessionPaneLabel(
-    session,
-    raceLaneFor(session.id)?.lane.label,
-  );
+  const paneLabel = sessionPaneLabel(session, raceLane?.lane.label);
   // The provider at work, as the chat's tab marks it.
   const paneHarness = sessionModelIdentity(session).harness;
   const backgroundRevision = useSyncExternalStore(
@@ -573,6 +584,19 @@ export const SessionPane = memo(function SessionPane({
       ),
     [idle, inboxAsk, onStop, openDiscussion, runsCwd, sessionId, submitText],
   );
+  const statusSession = useMemo(
+    () =>
+      sessionWithManagedAgents(
+        session,
+        ownRun ? [ownRun] : NO_RUNS,
+        workerAgents,
+      ),
+    [session, ownRun, workerAgents],
+  );
+  const teamRunStatus = useMemo(
+    () => ({ session: statusSession, visible }),
+    [statusSession, visible],
+  );
   const review = useMemo(
     () =>
       inboxAsk ? null : (
@@ -769,9 +793,13 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
-          {/* Asked once per project, in the chat the user is looking at. */}
-          {visible && focused && !session.inboxAsk && memoryProject ? (
-            <MemoryKeeperOffer project={memoryProject} />
+          {/* Asked once per project, in the chat whose turn brought it. */}
+          {visible && memoryProject && offersMemoryKeeper ? (
+            <MemoryKeeperOffer
+              project={memoryProject}
+              sessionId={session.id}
+              focused={focused}
+            />
           ) : null}
           {/* One chat per tab offers the project's dev server: the focused one. */}
           {visible && focused && !session.inboxAsk ? (
@@ -786,17 +814,16 @@ export const SessionPane = memo(function SessionPane({
             <DuplicateServerChip placement="chat" sessionId={session.id} />
           ) : null}
           <SessionRunStatus
-            session={sessionWithManagedAgents(
-              session,
-              ownRun ? [ownRun] : NO_RUNS,
-              workerAgents,
-            )}
+            session={statusSession}
             visible={visible}
             stopElsewhere={barStops}
+            placement={teamRow ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
-          {composer}
+          <TeamRunStatusContext.Provider value={teamRunStatus}>
+            {composer}
+          </TeamRunStatusContext.Provider>
         </div>
       ) : null}
     </div>

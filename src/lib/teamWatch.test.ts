@@ -24,6 +24,7 @@ import {
   TEAM_PANEL_PREFIX,
   teamPills,
   teamPillText,
+  teamPillWords,
   teamWatchTitle,
   watchStarted,
   type TeamWatchView,
@@ -307,6 +308,28 @@ describe("pills", () => {
         }),
       ),
     ).toEqual({ progress: "2 working · 1 queued", status: "Orchestrating" });
+  });
+
+  it("never draws the same words twice on a pill", () => {
+    // Only the lead at work: where it stands and what happens read alike.
+    const reviewing = team({
+      id: "orchestrate:lead",
+      kind: "orchestrate",
+      progress: "Lead reviewing",
+      members: [member("lead", { role: "lead", state: "working" })],
+    });
+    expect(teamPillText(reviewing)).toEqual({
+      progress: "Lead reviewing",
+      status: "Lead reviewing",
+    });
+    expect(teamPillWords(reviewing)).toEqual({
+      progress: "",
+      status: "Lead reviewing",
+    });
+    // Different words keep both parts.
+    expect(
+      teamPillWords(team({ id: "race:r1", progress: "1 of 2 done" })),
+    ).toEqual({ progress: "1 of 2 done", status: "Racing" });
   });
 
   it("titles the panel by kind", () => {

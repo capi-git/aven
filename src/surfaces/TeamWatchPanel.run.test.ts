@@ -45,7 +45,7 @@ import {
 } from "../lib/orchestration";
 import { newSession, type Session } from "../lib/session";
 import { installTeamWorkspace } from "../lib/teamWorkspace";
-import { TeamWatchFloat } from "./TeamWatchPanel";
+import { TeamWatchFloat, TeamWatchPills } from "./TeamWatchPanel";
 
 const task = (
   id: string,
@@ -97,6 +97,8 @@ let live: LiveSessionStore;
 let values: Map<string, string>;
 let panel: TeamWatchControls;
 let card: OrchestrationRun | null = null;
+/** Pills docked in a footer slot, as the workspace window shows them. */
+let docked = false;
 const onStop = vi.fn();
 const openAgents = vi.fn();
 const open = vi.fn();
@@ -123,7 +125,15 @@ function Workspace() {
       sessions: [chat("lead")],
       onStop,
       popOuts: null,
+      pillsDocked: docked,
     }),
+    docked
+      ? createElement(
+          "footer",
+          { "data-test-footer": "" },
+          createElement(TeamWatchPills, { panel, sessions: [chat("lead")] }),
+        )
+      : null,
     card
       ? createElement(OrchestrationTeamCard, {
           run: card,
@@ -176,6 +186,7 @@ beforeEach(() => {
     removeItem: (key: string) => values.delete(key),
   });
   card = null;
+  docked = false;
   live = createLiveSessionStore([]);
   uninstall = installTeamWorkspace({
     reviewChanges: vi.fn(),
@@ -199,6 +210,26 @@ afterEach(async () => {
 });
 
 describe("an orchestration in the team panel", () => {
+  it("docks its pill in the footer's slot instead of floating it", async () => {
+    docked = true;
+    store.runs = [run({ tasks: [task("a")] })];
+    live = createLiveSessionStore([chat("lead"), worker("a", { busy: true })]);
+    await mount();
+    const footer = container.querySelector("[data-test-footer]");
+    expect(pill()?.closest("[data-test-footer]")).toBe(footer);
+    expect(pill()?.dataset.docked).toBe("true");
+    // Docked, it is never cut out of a native page and never floats.
+    expect(pill()?.hasAttribute("data-native-browser-occluded")).toBe(false);
+    expect(container.querySelector(".discussion-pills")).toBeNull();
+    expect(container.querySelectorAll("[data-team-pill]")).toHaveLength(1);
+    // Pressing it opens the panel, and shrinking brings it back there.
+    await act(async () => pill()!.click());
+    expect(view()?.dataset.teamKind).toBe("orchestrate");
+    expect(pill()).toBeNull();
+    await act(async () => panel.shrink());
+    expect(pill()?.closest("[data-test-footer]")).toBe(footer);
+  });
+
   it("shows the lead, then each agent with what it does, waits for or asks", async () => {
     store.runs = [
       run({

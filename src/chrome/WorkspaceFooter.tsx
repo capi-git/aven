@@ -10,11 +10,17 @@ export type WorkspaceFooterProps = {
   terminalOpen?: boolean;
   /** Account usage for the agents in use. */
   usage?: ReactNode;
+  /**
+   * The window's shrunk teams (see `TeamWatchPills`): a slot of their own,
+   * so they never float over the work area or the side panel.
+   */
+  teams?: ReactNode;
 };
 
 /**
- * Agents and the terminal only. Branch, changes and pull requests live in
- * the file sidebar's Changes tab, beside the diff they describe.
+ * Agents, their teams and the terminal only. Branch, changes and pull
+ * requests live in the file sidebar's Changes tab, beside the diff they
+ * describe.
  */
 export const WorkspaceFooter = memo(function WorkspaceFooter({
   active,
@@ -22,6 +28,7 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
   onToggleTerminal,
   terminalOpen = false,
   usage,
+  teams,
 }: WorkspaceFooterProps) {
   if (!active) return null;
   const terminalEnabled = !!cwd && cwd !== "~" && !!onToggleTerminal;
@@ -29,6 +36,7 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
   return (
     <footer className="workspace-footer" aria-label="Workspace status">
       <div className="workspace-footer-usage">{usage}</div>
+      {teams ? <div className="workspace-footer-teams">{teams}</div> : null}
 
       <div className="workspace-footer-tools">
         <button

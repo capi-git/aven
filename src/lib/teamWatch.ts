@@ -468,6 +468,21 @@ export function teamPillText(team: TeamRun): {
   };
 }
 
+/**
+ * The pill's words as it draws them: never the same thing twice. A run
+ * with nothing but its lead at work is "Lead reviewing" both in where it
+ * stands and in what is happening, so only the status stays.
+ */
+export function teamPillWords(team: TeamRun): {
+  progress: string;
+  status: string;
+} {
+  const { progress, status } = teamPillText(team);
+  const same =
+    progress.trim().toLocaleLowerCase() === status.trim().toLocaleLowerCase();
+  return same ? { progress: "", status } : { progress, status };
+}
+
 // --- A popped-out panel ----------------------------------------------------------
 
 /**

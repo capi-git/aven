@@ -94,7 +94,7 @@ import {
 } from "./lib/discussions";
 import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
 import { useTeamWatch } from "./hooks/useTeamWatch";
-import { TeamWatchFloat } from "./surfaces/TeamWatchPanel";
+import { TeamWatchFloat, TeamWatchPills } from "./surfaces/TeamWatchPanel";
 import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
@@ -187,6 +187,7 @@ import {
   openAgentBrowserTab,
   createAgentBrowserRouter,
   presentAgentBrowserView,
+  agentRequesterTab,
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
@@ -196,9 +197,12 @@ import {
   openDevPreview,
   previewBelongsTo,
   previewTabMatch,
+  previewTabsOnServer,
   publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
+import { installDevServerStarter } from "./lib/devServerStart";
+import { queueTerminalCommand } from "./lib/pty";
 import {
   newSessionChangesWorkspaceTab,
   reviewPaneFor,
@@ -1232,15 +1236,19 @@ export default function App({
             )
               throw new Error("The task is no longer available.");
             const project = session.cwd;
+            const before =
+              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER;
             // No await between selecting and committing: overlapping opens see the
             // committed tab and return the same surface instead of creating copies.
             const {
               tab: { id },
               workspace,
-            } = openAgentBrowserTab(
-              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
-              url,
-              { ...options, focus: placement.activate },
+            } = openAgentBrowserTab(before, url, {
+              ...options,
+              focus: placement.activate,
+            });
+            const created = !normalizeBrowserWorkspace(before).tabs.some(
+              (page) => page.id === id,
             );
             const surfaceId = browserIdForTab(project, id);
             if (detachedIdsRef.current.has(surfaceId)) {
@@ -1261,13 +1269,21 @@ export default function App({
               }));
             });
             // Show a requested page in the active project without switching
-            // profiles, beside the chat that asked for it rather than behind it.
-            // arrange:false leaves the panes alone; a new page waits as a
-            // background tab in the focused pane.
-            if (sameProjectPath(projectCwdRef.current, project)) {
-              const requester = tabsRef.current.find((tab) =>
-                leafIds(tab.layout).includes(sessionId),
-              )?.id;
+            // profiles, in the browser pane already open (one showing the
+            // same server first), else beside the chat that asked for it,
+            // never behind it. arrange:false only lets a new page join an
+            // open browser pane as a background tab (without one it waits
+            // in the focused pane) and never moves a page already open.
+            if (
+              sameProjectPath(projectCwdRef.current, project) &&
+              (placement.arrange || created)
+            ) {
+              // A worker has no tab of its own: its lead's chat asked.
+              const requester = agentRequesterTab(tabsRef.current, [
+                sessionId,
+                session.orchestrationLeadId,
+              ]);
+              const pages = workspace.tabs.filter((page) => page.id !== id);
               viewRef.current.change((view) =>
                 presentAgentBrowserView(
                   view,
@@ -1277,9 +1293,12 @@ export default function App({
                   ),
                   requester,
                   placement.arrange,
+                  previewTabsOnServer(pages, url).map((page) =>
+                    browserIdForTab(project, page.id),
+                  ),
                 ),
               );
-            } else {
+            } else if (!sameProjectPath(projectCwdRef.current, project)) {
               // Never switch projects under the user; say where the page went.
               const notice: AgentPageNotice = {
                 id: surfaceId,
@@ -1722,6 +1741,14 @@ export default function App({
     !profileHome &&
     !homeViewOpen &&
     view.order.length > 0 &&
+    !settingsOpen &&
+    !searchViewOpen &&
+    !inboxViewOpen &&
+    !automationsViewOpen &&
+    !notesViewOpen;
+  // The footer shows outside the full-window views; while it does, shrunk
+  // teams sit in it rather than floating over the workspace.
+  const footerShown =
     !settingsOpen &&
     !searchViewOpen &&
     !inboxViewOpen &&
@@ -3521,6 +3548,39 @@ export default function App({
       return true;
     },
     [focusProjectTerminal],
+  );
+
+  // A preview tab's Start dev server: a new terminal in the project's panel
+  // runs the script, queued until its shell starts like any terminal
+  // command. The panel opens to show the output; focus stays where it is.
+  useEffect(
+    () =>
+      installDevServerStarter((project, command) => {
+        const projectPath = projectCwdRef.current;
+        if (
+          !looksLikeProject(projectPath) ||
+          !sameProjectPath(projectPath, project)
+        )
+          return false;
+        const existing = findProjectTerminal(
+          projectTerminalsRef.current,
+          projectPath,
+        );
+        const file = newTerminalFile(
+          projectPath,
+          existing ? nextDockTerminalTitle(existing, projectPath) : undefined,
+        );
+        queueTerminalCommand(file.id, command);
+        setProjectTerminals((prev) =>
+          findProjectTerminal(prev, projectPath)
+            ? mapProjectTerminal(prev, projectPath, (dock) =>
+                addTerminalToDock(dock, file),
+              )
+            : [...prev, createProjectTerminal(projectPath, file)],
+        );
+        return true;
+      }),
+    [],
   );
 
   // New terminals open in the active session's worktree when it has one, so
@@ -10381,12 +10441,9 @@ export default function App({
                   />
                 </div>
                 <WorkspaceFooter
-                  active={
-                    !settingsOpen &&
-                    !searchViewOpen &&
-                    !inboxViewOpen &&
-                    !automationsViewOpen &&
-                    !notesViewOpen
+                  active={footerShown}
+                  teams={
+                    <TeamWatchPills panel={teamWatch} sessions={sessions} />
                   }
                   cwd={profileHome ? "~" : gitCwd}
                   onToggleTerminal={() => {
@@ -10533,6 +10590,7 @@ export default function App({
               host={discussions.host}
               onOpenFile={onOpenFile}
               onStop={onStop}
+              pillsDocked={footerShown}
             />
             <ApprovalToasts
               notices={hiddenApprovalToasts}

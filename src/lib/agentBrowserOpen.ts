@@ -1,4 +1,5 @@
 import { normalizeBrowserUrl } from "./browser";
+import { leafIds, type LayoutNode } from "./layout";
 import { placeAgentBrowserView, type WorkspaceView } from "./workspaceViews";
 import {
   addRetainedBrowserTab,
@@ -65,17 +66,40 @@ export function createAgentBrowserRouter() {
   };
 }
 
-/** A window may add a background tab while preserving every pane selection. */
+/**
+ * The tab of the chat an agent's page was asked for from: the asking chat's
+ * own, else (a worker, which has no tab) its lead's.
+ */
+export function agentRequesterTab(
+  tabs: readonly { id: string; layout: LayoutNode }[],
+  chats: readonly (string | undefined)[],
+): string | undefined {
+  for (const chat of chats) {
+    if (!chat) continue;
+    const tab = tabs.find((entry) => leafIds(entry.layout).includes(chat));
+    if (tab) return tab.id;
+  }
+  return undefined;
+}
+
+/**
+ * Where an agent's page goes: a browser pane already open (one showing the
+ * same server first), never the asking chat's own pane while one is open.
+ * With `arrange` off it only joins such a pane as a background tab, and
+ * otherwise waits where it was added, every pane selection kept.
+ */
 export function presentAgentBrowserView(
   view: WorkspaceView,
   id: string,
   browserIds: readonly string[],
   requesterId?: string,
   arrange = true,
+  sameServerIds: readonly string[] = [],
 ): WorkspaceView {
-  return arrange
-    ? placeAgentBrowserView(view, id, browserIds, requesterId)
-    : view;
+  return placeAgentBrowserView(view, id, browserIds, requesterId, {
+    sameSite: sameServerIds,
+    background: !arrange,
+  });
 }
 
 /** An emitted request succeeds only after delivery and the owner's checkpoint. */

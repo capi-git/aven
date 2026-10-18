@@ -584,17 +584,29 @@ describe("orchestration composer and card", () => {
     }
     await act(async () => root.render(createElement(LeadPane, {})));
     // Detailed worker panes stay on the sidebar. Compact status is available
-    // above the composer without narrowing the lead's transcript.
+    // above the composer without narrowing the lead's transcript: the run's
+    // one bar says what the team does, with its agents behind one button,
+    // and no second status row repeats it.
     expect(container.querySelector("[data-orchestration-agents]")).toBeNull();
     expect(container.textContent).toContain("I am coordinating the work.");
-    const agentStatus = container.querySelector<HTMLDetailsElement>(
-      ".session-run-agents",
+    expect(container.querySelector(".session-run-status")).toBeNull();
+    const runBar = container.querySelector<HTMLElement>(
+      '[data-orchestration-bar="lead"]',
     )!;
-    expect(agentStatus.open).toBe(false);
-    expect(agentStatus.textContent).toContain("UI worker");
-    expect(container.querySelector(".session-run-copy")?.textContent).toContain(
-      "Agents still working",
+    expect(runBar.querySelector("[data-team-bar-text]")?.textContent).toBe(
+      "Orchestrating · 2 working",
     );
+    const agents = runBar.querySelector<HTMLButtonElement>(
+      "[data-team-bar-agents]",
+    )!;
+    expect(agents.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("UI worker");
+    await act(async () => agents.click());
+    expect(
+      document.querySelector('[role="dialog"][aria-label="Agents"]')
+        ?.textContent,
+    ).toContain("UI worker");
+    await act(async () => agents.click());
     expect(open).not.toHaveBeenCalled();
     const composer = container.querySelector("textarea")!;
     await input(composer, "Ask the UI worker to check keyboard navigation.");
