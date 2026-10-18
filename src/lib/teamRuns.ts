@@ -1,7 +1,7 @@
 /**
  * One read-only view of the three kinds of team run: a discussion between
- * two chats, a race between agents in separate copies, and an orchestration
- * of a lead and its workers. Each feature's own store stays the source of
+ * two chats, a race between agents that each work separately, and an
+ * orchestration of a lead and its workers. Each feature's own store stays the source of
  * truth; these adapters only describe a run the same way, so one bar, one
  * card and one "Needs you" rule can serve all three.
  *
@@ -17,7 +17,7 @@ import {
   type Discussion,
   type DiscussionSide,
 } from "./discussions";
-import { voiceName } from "./discussionVoices";
+import { agentFullName, agentNames, type NamedAgent } from "./agentNames";
 import {
   taskWaitingReason,
   type OrchestrationRun,
@@ -30,16 +30,18 @@ import {
   raceProgress,
   type RaceLaneKind,
 } from "./raceLanes";
+import { raceAgentNames, raceFullName, raceModelName } from "./raceNames";
 import { finalReply, replyOpening } from "./replyText";
+import { requestText } from "./requestText";
 import { modelDisplayName } from "./sessionLabels";
 import {
-  HARNESS_TITLE,
   hasPendingApproval,
   sessionDisplayTitle,
   type HarnessId,
   type Session,
 } from "./session";
 import { pendingRequestKey, teamAttention } from "./teamAttention";
+import { plural } from "./words";
 import { currentActivity } from "./workspaceHome";
 
 export type TeamKind = "discuss" | "race" | "orchestrate";
@@ -63,8 +65,13 @@ export type TeamMember = {
   harness: HarnessId;
   /** The model's display name ("GPT-5"), never a raw id. */
   model: string;
-  /** "Claude · Sonnet 5", a race lane's label, or a worker's task title. */
+  /**
+   * How the team names it: "Claude", or "Claude Sonnet 5" beside another
+   * Claude (see `agentNames`); a worker's task title.
+   */
   label: string;
+  /** "Claude Code · Sonnet 5": its full name, for tooltips. */
+  fullName?: string;
   role: TeamMemberRole;
   /**
    * The light role it was brought in with (Reviewer, Skeptic…), for this
@@ -79,7 +86,10 @@ export type TeamMember = {
   stateLabel: string;
   /** While working: what it is doing now ("Edit App.tsx"). */
   doing?: string;
-  /** What it asks you, while its state is needs-you. */
+  /**
+   * What it asks, while its state is needs-you, in plain words: "Codex
+   * wants to run npm test", "Claude asked: Which port?".
+   */
   asking?: { kind: "approval" | "question"; text: string };
   /** When its latest turn started, and how long it took once it ended. */
   startedAt?: number;
@@ -114,7 +124,7 @@ export type TeamStatus =
 export type TeamNeed = {
   sessionId: string;
   kind: "approval" | "question" | "error" | "paused";
-  /** A plain sentence. */
+  /** What is needed, in plain words: "Codex wants to run npm test". */
   text: string;
   /** When it started waiting, as far as the store knows. */
   since: number;
@@ -133,7 +143,7 @@ export type TeamNeed = {
 
 /** How a team ended, for its result card and its one Activity entry. */
 export type TeamResult = {
-  /** "Kept Codex's version · 7 files", "Discussed for 4 rounds". */
+  /** "Kept Codex's version · 7 files", "Discussion finished · 4 rounds". */
   headline: string;
   /** One line on why: the suggested winner's reason, the lead's verdict. */
   why?: string;
@@ -219,23 +229,25 @@ function firstLine(text: string, max = TITLE_CHARS): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-/** What a loaded member asks you, if anything. */
+/**
+ * What a loaded member asks, if anything, named as the team names it: of
+ * you, or of its lead (`to`) for a run's agent the lead decides for.
+ */
 function ownRequest(
   session: Session | undefined,
+  name: string,
+  to: "you" | "lead" = "you",
 ): TeamMember["asking"] | undefined {
   if (!session) return undefined;
   if (session.pendingQuestion)
     return {
       kind: "question",
-      text: firstLine(
-        session.pendingQuestion.title ||
-          session.pendingQuestion.questions[0]?.prompt ||
-          `${HARNESS_TITLE[session.harness]} has a question for you`,
-      ),
+      text: requestText(name, {
+        kind: "question",
+        what:
+          session.pendingQuestion.title ||
+          session.pendingQuestion.questions[0]?.prompt,
+      }),
     };
   if (!hasPendingApproval(session.blocks)) return undefined;
   for (let index = session.blocks.length - 1; index >= 0; index--) {
@@ -243,12 +255,23 @@ function ownRequest(
     if (block.approval && !block.approval.decided)
       return {
         kind: "approval",
-        text: firstLine(
-          `Approve: ${block.tool?.title || block.text || HARNESS_TITLE[session.harness]}`,
-        ),
+        text: requestText(name, {
+          kind: "approval",
+          what: block.tool?.title || block.text,
+          tool: block.tool?.kind,
+          to,
+        }),
       };
   }
   return undefined;
+}
+
+/** Whether a loaded chat is waiting on an approval or answer. */
+function asksSomething(session: Session | undefined): boolean {
+  return (
+    !!session &&
+    (!!session.pendingQuestion || hasPendingApproval(session.blocks))
+  );
 }
 
 function doingOf(session: Session | undefined, look: TeamLookup) {
@@ -267,15 +290,18 @@ export function discussionTeam(
   const speaking = speakingSide(discussion);
   const ended = discussion.status === "ended";
   const completed = ended && discussion.ended?.kind === "completed";
+  const names = agentNames([discussion.a, discussion.b]);
   const member = (side: DiscussionSide): TeamMember => {
     const party = side === "a" ? discussion.a : discussion.b;
     const session = look.session(party.sessionId);
-    const asking = ended ? undefined : ownRequest(session);
+    const name = names[side === "a" ? 0 : 1];
+    const asking = ended ? undefined : ownRequest(session, name);
     const base = {
       sessionId: party.sessionId,
       harness: party.harness,
       model: party.model,
-      label: voiceName(party),
+      label: name,
+      fullName: agentFullName(party),
       role: side === "a" ? ("opener" as const) : ("responder" as const),
       ...(party.role ? { agentRole: party.role } : {}),
       title: party.title,
@@ -304,7 +330,7 @@ export function discussionTeam(
     : completed
       ? plural(discussion.rounds, "round")
       : done
-        ? `Stopped after ${plural(done, "round")} of ${discussion.rounds}`
+        ? `Stopped after ${done} of ${plural(discussion.rounds, "round")}`
         : "Stopped";
   const { status, need } = teamAttention({
     kind: "discuss",
@@ -334,7 +360,7 @@ export function discussionTeam(
     ...(completed
       ? {
           result: {
-            headline: `Discussed for ${plural(discussion.rounds, "round")}`,
+            headline: `Discussion finished · ${plural(discussion.rounds, "round")}`,
           },
         }
       : {}),
@@ -387,11 +413,13 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
       race.ends?.[index],
     ),
   );
+  const names = raceAgentNames(race.lanes);
   const members = race.lanes.map((lane, index): TeamMember => {
     const session = look.session(lane.sessionId);
     const lanes = laneStates[index];
     const state = LANE_STATE[lanes.kind];
-    const asking = state === "needs-you" ? ownRequest(session) : undefined;
+    const asking =
+      state === "needs-you" ? ownRequest(session, names[index]) : undefined;
     const stats = race.stats?.[index];
     // How it ended, in its own words: only once it stopped working.
     const reply =
@@ -401,8 +429,9 @@ export function raceTeam(race: RaceRecord, look: TeamLookup): TeamRun {
     return {
       sessionId: lane.sessionId,
       harness: lane.harness,
-      model: lane.model,
-      label: lane.label,
+      model: raceModelName(lane),
+      label: names[index],
+      fullName: raceFullName(lane),
       role: "lane",
       state,
       stateLabel: lanes.label,
@@ -488,7 +517,7 @@ function workerState(
     case "cancelling":
       // A worker's approval or question is its lead's to decide, not yours,
       // until the lead leaves it unanswered and Aven hands it to you.
-      if (session && ownRequest(session))
+      if (asksSomething(session) && session)
         return task.escalated !== undefined &&
           task.escalated === pendingRequestKey(session)
           ? { state: "needs-you", stateLabel: "Needs you" }
@@ -509,7 +538,7 @@ function workerState(
 }
 
 /**
- * An open run's agents, "2 working · 1 waiting", or the lead's part when no
+ * An open run's agents, "2 working · 1 queued", or the lead's part when no
  * agent is busy. The run's bar says the same after "Orchestrating".
  */
 export function runActivityText(
@@ -522,10 +551,10 @@ export function runActivityText(
   const waiting = run.tasks.filter((task) => task.status === "queued").length;
   const parts = [
     working ? `${working} working` : "",
-    waiting ? `${waiting} waiting` : "",
+    waiting ? `${waiting} queued` : "",
   ].filter(Boolean);
   if (!parts.length)
-    parts.push(leadWorking ? "the lead is reviewing" : "waiting on the lead");
+    parts.push(leadWorking ? "Lead reviewing" : "Waiting on the lead");
   return parts.join(" · ");
 }
 
@@ -571,8 +600,6 @@ export function orchestrationTeam(
 ): TeamRun {
   const leadSession = look.session(run.leadId);
   const over = run.status === "finished" || run.status === "stopped";
-  const leadAsking =
-    run.status === "active" ? ownRequest(leadSession) : undefined;
   const leadHarness = run.lead?.harness ?? leadSession?.harness ?? "claude";
   // Names, never ids: the run keeps the lead's model name, and its plan the
   // names of the models its agents use.
@@ -581,11 +608,23 @@ export function orchestrationTeam(
     (leadSession
       ? modelDisplayName(leadSession.harness, leadSession.model)
       : "");
+  const leadAgent: NamedAgent = { harness: leadHarness, model: leadModel };
+  const agents: NamedAgent[] = [
+    leadAgent,
+    ...run.tasks.map((task) => ({
+      harness: task.harness,
+      model: modelDisplayName(task.harness, task.model, run.allowedModels),
+    })),
+  ];
+  const names = agentNames(agents);
+  const leadAsking =
+    run.status === "active" ? ownRequest(leadSession, names[0]) : undefined;
   const lead: TeamMember = {
     sessionId: run.leadId,
     harness: leadHarness,
     model: leadModel,
-    label: voiceName({ harness: leadHarness, model: leadModel }),
+    label: names[0],
+    fullName: agentFullName(leadAgent),
     role: "lead",
     ...(over
       ? run.status === "finished"
@@ -605,10 +644,11 @@ export function orchestrationTeam(
                 stateLabel: "Reviewing",
                 ...doingOf(leadSession, look),
               }
-            : { state: "queued" as const, stateLabel: "Waiting" }),
+            : { state: "queued" as const, stateLabel: "Waiting on agents" }),
   };
-  const workers = run.tasks.map((task): TeamMember => {
+  const workers = run.tasks.map((task, index): TeamMember => {
     const session = look.session(task.sessionId);
+    const agent = agents[index + 1];
     const { state, stateLabel } = workerState(run, task, session);
     // What a watcher shows beyond the card: why it waits, what its lead is
     // deciding for it, and which files it touched.
@@ -619,7 +659,11 @@ export function orchestrationTeam(
     // What it asks: the lead's to decide (detail only), or yours.
     const asking =
       state === "needs-you" || (look.detail && state === "lead-deciding")
-        ? ownRequest(session)
+        ? ownRequest(
+            session,
+            names[index + 1],
+            state === "lead-deciding" ? "lead" : "you",
+          )
         : undefined;
     const files = look.detail
       ? task.touched?.slice(0, TEAM_MEMBER_FILES)
@@ -627,8 +671,9 @@ export function orchestrationTeam(
     return {
       sessionId: task.sessionId,
       harness: task.harness,
-      model: modelDisplayName(task.harness, task.model, run.allowedModels),
+      model: agent.model,
       label: task.title,
+      fullName: agentFullName(agent),
       role: "worker",
       ...(task.role ? { agentRole: task.role } : {}),
       state,
@@ -666,7 +711,7 @@ export function orchestrationTeam(
     (leadSession
       ? sessionDisplayTitle(leadSession.title, leadSession.harness)
       : "") ||
-    "Orchestration";
+    "Run";
   return {
     id: `orchestrate:${run.leadId}`,
     kind: "orchestrate",

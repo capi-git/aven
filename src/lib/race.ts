@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
 import { readAgentRole, type AgentRoleId } from "./agentRoles";
+import { logError } from "./errors";
 import { isEqualOrInside } from "./paths";
 import type { Attachment, Block, HarnessId, Session } from "./session";
 
@@ -533,27 +534,41 @@ export function isFinishingRaceCheckout(path: string): boolean {
  */
 export type RaceKeep = { lane: number } | { files: RaceSelection };
 
+/** A race action refused for a reason worth showing as it is. */
+export class RaceRefusal extends Error {}
+
+/** What a cleanup that failed leaves on the race, in plain words. */
+export const RACE_CLEANUP_ERROR =
+  "Some leftover race files couldn't be cleaned up.";
+
 /** Stop every writer before reading its final diff or deleting its checkout. */
 export async function finishRace(
   race: RaceRecord,
   keep: RaceKeep | null,
 ): Promise<void> {
   if (finishing.has(race.id))
-    throw new Error("This race is already finishing.");
+    throw new RaceRefusal("This race is already finishing.");
   if (getRace(race.id)?.state !== "running")
-    throw new Error("This race has already finished.");
+    throw new RaceRefusal("This race has already finished.");
   const host = raceWorkspace();
   if (!host)
-    throw new Error(
-      "The race workspace is unavailable. Reopen it and try again.",
+    throw new RaceRefusal(
+      "Aven couldn't reach this race. Reopen the project and try again.",
     );
   if (keep && "files" in keep && !raceChoices(race, keep.files).length)
-    throw new Error("Choose at least one file to keep.");
+    throw new RaceRefusal("Choose at least one file to keep.");
   if (keep && "lane" in keep && !race.lanes[keep.lane])
-    throw new Error("That agent is no longer part of this race.");
+    throw new RaceRefusal("That agent is no longer part of this race.");
   finishing.add(race.id);
   try {
-    await host.settle(race);
+    try {
+      await host.settle(race);
+    } catch (error) {
+      logError("Race settle", error);
+      throw new RaceRefusal(
+        "Couldn't stop every agent, so nothing changed. Try again.",
+      );
+    }
     let outcome: RaceOutcome | undefined;
     let mixed: RaceSelection | undefined;
     if (keep) {
@@ -604,18 +619,28 @@ export async function finishRace(
       }
       const choices = raceChoices(race, selection);
       if (!choices.length)
-        throw new Error(
+        throw new RaceRefusal(
           "lane" in keep
-            ? "This agent's copy has no changes to keep."
+            ? "This agent has no changes to keep."
             : "None of the files you picked are changed any more. Pick again.",
         );
-      await raceHost.apply(race.root, race.base, choices);
+      try {
+        await raceHost.apply(race.root, race.base, choices);
+      } catch (error) {
+        logError("Race keep", error);
+        throw new RaceRefusal(
+          String(error).includes("conflict with edits in your project")
+            ? "These changes conflict with edits in your project. Save or undo those edits, then try again."
+            : "Couldn't bring those changes into your project. Try again.",
+        );
+      }
     }
     let cleanupError: string | undefined;
     try {
       await raceHost.cleanup(race.root, race.lanes);
     } catch (error) {
-      cleanupError = `Copies were not all removed: ${String(error)}`;
+      logError("Race cleanup", error);
+      cleanupError = RACE_CLEANUP_ERROR;
     }
     updateRace(race.id, {
       state: keep ? "kept" : "discarded",

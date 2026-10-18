@@ -1,4 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
+import { agentFullName, agentNameIn } from "../lib/agentNames";
 import { discussionStore } from "../lib/discussions";
 import type { DiscussionRelayMeta } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
@@ -34,25 +35,28 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
   const opening = meta.turn === 0;
   const round = Math.min(meta.rounds, Math.floor(meta.turn / 2) + 1);
   const { partner } = meta;
+  // "Codex", or "Claude Opus 4.6" when this chat is a Claude too.
+  const name = agentNameIn(
+    partner,
+    meta.self ? [partner, meta.self] : [partner],
+  );
   const content = (
     <>
       <MessageMultiple className="size-3 shrink-0" />
-      <span className="shrink-0">
-        {opening ? "Discussion with" : "Relayed from"}
-      </span>
+      <span className="shrink-0">{opening ? "Discussion with" : "From"}</span>
       <ProjectMark path={partner.cwd} />
       <HarnessIcon harness={partner.harness} className="size-3 shrink-0" />
       <span
         className="min-w-0 truncate text-content/80"
-        title={`${partner.model} in “${partner.title}”`}
+        title={`${agentFullName(partner)} in “${partner.title}”`}
       >
-        {partner.model} in “{partner.title}”
+        {name} in “{partner.title}”
       </span>
       <span className="shrink-0 text-content/40">
         ·{" "}
         {opening
           ? `${meta.rounds} ${meta.rounds === 1 ? "round" : "rounds"}`
-          : `round ${round} of ${meta.rounds}`}
+          : `Round ${round} of ${meta.rounds}`}
         {meta.truncated ? " · shortened" : ""}
       </span>
     </>

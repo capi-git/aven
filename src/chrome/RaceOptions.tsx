@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PaletteAgent } from "../lib/commandPalette";
-import { providerShortName } from "../lib/discussionVoices";
+import { appName } from "../lib/agentNames";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { pickerModelsFor } from "../lib/models";
 import { RACE_MAX_LANES, RACE_MIN_LANES } from "../lib/race";
@@ -13,8 +13,12 @@ import {
   sameRaceAgent,
   saveRaceLaneChoice,
 } from "../lib/raceAgents";
-import { raceAgentLabel, raceModelName } from "../lib/raceNames";
-import { HARNESS_TITLE } from "../lib/session";
+import {
+  raceAgentLabel,
+  raceFullName,
+  raceModelName,
+  raceShortName,
+} from "../lib/raceNames";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, Plus, X } from "./icons";
 
@@ -74,7 +78,7 @@ export function RaceOptions({
       </p>
       <div role="group" aria-label="Racing agents" className="px-1 pb-1">
         {lanes.map((lane, index) => {
-          const title = HARNESS_TITLE[lane.harness];
+          const title = appName(lane.harness);
           const own = index === 0;
           const expanded = picking === index;
           const removable = !own && lanes.length > RACE_MIN_LANES;
@@ -89,7 +93,10 @@ export function RaceOptions({
                   harness={lane.harness}
                   className="size-3.5 shrink-0"
                 />
-                <span className="min-w-0 flex-1 truncate" title={lane.label}>
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={raceFullName(lane)}
+                >
                   {title}
                 </span>
                 <button
@@ -132,11 +139,11 @@ export function RaceOptions({
                 ) : (
                   <button
                     type="button"
-                    aria-label={`Stop racing ${lane.label}`}
+                    aria-label={`Leave ${raceShortName(lane)} out of the race`}
                     disabled={!removable}
                     title={
                       removable
-                        ? `Leave ${lane.label} out of the race`
+                        ? `Leave ${raceShortName(lane)} out of the race`
                         : `A race needs at least ${RACE_MIN_LANES} agents`
                     }
                     onClick={() => {
@@ -213,7 +220,7 @@ export function RaceOptions({
           const next = full
             ? undefined
             : nextRaceAgent(available, lanes, agent.harness);
-          const title = HARNESS_TITLE[agent.harness];
+          const title = appName(agent.harness);
           return (
             <button
               key={agent.harness}
@@ -222,7 +229,7 @@ export function RaceOptions({
               disabled={!next}
               title={
                 next
-                  ? `Race ${next.label} too`
+                  ? `Race ${raceShortName(next)} too`
                   : full
                     ? `A race can have up to ${RACE_MAX_LANES} agents`
                     : `Every ${title} model is racing already`
@@ -239,7 +246,7 @@ export function RaceOptions({
                 harness={agent.harness}
                 className="size-3 shrink-0"
               />
-              {providerShortName(agent.harness)}
+              {title}
             </button>
           );
         })}

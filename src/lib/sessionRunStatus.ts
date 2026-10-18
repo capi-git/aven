@@ -152,7 +152,7 @@ export function sessionRunStatus(
   if (sessionIsWaitingForInput(session)) {
     return {
       kind: "waiting",
-      label: "Waiting for you",
+      label: "Needs you",
       detail: isBlockingQuestion(session.pendingQuestion)
         ? "Answer the question below"
         : "Approval needed",

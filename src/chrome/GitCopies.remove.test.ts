@@ -100,14 +100,18 @@ describe("other copy status and removal", () => {
     expect(row.querySelector(".git-copy-short")?.textContent).toBe(
       "2 to merge",
     );
-    // The full sentence is in the row's tooltip, and in the row when opened.
+    // The full line is in the row's tooltip, with the counts, and in the
+    // row when opened.
     expect(row.title).toContain(
-      "2 commits not in main yet · main has 20 newer commits",
+      "Has work not in main yet · main has newer work",
+    );
+    expect(row.title).toContain(
+      "2 commits not in main yet. main has 20 newer commits.",
     );
     await act(async () => row.click());
     const status = container.querySelector<HTMLElement>(".git-copy-status")!;
     expect(status.textContent).toBe(
-      "2 commits not in main yet · main has 20 newer commits",
+      "Has work not in main yet · main has newer work",
     );
     expect(status.title).toContain("may already be in main");
     expect(container.querySelector(".git-copies-count")?.textContent).toBe(
@@ -184,10 +188,10 @@ describe("other copy status and removal", () => {
     expect(
       container.querySelector('.git-copy-dot[aria-label="Agent working"]'),
     ).not.toBeNull();
-    expect(button("Done")!.title).toContain("Mascot briefing — agent working");
+    expect(button("Done")!.title).toContain("Mascot briefing · agent working");
     await act(async () => button("Done")!.click());
     expect(container.querySelector(".git-copy-chat")?.textContent).toBe(
-      "Mascot briefing — agent working",
+      "Mascot briefing · agent working",
     );
     await act(async () => button("Open chat")!.click());
     stop();
@@ -198,7 +202,7 @@ describe("other copy status and removal", () => {
 
   it.each([
     { behindDefault: 0, label: "Up to date with main" },
-    { behindDefault: 3, label: "main has 3 newer commits" },
+    { behindDefault: 3, label: "main has newer work" },
   ])("reports the main folder as $label", async ({ behindDefault, label }) => {
     worktrees = [
       {

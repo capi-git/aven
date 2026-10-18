@@ -198,7 +198,7 @@ describe("sessionRunStatus", () => {
     );
     expect(value).toMatchObject({
       kind: "waiting",
-      label: "Waiting for you",
+      label: "Needs you",
       detail: "Answer the question below",
       canStop: true,
     });

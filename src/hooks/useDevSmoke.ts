@@ -43,6 +43,7 @@ import { pickerModelsFor } from "../lib/models";
 import type { RaceRecord } from "../lib/race";
 import type { RaceLaneChoice } from "../lib/raceAgents";
 import { raceLaneName } from "../lib/raceLanes";
+import { raceAgentNames } from "../lib/raceNames";
 import { teamWorkspace } from "../lib/teamWorkspace";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
@@ -446,12 +447,13 @@ function cardProblem(
     if (stops.join() !== "discussion")
       return `the chat offers ${stops.length} Stops (${stops.join(", ") || "none"}), not the bar's one`;
   } else {
-    if (title !== `Discussed for ${DISCUSSION_ROUNDS} rounds`)
+    if (title !== `Discussion finished · ${DISCUSSION_ROUNDS} rounds`)
       return `the finished card reads "${title ?? ""}"`;
     if (
-      card.querySelector("[data-discussion-card-watch]")?.textContent !== "Open"
+      card.querySelector("[data-discussion-card-watch]")?.textContent !==
+      "Watch"
     )
-      return "the finished card has no Open";
+      return "the finished card has no Watch";
   }
   return null;
 }
@@ -540,7 +542,7 @@ function transcriptWrapUpProblem(a: string, id: string): string | null {
   if (wrapUp.querySelectorAll("[data-discussion-build]").length !== 2)
     return "the first chat's wrap-up has no build buttons";
   if (!wrapUp.querySelector("[data-discussion-wrapup-open]"))
-    return "the first chat's wrap-up has no Open discussion";
+    return "the first chat's wrap-up has no Watch";
   return null;
 }
 
@@ -786,7 +788,7 @@ async function startRaceFromComposer(
 /**
  * A two-lane race from the message box: your message stays in the chat you
  * sent it from, followed by the race's card, and the chat's bar has one
- * Stop all; separate copies; Compare from the card; truthful lane states
+ * Stop race; separate copies; Compare from the card; truthful lane states
  * and Retry, with no entry in Activity for a lane's turn; then Keep one
  * lane while the other still works. The kept files must include one the
  * overview had not shown yet, the copies must go, both lane chats must
@@ -887,12 +889,12 @@ export async function checkRace(
     chatComposer(chat.id)?.querySelector<HTMLElement>(
       `[data-race-bar="${record.id}"]`,
     ) ?? null;
-  const bar = barOf()?.querySelector('[role="status"]')?.textContent ?? "";
+  const bar = barOf()?.querySelector("[data-team-bar-text]")?.textContent ?? "";
   if (!bar.startsWith("Racing · ")) throw new Error(`The bar reads "${bar}"`);
   const stops = stopsIn(chatPane(chat.id)!);
   if (stops.join() !== "race")
     throw new Error(
-      `The chat offers ${stops.join(", ") || "no"} Stop for the race, not one Stop all`,
+      `The chat offers ${stops.join(", ") || "no"} Stop for the race, not one Stop race`,
     );
   // Grok's failed try is its lane's own turn: recorded quietly, not posted.
   const lanes = record.lanes.map((lane) => lane.sessionId);
@@ -924,8 +926,8 @@ export async function checkRace(
           record.lanes.length
         )
           return "its header has no mascot for each lane";
-        if (!buttonNamed(panel, "Compare") || !buttonNamed(panel, "Stop all"))
-          return "it offers no Compare or Stop all";
+        if (!buttonNamed(panel, "Compare") || !buttonNamed(panel, "Stop race"))
+          return "it offers no Compare or Stop race";
         return null;
       },
     );
@@ -1061,8 +1063,8 @@ export async function checkRace(
     );
   }
   for (const part of [
-    "Keep Claude Code's version?",
-    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes both copies`,
+    `Keep ${raceLaneName(record, 0)}'s version?`,
+    `This stops ${working} ${working === 1 ? "agent" : "agents"} still working and deletes`,
   ])
     if (!question.includes(part))
       throw new Error(`Keep asked: ${question || "nothing"}`);
@@ -1132,11 +1134,11 @@ export async function checkRace(
     throw new Error(`The result reads "${headline}"`);
   if (
     !buttonNamed(result, "Review changes") ||
-    !buttonNamed(result, `Continue with ${claude.label}`)
+    !buttonNamed(result, `Continue with ${raceLaneName(record, 0)}`)
   )
     throw new Error("The result has no Review changes or Continue with");
   if (barOf()) throw new Error("The race's bar stayed after the keep");
-  return `your message and the card stayed in the chat you raced from, with one Stop all; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
+  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
 }
 
 /** The second race: both lanes write their file and finish within seconds. */
@@ -1220,7 +1222,7 @@ export async function checkRaceResult(
     throw new Error(`The ready card reads "${title ?? ""}"`);
   const bar =
     chatComposer(chat.id)?.querySelector(
-      `[data-race-bar="${record.id}"] [role="status"]`,
+      `[data-race-bar="${record.id}"] [data-team-bar-text]`,
     )?.textContent ?? "";
   if (!bar.startsWith("Racing · Ready to compare"))
     throw new Error(`The bar reads "${bar}"`);
@@ -1229,7 +1231,8 @@ export async function checkRaceResult(
   const names = [
     ...(card()?.querySelectorAll(".team-card-member-name") ?? []),
   ].map((name) => name.textContent ?? "");
-  if (names.join(" + ") !== labels.join(" + "))
+  // Two Claudes are named by their models, the one Grok by its app.
+  if (names.join(" + ") !== raceAgentNames(record.lanes).join(" + "))
     throw new Error(`The card names the agents ${names.join(", ")}`);
   const lanes = record.lanes.map((lane) => lane.sessionId);
   const told = () =>
@@ -1270,7 +1273,7 @@ export async function checkRaceResult(
     30_000,
     "the card to show the suggested winner",
   );
-  if (!status().startsWith(`Suggested: ${grok.label} — `))
+  if (!status().startsWith(`Aven suggests ${raceLaneName(record, 1)}: `))
     throw new Error(`The card reads "${status()}"`);
   if (status().includes("Note to AI"))
     throw new Error("A line addressed to agents reached the card");
@@ -1306,7 +1309,7 @@ export async function checkRaceResult(
   const question = keepQuestion.textContent ?? "";
   if (
     !question.includes(`Keep ${raceLaneName(record, 1)}'s version?`) ||
-    !question.includes("with the other agents' changes") ||
+    !question.includes(`deletes ${raceLaneName(record, 0)}'s work (`) ||
     question.includes("still working")
   )
     throw new Error(`Keep asked "${question}"`);
@@ -1348,7 +1351,7 @@ export async function checkRaceResult(
     throw new Error(`The result says "${status()}", not why`);
   // Continue with the kept agent: its chat gets a recap of its own work.
   const asked = sentTexts(get().sessions, grok.sessionId).length;
-  const next = buttonNamed(result, `Continue with ${grok.label}`);
+  const next = buttonNamed(result, `Continue with ${raceLaneName(record, 1)}`);
   if (!next) throw new Error("The result has no Continue with");
   next.click();
   await waitFor(
@@ -1684,7 +1687,7 @@ async function startOrchestrationFromComposer(
   );
 }
 
-/** Wait for the lead's plan and press Confirm & start; the run's tasks. */
+/** Wait for the lead's plan and press Confirm and start; the run's tasks. */
 async function confirmProposal(
   get: () => Options,
   leadId: string,
@@ -1692,16 +1695,16 @@ async function confirmProposal(
   const card = await waitFor(
     () => {
       const found = proposalCard(leadId);
-      const confirm = buttonNamed(found, "Confirm & start");
+      const confirm = buttonNamed(found, "Confirm and start");
       return confirm && !confirm.disabled && found;
     },
     90_000,
-    "the lead's plan with Confirm & start",
+    "the lead's plan with Confirm and start",
   );
   const scopes = card.querySelectorAll("[data-orchestration-scope]").length;
   if (scopes < 2)
     throw new Error(`The plan shows ${scopes} file chips, not one per task`);
-  buttonNamed(card, "Confirm & start")!.click();
+  buttonNamed(card, "Confirm and start")!.click();
   await waitFor(
     () => get().orchestration?.run(leadId)?.status === "active",
     20_000,
@@ -2723,10 +2726,10 @@ export async function runDevSmoke(
           "the discussion bar above the message box",
         );
         const barText = bar.textContent?.replace(/\s+/g, " ").trim() ?? "";
-        if (!barText.includes(`round 1 of ${DISCUSSION_ROUNDS}`))
+        if (!barText.includes(`Round 1 of ${DISCUSSION_ROUNDS}`))
           throw new Error(`The discussion bar reads "${barText}"`);
-        if (!barText.includes("Open discussion"))
-          throw new Error("The discussion bar has no Open discussion");
+        if (!bar.querySelector(`[data-team-watch="discuss:${id}"]`))
+          throw new Error("The discussion bar has no Watch");
         if (
           bar.querySelector('[data-agent-role="skeptic"]')?.textContent !==
           "Skeptic"
@@ -2794,7 +2797,7 @@ export async function runDevSmoke(
           "the first chat to come back from its sidebar row",
         );
 
-        const note = `Discussion ended after ${DISCUSSION_ROUNDS} rounds.`;
+        const note = `Discussion finished after ${DISCUSSION_ROUNDS} rounds.`;
         await waitFor(
           () =>
             notesIn(get().sessions, a.id, note) > 0 &&
@@ -2933,7 +2936,7 @@ export async function runDevSmoke(
           [a.id, b.id],
           discussedSince,
           a.id,
-          `Discussion ended · ${DISCUSSION_ROUNDS} rounds`,
+          `Discussion finished · ${DISCUSSION_ROUNDS} rounds`,
           DISCUSSION_ROUNDS * 2,
         );
         if (told) throw new Error(told);
@@ -2996,7 +2999,7 @@ export async function runDevSmoke(
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
+        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
       },
     );
 
@@ -3371,7 +3374,7 @@ export async function runDevSmoke(
             sameProjectPath(session.cwd, config.projectPath),
         )?.id;
       const refused = other ? orchestration.submissionError(other) : null;
-      if (other && !refused?.includes("is busy with an orchestration in “"))
+      if (other && !refused?.includes("is busy with a run in “"))
         throw new Error(
           `Another chat in the project is told: ${refused ?? "nothing"}`,
         );

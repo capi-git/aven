@@ -15,7 +15,6 @@ import { replyStance } from "../lib/discussionStance";
 import { clip } from "../lib/memoryKeeperSafety";
 import {
   discussionVoices,
-  providerShortName,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
 import {
@@ -23,6 +22,7 @@ import {
   type MascotReactionKind,
 } from "../lib/mascotReactions";
 import type { DiscussionRelayMeta, HarnessId } from "../lib/session";
+import { plural } from "../lib/words";
 import { DiscussionMessage, STANCE_REACTION } from "./DiscussionMessages";
 import "./DiscussionInChat.css";
 
@@ -40,23 +40,14 @@ function fallbackModel(
   return { harness: harness ?? "claude", model: model ?? "" };
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
-
 /**
- * What the card calls each side: "Claude" and "Codex", or their models when
- * both are the same provider.
+ * What the card calls each side: "Claude" and "Codex", or with their models
+ * ("Claude Opus 4.6") when both are the same app (see `agentNames`).
  */
 export function cardNames(
-  a: Pick<DiscussionVoice, "harness" | "name">,
-  b: Pick<DiscussionVoice, "harness" | "name">,
+  a: Pick<DiscussionVoice, "name">,
+  b: Pick<DiscussionVoice, "name">,
 ): Record<DiscussionSide, string> {
-  if (a.harness !== b.harness)
-    return {
-      a: providerShortName(a.harness),
-      b: providerShortName(b.harness),
-    };
   return { a: a.name, b: b.name };
 }
 
@@ -76,14 +67,14 @@ export function cardView(
     return discussion.ended?.kind === "completed"
       ? {
           state: "done",
-          title: `Discussed for ${plural(discussion.rounds, "round")}`,
+          title: `Discussion finished · ${plural(discussion.rounds, "round")}`,
           line: pair,
         }
       : {
           state: "stopped",
           title:
             done > 0
-              ? `Discussion stopped after ${plural(done, "round")} of ${discussion.rounds}`
+              ? `Discussion stopped after ${done} of ${plural(discussion.rounds, "round")}`
               : "Discussion stopped",
           line: pair,
         };
@@ -92,7 +83,7 @@ export function cardView(
   if (discussion.status === "paused")
     return {
       state: "needs-you",
-      title: `${pair} are discussing`,
+      title: "Discussion paused",
       badge: "Needs you",
       line: discussion.reason ?? round,
     };
@@ -142,8 +133,9 @@ const TONE = {
  * The live card in the chat that started a discussion, after its topic:
  * both mascots, "Claude and Codex are discussing", the round and the latest
  * line, with Watch; in amber when it needs you, with a way to the chat it
- * waits for or Resume; "Discussed for 4 rounds" with Open once it is done.
- * Stop is the bar's, in the message box below. It reads that discussion by
+ * waits for or Resume; "Discussion finished · 4 rounds" once it is done,
+ * still with Watch to read it in the panel. Stop discussion is the bar's,
+ * in the message box below. It reads that discussion by
  * id and re-renders only when what it shows changes. "Show in chat"
  * unfolds the turns it stands for.
  */
@@ -251,9 +243,14 @@ export const DiscussionCard = memo(function DiscussionCard({
               {host.open ? (
                 <TeamCardButton
                   data-discussion-card-watch
+                  title={
+                    finished
+                      ? "Read the discussion in a floating panel"
+                      : "Watch the discussion in a floating panel"
+                  }
                   onClick={() => host.open!(id)}
                 >
-                  {finished ? "Open" : "Watch"}
+                  Watch
                 </TeamCardButton>
               ) : null}
             </>

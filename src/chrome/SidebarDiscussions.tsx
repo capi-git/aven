@@ -28,7 +28,7 @@ export function DiscussionTalkMark({
       data-provider={harness}
       data-talking={!talk.paused || undefined}
       data-speaking={(!talk.paused && talk.speaking) || undefined}
-      title={`${talk.paused ? "Discussion paused" : "Talking"} with “${talk.partnerTitle}”`}
+      title={`${talk.paused ? "Paused discussion" : "Discussing"} with “${talk.partnerTitle}”`}
       aria-hidden
     >
       <HarnessIcon harness={harness} className={className} />
@@ -42,9 +42,9 @@ export function DiscussionTalkBadge({ talk }: { talk: SidebarTalk }) {
     <span
       className="discussion-talk-badge"
       data-paused={talk.paused || undefined}
-      title={`${talk.paused ? "Discussion paused" : "Talking"} with “${talk.partnerTitle}”`}
+      title={`${talk.paused ? "Paused discussion" : "Discussing"} with “${talk.partnerTitle}”`}
     >
-      ↔ talking with {talk.partnerTitle}
+      {`${talk.paused ? "Paused discussion" : "Discussing"} with “${talk.partnerTitle}”`}
     </span>
   );
 }

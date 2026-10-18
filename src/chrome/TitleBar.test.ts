@@ -1478,7 +1478,7 @@ describe("browser tab integration", () => {
     );
     const overview = Array.from(
       document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent === "Open race overview")!;
+    ).find((item) => item.textContent === "Compare")!;
     expect(overview).toBeDefined();
     await act(async () => overview.click());
     expect(props.onOpenRaceOverview).toHaveBeenCalledExactlyOnceWith("race");

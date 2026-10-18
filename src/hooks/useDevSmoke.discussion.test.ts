@@ -360,7 +360,7 @@ function app(flaws: Flaws = {}) {
           sessionId: a,
           outcome: "completed",
           title: title(a),
-          summary: `Discussion ended · ${ROUNDS} rounds`,
+          summary: `Discussion finished · ${ROUNDS} rounds`,
           cwd: PROJECT,
           harness: "claude",
           model: "Opus",
@@ -374,7 +374,7 @@ function app(flaws: Flaws = {}) {
               {
                 id: `note-${id}`,
                 role: "system",
-                text: `Discussion ended after ${ROUNDS} rounds.`,
+                text: `Discussion finished after ${ROUNDS} rounds.`,
                 ...(shows
                   ? {
                       discussionEnd: {
@@ -412,9 +412,9 @@ function app(flaws: Flaws = {}) {
       ? ""
       : `<div data-discussion-card="d1" data-state="${done ? "done" : "live"}">${avatars()}<span class="team-card-title">${
           done
-            ? `Discussed for ${ROUNDS} rounds`
+            ? `Discussion finished · ${ROUNDS} rounds`
             : "Opus and Sonnet are discussing"
-        }</span><button data-discussion-card-watch>${done ? "Open" : "Watch"}</button>${
+        }</span><button data-discussion-card-watch>Watch</button>${
           done || !flaws.cardStop
             ? ""
             : "<button data-discussion-card-stop>Stop</button>"
@@ -433,7 +433,7 @@ function app(flaws: Flaws = {}) {
       note && !flaws.noNoteCard
         ? `<div data-discussion-wrapup-note="d1"><div data-discussion-wrapup="${flaws.plainNoteCard ? "plain" : "done"}">${
             flaws.plainNoteCard ? "" : list("agreed", agreed())
-          }<button data-discussion-wrapup-open>Open discussion</button>${buildButtons}</div></div>`
+          }<button data-discussion-wrapup-open>Watch</button>${buildButtons}</div></div>`
         : "";
     return `${userBubble(talk.topic)}${card}${turns}${wrapUp}`;
   }
@@ -482,7 +482,7 @@ function app(flaws: Flaws = {}) {
       : `<li data-discussion-typing="${talk.turn % 2 === 0 ? "a" : "b"}"></li>`;
     const waiting = jump && !sent && !flaws.noWaiting ? you : "";
     const end = ended
-      ? `<li data-discussion-closing="completed">Discussion ended after ${ROUNDS} rounds.</li>`
+      ? `<li data-discussion-closing="completed">Discussion finished after ${ROUNDS} rounds.</li>`
       : `${typing}${waiting}`;
     const panelAgreed = [
       ...agreed(),
@@ -533,9 +533,9 @@ function app(flaws: Flaws = {}) {
       }"></span></span></button></div>`;
     }
     const bar = active
-      ? `<div data-discussion-bar="d1">${badge() ? '<span data-agent-role="skeptic">Skeptic</span>' : ""}Discussing with Sonnet in “Chat” round ${
+      ? `<div data-discussion-bar="d1">${badge() ? '<span data-agent-role="skeptic">Skeptic</span>' : ""}Discussing · Round ${
           Math.floor(active.turn / 2) + 1
-        } of ${ROUNDS} <button>Open discussion</button> <button data-team-stop="discussion">Stop</button></div>`
+        } of ${ROUNDS} · with Sonnet in “Chat” <button data-team-watch="discuss:d1">Watch</button> <button data-team-stop="discussion">Stop discussion</button></div>`
       : "";
     const chip = discussMode
       ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with ${
@@ -783,7 +783,7 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan; the finished card reopens the panel`,
+      `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan; the finished card reopens the panel`,
     );
     // The build button sent the plan to the first chat, as the user.
     const built = state.sessions
@@ -881,7 +881,7 @@ describe("the real-app check's discussion step", () => {
 
   it("fails when each relayed turn posts its own entry", async () => {
     expect(await failure({ loudRelays: true })).toMatch(
-      /^Activity holds 5 entries for the team \("Discussion ended · 2 rounds", .*\), not one "Discussion ended · 2 rounds"$/,
+      /^Activity holds 5 entries for the team \("Discussion finished · 2 rounds", .*\), not one "Discussion finished · 2 rounds"$/,
     );
   });
 

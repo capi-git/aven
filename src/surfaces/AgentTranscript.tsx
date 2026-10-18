@@ -991,7 +991,9 @@ const TranscriptTurn = memo(function TranscriptTurn({
     <LiveFoldTitle
       startedAt={startedAt}
       paused={waitingForApproval}
-      waitingLabel={pendingQuestion ? "Waiting for answers" : undefined}
+      waitingLabel={
+        pendingQuestion ? "Needs you · Answer the question below" : undefined
+      }
       subagent={hasRunningSubagent(turn)}
       modelName={turnModelName}
     />
@@ -1232,7 +1234,7 @@ function LiveFoldTitle({
 }) {
   const elapsedMs = useElapsedFrom(startedAt, paused);
   const text = paused
-    ? (waitingLabel ?? "Waiting for approval")
+    ? (waitingLabel ?? "Needs you · Approve or deny below")
     : formatWorkingDuration(elapsedMs, false, subagent, modelName);
   return (
     <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>

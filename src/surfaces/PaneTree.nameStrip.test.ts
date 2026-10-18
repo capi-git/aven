@@ -203,7 +203,7 @@ describe("pane name strips", () => {
     const close = strip("a").querySelector<HTMLButtonElement>(
       'button[aria-label="Close pane"]',
     )!;
-    expect(close.title).toMatch(/^Close Pane \(.+W\)$/);
+    expect(close.title).toMatch(/^Close pane \(.+W\)$/);
     expect(close.tabIndex).toBe(0);
     close.focus();
     expect(document.activeElement).toBe(close);
@@ -215,9 +215,13 @@ describe("pane name strips", () => {
   it("moves the pane when its strip is dragged", async () => {
     await render({ layout: split("a", "b") });
     const handle = strip("a");
-    expect(
-      handle.querySelector('[aria-label="Drag to move or split this pane"]'),
-    ).not.toBeNull();
+    // The grip is a pointer affordance only: its tooltip says what it does,
+    // and screen readers skip it.
+    const grip = handle.querySelector(
+      '[title="Drag to move or split this pane"]',
+    );
+    expect(grip).not.toBeNull();
+    expect(grip?.getAttribute("aria-hidden")).toBe("true");
     handle.setPointerCapture = vi.fn();
     handle.releasePointerCapture = vi.fn();
     vi.mocked(paneDropFromPoint).mockImplementation((x) =>

@@ -313,11 +313,11 @@ describe("orchestration composer and card", () => {
     );
     await click(
       [
-        ...document.querySelectorAll('[aria-label="Parallel workers"] button'),
+        ...document.querySelectorAll('[aria-label="Agents at once"] button'),
       ].find((option) => option.textContent === "1")!,
     );
     expect(confirm).not.toHaveBeenCalled();
-    await click(button("Confirm & start"));
+    await click(button("Confirm and start"));
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         settings: expect.objectContaining({ maxWorkers: 1 }),
@@ -360,7 +360,7 @@ describe("orchestration composer and card", () => {
       ),
     );
     expect(container.querySelector("[data-orchestration-review]")).toBeNull();
-    expect(container.textContent).not.toContain("Confirm & start");
+    expect(container.textContent).not.toContain("Confirm and start");
   });
   it("opens worker panes from Open agents instead of the sidebar", async () => {
     const open = vi.fn();
@@ -679,7 +679,7 @@ describe("orchestration composer and card", () => {
     expect(container.textContent).not.toContain("Needs input");
     await click(row.querySelector("button")!);
     expect(container.textContent).toContain("Worker Two");
-    expect(container.textContent).toContain("The lead decides.");
+    expect(container.textContent).toContain("the lead is deciding.");
     expect(button("Allow")).toBeUndefined();
     expect(button("Deny")).toBeUndefined();
     expect(container.textContent).not.toContain("Which check should I run?");
@@ -722,7 +722,7 @@ describe("orchestration composer and card", () => {
     );
     // Expanding a row is not a request to open the lead's tab.
     expect(selectCard).not.toHaveBeenCalled();
-    await click(button("See details"));
+    await click(button("Open chat"));
     expect(openDetails).toHaveBeenCalledWith({
       sessionId: "worker",
       leadId: "lead",

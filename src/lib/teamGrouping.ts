@@ -14,6 +14,7 @@ import {
   type TeamRun,
 } from "./teamRuns";
 import type { HomeRunning } from "./workspaceHome";
+import { plural } from "./words";
 
 /** What a grouped row shows of its team: plain data, safe to compare. */
 export type TeamRowInfo = {
@@ -35,7 +36,19 @@ export type TeamRowInfo = {
 
 /** "1 agent", "3 agents". */
 export function teamAgentsText(info: Pick<TeamRowInfo, "count">): string {
-  return `${info.count} ${info.count === 1 ? "agent" : "agents"}`;
+  return plural(info.count, "agent");
+}
+
+/**
+ * "Racing · 1 of 2 done", or "Orchestrating · 2 working · 3 agents": the
+ * status, then how many agents unless the status already counts them.
+ */
+export function teamRowDetail(
+  info: Pick<TeamRowInfo, "status" | "count">,
+): string {
+  return /\bof \d+\b/.test(info.status)
+    ? info.status
+    : `${info.status} · ${teamAgentsText(info)}`;
 }
 
 export function teamRowInfo(team: TeamRun): TeamRowInfo {

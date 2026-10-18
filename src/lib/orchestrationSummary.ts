@@ -1,6 +1,7 @@
 import type { OrchestrationRun, TaskStatus } from "./orchestration";
 import { sessionNeedsInput, type HarnessId, type Session } from "./session";
 import { pendingRequestKey } from "./teamAttention";
+import { plural } from "./words";
 
 /** Small history projection; never includes prompts, results or credentials. */
 export type OrchestrationSummary = {
@@ -100,7 +101,7 @@ export function orchestrationProgress(summary: OrchestrationSummary): string {
   const cancelled = count("cancelled");
   const counted = summary.tasks.length - cancelled;
   return [
-    done === counted ? `${done} done` : `${done}/${counted} done`,
+    done === counted ? `${done} done` : `${done} of ${counted} done`,
     failed ? `${failed} failed` : "",
     cancelled ? `${cancelled} cancelled` : "",
   ]
@@ -124,7 +125,7 @@ export function orchestrationFoldedLine(
   endedAt: number | undefined,
   now: number,
 ): string {
-  const agents = `${summary.tasks.length} ${summary.tasks.length === 1 ? "agent" : "agents"}`;
+  const agents = plural(summary.tasks.length, "agent");
   const when = endedAt === undefined ? "" : timeAgo(endedAt, now);
   return [orchestrationStatusWord(summary.status), agents, when]
     .filter(Boolean)

@@ -119,7 +119,12 @@ export function TeamCard({
           {faces}
           <div className="team-card-heading">
             <div className="team-card-title-line">
-              <span className="team-card-title">{title}</span>
+              <span
+                className="team-card-title"
+                title={typeof title === "string" ? title : undefined}
+              >
+                {title}
+              </span>
               {badge ? (
                 <span
                   ref={badgeRef}
@@ -153,6 +158,7 @@ export function TeamCard({
 export const TeamCardMember = memo(function TeamCardMember({
   voice,
   name,
+  nameTitle = voice.fullName || name,
   detail,
   state,
   tone,
@@ -162,6 +168,8 @@ export const TeamCardMember = memo(function TeamCardMember({
 }: {
   voice: DiscussionVoice;
   name: string;
+  /** The name's tooltip: the agent's full name ("Claude Code · Opus 4.6"). */
+  nameTitle?: string;
   /** A second line: what it is doing, or its result. */
   detail?: string;
   state: string;
@@ -185,13 +193,13 @@ export const TeamCardMember = memo(function TeamCardMember({
         {voice.role ? (
           // The role it was brought in with, beside its name.
           <span className="team-card-member-line">
-            <span className="team-card-member-name" title={name}>
+            <span className="team-card-member-name" title={nameTitle}>
               {name}
             </span>
             <RoleBadge role={voice.role} />
           </span>
         ) : (
-          <span className="team-card-member-name" title={name}>
+          <span className="team-card-member-name" title={nameTitle}>
             {name}
           </span>
         )}
@@ -213,7 +221,7 @@ export const TeamCardMember = memo(function TeamCardMember({
         <button
           type="button"
           className="team-card-member-open"
-          title={`Open ${voice.title}`}
+          title={`Open “${voice.title}”`}
           onClick={onOpen}
         >
           {body}

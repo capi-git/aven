@@ -9,6 +9,7 @@ import {
 } from "./teamAttention";
 import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
+import { plural } from "./words";
 
 /** What is happening in one project, at a glance. Zero counts mean nothing. */
 export type ProjectStatus = {
@@ -174,11 +175,7 @@ export function projectStatusFor(
   return map?.[projectKey(path)];
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-/** "2 agents running · 1 waiting for you · 3 unread · 12 files changed". */
+/** "2 agents running · 1 needs you · 3 unread · 12 files changed". */
 export function describeProjectStatus(
   status: ProjectStatus | undefined,
 ): string {
@@ -186,7 +183,10 @@ export function describeProjectStatus(
   const parts: string[] = [];
   if (status.running)
     parts.push(`${plural(status.running, "agent", "agents")} running`);
-  if (status.waiting) parts.push(`${status.waiting} waiting for you`);
+  if (status.waiting)
+    parts.push(
+      `${status.waiting} ${status.waiting === 1 ? "needs" : "need"} you`,
+    );
   if (status.unread) parts.push(`${status.unread} unread`);
   if (status.files)
     parts.push(`${plural(status.files, "file", "files")} changed`);

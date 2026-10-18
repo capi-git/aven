@@ -453,7 +453,7 @@ export function ModelChooser({
             <input
               type="text"
               value={query}
-              placeholder="Search models..."
+              placeholder="Search models…"
               aria-label="Search models"
               className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
               onChange={(e) => setQuery(e.target.value)}

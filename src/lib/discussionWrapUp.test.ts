@@ -111,9 +111,9 @@ describe("wrapUpDigest", () => {
     const order = [
       "Topic from the user:\nShould we cache the lookups?",
       "--- Round 1 of 1 ---",
-      "Claude · Sonnet 5 (opened the topic):\nCache by URL.",
+      "Claude Sonnet 5 (opened the topic):\nCache by URL.",
       "The user added:\nKeep it small.",
-      "Codex · GPT-5.5 (responding):\nAgreed, add a TTL.",
+      "Codex GPT-5.5 (joined the topic):\nAgreed, add a TTL.",
     ].map((part) => digest.indexOf(part));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((x, y) => x - y)).toEqual(order);

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import {
+  CHAT_STATUS_HINT,
   CHAT_STATUS_LABEL,
   chatStage,
   type ChatStatusWord,
@@ -24,7 +25,7 @@ export const ChatStatusPill = memo(function ChatStatusPill({
       className={`aven-chat-status ${className}`}
       data-chat-status={word}
       data-stage={chatStage(word)}
-      title={label}
+      title={CHAT_STATUS_HINT[word]}
     >
       {label}
     </span>

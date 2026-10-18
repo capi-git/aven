@@ -246,7 +246,7 @@ describe("pills", () => {
           progress: "Round 2 of 4",
           members: [
             member("a", { state: "queued" }),
-            member("b", { harness: "codex", state: "working" }),
+            member("b", { harness: "codex", label: "Codex", state: "working" }),
           ],
         }),
       ),
@@ -293,11 +293,11 @@ describe("pills", () => {
         team({
           id: "orchestrate:lead",
           kind: "orchestrate",
-          progress: "2 working · 1 waiting",
+          progress: "2 working · 1 queued",
           members: [member("lead", { role: "lead", state: "queued" })],
         }),
       ),
-    ).toEqual({ progress: "2 working · 1 waiting", status: "Running" });
+    ).toEqual({ progress: "2 working · 1 queued", status: "Orchestrating" });
   });
 
   it("titles the panel by kind", () => {
@@ -306,7 +306,7 @@ describe("pills", () => {
     );
     expect(
       teamWatchTitle({ kind: "orchestrate", title: "x".repeat(80) }),
-    ).toHaveLength("Orchestration · “”".length + 60);
+    ).toHaveLength("Run · “”".length + 60);
   });
 });
 

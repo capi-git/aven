@@ -111,8 +111,8 @@ describe("a long thread in the panel", () => {
   it("folds all but the last two rounds, unless one holds something new", () => {
     const { rounds } = threadRounds(items);
     expect(foldedRoundCount(rounds, null)).toBe(2);
-    expect(foldLabel(2)).toBe("Rounds 1–2 · Show");
-    expect(foldLabel(1)).toBe("Round 1 · Show");
+    expect(foldLabel(2)).toBe("Show rounds 1–2");
+    expect(foldLabel(1)).toBe("Show round 1");
     // The first reply not seen is the fourth, in round 2: only round 1 folds.
     expect(foldedRoundCount(rounds, 3)).toBe(1);
     expect(foldedRoundCount(rounds, 6)).toBe(2);

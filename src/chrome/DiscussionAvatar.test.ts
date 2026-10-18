@@ -53,8 +53,8 @@ it("marks the mascot of a chat brought in with a role, wherever it is drawn", as
   );
   const [a, b] = [...host.querySelectorAll<HTMLElement>(".discussion-avatar")];
   expect(a.querySelector(".discussion-avatar-role")).toBeNull();
-  expect(a.title).toBe("Claude · Opus · Opened the topic");
+  expect(a.title).toBe("Claude · Opened the topic");
   expect(b.dataset.role).toBe("skeptic");
   expect(b.querySelector(".discussion-avatar-role")?.textContent).toBe("S");
-  expect(b.title).toBe("Codex · GPT-5 · Skeptic · Responding");
+  expect(b.title).toBe("Codex · Skeptic · Joined the topic");
 });

@@ -131,7 +131,7 @@ it("keeps the role when the chats' names are read again", () => {
 it("badges the other chat's mascot and member with its role", () => {
   const voices = discussionVoices(fresh());
   expect(voices.b.role).toBe("skeptic");
-  expect(voices.b.persona).toBe("Skeptic · Responding");
+  expect(voices.b.persona).toBe("Skeptic · Joined the topic");
   expect(voices.a.role).toBeUndefined();
   const team = discussionTeam(fresh(), {
     session: () => undefined,

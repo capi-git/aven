@@ -142,16 +142,16 @@ describe("race wording", () => {
         lane("waiting"),
       ]),
     ).toEqual({
-      title: "Keep Claude Code's version?",
-      body: "This stops 2 agents still working and deletes all 3 copies.",
-      confirm: "Keep Claude Code's version",
+      title: "Keep Claude's version?",
+      body: "This stops 2 agents still working and deletes the other agents' work.",
+      confirm: "Keep Claude's version",
     });
   });
 
   it("says keeping deletes a finished agent's work, and asks only then", () => {
     const done = [lane("done"), lane("done")];
     expect(raceKeepQuestion(race(2), 0, done, [2, 3]).body).toBe(
-      "This deletes both copies, with the other agents' changes: Codex (3 files).",
+      "This deletes Codex's work (3 files).",
     );
     expect(raceKeepAsks(race(2), 0, done, [2, 3])).toBe(true);
     // Nothing else changed and nothing works: nothing to lose.
@@ -171,7 +171,7 @@ describe("race wording", () => {
   it("names what discarding deletes", () => {
     expect(
       raceDiscardQuestion(race(2), [lane("done"), lane("done")]).body,
-    ).toBe("This deletes both copies. Your project is not changed.");
+    ).toBe("This deletes the agents' work. Your project doesn't change.");
     expect(
       raceDiscardQuestion(
         race(),
@@ -179,7 +179,7 @@ describe("race wording", () => {
         [2, 0, undefined],
       ).body,
     ).toBe(
-      "This stops 1 agent still working and deletes all 3 copies and the changes in them: Claude Code (2 files). Your project is not changed.",
+      "This stops 1 agent still working and deletes Claude's work (2 files). Your project doesn't change.",
     );
   });
 

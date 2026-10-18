@@ -143,7 +143,18 @@ afterEach(async () => {
 });
 
 describe("WorkBoard", () => {
+  it("says it is loading until the workspace tells it the chats", async () => {
+    await render();
+    expect(container.textContent).toContain("Loading chats…");
+    expect(column("working").textContent).toContain("Loading…");
+    expect(column("working").textContent).not.toContain("Nothing running");
+    await act(async () => publishWorkBoardFeed(feed([], {})));
+    expect(container.textContent).not.toContain("Loading");
+    expect(column("working").textContent).toContain("Nothing running");
+  });
+
   it("shows four calm, empty columns with the project's name and today's line", async () => {
+    publishWorkBoardFeed(feed([], {}));
     await render();
     expect(
       [...container.querySelectorAll("[data-board-column] h2")].map(
@@ -197,7 +208,9 @@ describe("WorkBoard", () => {
     );
     await render();
     const ask = cardIn("needs-you", "ask")!;
-    expect(ask.textContent).toContain("Waiting for your OK · npm run deploy");
+    expect(ask.textContent).toContain(
+      "Claude wants your approval: npm run deploy",
+    );
     await act(async () => button(ask, "Allow").click());
     expect(actions.allow).toHaveBeenCalledWith("ask", 7);
     await act(async () => button(ask, "Open chat").click());

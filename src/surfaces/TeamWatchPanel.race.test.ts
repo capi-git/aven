@@ -269,10 +269,10 @@ describe("a race in the team panel", () => {
       currentActivity(lane("l1", true)),
     );
     expect(working.querySelector(".team-watch-reply")).toBeNull();
-    expect(buttons()).toEqual(["Compare", "Stop all"]);
+    expect(buttons()).toEqual(["Compare", "Stop race"]);
     await press("Compare", view()!);
     expect(compare).toHaveBeenCalledWith("r1");
-    await press("Stop all", view()!);
+    await press("Stop race", view()!);
     expect(stopLanes).toHaveBeenCalledWith(["l1"]);
   });
 
@@ -295,9 +295,9 @@ describe("a race in the team panel", () => {
     const [, asking] = lanes();
     expect(asking.dataset.tone).toBe("needs-you");
     expect(words(asking.querySelector(".team-watch-asking"))).toBe(
-      "Which cookie?",
+      "Codex asked: Which cookie?",
     );
-    await press("Needs you · Go to chat", asking);
+    await press("Go to chat", asking);
     expect(openChat).toHaveBeenCalledWith("l1");
   });
 
@@ -333,7 +333,7 @@ describe("a race in the team panel", () => {
       }),
     );
     expect(words(view()!.querySelector("[data-team-suggestion]"))).toBe(
-      "Suggested: Codex · GPT-5 — It also covers logout.",
+      "Aven suggests Codex: It also covers logout.",
     );
     expect(words(lanes()[1].querySelector(".team-watch-tag"))).toBe(
       "Suggested winner",
@@ -408,7 +408,7 @@ describe("a race in the team panel", () => {
       }),
     );
     expect(words(view()!.querySelector("[data-team-suggestion]"))).toMatch(
-      /, as Reviewer, suggests Claude Code · Opus — It adds a test\.$/,
+      /^Claude \(Reviewer\) suggests Claude: It adds a test\.$/,
     );
   });
 
@@ -434,7 +434,7 @@ describe("a race in the team panel", () => {
     );
     expect(
       lanes().map((entry) => words(entry.querySelector(".team-watch-name"))),
-    ).toEqual(["Claude Code · Opus 4.6", "Claude Code · Claude Sonnet 5"]);
+    ).toEqual(["Claude Opus 4.6", "Claude Sonnet 5"]);
   });
 
   it("opens from Watch on the race's card, shrinks to a pill and comes back where it was", async () => {

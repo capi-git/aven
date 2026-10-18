@@ -126,7 +126,7 @@ describe("where a discussion landed, in the chat that started it", () => {
       [...container.querySelectorAll("[data-discussion-build]")].map(
         (button) => button.textContent,
       ),
-    ).toEqual(["Have Claude Sonnet 5 build it", "Have Codex GPT-5 build it"]);
+    ).toEqual(["Have Claude build it", "Have Codex build it"]);
 
     await act(async () => summed(["Cache by URL", "Add a TTL"], []));
     expect(card()?.dataset.discussionWrapup).toBe("done");
@@ -141,7 +141,7 @@ describe("where a discussion landed, in the chat that started it", () => {
     const link = container.querySelector<HTMLElement>(
       "[data-discussion-wrapup-open]",
     )!;
-    expect(link.textContent).toBe("Open discussion");
+    expect(link.textContent).toBe("Watch");
     await act(async () => link.click());
     expect(actions.open).toHaveBeenCalledExactlyOnceWith("d1");
   });

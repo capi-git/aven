@@ -243,8 +243,8 @@ describe("useDiscussionBroker", () => {
     await finish("b", "Agreed.");
     expect(sent).toHaveLength(2);
     expect(notes).toEqual([
-      { sessionId: "a", text: "Discussion ended after 1 round." },
-      { sessionId: "b", text: "Discussion ended after 1 round." },
+      { sessionId: "a", text: "Discussion finished after 1 round." },
+      { sessionId: "b", text: "Discussion finished after 1 round." },
     ]);
     // Finished: kept for the team panel, with nothing left to do.
     expect(store.snapshot()).toEqual([
@@ -413,8 +413,8 @@ describe("useDiscussionBroker", () => {
       sent[0].options.onSettled({ status: "cancelled", text: "" }),
     );
     expect(notes.map((note) => note.text)).toEqual([
-      "Discussion ended: “Caching” was stopped.",
-      "Discussion ended: “Caching” was stopped.",
+      "Discussion stopped because “Caching” was stopped.",
+      "Discussion stopped because “Caching” was stopped.",
     ]);
   });
 
@@ -671,10 +671,10 @@ describe("useDiscussionBroker with the user jumping in", () => {
       ended: { kind: "completed" },
     });
     expect(notes.map((note) => note.text)).toEqual([
-      "Discussion ended after 1 round.",
-      "Discussion ended after 1 round.",
-      "Discussion ended after 2 rounds.",
-      "Discussion ended after 2 rounds.",
+      "Discussion finished after 1 round.",
+      "Discussion finished after 1 round.",
+      "Discussion finished after 2 rounds.",
+      "Discussion finished after 2 rounds.",
     ]);
   });
 

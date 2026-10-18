@@ -266,7 +266,7 @@ describe("continuing after a race", () => {
       race({ state: "kept", outcome: { kind: "lane", lane: 0, files: 2 } }),
     );
     expect(await continueRace("r1", async () => false)).toBe(
-      "Couldn't open Claude Code · Opus's chat to continue.",
+      "Couldn't send the recap. Open the agent's chat and try again.",
     );
     expect(getRace("r1")?.continuedAt).toBeUndefined();
     let release!: (sent: boolean) => void;

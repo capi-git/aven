@@ -35,7 +35,7 @@ import {
   buildDiscussionThread,
   type DiscussionThreadItem,
 } from "../lib/discussionThread";
-import { errorText, logError } from "../lib/errors";
+import { logError } from "../lib/errors";
 import { LAYER } from "../lib/layers";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { orchestrator, runWaitsOnLead } from "../lib/orchestration";
@@ -62,8 +62,11 @@ import {
   popOutView,
   teamPillText,
   teamPills,
+  teamGoneText,
   teamTone,
   teamWatchTitle,
+  TEAM_KIND_NAME,
+  TEAM_NOUN,
   type TeamWatchAct,
   type TeamWatchAction,
   type TeamWatchReview,
@@ -85,7 +88,11 @@ import {
 } from "./DiscussionPanel";
 import { useRaceStats } from "./RaceCard";
 import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
-import { TeamWatchPanelView, useTeamVoices } from "./TeamWatchBodies";
+import {
+  ACT_FAILED,
+  TeamWatchPanelView,
+  useTeamVoices,
+} from "./TeamWatchBodies";
 import "./DiscussionPanel.css";
 import "./TeamWatchPanel.css";
 
@@ -103,7 +110,13 @@ const EDGES: readonly PanelEdge[] = [
 ];
 /** The most mascots on a pill. */
 const PILL_FACES = 4;
-const GONE = "This team is no longer available.";
+
+/** A pop-out window's title: its team's, or its kind's while it loads. */
+function popOutTitle(teamId: string, view: TeamWatchView | null): string {
+  if (view) return teamWatchTitle(view.team);
+  const kind = teamKindOf(teamId);
+  return kind ? TEAM_KIND_NAME[kind] : "Aven";
+}
 
 /** The window's size, kept current. */
 function useViewport(): Viewport {
@@ -188,10 +201,15 @@ export function useTeamWatchPerformer({
   deps.current = { panel, host, onStop, orchestration, live };
   return useCallback((team, action) => {
     const { panel, host, onStop, orchestration, live } = deps.current;
-    const later = (work: () => Promise<unknown>) =>
+    const GONE = teamGoneText(team.kind);
+    /** A slower action: its error is logged and said as `failed`. */
+    const later = (work: () => Promise<unknown>, failed: string) =>
       work().then(
         () => null,
-        (error: unknown) => errorText(error),
+        (error: unknown) => {
+          logError("Team panel", error);
+          return failed;
+        },
       );
     if (action.kind === "watch") {
       panel.popIn(team.id);
@@ -269,7 +287,7 @@ export function useTeamWatchPerformer({
               team.members.map((member) => member.stateLabel),
               send as ReviewSend,
             );
-          });
+          }, "Couldn't ask that chat to review. Try again, or choose another chat.");
         }
         default:
           return null;
@@ -280,7 +298,11 @@ export function useTeamWatchPerformer({
     switch (action.kind) {
       case "stop":
         if (onStop) onStop(run.leadId);
-        else return later(() => orchestrator.stopRun(run.leadId));
+        else
+          return later(
+            () => orchestrator.stopRun(run.leadId),
+            "Couldn't stop the run. Try again.",
+          );
         return null;
       case "resume":
         // A panel can be a moment behind: only a paused run resumes, never
@@ -288,11 +310,20 @@ export function useTeamWatchPerformer({
         if (run.status !== "paused") return "This run isn't paused any more.";
         if (team.members[0]?.state === "working")
           return "Wait for the lead to finish its turn, then resume.";
-        return later(() =>
-          orchestrator.start(run.leadId, run.allowedHarnesses, run.maxWorkers),
+        return later(
+          () =>
+            orchestrator.start(
+              run.leadId,
+              run.allowedHarnesses,
+              run.maxWorkers,
+            ),
+          "Couldn't resume the run. Try again from the lead's chat.",
         );
       case "finish":
-        return later(() => orchestrator.finishRun(run.leadId));
+        return later(
+          () => orchestrator.finishRun(run.leadId),
+          "Couldn't finish the run. Try again, or stop it.",
+        );
       case "open-agents":
         if (!orchestration?.openAgents || !run.tasks.length)
           return "This window can't open the agents.";
@@ -677,7 +708,7 @@ export const TeamWatchFloat = memo(function TeamWatchFloat({
             : {})}
           data-native-browser-occluded="true"
           data-dragging={live ? "" : undefined}
-          aria-label={kind === "discuss" ? "Discussion" : "Team"}
+          aria-label={TEAM_KIND_NAME[kind]}
           style={{
             left: rect.x,
             top: rect.y,
@@ -763,18 +794,23 @@ function OwnedTeamPanel({
 }) {
   const view = useTeamWatchView(teamId);
   const team = view?.team;
+  const kind = teamKindOf(teamId);
   const act = useCallback<TeamWatchAct>(
-    (action) => (team ? perform(team, action) : GONE),
-    [perform, team],
+    (action) => (team ? perform(team, action) : teamGoneText(kind)),
+    [kind, perform, team],
   );
   if (!view)
     return (
       <div className="team-watch-view" data-team-view={teamId}>
         <div className="discussion-float-head">
-          <TeamPanelBar title="Team" controls={controls} />
+          <TeamPanelBar
+            title={kind ? TEAM_KIND_NAME[kind] : "Panel"}
+            kind={kind}
+            controls={controls}
+          />
         </div>
         <p className="px-6 py-10 text-center text-ui-label leading-5 text-content/45">
-          {GONE}
+          {teamGoneText(kind)}
         </p>
       </div>
     );
@@ -815,7 +851,8 @@ export const TeamPill = memo(function TeamPill({
       {...(team.kind === "discuss" ? { "data-discussion-pill": team.key } : {})}
       data-state={teamTone(team)}
       data-native-browser-occluded="true"
-      title={`Show the ${team.kind === "discuss" ? "discussion" : team.kind === "race" ? "race" : "run"}`}
+      title={`Show the ${TEAM_NOUN[team.kind]}`}
+      aria-label={`Show the ${TEAM_NOUN[team.kind]} “${team.title}”: ${progress}, ${status}`}
       style={
         color ? ({ "--discussion-voice": color } as CSSProperties) : undefined
       }
@@ -885,14 +922,17 @@ function PopOuts({
             .reply(request.team, request.requestId, error)
             .catch(() => {});
         if (!team || !action) {
-          answer("Aven can't do that from here.");
+          answer(
+            "That's no longer possible from here. Try again from the window it runs in.",
+          );
           return;
         }
         let result: ReturnType<TeamWatchPerform>;
         try {
           result = performRef.current(team, action);
         } catch (error) {
-          answer(errorText(error));
+          logError("Team panel", error);
+          answer(ACT_FAILED);
           return;
         }
         if (result instanceof Promise) void result.then(answer);
@@ -998,7 +1038,7 @@ function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
         dpr: window.devicePixelRatio || 1,
       };
       const open = bridge
-        .open(teamId, view ? teamWatchTitle(view.team) : "Team", snapshot, at)
+        .open(teamId, popOutTitle(teamId, view), snapshot, at)
         .catch((error: unknown) => {
           logError("team pop-out", error);
           // It could not open: show it here instead.
@@ -1028,7 +1068,7 @@ function usePopOutFeed(teamId: string, view: TeamWatchView | null, feed: Feed) {
     bridge
       .open(
         teamId,
-        view ? teamWatchTitle(view.team) : "Team",
+        popOutTitle(teamId, view),
         JSON.parse(sent.current) as TeamWatchSnapshot,
         { ...rect, dpr: window.devicePixelRatio || 1 },
       )

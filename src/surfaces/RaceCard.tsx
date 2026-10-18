@@ -30,6 +30,12 @@ import {
   useRaceWorkspace,
   type RaceRecord,
 } from "../lib/race";
+import { appName } from "../lib/agentNames";
+import {
+  raceLaneName,
+  raceReviewerName,
+  raceSuggestionText,
+} from "../lib/raceLanes";
 import { reviewerChoices, type ReviewerChoice } from "../lib/raceReviewers";
 import {
   askRaceReviewer,
@@ -40,19 +46,13 @@ import {
   suggestionRunning,
   type ReviewSend,
 } from "../lib/teamResult";
-import { raceAgentNames, raceShortNames } from "../lib/raceNames";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
+import { listText, plural } from "../lib/words";
 
-/** "A", "A and B", "A, B and C". */
-function listNames(names: readonly string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-function plural(count: number, one: string): string {
-  return `${count} ${one}${count === 1 ? "" : "s"}`;
-}
+/** How a race explains itself while its agents work. */
+export const RACE_EXPLAINER =
+  "Each agent works separately. Your project doesn't change until you keep one.";
 
 /** What a race with no agent working says, by how its agents ended. */
 export function readyText(members: readonly Pick<TeamMember, "state">[]) {
@@ -60,8 +60,8 @@ export function readyText(members: readonly Pick<TeamMember, "state">[]) {
   if (done === members.length)
     return "Every agent is done. Compare their changes and keep one.";
   if (done)
-    return "No agent is working now. Compare their changes and keep one, or retry the others.";
-  return "Every agent was stopped. Retry one, compare what they wrote, or discard the race.";
+    return "No agent is working now. Compare their changes to keep one, or open Compare to retry the others.";
+  return "Every agent was stopped. Open Compare to retry one, keep what they wrote, or discard the race.";
 }
 
 const MEMBER_TONE: Record<
@@ -146,6 +146,7 @@ function ReviewerButton({
           width={280}
           autoFocus
           tabIndex={-1}
+          role="dialog"
           aria-label="Ask a reviewer"
           onKeyDown={moveMenuFocus}
           onDismiss={(reason) => {
@@ -169,8 +170,8 @@ function ReviewerButton({
                 disabled={!!choice.busy}
                 title={
                   choice.busy
-                    ? `${choice.title}: ${choice.busy}`
-                    : `${choice.title} · ${choice.label}`
+                    ? `“${choice.title}”: ${choice.busy}`
+                    : `“${choice.title}” · ${choice.fullName}`
                 }
                 onClick={() => {
                   setOpen(false);
@@ -185,7 +186,7 @@ function ReviewerButton({
                 />
                 <span className="min-w-0 flex-1 truncate">
                   {choice.sessionId === race.origin?.sessionId
-                    ? "This chat"
+                    ? "The chat you raced from"
                     : choice.title}
                 </span>
                 <span className="max-w-[45%] shrink-0 truncate text-ui-caption text-content/45">
@@ -206,10 +207,10 @@ function ReviewerButton({
 
 /**
  * A race in the chat it was sent from, after your message: one row per
- * lane (mascot, model, state, time, +/−) with Compare while it runs; "Ready
- * to compare" with Suggest a winner once every lane is done; then the result,
- * "Kept Codex's version · 7 files" with why, Review changes and
- * Continue with the agent. Stop all is the bar's, in the message box below.
+ * agent (mascot, name, state, time, +/−) with Compare while it runs; "Ready
+ * to compare" with Suggest a winner once no agent works; then the result,
+ * "Kept Codex's version · 7 files" with why, Review changes and Continue
+ * with the agent. Stop race is the bar's, in the message box below.
  */
 export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
   const workspace = useRaceWorkspace();
@@ -239,11 +240,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
         tone="stopped"
         faces={null}
         title="Race"
-        status="This race is no longer kept."
+        status="This race is no longer available. Aven keeps the 20 most recent finished races."
         attributes={{ "data-race-card": raceId }}
       />
     );
-  const names = listNames(raceShortNames(team.members));
+  const names = listText(team.members.map((member) => member.label));
   const kept = race.state === "kept";
   const over = race.state !== "running";
   const ready = team.status === "ready";
@@ -272,37 +273,37 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
     : ready
       ? "Ready to compare"
       : `${names} are racing`;
-  const suggested =
-    suggestion?.status === "done" && race.lanes[suggestion.lane]
-      ? `${suggestion.by === "reviewer" ? `${suggestion.model}, as Reviewer, suggests` : "Suggested:"} ${race.lanes[suggestion.lane].label} — ${suggestion.why}`
-      : undefined;
+  const suggested = raceSuggestionText(race);
+  const reviewerName = raceReviewerName(race);
   const status = kept
     ? continueError
       ? continueError
       : team.result?.why
         ? `Why: ${team.result.why}`
-        : "Your project has the kept changes."
+        : "Kept in your project."
     : over
-      ? "Your project is unchanged."
+      ? "Your project didn't change."
       : needsYou && team.need
         ? team.need.text
         : suggesting
           ? "Suggesting a winner…"
           : reviewing && review
-            ? `${review.label} is reviewing their results as a Reviewer…`
+            ? `${reviewerName} is comparing the agents' work…`
             : suggested
               ? suggested
               : review?.status === "failed" && ready
                 ? (review.error ??
-                  "The reviewer didn't name a winner. Read its reply in its chat, or compare their changes.")
+                  "The reviewer didn't pick one. Read its reply in its chat, or compare the agents' changes.")
                 : suggestion?.status === "failed" && ready
-                  ? "Couldn't suggest a winner. Compare their changes to choose."
+                  ? "Couldn't suggest a winner. Compare the agents' changes to choose."
                   : ready
                     ? readyText(team.members)
-                    : "Each agent works in its own copy. Your project is unchanged until you keep one.";
+                    : RACE_EXPLAINER;
   const continueAt = continueLane(race);
   const continueWith =
-    continueAt !== undefined ? race.lanes[continueAt] : undefined;
+    continueAt !== undefined && race.lanes[continueAt]
+      ? raceLaneName(race, continueAt)
+      : undefined;
   const suggest = () =>
     void requestRaceSuggestion(
       race.id,
@@ -328,8 +329,10 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
           review.sessionId,
         ]);
         const pick =
-          suggestion?.status === "done" && suggestion.by === "reviewer"
-            ? race.lanes[suggestion.lane]
+          suggestion?.status === "done" &&
+          suggestion.by === "reviewer" &&
+          race.lanes[suggestion.lane]
+            ? raceLaneName(race, suggestion.lane)
             : undefined;
         const stateLabel = reviewing
           ? "Reviewing"
@@ -345,7 +348,8 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
             {
               sessionId: review.sessionId,
               harness: review.harness,
-              label: review.label,
+              label: appName(review.harness),
+              fullName: review.label,
               stateLabel,
               agentRole: review.role,
             },
@@ -353,11 +357,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
           ),
           stateLabel,
           detail: reviewing
-            ? "Comparing the agents' results"
+            ? "Comparing the agents' work"
             : pick
-              ? `Suggests ${pick.label}`
+              ? `Suggests ${pick}`
               : review.status === "failed" && !review.error
-                ? "Didn't name a winner"
+                ? "Didn't pick one"
                 : undefined,
         };
       })()
@@ -445,7 +449,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 <TeamCardMember
                   key={`review:${review.sessionId}`}
                   voice={reviewer.voice}
-                  name={review.label}
+                  name={reviewerName}
                   detail={reviewer.detail}
                   state={reviewer.stateLabel}
                   tone={
@@ -481,8 +485,8 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                   disabled={!!race.continuedAt || continuing}
                   title={
                     race.continuedAt
-                      ? `${continueWith.label} has its recap`
-                      : "Send this agent a short recap, to carry on in the project"
+                      ? `Recap sent to ${continueWith}`
+                      : "Send this agent a short recap so it can carry on in your project"
                   }
                   onClick={() => {
                     setContinuing(true);
@@ -496,8 +500,10 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                   }}
                 >
                   {race.continuedAt
-                    ? `Continued with ${continueWith.label}`
-                    : `Continue with ${continueWith.label}`}
+                    ? `Continued with ${continueWith}`
+                    : continuing
+                      ? "Sending recap…"
+                      : `Continue with ${continueWith}`}
                 </TeamCardButton>
               ) : null}
             </>
@@ -509,11 +515,9 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 onClick={() => workspace.openChat(team.need!.sessionId)}
               >
                 Go to{" "}
-                {raceAgentNames(team.members)[
-                  team.members.findIndex(
-                    (member) => member.sessionId === team.need?.sessionId,
-                  )
-                ] ?? "chat"}
+                {team.members.find(
+                  (member) => member.sessionId === team.need?.sessionId,
+                )?.label ?? "chat"}
               </TeamCardButton>
             ) : null}
             {workspace ? (
@@ -528,7 +532,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
             {teamActions?.watch ? (
               <TeamCardButton
                 data-team-watch={team.id}
-                title="Watch the agents in a floating panel"
+                title="Watch the race in a floating panel"
                 onClick={() => teamActions?.watch?.(team.id)}
               >
                 Watch
@@ -539,7 +543,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 <TeamCardButton
                   data-race-suggest
                   disabled={suggesting || reviewing}
-                  title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
+                  title={
+                    reviewing
+                      ? "Wait for the reviewer to finish first."
+                      : "Ask the cheapest model which result to keep, from the agents' last replies and changes"
+                  }
                   onClick={suggest}
                 >
                   {suggesting ? "Suggesting…" : "Suggest a winner"}

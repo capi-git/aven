@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
-import { raceChipLabel } from "../lib/raceNames";
+import { raceChipLabel, raceFullName } from "../lib/raceNames";
 import { ChevronDown, Race, X } from "./icons";
 import { Popover } from "./Popover";
 import { RaceOptions, type RaceProps } from "./RaceOptions";
@@ -8,6 +8,8 @@ import { RaceOptions, type RaceProps } from "./RaceOptions";
 type Props = RaceProps & {
   /** Why sending would not start the race, or the last refusal. */
   reason: string | null;
+  /** `reason` is a send that just failed: said aloud, not only shown. */
+  failed?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTurnOff: () => void;
@@ -17,14 +19,15 @@ type Props = RaceProps & {
 
 /**
  * The composer's Race mode chip: which agents the next message races, as
- * "Race · Claude Opus 4.6 · Codex GPT-5", with a dropdown to choose two to
- * four of them, any provider and model. Sending the message starts the race.
+ * "Race · Claude · Codex", with a dropdown to choose two to four of them,
+ * any app and model. Sending the message starts the race.
  */
 export function RaceChip({
   available,
   lanes,
   onFirstModelChange,
   reason,
+  failed = false,
   open,
   onOpenChange,
   onTurnOff,
@@ -47,8 +50,7 @@ export function RaceChip({
         ref={anchor}
         type="button"
         title={
-          lanes.map((lane) => lane.label).join(", ") ||
-          "Choose the agents to race"
+          lanes.map(raceFullName).join(", ") || "Choose the agents to race"
         }
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -80,6 +82,7 @@ export function RaceChip({
           width={300}
           autoFocus
           tabIndex={-1}
+          role="dialog"
           aria-label="Race this message"
           onKeyDown={onKeyDown}
           onDismiss={(dismissed) => {
@@ -97,14 +100,14 @@ export function RaceChip({
             />
             <div className="flex min-h-9 items-center border-t border-content/10 px-2.5 py-1.5">
               <p
-                role={reason ? "alert" : undefined}
+                role={failed ? "alert" : undefined}
                 data-race-reason
                 className={`min-w-0 flex-1 text-ui-caption leading-4 ${
                   reason ? "text-content/80" : "text-content/45"
                 }`}
               >
                 {reason ??
-                  "Send your message to start. Each agent works in its own copy of the project; your files stay as they are until you keep one."}
+                  "Send your message to start. Each agent works separately. Your project doesn't change until you keep one."}
               </p>
             </div>
           </div>

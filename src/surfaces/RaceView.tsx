@@ -21,6 +21,7 @@ import {
   getRace,
   finishRace,
   noteRaceStats,
+  RaceRefusal,
   raceFileRows,
   raceHost,
   raceWorkspace,
@@ -38,12 +39,16 @@ import {
   raceKeepQuestion,
   raceLaneActive,
   raceLaneCanRetry,
+  raceLaneName,
   raceLaneSeconds,
   raceLaneState,
   raceOutcomeText,
+  raceSuggestionText,
   type RaceLaneState,
   type RaceQuestion,
 } from "../lib/raceLanes";
+import { logError } from "../lib/errors";
+import { raceFullName } from "../lib/raceNames";
 import type { Session } from "../lib/session";
 import {
   continueLane,
@@ -65,6 +70,10 @@ type Props = {
 };
 
 const REFRESH_WHILE_RUNNING_MS = 4000;
+
+/** When the agents' changes could not be read; the overview tries again. */
+const CHANGES_UNREAD =
+  "Couldn't read the agents' changes. They'll be read again shortly.";
 
 /** Compare the lanes of one race and keep a result. */
 export function RaceView({ raceId, sessions, visible }: Props) {
@@ -187,13 +196,13 @@ function RaceBody({
         setDiffs(next);
         // The race's card in its chat shows the same numbers.
         noteRaceStats(raceId, next);
-        setLoadError(
-          next.every((diff) => !diff) ? "Couldn’t read the race copies." : null,
-        );
+        setLoadError(next.every((diff) => !diff) ? CHANGES_UNREAD : null);
       })
       .catch((error: unknown) => {
-        if (!finishingRef.current && getRace(raceId)?.state === "running")
-          setLoadError(String(error));
+        if (!finishingRef.current && getRace(raceId)?.state === "running") {
+          logError("Race overview", error);
+          setLoadError(CHANGES_UNREAD);
+        }
       });
   }, [working, raceId, lanesKey, base]);
 
@@ -279,16 +288,18 @@ function RaceBody({
           !cancelled &&
           !finishingRef.current &&
           getRace(raceId)?.state === "running"
-        )
+        ) {
+          logError("Race overview", error);
           setFileModel({
             id: `${currentLane}:${currentPath}`,
             path: currentPath,
             label: currentPath,
-            emptyMessage: `Couldn’t load diff: ${String(error)}`,
+            emptyMessage: "Couldn't show this file's changes.",
             additions: stats.additions,
             deletions: stats.deletions,
             blocks: [],
           });
+        }
       });
     return () => {
       cancelled = true;
@@ -316,7 +327,15 @@ function RaceBody({
     try {
       await finishRace(race, keep);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
+      if (error instanceof RaceRefusal) setActionError(error.message);
+      else {
+        logError("Race overview", error);
+        setActionError(
+          keep
+            ? "Couldn't keep those changes. Try again."
+            : "Couldn't discard the race. Try again.",
+        );
+      }
     } finally {
       finishingRef.current = false;
       setWorking(null);
@@ -377,7 +396,10 @@ function RaceBody({
   const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
   const continueAt = continueLane(race);
   const continueWith =
-    continueAt !== undefined ? race.lanes[continueAt] : undefined;
+    continueAt !== undefined && race.lanes[continueAt]
+      ? raceLaneName(race, continueAt)
+      : undefined;
+  const suggestedText = raceSuggestionText(race);
 
   return (
     <div
@@ -390,16 +412,18 @@ function RaceBody({
           <div className="truncate text-ui-label text-content/45">
             {race.state === "kept"
               ? race.error
-                ? "Kept. Some race copies could not be removed."
-                : "Kept. The race copies were removed."
+                ? `Kept in your project. ${race.error}`
+                : "Kept in your project. The other agents' work was cleared away."
               : race.state === "discarded"
-                ? "Discarded. Your project was not changed."
+                ? "Discarded. Your project didn't change."
                 : [
                     `${lanes.length} agents`,
                     race.uncommitted
-                      ? "started from your uncommitted changes"
-                      : "started from the last commit",
-                    race.untracked ? "new untracked files were not copied" : "",
+                      ? "started from your files as they are now"
+                      : "started from your last commit",
+                    race.untracked
+                      ? "new files not yet added to Git weren't included"
+                      : "",
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -410,7 +434,11 @@ function RaceBody({
             type="button"
             data-race-suggest
             disabled={!!working || suggesting}
-            title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
+            title={
+              suggesting && !suggestionRunning(suggestion)
+                ? "Wait for the reviewer to finish first."
+                : "Ask the cheapest model which result to keep, from the agents' last replies and changes"
+            }
             onClick={suggest}
             className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
           >
@@ -421,6 +449,7 @@ function RaceBody({
           <button
             type="button"
             disabled={!!working}
+            title="Stop every agent still working. You can still compare what they wrote."
             onClick={() =>
               raceWorkspace()?.stop(
                 lanes
@@ -430,7 +459,7 @@ function RaceBody({
             }
             className="rounded-md border border-content/15 px-2.5 py-1 text-content hover:bg-content/10 disabled:opacity-40"
           >
-            Stop all
+            Stop race
           </button>
         ) : null}
         {running ? (
@@ -456,29 +485,25 @@ function RaceBody({
         ) : null}
       </header>
 
-      {running &&
-      suggestion?.status === "done" &&
-      race.lanes[suggestion.lane] ? (
+      {running && suggestedText ? (
         <div
           className="flex items-start gap-2 border-b border-content/10 px-4 py-2 text-ui-label text-content/75"
           data-race-suggestion
         >
           <Check className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            {suggestion.by === "reviewer"
-              ? `${suggestion.model}, as Reviewer, suggests`
-              : "Suggested:"}{" "}
-            {race.lanes[suggestion.lane].label} — {suggestion.why}
-          </span>
+          <span>{suggestedText}</span>
         </div>
       ) : running && suggestion?.status === "failed" && settled ? (
         <div className="border-b border-content/10 px-4 py-2 text-ui-label text-content/55">
-          Couldn't suggest a winner. Compare their changes to choose.
+          Couldn't suggest a winner. Compare the agents' changes to choose.
         </div>
       ) : null}
 
-      {actionError || race.error || (running && loadError) ? (
-        <div className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-ui-label text-content/75">
+      {actionError || (running && (race.error || loadError)) ? (
+        <div
+          className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-ui-label text-content/75"
+          role="alert"
+        >
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
           <span>{actionError ?? race.error ?? loadError}</span>
         </div>
@@ -508,8 +533,11 @@ function RaceBody({
                   harness={lane.harness}
                   className="size-4 shrink-0"
                 />
-                <span className="min-w-0 flex-1 truncate text-content">
-                  {lane.label}
+                <span
+                  className="min-w-0 flex-1 truncate text-content"
+                  title={raceFullName(lane)}
+                >
+                  {raceLaneName(race, index)}
                 </span>
                 {running ? <LaneStatus state={state} now={now} /> : null}
               </div>
@@ -568,6 +596,11 @@ function RaceBody({
                   <button
                     type="button"
                     disabled={disabled || !diff?.files.length}
+                    title={
+                      diff && !diff.files.length
+                        ? "This agent didn't change any files."
+                        : undefined
+                    }
                     onClick={() => {
                       const changed = diffs.map((entry) => entry?.files.length);
                       confirm(
@@ -595,7 +628,7 @@ function RaceBody({
         >
           <div className="flex min-h-0 flex-col border-r border-content/10">
             <div className="px-3 pb-1 pt-2 text-ui-caption text-content/40">
-              Files · pick which agent’s version to keep
+              Files · pick which agent's version to keep
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
               {rows.length === 0 ? (
@@ -635,8 +668,8 @@ function RaceBody({
                           aria-pressed={chosen}
                           title={
                             touched
-                              ? `Keep ${lane.label}'s version`
-                              : `${lane.label} did not change this file`
+                              ? `Keep ${raceLaneName(race, index)}'s version`
+                              : `${raceLaneName(race, index)} didn't change this file`
                           }
                           onClick={(event) => {
                             event.stopPropagation();
@@ -696,7 +729,7 @@ function RaceBody({
                         harness={lane.harness}
                         className="size-3.5"
                       />
-                      {lane.label}
+                      {raceLaneName(race, index)}
                     </button>
                   ) : null,
                 )}
@@ -707,7 +740,7 @@ function RaceBody({
                 <UnifiedDiffView files={diffFiles} fileLayout="cards" />
               ) : (
                 <p className="grid h-full place-items-center text-ui-label text-content/40">
-                  {rows.length ? "Loading diff…" : ""}
+                  {rows.length ? "Loading changes…" : ""}
                 </p>
               )}
             </div>
@@ -718,8 +751,8 @@ function RaceBody({
           <Check className="mb-1 size-5 text-content/60" />
           <p className="text-content">
             {race.state === "kept"
-              ? "Changes kept in your project"
-              : "Your project is unchanged"}
+              ? "Kept in your project."
+              : "Your project didn't change."}
           </p>
           {outcome ? (
             <p className="text-ui-label text-content/70" data-race-outcome>
@@ -753,8 +786,8 @@ function RaceBody({
                   className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
                 >
                   {race.continuedAt
-                    ? `Continued with ${continueWith.label}`
-                    : `Continue with ${continueWith.label}`}
+                    ? `Continued with ${continueWith}`
+                    : `Continue with ${continueWith}`}
                 </button>
               ) : null}
             </div>

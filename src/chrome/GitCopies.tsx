@@ -40,10 +40,12 @@ import {
 } from "../lib/race";
 import {
   raceDiscardQuestion,
+  raceLaneName,
   raceLaneState,
   raceProgress,
   type RaceLaneState,
 } from "../lib/raceLanes";
+import { listText } from "../lib/words";
 import {
   sessionDisplayTitle,
   sessionNeedsInput,
@@ -170,7 +172,7 @@ export function groupParallelWork(active: readonly CopySummary[]): {
   return { races: [...races.values()], copies };
 }
 
-/** "Race · Fix the login loop" and "3 agents · 2 done". */
+/** "Race · Fix the login loop" and "2 of 3 done". */
 export function raceGroupLine(
   race: RaceRecord,
   lanes: readonly RaceLaneState[],
@@ -178,12 +180,12 @@ export function raceGroupLine(
   const done = lanes.filter((lane) => lane.kind === "done").length;
   return {
     name: `Race · ${firstLine(race.prompt)}`,
-    short: `${race.lanes.length} agents · ${done} done`,
+    short: `${done} of ${race.lanes.length} done`,
   };
 }
 
 export type CopyStatus = {
-  /** One plain sentence, e.g. "3 commits not in main yet · 2 files uncommitted". */
+  /** One plain line, e.g. "Has work not in main yet · 2 changed files". */
   text: string;
   tone: "merged" | "uncommitted" | "ahead" | "quiet";
   /** More detail for a tooltip, when the sentence can't say it all. */
@@ -200,17 +202,32 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
   if (copy.finished) return { text: `Merged into ${base}`, tone: "merged" };
   const files = worktree.files.length;
   const parts: string[] = [];
-  if (worktree.aheadOfDefault > 0)
-    parts.push(
-      `${count(worktree.aheadOfDefault, "commit", "commits")} not in ${base} yet`,
+  // The counts go in the tooltip; the line says what it means.
+  const counts: string[] = [];
+  if (worktree.aheadOfDefault > 0) {
+    parts.push(`Has work not in ${base} yet`);
+    counts.push(
+      `${count(worktree.aheadOfDefault, "commit", "commits")} not in ${base} yet.`,
     );
-  if (worktree.behindDefault > 0)
-    parts.push(
-      `${base} has ${count(worktree.behindDefault, "newer commit", "newer commits")}`,
+  }
+  if (worktree.behindDefault > 0) {
+    parts.push(`${base} has newer work`);
+    counts.push(
+      `${base} has ${count(worktree.behindDefault, "newer commit", "newer commits")}.`,
     );
-  if (files > 0) parts.push(`${count(files, "file", "files")} uncommitted`);
+  }
+  if (files > 0) {
+    parts.push(count(files, "changed file", "changed files"));
+    counts.push(
+      `${count(files, "file has", "files have")} changes not saved to Git.`,
+    );
+  }
   if (parts.length === 0)
     parts.push(worktree.primary ? `Up to date with ${base}` : "No changes yet");
+  if (files === 0 && worktree.aheadOfDefault > 0 && !worktree.mergedIntoDefault)
+    counts.push(
+      `If this branch was squash-merged, its changes may already be in ${base}.`,
+    );
   return {
     text: parts.join(" · "),
     tone:
@@ -219,13 +236,7 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
         : worktree.aheadOfDefault > 0
           ? "ahead"
           : "quiet",
-    ...(files === 0 &&
-    worktree.aheadOfDefault > 0 &&
-    !worktree.mergedIntoDefault
-      ? {
-          hint: `If this branch was squash-merged, its changes may already be in ${base}.`,
-        }
-      : {}),
+    ...(counts.length ? { hint: counts.join(" ") } : {}),
   };
 }
 
@@ -325,10 +336,10 @@ export function chatForCopy(
   return best;
 }
 
-/** "Fix tab groups — agent working" / "Fix tab groups · last active 2h ago". */
+/** "Fix tab groups · agent working" / "Fix tab groups · last active 2h ago". */
 export function describeCopyChat(chat: CopyChat, now: number): string {
-  if (chat.state === "working") return `${chat.title} — agent working`;
-  if (chat.state === "waiting") return `${chat.title} — waiting for you`;
+  if (chat.state === "working") return `${chat.title} · agent working`;
+  if (chat.state === "waiting") return `${chat.title} · needs you`;
   const age = shortTimeAgo(chat.at, now);
   return age ? `${chat.title} · last active ${age}` : chat.title;
 }
@@ -449,18 +460,12 @@ export async function cleanUpCopies(
   return result;
 }
 
-/** "A", "A and B", "A, B and C". */
-function listNames(names: readonly string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
 /** What removing a copy throws away, for its confirmation. */
 export function removalWarning(copy: CopySummary): string {
   const { worktree } = copy;
   const race = isRaceCopy(copy);
   if (copy.race?.race.state === "running")
-    return `This race is still running. Removing it stops its agents and deletes all ${copy.race.race.lanes.length} of its copies, including unsaved and ignored files.`;
+    return "This race is still running. Removing it stops its agents and deletes their work, including files Git ignores.";
   if (!race && !worktree.branch)
     return "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.";
   const parts = [
@@ -522,7 +527,7 @@ export function copyName(
   worktree: Pick<GitWorktree, "branch" | "path">,
 ): string {
   const branch = worktree.branch ?? "";
-  if (branch.startsWith("aven/race/")) return "Race copy";
+  if (branch.startsWith("aven/race/")) return "Race folder";
   const segments = branch.split("/").filter(Boolean);
   while (segments.length > 1 && BRANCH_KIND.test(segments[0])) segments.shift();
   const words = (segments.join(" ") || basename(worktree.path))
@@ -608,7 +613,8 @@ export function currentCopyLabel(
   if (!current) return null;
   if (current.primary) return "Main folder";
   const race = raceLaneAtPath(current.path);
-  if (race) return `Race · ${race.lane.label}`;
+  if (race)
+    return `Race · ${raceLaneName(race.race, race.race.lanes.indexOf(race.lane))}`;
   return `Parallel · ${copyName(current)}`;
 }
 
@@ -853,7 +859,11 @@ export function GitCopies({
       setConfirming(null);
       setOpen(null);
     } catch (error) {
-      setFailure({ path: key, message: errorText(error) });
+      logError("Discard the race", error);
+      setFailure({
+        path: key,
+        message: "Couldn't discard the race. Try again, or use Compare.",
+      });
     } finally {
       setRemoving(null);
       notifyGitChanged(cwd);
@@ -884,9 +894,10 @@ export function GitCopies({
       );
       setCleanup({ phase: "done", result });
     } catch (error) {
+      logError("Clean up finished copies", error);
       setCleanup({
         phase: "error",
-        message: `Couldn't check the copies again. Nothing was removed. ${errorText(error)}`,
+        message: "Couldn't check the copies again. Nothing was removed.",
       });
     } finally {
       notifyGitChanged(cwd);
@@ -985,7 +996,12 @@ export function GitCopies({
             type="button"
             className="git-copy-line"
             aria-expanded={expanded}
-            title={[status.text, chatLine, `${where} · ${worktree.path}`]
+            title={[
+              status.text,
+              status.hint,
+              chatLine,
+              `${where} · ${worktree.path}`,
+            ]
               .filter(Boolean)
               .join("\n")}
             onClick={() => setOpen(expanded ? null : worktree.path)}
@@ -1004,7 +1020,7 @@ export function GitCopies({
                   className="git-copy-dot"
                   data-dot="uncommitted"
                   role="img"
-                  aria-label="Uncommitted files"
+                  aria-label="Has changed files"
                 />
               ) : null}
             </span>
@@ -1217,7 +1233,7 @@ export function GitCopies({
                   className="git-copy-dot"
                   data-dot="uncommitted"
                   role="img"
-                  aria-label="Uncommitted files"
+                  aria-label="Has changed files"
                 />
               ) : null}
             </span>
@@ -1230,6 +1246,7 @@ export function GitCopies({
               {race.lanes.map((lane, index) => {
                 const copy = group.copies[index];
                 const state = lanes[index];
+                const text = `${raceLaneName(race, index)} · ${state?.label ?? "Closed"}`;
                 return (
                   <p
                     key={lane.sessionId}
@@ -1242,18 +1259,16 @@ export function GitCopies({
                           ? "waiting"
                           : "idle"
                     }
-                    title={lane.path}
+                    title={text}
                   >
                     {state?.kind === "working" && mark ? (
                       <ProjectMark path={mark} active />
                     ) : (
                       <ProviderMarks harnesses={[lane.harness]} />
                     )}
-                    <span className="min-w-0 flex-1 truncate">
-                      {`${lane.label} — ${state?.label ?? "Closed"}`}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate">{text}</span>
                     <span className="git-copy-short">
-                      {copy ? copyShortStatus(copy) : "Open here"}
+                      {copy ? copyShortStatus(copy) : "In this window"}
                     </span>
                   </p>
                 );
@@ -1388,11 +1403,11 @@ export function GitCopies({
         <p>
           {removable === 0
             ? "Nothing can be cleaned up right now."
-            : `Remove ${removable} finished ${removable === 1 ? "copy" : "copies"}: ${listNames(plan.remove.map((copy) => copy.name))}? Their changes are already on ${base}. ${races ? "Race copies are deleted entirely, including ignored files; other copies" : "Copies"} with ignored files are kept.`}
+            : `Remove ${removable} finished ${removable === 1 ? "copy" : "copies"}: ${listText(plan.remove.map((copy) => copy.name))}? Their changes are already on ${base}. ${races ? "Race folders are deleted entirely, including files Git ignores; copies" : "Copies"} with ignored files are kept.`}
         </p>
         {plan.skip.length > 0 ? (
           <p>
-            {`Keeping ${listNames(plan.skip.map(({ copy, reason }) => `${copy.name} (${reason})`))}.`}
+            {`Keeping ${listText(plan.skip.map(({ copy, reason }) => `${copy.name} (${reason})`))}.`}
           </p>
         ) : null}
         <div>

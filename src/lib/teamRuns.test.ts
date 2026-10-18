@@ -108,7 +108,8 @@ describe("discussionTeam", () => {
       ["opener", "queued"],
       ["responder", "working"],
     ]);
-    expect(team.members[1].label).toBe("Codex · GPT-5");
+    expect(team.members[1].label).toBe("Codex");
+    expect(team.members[1].fullName).toBe("Codex · GPT-5");
     expect(team.members[1].doing).toContain("App.tsx");
     expect(team.need).toBeUndefined();
   });
@@ -147,7 +148,10 @@ describe("discussionTeam", () => {
     expect(team.need).toMatchObject({ sessionId: "a", kind: "approval" });
     expect(team.members[0]).toMatchObject({
       state: "needs-you",
-      asking: { kind: "approval", text: "Approve: npm test" },
+      asking: {
+        kind: "approval",
+        text: "Claude wants your approval: npm test",
+      },
     });
   });
 
@@ -164,7 +168,7 @@ describe("discussionTeam", () => {
     expect(done).toMatchObject({
       status: "finished",
       progress: "2 rounds",
-      result: { headline: "Discussed for 2 rounds" },
+      result: { headline: "Discussion finished · 2 rounds" },
       endedAt: 9_000,
     });
     const stopped = discussionTeam(
@@ -173,7 +177,7 @@ describe("discussionTeam", () => {
     );
     expect(stopped).toMatchObject({
       status: "stopped",
-      progress: "Stopped after 1 round of 2",
+      progress: "Stopped after 1 of 2 rounds",
     });
     expect(stopped.result).toBeUndefined();
   });
@@ -395,7 +399,7 @@ describe("orchestrationTeam", () => {
       origin: { sessionId: "lead", blockId: "plan" },
       title: "Split the settings page",
       status: "running",
-      progress: "1 working · 1 waiting",
+      progress: "1 working · 1 queued",
       startedAt: 50,
     });
     expect(
@@ -406,7 +410,8 @@ describe("orchestrationTeam", () => {
       ["worker", "Queued"],
       ["worker", "Accepted"],
     ]);
-    expect(team.members[0].label).toBe("Claude · Opus");
+    expect(team.members[0].label).toBe("Claude");
+    expect(team.members[0].fullName).toBe("Claude Code · Opus");
     expect(team.members[3].changes).toEqual({ files: 2 });
   });
 
@@ -452,7 +457,10 @@ describe("orchestrationTeam", () => {
     expect(done.changes).toEqual({ files: 7 });
     expect(asking).toMatchObject({
       state: "lead-deciding",
-      asking: { kind: "approval", text: "Approve: npm test" },
+      asking: {
+        kind: "approval",
+        text: "Codex gpt-5 wants approval: npm test",
+      },
     });
     // Still never yours to answer.
     expect(team.need).toBeUndefined();

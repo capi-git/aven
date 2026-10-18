@@ -1,5 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
+import { agentFullName } from "../lib/agentNames";
+import { logError } from "../lib/errors";
 import { modelDisplayName } from "../lib/sessionLabels";
 import { orchestrator } from "../lib/orchestration";
 import {
@@ -9,7 +11,6 @@ import {
   orchestrationTaskLabel,
   type OrchestrationSummary,
 } from "../lib/orchestrationSummary";
-import { HARNESS_TITLE } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationWorkers } from "./OrchestrationActions";
 import { Check, ChevronDown, ChevronRight, CircleAlert } from "./icons";
@@ -63,13 +64,15 @@ export function OrchestrationSidebarAgents({
     });
     if (isOpen && revealed === sessionId) workers.inspect(null);
   };
-  const perform = async (operation: () => Promise<void>) => {
+  /** Runs a button's action; a failure shows `failed` and logs the cause. */
+  const perform = async (operation: () => Promise<void>, failed: string) => {
     setPending(true);
     setError(undefined);
     try {
       await operation();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      logError("Run agents", reason);
+      setError(failed);
     } finally {
       setPending(false);
     }
@@ -91,9 +94,9 @@ export function OrchestrationSidebarAgents({
           type="button"
           data-orchestration-folded
           aria-expanded={false}
-          // Its line is its name; the hint is a description, so a screen
-          // reader hears how the run ended too.
-          title="Show this run's agents"
+          // Its line is its name; the hint repeats it, since a long line is
+          // cut off, and says what the button does.
+          title={`${orchestrationFoldedLine(summary, run?.endedAt ?? endedAt, now)}. Show this run's agents.`}
           onClick={() => setUnfolded(true)}
           className="-mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-ui-caption text-content/45 hover:bg-content/10 hover:text-content/70"
         >
@@ -169,6 +172,7 @@ export function OrchestrationSidebarAgents({
             task.model,
             run?.allowedModels,
           );
+          const fullName = agentFullName({ harness: task.harness, model });
           return (
             <div
               key={task.sessionId}
@@ -179,7 +183,7 @@ export function OrchestrationSidebarAgents({
             >
               <button
                 type="button"
-                title={`${task.title} · ${HARNESS_TITLE[task.harness]} · ${model} · ${label}`}
+                title={`${task.title} · ${fullName} · ${label}`}
                 aria-label={`Agent details: ${task.title}`}
                 aria-expanded={open}
                 onClick={() => toggle(task.sessionId, open)}
@@ -212,7 +216,7 @@ export function OrchestrationSidebarAgents({
                 <span
                   className={`flex shrink-0 items-center gap-1 text-ui-caption ${
                     task.status === "failed"
-                      ? "text-amber-400"
+                      ? "text-red-600 dark:text-red-400"
                       : deciding
                         ? "text-content/55"
                         : working
@@ -237,7 +241,7 @@ export function OrchestrationSidebarAgents({
                 <div className="space-y-2 pb-3 pl-6.5 pr-2">
                   <p
                     className="flex min-w-0 items-center gap-1.5 text-ui-caption text-content/45"
-                    title={`${model} · ${HARNESS_TITLE[task.harness]}`}
+                    title={fullName}
                   >
                     <HarnessIcon
                       harness={task.harness}
@@ -247,17 +251,24 @@ export function OrchestrationSidebarAgents({
                   </p>
                   {deciding && (
                     <p className="text-ui-caption text-content/45">
-                      It asked for an approval or an answer. The lead decides.
+                      It asked for an approval or an answer; the lead is
+                      deciding.
                     </p>
                   )}
                   {live?.error && (
-                    <p className="text-ui-caption text-red-400">{live.error}</p>
+                    <p
+                      className="text-ui-caption text-red-600 dark:text-red-400"
+                      title={live.error}
+                    >
+                      This agent ran into a problem. Open its chat to see what
+                      happened.
+                    </p>
                   )}
                   <div className="flex flex-wrap items-center gap-1">
                     {workers.openDetails && (
                       <button
                         type="button"
-                        title="Open this agent beside the orchestrator"
+                        title="Open this agent's chat beside the lead"
                         className={solidAction}
                         onClick={() =>
                           workers.openDetails?.({
@@ -268,7 +279,7 @@ export function OrchestrationSidebarAgents({
                           })
                         }
                       >
-                        See details
+                        Open chat
                       </button>
                     )}
                     {live && ["queued", "running"].includes(live.status) && (
@@ -277,8 +288,9 @@ export function OrchestrationSidebarAgents({
                         className={solidAction}
                         disabled={pending}
                         onClick={() =>
-                          void perform(() =>
-                            orchestrator.cancelTask(leadId, live.id),
+                          void perform(
+                            () => orchestrator.cancelTask(leadId, live.id),
+                            "Couldn't cancel the task. Try again.",
                           )
                         }
                       >
@@ -293,7 +305,10 @@ export function OrchestrationSidebarAgents({
         })}
       </div>
       {(error || run?.error) && (
-        <p role="alert" className="py-1 text-ui-caption text-red-400">
+        <p
+          role="alert"
+          className="py-1 text-ui-caption text-red-600 dark:text-red-400"
+        >
           {error ?? run?.error}
         </p>
       )}
@@ -306,13 +321,16 @@ export function OrchestrationSidebarAgents({
               type="button"
               className={action}
               disabled={pending}
+              title="Resume the run"
               onClick={() =>
-                void perform(() =>
-                  orchestrator.start(
-                    leadId,
-                    run.allowedHarnesses,
-                    run.maxWorkers,
-                  ),
+                void perform(
+                  () =>
+                    orchestrator.start(
+                      leadId,
+                      run.allowedHarnesses,
+                      run.maxWorkers,
+                    ),
+                  "Couldn't resume the run. Try again from the lead's chat.",
                 )
               }
             >
@@ -323,7 +341,13 @@ export function OrchestrationSidebarAgents({
             type="button"
             className={action}
             disabled={pending}
-            onClick={() => void perform(() => orchestrator.stopRun(leadId))}
+            title="Stop the lead and every agent in this run"
+            onClick={() =>
+              void perform(
+                () => orchestrator.stopRun(leadId),
+                "Couldn't stop the run. Try again.",
+              )
+            }
           >
             Stop run
           </button>

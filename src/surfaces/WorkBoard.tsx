@@ -27,7 +27,11 @@ import {
   type BoardCard,
   type BoardColumnId,
 } from "../lib/workBoard";
-import { useWorkBoardFeed, workBoardActions } from "../lib/workBoardFeed";
+import {
+  useWorkBoardFeed,
+  workBoardActions,
+  workBoardFeedLoaded,
+} from "../lib/workBoardFeed";
 import { homeElapsed } from "../lib/workspaceHome";
 import "./WorkBoard.css";
 
@@ -91,6 +95,7 @@ export function WorkBoard({
       columns={shown.columns}
       olderShipped={shown.olderShipped}
       today={boardTodayText(shown.today)}
+      loading={!workBoardFeedLoaded(feed)}
       live={visible}
       showOlder={showOlder}
       onShowOlder={toggleOlder}
@@ -104,6 +109,7 @@ export const WorkBoardView = memo(function WorkBoardView({
   columns,
   olderShipped,
   today,
+  loading = false,
   live,
   showOlder,
   onShowOlder,
@@ -112,6 +118,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   columns: Readonly<Record<BoardColumnId, BoardCard[]>>;
   olderShipped: number;
   today: string;
+  /** The workspace has not told the board its chats yet. */
+  loading?: boolean;
   live: boolean;
   showOlder: boolean;
   onShowOlder: () => void;
@@ -135,7 +143,9 @@ export const WorkBoardView = memo(function WorkBoardView({
         <ProjectMark path={project} className="work-board-mark" />
         <div className="work-board-heading">
           <h1>{name}</h1>
-          <p className="work-board-today">{today}</p>
+          <p className="work-board-today">
+            {loading ? "Loading chats…" : today}
+          </p>
         </div>
       </header>
       <div className="work-board-columns">
@@ -162,7 +172,9 @@ export const WorkBoardView = memo(function WorkBoardView({
                   ))}
                 </ul>
               ) : (
-                <p className="work-board-empty">{column.empty}</p>
+                <p className="work-board-empty">
+                  {loading ? "Loading…" : column.empty}
+                </p>
               )}
               {older || (column.id === "shipped" && showOlder) ? (
                 <button
@@ -254,7 +266,7 @@ const BoardCardView = memo(function BoardCardView({
       <button
         type="button"
         className="work-board-card-open"
-        title={`Open ${card.title}`}
+        title={`Open “${card.title}”`}
         onClick={() => workBoardActions()?.openChat(card.sessionId)}
       >
         <span className="work-board-card-title">
@@ -266,7 +278,7 @@ const BoardCardView = memo(function BoardCardView({
           ) : null}
           <span className="work-board-card-name">{card.title}</span>
         </span>
-        <span className="work-board-card-line">
+        <span className="work-board-card-line" title={card.line}>
           {card.line}
           {card.since !== undefined ? (
             <Elapsed since={card.since} live={live} />

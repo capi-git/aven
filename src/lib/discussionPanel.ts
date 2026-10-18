@@ -176,9 +176,9 @@ export function foldedRoundCount(
   return folded;
 }
 
-/** "Rounds 1–5 · Show" (or one round). */
+/** "Show rounds 1–5" (or one round). */
 export function foldLabel(folded: number): string {
-  return folded === 1 ? "Round 1 · Show" : `Rounds 1–${folded} · Show`;
+  return folded === 1 ? "Show round 1" : `Show rounds 1–${folded}`;
 }
 
 /**

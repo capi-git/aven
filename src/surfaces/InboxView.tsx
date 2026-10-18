@@ -1040,7 +1040,7 @@ function InboxDetail({
               }}
               className={`${ACTION_FILLED} disabled:cursor-default disabled:opacity-40`}
             >
-              {starting ? "Sending..." : "Send to agent"}
+              {starting ? "Sending…" : "Send to agent"}
             </button>
           ) : null}
           <button

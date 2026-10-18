@@ -1,7 +1,6 @@
 import { memo, useState, type CSSProperties } from "react";
 import type { Discussion, DiscussionSide } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
-import { spokenName } from "../lib/discussionWrapUp";
 import { Check, ExternalLink } from "./icons";
 import { ProjectMascot } from "./ProjectMascot";
 import "./DiscussionWrapUp.css";
@@ -68,7 +67,10 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
         <div className="discussion-wrapup-head">
           <h3 className="discussion-wrapup-title">Where they landed</h3>
           {done?.model ? (
-            <span className="discussion-wrapup-model">
+            <span
+              className="discussion-wrapup-model"
+              title={`Summed up by ${done.model}`}
+            >
               Summed up by {done.model}
             </span>
           ) : null}
@@ -77,10 +79,10 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
               type="button"
               className="discussion-wrapup-open"
               data-discussion-wrapup-open
-              title="Open the discussion"
+              title="Watch the discussion in a floating panel"
               onClick={onOpen}
             >
-              Open discussion
+              Watch
               <ExternalLink className="size-3 shrink-0" />
             </button>
           ) : null}
@@ -96,7 +98,6 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
         <div className="discussion-wrapup-actions">
           {(["a", "b"] as const).map((side) => {
             const voice = voices[side];
-            const party = discussion[side];
             return (
               <button
                 key={side}
@@ -126,9 +127,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                     className="discussion-build-sprite"
                   />
                 )}
-                <span className="truncate">
-                  Have {spokenName(party)} build it
-                </span>
+                <span className="truncate">Have {voice.name} build it</span>
               </button>
             );
           })}

@@ -721,7 +721,7 @@ function PreferencesPage({
         <div className="settings-alert-options">
           {(
             [
-              ["needsInput", "Needs input"],
+              ["needsInput", "Needs you"],
               ["failures", "Failures"],
               ["finished", "Finished / stopped"],
               ["sound", "Sound"],

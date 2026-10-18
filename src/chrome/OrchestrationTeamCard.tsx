@@ -5,6 +5,7 @@ import type { OrchestrationRun } from "../lib/orchestration";
 import { orchestrationStatusWord } from "../lib/orchestrationSummary";
 import type { TeamMember } from "../lib/teamRuns";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
+import { plural } from "../lib/words";
 import { OrchestrationActions } from "./OrchestrationActions";
 import {
   TeamCard,
@@ -31,10 +32,6 @@ const MEMBER_TONE: Record<
 /** The most mascots in the header; the rows show every agent. */
 const FACES = 5;
 
-function plural(count: number, one: string): string {
-  return `${count} ${one}${count === 1 ? "" : "s"}`;
-}
-
 /**
  * An orchestration's card once its plan is confirmed: the lead and its
  * agents, each with its state and what it is doing, then, once the run is
@@ -42,6 +39,8 @@ function plural(count: number, one: string): string {
  * model, Accepted / Cancelled / Failed, files touched, and a line on what it
  * did once the cheap model has written one), Review changes and Open
  * agents. Show plan unfolds the plan it started from. Stop run is the bar's.
+ * Until the run's record exists it shows that the run is starting, so the
+ * plan's card never blinks out.
  */
 export function OrchestrationTeamCard({
   run,
@@ -65,7 +64,19 @@ export function OrchestrationTeamCard({
       memberVoice(member, mascots[index], index === 0),
     );
   }, [team]);
-  if (!team) return null;
+  if (!team)
+    return (
+      <TeamCard
+        kind="orchestrate"
+        bare
+        tone="live"
+        attributes={{ "data-orchestration-run": run.leadId }}
+        faces={<TeamFaces voices={[]} />}
+        title={run.title || "Run"}
+        badge="Starting"
+        status="Starting the run…"
+      />
+    );
   const over = run.status === "finished" || run.status === "stopped";
   const workers = team.members.slice(1);
   const tone: TeamCardTone =
@@ -96,6 +107,30 @@ export function OrchestrationTeamCard({
             })),
           )
       : undefined;
+  const openAgent = actions?.openAgents
+    ? (sessionId: string) => {
+        const task = run.tasks.find((entry) => entry.sessionId === sessionId);
+        if (task)
+          actions.openAgents?.([
+            {
+              sessionId: task.sessionId,
+              leadId: run.leadId,
+              title: task.title,
+              harness: task.harness,
+            },
+          ]);
+      }
+    : undefined;
+  // The per-agent lines are written after the run finishes, by the cheap
+  // model; say so while they are written, and when they could not be.
+  const summaries =
+    run.status === "finished" && run.tasks.length
+      ? run.summaries === "running"
+        ? "Writing a line on what each agent did…"
+        : run.summaries === "failed"
+          ? "Couldn't write the summaries. Open agents to read their replies."
+          : undefined
+      : undefined;
   const shown = voices.slice(0, FACES);
   return (
     <TeamCard
@@ -116,35 +151,43 @@ export function OrchestrationTeamCard({
       }
       status={status}
       statusTitle={status}
-      members={workers.map((member, index) => {
-        const model = modelName(member.harness, member.model);
-        const files = member.changes?.files;
-        return (
-          <TeamCardMember
-            key={member.sessionId}
-            voice={voices[index + 1]}
-            name={member.label}
-            detail={
-              over
-                ? member.summary
-                  ? `${model} · ${member.summary}`
-                  : model
-                : member.state === "lead-deciding"
-                  ? `${model} · its lead is deciding a request`
-                  : member.doing
-                    ? `${model} · ${member.doing}`
-                    : model
-            }
-            state={member.stateLabel}
-            tone={MEMBER_TONE[member.state]}
-            attributes={{
-              "data-orchestration-agent": member.sessionId,
-              "data-orchestration-task-status": member.stateLabel,
-            }}
-            meta={files ? <span>{plural(files, "file")}</span> : undefined}
-          />
-        );
-      })}
+      members={
+        workers.length
+          ? workers.map((member, index) => {
+              const model = modelName(member.harness, member.model);
+              const files = member.changes?.files;
+              return (
+                <TeamCardMember
+                  key={member.sessionId}
+                  voice={voices[index + 1]}
+                  name={member.label}
+                  nameTitle={`${member.label} · ${member.fullName ?? model}`}
+                  onOpen={openAgent && (() => openAgent(member.sessionId))}
+                  detail={
+                    over
+                      ? member.summary
+                        ? `${model} · ${member.summary}`
+                        : model
+                      : member.state === "lead-deciding"
+                        ? `${model} · Lead deciding`
+                        : member.doing
+                          ? `${model} · ${member.doing}`
+                          : model
+                  }
+                  state={member.stateLabel}
+                  tone={MEMBER_TONE[member.state]}
+                  attributes={{
+                    "data-orchestration-agent": member.sessionId,
+                    "data-orchestration-task-status": member.stateLabel,
+                  }}
+                  meta={
+                    files ? <span>{plural(files, "file")}</span> : undefined
+                  }
+                />
+              );
+            })
+          : undefined
+      }
       actions={
         <>
           {over && run.status === "finished" ? (
@@ -156,12 +199,17 @@ export function OrchestrationTeamCard({
             </TeamCardButton>
           ) : null}
           {openAgents ? (
-            <TeamCardButton onClick={openAgents}>Open agents</TeamCardButton>
+            <TeamCardButton
+              title="Open the agents' chats beside the lead"
+              onClick={openAgents}
+            >
+              Open agents
+            </TeamCardButton>
           ) : null}
           {!over && workspace?.watch ? (
             <TeamCardButton
               data-team-watch={team.id}
-              title="Watch the lead and its agents in a floating panel"
+              title="Watch the run in a floating panel"
               onClick={() => workspace.watch?.(team.id)}
             >
               Watch
@@ -177,6 +225,21 @@ export function OrchestrationTeamCard({
           </button>
         </>
       }
-    />
+    >
+      {!workers.length && !over ? (
+        <p className="team-card-note">
+          The lead hasn't handed out any tasks yet.
+        </p>
+      ) : null}
+      {summaries ? (
+        <p
+          className="team-card-note"
+          role="status"
+          data-orchestration-summaries={run.summaries}
+        >
+          {summaries}
+        </p>
+      ) : null}
+    </TeamCard>
   );
 }

@@ -3,22 +3,10 @@ import {
   discussionMascots,
   discussionVoices,
   providerVoiceColor,
-  voiceName,
 } from "./discussionVoices";
 import { PROJECT_MASCOTS } from "./projectMascots";
 
 describe("discussion voices", () => {
-  it("names the provider and the model without repeating the provider", () => {
-    expect(voiceName({ harness: "claude", model: "Claude Sonnet 5" })).toBe(
-      "Claude · Sonnet 5",
-    );
-    expect(voiceName({ harness: "codex", model: "GPT-5.4" })).toBe(
-      "Codex · GPT-5.4",
-    );
-    expect(voiceName({ harness: "grok", model: "Grok 4.6" })).toBe("Grok 4.6");
-    expect(voiceName({ harness: "claude", model: "Default" })).toBe("Claude");
-  });
-
   it("colours Claude coral and Codex blue, and others neutral", () => {
     expect(providerVoiceColor("claude")).toBe("#d97757");
     expect(providerVoiceColor("codex")).toBe("#7a9dff");
@@ -59,15 +47,38 @@ describe("discussion voices", () => {
       },
     });
     expect(voices.a).toMatchObject({
-      name: "Claude · Sonnet 5",
+      name: "Claude",
+      fullName: "Claude Code · Sonnet 5",
       persona: "Opened the topic",
       title: "Caching plan",
       color: "#d97757",
     });
     expect(voices.b).toMatchObject({
-      name: "Codex · GPT-5",
-      persona: "Responding",
+      name: "Codex",
+      fullName: "Codex · GPT-5",
+      persona: "Joined the topic",
       color: "#7a9dff",
     });
+  });
+
+  it("adds the model when both sides are the same app", () => {
+    const voices = discussionVoices({
+      a: {
+        sessionId: "chat-a",
+        harness: "claude",
+        model: "Claude Opus 4.6",
+        title: "Plan",
+        cwd: "/work",
+      },
+      b: {
+        sessionId: "chat-b",
+        harness: "claude",
+        model: "Claude Sonnet 5",
+        title: "Review",
+        cwd: "/work",
+      },
+    });
+    expect(voices.a.name).toBe("Claude Opus 4.6");
+    expect(voices.b.name).toBe("Claude Sonnet 5");
   });
 });

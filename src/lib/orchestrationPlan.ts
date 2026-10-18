@@ -1,3 +1,4 @@
+import { agentFullName } from "./agentNames";
 import { agentRole, readAgentRole, type AgentRoleId } from "./agentRoles";
 import { isProviderFailureText } from "./plan";
 import { HARNESSES, type Block, type HarnessId, type Session } from "./session";
@@ -69,14 +70,14 @@ export function validateOrchestrationSettings(
     Number(input.maxWorkers) < 1 ||
     Number(input.maxWorkers) > 4
   )
-    throw new Error("Choose 1 to 4 parallel workers");
+    throw new Error("Choose 1 to 4 agents at once");
   if (
     !Array.isArray(input.choices) ||
     !input.choices.length ||
     input.choices.length > 4096
   )
     throw new Error(
-      "No worker models are available, or the model catalog is too large. Check your connected harnesses.",
+      "No agents are available to share the work. Install or turn on an agent, then try again.",
     );
   const choices = input.choices.map((value) => {
     const item = record(value);
@@ -233,6 +234,17 @@ const INCOMPLETE_PROPOSAL =
 const INTERRUPTED_PROPOSAL =
   "Planning was interrupted. Generate the assignments again.";
 
+/**
+ * What the plan card says when a plan could not be made: one plain
+ * sentence. The lead's own words, or a provider's error, stay in the
+ * tooltip.
+ */
+export function planProblemText(error: string): string {
+  return error === INTERRUPTED_PROPOSAL
+    ? "Planning was interrupted. Try again."
+    : "The lead's plan wasn't complete, so nothing started. Try again.";
+}
+
 /** Commentary and native plan prose are not assignment data. */
 function proposalCandidates(responses: readonly string[]): string[] {
   const tagged = responses.flatMap((text) =>
@@ -388,7 +400,7 @@ export function proposalMarkdown(proposal: OrchestrationProposal): string {
     proposal.summary,
     ...proposal.tasks.map(
       (task) =>
-        `## ${task.title}\n${task.harness} · ${proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model}${task.role ? `\nRole: ${agentRole(task.role).name}` : ""}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.join(", ") || "None"}`,
+        `## ${task.title}\n${agentFullName({ harness: task.harness, model: proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model })}${task.role ? `\nRole: ${agentRole(task.role).name}` : ""}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.map((id) => proposal.tasks.find((entry) => entry.id === id)?.title ?? id).join(", ") || "None"}`,
     ),
   ].join("\n\n");
 }

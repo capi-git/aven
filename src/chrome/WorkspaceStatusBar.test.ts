@@ -504,7 +504,7 @@ describe("workspace status data and actions", () => {
     expect(
       container.querySelector('[aria-label="Needs you"]')?.textContent,
     ).toContain("Needs approval");
-    await click("Open First task: Needs approval");
+    await click("Open “First task”: Needs approval");
     expect(props.onSelectSession).toHaveBeenCalledExactlyOnceWith("task-1");
     expect(
       container.querySelector('[role="dialog"][aria-label="Activity"]'),
@@ -532,7 +532,7 @@ describe("workspace status data and actions", () => {
     );
     await render({ onSelectSession: select });
     await click("Activity: Queue is clear · 1 unread");
-    await click("Open Closed task: Finished");
+    await click("Open “Closed task”: Finished");
     expect(select).toHaveBeenCalledExactlyOnceWith("closed-task");
     expect(getActivitySnapshot()[0].readAt).toBeNull();
     expect(
@@ -543,7 +543,7 @@ describe("workspace status data and actions", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
       "could not be opened",
     );
-    await click("Open Closed task: Finished");
+    await click("Open “Closed task”: Finished");
     await act(async () => finish(true));
     expect(getActivitySnapshot()[0].readAt).not.toBeNull();
     expect(

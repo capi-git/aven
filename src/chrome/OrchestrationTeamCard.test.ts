@@ -162,7 +162,7 @@ describe("an orchestration's card", () => {
     expect(card()?.dataset.state).toBe("live");
     expect(text(".team-card-title")).toBe("Split the settings page");
     expect(text("[data-orchestration-status]")).toBe("Running");
-    expect(text(".team-card-status")).toBe("1 working · 1 waiting");
+    expect(text(".team-card-status")).toBe("1 working · 1 queued");
     expect(rows()).toEqual([
       { name: "Task a", detail: "GPT-5", state: "Working", meta: "" },
       { name: "Task b", detail: "GPT-5", state: "Queued", meta: "" },

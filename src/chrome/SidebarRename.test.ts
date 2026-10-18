@@ -216,12 +216,12 @@ describe("sidebar orchestration card", () => {
       );
       expect(card().textContent).not.toContain("Orchestrator");
       expect(card().textContent).toContain("3 agents");
-      expect(card().textContent).toContain("1/3 done");
+      expect(card().textContent).toContain("1 of 3 done");
       expect(card().textContent).toContain("Build settings");
       // The lead answers its agents' requests: the row says so calmly, and
       // the lead itself is not flagged as needing you.
       expect(card().textContent).toContain("Lead deciding");
-      expect(card().textContent).not.toContain("Needs input");
+      expect(card().textContent).not.toContain("Needs you");
       expect(card().dataset.needsApproval).toBeUndefined();
       expect(
         card().querySelector(
@@ -293,7 +293,7 @@ describe("sidebar orchestration card", () => {
       props.approvalSessionIds = new Set([lead.id]);
       act(() => render());
       expect(card().className).toContain("border-dashed");
-      expect(card().textContent).toContain("Needs input");
+      expect(card().textContent).toContain("Needs you");
     },
   );
 

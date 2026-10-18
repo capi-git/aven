@@ -14,7 +14,7 @@ import {
   buildDiscussionThread,
   type DiscussionTranscripts,
 } from "./discussionThread";
-import { voiceName } from "./discussionVoices";
+import { agentNameWithModel } from "./agentNames";
 import {
   discussionParty,
   otherSide,
@@ -90,7 +90,7 @@ export function wrapUpDigest(
   );
   const name = (side: DiscussionSide) => {
     const party = discussionParty(discussion, side);
-    return `${voiceName(party)} (${side === "a" ? "opened the topic" : "responding"})`;
+    return `${agentNameWithModel(party)} (${side === "a" ? "opened the topic" : "joined the topic"})`;
   };
   const parts: string[] = [];
   for (const item of items) {
@@ -246,7 +246,7 @@ export async function runDiscussionWrapUp(
 export function spokenName(
   party: Pick<DiscussionParty, "harness" | "model">,
 ): string {
-  return voiceName(party).replace(" · ", " ");
+  return agentNameWithModel(party);
 }
 
 /**

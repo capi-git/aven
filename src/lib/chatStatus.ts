@@ -38,6 +38,17 @@ export const CHAT_STATUS_LABEL: Readonly<Record<ChatStatusWord, string>> = {
   shipped: "Shipped",
 };
 
+/** What each word means, for its tooltip. */
+export const CHAT_STATUS_HINT: Readonly<Record<ChatStatusWord, string>> = {
+  "needs-you": "Waiting on your approval or answer",
+  working: "Working on a turn",
+  racing: "Racing: several agents work on the same message",
+  discussing: "Talking a question through with another chat",
+  orchestrating: "A lead is sharing out the work to agents",
+  review: "Has changes for you to review",
+  shipped: "Its changes were shipped",
+};
+
 /** The board's four columns, which the words fall into. */
 export type ChatStage = "needs-you" | "working" | "review" | "shipped";
 

@@ -65,5 +65,5 @@ it("names a chat by its own model, never another one's", () => {
     { list: () => [chat("c", { model: "claude:not-a-model" })] },
     { run: () => undefined, blockingRun: () => undefined },
   );
-  expect(choice.label).toBe("Claude · not-a-model");
+  expect(choice.label).toBe("Claude not-a-model");
 });

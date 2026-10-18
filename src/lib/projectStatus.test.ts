@@ -173,9 +173,7 @@ describe("describeProjectStatus", () => {
   it("spells out every part in order", () => {
     expect(
       describeProjectStatus({ running: 2, waiting: 1, unread: 3, files: 12 }),
-    ).toBe(
-      "2 agents running · 1 waiting for you · 3 unread · 12 files changed",
-    );
+    ).toBe("2 agents running · 1 needs you · 3 unread · 12 files changed");
     expect(
       describeProjectStatus({ running: 1, waiting: 0, unread: 0, files: 1 }),
     ).toBe("1 agent running · 1 file changed");

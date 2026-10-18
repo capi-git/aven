@@ -333,12 +333,12 @@ describe("a team popped out into its own window", () => {
       expect(host.bridge.reply).toHaveBeenCalledWith(
         "race:r1",
         id,
-        "Aven can't do that from here.",
+        "That's no longer possible from here. Try again from the window it runs in.",
       );
     expect(host.bridge.reply).toHaveBeenCalledWith(
       "race:r9",
       "a-4",
-      "Aven can't do that from here.",
+      "That's no longer possible from here. Try again from the window it runs in.",
     );
     expect(compare).toHaveBeenCalledTimes(1);
   });

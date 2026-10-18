@@ -230,15 +230,15 @@ async function confirmDialog() {
 /** Keep a lane, confirming that the other agents' changes go with it. */
 async function keepThis(view: HTMLElement) {
   await act(async () => button(view, "Keep this").click());
-  expect(dialog()?.textContent).toContain("with the other agents' changes");
+  expect(dialog()?.textContent).toContain("deletes Codex's work (1 file)");
   await confirmDialog();
 }
 
-it("shows each lane's status and changes and explains what was copied", async () => {
+it("shows each lane's status and changes and explains what it started from", async () => {
   const view = await render([ended("s0", "completed"), session("s1", true)]);
   const text = view.textContent ?? "";
-  expect(text).toContain("started from your uncommitted changes");
-  expect(text).toContain("new untracked files were not copied");
+  expect(text).toContain("started from your files as they are now");
+  expect(text).toContain("new files not yet added to Git weren't included");
   expect(text).toContain("Done");
   expect(text).toContain("Working");
   expect(text).toContain("+3");
@@ -246,7 +246,7 @@ it("shows each lane's status and changes and explains what was copied", async ()
   expect(text).toContain("b.ts");
   await act(async () => button(view, "Open chat").click());
   expect(openChat).toHaveBeenCalledWith("s0");
-  await act(async () => button(view, "Stop all").click());
+  await act(async () => button(view, "Stop race").click());
   expect(stop).toHaveBeenCalledWith(["s1"]);
 });
 
@@ -325,8 +325,8 @@ it("waits for every lane writer before applying or deleting its copy", async () 
 });
 
 it.each([
-  ["Keep this", "kept", "Changes kept in your project"],
-  ["Discard race", "discarded", "Your project is unchanged"],
+  ["Keep this", "kept", "Kept in your project."],
+  ["Discard race", "discarded", "Your project didn't change."],
 ] as const)(
   "shows completion after %s without reading removed copies",
   async (action, state, summary) => {
@@ -366,18 +366,13 @@ it.each([
     expect(view.textContent).not.toContain("a.ts");
     expect(view.textContent).not.toContain("Keep this");
     expect(view.textContent).not.toContain("Select files to combine");
-    expect(view.textContent).not.toContain("Couldn’t load diff");
+    expect(view.textContent).not.toContain("Couldn't show this file");
     // A kept race offers its result's next steps; a discarded one does not.
     expect(
       [...view.querySelectorAll("button")].map((entry) => entry.textContent),
     ).toEqual(
       state === "kept"
-        ? [
-            "Open chat",
-            "Open chat",
-            "Review changes",
-            `Continue with ${record.lanes[0].label}`,
-          ]
+        ? ["Open chat", "Open chat", "Review changes", "Continue with Claude"]
         : ["Open chat", "Open chat"],
     );
     await act(async () => button(view, "Open chat").click());
@@ -389,7 +384,7 @@ it("opens a completed race without requesting deleted copies", async () => {
   saveRace({ ...record, state: "kept" });
   const view = await render([session("s0"), session("s1")]);
   expect(host.invoke).not.toHaveBeenCalled();
-  expect(view.textContent).toContain("Changes kept in your project");
+  expect(view.textContent).toContain("Kept in your project.");
   expect(view.textContent).toContain(record.project);
 });
 
@@ -409,7 +404,7 @@ it("ignores a refresh that fails after the copies have been removed", async () =
   await act(async () => button(view, "Discard race").click());
   await confirmDialog();
   await act(async () => failRefresh.forEach((fail) => fail()));
-  expect(view.textContent).toContain("Your project is unchanged");
+  expect(view.textContent).toContain("Your project didn't change.");
   expect(view.textContent).not.toContain("Couldn’t read");
   expect(view.textContent).not.toContain("copy no longer exists");
   expect(view.textContent).not.toContain("Reading changes");
@@ -419,7 +414,9 @@ it("keeps copies available when a writer cannot be stopped", async () => {
   settle.mockRejectedValue(new Error("Could not stop the provider"));
   const view = await render([session("s0"), session("s1")]);
   await keepThis(view);
-  expect(view.textContent).toContain("Could not stop the provider");
+  expect(view.textContent).toContain(
+    "Couldn't stop every agent, so nothing changed. Try again.",
+  );
   expect(host.invoke).not.toHaveBeenCalledWith("race_apply", expect.anything());
   expect(host.invoke).not.toHaveBeenCalledWith(
     "race_cleanup",
@@ -441,8 +438,10 @@ it("releases chats after a successful keep even when a copy cannot be removed", 
   await keepThis(view);
   expect(release).toHaveBeenCalledWith(expect.objectContaining(record));
   expect(getRace("r1")?.state).toBe("kept");
-  expect(view.textContent).toContain("Some race copies could not be removed");
-  expect(view.textContent).toContain("copy is locked");
+  expect(view.textContent).toContain(
+    "Some leftover race files couldn't be cleaned up.",
+  );
+  expect(view.textContent).not.toContain("copy is locked");
 });
 
 it("leaves the race running and explains a conflicting keep", async () => {
@@ -493,9 +492,9 @@ it("keeps the files a lane wrote after the overview last refreshed", async () =>
   );
   expect(view.querySelector('[data-race-file="late.ts"]')).toBeNull();
   await act(async () => button(view, "Keep this").click());
-  expect(dialog()?.textContent).toContain("Keep Claude Code's version?");
+  expect(dialog()?.textContent).toContain("Keep Claude's version?");
   expect(dialog()?.textContent).toContain(
-    "Claude Code is still working; you get what it has written so far. This stops 2 agents still working and deletes both copies, with the other agents' changes: Codex (1 file).",
+    "Claude is still working; you get what it has written so far. This stops 2 agents still working and deletes Codex's work (1 file).",
   );
   await confirmDialog();
   expect(host.invoke).toHaveBeenCalledWith("race_apply", {
@@ -504,17 +503,17 @@ it("keeps the files a lane wrote after the overview last refreshed", async () =>
     choices: [{ worktree: "/data/races/r1/0", paths: ["a.ts", "late.ts"] }],
   });
   expect(getRace("r1")?.outcome).toEqual({ kind: "lane", lane: 0, files: 2 });
-  expect(view.textContent).toContain("Kept Claude Code's version · 2 files");
+  expect(view.textContent).toContain("Kept Claude's version · 2 files");
 });
 
 it("asks before keeping while another agent still works, and not once all are done", async () => {
   const view = await render([ended("s0", "completed"), workingFor("s1", 5)]);
   await act(async () => button(view, "Keep this").click());
   expect(dialog()?.querySelector("h2")?.textContent).toBe(
-    "Keep Claude Code's version?",
+    "Keep Claude's version?",
   );
   expect(dialog()?.textContent).toContain(
-    "This stops 1 agent still working and deletes both copies, with the other agents' changes: Codex (1 file).",
+    "This stops 1 agent still working and deletes Codex's work (1 file).",
   );
   const cancel = [...dialog()!.querySelectorAll("button")].find(
     (entry) => entry.textContent === "Cancel",
@@ -530,7 +529,7 @@ it("names what discarding deletes and changes nothing when cancelled", async () 
   await act(async () => button(view, "Discard race").click());
   expect(dialog()?.querySelector("h2")?.textContent).toBe("Discard this race?");
   expect(dialog()?.textContent).toContain(
-    "This stops 1 agent still working and deletes both copies and the changes in them: Claude Code (1 file) and Codex (1 file). Your project is not changed.",
+    "This stops 1 agent still working and deletes Claude's work (1 file) and Codex's (1 file). Your project doesn't change.",
   );
   await act(async () =>
     [...dialog()!.querySelectorAll("button")]
@@ -607,7 +606,7 @@ it("saves per-file picks with the race and keeps a mix after asking", async () =
     "Keep 2 selected files?",
   );
   expect(dialog()?.textContent).toContain(
-    "This stops 1 agent still working and deletes both copies, with any changes you didn't pick.",
+    "This stops 1 agent still working and deletes any changes you didn't pick.",
   );
   await confirmDialog();
   expect(host.invoke).toHaveBeenCalledWith("race_apply", {
@@ -692,7 +691,7 @@ it("shows each lane's last reply, and records why when you keep the suggested la
     [...view.querySelectorAll("[data-race-reply]")].map((p) => p.textContent),
   ).toEqual(["Done.", "Done."]);
   expect(view.querySelector("[data-race-suggestion]")?.textContent).toBe(
-    "Suggested: Claude Code · Opus — Smaller change, with a test.",
+    "Aven suggests Claude: Smaller change, with a test.",
   );
   expect(
     view.querySelector('[data-race-lane="0"] [data-race-suggested]'),

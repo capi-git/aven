@@ -125,20 +125,24 @@ it("removes the copies it made when the next one can't be made", async () => {
 it("names each lane by its model wherever one provider races twice", async () => {
   const race = await startRace();
   expect([raceLaneName(race, 0), raceLaneName(race, 1)]).toEqual([
-    "Claude Code · Opus 4.6",
-    "Claude Code · Claude Sonnet 5",
+    "Claude Opus 4.6",
+    "Claude Sonnet 5",
   ]);
   const team = raceTeam(race, { session: () => undefined, activity: [] });
   expect(team.members.map((member) => member.label)).toEqual([
+    "Claude Opus 4.6",
+    "Claude Sonnet 5",
+  ]);
+  expect(team.members.map((member) => member.fullName)).toEqual([
     "Claude Code · Opus 4.6",
-    "Claude Code · Claude Sonnet 5",
+    "Claude Code · Sonnet 5",
   ]);
   expect(
     raceKeepQuestion(race, 1, [
       { kind: "working", label: "Working" },
       { kind: "done", label: "Done" },
     ]).title,
-  ).toBe("Keep Claude Code · Claude Sonnet 5's version?");
+  ).toBe("Keep Claude Sonnet 5's version?");
 });
 
 it("keeps one of the two, from its own copy, and removes both", async () => {
@@ -164,12 +168,8 @@ it("keeps one of the two, from its own copy, and removes both", async () => {
   });
   const kept = getRace("r1")!;
   expect(kept.state).toBe("kept");
-  expect(raceHeadline(kept)).toBe(
-    "Kept Claude Code · Claude Sonnet 5's version · 1 file",
-  );
-  expect(raceOutcomeText(kept)).toBe(
-    "Kept Claude Code · Claude Sonnet 5's version · 1 file",
-  );
+  expect(raceHeadline(kept)).toBe("Kept Claude Sonnet 5's version · 1 file");
+  expect(raceOutcomeText(kept)).toBe("Kept Claude Sonnet 5's version · 1 file");
 });
 
 it("keeps only the picked files a lane still changes, and remembers them", async () => {

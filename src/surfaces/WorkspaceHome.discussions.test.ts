@@ -60,7 +60,7 @@ it("marks both chats of a discussion in Running now", async () => {
     [...container.querySelectorAll(".workspace-home-row")].map(
       (row) => row.textContent ?? "",
     );
-  expect(titles().some((text) => text.includes("↔"))).toBe(false);
+  expect(titles().some((text) => text.includes("Discussing"))).toBe(false);
   await act(async () => {
     discussionStore().start({
       a: party("a", "Caching"),
@@ -69,6 +69,8 @@ it("marks both chats of a discussion in Running now", async () => {
       rounds: 2,
     });
   });
-  expect(titles()[0]).toContain("↔ Caching");
-  expect(titles()[1]).not.toContain("↔");
+  // The row says so in its line; its title stays the chat's own.
+  expect(titles()[0]).toContain("Caching");
+  expect(titles()[0]).toContain("app · Discussing");
+  expect(titles()[1]).not.toContain("Discussing");
 });

@@ -181,7 +181,9 @@ describe("workBoard", () => {
       { kind: "allow", requestId: 7 },
       { kind: "open" },
     ]);
-    expect(card("approve").line).toBe("Waiting for your OK · npm run deploy");
+    expect(card("approve").line).toBe(
+      "Claude wants your approval: npm run deploy",
+    );
     expect(card("question").actions).toEqual([{ kind: "answer" }]);
     expect(card("run").actions).toEqual([]);
     expect(card("run").line).toBe("Edit App.tsx");
@@ -235,11 +237,11 @@ describe("workBoard", () => {
     expect(race.faces.map((face) => face.sessionId)).toEqual(["l1", "l2"]);
     expect(model.columns["needs-you"][0]).toMatchObject({
       sessionId: "b",
-      line: "Discussing paused · Codex asked a question",
+      line: "Discussing · Codex asked a question",
       actions: [{ kind: "open" }, { kind: "watch", teamId: "discuss:a" }],
     });
     expect(model.columns.review[0]).toMatchObject({
-      line: "Ready to compare · 2 agents",
+      line: "Ready to compare · 1 of 2 done",
       actions: [
         { kind: "compare", raceId: "r" },
         { kind: "watch", teamId: "race:r" },

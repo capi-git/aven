@@ -126,7 +126,7 @@ function app(flaws: Flaws = {}) {
         if (!open) return null;
         return flaws.jargon
           ? "This checkout has an active orchestrator."
-          : `project is busy with an orchestration in “Chat ${open.leadId}”. Finish or stop it there.`;
+          : `project is busy with a run in “Chat ${open.leadId}”. Finish or stop it there.`;
       },
     },
   };
@@ -255,8 +255,8 @@ function app(flaws: Flaws = {}) {
               ? ""
               : `<ul><li data-orchestration-scope>notes/a.md</li><li data-orchestration-scope>notes/b.md</li></ul>`
           }${
-            card.status === "Waiting for you to confirm"
-              ? "<button data-confirm>Confirm &amp; start</button>"
+            card.status === "Needs you · Confirm to start"
+              ? "<button data-confirm>Confirm and start</button>"
               : ""
           }<span data-orchestration-status>${card.status}</span></div>`
         : "";
@@ -330,7 +330,7 @@ function app(flaws: Flaws = {}) {
         setTimeout(() => {
           cards.set(lead, {
             stall: request.includes("AVEN_SMOKE_STALL"),
-            status: "Waiting for you to confirm",
+            status: "Needs you · Confirm to start",
           });
           draw();
         }, 100);
@@ -393,7 +393,7 @@ describe("the real-app check's orchestration steps", () => {
       "2 agents, 2 file chips; one Stop run, in the bar; a worker's question went to the lead and nowhere else; one \"Run finished · 2 agents\" entry; the card became the result, with the lead's verdict and a line per agent",
     );
     expect(named(steps, STALL_STEP)?.detail).toBe(
-      '"project is busy with an orchestration in “Chat 3”. Finish or stop it there."; the bar offered Finish run, which ended the run',
+      '"project is busy with a run in “Chat 3”. Finish or stop it there."; the bar offered Finish run, which ended the run',
     );
   });
 

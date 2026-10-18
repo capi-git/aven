@@ -13,6 +13,7 @@ import {
 import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useTeamOf } from "../hooks/useTeamRuns";
 import { discussionStore } from "../lib/discussions";
+import { logError } from "../lib/errors";
 import {
   blockingRunFor,
   busyProjectMessage,
@@ -27,9 +28,9 @@ import {
   TEAM_KIND_LABEL,
   teamIsOpen,
   teamRole,
-  type TeamMember,
   type TeamRun,
 } from "../lib/teamRuns";
+import { TEAM_NOUN } from "../lib/teamWatch";
 import { RoleBadge } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationActions } from "./OrchestrationActions";
@@ -113,7 +114,7 @@ export function teamBarOwnsStop(
 /**
  * Whether the message box gives its Stop to the bar: only for a lead, whose
  * own Stop would stop the run as Stop run does. A discussion chat keeps the
- * box's Stop, which interrupts its agent at once, beside the bar's End
+ * box's Stop, which interrupts its agent at once, beside the bar's Stop
  * discussion, which lets a reply in progress finish.
  */
 export function teamBarTakesBoxStop(
@@ -123,15 +124,16 @@ export function teamBarTakesBoxStop(
   return !!team && teamBarStop(team, sessionId) === "run";
 }
 
-/** A member as the bar names it: "Codex · GPT-5", or a chat's own title. */
+/** A member as the bar names it: "Codex", or a worker's task title. */
 function memberName(team: TeamRun, sessionId: string): string | undefined {
   return team.members.find((member) => member.sessionId === sessionId)?.label;
 }
 
 /**
- * The bar's words in two parts: a short label ("Discussing · Paused") and,
- * when the team waits on you for a reason, that reason in full, which may
- * take a second line rather than be cut off.
+ * The bar's words in two parts: a short label ("Discussing · Paused",
+ * "Racing · Needs you") and, when the team waits on you, what it needs in
+ * plain words ("Codex wants to run npm test"), which may take a second line
+ * rather than be cut off.
  */
 export function teamBarParts(
   team: TeamRun,
@@ -143,17 +145,12 @@ export function teamBarParts(
   if (team.status === "needs-you" && need) {
     if (need.kind === "paused")
       return { label: `${kind} · Paused`, reason: need.text };
-    if (need.kind === "error") return { label: kind, reason: need.text };
-    return need.sessionId === sessionId
-      ? { label: `${kind} · Needs you`, reason: need.text }
-      : {
-          label: `${kind} · ${memberName(team, need.sessionId) ?? "An agent"} needs you`,
-        };
+    return { label: `${kind} · Needs you`, reason: need.text };
   }
   return { label: teamBarText(team, sessionId, options) };
 }
 
-/** "Discussing · round 2 of 4 · with Codex · GPT-5". */
+/** "Discussing · Round 2 of 4 · with Codex in “Login fix”". */
 export function teamBarText(
   team: TeamRun,
   sessionId: string,
@@ -169,11 +166,10 @@ export function teamBarText(
     const partner = team.members.find(
       (member) => member.sessionId !== sessionId,
     );
-    const round = team.progress.replace(/^Round/, "round");
     const title = options.partnerTitle ? ` in “${options.partnerTitle}”` : "";
     return partner
-      ? `${kind} · ${round} · with ${partner.label}${title}`
-      : `${kind} · ${round}`;
+      ? `${kind} · ${team.progress} · with ${partner.label}${title}`
+      : `${kind} · ${team.progress}`;
   }
   return `${kind} · ${team.progress}`;
 }
@@ -195,9 +191,10 @@ type Props = {
 /**
  * The one slim bar inside the message box of a team's chats: the chat a
  * discussion, race or orchestration started from, and its member chats. It
- * reads "<Discussing | Racing | Orchestrating> · <status>" with Open
- * discussion, Compare or Open agents, Resume while paused, the team's one
- * Stop (see `teamBarStop`), and Go to <chat> when another chat needs you.
+ * reads "<Discussing | Racing | Orchestrating> · <status>" with Watch,
+ * Compare or Open agents, Resume while paused, Stop discussion, Stop race
+ * or Stop run (see `teamBarStop`), and Go to <agent> when another chat
+ * needs you.
  * Another chat in a project an orchestration holds gets the reason and a
  * way to the lead. It renders only `TeamRun` data, so streaming in any of
  * the chats never renders it.
@@ -329,16 +326,18 @@ function OpenTeamBar({
   const moment = `${team.status}:${team.need?.kind ?? ""}`;
   const [failure, setFailure] = useState<{ text: string; moment: string }>();
   const error = failure?.moment === moment ? failure.text : undefined;
-  const perform = async (operation: () => Promise<unknown> | unknown) => {
+  /** Runs a button's action; a failure shows `failed` and logs the cause. */
+  const perform = async (
+    operation: () => Promise<unknown> | unknown,
+    failed: string,
+  ) => {
     setPending(true);
     setFailure(undefined);
     try {
       await operation();
     } catch (reason) {
-      setFailure({
-        text: reason instanceof Error ? reason.message : String(reason),
-        moment,
-      });
+      logError("Team bar", reason);
+      setFailure({ text: failed, moment });
     } finally {
       setPending(false);
     }
@@ -353,7 +352,7 @@ function OpenTeamBar({
   const elsewhereName = elsewhere
     ? team.kind === "orchestrate"
       ? actions?.title?.(elsewhere)
-      : memberLabel(team.members, elsewhere)
+      : memberName(team, elsewhere)
     : undefined;
   const partner =
     team.kind === "discuss"
@@ -362,7 +361,10 @@ function OpenTeamBar({
   const parts = error
     ? { label: error }
     : stalled
-      ? { label: "Orchestrating · The lead stopped without finishing" }
+      ? {
+          label: "Orchestrating · Needs you",
+          reason: "The lead stopped without finishing.",
+        }
       : team.kind === "orchestrate" && run && team.status === "running"
         ? { label: runningSummary(run, idle) }
         : teamBarParts(team, sessionId, { partnerTitle: partner?.title });
@@ -370,7 +372,10 @@ function OpenTeamBar({
   // "round 2 of 4" to "round 3 of 4", or a new status, rolls into place.
   const textRef = useRef<HTMLSpanElement>(null);
   useMotionOnChange(textRef, text);
-  const watch = team.kind !== "discuss" ? teamActions?.watch : undefined;
+  const watch =
+    team.kind === "discuss"
+      ? onOpenDiscussion && (() => onOpenDiscussion(team.key))
+      : teamActions?.watch && (() => teamActions.watch?.(team.id));
   const state = stalled
     ? "stalled"
     : paused
@@ -378,6 +383,16 @@ function OpenTeamBar({
       : team.status === "needs-you"
         ? "needs-you"
         : team.status;
+  // Said aloud only when it changes what you should do: the team needs you,
+  // paused, stalled or is ready to compare, not on every tick of progress.
+  const announce =
+    state === "needs-you" ||
+    state === "paused" ||
+    state === "stalled" ||
+    state === "ready"
+      ? text
+      : "";
+  const noun = TEAM_NOUN[team.kind];
   const openAgents =
     team.kind === "orchestrate" && run?.tasks.length && actions?.openAgents
       ? () =>
@@ -403,7 +418,6 @@ function OpenTeamBar({
             : "truncate"
         } ${error ? "text-red-400" : ""}`}
         title={text}
-        role="status"
         data-team-bar-text
       >
         {parts.reason ? (
@@ -416,6 +430,9 @@ function OpenTeamBar({
         ) : (
           text
         )}
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {announce}
       </span>
       {elsewhere && actions ? (
         <button
@@ -436,7 +453,10 @@ function OpenTeamBar({
             disabled={pending}
             title="End the run as it is. Tasks that never started are cancelled."
             onClick={() =>
-              void perform(() => orchestrator.finishRun(run.leadId))
+              void perform(
+                () => orchestrator.finishRun(run.leadId),
+                "Couldn't finish the run. Try again, or stop it.",
+              )
             }
           >
             <Check className="size-3" strokeWidth={2} />
@@ -446,7 +466,7 @@ function OpenTeamBar({
             type="button"
             className={BUTTON}
             disabled={pending}
-            title={WRAP_UP_REQUEST}
+            title="Ask the lead to review what's done and finish the run"
             onClick={() => onSubmit(sessionId, WRAP_UP_REQUEST)}
           >
             <MessageSquare className="size-3" />
@@ -454,24 +474,13 @@ function OpenTeamBar({
           </button>
         </>
       ) : null}
-      {team.kind === "discuss" && onOpenDiscussion ? (
-        <button
-          type="button"
-          className={BUTTON}
-          title="Open the discussion as one conversation"
-          onClick={() => onOpenDiscussion(team.key)}
-        >
-          <ExternalLink className="size-3" />
-          Open discussion
-        </button>
-      ) : null}
       {watch ? (
         <button
           type="button"
           className={BUTTON}
           data-team-watch={team.id}
-          title={`Watch the ${team.kind === "race" ? "race" : "run"} in a floating panel`}
-          onClick={() => watch(team.id)}
+          title={`Watch the ${noun} in a floating panel`}
+          onClick={watch}
         >
           <Eye className="size-3" />
           Watch
@@ -493,16 +502,23 @@ function OpenTeamBar({
           type="button"
           className={BUTTON}
           disabled={pending || (team.kind === "orchestrate" && !idle)}
+          title={
+            team.kind === "orchestrate" && !idle
+              ? "Wait for the lead to finish its turn, then resume."
+              : `Resume the ${noun}`
+          }
           onClick={() =>
             team.kind === "discuss"
               ? discussionStore().resume(team.key)
               : run &&
-                void perform(() =>
-                  orchestrator.start(
-                    run.leadId,
-                    run.allowedHarnesses,
-                    run.maxWorkers,
-                  ),
+                void perform(
+                  () =>
+                    orchestrator.start(
+                      run.leadId,
+                      run.allowedHarnesses,
+                      run.maxWorkers,
+                    ),
+                  "Couldn't resume the run. Try again from the lead's chat.",
                 )
           }
         >
@@ -531,15 +547,8 @@ function OpenTeamBar({
             stop === "run"
               ? "Stop the lead and every agent in this run"
               : stop === "race"
-                ? "Stop every agent still working in this race"
-                : "End the discussion; a reply in progress finishes but is not passed on"
-          }
-          aria-label={
-            stop === "run"
-              ? "Stop run"
-              : stop === "race"
-                ? "Stop all agents"
-                : "End discussion"
+                ? "Stop every agent still working. You can still compare what they wrote."
+                : "Stop the discussion. A reply being written finishes, but the other chat won't get it."
           }
           onClick={() =>
             stop === "discussion"
@@ -561,26 +570,12 @@ function OpenTeamBar({
           {stop === "run"
             ? "Stop run"
             : stop === "race"
-              ? "Stop all"
-              : "End discussion"}
+              ? "Stop race"
+              : "Stop discussion"}
         </button>
       ) : null}
     </Frame>
   );
-}
-
-function memberLabel(
-  members: readonly TeamMember[],
-  sessionId: string,
-): string | undefined {
-  const member = members.find((entry) => entry.sessionId === sessionId);
-  if (!member) return undefined;
-  // "Codex · GPT-5" reads long on a button; the provider is enough, unless
-  // another member races a second model of it.
-  const shared = members.some(
-    (entry) => entry !== member && entry.harness === member.harness,
-  );
-  return shared ? member.label : member.label.split(" · ")[0];
 }
 
 /** Another chat's run holds this project: say so, and offer the way there. */

@@ -15,7 +15,7 @@
  */
 import { roleBrief } from "./agentRoles";
 import { NATIVE_WRAP_UP_DEPS, type WrapUpDeps } from "./discussionWrapUp";
-import { errorText, logError } from "./errors";
+import { logError } from "./errors";
 import {
   cleanUntrusted,
   clip,
@@ -586,10 +586,12 @@ export async function continueRace(
   const race = getRace(raceId);
   const lane = race ? continueLane(race) : undefined;
   const record = lane !== undefined ? race?.lanes[lane] : undefined;
+  const failed =
+    "Couldn't send the recap. Open the agent's chat and try again.";
   if (!race || lane === undefined || !record)
     return "Nothing was kept to continue from.";
   if (race.continuedAt || continuing.has(raceId)) return null;
-  if (!send) return "This window can't open that chat.";
+  if (!send) return failed;
   continuing.add(raceId);
   try {
     const sent = await send(record.sessionId, (blocks) => ({
@@ -599,11 +601,12 @@ export async function continueRace(
           ? "Carry on from the race: part of your version was kept."
           : "Carry on from the race: your version was kept.",
     }));
-    if (!sent) return `Couldn't open ${record.label}'s chat to continue.`;
+    if (!sent) return failed;
     updateRace(raceId, { continuedAt: Date.now() });
     return null;
   } catch (error) {
-    return errorText(error);
+    logError("Continue the race", error);
+    return failed;
   } finally {
     continuing.delete(raceId);
   }

@@ -94,6 +94,7 @@ import {
   type HomeRunning,
   type HomeSession,
 } from "../lib/workspaceHome";
+import { plural } from "../lib/words";
 import "./EmptySession.css";
 import "./WorkspaceHome.css";
 
@@ -425,11 +426,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                     >
                       <SessionRow
                         cwd={item.cwd}
-                        title={
-                          !item.team && discussing.has(item.id)
-                            ? `↔ ${item.title}`
-                            : item.title
-                        }
+                        title={item.title}
                         active
                         // A team is one row: its mascots, its status and
                         // how many agents; it opens the chat it began in.
@@ -438,11 +435,15 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                             <TeamMiniFaces members={item.team.members} active />
                           ) : undefined
                         }
-                        line={
-                          item.doing
-                            ? `${nameFor(item.cwd)} · ${item.doing}`
-                            : nameFor(item.cwd)
-                        }
+                        line={[
+                          nameFor(item.cwd),
+                          !item.team && discussing.has(item.id)
+                            ? "Discussing"
+                            : "",
+                          item.doing ?? "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                         aside={
                           <>
                             {item.team ? (
@@ -471,7 +472,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               className="workspace-home-section"
               aria-labelledby={`${ids}-recent`}
             >
-              <h2 id={`${ids}-recent`}>Recent sessions</h2>
+              <h2 id={`${ids}-recent`}>Recent chats</h2>
               {recentRows.length ? (
                 <ul
                   className="workspace-home-panel workspace-home-list"
@@ -657,10 +658,6 @@ function HomePulse({
       ))}
     </ul>
   );
-}
-
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
 }
 
 /**
@@ -853,7 +850,7 @@ function BriefingCard({
                 className="workspace-home-briefing-link"
                 onClick={onNeeds}
               >
-                {content.waiting} waiting for you
+                {content.waiting} {content.waiting === 1 ? "needs" : "need"} you
               </button>
             </div>
           </li>
@@ -992,7 +989,7 @@ const AgentTile = memo(
     const dozing = state === "resting" && !!project.lastActivity;
     const described = describeProjectStatus(status);
     const saying = waiting
-      ? `Waiting for you${project.asking ? `: ${project.asking}` : ""}`
+      ? `Needs you${project.asking ? `: ${project.asking}` : ""}`
       : running
         ? (project.doing ?? "Working")
         : "";
@@ -1185,6 +1182,8 @@ function SessionRow({
       className="workspace-home-row"
       data-attention={attention}
       data-outcome={outcome}
+      // Title and line are cut off when long; the tooltip has them whole.
+      title={typeof line === "string" ? `${title} · ${line}` : title}
       onClick={onClick}
     >
       <span className="workspace-home-row-mark">

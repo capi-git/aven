@@ -63,7 +63,7 @@ async function render(value: DiscussionRelayMeta) {
 it("labels the opening topic with the chat it will discuss with", async () => {
   await render(meta({}));
   expect(container.textContent).toBe(
-    "Discussion withGPT-5 in “Review”· 3 rounds",
+    "Discussion withCodex in “Review”· 3 rounds",
   );
   expect(
     container.querySelector('[data-project-mark="/work/api"]'),
@@ -73,7 +73,7 @@ it("labels the opening topic with the chat it will discuss with", async () => {
 it("marks a relayed reply with its sender, round and shortening", async () => {
   await render(meta({ turn: 3, truncated: true }));
   expect(container.textContent).toBe(
-    "Relayed fromGPT-5 in “Review”· round 2 of 3 · shortened",
+    "FromCodex in “Review”· Round 2 of 3 · shortened",
   );
 });
 
@@ -113,9 +113,7 @@ it("opens its discussion's page while it runs and after it has ended", async () 
   const open = await renderInChat(meta({ turn: 1 }));
   expect(link()?.dataset.discussionRelay).toBe("d1");
   // The same words as a plain card.
-  expect(container.textContent).toBe(
-    "Relayed fromGPT-5 in “Review”· round 1 of 3",
-  );
+  expect(container.textContent).toBe("FromCodex in “Review”· Round 1 of 3");
   await act(async () => link()!.click());
   expect(open).toHaveBeenCalledExactlyOnceWith("d1");
 

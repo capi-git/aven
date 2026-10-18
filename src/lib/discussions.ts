@@ -40,6 +40,7 @@ import {
   type HarnessId,
   type Session,
 } from "./session";
+import { plural } from "./words";
 
 export const DISCUSSIONS_KEY = "aven.discussions";
 /**
@@ -233,10 +234,6 @@ export function completedRounds(discussion: Discussion): number {
   return Math.min(discussion.rounds, Math.floor(discussion.settled / 2));
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
-
 /** Shorten a reply to the relay limit, preferring a word boundary. */
 export function capRelay(
   text: string,
@@ -421,12 +418,12 @@ export function discussionEndNote(discussion: Discussion): string {
   const done = completedRounds(discussion);
   switch (ending.kind) {
     case "completed":
-      return `Discussion ended after ${plural(discussion.rounds, "round")}.`;
+      return `Discussion finished after ${plural(discussion.rounds, "round")}.`;
     case "cancelled":
-      return `Discussion ended: ${title} was stopped.`;
+      return `Discussion stopped because ${title} was stopped.`;
     default:
       return done > 0
-        ? `Discussion stopped after ${plural(done, "round")} of ${discussion.rounds}.`
+        ? `Discussion stopped after ${done} of ${plural(discussion.rounds, "round")}.`
         : `Discussion stopped during round 1 of ${discussion.rounds}.`;
   }
 }
@@ -1359,12 +1356,12 @@ function readAll(storage: DiscussionStorage | undefined): Discussion[] {
 
 /** Why a discussion paused when one of its chats was archived. */
 export function archivedReason(title: string): string {
-  return `“${title || "A chat"}” was archived. Unarchive it to continue, or end the discussion.`;
+  return `“${title || "A chat"}” was archived. Unarchive it to continue, or stop the discussion.`;
 }
 
 /** Why a discussion paused for no one chat; shown after "Paused". */
 export const RELOAD_REASON =
-  "Its window reloaded or closed. Resume to continue.";
+  "The window it ran in reloaded or closed. Resume to continue.";
 
 /**
  * Discussions for every window, shared through `aven.discussions`. A window

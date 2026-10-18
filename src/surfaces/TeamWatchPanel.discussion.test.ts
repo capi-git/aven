@@ -270,7 +270,7 @@ describe("the discussion panel over the workspace", () => {
     expect(discussionStore().get("d2")?.status).toBe("active");
   });
 
-  it("shows Done once a discussion ends, and stays until closed", async () => {
+  it("shows Finished once a discussion ends, and stays until closed", async () => {
     discuss("d1", A, B, 3);
     await mount();
     await act(async () => panel.open("discuss:d1"));
@@ -279,10 +279,10 @@ describe("the discussion panel over the workspace", () => {
     );
     expect(
       text(float()!.querySelector("[data-discussion-cast] [role='status']")),
-    ).toBe("Done · 2 rounds");
+    ).toBe("Finished · 2 rounds");
     await act(async () => panel.shrink());
     expect(pills()[0].dataset.state).toBe("done");
-    expect(text(pills()[0])).toContain("Done");
+    expect(text(pills()[0])).toContain("Finished");
   });
 
   it("drops a discussion that no longer exists", async () => {
@@ -373,7 +373,7 @@ describe("a long thread in the panel", () => {
     await act(async () => panel.open("discuss:d1"));
     // Round 1 folds; round 2 holds the first new reply, so it stays.
     expect(text(container.querySelector("[data-discussion-fold]"))).toBe(
-      "Round 1 · Show",
+      "Show round 1",
     );
     expect(messages()).toEqual(["2", "3", "4"]);
     const mark = container.querySelector("[data-discussion-new]");
@@ -407,7 +407,7 @@ describe("a long thread in the panel", () => {
     await mount();
     await act(async () => panel.open("discuss:d1"));
     expect(text(container.querySelector("[data-discussion-fold]"))).toBe(
-      "Rounds 1–2 · Show",
+      "Show rounds 1–2",
     );
     // Only the visible rounds are drawn.
     expect(messages()).toEqual(["4", "5", "6"]);

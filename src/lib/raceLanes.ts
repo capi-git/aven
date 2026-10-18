@@ -1,9 +1,11 @@
 import { isTurnActivity, type ActivityEntry } from "./activity";
+import { appName } from "./agentNames";
 import { wasTurnInterrupted } from "./inFlight";
 import type { RaceLaneEnd, RaceRecord } from "./race";
 import { raceAgentNames } from "./raceNames";
 import { sessionIsWaitingForInput, type Session } from "./session";
 import { sessionRunStatus } from "./sessionRunStatus";
+import { listText, plural, possessive } from "./words";
 
 /**
  * Where one race lane's agent is, read from its chat's own last outcome
@@ -157,10 +159,6 @@ export function raceLaneSeconds(
   return null;
 }
 
-function plural(count: number, one: string, many = `${one}s`) {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 /** "2 of 3 done", with anything else that stopped or needs the user. */
 export function raceProgress(lanes: readonly RaceLaneState[]): string {
   const count = (kind: RaceLaneKind) =>
@@ -174,18 +172,34 @@ export function raceProgress(lanes: readonly RaceLaneState[]): string {
 }
 
 /**
- * "Claude Code", or "Claude Code · Opus 4.6" when another lane races a
- * second model of the same provider.
+ * "Claude", or "Claude Opus 4.6" when another agent races a second model of
+ * the same app.
  */
 export function raceLaneName(race: RaceRecord, lane: number): string {
   return race.lanes[lane] ? raceAgentNames(race.lanes)[lane] : "this agent";
 }
 
-export type RaceQuestion = { title: string; body: string; confirm: string };
-
-function allCopies(count: number): string {
-  return count === 2 ? "both copies" : `all ${count} copies`;
+/** The chat asked to review a race, by its app: "Claude". */
+export function raceReviewerName(race: Pick<RaceRecord, "review">): string {
+  return race.review ? appName(race.review.harness) : "The reviewer";
 }
+
+/**
+ * "Aven suggests Codex: <why>", or "Claude (Reviewer) suggests Codex:
+ * <why>" when a chat asked as a Reviewer picked it.
+ */
+export function raceSuggestionText(race: RaceRecord): string | undefined {
+  const suggestion = race.suggestion;
+  if (suggestion?.status !== "done" || !race.lanes[suggestion.lane])
+    return undefined;
+  const by =
+    suggestion.by === "reviewer"
+      ? `${raceReviewerName(race)} (Reviewer)`
+      : "Aven";
+  return `${by} suggests ${raceLaneName(race, suggestion.lane)}: ${suggestion.why}`;
+}
+
+export type RaceQuestion = { title: string; body: string; confirm: string };
 
 function stopsAgents(working: number): string {
   return working
@@ -193,25 +207,33 @@ function stopsAgents(working: number): string {
     : "This ";
 }
 
-/** The other agents whose changes keeping `lane` deletes, by name. */
-function othersChanged(
+type AgentWork = { name: string; files: number };
+
+/** The agents whose changes are deleted, other than `kept`, by name. */
+function changedWork(
   race: RaceRecord,
-  lane: number,
   changedFiles: ReadonlyArray<number | undefined>,
-): string[] {
-  return race.lanes
-    .map((_, index) => {
-      const files = index === lane ? 0 : (changedFiles[index] ?? 0);
-      return files
-        ? `${raceLaneName(race, index)} (${plural(files, "file")})`
-        : "";
-    })
-    .filter(Boolean);
+  kept?: number,
+): AgentWork[] {
+  return race.lanes.flatMap((_, index) => {
+    const files = index === kept ? 0 : (changedFiles[index] ?? 0);
+    return files ? [{ name: raceLaneName(race, index), files }] : [];
+  });
+}
+
+/** "Claude's work (2 files) and Codex's (1 file)". */
+function workText(work: readonly AgentWork[]): string {
+  return listText(
+    work.map(
+      ({ name, files }, index) =>
+        `${possessive(name)}${index ? "" : " work"} (${plural(files, "file")})`,
+    ),
+  );
 }
 
 /**
- * Whether keeping one lane asks first: an agent is still working, or
- * another agent's changes, finished or not, would be deleted with its copy.
+ * Whether keeping one agent's version asks first: an agent is still
+ * working, or another agent's changes, finished or not, would be deleted.
  */
 export function raceKeepAsks(
   race: RaceRecord,
@@ -221,14 +243,14 @@ export function raceKeepAsks(
 ): boolean {
   return (
     lanes.some(raceLaneActive) ||
-    othersChanged(race, lane, changedFiles).length > 0
+    changedWork(race, changedFiles, lane).length > 0
   );
 }
 
 /**
- * Asked before keeping one lane (see `raceKeepAsks`): what stops, and
- * every copy deleted with the other agents' changes. `changedFiles` holds
- * each lane's number of changed files, where known.
+ * Asked before keeping one agent's version (see `raceKeepAsks`): what
+ * stops, and whose work is deleted. `changedFiles` holds each agent's
+ * number of changed files, where known.
  */
 export function raceKeepQuestion(
   race: RaceRecord,
@@ -239,35 +261,33 @@ export function raceKeepQuestion(
   const name = raceLaneName(race, lane);
   const working = lanes.filter(raceLaneActive).length;
   const own = lanes[lane] && raceLaneActive(lanes[lane]);
-  const lost = othersChanged(race, lane, changedFiles);
+  const lost = changedWork(race, changedFiles, lane);
   return {
-    title: `Keep ${name}'s version?`,
+    title: `Keep ${possessive(name)} version?`,
     body: [
       own
         ? `${name} is still working; you get what it has written so far.`
         : "",
-      `${stopsAgents(working)}deletes ${allCopies(race.lanes.length)}${
-        lost.length
-          ? `, with the other agents' changes: ${listNames(lost)}`
-          : ""
+      `${stopsAgents(working)}deletes ${
+        lost.length ? workText(lost) : "the other agents' work"
       }.`,
     ]
       .filter(Boolean)
       .join(" "),
-    confirm: `Keep ${name}'s version`,
+    confirm: `Keep ${possessive(name)} version`,
   };
 }
 
 /** Asked before keeping a per-file mix while any agent is still working. */
 export function raceCombineQuestion(
-  race: RaceRecord,
+  _race: RaceRecord,
   files: number,
   lanes: readonly RaceLaneState[],
 ): RaceQuestion {
   const working = lanes.filter(raceLaneActive).length;
   return {
     title: `Keep ${plural(files, "selected file")}?`,
-    body: `${stopsAgents(working)}deletes ${allCopies(race.lanes.length)}, with any changes you didn't pick.`,
+    body: `${stopsAgents(working)}deletes any changes you didn't pick.`,
     confirm: `Keep ${plural(files, "file")}`,
   };
 }
@@ -282,36 +302,22 @@ export function raceDiscardQuestion(
   changedFiles: ReadonlyArray<number | undefined> = [],
 ): RaceQuestion {
   const working = lanes.filter(raceLaneActive).length;
-  const changed = race.lanes
-    .map((_, index) => {
-      const files = changedFiles[index] ?? 0;
-      return files
-        ? `${raceLaneName(race, index)} (${plural(files, "file")})`
-        : "";
-    })
-    .filter(Boolean);
-  const what = changed.length
-    ? ` and the changes in them: ${listNames(changed)}`
-    : "";
+  const changed = changedWork(race, changedFiles);
   return {
     title: "Discard this race?",
-    body: `${stopsAgents(working)}deletes ${allCopies(race.lanes.length)}${what}. Your project is not changed.`,
+    body: `${stopsAgents(working)}deletes ${
+      changed.length ? workText(changed) : "the agents' work"
+    }. Your project doesn't change.`,
     confirm: "Discard race",
   };
 }
 
-/** "A", "A and B", "A, B and C". */
-function listNames(names: readonly string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/** "Kept Claude Code's version · 4 files" or "Kept 3 files from 2 agents". */
+/** "Kept Claude's version · 4 files" or "Kept 3 files from 2 agents". */
 export function raceOutcomeText(race: RaceRecord): string | null {
   const outcome = race.outcome;
   if (race.state !== "kept" || !outcome) return null;
   if (outcome.kind === "lane")
-    return `Kept ${raceLaneName(race, outcome.lane)}'s version · ${plural(outcome.files, "file")}`;
+    return `Kept ${possessive(raceLaneName(race, outcome.lane))} version · ${plural(outcome.files, "file")}`;
   const from = new Set(Object.values(race.picks ?? {})).size;
   return from > 1
     ? `Kept ${plural(outcome.files, "file")} from ${from} agents`

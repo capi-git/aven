@@ -147,10 +147,13 @@ describe("Activity panel", () => {
     expect(running.querySelector("h3")?.textContent).toBe("Running1");
     const row = running.querySelector("[data-activity-team='race:r1']")!;
     expect(row.textContent).toContain("Fix the login loop");
-    expect(row.textContent).toContain("Racing · 0 of 2 done · 2 agents");
+    expect(row.textContent).toContain("Racing · 0 of 2 done · project");
+    expect(row.textContent).not.toContain("2 agents");
     // The lane's own turn is its team's, so Finished does not list it.
     expect(host.querySelector('[aria-label="Finished"]')).toBeNull();
-    await act(async () => button("Open Fix the login loop").click());
+    await act(async () =>
+      button("Open “Fix the login loop”: Racing · 0 of 2 done").click(),
+    );
     expect(openSession).toHaveBeenCalledWith("chat");
   });
   it("updates the shared workspace palette and closes without changing activity", async () => {
@@ -215,7 +218,7 @@ describe("Activity panel", () => {
     expect(host.querySelector('[aria-label="Running"]')?.textContent).toContain(
       "Working task",
     );
-    await act(async () => button("Open Working task").click());
+    await act(async () => button("Open “Working task”").click());
     expect(openSession).toHaveBeenCalledWith("running");
   });
 
@@ -248,13 +251,13 @@ describe("Activity panel", () => {
     record("Result", "completed");
     open.mockReturnValue(false);
     await mount();
-    await act(async () => button("Open Result: Finished").click());
+    await act(async () => button("Open “Result”: Finished").click());
     expect(getActivitySnapshot()[0].readAt).toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toContain(
       "could not be opened",
     );
     open.mockReturnValue(true);
-    await act(async () => button("Open Result: Finished").click());
+    await act(async () => button("Open “Result”: Finished").click());
     expect(open).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: "Result", sessionId: "Result" }),
     );
@@ -269,7 +272,7 @@ describe("Activity panel", () => {
       }),
     );
     await mount();
-    await act(async () => button("Open Restored: Finished").click());
+    await act(async () => button("Open “Restored”: Finished").click());
     expect(getActivitySnapshot()[0].readAt).toBeNull();
     await act(async () => restored(true));
     expect(getActivitySnapshot()[0].readAt).not.toBeNull();
@@ -278,7 +281,7 @@ describe("Activity panel", () => {
     record("Question", "question");
     record("Done", "completed");
     await mount();
-    await act(async () => button("Mark Question as read").click());
+    await act(async () => button("Mark “Question” as read").click());
     expect(
       host.querySelector('[aria-label="Needs you"]')?.textContent,
     ).toContain("Question");

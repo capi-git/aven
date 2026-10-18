@@ -623,7 +623,7 @@ describe("local orchestration", () => {
     await vi.waitFor(() => expect(f.tasks()[0].status).toBe("cancelled"));
     expect(f.manager.run("lead")!.status).toBe("paused");
     expect(f.manager.run("lead")!.error).toBe(
-      "“Task” changed a file outside the files it was given (src/a/../b/file.ts). Aven paused the run and stopped its agents. Check the files, then resume or stop the run.",
+      "“Task” changed a file outside the files it was given (src/a/../b/file.ts). Its agents were stopped. Check the files, then resume or stop the run.",
     );
   });
   it("keeps overlapping work queued when native termination is unconfirmed", async () => {
@@ -1080,7 +1080,7 @@ describe("local orchestration", () => {
     f.lead.title = "claude · Build settings";
     // Plain words: which project, which chat holds it, and what to do there.
     expect(f.manager.submissionError("other")).toBe(
-      "repo is busy with an orchestration in “Build settings”. Finish or stop it there.",
+      "repo is busy with a run in “Build settings”. Finish or stop it there.",
     );
     expect(f.manager.blockingRun("other")?.leadId).toBe("lead");
     expect(f.manager.blockingRun("lead")).toBeUndefined();
@@ -1262,7 +1262,7 @@ describe("what only you can move on", () => {
       need: {
         sessionId: "lead",
         kind: "error",
-        text: "The lead stopped without finishing",
+        text: "The lead stopped without finishing.",
       },
     });
     // The lead working again clears it.

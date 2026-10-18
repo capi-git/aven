@@ -1,4 +1,4 @@
-import { voiceName } from "./discussionVoices";
+import { agentFullName, agentNameWithModel } from "./agentNames";
 import { orchestrator } from "./orchestration";
 import type { LiveSessionStore } from "./liveSessions";
 import { modelDisplayName } from "./sessionLabels";
@@ -14,8 +14,10 @@ import {
 export type ReviewerChoice = {
   sessionId: string;
   harness: HarnessId;
-  /** "Claude · Opus 4.6". */
+  /** "Claude Opus 4.6". */
   label: string;
+  /** "Claude Code · Opus 4.6", for tooltips. */
+  fullName: string;
   title: string;
   busy?: "Working" | "Needs you";
 };
@@ -47,15 +49,17 @@ export function reviewerChoices(
       return !runs.blockingRun(session.id);
     })
     .map((session): ReviewerChoice => {
+      // Its own model's name: an unknown id keeps its identity rather than
+      // borrowing the provider default's name.
+      const agent = {
+        harness: session.harness,
+        model: modelDisplayName(session.harness, session.model),
+      };
       return {
         sessionId: session.id,
         harness: session.harness,
-        // Its own model's name: an unknown id keeps its identity rather
-        // than borrowing the provider default's name.
-        label: voiceName({
-          harness: session.harness,
-          model: modelDisplayName(session.harness, session.model),
-        }),
+        label: agentNameWithModel(agent),
+        fullName: agentFullName(agent),
         title: sessionDisplayTitle(session.title, session.harness) || "Chat",
         ...(sessionIsWaitingForInput(session)
           ? { busy: "Needs you" as const }

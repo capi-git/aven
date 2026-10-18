@@ -464,7 +464,7 @@ function CommandPaletteBody({
                         Race it: {raceAgentNames(raceAgents).join(" vs ")}
                       </span>
                       <span className="shrink-0 text-ui-caption text-content/40">
-                        separate copies · ⌥↵
+                        several agents · ⌥↵
                       </span>
                     </div>
                   );

@@ -7697,7 +7697,7 @@ export default function App({
         const lead = sessionsRef.current.find(
           (session) => session.id === run.leadId,
         );
-        if (!lead) throw new Error("Lead session is unavailable");
+        if (!lead) throw new Error("The lead's chat isn't open.");
         if (existing) {
           if (
             existing.harness !== task.harness ||
@@ -7705,7 +7705,7 @@ export default function App({
             existing.cwd !== run.cwd
           )
             throw new Error(
-              "This worker's configuration changed. Restore its approved harness, model and project before retrying.",
+              "This agent's model or project changed after the plan was confirmed. Start a new plan.",
             );
           // The lead's runtime mode governs its agents, including across a
           // change mid-run: auto stays auto, supervised asks the lead.
@@ -7726,7 +7726,7 @@ export default function App({
           (restored.harness !== task.harness || restored.model !== task.model)
         )
           throw new Error(
-            "The saved worker no longer matches its approved model. Create a new assignment.",
+            "This agent's model changed after the plan was confirmed. Start a new plan.",
           );
         const base = restored
           ? {

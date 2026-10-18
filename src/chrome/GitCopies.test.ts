@@ -115,7 +115,7 @@ describe("other copies", () => {
       "Race safety",
     );
     expect(copyName({ branch: "aven/race/beecf69588-1", path: "/a" })).toBe(
-      "Race copy",
+      "Race folder",
     );
     expect(copyName({ branch: null, path: "/work/tab_groups" })).toBe(
       "Tab groups",
@@ -173,7 +173,7 @@ describe("other copies", () => {
     const { active, finished } = partitionCopies(copies);
     expect(active.map((entry) => [entry.name, copyStatus(entry).text])).toEqual(
       [
-        ["Next", "2 commits not in main yet"],
+        ["Next", "Has work not in main yet"],
         ["Main folder", "Up to date with main"],
       ],
     );
@@ -200,8 +200,9 @@ describe("other copies", () => {
       }),
     ]);
     expect(copyStatus(entry)).toEqual({
-      text: "40 commits not in main yet · main has 2 newer commits · 2 files uncommitted",
+      text: "Has work not in main yet · main has newer work · 2 changed files",
       tone: "uncommitted",
+      hint: "40 commits not in main yet. main has 2 newer commits. 2 files have changes not saved to Git.",
     });
     const [ahead] = summarizeCopies([
       copy({
@@ -212,9 +213,9 @@ describe("other copies", () => {
       }),
     ]);
     expect(copyStatus(ahead)).toMatchObject({
-      text: "1 commit not in main yet · main has 1 newer commit",
+      text: "Has work not in main yet · main has newer work",
       tone: "ahead",
-      hint: "If this branch was squash-merged, its changes may already be in main.",
+      hint: "1 commit not in main yet. main has 1 newer commit. If this branch was squash-merged, its changes may already be in main.",
     });
     const [fresh] = summarizeCopies([
       copy({ path: "/z", mergedIntoDefault: false }),
@@ -237,8 +238,8 @@ describe("other copies", () => {
     ]);
     expect(copies.every((entry) => !entry.finished)).toBe(true);
     expect(copies.map((entry) => copyStatus(entry).text)).toEqual([
-      "1 file uncommitted",
-      "2 commits not in main yet",
+      "1 changed file",
+      "Has work not in main yet",
       "Up to date with main",
     ]);
   });
@@ -309,7 +310,7 @@ describe("other copies", () => {
       "The entire folder, including ignored files, will be deleted. Its 1 unmerged commit is deleted too.",
     );
     expect(removalWarning(summary({}, raceRecord("running")))).toBe(
-      "This race is still running. Removing it stops its agents and deletes all 2 of its copies, including unsaved and ignored files.",
+      "This race is still running. Removing it stops its agents and deletes their work, including files Git ignores.",
     );
     expect(removalWarning(summary({ branch: null, aheadOfDefault: 1 }))).toBe(
       "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.",
@@ -577,13 +578,13 @@ describe("chatForCopy", () => {
         { id: "a", title: "Mascot briefing", state: "working", at: 0 },
         now,
       ),
-    ).toBe("Mascot briefing — agent working");
+    ).toBe("Mascot briefing · agent working");
     expect(
       describeCopyChat(
         { id: "a", title: "Fix tabs", state: "waiting", at: 0 },
         now,
       ),
-    ).toBe("Fix tabs — waiting for you");
+    ).toBe("Fix tabs · needs you");
     expect(
       describeCopyChat(
         { id: "a", title: "Fix tabs", state: "idle", at: now - 2 * 3_600_000 },

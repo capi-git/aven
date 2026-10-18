@@ -169,7 +169,7 @@ describe("persistent agent run status", () => {
     await render();
     expect(state()).toBe("waiting");
     expect(host.querySelector('[role="status"]')?.textContent).toContain(
-      "Waiting for you",
+      "Needs you",
     );
     expect(vi.getTimerCount()).toBe(0);
     session = {

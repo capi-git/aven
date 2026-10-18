@@ -5,11 +5,13 @@
  * dev previews), never from transcripts. Teams show as one card each, their
  * chats folded in.
  */
+import { appName } from "./agentNames";
 import { chatStage, type ChatStatusWord } from "./chatStatus";
 import type { ChatReview } from "./chatReview";
 import type { DevPreview } from "./devPreviews";
 import { pendingRequestKey, type LeadDecided } from "./teamAttention";
 import { isEqualOrInside } from "./paths";
+import { requestText } from "./requestText";
 import { sessionWorkCwd, type HarnessId, type Session } from "./session";
 import type { ShippedChat } from "./shippedChats";
 import {
@@ -19,6 +21,7 @@ import {
   type TeamKind,
   type TeamRun,
 } from "./teamRuns";
+import { plural } from "./words";
 import { homeLiveSessions, startOfDay } from "./workspaceHome";
 
 /** A loaded chat as the board needs it: small, data-only, safe to compare. */
@@ -171,10 +174,6 @@ function inProject(path: string, project: string): boolean {
   return !!path && isEqualOrInside(path, project);
 }
 
-function plural(count: number, one: string): string {
-  return `${count} ${count === 1 ? one : `${one}s`}`;
-}
-
 /** "ReminderRow.js · +40 −6", "3 files · +48 −12". */
 export function reviewLine(
   review: Pick<ChatReview, "files" | "additions" | "deletions" | "names">,
@@ -229,7 +228,7 @@ function teamCard(team: TeamRun, column: BoardColumnId): BoardCard {
   }));
   const watch: BoardAction = { kind: "watch", teamId: team.id };
   const anchor = teamAnchor(team);
-  const agents = team.members.filter((member) => member.role !== "lead");
+  const kind = TEAM_KIND_LABEL[team.kind];
   if (column === "needs-you")
     return {
       id: `team:${team.id}`,
@@ -238,7 +237,11 @@ function teamCard(team: TeamRun, column: BoardColumnId): BoardCard {
       cwd: team.project,
       title: team.title,
       faces,
-      line: `${TEAM_KIND_LABEL[team.kind]} paused · ${team.need?.text ?? "Needs you"}`,
+      line: !team.need
+        ? `${kind} · Needs you`
+        : team.need.kind === "paused"
+          ? `${kind} · Paused · ${team.need.text}`
+          : `${kind} · ${team.need.text}`,
       at: team.need?.since ?? team.updatedAt,
       actions: [{ kind: "open" }, watch],
       team: team.kind,
@@ -251,7 +254,10 @@ function teamCard(team: TeamRun, column: BoardColumnId): BoardCard {
       cwd: team.project,
       title: team.title,
       faces,
-      line: `Ready to compare · ${plural(agents.length, "agent")}`,
+      // "Ready to compare · 3 of 3 done", as its card and bar say it.
+      line: team.progress.startsWith("Ready to compare")
+        ? team.progress
+        : `Ready to compare · ${team.progress}`,
       at: team.updatedAt,
       actions:
         team.kind === "race"
@@ -266,7 +272,7 @@ function teamCard(team: TeamRun, column: BoardColumnId): BoardCard {
     cwd: team.project,
     title: team.title,
     faces,
-    line: `${TEAM_KIND_LABEL[team.kind]} · ${team.progress}`,
+    line: `${kind} · ${team.progress}`,
     at: team.startedAt,
     actions: [watch],
     team: team.kind,
@@ -336,9 +342,10 @@ export function workBoard(input: WorkBoardInput): WorkBoardModel {
         ...base,
         line: !waiting
           ? "Needs you"
-          : waiting.kind === "approval"
-            ? `Waiting for your OK · ${waiting.detail}`
-            : `Asks you · ${waiting.detail}`,
+          : requestText(harness ? appName(harness) : "This chat", {
+              kind: waiting.kind,
+              what: waiting.detail,
+            }),
         at: chat.at,
         actions:
           waiting?.kind === "approval" && waiting.requestId !== undefined

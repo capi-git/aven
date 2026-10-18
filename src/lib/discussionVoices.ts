@@ -2,14 +2,11 @@
  * A little character for each side of a discussion: a pixel mascot in its
  * provider's colour, the model's name and a short tag for its part.
  */
-import type {
-  Discussion,
-  DiscussionParty,
-  DiscussionSide,
-} from "./discussions";
+import type { Discussion, DiscussionSide } from "./discussions";
 import { agentRole, type AgentRoleId } from "./agentRoles";
+import { agentFullName, agentNameIn, appName } from "./agentNames";
 import { PROJECT_MASCOTS } from "./projectMascots";
-import { HARNESS_TITLE, type HarnessId } from "./session";
+import type { HarnessId } from "./session";
 
 /**
  * Brand colours of the providers that have one (Claude's coral, Codex's
@@ -33,13 +30,16 @@ export type DiscussionVoice = {
   side: DiscussionSide;
   sessionId: string;
   harness: HarnessId;
-  /** "Claude · Sonnet 5". */
+  /** "Claude", or "Claude Sonnet 5" when both sides are Claude. */
   name: string;
+  /** "Claude Code · Sonnet 5", for tooltips. */
+  fullName: string;
   /** The chat's title. */
   title: string;
   /**
-   * What it does in this discussion: it opened the topic, or responds, led
-   * by its role when it was brought in with one ("Skeptic · Responding").
+   * What it does in this discussion: it opened the topic, or joined it, led
+   * by its role when it was brought in with one ("Skeptic · Joined the
+   * topic").
    */
   persona: string;
   /** The role it was brought in with, shown as a badge on its mascot. */
@@ -52,35 +52,12 @@ export type DiscussionVoice = {
 
 export const DISCUSSION_PERSONAS: Readonly<Record<DiscussionSide, string>> = {
   a: "Opened the topic",
-  b: "Responding",
+  b: "Joined the topic",
 };
 
-/** Shorter provider names where the product name is long. */
-const SHORT_PROVIDER: Partial<Record<HarnessId, string>> = {
-  claude: "Claude",
-  grok: "Grok",
-};
-
-/**
- * "Claude · Sonnet 5": the provider, then the model without the provider's
- * name in front. A model named only by its provider and version ("Grok 4.6")
- * is shown as is.
- */
 /** "Claude", "Codex", "Grok": the provider as people say it. */
 export function providerShortName(harness: HarnessId): string {
-  return SHORT_PROVIDER[harness] ?? HARNESS_TITLE[harness];
-}
-
-export function voiceName(party: Pick<DiscussionParty, "harness" | "model">) {
-  const provider = providerShortName(party.harness);
-  const model = party.model.trim();
-  if (!model || model === "Default") return provider;
-  const prefix = `${provider.toLowerCase()} `;
-  if (model.toLowerCase().startsWith(prefix)) {
-    const rest = model.slice(prefix.length).trim();
-    return /^[a-z]/i.test(rest) ? `${provider} · ${rest}` : model;
-  }
-  return `${provider} · ${model}`;
+  return appName(harness);
 }
 
 function hash(text: string): number {
@@ -118,7 +95,7 @@ export function discussionMascots(
   return { a: first, b: second };
 }
 
-/** "Skeptic · Responding": the part, led by the role it was given. */
+/** "Skeptic · Joined the topic": the part, led by the role it was given. */
 function personaWith(part: string, role: AgentRoleId | undefined): string {
   if (!role) return part;
   const name = agentRole(role).name;
@@ -135,6 +112,7 @@ export function memberVoice(
     sessionId: string;
     harness: HarnessId;
     label: string;
+    fullName?: string;
     title?: string;
     stateLabel: string;
     agentRole?: AgentRoleId;
@@ -147,6 +125,7 @@ export function memberVoice(
     sessionId: member.sessionId,
     harness: member.harness,
     name: member.label,
+    fullName: member.fullName ?? member.label,
     title: member.title ?? member.label,
     persona: personaWith(member.stateLabel, member.agentRole),
     ...(member.agentRole ? { role: member.agentRole } : {}),
@@ -168,7 +147,8 @@ export function discussionVoices(
       side,
       sessionId: party.sessionId,
       harness: party.harness,
-      name: voiceName(party),
+      name: agentNameIn(party, [discussion.a, discussion.b]),
+      fullName: agentFullName(party),
       title: party.title,
       persona: personaWith(DISCUSSION_PERSONAS[side], party.role),
       ...(party.role ? { role: party.role } : {}),

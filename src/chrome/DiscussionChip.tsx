@@ -23,6 +23,7 @@ import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, MessageMultiple, Plus, X } from "./icons";
 import { Popover } from "./Popover";
 import { ProjectMark } from "./ProjectMark";
+import { plural } from "../lib/words";
 import { SecondOpinionButton } from "./SecondOpinionButton";
 
 /** Who the composer's Discuss mode talks to, with what its chip shows. */
@@ -78,10 +79,6 @@ export function defaultDiscussionPick(
   }
   const open = candidates.find((candidate) => !candidate.blocked);
   return open ? chatPick(open) : null;
-}
-
-function plural(count: number, word: string) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
 /** "Discuss with Codex · 3 rounds", or "Discuss with Codex as Skeptic · 3 rounds". */
@@ -327,7 +324,7 @@ function DiscussionMenu({
           includeCurrent
           icon={Plus}
           title="New chat with…"
-          disabledTitle="No providers are available for a new chat"
+          disabledTitle="No agents are installed for a new chat"
           description="Start a new chat with the model you choose. It talks in the background, listed in the sidebar, without a tab of its own."
           menuLabel="Choose the model for the new chat"
           onPick={(pickedHarness, pickedModel) =>

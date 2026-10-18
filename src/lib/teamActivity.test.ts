@@ -161,7 +161,7 @@ describe("teamActivityEvents", () => {
         event: {
           id: "a:team:d1:ended:40",
           outcome: "completed",
-          summary: "Discussion ended · 4 rounds",
+          summary: "Discussion finished · 4 rounds",
           team: { id: "discuss:d1", kind: "discuss" },
         },
       },

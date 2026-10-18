@@ -64,7 +64,7 @@ describe("the closing note in the chat that started a discussion", () => {
       expect.objectContaining({
         side: "a",
         sessionId: "chat-a",
-        text: "Discussion ended after 1 round.",
+        text: "Discussion finished after 1 round.",
         wrapUp: { id: "d1", settled: 2 },
       }),
       {
@@ -72,7 +72,7 @@ describe("the closing note in the chat that started a discussion", () => {
         id: "d1",
         side: "b",
         sessionId: "chat-b",
-        text: "Discussion ended after 1 round.",
+        text: "Discussion finished after 1 round.",
       },
     ]);
     // Once summed up, the note posted then copies the lists.
@@ -115,13 +115,13 @@ describe("the closing note in the chat that started a discussion", () => {
   it("adds a block that shows the wrap-up without reaching the agent", () => {
     const session = applyHarnessEvent(chat("chat-a"), {
       type: "status",
-      text: "Discussion ended after 1 round.",
+      text: "Discussion finished after 1 round.",
       discussionEnd: { id: "d1", settled: 2 },
     });
     expect(session.blocks).toEqual([
       expect.objectContaining({
         role: "system",
-        text: "Discussion ended after 1 round.",
+        text: "Discussion finished after 1 round.",
         discussionEnd: { id: "d1", settled: 2 },
       }),
     ]);
@@ -129,13 +129,13 @@ describe("the closing note in the chat that started a discussion", () => {
     // not a note for another ending.
     const again = applyHarnessEvent(session, {
       type: "status",
-      text: "Discussion ended after 1 round.",
+      text: "Discussion finished after 1 round.",
       discussionEnd: { id: "d1", settled: 2 },
     });
     expect(again).toBe(session);
     const later = applyHarnessEvent(session, {
       type: "status",
-      text: "Discussion ended after 1 round.",
+      text: "Discussion finished after 1 round.",
       discussionEnd: { id: "d1", settled: 4 },
     });
     expect(later.blocks).toHaveLength(2);
@@ -146,7 +146,7 @@ describe("copying where they landed into the closing note", () => {
   const ended = (settled: number) => ({
     id: `note-${settled}`,
     role: "system" as const,
-    text: "Discussion ended after 1 round.",
+    text: "Discussion finished after 1 round.",
     discussionEnd: { id: "d1", settled },
   });
   const lists = { agreed: ["Cache by URL"], open: [] };

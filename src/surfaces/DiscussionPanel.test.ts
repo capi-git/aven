@@ -135,9 +135,9 @@ describe("DiscussionPanelContent", () => {
         (avatar) => avatar.dataset.discussionAvatar,
       ),
     ).toEqual(["a", "b"]);
-    expect(cast.textContent).toContain("Claude · Sonnet 5");
+    expect(cast.textContent).toContain("Claude");
     expect(cast.textContent).toContain("Opened the topic");
-    expect(cast.textContent).toContain("Codex · GPT-5");
+    expect(cast.textContent).toContain("Codex");
     // The side answering now glows and says so.
     expect(cast.textContent).toContain("Replying…");
     expect(
@@ -257,14 +257,14 @@ describe("DiscussionPanelContent", () => {
     );
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="End discussion"]')!
+        .querySelector<HTMLButtonElement>('[data-team-stop="discussion"]')!
         .click(),
     );
     expect(store.get("d1")?.status).toBe("ended");
     expect(text("[data-discussion-closing]")).toBe(
       "Discussion stopped during round 1 of 2.",
     );
-    expect(container.querySelector('[aria-label="End discussion"]')).toBe(null);
+    expect(container.querySelector('[data-team-stop="discussion"]')).toBe(null);
   });
 
   it("ends with the closing note and one happy hop on each side's last message", async () => {
@@ -276,7 +276,7 @@ describe("DiscussionPanelContent", () => {
     await act(async () => answer(1, "Agreed.", 1));
     await render();
     expect(text("[data-discussion-closing='completed']")).toBe(
-      "Discussion ended after 1 round.",
+      "Discussion finished after 1 round.",
     );
     expect(container.querySelector("[data-discussion-typing]")).toBeNull();
     const hopping = all("[data-discussion-message] svg.mascot-reacting");
@@ -378,7 +378,7 @@ describe("DiscussionPanelContent: the cast", () => {
         `[data-discussion-cast] [data-discussion-party="${side}"]`,
       )!;
     expect(party("b").tagName).toBe("BUTTON");
-    expect(party("b").title).toBe("Open “Review”");
+    expect(party("b").title).toBe("Open “Review” · Codex · GPT-5");
     // The mascot is inside the button, so pressing it opens the chat too.
     expect(party("b").querySelector("[data-discussion-avatar]")).not.toBeNull();
     await act(async () => party("b").click());
@@ -648,13 +648,13 @@ describe("DiscussionPanelContent: where they landed", () => {
     );
   });
 
-  it("has a build button for each side, named by its provider and model", async () => {
+  it("has a build button for each side, named by its app", async () => {
     const actions = host();
     await complete(actions);
     const buttons = all("[data-discussion-build]");
     expect(buttons.map((button) => button.textContent)).toEqual([
-      "Have Claude Sonnet 5 build it",
-      "Have Codex GPT-5 build it",
+      "Have Claude build it",
+      "Have Codex build it",
     ]);
     await act(async () => buttons[1].click());
     expect(actions.build).toHaveBeenCalledExactlyOnceWith("d1", "b");
@@ -718,5 +718,5 @@ it("tells two chats of one provider apart by model while one replies", () => {
       a: party("a", "Opus 5.5"),
       b: party("b", "Sonnet 5"),
     }).text,
-  ).toBe("Claude · Sonnet 5 is replying…");
+  ).toBe("Claude Sonnet 5 is replying…");
 });

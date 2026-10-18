@@ -33,12 +33,13 @@ export const TEAM_WATCH_FOCUS_EVENT = "team-watch-focus";
 /** How long a pop-out waits for its owner to answer an action. */
 export const TEAM_WATCH_REPLY_MS = 15_000;
 
-export const OWNER_CLOSED_TEXT = "This team's window was closed.";
+export const OWNER_CLOSED_TEXT =
+  "The Aven window this ran in is gone, so it can't be shown here.";
 /** The owning window was closed while its team still runs there. */
 export const OWNER_HIDDEN_TEXT =
-  "This team's window was closed. The team still runs there.";
+  "The Aven window this runs in is hidden. It's still running there.";
 export const NO_ANSWER_TEXT =
-  "The window this team runs in didn't answer. Try again there.";
+  "Its Aven window didn't respond. Try again from that window.";
 
 /** What the owner sends: the team's view and the workspace's colours. */
 export type TeamWatchSnapshot = {

@@ -91,12 +91,12 @@ describe("a discussion in the chat that started it", () => {
     const voices = relayVoices(meta, { harness: "claude", model: "" });
     const page = discussionVoices({ a: A, b: B });
     expect(voices.a).toMatchObject({
-      name: "Claude · Opus 5.5",
+      name: "Claude",
       mascot: page.a.mascot,
       color: page.a.color,
     });
     expect(voices.b).toMatchObject({
-      name: "Codex · GPT-5.4",
+      name: "Codex",
       mascot: page.b.mascot,
       color: page.b.color,
     });
@@ -105,8 +105,9 @@ describe("a discussion in the chat that started it", () => {
     // own model.
     const old = { ...meta, self: undefined };
     expect(
-      relayVoices(old, { harness: "claude", model: "claude:sonnet-5" }).a.name,
-    ).toBe("Claude · Sonnet 5");
+      relayVoices(old, { harness: "claude", model: "claude:sonnet-5" }).a
+        .fullName,
+    ).toBe("Claude Code · Sonnet 5");
   });
 
   it("finds each discussion's span of turns, from its topic to its end", () => {

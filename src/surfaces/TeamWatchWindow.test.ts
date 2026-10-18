@@ -246,7 +246,7 @@ describe("a team's panel in a window of its own", () => {
       ),
     );
     expect(words(container.querySelector(".team-watch-closed p"))).toBe(
-      "This team's window was closed.",
+      "The Aven window this ran in is gone, so it can't be shown here.",
     );
     expect(container.querySelector("[data-team-lane]")).toBeNull();
     expect(container.querySelector("[data-team-pop-in]")).toBeNull();
@@ -267,7 +267,7 @@ describe("a team's panel in a window of its own", () => {
       ),
     );
     expect(words(container.querySelector("[data-owner-hidden] p"))).toBe(
-      "This team's window was closed. The team still runs there.",
+      "The Aven window this runs in is hidden. It's still running there.",
     );
     // The team is still shown and still acts there.
     expect(container.querySelectorAll("[data-team-lane]")).toHaveLength(2);
@@ -285,7 +285,7 @@ describe("a team's panel in a window of its own", () => {
     const host = fakeBridge(state(null));
     await show(host.bridge);
     expect(words(container.querySelector(".team-watch-closed p"))).toBe(
-      "This team is no longer available.",
+      "This race is no longer available.",
     );
   });
 

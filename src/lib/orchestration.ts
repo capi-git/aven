@@ -239,7 +239,10 @@ export const LEAD_STALLED_AFTER_MS = 1_500;
 export const UNANSWERED_AFTER_MS = 15_000;
 /** What the user should do after Aven paused a run and stopped its agents. */
 const PAUSED_NEXT =
-  "Aven paused the run and stopped its agents. Check the files, then resume or stop the run.";
+  "Its agents were stopped. Check the files, then resume or stop the run.";
+/** Why a run paused when its lead's turn failed: the error is in its chat. */
+const LEAD_ERROR_REASON =
+  "The lead's turn ended with an error. Its agents were stopped. Open the lead's chat to see what happened, then resume or stop the run.";
 
 /**
  * A queued task can start once every task it depends on was accepted. One
@@ -259,7 +262,8 @@ export function dispatchableTask(
 
 /**
  * What a queued task waits for, in words: a task it depends on that is not
- * accepted yet, an agent working on files it needs, or a free worker slot.
+ * accepted yet, an agent working on files it needs, or another agent
+ * finishing so it can start.
  */
 export function taskWaitingReason(
   run: Pick<OrchestrationRun, "tasks">,
@@ -274,7 +278,7 @@ export function taskWaitingReason(
     (entry) => activeTask(entry) && scopesOverlap(entry.scopes, task.scopes),
   );
   if (owner) return `Waiting for files: ${owner.title}`;
-  return "Waiting for a worker slot";
+  return "Waiting for another agent to finish";
 }
 
 /**
@@ -342,7 +346,7 @@ export function busyProjectMessage(
   run: OrchestrationRun,
   leadTitle = "another chat",
 ): string {
-  return `${folderName(run.cwd)} is busy with an orchestration in “${leadTitle}”. Finish or stop it there.`;
+  return `${folderName(run.cwd)} is busy with a run in “${leadTitle}”. Finish or stop it there.`;
 }
 
 /** The most files a task's result row lists. */
@@ -625,13 +629,14 @@ export class Orchestrator {
         logError("Couldn't save the orchestration run", error);
         throw error;
       }
+      logError("Couldn't save the orchestration run", error);
       const running = current.tasks.filter(activeTask);
       this.runs = this.runs.map((entry) =>
         entry.leadId === run.leadId
           ? {
               ...entry,
               status: "paused",
-              error: `Aven couldn't save the run's progress (${messageOf(error)}). ${PAUSED_NEXT}`,
+              error: `Aven couldn't save the run's progress. ${PAUSED_NEXT}`,
               tasks: entry.tasks.map((task) =>
                 activeTask(task) ? { ...task, status: "cancelling" } : task,
               ),
@@ -826,7 +831,7 @@ export class Orchestrator {
           void this.pause(
             leadId,
             outcome.error
-              ? `The lead's turn ended with an error: ${outcome.error} ${PAUSED_NEXT}`
+              ? LEAD_ERROR_REASON
               : `The lead's turn ended before it finished. ${PAUSED_NEXT}`,
           ).catch(console.error);
       },
@@ -1446,7 +1451,7 @@ export class Orchestrator {
                 )
             )
               throw new Error(
-                "The assigned harness/model is no longer available. Review this task before retrying.",
+                "This agent's app or model is no longer available. Review this task before retrying.",
               );
             await this.host.createWorker(run, task);
             if (
@@ -1577,7 +1582,7 @@ export class Orchestrator {
         ? {
             ...stopped,
             error: saveError
-              ? `The run stopped, but Aven couldn't save it: ${messageOf(saveError)}`
+              ? "The run stopped, but Aven couldn't save it."
               : undefined,
           }
         : entry,
@@ -1840,7 +1845,7 @@ export class Orchestrator {
                 void this.pause(
                   run.leadId,
                   outcome.error
-                    ? `The lead's turn ended with an error: ${outcome.error} ${PAUSED_NEXT}`
+                    ? LEAD_ERROR_REASON
                     : `The lead's turn ended before it finished. ${PAUSED_NEXT}`,
                   (current) => ({
                     ...current,

@@ -263,24 +263,26 @@ describe("an orchestration in the team panel", () => {
     );
     expect(view()?.dataset.teamKind).toBe("orchestrate");
     expect(words(view()!.querySelector(".discussion-float-title"))).toBe(
-      "Orchestration · “Split the settings page”",
+      "Run · “Split the settings page”",
     );
     expect(words(view()!.querySelector(".team-watch-status"))).toBe(
-      "Orchestrating · 2 working · 1 waiting",
+      "Orchestrating · 2 working · 1 queued",
     );
     expect(view()!.querySelectorAll(".team-watch-tile")).toHaveLength(5);
     expect(row("lead")?.dataset.role).toBe("lead");
-    expect(words(row("lead"))).toContain("Lead · Claude · Opus");
+    expect(words(row("lead"))).toContain("Lead · Claude");
     expect(words(row("lead"))).toContain("Writing a reply");
     expect(words(row("lead"))).toContain("Reviewing");
     expect(words(row("w-a"))).toContain("Task a");
-    expect(words(row("w-a"))).toContain("Codex · gpt-5 · Thinking");
+    expect(words(row("w-a"))).toContain("Codex gpt-5 · Thinking");
     expect(words(row("w-b"))).toContain(
-      "Codex · gpt-5 · Waiting for review: Task a",
+      "Codex gpt-5 · Waiting for review: Task a",
     );
     expect(words(row("w-b"))).toContain("Queued");
     expect(row("w-c")?.dataset.memberState).toBe("lead-deciding");
-    expect(words(row("w-c"))).toContain("Lead deciding: Approve: npm install");
+    expect(words(row("w-c"))).toContain(
+      "Lead deciding: Codex gpt-5 wants approval: npm install",
+    );
     expect(words(row("w-d"))).toContain("Accepted");
     expect(words(row("w-d"))).toContain("Form.tsx, Store.ts");
     expect(buttons()).toEqual(["Open agents", "Stop run"]);
@@ -379,7 +381,7 @@ describe("an orchestration in the team panel", () => {
         .teamNotice,
     ).toBe("stalled");
     expect(words(view()!.querySelector(".team-watch-status"))).toBe(
-      "The lead stopped without finishing",
+      "Needs you · The lead stopped without finishing.",
     );
     await press("Finish run");
     expect(orchestrator.finishRun).toHaveBeenCalledWith("lead");

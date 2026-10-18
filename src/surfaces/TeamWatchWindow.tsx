@@ -8,7 +8,12 @@ import {
 } from "react";
 import { IS_MAC } from "../lib/platform";
 import { afterDrawnFrame } from "../lib/windowReveal";
-import type { TeamWatchAct } from "../lib/teamWatch";
+import { teamKindOf } from "../lib/teamRuns";
+import {
+  teamGoneText,
+  TEAM_KIND_NAME,
+  type TeamWatchAct,
+} from "../lib/teamWatch";
 import {
   OWNER_CLOSED_TEXT,
   OWNER_HIDDEN_TEXT,
@@ -137,12 +142,13 @@ export function TeamWatchWindow({
     [bridge, close, state?.ownerClosed],
   );
   const view = state?.snapshot.view ?? null;
+  const kind = state ? teamKindOf(state.team) : null;
   const ended = failed
-    ? "This team's panel couldn't load."
+    ? "This panel couldn't load. Close it and press Watch again."
     : state?.ownerClosed
       ? OWNER_CLOSED_TEXT
       : state && !view
-        ? "This team is no longer available."
+        ? teamGoneText(kind)
         : null;
   if (!state && !failed) return null;
   return (
@@ -154,7 +160,11 @@ export function TeamWatchWindow({
       {ended || !view ? (
         <>
           <div className="discussion-float-head">
-            <TeamPanelBar title="Team" controls={controls} />
+            <TeamPanelBar
+              title={kind ? TEAM_KIND_NAME[kind] : "Aven"}
+              kind={kind}
+              controls={controls}
+            />
           </div>
           <div className="team-watch-closed" role="status">
             <p className="m-0">{ended}</p>
@@ -184,7 +194,7 @@ export function TeamWatchWindow({
                 data-team-show-owner
                 onClick={showOwner}
               >
-                Show it
+                Show window
               </button>
             </div>
           ) : null}

@@ -3,7 +3,8 @@
  * nothing of their own (they are recorded quietly for their chats' status);
  * the team posts one entry for each new need and one at its end:
  *
- * - "Discussion ended · 4 rounds" once a discussion uses up its rounds.
+ * - "Discussion finished · 4 rounds" once a discussion uses up its rounds,
+ *   worded as its card words it.
  * - "Race ready to compare · 3 of 3 done" once every lane of a race has
  *   stopped, worded as its bar and pill word it.
  * - "Discussion paused · <reason>" or "Race needs you · <reason>" when a
@@ -105,7 +106,8 @@ export function teamActivityEvents(
           event: {
             id: `${origin}:team:${team.key}:ended:${markOf(team)}`,
             outcome: "completed",
-            summary: `Discussion ended · ${team.progress}`,
+            summary:
+              team.result?.headline ?? `Discussion finished · ${team.progress}`,
             team: marker,
           },
         });
@@ -225,7 +227,7 @@ export function teamEndSummaries(
     const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
     out.push({
       teamId: teamIdOf("race", race.id),
-      detail: why ? `${headline} — ${why}` : headline,
+      detail: why ? `${headline} · ${why}` : headline,
     });
   }
   for (const discussion of stores.discussions) {

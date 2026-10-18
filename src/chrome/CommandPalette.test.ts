@@ -181,7 +181,7 @@ it("narrows to chats with # and closes on Escape", async () => {
 
 it("offers a race of the chosen agent against another, started with Option-Enter", async () => {
   await type("fix the redirect loop");
-  expect(text()).toContain("Race it: Claude Code vs Codex");
+  expect(text()).toContain("Race it: Claude vs Codex");
   await key("Enter", { altKey: true });
   expect(props.onStartRace).toHaveBeenCalledWith({
     text: "fix the redirect loop",
@@ -204,9 +204,7 @@ it("races two models of the chosen agent's provider, named apart", async () => {
     removeItem: (key: string) => void saved.delete(key),
   });
   await type("fix the redirect loop");
-  expect(text()).toContain(
-    "Race it: Claude Code · Opus 5.5 vs Claude Code · Claude Sonnet 5",
-  );
+  expect(text()).toContain("Race it: Claude Opus 5.5 vs Claude Sonnet 5");
   await key("Enter", { altKey: true });
   expect(props.onStartRace).toHaveBeenCalledWith({
     text: "fix the redirect loop",

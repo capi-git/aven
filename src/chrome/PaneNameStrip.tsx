@@ -58,9 +58,8 @@ export function PaneNameStrip({
       <div className="aven-tab-strip flex min-w-0 flex-1 items-center">
         {onDragStart ? (
           <span
-            role="img"
+            aria-hidden
             title={PANE_DRAG_LABEL}
-            aria-label={PANE_DRAG_LABEL}
             className="grid h-full w-5 shrink-0 place-items-center text-content/35 hover:text-content/70"
           >
             <GripVertical className="size-3.5" strokeWidth={1.75} aria-hidden />

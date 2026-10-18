@@ -1346,7 +1346,7 @@ function SidebarComponent({
       ref={searchInputRef}
       type="text"
       value={searchQuery}
-      placeholder="Filter tasks..."
+      placeholder="Filter tasks…"
       aria-label="Filter tasks"
       spellCheck={false}
       autoComplete="off"
@@ -1395,7 +1395,7 @@ function SidebarComponent({
               {pendingFirstLoad ? null : status === "error" &&
                 sessions.length === 0 ? (
                 <p className="px-3 py-2 text-ui-label text-content/50">
-                  Couldn’t load sessions
+                  Couldn't load chats
                 </p>
               ) : visibleSessions.length === 0 ? (
                 // A narrowed-down result is a transient answer to what the user
@@ -2646,7 +2646,7 @@ function SessionCard({
   const approvalLabel = teamNeeds.has(session.id)
     ? "Needs you"
     : session.orchestration
-      ? "Needs input"
+      ? "Needs you"
       : "Needs approval";
   const statusClass = needsApproval
     ? "text-amber-400"

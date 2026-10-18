@@ -69,6 +69,11 @@ export function workBoardFeed(): WorkBoardFeed {
   return feed;
 }
 
+/** Whether the workspace has published anything yet: else it is loading. */
+export function workBoardFeedLoaded(shown: WorkBoardFeed): boolean {
+  return shown !== EMPTY;
+}
+
 /** The feed, while `live`; a hidden board keeps the one it last drew. */
 export function useWorkBoardFeed(live = true): WorkBoardFeed {
   return useSyncExternalStore(

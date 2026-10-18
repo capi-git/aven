@@ -9,8 +9,8 @@ import {
   useActivity,
   type ActivityEntry,
 } from "../lib/activity";
+import { appName } from "../lib/agentNames";
 import {
-  HARNESS_TITLE,
   sessionDisplayTitle,
   sessionIsWaitingForInput,
   type Session,
@@ -20,7 +20,7 @@ import { TeamMiniFaces } from "./TeamCard";
 import { useTeamRuns } from "../hooks/useTeamRuns";
 import {
   groupRunningChats,
-  teamAgentsText,
+  teamRowDetail,
   teamRowInfo,
 } from "../lib/teamGrouping";
 import { teamsNeedingYou } from "../lib/teamAttention";
@@ -120,7 +120,7 @@ export function activityOutcomeLabel(entry: ActivityEntry): string {
   // A team waiting on you (paused, stalled, a race no agent finished) reads
   // as Home and the sidebar word it; the summary says why.
   if (isRunPausedActivity(entry))
-    return entry.resolvedAt === null ? "Needs you" : "Was waiting on you";
+    return entry.resolvedAt === null ? "Needs you" : "Resolved";
   switch (entry.outcome) {
     case "completed":
       return "Finished";
@@ -219,7 +219,7 @@ export function ActivityPanel({
               className="activity-destination"
               disabled={opening !== null}
               onClick={() => void open(entry.id, () => onOpen(entry), entry)}
-              aria-label={`Open ${entry.title}: ${activityOutcomeLabel(entry)}`}
+              aria-label={`Open “${entry.title || "New task"}”: ${activityOutcomeLabel(entry)}`}
             >
               <span className="activity-provider">
                 <HarnessIcon harness={entry.harness} />
@@ -230,9 +230,11 @@ export function ActivityPanel({
                 </span>
                 <span className="activity-detail">
                   {activityOutcomeLabel(entry)} · {projectName(entry.cwd)} ·{" "}
-                  {HARNESS_TITLE[entry.harness]}
+                  {appName(entry.harness)}
                 </span>
-                <span className="activity-summary">{entry.summary}</span>
+                <span className="activity-summary" title={entry.summary}>
+                  {entry.summary}
+                </span>
                 {entry.detail ? (
                   <span
                     className="activity-summary"
@@ -254,7 +256,7 @@ export function ActivityPanel({
             {entry.readAt === null ? (
               <button
                 className="activity-read"
-                aria-label={`Mark ${entry.title} as read`}
+                aria-label={`Mark “${entry.title || "New task"}” as read`}
                 title="Mark as read"
                 onClick={() => markActivityRead(entry.id)}
               >
@@ -320,7 +322,7 @@ export function ActivityPanel({
                       onClick={() =>
                         void open(origin, () => onOpenSession(origin))
                       }
-                      aria-label={`Open ${row.team.title}`}
+                      aria-label={`Open “${row.team.title}”: ${teamRowDetail(info)}`}
                     >
                       <span className="activity-provider">
                         <TeamMiniFaces members={info.members} active />
@@ -328,7 +330,7 @@ export function ActivityPanel({
                       <span className="activity-copy">
                         <span className="activity-title">{row.team.title}</span>
                         <span className="activity-detail">
-                          {info.status} · {teamAgentsText(info)} ·{" "}
+                          {teamRowDetail(info)} ·{" "}
                           {projectName(row.team.project)}
                         </span>
                       </span>
@@ -348,7 +350,7 @@ export function ActivityPanel({
                     onClick={() =>
                       void open(session.id, () => onOpenSession(session.id))
                     }
-                    aria-label={`Open ${sessionDisplayTitle(session.title, session.harness)}`}
+                    aria-label={`Open “${sessionDisplayTitle(session.title, session.harness)}”`}
                   >
                     <span className="activity-provider">
                       <HarnessIcon harness={session.harness} />

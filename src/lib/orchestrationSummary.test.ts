@@ -87,7 +87,7 @@ describe("orchestration labels", () => {
       orchestrationProgress(
         summary("active", [task("completed"), task("running"), task("failed")]),
       ),
-    ).toBe("1/3 done · 1 failed");
+    ).toBe("1 of 3 done · 1 failed");
   });
 
   it("folds an ended run to one dated line", () => {

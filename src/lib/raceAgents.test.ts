@@ -22,8 +22,8 @@ import {
 import {
   raceAgentNames,
   raceChipLabel,
+  raceFullName,
   raceShortName,
-  raceShortNames,
 } from "./raceNames";
 import { HARNESS_TITLE } from "./session";
 
@@ -244,17 +244,13 @@ it("names lanes unambiguously when one provider races twice", () => {
     model: "g",
     label: "Codex · GPT-5",
   };
-  expect(raceAgentNames([opus, codex])).toEqual(["Claude Code", "Codex"]);
+  expect(raceAgentNames([opus, codex])).toEqual(["Claude", "Codex"]);
   expect(raceAgentNames([opus, sonnet, codex])).toEqual([
-    "Claude Code · Opus 4.6",
-    "Claude Code · Claude Sonnet 5",
-    "Codex",
-  ]);
-  expect(raceShortNames([opus, codex])).toEqual(["Claude", "Codex"]);
-  expect(raceShortNames([opus, sonnet])).toEqual([
     "Claude Opus 4.6",
     "Claude Sonnet 5",
+    "Codex",
   ]);
+  expect(raceFullName(sonnet)).toBe("Claude Code · Sonnet 5");
   expect(
     raceShortName({
       harness: "grok",
@@ -262,7 +258,8 @@ it("names lanes unambiguously when one provider races twice", () => {
       label: "Grok Build · Grok 4.6",
     }),
   ).toBe("Grok 4.6");
-  expect(raceChipLabel([opus, codex])).toBe(
-    "Race · Claude Opus 4.6 · Codex GPT-5",
+  expect(raceChipLabel([opus, codex])).toBe("Race · Claude · Codex");
+  expect(raceChipLabel([opus, sonnet])).toBe(
+    "Race · Claude Opus 4.6 · Claude Sonnet 5",
   );
 });

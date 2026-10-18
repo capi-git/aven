@@ -132,14 +132,14 @@ describe("the proposal card", () => {
       ),
     );
     const [older, newer] = cards();
-    expect(buttonIn(older, "Confirm & start")).toBeUndefined();
+    expect(buttonIn(older, "Confirm and start")).toBeUndefined();
     expect(buttonIn(older, "Discard plan")).toBeUndefined();
     expect(
       older.querySelector('[aria-label="Model for Settings UI"]'),
     ).toBeNull();
     expect(older.textContent).toContain("Replaced by a newer plan");
-    expect(buttonIn(newer, "Confirm & start")).toBeTruthy();
-    expect(newer.textContent).toContain("Waiting for you to confirm");
+    expect(buttonIn(newer, "Confirm and start")).toBeTruthy();
+    expect(newer.textContent).toContain("Needs you · Confirm to start");
   });
 
   it("shows each task's files as chips, naming the whole project", async () => {
@@ -273,7 +273,7 @@ describe("the proposal card", () => {
     expect(host.querySelector("[data-orchestration-plan]")).toBeNull();
     await act(async () => buttonIn(cards()[0], "Show plan")!.click());
     expect(host.querySelector("[data-orchestration-plan]")).not.toBeNull();
-    expect(buttonIn(host, "Confirm & start")).toBeUndefined();
+    expect(buttonIn(host, "Confirm and start")).toBeUndefined();
 
     for (const [status, word] of [
       ["paused", "Paused"],

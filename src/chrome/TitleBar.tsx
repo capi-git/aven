@@ -1649,7 +1649,7 @@ function TitleBarComponent({
       tabRootItems.push({
         kind: "item",
         id: "race-overview",
-        label: "Open race overview",
+        label: "Compare",
       });
     tabRootItems.push(
       { kind: "sep" },

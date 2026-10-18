@@ -693,7 +693,7 @@ export const SessionPane = memo(function SessionPane({
             </span>
           }
           focused={focused}
-          closeTitle={`Close Pane (${MOD}W)`}
+          closeTitle={`Close pane (${MOD}W)`}
           onClose={closeSession}
           onDragStart={onPaneDragStart}
         />

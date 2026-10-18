@@ -121,7 +121,7 @@ describe("relay rules", () => {
     expect(discussion.ended).toEqual({ kind: "completed" });
     expect(discussion.notes).toEqual(["a", "b"]);
     expect(discussionEndNote(discussion)).toBe(
-      "Discussion ended after 2 rounds.",
+      "Discussion finished after 2 rounds.",
     );
   });
 
@@ -192,7 +192,7 @@ describe("relay rules", () => {
     );
     expect(cancelled.status).toBe("ended");
     expect(discussionEndNote(cancelled)).toBe(
-      "Discussion ended: “Caching plan” was stopped.",
+      "Discussion stopped because “Caching plan” was stopped.",
     );
   });
 
@@ -213,7 +213,7 @@ describe("relay rules", () => {
     let later = reply(reply(reply(fresh(), "1"), "2"), "3");
     later = { ...later, status: "ended", ended: { kind: "stopped" } };
     expect(discussionEndNote(later)).toBe(
-      "Discussion stopped after 1 round of 3.",
+      "Discussion stopped after 1 of 3 rounds.",
     );
   });
 });
@@ -480,7 +480,7 @@ describe("planning the broker's work", () => {
         kind: "note",
         id: "d1",
         side: "b",
-        text: "Discussion ended after 1 round.",
+        text: "Discussion finished after 1 round.",
       },
     ]);
   });
@@ -875,7 +875,7 @@ describe("keeping discussions", () => {
     expect(store.get("live")).toMatchObject({
       status: "paused",
       reason:
-        "“a” was archived. Unarchive it to continue, or end the discussion.",
+        "“a” was archived. Unarchive it to continue, or stop the discussion.",
     });
     // Archiving the other chat does the same.
     store.start({

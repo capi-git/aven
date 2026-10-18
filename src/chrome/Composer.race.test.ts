@@ -145,7 +145,11 @@ it("starts from the + menu and races the message instead of sending it", async (
   expect(raceEntry()?.getAttribute("aria-pressed")).toBe("false");
   await act(async () => raceEntry()!.click());
   expect(plusMenu()).toBeNull();
-  expect(chipLabel()).toBe("Race · Codex gpt-5 · Claude Opus");
+  expect(chipLabel()).toBe("Race · Codex · Claude");
+  // Its tooltip names each agent in full.
+  expect(chip()?.querySelector("button")?.title).toBe(
+    "Codex · gpt-5, Claude Code · Opus",
+  );
   // Two agents can race, so the dropdown stays closed until asked.
   expect(menu()).toBeNull();
   expect(sendButton().getAttribute("aria-label")).toBe("Race 2 agents");
@@ -174,7 +178,7 @@ it("adds a third agent from the chip's dropdown and remembers it", async () => {
   expect(laneLabels()).toEqual(["Codex · gpt-5", "Claude Code · Opus"]);
   const leaveOut = () =>
     menu()!.querySelector<HTMLButtonElement>(
-      '[aria-label="Stop racing Claude Code · Opus"]',
+      '[aria-label="Leave Claude Opus out of the race"]',
     )!;
   // Two agents is the minimum, so the second one can't be left out yet.
   expect(leaveOut().disabled).toBe(true);
@@ -184,9 +188,7 @@ it("adds a third agent from the chip's dropdown and remembers it", async () => {
     "Claude Code · Opus",
     "Cursor · Composer",
   ]);
-  expect(chipLabel()).toBe(
-    "Race · Codex gpt-5 · Claude Opus · Cursor Composer",
-  );
+  expect(chipLabel()).toBe("Race · Codex · Claude · Cursor");
   expect(sendButton().getAttribute("aria-label")).toBe("Race 3 agents");
   expect(loadRaceLaneChoice()).toEqual([
     { harness: "claude", model: "opus" },
@@ -376,16 +378,14 @@ it("races each agent on the model picked for it", async () => {
   await turnRaceOn();
   await openChip();
   const modelButton = () =>
-    menu()!.querySelector<HTMLButtonElement>(
-      `[aria-label^="${HARNESS_TITLE.claude} model:"]`,
-    )!;
+    menu()!.querySelector<HTMLButtonElement>('[aria-label^="Claude model:"]')!;
   await act(async () => modelButton().click());
   const option = [
     ...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ].find((item) => item.textContent === pick.name)!;
   await act(async () => option.click());
   expect(modelButton().getAttribute("aria-label")).toBe(
-    `${HARNESS_TITLE.claude} model: ${pick.name}`,
+    `Claude model: ${pick.name}`,
   );
   await closeChip();
   await send();
@@ -524,8 +524,9 @@ it("forgets this chat's race-only model once the race is sent", async () => {
     field().value = "Again";
   });
   await turnRaceOn();
-  expect(chipLabel()).toContain("GPT-5");
-  expect(chipLabel()).not.toContain("Mini");
+  const title = chip()?.querySelector("button")?.title ?? "";
+  expect(title).toContain("GPT-5");
+  expect(title).not.toContain("Mini");
 });
 
 it("drops a refusal once the lanes change", async () => {

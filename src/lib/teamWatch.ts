@@ -20,8 +20,6 @@ import {
   type DiscussionSide,
 } from "./discussions";
 import type { DiscussionThreadItem } from "./discussionThread";
-import { providerShortName } from "./discussionVoices";
-import { raceShortNames } from "./raceNames";
 import type { ReviewerChoice } from "./raceReviewers";
 import {
   teamAnchor,
@@ -31,6 +29,7 @@ import {
   type TeamMember,
   type TeamRun,
 } from "./teamRuns";
+import { listText } from "./words";
 
 export const TEAM_PANEL_PREFIX = "aven.teamPanel.";
 /** Teams whose seen counts are remembered, newest first. */
@@ -362,29 +361,40 @@ export function teamTone(team: Pick<TeamRun, "status">): TeamTone {
   }
 }
 
-const KIND_NAME: Record<TeamKind, string> = {
+/** "Discussion", "Race", "Run": a team's kind as a heading. */
+export const TEAM_KIND_NAME: Record<TeamKind, string> = {
   discuss: "Discussion",
   race: "Race",
-  orchestrate: "Orchestration",
+  orchestrate: "Run",
 };
+
+/** "discussion", "race", "run": a team named in a sentence. */
+export const TEAM_NOUN: Record<TeamKind, string> = {
+  discuss: "discussion",
+  race: "race",
+  orchestrate: "run",
+};
+
+/** "This race is no longer available.": a team that went meanwhile. */
+export function teamGoneText(kind: TeamKind | null): string {
+  return `This ${kind ? TEAM_NOUN[kind] : "panel"} is no longer available.`;
+}
 
 /** "Race · “Fix the redirect loop”": the panel's title. */
 export function teamWatchTitle(team: Pick<TeamRun, "kind" | "title">): string {
   const line = team.title.trim();
   const short = line.length > 60 ? `${line.slice(0, 59).trimEnd()}…` : line;
-  return short ? `${KIND_NAME[team.kind]} · “${short}”` : KIND_NAME[team.kind];
+  return short
+    ? `${TEAM_KIND_NAME[team.kind]} · “${short}”`
+    : TEAM_KIND_NAME[team.kind];
 }
 
 /**
  * "Claude, Codex and Grok", or "Claude Opus 4.6 and Claude Sonnet 5" when
- * two members share a provider.
+ * two members share an app: each member as the team names it.
  */
-export function memberNames(
-  members: readonly Pick<TeamMember, "harness" | "label" | "model">[],
-) {
-  const names = raceShortNames(members);
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+export function memberNames(members: readonly Pick<TeamMember, "label">[]) {
+  return listText(members.map((member) => member.label));
 }
 
 /** The member the team waits on now: the one replying or working. */
@@ -396,8 +406,8 @@ export function activeMembers(team: Pick<TeamRun, "members">): string[] {
 
 /**
  * A pill's two parts: where the team stands ("Round 2 of 4", "1 of 2
- * done", "2 working · 1 waiting") and what is happening ("Codex is
- * replying…", "Needs you", "Ready to compare", "Done").
+ * done", "2 working · 1 queued") and what is happening ("Codex is
+ * replying…", "Needs you", "Ready to compare", "Finished").
  */
 export function teamPillText(team: TeamRun): {
   progress: string;
@@ -410,12 +420,12 @@ export function teamPillText(team: TeamRun): {
       tone === "needs-you"
         ? "Needs you"
         : tone === "done"
-          ? "Done"
+          ? "Finished"
           : tone === "stopped"
             ? "Stopped"
             : working
-              ? `${providerShortName(working.harness)} is replying…`
-              : "Waiting";
+              ? `${working.label} is replying…`
+              : "Discussing";
     return { progress: team.progress, status };
   }
   if (team.kind === "race") {
@@ -443,7 +453,7 @@ export function teamPillText(team: TeamRun): {
           ? "Stopped"
           : lead?.state === "working"
             ? "Lead reviewing"
-            : "Running";
+            : "Orchestrating";
   return {
     progress:
       tone === "done" || tone === "stopped"

@@ -79,7 +79,8 @@ import type {
   RuntimeMode,
   ComposerTurnOptions,
 } from "../lib/session";
-import { HARNESS_TITLE, harnessSupportsAttachments } from "../lib/session";
+import { appName } from "../lib/agentNames";
+import { harnessSupportsAttachments } from "../lib/session";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
@@ -462,7 +463,7 @@ function MessageQueue({
                       disabled={!onSteer}
                       title={
                         !onSteer
-                          ? "This provider will send the queued message after its current turn"
+                          ? "This agent will send the queued message after its current turn"
                           : undefined
                       }
                       className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:opacity-40"
@@ -1391,7 +1392,7 @@ function ComposerComponent({
         (lane) => !harnessSupportsAttachments(lane.harness),
       );
       if (without)
-        return `${HARNESS_TITLE[without.harness]} can't take attachments. Remove them, or leave it out of the race.`;
+        return `${appName(without.harness)} can't take attachments. Remove them, or leave it out of the race.`;
     }
     return null;
   };
@@ -2035,7 +2036,7 @@ function ComposerComponent({
                       <span className="block text-ui-caption leading-4 text-content/45">
                         {attachmentsSupported
                           ? "Attach files or images to this message"
-                          : `${HARNESS_TITLE[harness]} does not support attachments`}
+                          : `${appName(harness)} can't take attachments`}
                       </span>
                     </span>
                   </button>
@@ -2150,8 +2151,8 @@ function ComposerComponent({
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Race</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Give this message to several agents, each in its own
-                          copy
+                          Give this message to several agents and keep the best
+                          result
                         </span>
                       </span>
                       {raceActive ? (
@@ -2201,6 +2202,7 @@ function ComposerComponent({
                 lanes={raceLanes}
                 onFirstModelChange={setRaceModel}
                 reason={raceError ?? raceReason(draft)}
+                failed={!!raceError}
                 open={raceMenuOpen}
                 onOpenChange={(open) => {
                   setRaceMenuOpen(open);

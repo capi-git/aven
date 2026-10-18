@@ -200,7 +200,8 @@ async function show(
   );
 }
 const bar = () => host.querySelector<HTMLElement>("[data-team-bar]");
-const text = () => bar()?.querySelector('[role="status"]')?.textContent;
+const text = () =>
+  bar()?.querySelector('[data-team-bar-text], [role="status"]')?.textContent;
 const state = () =>
   bar()?.querySelector("[data-state]")?.getAttribute("data-state");
 const labels = () =>
@@ -259,11 +260,9 @@ describe("while discussing", () => {
     });
     await show("a", { onOpenDiscussion: vi.fn() });
     expect(bar()?.dataset.discussionBar).toBe("d1");
-    expect(text()).toBe(
-      "Discussing · round 1 of 3 · with Codex · GPT-5 in “Review”",
-    );
-    expect(labels()).toEqual(["Open discussion", "End discussion"]);
-    await press("End discussion");
+    expect(text()).toBe("Discussing · Round 1 of 3 · with Codex in “Review”");
+    expect(labels()).toEqual(["Watch", "Stop discussion"]);
+    await press("Stop discussion");
     expect(discussionStore().get("d1")?.status).toBe("ended");
     expect(bar()).toBeNull();
   });
@@ -283,9 +282,7 @@ describe("while discussing", () => {
       "Skeptic: Push back on weak points and look for what could go wrong; agree only when convinced.",
     );
     // The text stays as it was.
-    expect(text()).toBe(
-      "Discussing · round 1 of 3 · with Codex · GPT-5 in “Review”",
-    );
+    expect(text()).toBe("Discussing · Round 1 of 3 · with Codex in “Review”");
   });
 
   it("shows the pause reason with Resume in either chat", async () => {
@@ -295,11 +292,11 @@ describe("while discussing", () => {
     await show("b");
     expect(state()).toBe("paused");
     expect(text()).toBe(
-      "Discussing · Paused · Its window reloaded or closed. Resume to continue.",
+      "Discussing · Paused · The window it ran in reloaded or closed. Resume to continue.",
     );
     await press("Resume");
     expect(discussions.get("d1")?.status).toBe("active");
-    expect(text()).toContain("with Claude · Opus in “Caching”");
+    expect(text()).toContain("with Claude in “Caching”");
   });
 
   it("goes to the chat it waits for instead of resuming", async () => {
@@ -320,11 +317,11 @@ describe("while discussing", () => {
     expect(text()).toBe(
       "Discussing · Paused · “Review” is busy with your own turn.",
     );
-    expect(labels()).toEqual(["Go to Codex", "End discussion"]);
+    expect(labels()).toEqual(["Go to Codex", "Stop discussion"]);
     await press("Go to Codex");
     expect(open).toHaveBeenCalledWith("b");
     await show("b");
-    expect(labels()).toEqual(["Resume", "End discussion"]);
+    expect(labels()).toEqual(["Resume", "Stop discussion"]);
   });
 
   it("lets a chat moved here stop or resume another window's discussion", async () => {
@@ -359,10 +356,10 @@ describe("while racing", () => {
     expect(compare).toHaveBeenCalledWith("r1");
   });
 
-  it("gives the chat it started from Stop all, until every lane is done", async () => {
+  it("gives the chat it started from Stop race, until every lane is done", async () => {
     await show("chat");
-    expect(labels()).toEqual(["Compare", "Stop all"]);
-    await press("Stop all");
+    expect(labels()).toEqual(["Compare", "Stop race"]);
+    await press("Stop race");
     expect(stopLanes).toHaveBeenCalledWith(["l1"]);
     await act(async () => {
       completed("l1");
@@ -393,7 +390,10 @@ describe("while racing", () => {
       },
     ]);
     await show("chat");
-    expect(labels()).toContain("Go to Claude Code · Sonnet 5");
+    expect(labels()).toContain("Go to Claude Sonnet 5");
+    expect(text()).toBe(
+      "Racing · Needs you · Claude Sonnet 5 asked: Which file?",
+    );
   });
 
   it("offers Watch where the window has a team panel", async () => {
@@ -405,7 +405,7 @@ describe("while racing", () => {
       watch,
     });
     await show("chat");
-    expect(labels()).toEqual(["Watch", "Compare", "Stop all"]);
+    expect(labels()).toEqual(["Watch", "Compare", "Stop race"]);
     // One line while nothing waits on you.
     expect(bar()?.querySelector("[data-state]")?.className).toContain("h-7");
     expect(bar()?.querySelector("[data-team-bar-reason]")).toBeNull();
@@ -439,7 +439,7 @@ describe("while orchestrating", () => {
     ];
     await show("lead");
     expect(bar()?.dataset.orchestrationBar).toBe("lead");
-    expect(text()).toBe("Orchestrating · 2 working · 1 waiting");
+    expect(text()).toBe("Orchestrating · 2 working · 1 queued");
     expect(labels()).toEqual(["Open agents", "Stop run"]);
     await press("Stop run");
     expect(stop).toHaveBeenCalledWith("lead");
@@ -475,7 +475,9 @@ describe("while orchestrating", () => {
     );
     await show("lead");
     await press("Resume");
-    expect(text()).toBe("Claude Code isn't signed in.");
+    expect(text()).toBe(
+      "Couldn't resume the run. Try again from the lead's chat.",
+    );
     // Resumed from the team panel instead.
     store.runs = [run({ tasks: [task("a", { status: "running" })] })];
     await act(async () => {
@@ -494,12 +496,14 @@ describe("while orchestrating", () => {
       }),
     ];
     await show("lead", { idle: false });
-    expect(text()).toBe("Orchestrating · 1 waiting");
+    expect(text()).toBe("Orchestrating · 1 queued");
     await show("lead");
     expect(state()).toBe("running");
     await act(async () => vi.advanceTimersByTime(STALLED_AFTER_MS));
     expect(state()).toBe("stalled");
-    expect(text()).toBe("Orchestrating · The lead stopped without finishing");
+    expect(text()).toBe(
+      "Orchestrating · Needs you · The lead stopped without finishing.",
+    );
     expect(labels()).toEqual([
       "Finish run",
       "Ask the lead to wrap up",
@@ -515,7 +519,7 @@ describe("while orchestrating", () => {
     store.runs = [run({ tasks: [task("a", { status: "running" })] })];
     await show("other");
     expect(text()).toBe(
-      "app is busy with an orchestration in “Build settings”. Finish or stop it there.",
+      "app is busy with a run in “Build settings”. Finish or stop it there.",
     );
     await press("Go to lead");
     expect(open).toHaveBeenCalledWith("lead");
@@ -536,11 +540,9 @@ describe("while orchestrating", () => {
   });
 
   it("words what the agents are doing", () => {
-    expect(runningSummary(run(), false)).toBe(
-      "Orchestrating · the lead is reviewing",
-    );
+    expect(runningSummary(run(), false)).toBe("Orchestrating · Lead reviewing");
     expect(runningSummary(run(), true)).toBe(
-      "Orchestrating · waiting on the lead",
+      "Orchestrating · Waiting on the lead",
     );
     expect(
       runningSummary(
@@ -570,9 +572,9 @@ describe("one Stop for one thing", () => {
         (label) => label?.startsWith("Stop") || label?.startsWith("End"),
       );
     };
-    expect(await stops("a")).toEqual(["End discussion"]);
+    expect(await stops("a")).toEqual(["Stop discussion"]);
     expect(await stops("lead")).toEqual(["Stop run"]);
-    expect(await stops("chat")).toEqual(["Stop all"]);
+    expect(await stops("chat")).toEqual(["Stop race"]);
     expect(await stops("l0")).toEqual([]);
     const { teamRunsFrom } = await import("../lib/teamRuns");
     const teams = teamRunsFrom(

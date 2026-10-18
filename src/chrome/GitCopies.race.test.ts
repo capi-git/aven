@@ -175,7 +175,7 @@ const button = (label: string) =>
 it("shows a running race as one row with its lanes inside", async () => {
   await render();
   expect(lines()).toEqual([
-    ["Race · Try three designs", "3 agents · 1 done"],
+    ["Race · Try three designs", "1 of 3 done"],
     ["Other", "1 to merge"],
   ]);
   expect(container.querySelector(".git-copies-count")?.textContent).toBe("· 2");
@@ -188,9 +188,9 @@ it("shows a running race as one row with its lanes inside", async () => {
     (lane) => lane.textContent,
   );
   expect(lanes).toEqual([
-    "claude · m — Done2 files changed",
-    "codex · m — WorkingUp to date",
-    "grok · m — WorkingUp to date",
+    "Claude · Done2 files changed",
+    "Codex · WorkingUp to date",
+    "Grok · WorkingUp to date",
   ]);
   // No per-lane Remove: removing one lane would discard the whole race.
   expect(button("Remove")).toBeUndefined();
@@ -209,7 +209,7 @@ it("asks before discarding the race and names what goes", async () => {
   const ask = container.querySelector('[role="group"]')!;
   expect(ask.getAttribute("aria-label")).toBe("Discard this race?");
   expect(ask.textContent).toContain(
-    "This stops 2 agents still working and deletes all 3 copies and the changes in them: Claude Code (2 files). Your project is not changed.",
+    "This stops 2 agents still working and deletes Claude's work (2 files). Your project doesn't change.",
   );
   expect(finishRace).not.toHaveBeenCalled();
   await act(async () => button("Discard race").click());
@@ -236,7 +236,7 @@ it("counts an agent's committed work in what discarding deletes", async () => {
   );
   await act(async () => button("Discard race").click());
   expect(container.querySelector('[role="group"]')!.textContent).toContain(
-    "deletes all 3 copies and the changes in them: Claude Code (2 files) and Codex (3 files).",
+    "deletes Claude's work (2 files) and Codex's (3 files).",
   );
 });
 

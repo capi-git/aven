@@ -249,7 +249,7 @@ describe("a race's card in the chat it was sent from", () => {
       }),
     );
     expect(text(".team-card-status")).toBe(
-      "Suggested: Codex · GPT-5 — It also covers logout.",
+      "Aven suggests Codex: It also covers logout.",
     );
     expect(labels()).toEqual(["Compare"]);
   });
@@ -260,7 +260,7 @@ describe("a race's card in the chat it was sent from", () => {
     saveRace({ ...record, suggestion: { status: "failed", at: 1 } });
     await render();
     expect(text(".team-card-status")).toBe(
-      "Couldn't suggest a winner. Compare their changes to choose.",
+      "Couldn't suggest a winner. Compare the agents' changes to choose.",
     );
     expect(labels()).toEqual(["Compare", "Suggest a winner", "Ask a reviewer"]);
   });
@@ -280,7 +280,7 @@ describe("a race's card in the chat it was sent from", () => {
       card()?.querySelector('[data-race-card-lane="1"] .team-card-member-state')
         ?.textContent,
     ).toBe("Kept");
-    expect(labels()).toEqual(["Review changes", "Continue with Codex · GPT-5"]);
+    expect(labels()).toEqual(["Review changes", "Continue with Codex"]);
     await press("Review changes");
     expect(review).toHaveBeenCalledWith("/work/site");
     await press("Continue with");
@@ -327,7 +327,7 @@ describe("a race's card in the chat it was sent from", () => {
       "chat",
       "busy",
     ]);
-    expect(rows[0].textContent).toContain("This chat");
+    expect(rows[0].textContent).toContain("The chat you raced from");
     expect(rows[1].disabled).toBe(true);
     expect(rows[1].textContent).toContain("Working");
     await act(async () => rows[0].click());
@@ -357,7 +357,7 @@ describe("a race's card in the chat it was sent from", () => {
       row.querySelector("[data-discussion-avatar]")?.getAttribute("data-role"),
     ).toBe("reviewer");
     expect(text(".team-card-status")).toMatch(
-      /is reviewing their results as a Reviewer…$/,
+      /is comparing the agents' work…$/,
     );
     await act(async () =>
       updateRace("r1", {
@@ -373,13 +373,13 @@ describe("a race's card in the chat it was sent from", () => {
       }),
     );
     expect(text(".team-card-status")).toMatch(
-      /, as Reviewer, suggests Codex · GPT-5 — It adds a test\.$/,
+      /\(Reviewer\) suggests Codex: It adds a test\.$/,
     );
     expect(
       card()!.querySelector(
         '[data-race-reviewer-row="chat"] .team-card-member-detail',
       )?.textContent,
-    ).toBe("Suggests Codex · GPT-5");
+    ).toBe("Suggests Codex");
   });
 
   it("names two models of one provider apart", async () => {
@@ -402,7 +402,7 @@ describe("a race's card in the chat it was sent from", () => {
       [...card()!.querySelectorAll(".team-card-member-name")].map(
         (name) => name.textContent,
       ),
-    ).toEqual(["Claude Code · Opus 4.6", "Claude Code · Claude Sonnet 5"]);
+    ).toEqual(["Claude Opus 4.6", "Claude Sonnet 5"]);
   });
 
   it("reads discarded and forgotten races plainly", async () => {
@@ -410,12 +410,14 @@ describe("a race's card in the chat it was sent from", () => {
     await render();
     expect(card()?.dataset.state).toBe("stopped");
     expect(text(".team-card-title")).toBe("Race discarded");
-    expect(text(".team-card-status")).toBe("Your project is unchanged.");
+    expect(text(".team-card-status")).toBe("Your project didn't change.");
     expect(labels()).toEqual([]);
     await act(async () => localStorage.removeItem("aven.races.v1"));
     window.dispatchEvent(new StorageEvent("storage", { key: "aven.races.v1" }));
     await render();
-    expect(text(".team-card-status")).toBe("This race is no longer kept.");
+    expect(text(".team-card-status")).toBe(
+      "This race is no longer available. Aven keeps the 20 most recent finished races.",
+    );
   });
 });
 
@@ -425,10 +427,10 @@ describe("a race no agent works in", () => {
       "Every agent is done. Compare their changes and keep one.",
     );
     expect(readyText([{ state: "done" }, { state: "failed" }])).toBe(
-      "No agent is working now. Compare their changes and keep one, or retry the others.",
+      "No agent is working now. Compare their changes to keep one, or open Compare to retry the others.",
     );
     expect(readyText([{ state: "stopped" }, { state: "stopped" }])).toBe(
-      "Every agent was stopped. Retry one, compare what they wrote, or discard the race.",
+      "Every agent was stopped. Open Compare to retry one, keep what they wrote, or discard the race.",
     );
   });
 });

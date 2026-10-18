@@ -386,16 +386,16 @@ describe("a discussion's card in the chat that started it", () => {
     expect(container.textContent).toContain("Thirty seconds it is.");
   });
 
-  it("becomes Discussed for N rounds with Open, followed by where they landed", async () => {
+  it("becomes Discussion finished with Watch, followed by where they landed", async () => {
     startDiscussion();
     discussionStore().settle("d1", 3, { status: "completed", text: LAST });
     await render([...midway(), ...ending]);
     expect(card()?.dataset.state).toBe("done");
     expect(text(card()!.querySelector(".team-card-title"))).toBe(
-      "Discussed for 2 rounds",
+      "Discussion finished · 2 rounds",
     );
     expect(one("[data-discussion-card-stop]")).toBeNull();
-    expect(text(one("[data-discussion-card-watch]"))).toBe("Open");
+    expect(text(one("[data-discussion-card-watch]"))).toBe("Watch");
     await press("[data-discussion-card-watch]");
     expect(host.open).toHaveBeenCalledWith("d1");
     const wrapUp = one("[data-discussion-wrapup-note='d1']");

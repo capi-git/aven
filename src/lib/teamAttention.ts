@@ -157,7 +157,7 @@ export function teamAttention(input: {
       need: {
         sessionId: origin,
         kind: "error",
-        text: "The lead stopped without finishing",
+        text: "The lead stopped without finishing.",
         since: input.stalledSince,
       },
     };
@@ -179,7 +179,7 @@ export function teamAttention(input: {
             need: {
               sessionId: origin,
               kind: "error",
-              text: "No agent finished. Retry one or discard the race.",
+              text: "No agent finished. Open Compare to retry one or discard the race.",
               since,
             },
           };

@@ -40,10 +40,10 @@ import {
   waitsForNextTurn,
   type DiscussionThreadItem,
 } from "../lib/discussionThread";
+import { agentNameIn } from "../lib/agentNames";
 import {
+  DISCUSSION_PERSONAS,
   discussionVoices,
-  providerShortName,
-  voiceName,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
 import {
@@ -52,6 +52,7 @@ import {
 } from "../lib/mascotReactions";
 import { sessionWorkCwd, type Session } from "../lib/session";
 import type { TeamWatchAct, TeamWatchAction } from "../lib/teamWatch";
+import { plural } from "../lib/words";
 import {
   DiscussionMessage,
   DiscussionRound,
@@ -67,9 +68,6 @@ import "./DiscussionPanel.css";
 const STICK_PX = 48;
 /** The message box grows to this height, then scrolls. */
 const JUMP_IN_MAX_PX = 120;
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
 
 /** The topic's first line, for the panel's header. */
 function topicLine(topic: string): string {
@@ -77,7 +75,7 @@ function topicLine(topic: string): string {
   return line.length > 60 ? `${line.slice(0, 59).trimEnd()}…` : line;
 }
 
-/** "Codex is replying…", "Needs you", "Done": what a discussion is doing. */
+/** "Codex is replying…", "Needs you", "Finished": what a discussion is doing. */
 export function discussionStatus(
   discussion: Pick<Discussion, "status" | "settled" | "ended" | "a" | "b">,
 ): { state: "replying" | "needs-you" | "done" | "stopped"; text: string } {
@@ -85,14 +83,11 @@ export function discussionStatus(
     return { state: "needs-you", text: "Needs you" };
   if (discussion.status === "ended")
     return discussion.ended?.kind === "completed"
-      ? { state: "done", text: "Done" }
+      ? { state: "done", text: "Finished" }
       : { state: "stopped", text: "Stopped" };
   const party = discussion.settled % 2 === 0 ? discussion.a : discussion.b;
-  // Two chats of one provider are told apart by their model.
-  const name =
-    discussion.a.harness === discussion.b.harness
-      ? voiceName(party)
-      : providerShortName(party.harness);
+  // Two chats of one app are told apart by their model.
+  const name = agentNameIn(party, [discussion.a, discussion.b]);
   return { state: "replying", text: `${name} is replying…` };
 }
 
@@ -178,7 +173,7 @@ export function DiscussionPanelContent({
     return (
       <div className="discussion-view" data-discussion-view={discussionId}>
         <div className="discussion-float-head">
-          <TeamPanelBar title="Discussion" controls={controls} />
+          <TeamPanelBar title="Discussion" kind="discuss" controls={controls} />
         </div>
         <p className="px-6 py-10 text-center text-ui-label leading-5 text-content/45">
           This discussion is no longer available.
@@ -405,13 +400,13 @@ export function DiscussionThreadPanel({
         <TeamPanelBar
           title={`Discussion · “${topicLine(discussion.topic)}”`}
           fullTitle={discussion.topic}
+          kind="discuss"
           controls={controls}
-          closeTitle="Close (the discussion goes on)"
         />
         <div className="discussion-faceoff" data-discussion-cast>
           <Side
             voice={voices.a}
-            role={speaking === "a" ? "Replying…" : "Opened the topic"}
+            role={speaking === "a" ? "Replying…" : DISCUSSION_PERSONAS.a}
             speaking={speaking === "a"}
             onShow={can.openChat ? () => show("a") : undefined}
           />
@@ -422,7 +417,11 @@ export function DiscussionThreadPanel({
           >
             <span>
               {ended
-                ? `${status.text} · ${plural(completedRounds(discussion), "round")}`
+                ? discussion.ended?.kind === "completed"
+                  ? `Finished · ${plural(discussion.rounds, "round")}`
+                  : completedRounds(discussion)
+                    ? `Stopped after ${completedRounds(discussion)} of ${plural(discussion.rounds, "round")}`
+                    : "Stopped"
                 : paused
                   ? `Round ${round} of ${discussion.rounds} · Needs you`
                   : `Round ${round} of ${discussion.rounds}`}
@@ -454,7 +453,7 @@ export function DiscussionThreadPanel({
           </div>
           <Side
             voice={voices.b}
-            role={speaking === "b" ? "Replying…" : "Responding"}
+            role={speaking === "b" ? "Replying…" : DISCUSSION_PERSONAS.b}
             speaking={speaking === "b"}
             onShow={can.openChat ? () => show("b") : undefined}
           />
@@ -474,12 +473,12 @@ export function DiscussionThreadPanel({
             <button
               type="button"
               className="discussion-action"
-              title="End the discussion; a reply in progress finishes but is not passed on"
-              aria-label="End discussion"
+              data-team-stop="discussion"
+              title="Stop the discussion. A reply being written finishes, but the other chat won't get it."
               onClick={() => void act({ kind: "stop" })}
             >
               <Square className="size-2.5" />
-              End discussion
+              Stop discussion
             </button>
           </div>
         ) : null}
@@ -497,6 +496,13 @@ export function DiscussionThreadPanel({
                 type="button"
                 data-discussion-rail-round={entry.round}
                 title={`Round ${entry.round}`}
+                aria-label={
+                  entry.stance === "agree"
+                    ? `Round ${entry.round}, agrees`
+                    : entry.stance === "pushback"
+                      ? `Round ${entry.round}, pushes back`
+                      : `Round ${entry.round}`
+                }
                 onClick={() => {
                   if (index < folded) setShowAll(true);
                   setJumpTo(entry.round);
@@ -603,14 +609,14 @@ function Side({
       type="button"
       {...props}
       data-discussion-party={voice.side}
-      title={`Open “${voice.title}”`}
+      title={`Open “${voice.title}” · ${voice.fullName}`}
       aria-label={`Open “${voice.title}”, ${voice.name}`}
       onClick={onShow}
     >
       {content}
     </button>
   ) : (
-    <div {...props} title={`${voice.name} in “${voice.title}”`}>
+    <div {...props} title={`${voice.fullName} in “${voice.title}”`}>
       {content}
     </div>
   );
@@ -622,7 +628,7 @@ function userNote(
   turn: number,
   state: "sent" | "queued" | "unsent",
 ): string | undefined {
-  if (state === "unsent") return "Not passed on: the discussion ended first";
+  if (state === "unsent") return "Not sent: the discussion had already stopped";
   if (state !== "queued") return undefined;
   if (turn > discussion.settled) return "Goes with the next reply";
   return discussion.status === "paused" ? "Sends when it resumes" : undefined;

@@ -1,4 +1,7 @@
 import { ArrowDownLeft, ArrowUpRight, Minus, X } from "../chrome/icons";
+import { MOD } from "../lib/platform";
+import type { TeamKind } from "../lib/teamRuns";
+import { TEAM_NOUN } from "../lib/teamWatch";
 
 /**
  * What the panel's header offers where it is shown: shrink to a pill and
@@ -22,14 +25,18 @@ export type TeamPanelControls = {
 export function TeamPanelBar({
   title,
   fullTitle,
+  kind,
   controls,
-  closeTitle = "Close (the team goes on)",
 }: {
   title: string;
   fullTitle?: string;
+  /** What it shows, to say what keeps going once it is closed. */
+  kind?: TeamKind | null;
   controls?: TeamPanelControls;
-  closeTitle?: string;
 }) {
+  const closeTitle = kind
+    ? `Close (${MOD}W). The ${TEAM_NOUN[kind]} keeps going.`
+    : `Close (${MOD}W)`;
   const drag = controls?.windowDrag ? { "data-tauri-drag-region": "" } : {};
   return (
     <div className="discussion-float-bar" data-discussion-drag {...drag}>
@@ -57,8 +64,8 @@ export function TeamPanelBar({
         <button
           type="button"
           className="discussion-float-control"
-          aria-label="Open in its own window"
-          title="Open in its own window, to move anywhere"
+          aria-label="Open in a separate window"
+          title="Open in a separate window you can move anywhere"
           data-team-pop-out
           onClick={controls.onPopOut}
         >
@@ -69,8 +76,8 @@ export function TeamPanelBar({
         <button
           type="button"
           className="discussion-float-control"
-          aria-label="Back to its window"
-          title="Back to the window it runs in"
+          aria-label="Put back in its Aven window"
+          title="Put back in its Aven window"
           data-team-pop-in
           onClick={controls.onPopIn}
         >
