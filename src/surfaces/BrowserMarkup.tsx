@@ -491,7 +491,7 @@ export function BrowserMarkup({
       ref={root}
       className="browser-markup"
       role="group"
-      aria-label="Mark up page"
+      aria-label="Page being marked up"
       tabIndex={-1}
       data-leaving={leaving || undefined}
       onKeyDown={onKeyDown}
@@ -606,7 +606,11 @@ export function BrowserMarkup({
                   type="button"
                   className="browser-markup-tool aven-press"
                   aria-label={label}
-                  title={`${label} (${key})`}
+                  title={
+                    id === "select"
+                      ? `${label} (${key}) · drag to move, Delete to remove`
+                      : `${label} (${key})`
+                  }
                   aria-pressed={tool === id}
                   onClick={() => chooseTool(id)}
                 >
