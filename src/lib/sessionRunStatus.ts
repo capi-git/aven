@@ -7,6 +7,7 @@ import {
   isSearchTool,
 } from "./harness/preview";
 import { sessionIsWaitingForInput, type Block, type Session } from "./session";
+import { sessionDoing } from "./sessionDoing";
 import { isBlockingQuestion } from "./userQuestion";
 import {
   activeSessionAgents,
@@ -79,27 +80,44 @@ function pendingTool(block: Block): boolean {
   );
 }
 
-function workingDetail(blocks: Block[]): string {
+/** A pending tool with no name of its own, by what kind of tool it is. */
+function toolPhase(block: Block): string {
+  const { kind, title, preview } = block.tool ?? {};
+  const name = title || block.text;
+  if (isEditTool(kind, name, preview)) return "Editing file";
+  if (isReadTool(kind, name, preview)) return "Reading file";
+  if (isSearchTool(kind, name, preview)) return "Searching";
+  if (isExecuteTool(kind, name) || preview?.kind === "shell")
+    return "Running command";
+  return "Using a tool";
+}
+
+/**
+ * What the current turn (`blocks`, from its first message) is doing, in the
+ * words Home and the team panel use (`sessionDoing`): "Edit app.js", "npm
+ * test", "Writing a reply". Subagents and a plan being written say so; a
+ * tool with no name says what kind it is; nothing yet says nothing.
+ */
+function workingDetail(session: Session, blocks: Block[]): string | undefined {
   for (let index = blocks.length - 1; index >= 0; index--) {
     const block = blocks[index];
-    if (block.role === "handoff" && block.handoff?.status === "preparing")
-      return "Preparing handoff";
-    if (block.role === "assistant" && block.streaming)
-      return "Writing response";
-    if (block.role === "reasoning" && block.streaming) return "Thinking";
     if (block.role === "plan" && block.streaming) return "Planning";
-    if (!pendingTool(block)) continue;
-    const { kind, title, preview } = block.tool ?? {};
-    const name = title || block.text;
-    if (isAgentTool(kind, name)) return "Subagents are working";
-    if (isEditTool(kind, name, preview)) return "Editing file";
-    if (isReadTool(kind, name, preview)) return "Reading file";
-    if (isSearchTool(kind, name, preview)) return "Searching";
-    if (isExecuteTool(kind, name) || preview?.kind === "shell")
-      return "Running command";
-    return "Using a tool";
+    if (block.role === "user") continue;
+    if (
+      pendingTool(block) &&
+      isAgentTool(block.tool?.kind, block.tool?.title || block.text)
+    )
+      return "Subagents are working";
+    break;
   }
-  return "Agent is working";
+  // Steering messages belong to the turn; what it does continues past them.
+  const doing = sessionDoing({
+    ...session,
+    blocks: blocks.filter((block) => block.role !== "user"),
+  });
+  if (doing) return doing;
+  const latest = blocks.findLast((block) => block.role !== "user");
+  return latest && pendingTool(latest) ? toolPhase(latest) : undefined;
 }
 
 function latestOutcome(
@@ -161,12 +179,18 @@ export function sessionRunStatus(
     };
   }
   if (session.busy) {
+    const doing = workingDetail(
+      session,
+      session.blocks.slice(turn?.index ?? 0),
+    );
+    const active = agents.length
+      ? `${agents.length} ${agents.length === 1 ? "agent" : "agents"} active`
+      : "";
     return {
       kind: "working",
-      label: "Working",
-      detail: agents.length
-        ? `${agents.length} ${agents.length === 1 ? "agent" : "agents"} active · ${workingDetail(session.blocks.slice(turn?.index ?? 0))}`
-        : workingDetail(session.blocks.slice(turn?.index ?? 0)),
+      // Plain "Working…" until the turn does something it can name.
+      label: doing || active ? "Working" : "Working…",
+      detail: [active, doing].filter(Boolean).join(" · "),
       ...(startedAt !== undefined && !validTime(turn?.block.durationMs)
         ? { startedAt }
         : {}),

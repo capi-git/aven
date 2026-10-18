@@ -95,9 +95,11 @@ function VisibleRunStatus({
         aria-atomic="true"
       >
         <strong>{status.label}</strong>
-        <span className="session-run-detail" title={status.detail}>
-          {status.detail}
-        </span>
+        {status.detail ? (
+          <span className="session-run-detail" title={status.detail}>
+            {status.detail}
+          </span>
+        ) : null}
       </div>
       {queued > 0 && status.canStop ? (
         <span

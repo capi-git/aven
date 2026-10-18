@@ -1,7 +1,6 @@
 import type { ActivityEntry } from "./activity";
 import { basename } from "./fs";
-import { composeToolTitle, isWeakToolTitle } from "./harness/preview";
-import { displayPath, projectKey } from "./paths";
+import { projectKey } from "./paths";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
@@ -20,6 +19,9 @@ import {
 import type { TeamRowInfo } from "./teamGrouping";
 import type { TeamRun } from "./teamRuns";
 import { isBlockingQuestion } from "./userQuestion";
+import { currentActivity } from "./sessionDoing";
+
+export { currentActivity };
 
 /**
  * A loaded session reduced to what the workspace home shows. Small and
@@ -192,44 +194,6 @@ function pendingApproval(blocks: readonly Block[]): Block | undefined {
     if (block.approval && !block.approval.decided) return block;
   }
   return undefined;
-}
-
-/**
- * What a working session is doing now, from its current turn only: the
- * latest tool call (worded as the live agents list words it), a reply being
- * written, or thinking. A turn's earlier tools never stand in for it.
- */
-export function currentActivity(session: Session): string {
-  const blocks = session.blocks;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i];
-    if (block.role === "user") break;
-    if (block.role === "reasoning") return "Thinking";
-    if (block.role === "assistant") return "Writing a reply";
-    if (block.role === "handoff" && block.handoff?.status === "preparing")
-      return "Preparing a handoff";
-    if (block.role !== "tool") continue;
-    const preview = block.tool?.preview;
-    const path = preview?.path
-      ? displayPath(preview.path, session.cwd)
-      : preview?.fileName;
-    const label = composeToolTitle({
-      kind: block.tool?.kind,
-      title: block.text || block.tool?.title,
-      path,
-      query: preview?.query,
-      previewKind: preview?.kind,
-      cwd: session.cwd,
-    });
-    // A bare verb ("Edit") gains the file it acts on; a bubble is narrow, so
-    // the file name rather than its path.
-    if (label && path && isWeakToolTitle(label))
-      return clip(`${label} ${basename(path)}`);
-    return clip(label || "Working");
-  }
-  if (!session.busy && session.liveAgents?.some(isActiveSessionAgent))
-    return "Background agents working";
-  return "Thinking";
 }
 
 /**

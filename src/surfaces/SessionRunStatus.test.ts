@@ -73,6 +73,34 @@ afterEach(async () => {
 });
 
 describe("persistent agent run status", () => {
+  it("says what the agent is doing instead of repeating Working", async () => {
+    await render();
+    const status = () => host.querySelector('[role="status"]')?.textContent;
+    // Nothing nameable yet: plain "Working…", once.
+    expect(status()).toBe("Working…");
+    expect(host.querySelector(".session-run-detail")).toBeNull();
+    session = {
+      ...session,
+      blocks: [
+        ...session.blocks,
+        {
+          id: "edit",
+          role: "tool",
+          text: "Edit",
+          streaming: true,
+          tool: {
+            kind: "edit",
+            status: "in_progress",
+            preview: { kind: "write", path: "/repo/app.js" },
+          },
+        },
+      ],
+    };
+    await render();
+    expect(status()).toContain("app.js");
+    expect(status()).not.toContain("Agent is working");
+  });
+
   it("leaves Stop to the run bar for an orchestration's lead", async () => {
     await render(true, true);
     expect(state()).toBe("working");
