@@ -5,6 +5,7 @@ import {
   isAtEnd,
   readerScrolled,
   scrollClampedToBottom,
+  tallerViewportClamped,
 } from "./transcriptScrollIntent";
 
 const box = (scrollTop: number, scrollHeight = 1000, clientHeight = 400) => ({
@@ -56,6 +57,27 @@ describe("transcript follow decisions", () => {
     // Shorter content that does not reach the reader leaves them be.
     expect(contentShrankToEnd(box(300, 960), 300, before)).toBe(false);
     expect(followsAfterScroll(box(300, 960), 300, false, before)).toBe(false);
+  });
+
+  it("treats a taller viewport's clamp as layout after a stretched turn grows back", () => {
+    const before = { scrollHeight: 1000, clientHeight: 400 };
+    // The viewport grew by 60 and clamped 600 to 540; the live turn's
+    // stretch then grew by 60 too, so the bottom is back at 600.
+    const regrown = box(540, 1060, 460);
+    expect(scrollClampedToBottom(regrown, 600)).toBe(false);
+    expect(tallerViewportClamped(regrown, 600, before)).toBe(true);
+    expect(readerScrolled(regrown, 600, before)).toBe(false);
+    expect(followsAfterScroll(regrown, 600, true, before)).toBe(true);
+    // A reader who had scrolled up stays scrolled up.
+    expect(followsAfterScroll(box(540, 1060, 460), 596, false, before)).toBe(
+      false,
+    );
+    // Scrolling up moves the viewport's lower edge up; that still leaves.
+    expect(tallerViewportClamped(box(500, 1000, 400), 600, before)).toBe(false);
+    expect(followsAfterScroll(box(500, 1060, 460), 600, true, before)).toBe(
+      false,
+    );
+    expect(readerScrolled(regrown, 600)).toBe(true);
   });
 
   it("leaves on any upward move, however small", () => {

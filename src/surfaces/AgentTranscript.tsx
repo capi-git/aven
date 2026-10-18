@@ -315,7 +315,7 @@ function AgentTranscriptComponent({
   const syncPinned = useCallback(
     (el: HTMLElement): boolean => {
       const previousTop = lastScrollTop.current;
-      const moved = readerScrolled(el, previousTop);
+      const moved = readerScrolled(el, previousTop, lastScrollExtent.current);
       stickToBottom.current =
         !scrollbarDragging.current &&
         followsAfterScroll(

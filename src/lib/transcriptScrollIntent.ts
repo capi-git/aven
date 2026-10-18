@@ -33,15 +33,43 @@ export function scrollClampedToBottom(
   return previousTop > bottom && Math.abs(el.scrollTop - bottom) < 1;
 }
 
-/** True when the offset moved since `previousTop` by something other than a clamp. */
-export function readerScrolled(el: ScrollBox, previousTop: number): boolean {
+/** The content and viewport heights as of the last offset this side saw. */
+export type ScrollExtent = Pick<ScrollBox, "scrollHeight" | "clientHeight">;
+
+/**
+ * A taller viewport clamped the offset, and then content that grows with the
+ * viewport (the live turn stretched to it after a send) moved the bottom back
+ * down, so the offset no longer sits there. The viewport's lower edge stayed
+ * put, which the reader scrolling up never does: that moves it up.
+ */
+export function tallerViewportClamped(
+  el: ScrollBox,
+  previousTop: number,
+  previous: ScrollExtent,
+): boolean {
   return (
-    el.scrollTop !== previousTop && !scrollClampedToBottom(el, previousTop)
+    el.clientHeight > previous.clientHeight &&
+    el.scrollTop < previousTop &&
+    el.scrollTop + el.clientHeight >= previousTop + previous.clientHeight - 1
   );
 }
 
-/** The content and viewport heights as of the last offset this side saw. */
-export type ScrollExtent = Pick<ScrollBox, "scrollHeight" | "clientHeight">;
+/**
+ * True when the offset moved since `previousTop` by something other than a
+ * clamp. Pass the `previous` extent to recognise a taller viewport's clamp
+ * after the content has grown back with it.
+ */
+export function readerScrolled(
+  el: ScrollBox,
+  previousTop: number,
+  previous?: ScrollExtent,
+): boolean {
+  return (
+    el.scrollTop !== previousTop &&
+    !scrollClampedToBottom(el, previousTop) &&
+    !(previous && tallerViewportClamped(el, previousTop, previous))
+  );
+}
 
 /**
  * Content shrinking under the reader, such as finished work folding away,
@@ -66,7 +94,8 @@ export function contentShrankToEnd(
  * direction decides, not the distance: moving up leaves, and only moving down
  * all the way to the end resumes. A small downward reversal while reading
  * near the end must not snap the next chunk under the reader. Pass the
- * `previous` extent so a content shrink that clamps to the end follows.
+ * `previous` extent so a content shrink that clamps to the end follows, and a
+ * taller viewport's clamp keeps the old choice.
  */
 export function followsAfterScroll(
   el: ScrollBox,
@@ -74,7 +103,7 @@ export function followsAfterScroll(
   following: boolean,
   previous?: ScrollExtent,
 ): boolean {
-  if (!readerScrolled(el, previousTop)) {
+  if (!readerScrolled(el, previousTop, previous)) {
     if (previous && contentShrankToEnd(el, previousTop, previous)) return true;
     return following;
   }
