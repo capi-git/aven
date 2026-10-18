@@ -199,6 +199,12 @@ import {
   publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
+import {
+  newSessionChangesWorkspaceTab,
+  reviewPaneFor,
+  sessionChangesTabFor,
+  showInPane,
+} from "./lib/reviewPlacement";
 import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
 import {
   useDuplicateServerMessenger,
@@ -4349,6 +4355,71 @@ export default function App({
     [activateTab, inboxAskPortal],
   );
 
+  /**
+   * A chat's review, when the chat's tab holds only chats and another pane on
+   * screen shows something else (a live preview, a board): a tab in the
+   * widest such pane, beside what it shows, rather than a third column
+   * squeezed in beside the chat. Says whether it went there.
+   */
+  const openReviewInOtherPane = (
+    session: { sessionId: string; cwd: string },
+    focusPath: string | undefined,
+  ): boolean => {
+    const chatTab = tabsRef.current.find(
+      (tab) => tab.id === activeTabIdRef.current,
+    );
+    if (!chatTab || chatTab.editorPanes.length > 0) return false;
+    const isChat = (surfaceId: string) => {
+      const tab = tabsRef.current.find((entry) => entry.id === surfaceId);
+      return (
+        !!tab &&
+        leafIds(tab.layout).some((id) =>
+          sessionsRef.current.some((entry) => entry.id === id),
+        )
+      );
+    };
+    const pane = reviewPaneFor(viewRef.current.view, chatTab.id, isChat);
+    if (!pane) return false;
+    const existing = sessionChangesTabFor(
+      tabsRef.current,
+      session.cwd,
+      session.sessionId,
+    );
+    let id: string;
+    if (existing) {
+      id = existing.id;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === id
+            ? openSessionChangesTab(
+                tab,
+                session.cwd,
+                session.sessionId,
+                focusPath,
+              )
+            : tab,
+        ),
+      );
+    } else {
+      const review = newSessionChangesWorkspaceTab(
+        session.cwd,
+        session.sessionId,
+        focusPath,
+      );
+      // Only a tab of the project on screen can join one of its panes.
+      const project = workspaceTabCwd(review, sessionsRef.current);
+      if (!project || !sameProjectPath(project, projectCwdRef.current))
+        return false;
+      id = review.id;
+      // Commit the tab first so the workspace view knows the new surface.
+      flushSync(() => appendTab(review, projectCwdRef.current));
+    }
+    viewRef.current.change((view) => showInPane(view, id, pane));
+    return true;
+  };
+  const openReviewInOtherPaneRef = useRef(openReviewInOtherPane);
+  openReviewInOtherPaneRef.current = openReviewInOtherPane;
+
   const onOpenDiff = useCallback(
     (
       path?: string,
@@ -4367,6 +4438,11 @@ export default function App({
             : ((await resolveOpenablePath(diffCwd, path)) ?? path)
           : undefined;
         if (resolved) rememberOpenedFile(diffCwd, resolved);
+        if (session && openReviewInOtherPaneRef.current(session, resolved)) {
+          setSidebarTab("changes");
+          setComposerFocused(false);
+          return;
+        }
         setTabs((prev) =>
           prev.map((tab) => {
             if (tab.id !== activeTabId) return tab;
