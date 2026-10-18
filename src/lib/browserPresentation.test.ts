@@ -419,6 +419,25 @@ describe("browser presentation", () => {
     expect(native.layouts.every((layout) => layout.visible)).toBe(true);
   });
 
+  it("keeps a freeze's picture when a layout already in flight shows the page", async () => {
+    const layout = deferred<void>();
+    native.nextLayout = layout;
+    native.measured = { ...native.measured, width: 640 };
+    controller.update();
+    await settle();
+    const src = "data:image/png;base64,markup";
+    const frozen = controller.freeze(src);
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe(src);
+    layout.resolve();
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe(src);
+    await paint();
+    await expect(frozen).resolves.toBe(true);
+    expect(native.page.visible).toBe(false);
+    expect(snapshots.at(-1)?.src).toBe(src);
+  });
+
   it("does not freeze a hidden pane", async () => {
     state.visible = false;
     state.paused = true;

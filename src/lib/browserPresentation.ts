@@ -523,8 +523,11 @@ export function createBrowserPresentation({
       lastNativeBounds = sentBounds;
       lastGeometry = JSON.stringify(sentBounds);
       lastLayout = nextLayout;
-      if (show && !disposed) onSnapshot(null);
-      else if (
+      // A freeze may have put its picture beneath the page while this
+      // layout was in flight; that picture is not this layout's to release.
+      if (show && !disposed) {
+        if (freezeState === "none") onSnapshot(null);
+      } else if (
         !disposed &&
         freezeState === "none" &&
         bounds &&
