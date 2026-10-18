@@ -386,6 +386,48 @@ button.team-watch-row-open:focus-visible {
   flex-shrink: 0;
 }
 
+/* Docked in the footer: the same pills, footer height and flat, side by
+   side in a slot the workspace leaves for them. Where it stands gives way
+   before what is happening when the row is short of room. */
+.team-pill-tray {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.team-pill-tray .discussion-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  height: 22px;
+  gap: 6px;
+  padding: 0 8px 0 3px;
+  border-color: var(--aven-line);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  box-shadow: none;
+  font-size: var(--text-ui-caption);
+}
+.team-pill-tray .discussion-pill[data-state="needs-you"] {
+  border-color: var(--aven-needs-you-edge);
+}
+.team-pill-tray .discussion-pill .discussion-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+}
+.team-pill-tray .team-pill-progress {
+  flex: 0 8 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--aven-muted);
+}
+.team-pill-tray .discussion-pill-status {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .team-watch-tile .discussion-avatar {
     transition: none;

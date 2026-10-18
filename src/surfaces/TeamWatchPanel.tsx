@@ -67,6 +67,7 @@ import {
   teamWatchTitle,
   TEAM_KIND_NAME,
   TEAM_NOUN,
+  type TeamPanelState,
   type TeamWatchAct,
   type TeamWatchAction,
   type TeamWatchReview,
@@ -527,35 +528,17 @@ export type TeamWatchFloatProps = {
    * offered (outside macOS, or without the native host).
    */
   popOuts?: TeamWatchOwner | null;
+  /**
+   * The window shows the pills in a slot of its own (the footer, see
+   * `TeamWatchPills`), so none float over the workspace here.
+   */
+  pillsDocked?: boolean;
 };
 
 const NATIVE_POP_OUTS: TeamWatchOwner | null = IS_MAC ? teamWatchOwner() : null;
 
-/**
- * The window's teams over its workspace: the one being watched as a
- * floating panel, the others as stacked pills, and any popped out into
- * windows of their own. The panel is dragged by its header, resized from
- * its edges, kept inside the window and below its title bar, and
- * remembered for this window (see `useTeamWatch`). Both are cut out of a
- * native browser page beneath them, as menus are.
- */
-export const TeamWatchFloat = memo(function TeamWatchFloat({
-  panel,
-  sessions,
-  host,
-  onOpenFile,
-  onStop,
-  popOuts = NATIVE_POP_OUTS,
-}: TeamWatchFloatProps) {
-  const viewport = useViewport();
-  const { state } = panel;
-  const saved = useMemo(
-    () => clampRect(state.rect ?? defaultRect(viewport), viewport),
-    [state.rect, viewport],
-  );
-  const [live, setLive] = useState<PanelRect | null>(null);
-  const rect = live ?? saved;
-  const expanded = state.expanded;
+/** The teams this window shows as pills, in order, and every team by id. */
+function useTeamPillList(state: TeamPanelState, sessions: readonly Session[]) {
   const teams = useTeamRuns({ previews: true });
   const hereKey = sessions.map((session) => session.id).join("\n");
   const here = useMemo(
@@ -570,6 +553,67 @@ export const TeamWatchFloat = memo(function TeamWatchFloat({
     () => new Map(teams.map((team) => [team.id, team])),
     [teams],
   );
+  return { pills, byId };
+}
+
+/**
+ * The window's shrunk teams, docked in the footer: a slot the workspace
+ * leaves for them, so they never cover a control and never move. Pressing
+ * one opens its panel again. Renders nothing while no team is a pill.
+ */
+export const TeamWatchPills = memo(function TeamWatchPills({
+  panel,
+  sessions,
+}: Pick<TeamWatchFloatProps, "panel" | "sessions">) {
+  const { pills, byId } = useTeamPillList(panel.state, sessions);
+  const restore = panel.restore;
+  if (!pills.length) return null;
+  return (
+    <div
+      className="team-pill-tray"
+      role="group"
+      aria-label="Teams"
+      data-team-pills
+      data-discussion-pills
+    >
+      {pills.map((id) => {
+        const team = byId.get(id);
+        return team ? (
+          <TeamPill key={id} team={team} docked onRestore={restore} />
+        ) : null;
+      })}
+    </div>
+  );
+});
+
+/**
+ * The window's teams over its workspace: the one being watched as a
+ * floating panel, the others as stacked pills (unless the footer holds
+ * them, `pillsDocked`), and any popped out into windows of their own. The
+ * panel is dragged by its header, resized from its edges, kept inside the
+ * window and below its title bar, and remembered for this window (see
+ * `useTeamWatch`). Both are cut out of a native browser page beneath
+ * them, as menus are.
+ */
+export const TeamWatchFloat = memo(function TeamWatchFloat({
+  panel,
+  sessions,
+  host,
+  onOpenFile,
+  onStop,
+  popOuts = NATIVE_POP_OUTS,
+  pillsDocked = false,
+}: TeamWatchFloatProps) {
+  const viewport = useViewport();
+  const { state } = panel;
+  const saved = useMemo(
+    () => clampRect(state.rect ?? defaultRect(viewport), viewport),
+    [state.rect, viewport],
+  );
+  const [live, setLive] = useState<PanelRect | null>(null);
+  const rect = live ?? saved;
+  const expanded = state.expanded;
+  const { pills, byId } = useTeamPillList(state, sessions);
   const perform = useTeamWatchPerformer({ panel, host, onStop });
 
   const draggedPill = useRef(false);
@@ -788,7 +832,7 @@ export const TeamWatchFloat = memo(function TeamWatchFloat({
           )}
         </section>
       ) : null}
-      {pills.length ? (
+      {pills.length && !pillsDocked ? (
         <div
           className="discussion-pills"
           data-discussion-pills
@@ -860,14 +904,17 @@ function OwnedTeamPanel({
 /**
  * A shrunk team: its members' mascots, where it stands and what is
  * happening, in amber when it needs you. Pressing it opens the panel again;
- * dragging it moves where the panel and its pills sit.
+ * dragging a floating one moves where the panel and its pills sit.
  */
 export const TeamPill = memo(function TeamPill({
   team,
+  docked = false,
   onPointerDown,
   onRestore,
 }: {
   team: TeamRun;
+  /** In the footer's slot: never over a native browser page. */
+  docked?: boolean;
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   /** Called with the team's id, so one handler serves every pill. */
   onRestore: (teamId: string) => void;
@@ -890,7 +937,8 @@ export const TeamPill = memo(function TeamPill({
       data-team-kind={team.kind}
       {...(team.kind === "discuss" ? { "data-discussion-pill": team.key } : {})}
       data-state={teamTone(team)}
-      data-native-browser-occluded="true"
+      data-docked={docked || undefined}
+      data-native-browser-occluded={docked ? undefined : "true"}
       title={`Show the ${TEAM_NOUN[team.kind]}`}
       aria-label={`Show the ${TEAM_NOUN[team.kind]} “${team.title}”: ${
         progress ? `${progress}, ` : ""

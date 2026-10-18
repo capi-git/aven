@@ -94,7 +94,7 @@ import {
 } from "./lib/discussions";
 import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
 import { useTeamWatch } from "./hooks/useTeamWatch";
-import { TeamWatchFloat } from "./surfaces/TeamWatchPanel";
+import { TeamWatchFloat, TeamWatchPills } from "./surfaces/TeamWatchPanel";
 import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
@@ -1721,6 +1721,14 @@ export default function App({
     !profileHome &&
     !homeViewOpen &&
     view.order.length > 0 &&
+    !settingsOpen &&
+    !searchViewOpen &&
+    !inboxViewOpen &&
+    !automationsViewOpen &&
+    !notesViewOpen;
+  // The footer shows outside the full-window views; while it does, shrunk
+  // teams sit in it rather than floating over the workspace.
+  const footerShown =
     !settingsOpen &&
     !searchViewOpen &&
     !inboxViewOpen &&
@@ -10355,12 +10363,9 @@ export default function App({
                   />
                 </div>
                 <WorkspaceFooter
-                  active={
-                    !settingsOpen &&
-                    !searchViewOpen &&
-                    !inboxViewOpen &&
-                    !automationsViewOpen &&
-                    !notesViewOpen
+                  active={footerShown}
+                  teams={
+                    <TeamWatchPills panel={teamWatch} sessions={sessions} />
                   }
                   cwd={profileHome ? "~" : gitCwd}
                   onToggleTerminal={() => {
@@ -10507,6 +10512,7 @@ export default function App({
               host={discussions.host}
               onOpenFile={onOpenFile}
               onStop={onStop}
+              pillsDocked={footerShown}
             />
             <ApprovalToasts
               notices={hiddenApprovalToasts}
