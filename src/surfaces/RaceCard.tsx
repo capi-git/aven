@@ -3,12 +3,9 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { HarnessIcon } from "../chrome/HarnessIcon";
-import { Popover } from "../chrome/Popover";
 import {
   LineChanges,
   MemberClock,
@@ -20,7 +17,6 @@ import {
 } from "../chrome/TeamCard";
 import { useTeamRun } from "../hooks/useTeamRuns";
 import { memberVoice, teamMascots } from "../lib/discussionVoices";
-import { moveMenuFocus } from "../lib/keyboard";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import {
   getRace,
@@ -48,6 +44,7 @@ import {
 } from "../lib/teamResult";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
+import { RaceReviewerPicker } from "./RaceReviewerPicker";
 import { listText, plural } from "../lib/words";
 
 /** How a race explains itself while its agents work. */
@@ -106,103 +103,6 @@ export function useRaceStats(
       cancelled = true;
     };
   }, [base, key, paths, raceId, running]);
-}
-
-/**
- * Ask a reviewer: the chats that could compare the agents' results as a
- * Reviewer. The chosen chat gets the comparison as your message.
- */
-function ReviewerButton({
-  race,
-  disabled,
-  onPick,
-}: {
-  race: RaceRecord;
-  disabled: boolean;
-  onPick: (choice: ReviewerChoice) => void;
-}) {
-  const live = useContext(LiveSessionsContext);
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const choices = open && live ? reviewerChoices(race, live) : [];
-  return (
-    <>
-      <TeamCardButton
-        ref={anchor}
-        data-race-review-ask
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        disabled={disabled || !live}
-        title="Send the agents' results to a chat of your choice, to compare them as a Reviewer"
-        onClick={() => setOpen((value) => !value)}
-      >
-        Ask a reviewer
-      </TeamCardButton>
-      {open ? (
-        <Popover
-          anchor={anchor}
-          side="bottom"
-          align="start"
-          width={280}
-          autoFocus
-          tabIndex={-1}
-          role="dialog"
-          aria-label="Ask a reviewer"
-          onKeyDown={moveMenuFocus}
-          onDismiss={(reason) => {
-            setOpen(false);
-            // The keyboard goes back where it came from.
-            if (reason === "escape") anchor.current?.focus();
-          }}
-          data-race-reviewers
-          className="p-1 outline-none"
-        >
-          <p className="px-2 pb-1 pt-1.5 text-ui-caption leading-4 text-content/50">
-            The chat you pick gets the agents' last replies and changes, with a
-            Reviewer's instruction, and suggests one to keep.
-          </p>
-          {choices.length ? (
-            choices.map((choice) => (
-              <button
-                key={choice.sessionId}
-                type="button"
-                data-race-reviewer={choice.sessionId}
-                disabled={!!choice.busy}
-                title={
-                  choice.busy
-                    ? `“${choice.title}”: ${choice.busy}`
-                    : `“${choice.title}” · ${choice.fullName}`
-                }
-                onClick={() => {
-                  setOpen(false);
-                  anchor.current?.focus();
-                  onPick(choice);
-                }}
-                className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content/85 hover:bg-content/5 hover:text-content disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-              >
-                <HarnessIcon
-                  harness={choice.harness}
-                  className="size-3.5 shrink-0"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {choice.sessionId === race.origin?.sessionId
-                    ? "The chat you raced from"
-                    : choice.title}
-                </span>
-                <span className="max-w-[45%] shrink-0 truncate text-ui-caption text-content/45">
-                  {choice.busy ?? choice.label}
-                </span>
-              </button>
-            ))
-          ) : (
-            <p className="px-2 py-2 text-ui-label text-content/45">
-              No other chat in this project can review it.
-            </p>
-          )}
-        </Popover>
-      ) : null}
-    </>
-  );
 }
 
 /**
@@ -552,9 +452,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 >
                   {suggesting ? "Suggesting…" : "Suggest a winner"}
                 </TeamCardButton>
-                <ReviewerButton
-                  race={race}
-                  disabled={suggesting || reviewing}
+                <RaceReviewerPicker
+                  choices={() => (live ? reviewerChoices(race, live) : [])}
+                  originId={race.origin?.sessionId}
+                  disabled={suggesting || reviewing || !live}
+                  reviewing={reviewing}
                   onPick={askReviewer}
                 />
               </>

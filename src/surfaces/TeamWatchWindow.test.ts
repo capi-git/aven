@@ -212,6 +212,49 @@ describe("a team's panel in a window of its own", () => {
     expect(host.bridge.dismiss).toHaveBeenCalled();
   });
 
+  it("asks a reviewer through the window that owns the race", async () => {
+    const ready: TeamRun = {
+      ...race,
+      status: "ready",
+      progress: "Ready to compare · 2 of 2 done",
+    };
+    const reviewers = [
+      {
+        sessionId: "chat",
+        harness: "claude" as const,
+        label: "Claude Opus",
+        fullName: "Claude Code · Opus",
+        title: "Start",
+      },
+      {
+        sessionId: "busy",
+        harness: "codex" as const,
+        label: "Codex GPT-5",
+        fullName: "Codex · GPT-5",
+        title: "Busy",
+        busy: "Working" as const,
+      },
+    ];
+    const host = fakeBridge(state({ team: ready, race: { reviewers }, can }));
+    await show(host.bridge);
+    await press("[data-race-review-ask]");
+    // The same picker as the race's card, with what the owner listed.
+    const rows = [
+      ...document.body.querySelectorAll<HTMLButtonElement>(
+        "[data-race-reviewers] [data-race-reviewer]",
+      ),
+    ];
+    expect(rows.map((row) => row.dataset.raceReviewer)).toEqual([
+      "chat",
+      "busy",
+    ]);
+    expect(words(rows[0])).toContain("The chat you raced from");
+    expect(rows[1].disabled).toBe(true);
+    await act(async () => rows[0].click());
+    // Sent back, never asked from here: the owner checks the chat again.
+    expect(host.sent.at(-1)).toEqual({ kind: "review", sessionId: "chat" });
+  });
+
   it("follows its owner's updates, and keeps the newest", async () => {
     const host = fakeBridge(state({ team: race, race: {}, can }));
     await show(host.bridge);

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useMemo, useRef, type CSSProperties } from "react";
 import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useTeamAct } from "../hooks/useTeamAct";
 import { RoleBadge } from "../chrome/AgentRoles";
@@ -30,6 +30,7 @@ import {
 } from "../lib/teamWatch";
 import { plural } from "../lib/words";
 import { DiscussionThreadPanel } from "./DiscussionPanel";
+import { RaceReviewerPicker } from "./RaceReviewerPicker";
 import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
 import "./TeamWatchPanel.css";
 
@@ -714,7 +715,6 @@ function TeamActions({
   pending: TeamWatchAction["kind"] | null;
 }) {
   const { team } = view;
-  const [picking, setPicking] = useState(false);
   const open = team.status !== "finished" && team.status !== "stopped";
   if (team.kind === "race") {
     const working = team.members.some(
@@ -732,48 +732,6 @@ function TeamActions({
     if (!open) return null;
     return (
       <div className="team-watch-actions">
-        {picking && reviewers ? (
-          <ul className="team-watch-reviewers" aria-label="Ask a reviewer">
-            <li className="team-watch-reviewers-note">
-              The chat you pick gets the agents' last replies and changes, with
-              a Reviewer's instruction, and suggests one to keep.
-            </li>
-            {reviewers.length ? (
-              reviewers.map((choice) => (
-                <li key={choice.sessionId}>
-                  <button
-                    type="button"
-                    className="team-watch-reviewer"
-                    data-team-review={choice.sessionId}
-                    disabled={!!choice.busy}
-                    title={
-                      choice.busy
-                        ? `“${choice.title}”: ${choice.busy}`
-                        : `“${choice.title}” · ${choice.fullName}`
-                    }
-                    onClick={() => {
-                      setPicking(false);
-                      run({ kind: "review", sessionId: choice.sessionId });
-                    }}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {choice.sessionId === team.origin.sessionId
-                        ? "The chat you raced from"
-                        : choice.title}
-                    </span>
-                    <span className="team-watch-reviewer-model">
-                      {choice.busy ?? choice.label}
-                    </span>
-                  </button>
-                </li>
-              ))
-            ) : (
-              <li className="team-watch-reviewers-note">
-                No other chat in this project can review it.
-              </li>
-            )}
-          </ul>
-        ) : null}
         {view.can.compare ? (
           <TeamCardButton
             variant={team.status === "ready" ? "primary" : "default"}
@@ -802,15 +760,19 @@ function TeamActions({
         {team.status === "ready" &&
         suggestion?.status !== "done" &&
         reviewers ? (
-          <TeamCardButton
-            data-team-review-ask
-            aria-expanded={picking}
+          // The window that owns the race lists the chats and checks the
+          // one picked again before asking it.
+          <RaceReviewerPicker
+            choices={() => reviewers}
+            originId={team.origin.sessionId}
             disabled={judging}
-            title="Send the agents' results to a chat of your choice, to compare them as a Reviewer"
-            onClick={() => setPicking((value) => !value)}
-          >
-            {reviewing ? "Reviewing…" : "Ask a reviewer"}
-          </TeamCardButton>
+            reviewing={reviewing}
+            side="top"
+            align="end"
+            onPick={(choice) =>
+              run({ kind: "review", sessionId: choice.sessionId })
+            }
+          />
         ) : null}
         {working ? (
           <TeamCardButton

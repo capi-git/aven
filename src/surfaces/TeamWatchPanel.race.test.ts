@@ -362,11 +362,15 @@ describe("a race in the team panel", () => {
     await mount();
     await act(async () => panel.open("race:r1"));
     await press("Ask a reviewer", view()!);
+    // The same picker as the race's card, listing what the window that
+    // owns the race offers.
     const choices = [
-      ...view()!.querySelectorAll<HTMLButtonElement>("[data-team-review]"),
+      ...document.body.querySelectorAll<HTMLButtonElement>(
+        "[data-race-reviewers] [data-race-reviewer]",
+      ),
     ];
     // The chat it was sent from first; never one of its own agents.
-    expect(choices.map((choice) => choice.dataset.teamReview)).toEqual([
+    expect(choices.map((choice) => choice.dataset.raceReviewer)).toEqual([
       "chat",
       "busy",
     ]);
