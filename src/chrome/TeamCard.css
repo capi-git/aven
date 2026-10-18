@@ -161,8 +161,8 @@ button.team-card-member-open:hover {
   border-radius: 7px;
 }
 .team-card-member-face .discussion-avatar-sprite {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 /* The role is named beside the member; its letter on the mascot would say
    it twice. */
@@ -345,7 +345,7 @@ button.team-card-member-open:hover {
 }
 
 /* A team's members as one row's mark: small mascots, overlapping. The
-   sprites draw at 16px, a whole multiple of their 8 pixels. */
+   sprites draw at 12px, one pixel to each of their 12. */
 .team-mini-faces {
   display: inline-flex;
   flex-shrink: 0;
@@ -365,8 +365,8 @@ button.team-card-member-open:hover {
   margin-left: -5px;
 }
 .team-mini-faces .discussion-avatar-sprite {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
 }
 .team-mini-faces .discussion-avatar-role {
   display: none;
@@ -392,8 +392,8 @@ button.team-card-member-open:hover {
   border-radius: 4px;
 }
 .sidebar-team-badge .team-mini-faces .discussion-avatar-sprite {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 .sidebar-team-badge-text {
   overflow: hidden;

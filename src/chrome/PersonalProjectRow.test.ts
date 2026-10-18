@@ -194,11 +194,11 @@ it("customizes the name, colour and mascot from the actions menu, and resets", a
   );
   await act(async () =>
     dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Mascot ghost"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Jellyfish"]')!
       .click(),
   );
   expect(loadTabGroupColors()[projectKey(PATH)]).toBe(2);
-  expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("ghost");
+  expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("jelly");
 
   await act(async () =>
     [...dialog()!.querySelectorAll<HTMLButtonElement>("button")]

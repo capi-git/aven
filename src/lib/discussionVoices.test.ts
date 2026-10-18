@@ -3,6 +3,7 @@ import {
   discussionMascots,
   discussionVoices,
   providerVoiceColor,
+  teamMascots,
 } from "./discussionVoices";
 import { PROJECT_MASCOTS } from "./projectMascots";
 
@@ -27,6 +28,25 @@ describe("discussion voices", () => {
       const pick = discussionMascots(`x${index}`, `x${index}`);
       expect(pick.a).not.toBe(pick.b);
     }
+  });
+
+  it("gives every member of a team of up to twelve its own critter", () => {
+    const names = new Set(PROJECT_MASCOTS.map((mascot) => mascot.name));
+    for (let size = 1; size <= 12; size += 1) {
+      for (const prefix of ["run", "race", "x"]) {
+        const ids = Array.from({ length: size }, (_, i) => `${prefix}-${i}`);
+        const picks = teamMascots(ids);
+        expect(picks).toHaveLength(size);
+        expect(new Set(picks).size).toBe(size);
+        for (const pick of picks) expect(names.has(pick)).toBe(true);
+        // Each member keeps its critter as the team grows.
+        expect(teamMascots([...ids, `${prefix}-extra`]).slice(0, size)).toEqual(
+          picks,
+        );
+      }
+    }
+    // Members whose ids hash alike still look different.
+    expect(new Set(teamMascots(Array(12).fill("same"))).size).toBe(12);
   });
 
   it("tags who opened the topic and who responds", () => {

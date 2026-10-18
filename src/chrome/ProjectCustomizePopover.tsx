@@ -177,10 +177,10 @@ function ProjectAppearancePopover({
       ) : null}
 
       <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Mascot</p>
-      {/* Equal cells that wrap, five to a row, so every mascot fits the
+      {/* Equal cells that wrap, six to a row, so every mascot fits the
           popover's width however many there are. */}
       <div
-        className="grid grid-cols-5 gap-1"
+        className="grid grid-cols-6 gap-1"
         role="radiogroup"
         aria-label="Mascot"
       >
@@ -191,8 +191,8 @@ function ProjectAppearancePopover({
               key={mascot.name}
               type="button"
               role="radio"
-              title={mascot.name}
-              aria-label={`Mascot ${mascot.name}`}
+              title={mascot.label}
+              aria-label={mascot.label}
               aria-checked={selected}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => saveTabGroupMascot(key, mascot.name)}
@@ -206,7 +206,7 @@ function ProjectAppearancePopover({
                 project={key}
                 name={mascot.name}
                 color={appearance.color}
-                className="size-3.5"
+                className="size-[18px]"
               />
             </button>
           );
