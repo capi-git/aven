@@ -86,7 +86,7 @@ export function SessionFiltersMenu({
         onClick={() => toggleStatus("working")}
       />
       <FilterItem
-        label="Needs approval"
+        label="Needs you"
         checked={filters.status.needsApproval}
         onClick={() => toggleStatus("needsApproval")}
       />

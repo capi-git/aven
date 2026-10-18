@@ -898,7 +898,7 @@ describe("native preview lifecycle", () => {
     expect(container.querySelector(".browser-go")).toBeNull();
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -937,7 +937,9 @@ describe("native preview lifecycle", () => {
       }),
     ]);
     expect(JSON.stringify(add.mock.calls)).not.toContain("selector");
-    expect(container.querySelector('[aria-label="Edit page"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Comment on page"]'),
+    ).not.toBeNull();
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
@@ -953,7 +955,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -962,7 +964,7 @@ describe("native preview lifecycle", () => {
     expect(add).not.toHaveBeenCalled();
     expect(mocks.editAttachment).not.toHaveBeenCalled();
     expect(container.textContent).toContain(
-      "Select an element, then add a comment. Press Esc to exit.",
+      "Click part of the page, then add a comment. Press Esc to stop.",
     );
     const committed = {
       id,
@@ -985,7 +987,7 @@ describe("native preview lifecycle", () => {
     await act(async () => callback({ ...committed, active: true }));
     expect(mocks.editAttachment).not.toHaveBeenCalled();
     expect(
-      container.querySelector('[aria-label="Exit edit mode"]'),
+      container.querySelector('[aria-label="Stop commenting"]'),
     ).not.toBeNull();
     await act(async () => {
       callback(committed);
@@ -1015,7 +1017,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -1051,7 +1053,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -1088,7 +1090,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -1132,7 +1134,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const callback = mocks.listenEditing.mock.calls.at(-1)![0];
@@ -1171,11 +1173,13 @@ describe("native preview lifecycle", () => {
     mocks.edit.mockRejectedValueOnce(new Error("Selection unavailable"));
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     expect(container.textContent).toContain("Selection unavailable");
-    expect(container.querySelector('[aria-label="Edit page"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Comment on page"]'),
+    ).not.toBeNull();
     expect(add).not.toHaveBeenCalled();
   });
 
@@ -1184,12 +1188,12 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
     const done = container.querySelector<HTMLButtonElement>(
-      '.browser-toolbar [aria-label="Exit edit mode"]',
+      '.browser-toolbar [aria-label="Stop commenting"]',
     )!;
     expect(done.textContent).toBe("Done");
     expect(done.type).toBe("button");
@@ -1201,7 +1205,9 @@ describe("native preview lifecycle", () => {
     });
     expect(mocks.edit).toHaveBeenCalledExactlyOnceWith(id, false, token);
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
-    expect(container.querySelector('[aria-label="Edit page"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Comment on page"]'),
+    ).not.toBeNull();
     await act(async () =>
       mocks.listenEditing.mock.calls.at(-1)![0]({
         id,
@@ -1229,7 +1235,7 @@ describe("native preview lifecycle", () => {
     const add = vi.fn();
     const id = await openPane({ onAddToChat: add });
     const button = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Edit page"]',
+      '[aria-label="Comment on page"]',
     )!;
     await act(async () => {
       button.focus();
@@ -1247,7 +1253,9 @@ describe("native preview lifecycle", () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(mocks.edit).toHaveBeenLastCalledWith(id, false, token);
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
-    expect(container.querySelector('[aria-label="Edit page"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Comment on page"]'),
+    ).not.toBeNull();
     expect(add).not.toHaveBeenCalled();
     const calls = mocks.edit.mock.calls.length;
     const nextEscape = new KeyboardEvent("keydown", {
@@ -1269,7 +1277,7 @@ describe("native preview lifecycle", () => {
           .querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!
           .click(),
       );
-    await click("Edit page");
+    await click("Comment on page");
     const token = mocks.edit.mock.calls.at(-1)![2];
     let rejectStop!: (reason: Error) => void;
     mocks.edit.mockImplementationOnce(
@@ -1278,7 +1286,7 @@ describe("native preview lifecycle", () => {
           rejectStop = reject;
         }),
     );
-    await click("Exit edit mode");
+    await click("Stop commenting");
     const callback = mocks.listenEditing.mock.calls.at(-1)![0];
     await act(async () =>
       callback({
@@ -1289,15 +1297,15 @@ describe("native preview lifecycle", () => {
       }),
     );
     expect(
-      container.querySelector('[aria-label="Exit edit mode"]'),
+      container.querySelector('[aria-label="Stop commenting"]'),
     ).not.toBeNull();
     expect(container.querySelector(".browser-edit-hint")).not.toBeNull();
-    await click("Exit edit mode");
-    await click("Exit edit mode");
+    await click("Stop commenting");
+    await click("Stop commenting");
     expect(mocks.edit.mock.calls.filter((call) => !call[1])).toHaveLength(1);
     await act(async () => rejectStop(new Error("Overlay stop failed")));
-    expect(container.textContent).toContain("Could not exit edit mode");
-    await click("Exit edit mode");
+    expect(container.textContent).toContain("Could not stop commenting");
+    await click("Stop commenting");
     expect(mocks.edit).toHaveBeenLastCalledWith(id, false, token);
     expect(mocks.edit.mock.calls.filter((call) => !call[1])).toHaveLength(2);
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
@@ -1308,7 +1316,7 @@ describe("native preview lifecycle", () => {
   it("keeps shell Escape retryable when stopping rejects without a native event", async () => {
     const id = await openPane({ onAddToChat: vi.fn() });
     const button = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Edit page"]',
+      '[aria-label="Comment on page"]',
     )!;
     await act(async () => {
       button.focus();
@@ -1326,7 +1334,7 @@ describe("native preview lifecycle", () => {
     await act(async () => button.dispatchEvent(first));
     expect(first.defaultPrevented).toBe(true);
     expect(
-      container.querySelector('[aria-label="Exit edit mode"]'),
+      container.querySelector('[aria-label="Stop commenting"]'),
     ).not.toBeNull();
     expect(container.textContent).toContain("Overlay stop failed");
     const retry = escape();
@@ -1342,7 +1350,7 @@ describe("native preview lifecycle", () => {
     const id = await openPane({ onAddToChat: add });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
         .click(),
     );
     const token = mocks.edit.mock.calls.at(-1)![2];
@@ -1356,7 +1364,7 @@ describe("native preview lifecycle", () => {
     );
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Exit edit mode"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Stop commenting"]')!
         .click(),
     );
     await act(async () =>
@@ -1373,7 +1381,9 @@ describe("native preview lifecycle", () => {
       callback({ id, token, active: true, error: "Late stop failure" });
       rejectStop(new Error("Late stop rejection"));
     });
-    expect(container.querySelector('[aria-label="Exit edit mode"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Stop commenting"]'),
+    ).toBeNull();
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
     expect(add).not.toHaveBeenCalled();
   });
@@ -1394,11 +1404,11 @@ describe("native preview lifecycle", () => {
           .querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!
           .click(),
       );
-    await click("Edit page");
+    await click("Comment on page");
     const firstToken = mocks.edit.mock.calls.at(-1)![2];
-    await click("Exit edit mode");
+    await click("Stop commenting");
     const stoppedToken = mocks.edit.mock.calls.at(-1)![2];
-    await click("Edit page");
+    await click("Comment on page");
     const currentToken = mocks.edit.mock.calls.at(-1)![2];
     expect(stoppedToken).toBe(firstToken);
     expect(currentToken).not.toBe(firstToken);
@@ -1429,7 +1439,7 @@ describe("native preview lifecycle", () => {
       rejectFirst(new Error("Previous selection was cancelled"));
     });
     expect(
-      container.querySelector('[aria-label="Exit edit mode"]'),
+      container.querySelector('[aria-label="Stop commenting"]'),
     ).not.toBeNull();
     expect(container.querySelector(".browser-edit-hint")).not.toBeNull();
     expect(container.textContent).not.toContain("Old failure");
@@ -1464,7 +1474,7 @@ describe("native preview lifecycle", () => {
       const id = await openPane({ onAddToChat: add });
       await act(async () =>
         container
-          .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+          .querySelector<HTMLButtonElement>('[aria-label="Comment on page"]')!
           .click(),
       );
       const token = mocks.edit.mock.calls.at(-1)![2];
@@ -1486,7 +1496,7 @@ describe("native preview lifecycle", () => {
       expect(mocks.edit).toHaveBeenCalledWith(id, false, token);
       expect(container.querySelector(".browser-edit-hint")).toBeNull();
       expect(
-        container.querySelector('[aria-label="Exit edit mode"]'),
+        container.querySelector('[aria-label="Stop commenting"]'),
       ).toBeNull();
       await act(async () =>
         callback({

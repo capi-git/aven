@@ -232,7 +232,7 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let toggle_sidebar = MenuItemBuilder::with_id("toggle_sidebar", "Toggle Sidebar")
         .accelerator("CmdOrCtrl+B")
         .build(app)?;
-    let toggle_inspector = MenuItemBuilder::with_id("toggle_inspector", "Toggle File Panel")
+    let toggle_inspector = MenuItemBuilder::with_id("toggle_inspector", "Toggle Side Panel")
         .accelerator("CmdOrCtrl+Shift+B")
         .build(app)?;
     let open_model_picker = MenuItemBuilder::with_id("open_model_picker", "Switch Model…")

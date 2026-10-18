@@ -2642,11 +2642,13 @@ function SessionCard({
   const time = formatRelative(session.updatedAt, now);
   const model = resolveModel(session.harness, session.model).name;
   const teamNeeds = useContext(TeamNeeds);
-  const approvalLabel = teamNeeds.has(session.id)
-    ? "Needs you"
-    : session.orchestration
-      ? "Needs you"
-      : "Needs approval";
+  const approvalLabel = "Needs you";
+  // Its own approval or question says what it waits for; a team's need says
+  // why on the team's own card.
+  const approvalHint =
+    teamNeeds.has(session.id) || session.orchestration
+      ? approvalLabel
+      : "Needs you: approve an action or answer a question";
   const statusClass = needsApproval
     ? "text-[color:var(--aven-needs-you)]"
     : busy
@@ -2663,7 +2665,7 @@ function SessionCard({
     <span
       className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
       title={
-        needsApproval ? approvalLabel : busy ? "Working" : done ? "Done" : time
+        needsApproval ? approvalHint : busy ? "Working" : done ? "Done" : time
       }
     >
       {needsApproval ? (

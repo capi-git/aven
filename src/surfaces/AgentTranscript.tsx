@@ -1373,6 +1373,7 @@ function TurnDuration({
           <SecondOpinionButton
             from={fromHarness}
             onPick={onSecondOpinion}
+            hint="Ask another AI to check this reply"
             includeCurrent
             excludeModelName={currentModelName}
           />
@@ -1471,8 +1472,8 @@ function SaveNoteButton({
   return (
     <button
       type="button"
-      title={saved ? "Saved to Notes" : "Save as note"}
-      aria-label={saved ? "Saved to Notes" : "Save as note"}
+      title={saved ? "Saved to Notes" : "Save to Notes"}
+      aria-label={saved ? "Saved to Notes" : "Save to Notes"}
       className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
       onClick={() => {
         playCue("copy");

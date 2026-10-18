@@ -201,7 +201,7 @@ describe("marking up a browser page", () => {
     vi.useRealTimers();
   });
 
-  it("offers Mark up beside Edit page only where a chat can take the picture", async () => {
+  it("offers Mark up beside Comment on page only where a chat can take the picture", async () => {
     await open({});
     expect(button()).toBeNull();
     await act(async () => root.unmount());
@@ -211,7 +211,7 @@ describe("marking up a browser page", () => {
     expect(markup.title).toBe("Mark up page");
     expect(markup.disabled).toBe(false);
     expect(markup.previousElementSibling?.getAttribute("aria-label")).toBe(
-      "Edit page",
+      "Comment on page",
     );
     // Nothing is captured until the person asks.
     expect(mocks.capture).not.toHaveBeenCalled();
@@ -254,7 +254,7 @@ describe("marking up a browser page", () => {
     expect(button()!.getAttribute("aria-pressed")).toBe("true");
     expect(
       container
-        .querySelector('[aria-label="Edit page"]')!
+        .querySelector('[aria-label="Comment on page"]')!
         .hasAttribute("disabled"),
     ).toBe(true);
     expect(mocks.shellFocus).toHaveBeenCalled();

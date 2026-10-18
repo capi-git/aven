@@ -130,7 +130,7 @@ describe("workspace status data and actions", () => {
     },
   );
 
-  it("toggles the file sidebar on click without opening on hover or focus", async () => {
+  it("toggles the side panel on click without opening on hover or focus", async () => {
     vi.useFakeTimers();
     function ClickInspector() {
       const [open, setOpen] = useState(false);
@@ -150,7 +150,7 @@ describe("workspace status data and actions", () => {
       );
     }
     await act(async () => root.render(createElement(ClickInspector)));
-    const trigger = button("Toggle file sidebar");
+    const trigger = button("Toggle side panel");
     const panel = container.querySelector("aside")!;
     const move = async (from: HTMLElement, to: HTMLElement, ms: number) => {
       await act(async () => {
@@ -171,15 +171,15 @@ describe("workspace status data and actions", () => {
         await vi.advanceTimersByTimeAsync(ms);
       });
     };
-    expect(trigger.title).toBe("Show file sidebar");
+    expect(trigger.title).toBe("Show side panel");
     await move(document.body, trigger, 500);
     expect(panel.hidden).toBe(true);
     expect(trigger.getAttribute("aria-pressed")).toBe("false");
     await act(async () => trigger.focus());
     expect(panel.hidden).toBe(true);
-    await click("Toggle file sidebar");
+    await click("Toggle side panel");
     expect(panel.hidden).toBe(false);
-    expect(trigger.title).toBe("Hide file sidebar");
+    expect(trigger.title).toBe("Hide side panel");
     expect(trigger.getAttribute("aria-pressed")).toBe("true");
     await move(trigger, panel, 200);
     await act(async () => {
@@ -193,7 +193,7 @@ describe("workspace status data and actions", () => {
     });
     await move(panel, document.body, 100);
     expect(panel.hidden).toBe(false);
-    await click("Toggle file sidebar");
+    await click("Toggle side panel");
     expect(trigger.getAttribute("aria-pressed")).toBe("false");
     await move(document.body, trigger, 500);
     // Returning focus after a close action must not reopen the sidebar.

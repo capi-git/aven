@@ -42,7 +42,7 @@ describe("remembering a reply", () => {
       }),
     );
     expect(markup).toContain('aria-label="Copy response"');
-    expect(markup).toContain('aria-label="Save as note"');
+    expect(markup).toContain('aria-label="Save to Notes"');
     expect(markup).toContain('aria-label="Remember this"');
   });
 

@@ -187,7 +187,7 @@ export function describeTurnTests(tests: TurnTests | null): {
     return {
       tone: "neutral",
       title: "No tests ran",
-      detail: "The agent didn't run a test command in its last turn.",
+      detail: "The agent didn't run a test command in its last reply.",
     };
   const counts = [
     latest.failed ? `${latest.failed} failed` : null,

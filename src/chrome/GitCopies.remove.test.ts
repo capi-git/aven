@@ -150,7 +150,7 @@ describe("other copy status and removal", () => {
     await act(async () => toggle.click());
     expect(localStorage.getItem("aven.parallelWorkOpen")).toBe("1");
     expect(container.querySelector(".git-copies-explainer")?.textContent).toBe(
-      "Separate copies of this project where agents work on their own branch.",
+      "Separate copies of this project, so agents can work without touching your main folder.",
     );
     await act(async () => root.render(null));
     await render();

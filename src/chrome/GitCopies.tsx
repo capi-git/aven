@@ -600,7 +600,7 @@ export function currentCopyLabel(
 }
 
 export const PARALLEL_WORK_EXPLAINER =
-  "Separate copies of this project where agents work on their own branch.";
+  "Separate copies of this project, so agents can work without touching your main folder.";
 const EXPLAINED_KEY = "aven.parallelWorkExplained";
 
 function loadExplained(): boolean {

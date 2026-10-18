@@ -135,7 +135,7 @@ export function ProfileSidebarHeader({
                 type="button"
                 onClick={onOpenInbox}
                 aria-current={inboxActive ? "page" : undefined}
-                title="Inbox: GitHub issues and pull requests"
+                title="Inbox: your GitHub issues and pull requests"
               >
                 <Inbox className="size-3.5" aria-hidden />
                 <span className="sr-only">Inbox</span>

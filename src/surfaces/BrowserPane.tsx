@@ -444,7 +444,7 @@ function BrowserPaneSession({
           return;
         editingActive.current = true;
         setEditing(true);
-        setNotice(`Could not exit edit mode: ${errorMessage(reason)}`);
+        setNotice(`Could not stop commenting: ${errorMessage(reason)}`);
       })
       .finally(() => {
         if (editStopRequest.current === request) editStopRequest.current = null;
@@ -1486,9 +1486,11 @@ function BrowserPaneSession({
           <button
             type="button"
             className={`browser-icon-button${editing ? " browser-edit-done" : ""}`}
-            aria-label={editing ? "Exit edit mode" : "Edit page"}
+            aria-label={editing ? "Stop commenting" : "Comment on page"}
             title={
-              editing ? "Exit edit mode (Esc)" : "Select an element to edit"
+              editing
+                ? "Stop commenting (Esc)"
+                : "Click part of the page and leave a comment for the agent"
             }
             aria-pressed={editing}
             disabled={!readyId || !url || markup.active}
@@ -1585,7 +1587,9 @@ function BrowserPaneSession({
       {editing && (
         <div className="browser-edit-hint" role="status">
           <Pencil size={13} />
-          <span>Select an element, then add a comment. Press Esc to exit.</span>
+          <span>
+            Click part of the page, then add a comment. Press Esc to stop.
+          </span>
         </div>
       )}
       {toolsMenu ? (

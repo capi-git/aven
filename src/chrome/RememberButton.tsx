@@ -46,7 +46,11 @@ export function RememberButton({ project, text }: Props) {
       <button
         ref={button}
         type="button"
-        title={label}
+        title={
+          saved
+            ? "Added to Project memory"
+            : "Add to Project memory — every agent in this project will see it"
+        }
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}

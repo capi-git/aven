@@ -662,7 +662,7 @@ function BrowserTitleTabItem({
           aria-selected={active}
           aria-description={
             preview
-              ? "Preview tab. Keep open to retain in the tab strip."
+              ? "Preview tab. The next page you open takes its place unless you keep it open."
               : visible && !active
                 ? "Visible in split"
                 : undefined
@@ -2360,7 +2360,7 @@ function TitleBarComponent({
                 type="button"
                 className="personal-tab-preview-action"
                 aria-label="Keep browser open"
-                title="Keep open"
+                title="Keep this page as a tab. Otherwise the next page you open takes its place."
                 onClick={() => onKeepBrowser?.(focusedId)}
               >
                 <Pin className="size-3" />
@@ -2371,6 +2371,7 @@ function TitleBarComponent({
               type="button"
               className="personal-tab-preview-action"
               aria-label="Recent browser tabs"
+              title="Pages you opened recently, including ones no longer shown as tabs"
               aria-haspopup="menu"
               aria-expanded={Boolean(recentMenu)}
               onClick={(event) => {

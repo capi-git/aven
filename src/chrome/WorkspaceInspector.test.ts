@@ -132,12 +132,12 @@ async function render(patch: Partial<WorkspaceInspectorProps> = {}) {
 describe("WorkspaceInspector lifecycle", () => {
   it("offers an explicit pin action only when the caller provides it", async () => {
     await render({ cwd: "~", onPin: undefined });
-    expect(container.querySelector('[aria-label="Pin inspector"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Pin side panel"]')).toBeNull();
     const onPin = vi.fn();
     await render({ onPin });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Pin inspector"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Pin side panel"]')!
         .click(),
     );
     expect(onPin).toHaveBeenCalledOnce();
@@ -318,7 +318,7 @@ describe("WorkspaceInspector lifecycle", () => {
     );
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Hide inspector"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Hide side panel"]')!
         .click(),
     );
     expect(props.onClose).toHaveBeenCalledOnce();
