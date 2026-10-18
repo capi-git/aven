@@ -187,6 +187,7 @@ import {
   openAgentBrowserTab,
   createAgentBrowserRouter,
   presentAgentBrowserView,
+  agentRequesterTab,
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
@@ -196,6 +197,7 @@ import {
   openDevPreview,
   previewBelongsTo,
   previewTabMatch,
+  previewTabsOnServer,
   publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
@@ -1231,15 +1233,19 @@ export default function App({
             )
               throw new Error("The task is no longer available.");
             const project = session.cwd;
+            const before =
+              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER;
             // No await between selecting and committing: overlapping opens see the
             // committed tab and return the same surface instead of creating copies.
             const {
               tab: { id },
               workspace,
-            } = openAgentBrowserTab(
-              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
-              url,
-              { ...options, focus: placement.activate },
+            } = openAgentBrowserTab(before, url, {
+              ...options,
+              focus: placement.activate,
+            });
+            const created = !normalizeBrowserWorkspace(before).tabs.some(
+              (page) => page.id === id,
             );
             const surfaceId = browserIdForTab(project, id);
             if (detachedIdsRef.current.has(surfaceId)) {
@@ -1260,13 +1266,21 @@ export default function App({
               }));
             });
             // Show a requested page in the active project without switching
-            // profiles, beside the chat that asked for it rather than behind it.
-            // arrange:false leaves the panes alone; a new page waits as a
-            // background tab in the focused pane.
-            if (sameProjectPath(projectCwdRef.current, project)) {
-              const requester = tabsRef.current.find((tab) =>
-                leafIds(tab.layout).includes(sessionId),
-              )?.id;
+            // profiles, in the browser pane already open (one showing the
+            // same server first), else beside the chat that asked for it,
+            // never behind it. arrange:false only lets a new page join an
+            // open browser pane as a background tab (without one it waits
+            // in the focused pane) and never moves a page already open.
+            if (
+              sameProjectPath(projectCwdRef.current, project) &&
+              (placement.arrange || created)
+            ) {
+              // A worker has no tab of its own: its lead's chat asked.
+              const requester = agentRequesterTab(tabsRef.current, [
+                sessionId,
+                session.orchestrationLeadId,
+              ]);
+              const pages = workspace.tabs.filter((page) => page.id !== id);
               viewRef.current.change((view) =>
                 presentAgentBrowserView(
                   view,
@@ -1276,9 +1290,12 @@ export default function App({
                   ),
                   requester,
                   placement.arrange,
+                  previewTabsOnServer(pages, url).map((page) =>
+                    browserIdForTab(project, page.id),
+                  ),
                 ),
               );
-            } else {
+            } else if (!sameProjectPath(projectCwdRef.current, project)) {
               // Never switch projects under the user; say where the page went.
               const notice: AgentPageNotice = {
                 id: surfaceId,

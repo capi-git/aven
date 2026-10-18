@@ -499,15 +499,38 @@ export function revealBesideWorkspaceView(
   return selectWorkspaceView(moveWorkspaceTab(view, id, other), id);
 }
 
-/** Agent output joins the browser pane without changing the user's focus. */
+/** How an agent's page is placed, beyond which tabs are browser pages. */
+export type AgentBrowserPlaceOptions = {
+  /**
+   * Browser tabs already showing the page's site. A pane holding one is
+   * preferred over another browser pane.
+   */
+  sameSite?: readonly string[];
+  /**
+   * The agent asked to leave the panes as they are (arrange:false): the page
+   * may only join a browser pane already open, as a tab in the background.
+   * Nothing is split or selected, and without such a pane nothing moves.
+   */
+  background?: boolean;
+};
+
+/**
+ * Agent output joins the browser pane without changing the user's focus:
+ * one already showing the same site, else any browser pane, and only when
+ * there is none, the pane beside the chat that asked (split off it when it
+ * stands alone). It never lands in the asking chat's own pane while a
+ * browser pane is open.
+ */
 export function placeAgentBrowserView(
   view: WorkspaceView,
   id: string,
   browserIds: readonly string[],
   requesterId?: string,
+  { sameSite = [], background = false }: AgentBrowserPlaceOptions = {},
 ): WorkspaceView {
   if (!view.layout) return view;
   const peers = new Set(browserIds.filter((candidate) => candidate !== id));
+  const site = new Set(sameSite.filter((candidate) => peers.has(candidate)));
   const hidden = Object.entries(view.hiddenGroups ?? {});
   if (hidden.some(([, members]) => members.includes(id))) return view;
   const owner = workspaceGroupOwner(view, id);
@@ -517,11 +540,18 @@ export function placeAgentBrowserView(
   );
   const requester = requesterId && workspaceGroupOwner(view, requesterId);
   const panes = leafIds(view.layout);
-  const browserPane = panes.find(
-    (pane) =>
-      pane !== requester &&
-      view.groups[pane]?.some((member) => peers.has(member)),
-  );
+  const holds = (pane: string, among: ReadonlySet<string>) =>
+    pane !== requester &&
+    !!view.groups[pane]?.some((member) => among.has(member));
+  const browserPane =
+    panes.find((pane) => holds(pane, site)) ??
+    panes.find((pane) => holds(pane, peers));
+  if (background) {
+    // Only a background tab in a browser pane that is already showing.
+    if (!browserPane || browserPane === owner) return view;
+    const next = moveWorkspaceTab(view, id, browserPane);
+    return { ...next, focusedId: view.focusedId };
+  }
   // A tucked browser pane remains tucked. Keep its restore snapshot in sync
   // rather than expanding the user's current view to service a background task.
   if (!browserPane && hiddenBrowser && view.restoreView) {

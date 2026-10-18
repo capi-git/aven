@@ -1,4 +1,5 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
+import { previewTabsOnServer } from "../lib/devPreviews";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
 import { sessionWorkCwd } from "../lib/session";
 import { leadDecidedIds, sessionNeedsUser } from "../lib/teamAttention";
@@ -683,15 +684,24 @@ export function DetachedWorkspace() {
                   state.browsers
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view:
-                value.activate === false
-                  ? presentAgentBrowserView(
-                      view,
-                      browser.id,
-                      [...state.browsers.map((page) => page.id), browser.id],
-                      requester?.id,
-                      value.arrange !== false,
-                    )
-                  : selectWorkspaceView(view, browser.id),
+                // arrange:false never moves a page that was already open.
+                value.activate === false && exists && value.arrange === false
+                  ? view
+                  : value.activate === false
+                    ? presentAgentBrowserView(
+                        view,
+                        browser.id,
+                        [...state.browsers.map((page) => page.id), browser.id],
+                        requester?.id,
+                        value.arrange !== false,
+                        previewTabsOnServer(
+                          state.browsers.filter(
+                            (page) => page.id !== browser.id,
+                          ),
+                          browser.url,
+                        ).map((page) => page.id),
+                      )
+                    : selectWorkspaceView(view, browser.id),
             };
           });
         if (value.file && value.sessionId) {
