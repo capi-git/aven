@@ -60,7 +60,7 @@ import { teamIdOf, teamKeyOf, teamKindOf, type TeamRun } from "../lib/teamRuns";
 import {
   parseTeamWatchAction,
   popOutView,
-  teamPillText,
+  teamPillWords,
   teamPills,
   teamGoneText,
   teamTone,
@@ -873,7 +873,7 @@ export const TeamPill = memo(function TeamPill({
   onRestore: (teamId: string) => void;
 }) {
   const voices = useTeamVoices(team);
-  const { progress, status } = teamPillText(team);
+  const { progress, status } = teamPillWords(team);
   const progressRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
   useMotionOnChange(progressRef, progress);
@@ -892,7 +892,9 @@ export const TeamPill = memo(function TeamPill({
       data-state={teamTone(team)}
       data-native-browser-occluded="true"
       title={`Show the ${TEAM_NOUN[team.kind]}`}
-      aria-label={`Show the ${TEAM_NOUN[team.kind]} “${team.title}”: ${progress}, ${status}`}
+      aria-label={`Show the ${TEAM_NOUN[team.kind]} “${team.title}”: ${
+        progress ? `${progress}, ` : ""
+      }${status}`}
       style={
         color ? ({ "--discussion-voice": color } as CSSProperties) : undefined
       }
@@ -908,9 +910,11 @@ export const TeamPill = memo(function TeamPill({
           />
         ))}
       </span>
-      <span ref={progressRef} className="team-pill-progress">
-        {progress}
-      </span>
+      {progress ? (
+        <span ref={progressRef} className="team-pill-progress">
+          {progress}
+        </span>
+      ) : null}
       <span ref={statusRef} className="discussion-pill-status">
         {status}
       </span>
