@@ -1,4 +1,4 @@
-import { failureText, logError } from "./lib/errors";
+import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { useDevSmoke } from "./hooks/useDevSmoke";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
@@ -5535,10 +5535,15 @@ export default function App({
   );
 
   const removingProjects = useRef(new Set<string>());
+  /** Removes a project; resolves with why it could not, or null. */
   const onRemoveProject = useCallback(
-    async (path: string, options: { purgeData: boolean }) => {
+    async (
+      path: string,
+      options: { purgeData: boolean },
+    ): Promise<string | null> => {
       const normalized = normalizeProjectPath(path);
-      if (removingProjects.current.has(normalized)) return;
+      if (removingProjects.current.has(normalized))
+        return "This project is already being removed.";
       removingProjects.current.add(normalized);
       try {
         if (options.purgeData) {
@@ -5554,7 +5559,7 @@ export default function App({
             panelTerminals.length > 0 &&
             !(await confirmCloseTerminals(panelTerminals))
           )
-            return;
+            return "Its terminals were kept running.";
           const closingTerminals = new Set(
             panelTerminals.map((file) => file.id),
           );
@@ -5696,16 +5701,16 @@ export default function App({
           }
         }
       } catch (error) {
-        void message(
-          `Could not delete this project.\n\n${error instanceof Error ? error.message : String(error)}`,
-          {
-            title: "Aven",
-            kind: "error",
-          },
-        );
+        const reason = errorText(error);
+        void message(`Could not delete this project.\n\n${reason}`, {
+          title: "Aven",
+          kind: "error",
+        });
+        return reason;
       } finally {
         removingProjects.current.delete(normalized);
       }
+      return null;
     },
     [onRemoveHistorySession, onSelectProject, persistSession],
   );

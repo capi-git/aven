@@ -77,8 +77,11 @@ type Options = DevPerfOptions & {
     toggle: () => void;
     terminalIds: (projectPath: string) => string[];
   };
-  /** Delete a project and its chats, as the sidebar's Delete does. */
-  deleteProject?: (projectPath: string) => Promise<void>;
+  /**
+   * Delete a project and its chats, as the sidebar's Delete does; resolves
+   * with why it could not.
+   */
+  deleteProject?: (projectPath: string) => Promise<string | null | void>;
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats; the check drives the composer's Discuss mode. */
@@ -1468,11 +1471,24 @@ export async function checkBoard(
   if (!buttons.includes("Review") || !buttons.includes("Ship it"))
     throw new Error(`The review card offers ${buttons.join(", ")}`);
   card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
-  await waitFor(
-    () => chatPane(chat.id) && !boardOnScreen(project),
-    5_000,
-    "the card to open its chat",
-  );
+  // The chat must be the focused surface. The board may stay on screen
+  // beside it when the workspace shows two groups of tabs side by side.
+  const surfaceOf = (element: Element | null) =>
+    element?.closest<HTMLElement>("[data-workspace-surface]")?.dataset
+      .workspaceSurface;
+  const chatFocused = () => {
+    const pane = chatPane(chat.id);
+    const focused = get().focusedSurfaceId;
+    return !!pane && (focused === undefined || surfaceOf(pane) === focused);
+  };
+  try {
+    await waitFor(chatFocused, 5_000, "the card to open its chat");
+  } catch (error) {
+    const pane = chatPane(chat.id);
+    throw new Error(
+      `${errorText(error)} (chat ${pane ? `on screen in ${surfaceOf(pane) ?? "no surface"}` : "not on screen"}, focused ${get().focusedSurfaceId ?? "unknown"}, board ${boardOnScreen(project) ? `on screen in ${surfaceOf(boardOnScreen(project))}` : "gone"})`,
+    );
+  }
   // Leave no board open: bring it forward and close it as a person would.
   const again = await waitFor(
     () =>
@@ -3631,11 +3647,18 @@ export async function runDevSmoke(
           "the panel's shell to start and go idle",
         );
         projectPanel.toggle();
-        await withTimeout(deleteProject(path), 30_000, "deleting the project");
+        const refused = await withTimeout(
+          deleteProject(path),
+          30_000,
+          "deleting the project",
+        );
         const listed = (get().projects ?? []).some((project) =>
           sameProjectPath(project.path, path),
         );
-        if (listed) throw new Error("The project is still listed after Delete");
+        if (listed)
+          throw new Error(
+            `The project is still listed after Delete${refused ? `: ${refused}` : ""}`,
+          );
         if (projectPanel.terminalIds(path).length > 0)
           throw new Error("The project's terminal panel was kept");
         await waitForAsync(

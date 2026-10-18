@@ -178,7 +178,8 @@ describe("the real-app check's board step", () => {
   it("fails when pressing the card does not open the chat", async () => {
     const { outcome } = await run({ boardStays: true });
     expect(outcome).toEqual({
-      error: "Timed out waiting for the card to open its chat",
+      error:
+        "Timed out waiting for the card to open its chat (chat not on screen, focused unknown, board on screen in undefined)",
     });
   });
 });
