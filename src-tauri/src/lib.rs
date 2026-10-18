@@ -390,6 +390,7 @@ pub fn run() {
             browser::browser_downloads,
             browser::browser_download_action,
             browser_snapshot::browser_snapshot,
+            browser_snapshot::browser_capture,
             projectless::projectless_cwd,
             window::workspace_window_labels,
             workspace_window::workspace_window_open,

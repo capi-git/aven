@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Mark up** in the browser's toolbar (the pen beside Edit page, also in the More menu) freezes the page as a sharp picture and opens a small toolbar over it, like Claude's: select, pen, line, arrow, box, circle and text, a colour, undo, **Send** and close. Draw on the page, then **Send** attaches the marked-up picture to the chat beside it, ready for you to say what to change; it never sends by itself. Keys pick the tools (V, P, L, A, R, O, T), ⌘Z undoes and Escape leaves without sending. A note placed by the edge stays inside the picture. On a Mac.
+
 ### Changed
 
 - Opening an image now shows it in a popup over your work instead of a new tab, from a chat picture, an attachment, a file link, the file tree, the file picker or the Changes panel. It shows the picture's name (or its caption, such as "Before") and size, with **Open in tab**, **Reveal in Finder**, **Copy path** and close. ‹ › and the arrow keys step through the pictures beside it, such as an agent's Before and After or the other images in its folder; a click zooms to full size and Escape closes. Images an agent opens still open as tabs, and pasted pictures and note images open in the popup too.

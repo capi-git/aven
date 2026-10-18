@@ -366,4 +366,87 @@ describe("browser presentation", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(notices).toEqual([]);
   });
+
+  it("freezes the page behind a supplied picture without an overlay capture, then shows it again", async () => {
+    const src = "data:image/png;base64,markup";
+    const frozen = controller.freeze(src);
+    await settle();
+    expect(native.decodes).toEqual([src]);
+    expect(snapshots.at(-1)).toMatchObject({ src, width: 600, height: 500 });
+    // Painted beneath the live page before Chromium is hidden.
+    expect(native.page.visible).toBe(true);
+    await paint();
+    await expect(frozen).resolves.toBe(true);
+    expect(native.page.visible).toBe(false);
+    // Modals and resizes keep the frozen picture instead of replacing it.
+    overlay(true);
+    native.measured = { ...native.measured, width: 700 };
+    resize();
+    await vi.advanceTimersByTimeAsync(16);
+    await paint();
+    expect(native.page).toMatchObject({ visible: false });
+    expect(native.page.bounds.width).toBe(700);
+    expect(native.captures).toEqual([]);
+    expect(snapshots.at(-1)?.src).toBe(src);
+    document.querySelector('[aria-modal="true"]')!.remove();
+    controller.thaw();
+    await settle();
+    expect(native.page.visible).toBe(true);
+    expect(snapshots.at(-1)).toBeNull();
+    expect(native.captures).toEqual([]);
+  });
+
+  it("abandons a freeze that is thawed before the page is hidden", async () => {
+    const decode = deferred<void>();
+    native.nextDecode = decode;
+    const early = controller.freeze("data:image/png;base64,early");
+    await settle();
+    controller.thaw();
+    decode.resolve();
+    await expect(early).resolves.toBe(false);
+    expect(snapshots.filter(Boolean)).toEqual([]);
+    expect(native.page.visible).toBe(true);
+
+    const late = controller.freeze("data:image/png;base64,late");
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,late");
+    controller.thaw();
+    await paint();
+    await expect(late).resolves.toBe(false);
+    // The picture it slid beneath the page is released at once.
+    expect(snapshots.at(-1)).toBeNull();
+    expect(native.page.visible).toBe(true);
+    expect(native.layouts.every((layout) => layout.visible)).toBe(true);
+  });
+
+  it("keeps a freeze's picture when a layout already in flight shows the page", async () => {
+    const layout = deferred<void>();
+    native.nextLayout = layout;
+    native.measured = { ...native.measured, width: 640 };
+    controller.update();
+    await settle();
+    const src = "data:image/png;base64,markup";
+    const frozen = controller.freeze(src);
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe(src);
+    layout.resolve();
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe(src);
+    await paint();
+    await expect(frozen).resolves.toBe(true);
+    expect(native.page.visible).toBe(false);
+    expect(snapshots.at(-1)?.src).toBe(src);
+  });
+
+  it("does not freeze a hidden pane", async () => {
+    state.visible = false;
+    state.paused = true;
+    controller.update();
+    await settle();
+    await expect(
+      controller.freeze("data:image/png;base64,hidden"),
+    ).resolves.toBe(false);
+    expect(native.decodes).toEqual([]);
+    expect(snapshots).toEqual([]);
+  });
 });
