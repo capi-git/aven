@@ -65,6 +65,7 @@ import {
 } from "./DiscussionMessages";
 import { TeamPanelBar, type TeamPanelControls } from "./TeamPanelBar";
 import "./DiscussionPanel.css";
+import "./TeamWatchPanel.css";
 
 /** Close enough to the end that new messages keep the view at the bottom. */
 const STICK_PX = 48;
@@ -466,40 +467,6 @@ export function DiscussionThreadPanel({
             onShow={can.openChat ? () => show("b") : undefined}
           />
         </div>
-        {!ended ? (
-          <div className="discussion-float-actions">
-            {paused && blocked && can.openChat ? (
-              <TeamCardButton
-                size="compact"
-                variant="needs-you"
-                onClick={() => show(blocked)}
-              >
-                <ArrowRight className="size-3" />
-                Go to {voices[blocked].name}
-              </TeamCardButton>
-            ) : null}
-            {/* Resume sits with the reason, at the end of the thread. */}
-            <TeamCardButton
-              size="compact"
-              data-team-stop="discussion"
-              title="Stop the discussion. A reply being written finishes, but the other chat won't get it."
-              disabled={action.pending === "stop"}
-              onClick={() => action.run({ kind: "stop" })}
-            >
-              <Square className="size-2.5" />
-              Stop discussion
-            </TeamCardButton>
-          </div>
-        ) : null}
-        {action.problem ? (
-          <p
-            className="team-watch-problem"
-            role="alert"
-            data-discussion-problem
-          >
-            {action.problem}
-          </p>
-        ) : null}
       </div>
       <div className="discussion-float-body">
         {rounds.length > 1 ? (
@@ -604,6 +571,33 @@ export function DiscussionThreadPanel({
           onEscape={onEscape}
         />
       )}
+      {action.problem ? (
+        <p className="team-watch-problem" role="alert" data-discussion-problem>
+          {action.problem}
+        </p>
+      ) : null}
+      {/* The same footer as a race's and a run's panel: its actions at the
+          bottom right, Stop last. Resume sits with the reason, at the end
+          of the thread. */}
+      {!ended ? (
+        <div className="team-watch-actions" data-discussion-actions>
+          {paused && blocked && can.openChat ? (
+            <TeamCardButton variant="needs-you" onClick={() => show(blocked)}>
+              <ArrowRight className="size-3" />
+              Go to {voices[blocked].name}
+            </TeamCardButton>
+          ) : null}
+          <TeamCardButton
+            data-team-stop="discussion"
+            title="Stop the discussion. A reply being written finishes, but the other chat won't get it."
+            disabled={action.pending === "stop"}
+            onClick={() => action.run({ kind: "stop" })}
+          >
+            <Square className="size-2.5" />
+            Stop discussion
+          </TeamCardButton>
+        </div>
+      ) : null}
     </div>
   );
 }

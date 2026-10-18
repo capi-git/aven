@@ -226,14 +226,6 @@ button.discussion-side:focus-visible {
 .discussion-track i[data-state="now"] {
   background: var(--discussion-voice, var(--personal-accent));
 }
-.discussion-float-actions {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: var(--text-ui-caption);
-}
-
 /* The thread, with its round rail on the left edge. */
 .discussion-float-body {
   position: relative;
@@ -513,6 +505,10 @@ button.discussion-side:focus-visible {
   flex-shrink: 0;
   padding: 8px 16px 12px;
   border-top: 1px solid var(--aven-line);
+}
+/* The actions footer follows it, as at the bottom of every team panel. */
+.discussion-jump:has(+ .team-watch-actions, + .team-watch-problem) {
+  padding-bottom: 8px;
 }
 .discussion-jump-box {
   display: flex;

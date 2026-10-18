@@ -269,6 +269,29 @@ describe("DiscussionPanelContent", () => {
     expect(container.querySelector('[data-team-stop="discussion"]')).toBe(null);
   });
 
+  it("keeps its Stop in the footer, last, as a race's and a run's panel do", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    store.pause("d1", "“Review” is busy with your own turn.", "b");
+    await renderWith({
+      options: () => ({ candidates: [] }),
+      start: () => null,
+      show: vi.fn(),
+    });
+    const footer = container.querySelector<HTMLElement>(
+      "[data-discussion-actions]",
+    )!;
+    expect(footer.classList).toContain("team-watch-actions");
+    // At the bottom of the panel, after the message box.
+    expect(footer.parentElement?.lastElementChild).toBe(footer);
+    expect(
+      [...footer.querySelectorAll("button")].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["Go to Codex", "Stop discussion"]);
+  });
+
   it("shows why a press from a window of its own did nothing", async () => {
     const store = discussionStore();
     store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
