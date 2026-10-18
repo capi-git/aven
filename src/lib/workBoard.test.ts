@@ -41,13 +41,18 @@ const review = (sessionId: string, patch: Partial<ChatReview> = {}) =>
     ...patch,
   }) satisfies ChatReview;
 
+// Each chat's own commit, named by the chat.
 const ship = (sessionId: string, patch: Partial<ShippedChat> = {}) =>
   ({
     sessionId,
     project: PROJECT,
     cwd: PROJECT,
     at: NOW - 60_000,
-    commit: { sha: "4c19b02aa", shortSha: "4c19b02", subject: "Clean" },
+    commit: {
+      sha: `${sessionId}-4c19b02aa`,
+      shortSha: "4c19b02",
+      subject: sessionId,
+    },
     ...patch,
   }) satisfies ShippedChat;
 
@@ -201,7 +206,11 @@ describe("workBoard", () => {
     expect(card("commit").actions).toEqual([
       {
         kind: "commit",
-        commit: { sha: "4c19b02aa", shortSha: "4c19b02", subject: "Clean" },
+        commit: {
+          sha: "commit-4c19b02aa",
+          shortSha: "4c19b02",
+          subject: "commit",
+        },
       },
     ]);
     expect(card("commit").line).toMatch(/^Commit 4c19b02 · /);
@@ -291,6 +300,88 @@ describe("workBoard", () => {
       "old",
     ]);
     expect(all.olderShipped).toBe(0);
+  });
+
+  it("keeps a ship in Shipped once its chat has new changes, and counts it in the header", () => {
+    // Shipped this morning, then a race brought in more for review.
+    const model = board({
+      chats: [chat("calc", { title: "Round up" })],
+      statuses: { calc: "review" },
+      reviews: { calc: review("calc", { at: NOW - 1_000 }) },
+      shipped: {
+        calc: ship("calc", {
+          at: NOW - 2 * 3_600_000,
+          commit: {
+            sha: "9f8e7d6c5",
+            shortSha: "9f8e7d6",
+            subject: "Add a round-up option",
+          },
+        }),
+      },
+    });
+    expect(titles(model)).toEqual({
+      "needs-you": [],
+      working: [],
+      review: ["Round up"],
+      shipped: ["Add a round-up option"],
+    });
+    expect(model.columns.shipped[0]).toMatchObject({
+      id: "ship:9f8e7d6c5",
+      sessionId: "calc",
+      faces: [{ sessionId: "calc", harness: "claude" }],
+    });
+    expect(model.columns.shipped[0]!.line).toMatch(/^Commit 9f8e7d6 · /);
+    expect(boardTodayText(model.today)).toBe(
+      "Today: 1 shipped · 0 in progress",
+    );
+  });
+
+  it("shows each of a chat's ships, and one card for a ship that carried several chats", () => {
+    const together = {
+      sha: "aaaa1111",
+      shortSha: "aaaa111",
+      subject: "Ship both",
+    };
+    const model = board({
+      chats: [chat("b", { harness: "codex" })],
+      statuses: { a: "shipped", b: "shipped", c: "shipped" },
+      shipped: {
+        a: ship("a", {
+          at: NOW - 60_000,
+          earlier: [
+            {
+              at: NOW - 3_600_000,
+              commit: {
+                sha: "bbbb2222",
+                shortSha: "bbbb222",
+                subject: "First pass",
+              },
+            },
+            { at: NOW - 2 * DAY, pushed: true },
+          ],
+        }),
+        b: ship("b", { at: NOW - 120_000, commit: together }),
+        c: ship("c", {
+          at: NOW - 120_000,
+          commit: together,
+          harness: "cursor",
+        }),
+      },
+    });
+    expect(model.columns.shipped.map((card) => card.title)).toEqual([
+      "a",
+      "Ship both",
+      "First pass",
+      "Chat",
+    ]);
+    expect(model.columns.shipped[1]!.faces).toEqual([
+      { sessionId: "b", harness: "codex" },
+      { sessionId: "c", harness: "cursor" },
+    ]);
+    // A ship without a commit is named by its chat and says it was pushed.
+    expect(model.columns.shipped[3]!.line).toMatch(/^Pushed · /);
+    expect(model.columns.shipped[3]!.actions).toEqual([]);
+    expect(model.today.shipped).toBe(3);
   });
 
   it("names a single changed file", () => {

@@ -1,19 +1,20 @@
 /**
  * A project's board: its chats in four columns by their one-word status
- * (see `chatStatus`), Needs you, Working, Ready to review and Shipped. Built
- * from summary data only (status words, team runs, review and ship records,
- * dev previews), never from transcripts. Teams show as one card each, their
- * chats folded in.
+ * (see `chatStatus`), Needs you, Working and Ready to review, and its ships
+ * in Shipped. Built from summary data only (status words, team runs, review
+ * and ship records, dev previews), never from transcripts. Teams show as one
+ * card each, their chats folded in. A ship is an event: it stays in Shipped
+ * for the week even once its chat has new changes to review.
  */
 import { appName } from "./agentNames";
 import { chatStage, type ChatStatusWord } from "./chatStatus";
 import type { ChatReview } from "./chatReview";
 import type { DevPreview } from "./devPreviews";
 import { pendingRequestKey, type LeadDecided } from "./teamAttention";
-import { isEqualOrInside } from "./paths";
+import { isEqualOrInside, pathKey } from "./paths";
 import { requestText } from "./requestText";
 import { sessionWorkCwd, type HarnessId, type Session } from "./session";
-import type { ShippedChat } from "./shippedChats";
+import { shipEvents, type ShipEvent, type ShippedChat } from "./shippedChats";
 import {
   TEAM_KIND_LABEL,
   teamAnchor,
@@ -122,7 +123,7 @@ export type BoardAction =
   | { kind: "pr"; number: number; url: string };
 
 export type BoardCard = {
-  /** `chat:<session id>` or `team:<team id>`. */
+  /** `chat:<session id>`, `team:<team id>` or `ship:<commit or moment>`. */
   id: string;
   column: BoardColumnId;
   /** The chat a click opens. */
@@ -147,6 +148,7 @@ export type WorkBoardModel = {
   columns: Readonly<Record<BoardColumnId, BoardCard[]>>;
   /** Shipped cards older than the recent window, left out until asked. */
   olderShipped: number;
+  /** Today's ships, counted from the Shipped cards, and what is under way. */
   today: { shipped: number; inProgress: number };
 };
 
@@ -200,7 +202,7 @@ export function shippedTime(at: number, now: number): string {
 }
 
 /** "PR #42 · 09:05", "Commit 4c19b02 · 11:20". */
-export function shippedLine(ship: ShippedChat, now: number): string {
+export function shippedLine(ship: ShipEvent, now: number): string {
   const time = shippedTime(ship.at, now);
   const what = ship.pr
     ? `PR #${ship.pr.number}`
@@ -279,6 +281,52 @@ function teamCard(team: TeamRun, column: BoardColumnId): BoardCard {
   };
 }
 
+/**
+ * Every ship in the project, each its own card: one per commit, or per Ship
+ * it without one, carrying the faces of every chat it took. Named by its
+ * commit's subject, else by its chat. Newest first.
+ */
+function shipCards(
+  input: WorkBoardInput,
+  chats: ReadonlyMap<string, BoardChat>,
+): BoardCard[] {
+  const cards = new Map<string, BoardCard>();
+  for (const ship of Object.values(input.shipped)) {
+    const id = ship.sessionId;
+    const chat = chats.get(id);
+    const review = input.reviews[id];
+    if (!inProject(chat?.cwd ?? ship.project, input.project)) continue;
+    const harness = chat?.harness ?? ship.harness ?? review?.harness;
+    const face = harness ? [{ sessionId: id, harness }] : [];
+    const chatTitle = chat?.title || ship.title || review?.title || "Chat";
+    for (const event of shipEvents(ship)) {
+      const key = event.commit?.sha ?? `${pathKey(ship.cwd)}@${event.at}`;
+      const same = cards.get(key);
+      if (same) {
+        if (!same.faces.some((entry) => entry.sessionId === id))
+          same.faces.push(...face);
+        continue;
+      }
+      cards.set(key, {
+        id: `ship:${key}`,
+        column: "shipped",
+        sessionId: id,
+        cwd: ship.cwd,
+        title: event.commit?.subject || chatTitle,
+        faces: [...face],
+        line: shippedLine(event, input.now),
+        at: event.at,
+        actions: event.pr
+          ? [{ kind: "pr", number: event.pr.number, url: event.pr.url }]
+          : event.commit
+            ? [{ kind: "commit", commit: event.commit }]
+            : [],
+      });
+    }
+  }
+  return [...cards.values()];
+}
+
 /** The board's columns for one project. */
 export function workBoard(input: WorkBoardInput): WorkBoardModel {
   const { project, statuses, reviews, shipped, now } = input;
@@ -303,27 +351,31 @@ export function workBoard(input: WorkBoardInput): WorkBoardModel {
   }
 
   const chats = new Map(input.chats.map((chat) => [chat.id, chat]));
-  const ids = new Set<string>([
-    ...chats.keys(),
-    ...Object.keys(reviews),
-    ...Object.keys(shipped),
-  ]);
+  const ids = new Set<string>([...chats.keys(), ...Object.keys(reviews)]);
   let olderShipped = 0;
   let shippedToday = 0;
   const today = startOfDay(now);
   const recentSince = now - BOARD_SHIPPED_DAYS * DAY_MS;
+
+  // Shipped holds ships, not chats, and the header counts the same cards.
+  for (const card of shipCards(input, chats)) {
+    if (card.at >= today) shippedToday += 1;
+    if (card.at < recentSince && !input.showOlder) olderShipped += 1;
+    else columns.shipped.push(card);
+  }
 
   for (const id of ids) {
     if (covered.has(id)) continue;
     const chat = chats.get(id);
     const review = reviews[id];
     const ship = shipped[id];
-    const where = chat?.cwd ?? review?.project ?? ship?.project ?? "";
+    const where = chat?.cwd ?? review?.project ?? "";
     if (!inProject(where, project)) continue;
-    if (ship && ship.at >= today) shippedToday += 1;
     const word = statuses[id];
     if (!word) continue;
     const stage = chatStage(word);
+    // A shipped chat shows as its ships' cards.
+    if (stage === "shipped") continue;
     const title = chat?.title || review?.title || ship?.title || "Chat";
     const harness = chat?.harness ?? review?.harness ?? ship?.harness;
     const base = {
@@ -385,21 +437,6 @@ export function workBoard(input: WorkBoardInput): WorkBoardModel {
           { kind: "review" },
           { kind: "ship" },
         ],
-      });
-    } else if (ship) {
-      if (ship.at < recentSince && !input.showOlder) {
-        olderShipped += 1;
-        continue;
-      }
-      columns.shipped.push({
-        ...base,
-        line: shippedLine(ship, now),
-        at: ship.at,
-        actions: ship.pr
-          ? [{ kind: "pr", number: ship.pr.number, url: ship.pr.url }]
-          : ship.commit
-            ? [{ kind: "commit", commit: ship.commit }]
-            : [],
       });
     }
   }

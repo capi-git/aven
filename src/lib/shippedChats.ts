@@ -17,25 +17,89 @@ import {
 import type { ShipResult } from "./shipFlow";
 import { sessionForShip } from "./turnTests";
 
-/**
- * How a chat's changes went out through Ship it: the commit it made, and
- * the pull request it opened or updated. One record per chat, its latest
- * ship; a card links to the commit or the pull request.
- */
-export type ShippedChat = ChatRecord & {
-  /** The chat's project folder. */
-  project: string;
-  /** The working copy that was shipped. */
-  cwd: string;
+/** One time changes went out: the commit it made, the pull request it opened or updated. */
+export type ShipEvent = {
+  at: number;
   commit?: { sha: string; shortSha: string; subject: string };
   pr?: { number: number; url: string };
   pushed?: true;
-  title?: string;
-  harness?: HarnessId;
 };
+
+/**
+ * How a chat's changes went out through Ship it. One record per chat: its
+ * latest ship, with the ones before it in `earlier`, since each ship is an
+ * event the board keeps showing even once the chat has new changes. A card
+ * links to the commit or the pull request.
+ */
+export type ShippedChat = ChatRecord &
+  ShipEvent & {
+    /** The chat's project folder. */
+    project: string;
+    /** The working copy that was shipped. */
+    cwd: string;
+    title?: string;
+    harness?: HarnessId;
+    /** Its earlier ships, newest first. */
+    earlier?: ShipEvent[];
+  };
 
 /** Ships kept for the board's Shipped column and Show older. */
 const SHIPPED_KEPT = 200;
+/** Earlier ships kept per chat. */
+const EARLIER_KEPT = 10;
+
+/** A saved ship's commit, pull request and push, checked. */
+function shipParts(row: Record<string, unknown>): Omit<ShipEvent, "at"> {
+  const commit = row.commit as Record<string, unknown> | undefined;
+  const pr = row.pr as Record<string, unknown> | undefined;
+  const sha = shortText(commit?.sha, 64);
+  const prNumber =
+    typeof pr?.number === "number" &&
+    Number.isInteger(pr.number) &&
+    pr.number > 0
+      ? pr.number
+      : undefined;
+  const prUrl = shortText(pr?.url, 2048);
+  return {
+    ...(sha
+      ? {
+          commit: {
+            sha,
+            shortSha: shortText(commit?.shortSha, 16) ?? sha.slice(0, 7),
+            subject: shortText(commit?.subject, 200) ?? "",
+          },
+        }
+      : {}),
+    ...(prNumber && prUrl ? { pr: { number: prNumber, url: prUrl } } : {}),
+    ...(row.pushed === true ? { pushed: true as const } : {}),
+  };
+}
+
+function parseEarlier(value: unknown): ShipEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((entry): ShipEvent[] => {
+      if (!entry || typeof entry !== "object") return [];
+      const row = entry as Record<string, unknown>;
+      return finiteTime(row.at) ? [{ at: row.at, ...shipParts(row) }] : [];
+    })
+    .slice(0, EARLIER_KEPT);
+}
+
+/** The ship a record stands for, without the chat's details. */
+export function shipEvent(ship: ShipEvent): ShipEvent {
+  return {
+    at: ship.at,
+    ...(ship.commit ? { commit: ship.commit } : {}),
+    ...(ship.pr ? { pr: ship.pr } : {}),
+    ...(ship.pushed ? { pushed: true as const } : {}),
+  };
+}
+
+/** Every ship a record holds, newest first. */
+export function shipEvents(ship: ShippedChat): ShipEvent[] {
+  return [shipEvent(ship), ...(ship.earlier ?? [])];
+}
 
 const store = createChatRecordStore<ShippedChat>({
   key: "aven.shippedChats.v1",
@@ -51,38 +115,20 @@ const store = createChatRecordStore<ShippedChat>({
       !finiteTime(row.at)
     )
       return null;
-    const commit = row.commit as Record<string, unknown> | undefined;
-    const pr = row.pr as Record<string, unknown> | undefined;
-    const sha = shortText(commit?.sha, 64);
     const title = shortText(row.title, 180);
     const harness = HARNESSES.includes(row.harness as HarnessId)
       ? (row.harness as HarnessId)
       : undefined;
-    const prNumber =
-      typeof pr?.number === "number" &&
-      Number.isInteger(pr.number) &&
-      pr.number > 0
-        ? pr.number
-        : undefined;
-    const prUrl = shortText(pr?.url, 2048);
+    const earlier = parseEarlier(row.earlier);
     return {
       sessionId: row.sessionId.slice(0, 256),
       project: row.project.slice(0, 2048),
       cwd: row.cwd.slice(0, 2048),
       at: row.at,
-      ...(sha
-        ? {
-            commit: {
-              sha,
-              shortSha: shortText(commit?.shortSha, 16) ?? sha.slice(0, 7),
-              subject: shortText(commit?.subject, 200) ?? "",
-            },
-          }
-        : {}),
-      ...(prNumber && prUrl ? { pr: { number: prNumber, url: prUrl } } : {}),
-      ...(row.pushed === true ? { pushed: true as const } : {}),
+      ...shipParts(row),
       ...(title ? { title } : {}),
       ...(harness ? { harness } : {}),
+      ...(earlier.length ? { earlier } : {}),
     };
   },
 });
@@ -95,12 +141,39 @@ export function useShippedChats(): Readonly<Record<string, ShippedChat>> {
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
+/**
+ * A chat's record once `record` is added: the newest ship on top, the ones
+ * before it kept in `earlier`, one per moment.
+ */
+function withShip(
+  previous: ShippedChat | undefined,
+  record: ShippedChat,
+): ShippedChat {
+  if (!previous) return record;
+  const { earlier: _drop, ...latest } = record;
+  if (previous.at === record.at)
+    return previous.earlier ? { ...latest, earlier: previous.earlier } : latest;
+  if (previous.at < record.at)
+    return {
+      ...latest,
+      earlier: shipEvents(previous).slice(0, EARLIER_KEPT),
+    };
+  // A ship older than the latest one, arriving late: it goes in its place.
+  const earlier = [...(previous.earlier ?? [])];
+  if (!earlier.some((event) => event.at === record.at)) {
+    earlier.push(shipEvent(record));
+    earlier.sort((a, b) => b.at - a.at);
+  }
+  return { ...previous, earlier: earlier.slice(0, EARLIER_KEPT) };
+}
+
 /** Record one ship for each chat it carried. */
 export function recordShipped(records: readonly ShippedChat[]): void {
   if (!records.length) return;
   store.update((current) => {
     const next = { ...current };
-    for (const record of records) next[record.sessionId] = record;
+    for (const record of records)
+      next[record.sessionId] = withShip(next[record.sessionId], record);
     return next;
   });
 }

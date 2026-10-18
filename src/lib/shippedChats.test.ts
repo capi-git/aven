@@ -4,6 +4,7 @@ import type { GitHistory } from "./fs";
 import { newSession, type Session } from "./session";
 import {
   recordShip,
+  shipEvents,
   shippedChatsSnapshot,
   shipTargets,
   forgetShippedChat,
@@ -184,6 +185,46 @@ describe("recordShip", () => {
     expect(shippedChatsSnapshot().a?.commit).toBeUndefined();
     forgetShippedChat("a");
     expect(shippedChatsSnapshot().a).toBeUndefined();
+  });
+
+  it("keeps a chat's earlier ships when it ships again, and reads them back", async () => {
+    const ship = (now: number, committed = true) =>
+      recordShip({
+        cwd: "/repo",
+        requestedId: "a",
+        result: { committed, pushed: !committed, pr: null },
+        sessions: [chat("a")],
+        reviews: {},
+        head,
+        now,
+      });
+    await ship(1_000);
+    await ship(2_000, false);
+    await ship(2_000, false);
+    const kept = shippedChatsSnapshot().a!;
+    expect(kept).toMatchObject({ at: 2_000, pushed: true });
+    expect(kept.commit).toBeUndefined();
+    expect(kept.earlier).toEqual([
+      {
+        at: 1_000,
+        commit: {
+          sha: "4c19b02aa",
+          shortSha: "4c19b02",
+          subject: "Clean the output folder",
+        },
+      },
+    ]);
+    expect(shipEvents(kept).map((event) => event.at)).toEqual([2_000, 1_000]);
+    // Another window, or a restart, reads the same history.
+    const saved = values.get("aven.shippedChats.v1")!;
+    vi.unstubAllGlobals();
+    values = new Map([["aven.shippedChats.v1", saved]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    expect(shippedChatsSnapshot().a?.earlier).toEqual(kept.earlier);
   });
 
   it("keeps each chat's latest ship and only the newest records", async () => {
