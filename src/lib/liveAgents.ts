@@ -1,4 +1,4 @@
-import { composeToolTitle } from "./harness/preview";
+import { toolDisplayLabel } from "./commandLabel";
 import { isInFlightSession } from "./inFlight";
 import { displayPath } from "./paths";
 import { activeSessionAgents, uncertainSessionAgents } from "./sessionAgents";
@@ -267,7 +267,7 @@ function activityLabel(block: Block | undefined, cwd: string): string {
     ? displayPath(preview.path, cwd)
     : preview?.fileName;
   return (
-    composeToolTitle({
+    toolDisplayLabel({
       kind: block.tool?.kind,
       title: block.text || block.tool?.title,
       path,

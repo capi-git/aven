@@ -1,5 +1,6 @@
 import { basename } from "./fs";
-import { composeToolTitle, isWeakToolTitle } from "./harness/preview";
+import { toolDisplayLabel } from "./commandLabel";
+import { isWeakToolTitle } from "./harness/preview";
 import { displayPath } from "./paths";
 import type { Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
@@ -35,7 +36,7 @@ function latestActivity(session: Session): Activity | undefined {
     const path = preview?.path
       ? displayPath(preview.path, session.cwd)
       : preview?.fileName;
-    const label = composeToolTitle({
+    const label = toolDisplayLabel({
       kind: block.tool?.kind,
       title: block.text || block.tool?.title,
       path,

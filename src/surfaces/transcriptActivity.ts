@@ -1,5 +1,5 @@
+import { toolDisplayLabel } from "../lib/commandLabel";
 import {
-  composeToolTitle,
   isAgentTool,
   isEditTool,
   isExecuteTool,
@@ -55,7 +55,7 @@ export function toolCallLabel(block: Block, cwd?: string): string {
     ? displayPath(preview.path, cwd)
     : preview?.fileName;
   return (
-    composeToolTitle({
+    toolDisplayLabel({
       kind: block.tool?.kind,
       title: block.text || block.tool?.title,
       path,
