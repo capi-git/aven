@@ -33,6 +33,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Pen,
   Pencil,
   Maximize2,
   Mic,
@@ -62,6 +63,7 @@ import {
   type BrowserState,
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
+import { useBrowserMarkup } from "../hooks/useBrowserMarkup";
 import { useDevServerStart } from "../hooks/useDevServerStart";
 import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
 import {
@@ -69,10 +71,12 @@ import {
   type BrowserSnapshot,
   type BrowserPresentation,
 } from "../lib/browserPresentation";
+import { BrowserMarkup } from "./BrowserMarkup";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { ProjectMark } from "../chrome/ProjectMark";
+import { IS_MAC } from "../lib/platform";
 
 export type BrowserPaneProps = {
   id: string;
@@ -471,6 +475,19 @@ function BrowserPaneSession({
     setToolsMenu(null);
   }, [readyId, visible]);
   const presentationController = useRef<BrowserPresentation | null>(null);
+  // Mark up needs a still picture of the page, which only macOS captures.
+  const markupAvailable = IS_MAC && !!onAddToChat;
+  const markup = useBrowserMarkup({
+    pageId: readyId,
+    presentation: presentationController,
+    visible,
+    error,
+    url,
+    snapshotSrc: snapshot?.src ?? null,
+    onNotice: setNotice,
+    onAddToChat,
+  });
+  const markupImage = markup.state?.phase === "active" ? markup.state : null;
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
   const sleepProtection =
@@ -933,6 +950,7 @@ function BrowserPaneSession({
   const navigate = (value: string) => {
     try {
       const target = resolveBrowserAddress(value);
+      markup.leave();
       setAddress(target);
       setNotice(null);
       setError(null);
@@ -980,6 +998,8 @@ function BrowserPaneSession({
 
   const action = (kind: BrowserAction) => {
     if (!readyId) return;
+    if (kind === "back" || kind === "forward" || kind === "reload")
+      markup.leave();
     setNotice(null);
     void nativeBrowser
       .action(readyId, kind)
@@ -1271,6 +1291,7 @@ function BrowserPaneSession({
     )
       action(choice);
     if (choice === "chat") addToChat();
+    if (choice === "markup") markup.start();
     if (choice === "external") openExternal();
     if (choice === "find") openFind();
     if (choice === "downloads") setDownloadsOpen((open) => !open);
@@ -1333,6 +1354,16 @@ function BrowserPaneSession({
             id: "chat",
             label: "Add URL to chat",
             disabled: !url,
+          },
+        ]
+      : []),
+    ...(markupAvailable
+      ? [
+          {
+            kind: "item" as const,
+            id: "markup",
+            label: "Mark up page",
+            disabled: !readyId || !url || editing || !!markup.state,
           },
         ]
       : []),
@@ -1460,7 +1491,7 @@ function BrowserPaneSession({
               editing ? "Exit edit mode (Esc)" : "Select an element to edit"
             }
             aria-pressed={editing}
-            disabled={!readyId || !url}
+            disabled={!readyId || !url || markup.active}
             onClick={() => setPageEditing(!editing)}
           >
             {editing ? (
@@ -1471,6 +1502,19 @@ function BrowserPaneSession({
             ) : (
               <Pencil size={14} />
             )}
+          </button>
+        ) : null}
+        {markupAvailable ? (
+          <button
+            type="button"
+            className="browser-icon-button"
+            aria-label="Mark up page"
+            title="Mark up page"
+            aria-pressed={markup.active}
+            disabled={!readyId || !url || editing || markup.busy}
+            onClick={() => (markup.active ? markup.leave() : markup.start())}
+          >
+            <Pen size={14} />
           </button>
         ) : null}
         <button
@@ -1755,7 +1799,15 @@ function BrowserPaneSession({
         </div>
       ) : null}
       <div ref={host} className="browser-native-host">
-        {snapshot && !error ? (
+        {markupImage && snapshot?.src === markupImage.image.src && !error ? (
+          <BrowserMarkup
+            image={markupImage.image}
+            ready={markupImage.ready}
+            leaving={markupImage.leaving}
+            onSend={markup.send}
+            onClose={markup.leave}
+          />
+        ) : snapshot && !error ? (
           <img
             className="browser-page-snapshot"
             src={snapshot.src}

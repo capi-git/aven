@@ -316,6 +316,27 @@ describe("composer draft mutation boundaries", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
+  it("focuses the message box, caret in place, when only a picture is added", async () => {
+    const textarea = await render();
+    textarea.setSelectionRange(3, 3);
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    expect(document.activeElement).toBe(elsewhere);
+    props = {
+      ...props,
+      quoteRequest: { id: 5, text: "", attachments: [attachment] },
+      onQuoteRequestConsumed: vi.fn(),
+    };
+    await render();
+    // Ready for the person to say what the picture is about.
+    expect(document.activeElement).toBe(textarea);
+    expect(textarea.value).toBe("Unsent draft");
+    expect(textarea.selectionStart).toBe(3);
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    elsewhere.remove();
+  });
+
   it("keeps an image-only request empty and compact until the user sends it", async () => {
     props = {
       ...props,

@@ -1,0 +1,218 @@
+/* Mark up: the frozen page picture, its marks, and a floating tool bar. The
+   live page is hidden while this shows, so it covers the whole page area. */
+.browser-markup {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  outline: none;
+  background: var(--color-background-base);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.browser-markup-stage {
+  position: absolute;
+}
+.browser-markup-image,
+.browser-markup-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+.browser-markup-image {
+  pointer-events: none;
+}
+.browser-markup-ink {
+  overflow: visible;
+  touch-action: none;
+  cursor: crosshair;
+}
+.browser-markup-ink[data-tool="select"] {
+  cursor: default;
+}
+.browser-markup-ink[data-tool="text"] {
+  cursor: text;
+}
+.browser-markup-selection rect {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.browser-markup-selection [data-edge="shade"] {
+  stroke: rgb(0 0 0 / 55%);
+}
+.browser-markup-selection [data-edge="light"] {
+  stroke: #fff;
+  stroke-dasharray: 4 4;
+}
+.browser-markup-text {
+  position: absolute;
+  min-width: 1em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  outline: 1px dashed currentColor;
+  outline-offset: 3px;
+  background: transparent;
+  caret-color: currentColor;
+  font-weight: 700;
+  white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The tool bar floats centred at the top of the page area. Its row lets
+   pointer events through to the picture beside the bar. */
+.browser-markup-bar {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px;
+  pointer-events: none;
+}
+/* Solid, like every popup over page content: nothing shows through it. */
+.browser-markup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid
+    var(
+      --aven-glass-overlay-edge,
+      color-mix(in srgb, var(--color-content) 12%, transparent)
+    );
+  border-radius: 10px;
+  background: var(--aven-popup);
+  box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
+  color: var(--color-content);
+  pointer-events: auto;
+  transform-origin: 50% 0;
+  animation: browser-markup-in var(--aven-motion-base) var(--aven-ease-spring)
+    backwards;
+}
+/* Drops in from just above its place, solid from the first frame. */
+@keyframes browser-markup-in {
+  from {
+    transform: translate3d(0, -6px, 0) scale(0.97);
+  }
+}
+.browser-markup-tool {
+  display: inline-grid;
+  flex: 0 0 26px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+  cursor: pointer;
+}
+.browser-markup-tool:hover:not(:disabled) {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.browser-markup-tool[aria-pressed="true"],
+.browser-markup-tool[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+  color: var(--color-content);
+}
+.browser-markup-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.browser-markup-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--aven-line);
+}
+.browser-markup-colors {
+  position: relative;
+  display: inline-flex;
+}
+.browser-markup-swatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--color-content) 18%, transparent);
+}
+.browser-markup-palette {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid
+    var(
+      --aven-glass-overlay-edge,
+      color-mix(in srgb, var(--color-content) 12%, transparent)
+    );
+  border-radius: 10px;
+  background: var(--aven-popup);
+  box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  animation: aven-pop var(--aven-motion-fast) var(--aven-ease-spring) backwards;
+}
+.browser-markup-palette .browser-markup-tool[aria-checked="true"] {
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+}
+.browser-markup-palette
+  .browser-markup-tool[aria-checked="true"]
+  .browser-markup-swatch {
+  box-shadow:
+    0 0 0 1.5px var(--aven-popup),
+    0 0 0 3px var(--color-content);
+}
+.browser-markup-send {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  margin-left: 3px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--color-content);
+  color: var(--color-background-base);
+  font: inherit;
+  font-size: var(--text-ui-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.browser-markup-send:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--color-content) 88%,
+    var(--color-background-base)
+  );
+}
+.browser-markup-send:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.browser-markup-tool:focus-visible,
+.browser-markup-send:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
+}

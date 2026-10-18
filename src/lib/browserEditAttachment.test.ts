@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { browserEditAttachment } from "./browser";
+import { browserEditAttachment, browserMarkupAttachment } from "./browser";
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -52,5 +52,36 @@ describe("selected element screenshot attachment", () => {
     await expect(browserEditAttachment(screenshot)).rejects.toThrow(
       "Disk unavailable",
     );
+  });
+});
+
+describe("marked-up page attachment", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    invoke.mockResolvedValue("/attachments/Marked-up page.png");
+  });
+
+  it("saves the picture under its own name as a normal vision attachment", async () => {
+    const attachment = await browserMarkupAttachment(screenshot);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("write_attachment", {
+      name: "Marked-up page.png",
+      data: "iVBORw0KGgo=",
+    });
+    expect(attachment).toMatchObject({
+      name: "Marked-up page.png",
+      mimeType: "image/png",
+      kind: "image",
+      path: "/attachments/Marked-up page.png",
+    });
+  });
+
+  it("explains an unusable picture in its own words", async () => {
+    await expect(
+      browserMarkupAttachment({
+        ...screenshot,
+        dataUrl: "data:image/png;base64,!",
+      }),
+    ).rejects.toThrow("Could not prepare the marked-up page.");
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

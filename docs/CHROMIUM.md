@@ -150,6 +150,14 @@ ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_edit_|agent_dom_request_lifetime|b
 
 In the packaged app, also verify picking and changing an element, correct screenshot crops at different zoom levels, Escape/Done cancellation, and adding the comment/image to the draft without sending it.
 
+### Marking up a page
+
+**Mark up** freezes the page behind a still picture and draws over that picture. The `browser_capture` command sends the helper's existing `agent-screenshot` action, so the picture is the same lossless PNG agents get: copied from the shown view without moving or resizing it, cropped to the part the person can see, and bounded to 4096 pixels on an edge and 8 megapixels. The helper refuses while the page is loading or while another capture or zoom change runs; the command turns those refusals into plain advice to try again. Builds without Chromium on macOS use WebKit's PNG snapshot instead, and other platforms do not offer Mark up.
+
+The pane hands the picture to its presentation, which paints it beneath the page before hiding the native view, the same handoff an overlay backing uses, and keeps any lossy overlay capture from replacing it. Marks are kept in image pixels and exported over the picture at its full size. **Send to chat** adds the result to the chat draft as `Marked-up page.png`; it never sends a message. Escape, closing the tools, navigating, hiding the pane or replacing the page shows the live page again.
+
+In Aven Dev, also check marking up at different zoom levels and pane sizes, resizing the pane while marking up, a page that is still loading, and that the attached picture matches what was on screen.
+
 ## Signing and runtime behavior
 
 The packager adds the complete CEF framework, helper applications, CEF licenses and credits, and Aven's project and dependency notices. It signs nested native code before the host app, then runs strict signature verification. Some internal helper and executable identifiers retain compatibility names; the app is presented as Aven.

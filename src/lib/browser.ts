@@ -83,36 +83,35 @@ export type BrowserEditScreenshot = {
   height: number;
 };
 
-/** Keep element selection visual and durable without inserting page JSON into a draft. */
-export async function browserEditAttachment(
-  screenshot: BrowserEditScreenshot,
+/** A lossless PNG of what a page shows, for marking up. */
+export type BrowserPageCapture = BrowserEditScreenshot;
+
+/** Save a PNG data URL as a durable vision attachment for a chat draft. */
+async function browserPngAttachment(
+  image: BrowserEditScreenshot,
+  name: string,
+  problems: { unusable: string; tooLarge: string; unsaved: string },
 ): Promise<Attachment> {
   const prefix = "data:image/png;base64,";
-  const data = screenshot.dataUrl?.startsWith(prefix)
-    ? screenshot.dataUrl.slice(prefix.length)
+  const data = image.dataUrl?.startsWith(prefix)
+    ? image.dataUrl.slice(prefix.length)
     : "";
   if (
-    !Number.isFinite(screenshot.width) ||
-    screenshot.width <= 0 ||
-    !Number.isFinite(screenshot.height) ||
-    screenshot.height <= 0 ||
+    !Number.isFinite(image.width) ||
+    image.width <= 0 ||
+    !Number.isFinite(image.height) ||
+    image.height <= 0 ||
     !data.startsWith("iVBORw0KGgo") ||
     data.length % 4 !== 0 ||
     !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
   )
-    throw new Error(
-      "Could not capture the selected element. Please select it again.",
-    );
+    throw new Error(problems.unusable);
   const size =
     (data.length / 4) * 3 -
     (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
-  if (size > 20 * 1024 * 1024)
-    throw new Error(
-      "The selected element is too large. Select a smaller area.",
-    );
-  const name = "Selected element.png";
+  if (size > 20 * 1024 * 1024) throw new Error(problems.tooLarge);
   const path = await invoke<string>("write_attachment", { name, data });
-  if (!path) throw new Error("Could not save the selected element screenshot.");
+  if (!path) throw new Error(problems.unsaved);
   return {
     id: crypto.randomUUID(),
     name,
@@ -122,6 +121,29 @@ export async function browserEditAttachment(
     data,
     path,
   };
+}
+
+/** Keep element selection visual and durable without inserting page JSON into a draft. */
+export function browserEditAttachment(
+  screenshot: BrowserEditScreenshot,
+): Promise<Attachment> {
+  return browserPngAttachment(screenshot, "Selected element.png", {
+    unusable: "Could not capture the selected element. Please select it again.",
+    tooLarge: "The selected element is too large. Select a smaller area.",
+    unsaved: "Could not save the selected element screenshot.",
+  });
+}
+
+/** The marked-up page picture, saved like an element screenshot. */
+export function browserMarkupAttachment(
+  image: BrowserEditScreenshot,
+): Promise<Attachment> {
+  return browserPngAttachment(image, "Marked-up page.png", {
+    unusable: "Could not prepare the marked-up page. Please try again.",
+    tooLarge:
+      "The marked-up page is too large to attach. Make the browser pane smaller and try again.",
+    unsaved: "Could not save the marked-up page.",
+  });
 }
 
 export type BrowserFindResult = {
@@ -420,6 +442,9 @@ export const nativeBrowser = {
   layout: (id: string, bounds: BrowserBounds, visible: boolean) =>
     invoke<void>("browser_layout", { id, bounds, visible }),
   snapshot: (id: string) => invoke<string>("browser_snapshot", { id }),
+  /** Lossless, unlike `snapshot`; refused while the page is still loading. */
+  capture: (id: string) =>
+    invoke<BrowserPageCapture>("browser_capture", { id }),
   close: (id: string) => invoke<void>("browser_close", { id }),
   sleep: (id: string) => invoke<BrowserSleepResult>("browser_sleep", { id }),
   listen: (callback: (state: BrowserState) => void) =>
