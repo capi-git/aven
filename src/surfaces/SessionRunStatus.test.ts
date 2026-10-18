@@ -14,13 +14,18 @@ let host: HTMLDivElement;
 let session: Session;
 const stop = vi.fn();
 const openTerminal = vi.fn();
-async function render(visible = true, stopElsewhere = false) {
+async function render(
+  visible = true,
+  stopElsewhere = false,
+  placement: "row" | "attention" = "row",
+) {
   await act(async () =>
     root.render(
       createElement(SessionRunStatus, {
         session,
         visible,
         stopElsewhere,
+        placement,
         onStop: stop,
         onOpenTerminal: openTerminal,
       }),
@@ -99,6 +104,21 @@ describe("persistent agent run status", () => {
     await render();
     expect(status()).toContain("app.js");
     expect(status()).not.toContain("Agent is working");
+  });
+
+  it("beside a team's bar, keeps a row only for what asks for more", async () => {
+    // Working, waiting or done: the team's bar says it, so no second row.
+    await render(true, false, "attention");
+    expect(host.childElementCount).toBe(0);
+    session = { ...session, busy: false };
+    ledger.entries = [outcome("completed")];
+    await render(true, false, "attention");
+    expect(host.childElementCount).toBe(0);
+    // A failure still has its own row.
+    ledger.entries = [outcome("failed")];
+    session = { ...session };
+    await render(true, false, "attention");
+    expect(state()).toBe("failed");
   });
 
   it("leaves Stop to the run bar for an orchestration's lead", async () => {

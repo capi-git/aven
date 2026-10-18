@@ -31,8 +31,10 @@ import { isDetachedWorkspace } from "../lib/workspaceTransfers";
 import {
   TeamBar,
   teamBarOwnsStop,
+  teamBarShows,
   teamBarTakesBoxStop,
 } from "../chrome/TeamBar";
+import { TeamRunStatusContext } from "../chrome/TeamRunDetails";
 import { useTeamOf } from "../hooks/useTeamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -256,6 +258,9 @@ export const SessionPane = memo(function SessionPane({
   // chat's agent at once, where the bar's End discussion lets it finish.
   const barStops = teamBarOwnsStop(team, session.id);
   const boxStopInBar = teamBarTakesBoxStop(team, session.id);
+  // While the team runs, its bar carries this chat's status too: one row
+  // says what the team and this chat are doing, with the run's time.
+  const teamRow = !session.inboxAsk && teamBarShows(team, session.id);
   const runLocked = useOrchestrationSelector((runs) =>
     runs.some(
       (run) =>
@@ -573,6 +578,19 @@ export const SessionPane = memo(function SessionPane({
       ),
     [idle, inboxAsk, onStop, openDiscussion, runsCwd, sessionId, submitText],
   );
+  const statusSession = useMemo(
+    () =>
+      sessionWithManagedAgents(
+        session,
+        ownRun ? [ownRun] : NO_RUNS,
+        workerAgents,
+      ),
+    [session, ownRun, workerAgents],
+  );
+  const teamRunStatus = useMemo(
+    () => ({ session: statusSession, visible }),
+    [statusSession, visible],
+  );
   const review = useMemo(
     () =>
       inboxAsk ? null : (
@@ -786,17 +804,16 @@ export const SessionPane = memo(function SessionPane({
             <DuplicateServerChip placement="chat" sessionId={session.id} />
           ) : null}
           <SessionRunStatus
-            session={sessionWithManagedAgents(
-              session,
-              ownRun ? [ownRun] : NO_RUNS,
-              workerAgents,
-            )}
+            session={statusSession}
             visible={visible}
             stopElsewhere={barStops}
+            placement={teamRow ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
-          {composer}
+          <TeamRunStatusContext.Provider value={teamRunStatus}>
+            {composer}
+          </TeamRunStatusContext.Provider>
         </div>
       ) : null}
     </div>
