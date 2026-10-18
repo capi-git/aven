@@ -282,7 +282,7 @@ describe("marking up a browser page", () => {
     await markUp();
     await act(async () =>
       [...toolbar()!.querySelectorAll("button")]
-        .find((tool) => tool.textContent === "Send to chat")!
+        .find((tool) => tool.getAttribute("aria-label") === "Send to chat")!
         .click(),
     );
     await settle();
@@ -338,7 +338,7 @@ describe("marking up a browser page", () => {
     expect(ink.getAttribute("aria-label")).toBe("Page picture with 1 mark");
     await act(async () =>
       [...toolbar()!.querySelectorAll("button")]
-        .find((tool) => tool.textContent === "Send to chat")!
+        .find((tool) => tool.getAttribute("aria-label") === "Send to chat")!
         .click(),
     );
     await settle();
@@ -403,6 +403,27 @@ describe("marking up a browser page", () => {
     await press(layer, "Delete");
     expect(marks()).toBe("Page picture with 0 marks");
     expect(ink().querySelector(".browser-markup-selection")).toBeNull();
+  });
+
+  it("takes shortcuts from the page itself after drawing, but not while typing elsewhere", async () => {
+    await open({ onAddToChat: vi.fn() });
+    await markUp();
+    const pressed = () =>
+      toolbar()!
+        .querySelector('[aria-pressed="true"]')!
+        .getAttribute("aria-label");
+    await draw(50, 50, 250, 150);
+    // After a drag WebKit can leave the keys with the document itself.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await press(document.body, "a");
+    expect(pressed()).toBe("Arrow");
+    // Typing in the chat beside the page never switches tools.
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    composer.focus();
+    await press(composer, "r");
+    expect(pressed()).toBe("Arrow");
+    composer.remove();
   });
 
   it("types a text mark that Enter finishes, and Escape first finishes typing", async () => {

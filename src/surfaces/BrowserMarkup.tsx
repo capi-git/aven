@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   memo,
   useCallback,
@@ -5,11 +7,11 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   ArrowDiagonal,
+  ArrowUp,
   Circle,
   LineStraight,
   MousePointer,
@@ -204,9 +206,20 @@ export function BrowserMarkup({
     pixelRatio.current ??
     (typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
 
+  // The page and the app are sibling native views: DOM focus alone leaves
+  // the keyboard with the page, so take it back for the shortcuts and Esc.
+  const takeKeyboard = useCallback(() => {
+    const focusRoot = () => root.current?.focus({ preventScroll: true });
+    focusRoot();
+    if (!isTauri()) return;
+    void getCurrentWebview()
+      .setFocus()
+      .then(focusRoot)
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
-    if (tools) root.current?.focus({ preventScroll: true });
-  }, [tools]);
+    if (tools) takeKeyboard();
+  }, [tools, takeKeyboard]);
 
   const editId = text?.id;
   useLayoutEffect(() => {
@@ -443,8 +456,18 @@ export function BrowserMarkup({
     });
   };
 
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent) => {
     if (!tools) return;
+    // Keys belong to markup while focus is in it or nowhere in particular,
+    // never while the reader types elsewhere, such as the chat beside it.
+    const active = document.activeElement;
+    if (
+      active &&
+      active !== document.body &&
+      active !== document.documentElement &&
+      !root.current?.contains(active)
+    )
+      return;
     const action = markupKeyAction(
       {
         key: event.key,
@@ -452,7 +475,7 @@ export function BrowserMarkup({
         ctrlKey: event.ctrlKey,
         shiftKey: event.shiftKey,
         altKey: event.altKey,
-        isComposing: event.nativeEvent.isComposing,
+        isComposing: event.isComposing,
       },
       !!textEdit.current,
     );
@@ -470,6 +493,17 @@ export function BrowserMarkup({
     else if (action.kind === "delete") removeSelected();
     else chooseTool(action.tool);
   };
+
+  const keyHandler = useRef(onKeyDown);
+  keyHandler.current = onKeyDown;
+  // On the window, not this layer: after drawing, WebKit can leave the keys
+  // with the document rather than with the focused layer.
+  useEffect(() => {
+    if (!tools) return;
+    const handle = (event: KeyboardEvent) => keyHandler.current(event);
+    window.addEventListener("keydown", handle, true);
+    return () => window.removeEventListener("keydown", handle, true);
+  }, [tools]);
 
   const shown =
     dragView?.kind === "move"
@@ -494,7 +528,25 @@ export function BrowserMarkup({
       aria-label="Page being marked up"
       tabIndex={-1}
       data-leaving={leaving || undefined}
-      onKeyDown={onKeyDown}
+      // A click here keeps the keyboard with the app, not the page under it,
+      // and with this layer for the shortcuts unless a note is being typed.
+      onPointerDownCapture={() => {
+        const keepTyping = () => {
+          const active = document.activeElement;
+          if (
+            active instanceof HTMLInputElement ||
+            active instanceof HTMLTextAreaElement ||
+            (active instanceof HTMLElement && active.isContentEditable)
+          )
+            return;
+          root.current?.focus({ preventScroll: true });
+        };
+        if (!isTauri()) return;
+        void getCurrentWebview()
+          .setFocus()
+          .then(() => requestAnimationFrame(keepTyping))
+          .catch(() => undefined);
+      }}
     >
       <div
         className="browser-markup-stage"
@@ -614,7 +666,7 @@ export function BrowserMarkup({
                   aria-pressed={tool === id}
                   onClick={() => chooseTool(id)}
                 >
-                  <Icon size={18} />
+                  <Icon size={15} />
                 </button>
               );
             })}
@@ -668,17 +720,19 @@ export function BrowserMarkup({
               disabled={!history.past.length && !text}
               onClick={undo}
             >
-              <Undo2 size={18} />
+              <Undo2 size={15} />
             </button>
             <button
               type="button"
               className="browser-markup-send aven-press"
               aria-busy={sending || undefined}
               disabled={sending}
-              title="Attach this picture to the chat beside the page"
+              aria-label="Send to chat"
+              title="Send to chat · attach this picture to the chat beside the page"
               onClick={() => void send()}
             >
-              Send to chat
+              <ArrowUp size={13} />
+              Send
             </button>
             <span className="browser-markup-divider" aria-hidden="true" />
             <button
@@ -688,7 +742,7 @@ export function BrowserMarkup({
               title="Close (Esc)"
               onClick={onClose}
             >
-              <X size={18} />
+              <X size={15} />
             </button>
           </div>
         </div>

@@ -70,7 +70,7 @@
    pointer events through to the picture beside the bar. */
 .browser-markup-bar {
   position: absolute;
-  top: 12px;
+  top: 8px;
   left: 0;
   right: 0;
   display: flex;
@@ -84,15 +84,15 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 1px;
   max-width: 100%;
-  padding: 6px;
+  padding: 3px;
   border: 1px solid
     var(
       --aven-glass-overlay-edge,
       color-mix(in srgb, var(--color-content) 12%, transparent)
     );
-  border-radius: var(--aven-radius-overlay, 14px);
+  border-radius: 10px;
   background: var(--aven-popup);
   box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
   color: var(--color-content);
@@ -109,13 +109,13 @@
 }
 .browser-markup-tool {
   display: inline-grid;
-  flex: 0 0 34px;
+  flex: 0 0 26px;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
-  border-radius: var(--aven-radius-control, 8px);
+  border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   cursor: pointer;
@@ -136,8 +136,8 @@
 .browser-markup-divider {
   flex: 0 0 1px;
   width: 1px;
-  height: 22px;
-  margin: 0 4px;
+  height: 16px;
+  margin: 0 3px;
   background: var(--aven-line);
 }
 .browser-markup-colors {
@@ -146,26 +146,26 @@
 }
 .browser-markup-swatch {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   box-shadow: 0 0 0 2px
     color-mix(in srgb, var(--color-content) 18%, transparent);
 }
 .browser-markup-palette {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 6px);
   left: 50%;
   z-index: 1;
   display: flex;
-  gap: 2px;
-  padding: 4px;
+  gap: 1px;
+  padding: 3px;
   border: 1px solid
     var(
       --aven-glass-overlay-edge,
       color-mix(in srgb, var(--color-content) 12%, transparent)
     );
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--aven-popup);
   box-shadow: var(--aven-glass-sheen, none), var(--aven-shadow);
   translate: -50% 0;
@@ -179,20 +179,23 @@
   .browser-markup-tool[aria-checked="true"]
   .browser-markup-swatch {
   box-shadow:
-    0 0 0 2px var(--aven-popup),
-    0 0 0 4px var(--color-content);
+    0 0 0 1.5px var(--aven-popup),
+    0 0 0 3px var(--color-content);
 }
 .browser-markup-send {
+  display: inline-flex;
   flex: 0 0 auto;
-  height: 34px;
-  margin-left: 4px;
-  padding: 0 12px;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  margin-left: 3px;
+  padding: 0 8px 0 6px;
   border: 0;
-  border-radius: var(--aven-radius-control, 8px);
+  border-radius: 7px;
   background: var(--color-content);
   color: var(--color-background-base);
   font: inherit;
-  font-size: var(--text-ui-label);
+  font-size: var(--text-ui-caption);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
