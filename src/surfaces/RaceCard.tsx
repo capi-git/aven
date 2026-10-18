@@ -37,6 +37,7 @@ import {
   askRaceReviewer,
   continueLane,
   continueRace,
+  raceContinueTitle,
   requestRaceSuggestion,
   reviewRunning,
   suggestionRunning,
@@ -45,7 +46,7 @@ import {
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import { RaceReviewerPicker } from "./RaceReviewerPicker";
-import { listText, plural, possessive } from "../lib/words";
+import { listText, plural } from "../lib/words";
 
 /** How a race explains itself while its agents work. */
 export const RACE_EXPLAINER =
@@ -383,7 +384,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
                 <TeamCardButton
                   data-race-continue
                   disabled={continuing}
-                  title={`Open ${possessive(continueWith)} chat. It learns which version you kept with your next message.`}
+                  title={raceContinueTitle(race, continueWith)}
                   onClick={() => {
                     setContinuing(true);
                     setContinueError(null);

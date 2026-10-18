@@ -18,6 +18,7 @@ import {
   parseRunSummary,
   RACE_JUDGE_PROMPT,
   RACE_JUDGE_SIGNATURE,
+  raceContinueTitle,
   raceDigest,
   raceRecapHint,
   raceRecapNote,
@@ -296,6 +297,9 @@ describe("continuing after a race", () => {
     expect(note).not.toContain("Your version was kept");
     expect(raceRecapHint(kept, "Codex")).toBe(
       "Codex knows which files you kept",
+    );
+    expect(raceContinueTitle(kept, "Codex")).toBe(
+      "Open Codex's chat. Your next message there tells Codex which files you kept.",
     );
     expect(
       raceRecapHint(

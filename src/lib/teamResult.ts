@@ -43,7 +43,7 @@ import { finalReply } from "./replyText";
 import type { Block, HarnessId, Session } from "./session";
 import type { TeamWorkspace } from "./teamWorkspace";
 import { currentWindowLabel } from "./windowLabel";
-import { listText } from "./words";
+import { listText, possessive } from "./words";
 
 export { finalReply, replyOpening } from "./replyText";
 
@@ -602,6 +602,15 @@ export function raceRecapNote(
     kept = `Your version was kept: ${files(count)} ${count === 1 ? "is" : "are"} now in the project at ${race.project}`;
   }
   return `You worked on this task in a separate copy of the project, while other agents tried it too:\n\n${task}\n\n${kept}, and you work there directly from now on. Your earlier conversation was not carried over.${last}`;
+}
+
+/** What Continue with <agent> does, for its tooltip. */
+export function raceContinueTitle(
+  race: Pick<RaceRecord, "outcome">,
+  name: string,
+): string {
+  const what = race.outcome?.kind === "mix" ? "files" : "version";
+  return `Open ${possessive(name)} chat. Your next message there tells ${name} which ${what} you kept.`;
 }
 
 /** The words the kept agent's message box shows while its recap waits. */

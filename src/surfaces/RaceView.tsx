@@ -58,6 +58,7 @@ import {
   continueLane,
   finalReply,
   continueRace,
+  raceContinueTitle,
   replyOpening,
   requestRaceSuggestion,
   reviewRunning,
@@ -65,7 +66,6 @@ import {
 } from "../lib/teamResult";
 import { teamWorkspace } from "../lib/teamWorkspace";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
-import { possessive } from "../lib/words";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
 type Props = {
@@ -810,7 +810,7 @@ function RaceBody({
                 <button
                   type="button"
                   data-race-continue
-                  title={`Open ${possessive(continueWith)} chat. It learns which version you kept with your next message.`}
+                  title={raceContinueTitle(race, continueWith)}
                   onClick={() =>
                     void continueRace(race.id, teamWorkspace(), (id) =>
                       sessions.find((entry) => entry.id === id),
