@@ -661,7 +661,13 @@ describe("DiscussionPanelContent: where they landed", () => {
     return {
       options: () => ({ candidates: [] }),
       start: () => null,
-      build: vi.fn<(id: string, side: "a" | "b") => string | null>(() => null),
+      // As the broker does: a plan that went is marked on the discussion.
+      build: vi.fn<(id: string, side: "a" | "b") => string | null>(
+        (id, side) => {
+          discussionStore().markBuilt(id, side);
+          return null;
+        },
+      ),
     } satisfies DiscussionHost;
   }
 

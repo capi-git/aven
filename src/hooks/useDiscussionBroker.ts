@@ -11,6 +11,7 @@ import {
   capRelay,
   continuationRelay,
   discussionBlocker,
+  discussionBuildSent,
   discussionParty as partyOf,
   discussionReply,
   discussionStore,
@@ -632,6 +633,8 @@ export function useDiscussionBroker({
       async build(id, side) {
         const discussion = store.get(id);
         if (!discussion) return "This discussion is no longer available.";
+        // Sent from the card or the panel already: never twice.
+        if (discussionBuildSent(discussion, side)) return null;
         const party = partyOf(discussion, side);
         // A second press while the first loads the chat sends nothing more.
         const key = `${id}:${side}`;
@@ -654,9 +657,9 @@ export function useDiscussionBroker({
           } catch (error) {
             logError("Discussion build", error);
           }
-          return accepted === false
-            ? `Couldn't send to “${party.title}”.`
-            : null;
+          if (accepted === false) return `Couldn't send to “${party.title}”.`;
+          store.markBuilt(id, side);
+          return null;
         } finally {
           building.current.delete(key);
         }

@@ -152,6 +152,12 @@ export type Discussion = {
   interjections?: DiscussionInterjection[];
   /** Where it landed, once it has used up its rounds. */
   summary?: DiscussionSummary;
+  /**
+   * Which chats were asked to build what it landed on, with the turn it
+   * had reached then: the card and the panel both read it, so a plan is
+   * sent once. Continuing the discussion moves past it.
+   */
+  built?: Partial<Record<DiscussionSide, number>>;
   /** Development preview: shown only, never relays or persists. */
   preview?: true;
   /**
@@ -213,6 +219,14 @@ export function discussionParty(
   side: DiscussionSide,
 ): DiscussionParty {
   return side === "a" ? discussion.a : discussion.b;
+}
+
+/** Whether this ending's plan was already sent to `side` to build. */
+export function discussionBuildSent(
+  discussion: Pick<Discussion, "built" | "settled">,
+  side: DiscussionSide,
+): boolean {
+  return discussion.built?.[side] === discussion.settled;
 }
 
 export function discussionSideOf(
@@ -1232,6 +1246,7 @@ export function readDiscussion(value: unknown): Discussion | null {
     : undefined;
   const reason = text(record.reason, 1000);
   const blockedBy = text(record.blockedBy, 200);
+  const built = readBuilt(record.built, settled);
   return {
     id,
     owner,
@@ -1250,10 +1265,31 @@ export function readDiscussion(value: unknown): Discussion | null {
     ...(status === "ended" ? { notes: notes ?? [] } : {}),
     ...(interjections.length ? { interjections } : {}),
     ...(summary ? { summary } : {}),
+    ...(built ? { built } : {}),
     ...(record.adopted === true ? { adopted: true as const } : {}),
     startedAt: Number(record.startedAt) || 0,
     updatedAt: Number(record.updatedAt) || 0,
   };
+}
+
+function readBuilt(
+  value: unknown,
+  settled: number,
+): Discussion["built"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const built: Partial<Record<DiscussionSide, number>> = {};
+  for (const side of ["a", "b"] as const) {
+    const turn = record[side];
+    if (
+      typeof turn === "number" &&
+      Number.isInteger(turn) &&
+      turn >= 0 &&
+      turn <= settled
+    )
+      built[side] = turn;
+  }
+  return Object.keys(built).length ? built : undefined;
 }
 
 function readInterjections(
@@ -1658,6 +1694,25 @@ export class DiscussionStore {
       discussion.status === "ended" && discussion.summary?.status === "failed"
         ? { ...discussion, summary: { status: "pending" } }
         : discussion,
+    );
+  }
+
+  /**
+   * The plan this ending landed on was sent to `side`'s chat to build:
+   * every window's card and panel then say so, and it is not sent again.
+   */
+  markBuilt(id: string, side: DiscussionSide) {
+    const current = this.get(id);
+    if (current?.status !== "ended" || discussionBuildSent(current, side))
+      return;
+    this.adopt(id);
+    this.change(id, (discussion) =>
+      discussion.status !== "ended" || discussionBuildSent(discussion, side)
+        ? discussion
+        : {
+            ...discussion,
+            built: { ...discussion.built, [side]: discussion.settled },
+          },
     );
   }
 

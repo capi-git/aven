@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DiscussionStore,
+  discussionBuildSent,
   type Discussion,
   type DiscussionHost,
   type DiscussionSummary,
@@ -1042,6 +1043,14 @@ describe("useDiscussionBroker's wrap-up", () => {
     ).toMatchObject({ role: "user", text: messages[0].text });
     // Nothing new is relayed.
     expect(sent).toHaveLength(2);
+    // The card and the panel both read that it went, and it never goes twice.
+    expect(discussionBuildSent(store.get(id)!, "b")).toBe(true);
+    expect(discussionBuildSent(store.get(id)!, "a")).toBe(false);
+    await act(async () => {
+      refused = await host.build!(id, "b");
+    });
+    expect(refused).toBeNull();
+    expect(messages).toHaveLength(1);
   });
 
   it("brings back a chat that was parked once the discussion ended, then builds", async () => {
@@ -1082,6 +1091,7 @@ describe("useDiscussionBroker's wrap-up", () => {
     expect(await host.build!(id, "a")).toBe("Couldn't open “Caching”.");
     accept = false;
     expect(await host.build!(id, "b")).toBe("Couldn't send to “Review”.");
+    expect(store.get(id)?.built).toBeUndefined();
     expect(await host.build!("gone", "b")).toBe(
       "This discussion is no longer available.",
     );

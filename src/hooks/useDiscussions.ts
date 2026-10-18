@@ -27,13 +27,13 @@ export function useDiscussingSessionIds(): ReadonlySet<string> {
 /** What a chat's wrap-up card reads from its discussion. */
 export type DiscussionWrapUpView = Pick<
   Discussion,
-  "id" | "status" | "settled" | "ended" | "summary" | "a" | "b"
+  "id" | "status" | "settled" | "ended" | "summary" | "built" | "a" | "b"
 >;
 
 function wrapUpView(discussion: Discussion | undefined) {
   if (!discussion) return null;
-  const { id, status, settled, ended, summary, a, b } = discussion;
-  return { id, status, settled, ended, summary, a, b };
+  const { id, status, settled, ended, summary, built, a, b } = discussion;
+  return { id, status, settled, ended, summary, built, a, b };
 }
 
 function sameWrapUp(
@@ -47,6 +47,7 @@ function sameWrapUp(
     left.settled === right.settled &&
     left.ended === right.ended &&
     left.summary === right.summary &&
+    left.built === right.built &&
     left.a === right.a &&
     left.b === right.b
   );

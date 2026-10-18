@@ -38,7 +38,11 @@ function host() {
     options: () => ({ candidates: [] }),
     start: () => null,
     open: vi.fn<(id: string) => void>(),
-    build: vi.fn<(id: string, side: "a" | "b") => string | null>(() => null),
+    // As the broker does: a plan that went is marked on the discussion.
+    build: vi.fn<(id: string, side: "a" | "b") => string | null>((id, side) => {
+      discussionStore().markBuilt(id, side);
+      return null;
+    }),
   } satisfies DiscussionHost;
 }
 
@@ -163,6 +167,24 @@ describe("where a discussion landed, in the chat that started it", () => {
     expect(text(".discussion-wrapup-problem")).toBe(
       "“Caching plan” isn't open in this window.",
     );
+  });
+
+  it("reads a plan sent from the panel as sent here too, so it can't go twice", async () => {
+    complete();
+    const actions = host();
+    await render(undefined, actions);
+    const buttons = () => [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        "[data-discussion-build]",
+      ),
+    ];
+    // The panel's button sent it: the discussion says so.
+    await act(async () => discussionStore().markBuilt("d1", "b"));
+    expect(buttons()[1].textContent).toBe("Sent to Codex");
+    expect(buttons()[1].disabled).toBe(true);
+    await act(async () => buttons()[1].click());
+    expect(actions.build).not.toHaveBeenCalled();
+    expect(buttons()[0].textContent).toBe("Have Claude build it");
   });
 
   it("says calmly when the summary failed, with the buttons and Try again", async () => {
