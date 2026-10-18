@@ -21,12 +21,12 @@
   flex: 0 0 auto;
   color: var(--aven-muted);
 }
+/* In a narrow chat the question wraps to a second line; it is never cut. */
 .memory-keeper-offer-copy {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .memory-keeper-offer button {
   display: inline-flex;

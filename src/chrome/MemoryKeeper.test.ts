@@ -101,8 +101,9 @@ describe("the offer above the message box", () => {
     expect(container.textContent).toBe("");
     await act(async () => offerMemoryKeeper(PROJECT));
     expect(container.textContent).toContain(
-      "Let Aven keep this project's memory up to date?",
+      "Keep this project's memory up to date?",
     );
+    expect(container.textContent).not.toContain("Let Aven");
     await act(async () => button("Turn on")!.click());
     expect(getKeeperProject(PROJECT).consent).toBe("on");
     expect(container.textContent).toBe("");
@@ -114,6 +115,15 @@ describe("the offer above the message box", () => {
     await act(async () => button("Not now")!.click());
     expect(getKeeperProject(PROJECT).consent).toBe("off");
     expect(container.querySelector("[data-memory-keeper-offer]")).toBeNull();
+  });
+
+  it("wraps its question in a narrow chat instead of cutting it off", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync("src/chrome/MemoryKeeper.css", "utf8");
+    const rule = css.match(/\.memory-keeper-offer-copy \{([^}]*)\}/)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/white-space:\s*nowrap/);
+    expect(rule).not.toMatch(/text-overflow:\s*ellipsis/);
   });
 
   it("stays hidden when no model could keep the memory", async () => {
