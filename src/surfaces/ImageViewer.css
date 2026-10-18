@@ -1,13 +1,13 @@
-/* The image popup. It is dark in every theme, as a lightbox is, so a
-   picture reads against the same quiet backdrop whatever is behind it. The
-   backdrop is solid: text in the work underneath must never read through it.
-   Motion lives in motion.css. */
+/* The image popup. It sits on the app's own surface, in its theme: the
+   window's colour, or its glass where the window has it, with the work
+   underneath hidden while it is open (see `image-viewer-open` below) so no
+   text reads through. Motion lives in motion.css. */
 .image-viewer {
-  --image-viewer-text: #ececef;
-  --image-viewer-muted: #9b9ba4;
-  --image-viewer-surface: #1a1a1f;
-  --image-viewer-edge: rgb(255 255 255 / 0.14);
-  --image-viewer-hover: rgb(255 255 255 / 0.09);
+  --image-viewer-text: var(--color-content);
+  --image-viewer-muted: var(--aven-muted);
+  --image-viewer-surface: var(--aven-popup);
+  --image-viewer-edge: var(--aven-glass-overlay-edge, var(--aven-line));
+  --image-viewer-hover: var(--aven-hover);
   position: fixed;
   inset: 0;
   display: flex;
@@ -16,7 +16,6 @@
   /* Clear of the title bar, where macOS draws the traffic lights. */
   padding: 30px 20px 14px;
   color: var(--image-viewer-text);
-  color-scheme: dark;
   font-size: 13px;
   line-height: 1.45;
   outline: none;
@@ -25,7 +24,20 @@
 .image-viewer-backdrop {
   position: absolute;
   inset: 0;
-  background: rgb(8 8 10);
+  background: var(--color-background-base);
+}
+/* Where the window is glass, the popup is the same glass as the sidebar. */
+html.has-native-glass:not(.theme-light) .image-viewer-backdrop {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
+    transparent
+  );
+}
+/* The work under the popup steps aside, so the backdrop is the app's own
+   surface rather than a dimmed copy of the chat. */
+html.image-viewer-open #root {
+  visibility: hidden;
 }
 .image-viewer-bar,
 .image-viewer-stage,
@@ -122,8 +134,8 @@
     )
     0 0 / 16px 16px;
   box-shadow:
-    0 24px 64px rgb(0 0 0 / 0.55),
-    0 0 0 1px rgb(255 255 255 / 0.06);
+    var(--aven-shadow),
+    0 0 0 1px var(--image-viewer-edge);
   cursor: zoom-in;
 }
 .image-viewer-scroller[data-zoom="actual"] .image-viewer-image {
@@ -163,7 +175,7 @@
   background: color-mix(
     in srgb,
     var(--image-viewer-surface),
-    rgb(255 255 255) 8%
+    var(--color-content) 8%
   );
 }
 .image-viewer-nav[data-side="previous"] {
