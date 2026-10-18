@@ -99,11 +99,12 @@ function TeamBarAgents({ agents }: { agents: readonly SessionAgent[] }) {
         aria-expanded={open}
         aria-haspopup="dialog"
         title={summary ? `Agents: ${summary}` : "Agents"}
+        aria-label={`Agents, ${summary || agents.length}`}
         data-team-bar-agents
         onClick={() => setOpen((shown) => !shown)}
       >
         <Bot className="size-3" />
-        Agents
+        <span className="team-bar-agents-label">Agents</span>
         <span className="text-content/45">{agents.length}</span>
         <ChevronDown className="size-3" />
       </TeamCardButton>
