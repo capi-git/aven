@@ -9,6 +9,10 @@ import {
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
+import {
   AlertCircle,
   Check,
   LoaderCircle,
@@ -36,6 +40,7 @@ import {
   raceDiscardQuestion,
   raceKeepAsks,
   raceKeepQuestion,
+  raceKeptWhy,
   raceLaneActive,
   raceLaneCanRetry,
   raceLaneName,
@@ -53,6 +58,7 @@ import {
   continueLane,
   finalReply,
   continueRace,
+  raceContinueTitle,
   replyOpening,
   requestRaceSuggestion,
   reviewRunning,
@@ -398,7 +404,9 @@ function RaceBody({
       (id) => sessions.find((entry) => entry.id === id),
       states.map((state) => state.label),
     );
-  const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+  const why = raceKeptWhy(race);
+  // The project by its name, as the sidebar shows it; never its path.
+  const projectLabel = projectDisplayName(race.project, useProjectLabels());
   const continueAt = continueLane(race);
   const continueWith =
     continueAt !== undefined && race.lanes[continueAt]
@@ -778,8 +786,8 @@ function RaceBody({
           <Check className="mb-1 size-5 text-content/60" />
           <p className="text-content">
             {race.state === "kept"
-              ? "Kept in your project."
-              : "Your project didn't change."}
+              ? `Kept in ${projectLabel}.`
+              : `${projectLabel} didn't change.`}
           </p>
           {outcome ? (
             <p className="text-ui-label text-content/70" data-race-outcome>
@@ -789,9 +797,6 @@ function RaceBody({
           {why ? (
             <p className="max-w-md text-ui-label text-content/60">Why: {why}</p>
           ) : null}
-          <p className="break-all font-mono text-ui-label text-content/60">
-            {race.project}
-          </p>
           {race.state === "kept" ? (
             <div className="mt-1 flex flex-wrap justify-center gap-1.5">
               <button
@@ -804,17 +809,16 @@ function RaceBody({
               {continueWith ? (
                 <button
                   type="button"
-                  disabled={!!race.continuedAt}
+                  data-race-continue
+                  title={raceContinueTitle(race, continueWith)}
                   onClick={() =>
-                    void continueRace(race.id, teamWorkspace()?.send).then(
-                      setActionError,
-                    )
+                    void continueRace(race.id, teamWorkspace(), (id) =>
+                      sessions.find((entry) => entry.id === id),
+                    ).then(setActionError)
                   }
                   className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
                 >
-                  {race.continuedAt
-                    ? `Continued with ${continueWith}`
-                    : `Continue with ${continueWith}`}
+                  {`Continue with ${continueWith}`}
                 </button>
               ) : null}
             </div>

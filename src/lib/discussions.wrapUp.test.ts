@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DiscussionStore,
   DISCUSSIONS_KEY,
+  discussionBuildSent,
   planDiscussions,
   readDiscussion,
   SUMMARY_ITEM_LIMIT,
@@ -49,6 +50,35 @@ function complete(store: DiscussionStore, id = "d1") {
   store.markDelivered(id);
   store.settle(id, 1, { status: "completed", text: "B" });
 }
+
+describe("a discussion's build buttons", () => {
+  it("marks each side's plan as sent once, for every window and a restart", () => {
+    const storage = memoryStorage();
+    const store = new DiscussionStore(storage, "main");
+    store.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 1 });
+    // Only a finished discussion has a plan to build.
+    store.markBuilt("d1", "b");
+    expect(store.get("d1")?.built).toBeUndefined();
+    store.markDelivered("d1");
+    store.settle("d1", 0, { status: "completed", text: "A" });
+    store.markDelivered("d1");
+    store.settle("d1", 1, { status: "completed", text: "B" });
+    store.markBuilt("d1", "b");
+    const ended = store.get("d1")!;
+    expect(discussionBuildSent(ended, "b")).toBe(true);
+    expect(discussionBuildSent(ended, "a")).toBe(false);
+    // Another window, or a restart, reads the same.
+    const other = new DiscussionStore(storage, "other");
+    expect(discussionBuildSent(other.get("d1")!, "b")).toBe(true);
+    // Continuing the discussion moves past that ending.
+    expect(
+      discussionBuildSent({ ...ended, settled: ended.settled + 2 }, "b"),
+    ).toBe(false);
+    expect(readDiscussion({ ...ended, built: { a: -1, b: 99 } })?.built).toBe(
+      undefined,
+    );
+  });
+});
 
 describe("a discussion's wrap-up", () => {
   it("is asked for once when it ends normally, never when stopped", () => {

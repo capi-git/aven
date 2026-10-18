@@ -17,6 +17,7 @@
  * user's own action, so it posts nothing.
  */
 import type { SessionActivityEvent } from "./notifications";
+import { raceKeptWhy } from "./raceLanes";
 import {
   raceHeadline,
   teamIdOf,
@@ -224,7 +225,7 @@ export function teamEndSummaries(
   for (const race of stores.races) {
     const headline = race.state === "kept" ? raceHeadline(race) : undefined;
     if (!headline) continue;
-    const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+    const why = raceKeptWhy(race);
     out.push({
       teamId: teamIdOf("race", race.id),
       detail: why ? `${headline} · ${why}` : headline,

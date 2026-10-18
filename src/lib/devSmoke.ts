@@ -33,6 +33,8 @@ export const SMOKE_HEARD_WORD = "AVEN_SMOKE_HEARD";
 export const SMOKE_ORCHESTRATE_WORD = "AVEN_SMOKE_ORCHESTRATE";
 /** With it, the stand-in lead reads the results and never finishes. */
 export const SMOKE_STALL_WORD = "AVEN_SMOKE_STALL";
+/** With it, the stand-in puts the notes Aven sent ahead of the message in its reply. */
+export const SMOKE_ECHO_NOTE_WORD = "AVEN_SMOKE_ECHO_NOTE";
 /** Workspace → floating sidebar: drive Settings and Back. */
 export const SMOKE_OVERLAY_EVENT = "aven-dev-smoke-overlay";
 /** Floating sidebar → workspace: how that went. */

@@ -114,6 +114,8 @@ type Flaws = {
   leakyWrapUp?: boolean;
   /** The finished card's Open does nothing. */
   deadOpen?: boolean;
+  /** The finished panel stays open over the chat once its plan is sent. */
+  stayOpen?: boolean;
   /** The Discuss dropdown offers no roles. */
   noRole?: boolean;
   /** The second chat's first message does not carry its role. */
@@ -658,6 +660,11 @@ function app(flaws: Flaws = {}) {
           { id: `built-${id}`, role: "assistant", text: SMOKE_REPLY },
         ],
       });
+      // A finished discussion's panel shrinks to its pill once its plan went.
+      if (!flaws.stayOpen && panel === "open") {
+        panel = "pill";
+        draw();
+      }
     });
     document
       .querySelector("[data-discussion-jump] textarea")
@@ -785,7 +792,7 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan; the finished card reopens the panel`,
+      `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan and the panel shrank to its pill; the finished card reopens the panel`,
     );
     // The build button sent the plan to the first chat, as the user.
     const built = state.sessions
@@ -972,6 +979,12 @@ describe("the real-app check's discussion step", () => {
     );
     expect(await failure({ partnerCard: true })).toBe(
       "The second chat's transcript shows the wrap-up too",
+    );
+  });
+
+  it("fails when the finished panel stays open once its plan was sent", async () => {
+    expect(await failure({ stayOpen: true })).toBe(
+      "Timed out waiting for the finished panel to shrink to its pill once the plan was sent",
     );
   });
 

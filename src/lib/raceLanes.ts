@@ -2,7 +2,7 @@ import { isTurnActivity, type ActivityEntry } from "./activity";
 import { appName } from "./agentNames";
 import { wasTurnInterrupted } from "./inFlight";
 import type { RaceLaneEnd, RaceRecord } from "./race";
-import { raceAgentNames } from "./raceNames";
+import { namedLanes, raceAgentNames, raceDistinctNames } from "./raceNames";
 import { sessionIsWaitingForInput, type Session } from "./session";
 import { sessionRunStatus } from "./sessionRunStatus";
 import { listText, plural, possessive } from "./words";
@@ -196,7 +196,26 @@ export function raceSuggestionText(race: RaceRecord): string | undefined {
     suggestion.by === "reviewer"
       ? `${raceReviewerName(race)} (Reviewer)`
       : "Aven";
-  return `${by} suggests ${raceLaneName(race, suggestion.lane)}: ${suggestion.why}`;
+  return `${by} suggests ${raceLaneName(race, suggestion.lane)}: ${raceNamedText(race, suggestion.why)}`;
+}
+
+/**
+ * A judge's or reviewer's words about this race with any lane number said
+ * as its agent's name ("Lane 2 tested it" reads "Codex tested it").
+ */
+export function raceNamedText(
+  race: Pick<RaceRecord, "lanes">,
+  text: string,
+): string {
+  return namedLanes(text, raceDistinctNames(race.lanes));
+}
+
+/** Why the kept lane was kept, when the suggestion said, in agents' names. */
+export function raceKeptWhy(
+  race: Pick<RaceRecord, "lanes" | "outcome">,
+): string | undefined {
+  const why = race.outcome?.kind === "lane" ? race.outcome.why : undefined;
+  return why ? raceNamedText(race, why) : undefined;
 }
 
 export type RaceQuestion = { title: string; body: string; confirm: string };

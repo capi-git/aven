@@ -841,6 +841,26 @@ describe("toolCallLabel", () => {
     ).toBe("Skill /code-review");
   });
 
+  it("says an orchestration lead's coordination commands in plain words", () => {
+    const command = `A='/Users/jack/Developer/.worktrees/Aven/x/target/debug/aven'; "$A" control wait --json '{"timeoutSeconds":120}'`;
+    expect(
+      toolCallLabel({
+        id: "w",
+        role: "tool",
+        text: command,
+        tool: { kind: "execute", title: command },
+      }),
+    ).toBe("Waiting for the agents");
+    expect(
+      toolCallLabel({
+        id: "e",
+        role: "tool",
+        text: "CI=1 /usr/local/bin/pnpm test",
+        tool: { kind: "execute", title: "CI=1 /usr/local/bin/pnpm test" },
+      }),
+    ).toBe("pnpm test");
+  });
+
   it("renders file-reading bash as a Read/Find label", () => {
     expect(
       toolCallLabel({

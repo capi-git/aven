@@ -237,6 +237,7 @@ import {
   raceLaneEnded,
   raceLaneFor,
   raceLaneRecords,
+  raceLanesNotKept,
   raceLaneStarted,
   raceOriginBlock,
   saveRace,
@@ -320,6 +321,7 @@ import {
 } from "./lib/fs";
 import { resolveGrokBinary } from "./lib/harness/child";
 import { saveRaceLaneChoice } from "./lib/raceAgents";
+import { raceAgentNames, raceLaneTitle, raceTaskWords } from "./lib/raceNames";
 import {
   invalidateProjectFiles,
   rememberOpenedFile,
@@ -593,6 +595,9 @@ import {
 import { turnChangeOwner } from "./lib/teamChanges";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
+import { useTeamPanelTidy } from "./hooks/useTeamPanelTidy";
+import { useRacePreviewLabel } from "./hooks/useRacePreviewLabel";
+import { racePreviewTitle } from "./lib/racePreviews";
 import { equalChromeData } from "./hooks/useChromeProps";
 import {
   backgroundWorkerIdsForStop,
@@ -751,6 +756,7 @@ import {
 } from "./lib/shipRequest";
 import { forgetChatReview, useChatReviews } from "./lib/chatReview";
 import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
+import { forgetTurnNotes, takeTurnNotes } from "./lib/turnNotes";
 import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
 import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
 import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
@@ -1431,6 +1437,7 @@ export default function App({
   const browserState = normalizeBrowserWorkspace(
     browserWorkspaces[projectCwd] ?? EMPTY_BROWSER,
   );
+  const racePreviewLabelFor = useRacePreviewLabel();
   const browserSurfaces = browserState.open
     ? browserState.tabs
         .map((tab) => ({
@@ -3049,6 +3056,29 @@ export default function App({
 
   // This window's team panel and pills (see `useTeamWatch`).
   const teamWatch = useTeamWatch();
+  // Only live work floats: an ended race's pill goes after a moment, and a
+  // finished discussion's panel shrinks once you leave its chat or send its
+  // plan to build (see `useTeamPanelTidy`).
+  const sessionIdsKey = sessions.map((session) => session.id).join("\n");
+  const visibleSurfacesKey = visibleSurfaceIds.join("\n");
+  const chatsOnScreen = useMemo(
+    () =>
+      [
+        ...visibleActivitySessionIds({
+          workspaceVisible,
+          visibleSurfaceIds: visibleSurfacesKey
+            ? visibleSurfacesKey.split("\n")
+            : [],
+          tabs,
+          sessionIds: new Set(sessionIdsKey ? sessionIdsKey.split("\n") : []),
+          floatingSessionIds: [],
+        }),
+      ]
+        .sort()
+        .join("\n"),
+    [workspaceVisible, visibleSurfacesKey, tabs, sessionIdsKey],
+  );
+  useTeamPanelTidy(teamWatch, chatsOnScreen);
   // Chats in a discussion this window drives, while it runs or still owes a
   // closing note, and the two in the open or popped-out panel. A
   // discussion's partner has no tab: it plays out in the chat that started it.
@@ -5282,6 +5312,7 @@ export default function App({
               // A deleted chat leaves no card on its project's board.
               forgetChatReview(sessionId);
               forgetShippedChat(sessionId);
+              forgetTurnNotes(sessionId);
             }
           },
         });
@@ -6759,6 +6790,7 @@ export default function App({
         }
         if (turnGen.current.get(sessionId) !== gen) return;
         let buildSucceeded = false;
+        let restoreNotes = () => {};
         try {
           const prepared = await prepareAttachments(attachments);
           const prompt =
@@ -6787,6 +6819,27 @@ export default function App({
           const earlier = queuedHandoff
             ? userMessagesAfterHandoff(current)
             : [];
+          const projectMemory = await projectMemoryForTurn(current.cwd);
+          const composed = orchestrator.prompt(
+            sessionId,
+            inboxAskPrompt(
+              rawCommand ? undefined : current.inboxAsk,
+              wrap && !rawCommand
+                ? wrapHandoffPrompt(
+                    wrap.text,
+                    wrap.from,
+                    turnPrompt.trim() || CONTINUE_PROMPT,
+                    earlier,
+                  )
+                : turnPrompt,
+            ),
+          );
+          // What Aven did for this chat since its last turn (a Ship it
+          // commit, the race version kept) rides ahead, hidden, once.
+          const noted = rawCommand
+            ? { text: composed, restore: () => {} }
+            : takeTurnNotes(sessionId, composed);
+          restoreNotes = noted.restore;
           await sendHarnessTurn({
             harness: current.harness,
             sessionId,
@@ -6798,21 +6851,8 @@ export default function App({
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
             controlsAgents: orchestrator.run(sessionId)?.status === "active",
-            projectMemory: await projectMemoryForTurn(current.cwd),
-            text: orchestrator.prompt(
-              sessionId,
-              inboxAskPrompt(
-                rawCommand ? undefined : current.inboxAsk,
-                wrap && !rawCommand
-                  ? wrapHandoffPrompt(
-                      wrap.text,
-                      wrap.from,
-                      turnPrompt.trim() || CONTINUE_PROMPT,
-                      earlier,
-                    )
-                  : turnPrompt,
-              ),
-            ),
+            projectMemory,
+            text: noted.text,
             attachments: prepared,
             onEvent: (event) => {
               if (
@@ -6886,6 +6926,8 @@ export default function App({
           }
           buildSucceeded = true;
         } catch (error: unknown) {
+          // The message never reached the agent: its notes wait for the next.
+          restoreNotes();
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
           const message = failureText(
@@ -9057,6 +9099,10 @@ export default function App({
       return false;
     }
     const runtimeMode = request.runtimeMode ?? loadDefaultRuntimeMode();
+    // Each lane's chat is named for the task and its agent: "Reset button ·
+    // Codex", the model only where two of one app race.
+    const laneNames = raceAgentNames(request.agents);
+    const taskWords = raceTaskWords(request.text);
     const laneSessions: Session[] = request.agents.map((agent, index) => ({
       ...newSession(
         agent.harness,
@@ -9066,7 +9112,7 @@ export default function App({
         index === 0 ? request.modelSettings : undefined,
       ),
       worktreeCwd: created[index].path,
-      title: `Race · ${agent.label}`,
+      title: raceLaneTitle(agent.harness, taskWords, laneNames[index]),
     }));
     // Sent from a chat: your message stays there, followed by the race's
     // card, and you stay in that chat while the agents work.
@@ -9137,6 +9183,33 @@ export default function App({
       onSubmit(session.id, prompt, request.attachments ?? [], {
         teamMember: { id: `race:${raceId}`, kind: "race" },
       });
+    // Then the task's words as a new chat gets them, once for every lane.
+    const [first] = laneSessions;
+    if (first && request.text.trim())
+      void generateHarnessTitle(first.harness, {
+        sessionId: first.id,
+        cwd: created[0].path,
+        message: request.text,
+      })
+        .then((title) => {
+          const words = title?.trim();
+          if (!words) return;
+          setSessions((prev) =>
+            prev.map((session) => {
+              const index = laneSessions.findIndex(
+                (lane) => lane.id === session.id,
+              );
+              // A title the user changed meanwhile stays.
+              if (index < 0 || session.title !== laneSessions[index].title)
+                return session;
+              return {
+                ...session,
+                title: raceLaneTitle(session.harness, words, laneNames[index]),
+              };
+            }),
+          );
+        })
+        .catch(() => undefined);
     return true;
   };
   startRaceRef.current = startRace;
@@ -9397,6 +9470,11 @@ export default function App({
       );
       notifyGitChanged();
       nudgeWatchedFiles();
+      // The agents whose work was not kept leave the project's live chats;
+      // they stay readable under Archived.
+      const finished = getRace(race.id);
+      for (const lane of finished ? raceLanesNotKept(finished) : [])
+        void onRemoveHistorySession(finished!.lanes[lane].sessionId, "archive");
     },
     // The same open-or-restore path as a notification: a lane whose tab was
     // closed comes back into one.
@@ -9989,13 +10067,17 @@ export default function App({
                                           favicon: tab.favicon,
                                           kept: tab.kept,
                                           url: tab.url,
-                                          title:
+                                          // A race agent's page says whose
+                                          // version it shows.
+                                          title: racePreviewTitle(
                                             tab.title ||
-                                            (tab.url
-                                              ? tab.url
-                                                  .replace(/^https?:\/\//, "")
-                                                  .split("/")[0]
-                                              : "New browser tab"),
+                                              (tab.url
+                                                ? tab.url
+                                                    .replace(/^https?:\/\//, "")
+                                                    .split("/")[0]
+                                                : "New browser tab"),
+                                            racePreviewLabelFor(tab.url),
+                                          ),
                                         }))}
                                       browserOpen={browserState.open}
                                       browserActive={browserFocused}

@@ -37,6 +37,7 @@ import {
   askRaceReviewer,
   continueLane,
   continueRace,
+  raceContinueTitle,
   requestRaceSuggestion,
   reviewRunning,
   suggestionRunning,
@@ -382,28 +383,20 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
               {continueWith ? (
                 <TeamCardButton
                   data-race-continue
-                  disabled={!!race.continuedAt || continuing}
-                  title={
-                    race.continuedAt
-                      ? `Recap sent to ${continueWith}`
-                      : "Send this agent a short recap so it can carry on in your project"
-                  }
+                  disabled={continuing}
+                  title={raceContinueTitle(race, continueWith)}
                   onClick={() => {
                     setContinuing(true);
                     setContinueError(null);
-                    void continueRace(race.id, teamActions?.send).then(
-                      (error) => {
-                        setContinuing(false);
-                        setContinueError(error);
-                      },
-                    );
+                    void continueRace(race.id, teamActions, (id) =>
+                      live?.session(id),
+                    ).then((error) => {
+                      setContinuing(false);
+                      setContinueError(error);
+                    });
                   }}
                 >
-                  {race.continuedAt
-                    ? `Continued with ${continueWith}`
-                    : continuing
-                      ? "Sending recap…"
-                      : `Continue with ${continueWith}`}
+                  {`Continue with ${continueWith}`}
                 </TeamCardButton>
               ) : null}
             </>

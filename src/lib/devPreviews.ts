@@ -400,7 +400,7 @@ export function openDevPreview(
 }
 
 /** One server whichever loopback name or page a tab uses for it. */
-function serverIdentity(url: string): string | undefined {
+export function serverIdentity(url: string): string | undefined {
   let parsed: URL;
   try {
     parsed = new URL(url);

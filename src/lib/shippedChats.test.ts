@@ -6,9 +6,11 @@ import {
   recordShip,
   shipEvents,
   shippedChatsSnapshot,
+  shipNoteText,
   shipTargets,
   forgetShippedChat,
 } from "./shippedChats";
+import { pendingTurnNotes, takeTurnNotes } from "./turnNotes";
 
 let values: Map<string, string>;
 
@@ -81,6 +83,63 @@ describe("shipTargets", () => {
       "x",
     ]);
     expect(shipTargets({ cwd: "/repo", reviews: {} })).toEqual([]);
+  });
+});
+
+describe("the ship note", () => {
+  const commit = {
+    sha: "4c19b02aa",
+    shortSha: "4c19b02",
+    subject: "Clean the output folder",
+  };
+
+  it("names the commit, the push and the pull request as the user's", () => {
+    expect(
+      shipNoteText(
+        {
+          committed: true,
+          pushed: true,
+          pr: { number: 42, url: "u", created: true },
+        },
+        commit,
+      ),
+    ).toBe(
+      "The user shipped this chat's changes with Aven's Ship it: commit 4c19b02 “Clean the output folder”, pushed and opened pull request #42. That commit is theirs, made through Aven; don't commit those changes again.",
+    );
+    expect(
+      shipNoteText({ committed: true, pushed: false, pr: null }, undefined),
+    ).toBe(
+      "The user shipped this chat's changes with Aven's Ship it: a new commit. That commit is theirs, made through Aven; don't commit those changes again.",
+    );
+    expect(
+      shipNoteText({
+        committed: false,
+        pushed: true,
+        pr: { number: 7, url: "u", created: false },
+      }),
+    ).toBe(
+      "The user shipped this chat's changes with Aven's Ship it: this branch's commits pushed and updated pull request #7. That push was theirs, made through Aven; don't commit those changes again.",
+    );
+    expect(
+      shipNoteText({ committed: false, pushed: false, pr: null }),
+    ).toBeNull();
+  });
+
+  it("waits for the shipped chat's next message, and only that chat's", async () => {
+    await recordShip({
+      cwd: "/repo",
+      requestedId: "a",
+      result: { committed: true, pushed: false, pr: null },
+      sessions: [chat("a"), chat("b")],
+      reviews: {},
+      head,
+      now: 800,
+    });
+    expect(pendingTurnNotes("b")).toEqual([]);
+    expect(takeTurnNotes("a", "What changed?").text).toContain(
+      "commit 4c19b02 “Clean the output folder”",
+    );
+    expect(pendingTurnNotes("a")).toEqual([]);
   });
 });
 

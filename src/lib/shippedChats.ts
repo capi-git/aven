@@ -15,7 +15,9 @@ import {
   type Session,
 } from "./session";
 import type { ShipResult } from "./shipFlow";
+import { queueTurnNote } from "./turnNotes";
 import { sessionForShip } from "./turnTests";
+import { listText } from "./words";
 
 /** One time changes went out: the commit it made, the pull request it opened or updated. */
 export type ShipEvent = {
@@ -283,5 +285,36 @@ export async function recordShip({
     };
   });
   recordShipped(records);
+  // Each chat's agent hears it with its next message, so it does not take
+  // the commit for someone else's.
+  const note = shipNoteText(result, commit);
+  if (note)
+    for (const record of records)
+      queueTurnNote(record.sessionId, { kind: "ship", text: note, at: now });
   return records;
+}
+
+/**
+ * What a chat's agent is told, once, after Ship it sent its changes out:
+ * the commit, whether it was pushed and the pull request, as the user's.
+ */
+export function shipNoteText(
+  result: Pick<ShipResult, "committed" | "pushed" | "pr">,
+  commit?: ShippedChat["commit"],
+): string | null {
+  const parts: string[] = [];
+  if (result.committed)
+    parts.push(
+      commit ? `commit ${commit.shortSha} “${commit.subject}”` : "a new commit",
+    );
+  if (result.pushed)
+    parts.push(result.committed ? "pushed" : "this branch's commits pushed");
+  if (result.pr)
+    parts.push(
+      `${result.pr.created ? "opened" : "updated"} pull request #${result.pr.number}`,
+    );
+  if (!parts.length) return null;
+  return `The user shipped this chat's changes with Aven's Ship it: ${listText(parts)}. That ${
+    result.committed ? "commit is" : "push was"
+  } theirs, made through Aven; don't commit those changes again.`;
 }

@@ -14,14 +14,12 @@ import {
   buildDiscussionThread,
   type DiscussionTranscripts,
 } from "./discussionThread";
-import { agentNameWithModel } from "./agentNames";
+import { agentNameIn } from "./agentNames";
 import {
-  discussionParty,
   otherSide,
   SUMMARY_ITEM_CHARS,
   SUMMARY_ITEM_LIMIT,
   type Discussion,
-  type DiscussionParty,
   type DiscussionSide,
   type DiscussionSummary,
 } from "./discussions";
@@ -88,10 +86,8 @@ export function wrapUpDigest(
     MIN_REPLY_CHARS,
     Math.min(MAX_REPLY_CHARS, Math.floor(DIGEST_CHARS / replies)),
   );
-  const name = (side: DiscussionSide) => {
-    const party = discussionParty(discussion, side);
-    return `${agentNameWithModel(party)} (${side === "a" ? "opened the topic" : "joined the topic"})`;
-  };
+  const name = (side: DiscussionSide) =>
+    `${discussionAgentName(discussion, side)} (${side === "a" ? "opened the topic" : "joined the topic"})`;
   const parts: string[] = [];
   for (const item of items) {
     switch (item.kind) {
@@ -242,11 +238,19 @@ export async function runDiscussionWrapUp(
   }
 }
 
-/** "Claude Sonnet 5", "Codex GPT-5.5": the provider and model, as said aloud. */
-export function spokenName(
-  party: Pick<DiscussionParty, "harness" | "model">,
+/**
+ * One side as written in a message or summary: "Claude", "Codex", with the
+ * model only when both sides are the same app ("Claude Sonnet 5" beside
+ * "Claude Opus 4.6"), as Aven names agents everywhere.
+ */
+export function discussionAgentName(
+  discussion: Pick<Discussion, "a" | "b">,
+  side: DiscussionSide,
 ): string {
-  return agentNameWithModel(party);
+  return agentNameIn(side === "a" ? discussion.a : discussion.b, [
+    discussion.a,
+    discussion.b,
+  ]);
 }
 
 /**
@@ -258,7 +262,7 @@ export function discussionBuildMessage(
   discussion: Discussion,
   side: DiscussionSide,
 ): string {
-  const partner = spokenName(discussionParty(discussion, otherSide(side)));
+  const partner = discussionAgentName(discussion, otherSide(side));
   const ask = `Please carry out the plan from your discussion with ${partner}.`;
   const agreed =
     discussion.summary?.status === "done" ? discussion.summary.agreed : [];

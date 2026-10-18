@@ -361,7 +361,11 @@ it.each([
     ).toEqual([]);
     expect(getRace("r1")?.state).toBe(state);
     expect(view.textContent).toContain(summary);
-    expect(view.textContent).toContain(record.project);
+    // The project by its name, never its folder's path.
+    expect(view.textContent).toContain(
+      state === "kept" ? "Kept in site." : "site didn't change.",
+    );
+    expect(view.textContent).not.toContain(record.project);
     expect(view.textContent).not.toContain("Files · pick");
     expect(view.textContent).not.toContain("a.ts");
     expect(view.textContent).not.toContain("Keep this");
@@ -385,7 +389,8 @@ it("opens a completed race without requesting deleted copies", async () => {
   const view = await render([session("s0"), session("s1")]);
   expect(host.invoke).not.toHaveBeenCalled();
   expect(view.textContent).toContain("Kept in your project.");
-  expect(view.textContent).toContain(record.project);
+  expect(view.textContent).toContain("Kept in site.");
+  expect(view.textContent).not.toContain(record.project);
 });
 
 it("ignores a refresh that fails after the copies have been removed", async () => {

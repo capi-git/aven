@@ -1,5 +1,9 @@
 import { memo, useState, type CSSProperties } from "react";
-import type { Discussion, DiscussionSide } from "../lib/discussions";
+import {
+  discussionBuildSent,
+  type Discussion,
+  type DiscussionSide,
+} from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
 import { Check, Eye, RotateCcw } from "./icons";
 import { ProjectMascot } from "./ProjectMascot";
@@ -9,7 +13,7 @@ import "./DiscussionWrapUp.css";
 /** What the wrap-up reads from a discussion. */
 export type WrapUpSource = Pick<
   Discussion,
-  "id" | "ended" | "summary" | "a" | "b"
+  "id" | "ended" | "summary" | "a" | "b" | "built" | "settled"
 >;
 
 /**
@@ -46,7 +50,9 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
   /** Asks for the summary again, after it failed. */
   onRetry?: () => void;
 }) {
-  const [sent, setSent] = useState<DiscussionSide | null>(null);
+  // Sent or not is the discussion's, so this card and the panel agree.
+  const sentTo = (side: DiscussionSide) =>
+    discussionBuildSent(discussion, side);
   const [sending, setSending] = useState<DiscussionSide | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const completed = discussion.ended?.kind === "completed";
@@ -125,27 +131,27 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
         <div className="discussion-wrapup-actions">
           {(["a", "b"] as const).map((side) => {
             const voice = voices[side];
+            const sent = sentTo(side);
             return (
               <button
                 key={side}
                 type="button"
                 className="discussion-build"
                 data-discussion-build={side}
-                data-sent={sent === side || undefined}
+                data-sent={sent || undefined}
                 // Once sent, or while either is sending, it can't go twice.
-                disabled={sent === side || sending !== null}
+                disabled={sent || sending !== null}
                 style={{ "--discussion-voice": voice.color } as CSSProperties}
                 title={
-                  sent === side
+                  sent
                     ? `The plan was sent to “${voice.title}”`
                     : `Send the plan to “${voice.title}”`
                 }
                 onClick={() => {
-                  if (sending !== null || sent === side) return;
+                  if (sending !== null || sent) return;
                   const settle = (refused: string | null) => {
                     setSending(null);
                     setProblem(refused);
-                    if (!refused) setSent(side);
                   };
                   setSending(side);
                   setProblem(null);
@@ -163,7 +169,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                   else settle(result);
                 }}
               >
-                {sent === side ? (
+                {sent ? (
                   <Check className="size-3 shrink-0" strokeWidth={2.5} />
                 ) : (
                   <ProjectMascot
@@ -174,7 +180,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                   />
                 )}
                 <span className="truncate">
-                  {sent === side
+                  {sent
                     ? `Sent to ${voice.name}`
                     : sending === side
                       ? "Sending…"

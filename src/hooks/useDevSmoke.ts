@@ -4,6 +4,7 @@ import {
   finishDevSmoke,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
+  SMOKE_ECHO_NOTE_WORD,
   SMOKE_HEARD_WORD,
   SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
@@ -45,6 +46,7 @@ import type { RaceLaneChoice } from "../lib/raceAgents";
 import { raceLaneName } from "../lib/raceLanes";
 import { raceAgentNames } from "../lib/raceNames";
 import { teamWorkspace } from "../lib/teamWorkspace";
+import { possessive } from "../lib/words";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
 import { isInFlightSession } from "../lib/inFlight";
@@ -794,8 +796,9 @@ async function startRaceFromComposer(
  * Stop race; separate copies; Compare from the card; truthful lane states
  * and Retry, with no entry in Activity for a lane's turn; then Keep one
  * lane while the other still works. The kept files must include one the
- * overview had not shown yet, the copies must go, both lane chats must
- * point back at the project, and the card must become the result.
+ * overview had not shown yet, the copies must go, the kept lane's chat
+ * must point back at the project while the other's is archived, and the
+ * card must become the result.
  */
 export async function checkRace(
   get: () => Options,
@@ -1102,18 +1105,20 @@ export async function checkRace(
       )
     )
       throw new Error(`${lane.label}'s copy is still there`);
+  // The kept agent's chat carries on in the project; Grok's, whose work
+  // went with its copy, is archived.
   await waitFor(
-    () =>
-      record.lanes.every((lane) => {
-        const current = session(lane.sessionId);
-        return (
-          current &&
-          !current.worktreeCwd &&
-          sameProjectPath(current.cwd, config.projectPath)
-        );
-      }),
+    () => {
+      const keptChat = session(record.lanes[0].sessionId);
+      return (
+        !!keptChat &&
+        !keptChat.worktreeCwd &&
+        sameProjectPath(keptChat.cwd, config.projectPath) &&
+        !session(record.lanes[1].sessionId)
+      );
+    },
     5_000,
-    "both lane chats to point back at the project",
+    "the kept chat to point back at the project and Grok's to be archived",
   );
   // Close the finished overview as a person would, leaving only chats.
   pressShortcut("w");
@@ -1141,7 +1146,7 @@ export async function checkRace(
   )
     throw new Error("The result has no Review changes or Continue with");
   if (barOf()) throw new Error("The race's bar stayed after the keep");
-  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, both chats back on the project; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
+  return `your message and the card stayed in the chat you raced from, with one Stop race; Claude Code and Grok Build in separate copies; Grok's failed try posted nothing; Compare from the card ("${bar}"); Grok read Failed, then Working after Retry; kept Claude's lane mid-run (stopping ${working}) with ${unseen.join(", ")} the overview hadn't shown; copies removed, the kept chat back on the project and Grok's archived; the card reads "${headline}"${watched ? `; ${watched}` : ""}`;
 }
 
 /** The second race: both lanes write their file and finish within seconds. */
@@ -1352,29 +1357,59 @@ export async function checkRaceResult(
     throw new Error(`The result reads "${headline}"`);
   if (!status().startsWith("Why: ") || !status().includes(SMOKE_WINNER_WORD))
     throw new Error(`The result says "${status()}", not why`);
-  // Continue with the kept agent: its chat gets a recap of its own work.
+  // Continue with the kept agent: its chat opens with the cursor in its
+  // message box and nothing is sent; your next message there carries the
+  // recap of its own work, hidden from the transcript.
+  const keptName = raceLaneName(record, 1);
   const asked = sentTexts(get().sessions, grok.sessionId).length;
-  const next = buttonNamed(result, `Continue with ${raceLaneName(record, 1)}`);
+  const next = buttonNamed(result, `Continue with ${keptName}`);
   if (!next) throw new Error("The result has no Continue with");
   next.click();
-  await waitFor(
+  const field = await waitFor(
     () => {
-      const texts = sentTexts(get().sessions, grok.sessionId);
-      return (
-        texts.length > asked &&
-        texts.at(-1) === "Carry on from the race: your version was kept."
+      const box = firstOnScreen<HTMLTextAreaElement>(
+        `[data-session-drop="${grok.sessionId}"] [data-composer] textarea`,
       );
+      return box && document.activeElement === box ? box : null;
     },
-    20_000,
-    "Continue with to send the kept agent a recap",
+    10_000,
+    `Continue with to put the cursor in ${possessive(keptName)} message box`,
   );
+  if (!field.placeholder.startsWith(`${keptName} knows which version you kept`))
+    throw new Error(
+      `${possessive(keptName)} message box reads "${field.placeholder}"`,
+    );
+  const grokChat = () =>
+    get().sessions.find((session) => session.id === grok.sessionId);
+  if (
+    sentTexts(get().sessions, grok.sessionId).length !== asked ||
+    grokChat()?.busy
+  )
+    throw new Error(`Continue with sent ${keptName} a message on its own`);
+  const repliesBefore = replyCount(get().sessions, grok.sessionId);
+  get().submit(grok.sessionId, `What was kept? ${SMOKE_ECHO_NOTE_WORD}`);
   await waitFor(
     () =>
-      !get().sessions.find((session) => session.id === grok.sessionId)?.busy,
+      !grokChat()?.busy &&
+      replyCount(get().sessions, grok.sessionId) > repliesBefore,
     20_000,
-    "the kept agent's turn to end",
+    `${possessive(keptName)} reply`,
   );
-  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with sent it a recap`;
+  const recap =
+    [...(grokChat()?.blocks ?? [])]
+      .reverse()
+      .find(
+        (block) =>
+          block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+      )?.text ?? "";
+  if (!recap.includes("Your version was kept"))
+    throw new Error(`${keptName}'s next message was told: ${recap}`);
+  if (
+    sentTexts(get().sessions, grok.sessionId).at(-1) !==
+    `What was kept? ${SMOKE_ECHO_NOTE_WORD}`
+  )
+    throw new Error("The recap showed in the kept agent's transcript");
+  return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with opened its chat with the cursor in the message box, and the next message carried the recap`;
 }
 
 /** The file the board check's turn edits, in the check's project. */
@@ -3013,14 +3048,12 @@ export async function runDevSmoke(
           30_000,
           "the build button to send the plan to the first chat",
         );
-        // Closed, the panel comes back from the finished card's Open.
-        discussionPanel(id)
-          ?.querySelector<HTMLElement>("[data-discussion-close]")
-          ?.click();
+        // With its plan sent, the finished discussion's panel gets out of
+        // the way as its pill; the finished card's Watch brings it back.
         await waitFor(
-          () => !discussionPanel(id) && !discussionPill(id),
+          () => !discussionPanel(id) && discussionPill(id),
           5_000,
-          "the panel to close",
+          "the finished panel to shrink to its pill once the plan was sent",
         );
         document
           .querySelector<HTMLElement>(
@@ -3041,7 +3074,7 @@ export async function runDevSmoke(
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
+        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says the discussion finished after 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan and the panel shrank to its pill; the finished card reopens the panel`;
       },
     );
 
