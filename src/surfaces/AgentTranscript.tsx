@@ -134,6 +134,18 @@ import {
 const NEAR_BOTTOM_PX = 16;
 /** How long a trackpad gesture with no direction yet holds the bottom pin. */
 const WHEEL_HOLD_MS = 150;
+/** How long after the reader's own scroll input a move up counts as theirs. */
+const READER_INPUT_MS = 800;
+/** Keys that scroll a focused transcript. */
+const SCROLL_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
 const INITIAL_TURNS = 20;
 const TURN_PAGE_SIZE = 20;
 
@@ -221,6 +233,11 @@ function AgentTranscriptComponent({
   const lastScrollExtent = useRef<ScrollExtent | undefined>(undefined);
   // Until this time, a trackpad gesture with no direction yet owns the pin.
   const wheelHold = useRef(0);
+  // When the reader last used a wheel, trackpad, scroll key or the scrollbar
+  // here, to tell their scrolling from the browser moving the offset.
+  const readerInputAt = useRef(Number.NEGATIVE_INFINITY);
+  // A layout move undone while following, still to be pinned back.
+  const repinAfterLayout = useRef(false);
   const prependHeight = useRef<number | null>(null);
   // What the reader sees at the top edge while scrolled up. WebKit has no CSS
   // scroll anchoring, so a rewrap would otherwise slide it away.
@@ -315,18 +332,27 @@ function AgentTranscriptComponent({
   const syncPinned = useCallback(
     (el: HTMLElement): boolean => {
       const previousTop = lastScrollTop.current;
-      const moved = readerScrolled(el, previousTop, lastScrollExtent.current);
+      const previous = lastScrollExtent.current;
+      const moved = readerScrolled(el, previousTop, previous);
+      // When the viewport changes height while the content briefly shortens,
+      // as the rows over the message box change when a run starts, the
+      // browser can clamp the offset well above the end. Without scroll
+      // input from the reader at that moment, it is layout: keep following.
+      const layoutOnly =
+        moved &&
+        stickToBottom.current &&
+        !scrollbarDragging.current &&
+        !!previous &&
+        el.clientHeight !== previous.clientHeight &&
+        performance.now() - readerInputAt.current > READER_INPUT_MS;
       stickToBottom.current =
         !scrollbarDragging.current &&
-        followsAfterScroll(
-          el,
-          previousTop,
-          stickToBottom.current,
-          lastScrollExtent.current,
-        );
+        (layoutOnly ||
+          followsAfterScroll(el, previousTop, stickToBottom.current, previous));
+      if (layoutOnly) repinAfterLayout.current = true;
       rememberScroll(el);
       setShowJump(!stickToBottom.current && el.scrollHeight > el.clientHeight);
-      return moved;
+      return moved && !layoutOnly;
     },
     [rememberScroll, setShowJump],
   );
@@ -396,8 +422,27 @@ function AgentTranscriptComponent({
       // A hidden or detached scroller reports a reset offset, not the reader.
       if (!scrollerEl.isConnected || scrollerEl.clientHeight <= 0) return;
       rememberReadingPosition(scrollerEl, syncPinned(scrollerEl));
+      if (repinAfterLayout.current) {
+        repinAfterLayout.current = false;
+        if (stickToBottom.current) pinTranscript(scrollerEl);
+      }
+    };
+    const markReaderInput = () => {
+      readerInputAt.current = performance.now();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (SCROLL_KEYS.has(event.key)) markReaderInput();
+    };
+    // The scrollbar is part of the scroller itself, and a selection dragged
+    // past an edge scrolls it with a button held.
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target === scrollerEl) markReaderInput();
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.buttons) markReaderInput();
     };
     const onScrollbarDrag = (event: Event) => {
+      markReaderInput();
       const dragging = (event as CustomEvent<boolean>).detail;
       scrollbarDragging.current = dragging;
       syncPinned(scrollerEl);
@@ -411,6 +456,7 @@ function AgentTranscriptComponent({
     };
     let release: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (e: WheelEvent) => {
+      markReaderInput();
       if (e.deltaY < 0) {
         // Upward input that cannot move the transcript, at its top or with
         // nothing to scroll, is not the reader leaving the end.
@@ -436,12 +482,22 @@ function AgentTranscriptComponent({
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
     scrollerEl.addEventListener("wheel", onWheel, { passive: true });
+    scrollerEl.addEventListener("keydown", onKeyDown);
+    scrollerEl.addEventListener("pointerdown", onPointerDown, {
+      passive: true,
+    });
+    scrollerEl.addEventListener("pointermove", onPointerMove, {
+      passive: true,
+    });
     scrollerEl.addEventListener(TRANSCRIPT_SCROLL_DRAG_EVENT, onScrollbarDrag);
     return () => {
       clearTimeout(release);
       wheelHold.current = 0;
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
+      scrollerEl.removeEventListener("keydown", onKeyDown);
+      scrollerEl.removeEventListener("pointerdown", onPointerDown);
+      scrollerEl.removeEventListener("pointermove", onPointerMove);
       scrollerEl.removeEventListener(
         TRANSCRIPT_SCROLL_DRAG_EVENT,
         onScrollbarDrag,
@@ -450,6 +506,7 @@ function AgentTranscriptComponent({
     };
   }, [
     followTranscript,
+    pinTranscript,
     rememberReadingPosition,
     scrollerEl,
     setShowJump,

@@ -597,6 +597,60 @@ describe("transcript bottom following", () => {
     expect(el.scrollTop).toBe(700);
   });
 
+  it("keeps following when a taller viewport and briefly shorter content clamp the offset well above the end", async () => {
+    // As seen live when a run starts: the rows over the message box shrink
+    // (viewport 412 → 442) in the same layout as the run's card briefly
+    // drops out (286px), so the browser clamps far above the real end.
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 412, 2000);
+    await markAtBottom(el);
+    expect(el.scrollTop).toBe(1588);
+    metrics.shrink(286);
+    metrics.resize(442);
+    metrics.grow(286);
+    expect(el.scrollTop).toBe(1272);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(el.scrollTop).toBe(1558);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(1598);
+  });
+
+  it("still lets the reader leave with a scroll key while the viewport changes", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 412, 2000);
+    await markAtBottom(el);
+    await act(async () => {
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "PageUp", bubbles: true }),
+      );
+    });
+    metrics.resize(442);
+    el.scrollTop = 1200;
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(el.scrollTop).toBe(1200);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+  });
+
+  it("keeps following through a one-pixel rounding drift", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 384, 6517);
+    await markAtBottom(el);
+    el.scrollTop = 6132;
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    metrics.grow(100);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(6233);
+  });
+
   it("resumes following only when the reader reaches the very end", async () => {
     const el = await render(answer("One"));
     const metrics = scrollMetrics(el, 400, 1000);

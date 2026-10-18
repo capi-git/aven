@@ -57,7 +57,8 @@ export function tallerViewportClamped(
 /**
  * True when the offset moved since `previousTop` by something other than a
  * clamp. Pass the `previous` extent to recognise a taller viewport's clamp
- * after the content has grown back with it.
+ * after the content has grown back with it. A drift of a pixel or less is
+ * rounding as the page lays out again, not the reader.
  */
 export function readerScrolled(
   el: ScrollBox,
@@ -65,7 +66,7 @@ export function readerScrolled(
   previous?: ScrollExtent,
 ): boolean {
   return (
-    el.scrollTop !== previousTop &&
+    Math.abs(el.scrollTop - previousTop) > 1 &&
     !scrollClampedToBottom(el, previousTop) &&
     !(previous && tallerViewportClamped(el, previousTop, previous))
   );
