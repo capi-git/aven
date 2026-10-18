@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.145] - 2026-10-18
+
 ### Added
 
 - Discussions, races and orchestrator runs share one slim bar in the message box of the chat they started from and of each agent's chat: "Discussing · Round 2 of 4 · with Codex in “Login fix”", "Racing · 1 of 3 done" or "Orchestrating · 2 working · 1 queued". It has **Watch**, **Compare** for a race, **Open agents** for a run, **Resume** while paused and **Go to Codex** when another chat is waiting on you. One button stops the whole thing: **Stop discussion**, **Stop race** (in the chat you raced from) or **Stop run** (in the lead's chat). When something needs you, the bar says "Needs you" with what is needed on a second line, such as "Codex wants to run npm test" or "Claude asked: Which port?". The message box's own square Stop still stops only that chat's turn.
