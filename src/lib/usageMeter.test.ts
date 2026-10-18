@@ -112,7 +112,7 @@ describe("usageMeterTitle", () => {
 describe("contextMeterTitle", () => {
   it("describes how full the chat's context window is", () => {
     expect(contextMeterTitle({ used: 58_000, window: 200_000 })).toBe(
-      "Context: 29% of this chat's context window used (58K of 200K tokens)",
+      "Context: 29% of this chat's context used (58K of 200K tokens)",
     );
     expect(contextMeterTitle({ used: 1_200 })).toBe(
       "Context: 1.2K tokens in this chat",

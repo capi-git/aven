@@ -84,7 +84,7 @@ export function ContextMeter({
               title={
                 compactDisabled
                   ? "Wait for the current operation to finish"
-                  : "Compact this conversation's context"
+                  : "Summarize older messages so the chat can keep going"
               }
               onClick={() => {
                 setOpen(false);
@@ -92,7 +92,7 @@ export function ContextMeter({
               }}
               className="mt-1.5 w-full rounded-md bg-content/10 px-2 py-1 text-ui-caption text-content hover:bg-content/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Compact now
+              Free up space
             </button>
           ) : null}
         </Popover>

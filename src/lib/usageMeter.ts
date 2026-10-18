@@ -90,7 +90,7 @@ export function usageMeterTitle(
   return [`${name}: ${parts.join(" · ")}`, ...forecasts].join("\n");
 }
 
-/** "Context: 25% of this chat's context window used (50K of 200K tokens)". */
+/** "Context: 25% of this chat's context used (50K of 200K tokens)". */
 export function contextMeterTitle(context: {
   used: number;
   window?: number;
@@ -98,7 +98,7 @@ export function contextMeterTitle(context: {
   const percent = contextPercent(context);
   if (percent == null)
     return `Context: ${formatTokens(context.used)} tokens in this chat`;
-  return `Context: ${percent}% of this chat's context window used (${formatTokens(
+  return `Context: ${percent}% of this chat's context used (${formatTokens(
     context.used,
   )} of ${formatTokens(context.window ?? 0)} tokens)`;
 }
