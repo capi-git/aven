@@ -591,6 +591,8 @@ import {
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
 import { useTeamPanelTidy } from "./hooks/useTeamPanelTidy";
+import { useRacePreviewLabel } from "./hooks/useRacePreviewLabel";
+import { racePreviewTitle } from "./lib/racePreviews";
 import { equalChromeData } from "./hooks/useChromeProps";
 import {
   backgroundWorkerIdsForStop,
@@ -1415,6 +1417,7 @@ export default function App({
   const browserState = normalizeBrowserWorkspace(
     browserWorkspaces[projectCwd] ?? EMPTY_BROWSER,
   );
+  const racePreviewLabelFor = useRacePreviewLabel();
   const browserSurfaces = browserState.open
     ? browserState.tabs
         .map((tab) => ({
@@ -9978,13 +9981,17 @@ export default function App({
                                           favicon: tab.favicon,
                                           kept: tab.kept,
                                           url: tab.url,
-                                          title:
+                                          // A race agent's page says whose
+                                          // version it shows.
+                                          title: racePreviewTitle(
                                             tab.title ||
-                                            (tab.url
-                                              ? tab.url
-                                                  .replace(/^https?:\/\//, "")
-                                                  .split("/")[0]
-                                              : "New browser tab"),
+                                              (tab.url
+                                                ? tab.url
+                                                    .replace(/^https?:\/\//, "")
+                                                    .split("/")[0]
+                                                : "New browser tab"),
+                                            racePreviewLabelFor(tab.url),
+                                          ),
                                         }))}
                                       browserOpen={browserState.open}
                                       browserActive={browserFocused}
