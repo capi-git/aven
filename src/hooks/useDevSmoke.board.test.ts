@@ -17,12 +17,31 @@ type Flaws = {
   noReview?: boolean;
   /** The card's button leaves the board on screen. */
   boardStays?: boolean;
+  /** Cmd+W leaves the board tab open. */
+  boardKept?: boolean;
 };
+
+let listening = new AbortController();
 
 /** The workspace as far as the board check reads and drives it. */
 function app(flaws: Flaws = {}) {
+  // The board's tab, and whether it is the one on screen.
+  let boardTab = false;
   let boardOpen = false;
   let focused = "";
+  listening = new AbortController();
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "w" || !(event.metaKey || event.ctrlKey)) return;
+      if (boardOpen && !flaws.boardKept) {
+        boardTab = false;
+        boardOpen = false;
+        draw();
+      }
+    },
+    { signal: listening.signal },
+  );
   const state = {
     sessions: [] as Session[],
     floatingSidebarLabel: null,
@@ -81,14 +100,12 @@ function app(flaws: Flaws = {}) {
       .join("");
     document.body.innerHTML = `
       <div class="personal-titlebar"><button aria-label="Open board"></button></div>
-      ${
-        boardOpen
-          ? `<div data-work-board="${PROJECT}">${columns}</div>`
-          : `<div data-session-drop="${focused}"></div>`
-      }`;
+      ${boardTab ? `<div data-work-board="${PROJECT}"${boardOpen ? "" : " data-hidden"}>${columns}</div>` : ""}
+      ${boardOpen ? "" : `<div data-session-drop="${focused}"></div>`}`;
     document
       .querySelector('button[aria-label="Open board"]')!
       .addEventListener("click", () => {
+        boardTab = true;
         boardOpen = true;
         draw();
       });
@@ -108,11 +125,16 @@ function app(flaws: Flaws = {}) {
 describe("the real-app check's board step", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.spyOn(Element.prototype, "getClientRects").mockImplementation(
-      () => [new DOMRect(0, 0, 10, 10)] as never,
-    );
+    vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
+      this: Element,
+    ) {
+      return (
+        this.closest("[data-hidden]") ? [] : [new DOMRect(0, 0, 10, 10)]
+      ) as never;
+    });
   });
   afterEach(() => {
+    listening.abort();
     vi.useRealTimers();
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -131,7 +153,7 @@ describe("the real-app check's board step", () => {
   it("passes when the card moves from Working to Review and opens the chat", async () => {
     const { state, outcome } = await run();
     expect(outcome).toEqual({
-      detail: `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered Review, Ship it; pressing it opened the chat`,
+      detail: `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered Review, Ship it; pressing it opened the chat; Cmd+W closed the board`,
     });
     // The turn edits the file through the stand-in, held while the board opens.
     expect(state.submit.mock.calls[0]?.[1]).toContain(
@@ -143,6 +165,13 @@ describe("the real-app check's board step", () => {
     const { outcome } = await run({ noReview: true });
     expect(outcome).toEqual({
       error: "Timed out waiting for the chat's card to move to Ready to review",
+    });
+  });
+
+  it("fails when the board is left open", async () => {
+    const { outcome } = await run({ boardKept: true });
+    expect(outcome).toEqual({
+      error: "Timed out waiting for Cmd+W to close the board",
     });
   });
 

@@ -1473,7 +1473,33 @@ export async function checkBoard(
     5_000,
     "the card to open its chat",
   );
-  return `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat`;
+  // Leave no board open: bring it forward and close it as a person would.
+  const again = await waitFor(
+    () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Open board"]',
+        ),
+      ].find((button) => button.getClientRects().length > 0),
+    5_000,
+    "the Open board button again",
+  );
+  again.click();
+  await waitFor(
+    () => boardOnScreen(project),
+    5_000,
+    "Open board to bring the board forward",
+  );
+  pressShortcut("w");
+  await waitFor(
+    () =>
+      ![...document.querySelectorAll<HTMLElement>("[data-work-board]")].some(
+        (board) => sameProjectPath(board.dataset.workBoard ?? "", project),
+      ),
+    5_000,
+    "Cmd+W to close the board",
+  );
+  return `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat; Cmd+W closed the board`;
 }
 
 /** A chat's pane on screen. */

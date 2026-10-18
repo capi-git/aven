@@ -160,3 +160,35 @@ describe("project data removal", () => {
     expect(mocks.tabs).not.toHaveBeenCalled();
   });
 });
+
+describe("a project's open work", () => {
+  it("counts its files and terminals, not its board or race overviews", async () => {
+    const {
+      newBoardWorkspaceTab,
+      newRaceWorkspaceTab,
+      newFileTab,
+      newEditorPane,
+      newTab,
+    } = await import("./layout");
+    const { openProjectFiles } = await import("./projectData");
+    const board = newBoardWorkspaceTab("/work/site");
+    const race = newRaceWorkspaceTab("r1", "Race overview", "/work/site");
+    const otherBoard = newBoardWorkspaceTab("/work/other");
+    expect(
+      openProjectFiles([board, race, otherBoard], [], "/work/site"),
+    ).toEqual([]);
+
+    const readme = newFileTab("/work/site/README.md", "/work/site");
+    const withFile = {
+      ...newTab("x"),
+      layout: { type: "leaf" as const, id: "pane" },
+      focusedId: "pane",
+      editorPanes: [{ ...newEditorPane(readme), id: "pane" }],
+    };
+    expect(
+      openProjectFiles([board, withFile], [], "/work/site").map(
+        (file) => file.path,
+      ),
+    ).toEqual(["/work/site/README.md"]);
+  });
+});

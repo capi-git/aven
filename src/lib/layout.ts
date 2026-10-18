@@ -411,6 +411,14 @@ export function newBoardWorkspaceTab(project: string): WorkspaceTab {
   };
 }
 
+/**
+ * A tab that only shows a project's work, a board or a race overview, and
+ * holds none of its own: removing the project closes it without asking.
+ */
+export function isProjectView(file: FilePaneTab): boolean {
+  return isBoardTab(file) || isRaceTab(file);
+}
+
 /** Boards follow the main window's chats, so they never move to another. */
 export const BOARD_STAYS_MESSAGE = "Boards stay in the main window.";
 

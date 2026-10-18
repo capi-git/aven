@@ -482,7 +482,7 @@ import {
   rebasePath,
   resolveWorkspacePath,
 } from "./lib/paths";
-import { removeProjectData } from "./lib/projectData";
+import { openProjectFiles, removeProjectData } from "./lib/projectData";
 import {
   lastProjectPath,
   looksLikeProject,
@@ -5583,12 +5583,12 @@ export default function App({
                 !!session.handoffCard
               );
             });
-            const remainingFiles = filesInWorkspaceTabs(
-              filterTabsForProject(
-                tabsRef.current,
-                currentSessions,
-                normalized,
-              ),
+            // Its board and race overviews are views, not work: they close
+            // with the project below.
+            const remainingFiles = openProjectFiles(
+              tabsRef.current,
+              currentSessions,
+              normalized,
             );
             if (newWork || remainingFiles.length || hasProjectTerminals()) {
               throw new Error(
