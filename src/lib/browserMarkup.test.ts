@@ -11,6 +11,7 @@ import {
   hitTestMarkup,
   keepMarkupMark,
   markupArrowHead,
+  keepTextInside,
   markupBounds,
   markupGeometry,
   markupKeyAction,
@@ -425,5 +426,30 @@ describe("markup export", () => {
         [],
       ),
     ).rejects.toThrow("Could not draw the marked-up page.");
+  });
+});
+
+describe("keepTextInside", () => {
+  const note = (x: number, y: number) =>
+    markupTextMark({
+      id: "n",
+      color: "#ff5a4f",
+      size: 16,
+      at: { x, y },
+      text: "make it bigger",
+    })!;
+
+  it("moves a note placed near the right or bottom edge back inside", () => {
+    const placed = note(380, 590);
+    const kept = keepTextInside(placed, 400, 600, 6);
+    const box = markupBounds(kept);
+    expect(box.x + box.width).toBeLessThanOrEqual(394);
+    expect(box.y + box.height).toBeLessThanOrEqual(594);
+    expect(box.x).toBeGreaterThanOrEqual(6);
+  });
+
+  it("leaves a note that already fits where it was placed", () => {
+    const placed = note(20, 20);
+    expect(keepTextInside(placed, 400, 600, 6)).toBe(placed);
   });
 });

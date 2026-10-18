@@ -456,6 +456,30 @@ describe("marking up a browser page", () => {
     expect(toolbar()).toBeNull();
   });
 
+  it("keeps a note being typed when focus slips to nothing for a moment", async () => {
+    await open({ onAddToChat: vi.fn() });
+    await markUp();
+    const layer = container.querySelector(".browser-markup")!;
+    await press(layer, "t");
+    await draw(80, 90, 80, 90);
+    const input = () =>
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Text mark"]',
+      );
+    expect(document.activeElement).toBe(input());
+    // WebKit drops focus while the page under the picture rearranges.
+    await act(async () => input()!.blur());
+    expect(input()).not.toBeNull();
+    // A key in that moment goes back to the note, not to the tools.
+    await press(document.body, "a");
+    expect(document.activeElement).toBe(input());
+    expect(
+      toolbar()!
+        .querySelector('[aria-pressed="true"]')!
+        .getAttribute("aria-label"),
+    ).toBe("Text");
+  });
+
   it("explains a refused capture and stays on the live page", async () => {
     const id = await open({ onAddToChat: vi.fn() });
     mocks.capture.mockRejectedValue(

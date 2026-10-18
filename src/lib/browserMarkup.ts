@@ -398,6 +398,25 @@ export function replaceMarkupMark(
 }
 
 /** What a mark covers, including its stroke. */
+/**
+ * A finished note moved back inside the picture when it was placed so near
+ * an edge that it would run off it, keeping `margin` image pixels clear.
+ * Other marks are left where they were drawn.
+ */
+export function keepTextInside(
+  mark: MarkupText,
+  width: number,
+  height: number,
+  margin: number,
+): MarkupText {
+  const box = markupBounds(mark);
+  const dx = Math.min(0, width - margin - (box.x + box.width));
+  const dy = Math.min(0, height - margin - (box.y + box.height));
+  const x = Math.max(margin - box.x, dx);
+  const y = Math.max(margin - box.y, dy);
+  return x || y ? (moveMarkupMark(mark, x, y) as MarkupText) : mark;
+}
+
 export function markupBounds(shape: MarkupShape): MarkupRect {
   if (shape.kind === "text")
     return {

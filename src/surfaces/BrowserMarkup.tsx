@@ -43,6 +43,7 @@ import {
   markupPathData,
   markupPoint,
   markupTextBaseline,
+  keepTextInside,
   markupTextMark,
   measureMarkupText,
   moveMarkupMark,
@@ -75,6 +76,8 @@ const TOOL_ICONS: Record<MarkupTool, IconComponent> = {
 const PICK_SLOP = 6;
 const DRAG_SLOP = 3;
 const PEN_STEP = 1;
+/** CSS pixels a note keeps clear of the picture's edge. */
+const TEXT_MARGIN = 6;
 
 type Drag =
   | { kind: "draw"; pointer: number; shape: MarkupLine }
@@ -236,19 +239,24 @@ export function BrowserMarkup({
       commitMarkup(previous, [...previous.present, mark]),
     );
 
+  const imageSize = useRef(image);
+  imageSize.current = image;
   /** Commit the text being typed; empty text simply disappears. */
   const finishText = useCallback(() => {
     const edit = textEdit.current;
     if (!edit) return null;
     textEdit.current = null;
     setText(null);
-    const mark = markupTextMark({
+    const typed = markupTextMark({
       id: edit.id,
       color: edit.color,
       size: edit.size,
       at: edit.at,
       text: edit.value,
     });
+    const { width, height } = imageSize.current;
+    const mark =
+      typed && keepTextInside(typed, width, height, TEXT_MARGIN * ratio());
     if (mark)
       setHistory((previous) =>
         commitMarkup(previous, [...previous.present, mark]),
@@ -458,6 +466,16 @@ export function BrowserMarkup({
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (!tools) return;
+    // A note being typed keeps its keys even if focus slipped off it.
+    const note = textInput.current;
+    if (
+      textEdit.current &&
+      note &&
+      (document.activeElement === document.body || !document.activeElement)
+    ) {
+      note.focus({ preventScroll: true });
+      return;
+    }
     // Keys belong to markup while focus is in it or nowhere in particular,
     // never while the reader types elsewhere, such as the chat beside it.
     const active = document.activeElement;
@@ -528,25 +546,6 @@ export function BrowserMarkup({
       aria-label="Page being marked up"
       tabIndex={-1}
       data-leaving={leaving || undefined}
-      // A click here keeps the keyboard with the app, not the page under it,
-      // and with this layer for the shortcuts unless a note is being typed.
-      onPointerDownCapture={() => {
-        const keepTyping = () => {
-          const active = document.activeElement;
-          if (
-            active instanceof HTMLInputElement ||
-            active instanceof HTMLTextAreaElement ||
-            (active instanceof HTMLElement && active.isContentEditable)
-          )
-            return;
-          root.current?.focus({ preventScroll: true });
-        };
-        if (!isTauri()) return;
-        void getCurrentWebview()
-          .setFocus()
-          .then(() => requestAnimationFrame(keepTyping))
-          .catch(() => undefined);
-      }}
     >
       <div
         className="browser-markup-stage"
@@ -636,7 +635,21 @@ export function BrowserMarkup({
               textEdit.current = next;
               setText(next);
             }}
-            onBlur={() => finishText()}
+            onBlur={(event) => {
+              // WebKit can drop focus to nothing for a moment while the page
+              // under the picture rearranges. That is not the reader leaving
+              // the note: keep it. A click on the picture, the tools or
+              // anywhere else focusable still finishes it.
+              if (!event.relatedTarget && textEdit.current) {
+                requestAnimationFrame(() => {
+                  const active = document.activeElement;
+                  if (textEdit.current && (!active || active === document.body))
+                    textInput.current?.focus({ preventScroll: true });
+                });
+                return;
+              }
+              finishText();
+            }}
           />
         ) : null}
       </div>
