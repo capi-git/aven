@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Opening an image now shows it in a popup over your work instead of a new tab, from a chat picture, an attachment, a file link, the file tree, the file picker or the Changes panel. It shows the picture's name (or its caption, such as "Before") and size, with **Open in tab**, **Reveal in Finder**, **Copy path** and close. ‹ › and the arrow keys step through the pictures beside it, such as an agent's Before and After or the other images in its folder; a click zooms to full size and Escape closes. Images an agent opens still open as tabs, and pasted pictures and note images open in the popup too.
+
+### Fixed
+
+- An image tab fits a tall picture to the window instead of letting it run off the bottom.
+
 ## [0.1.145] - 2026-10-18
 
 ### Added

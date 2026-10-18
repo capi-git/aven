@@ -131,7 +131,11 @@ describe("ImageViewer", () => {
     expect(count()).toBe("1 of 2 · Before, After");
     await key("ArrowRight");
     expect(count()).toBe("2 of 2 · Before, After");
-    expect(document.querySelector("h2")?.textContent).toBe("2-after.png");
+    // A captioned picture goes by its caption; the file name is its tooltip.
+    expect(document.querySelector("h2")?.textContent).toBe("After");
+    expect(document.querySelector("h2")?.getAttribute("title")).toContain(
+      "2-after.png",
+    );
     await key("ArrowRight");
     expect(count()).toBe("1 of 2 · Before, After");
     await act(async () => button("Previous image")!.click());

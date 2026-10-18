@@ -220,8 +220,10 @@ function ImageViewerDialog({
       />
       <header className="image-viewer-bar" onClick={dismiss}>
         <div className="image-viewer-title">
+          {/* A captioned picture, such as an agent's Before shot, goes by its
+              caption; its saved file name stays in the tooltip. */}
           <h2 id={titleId} title={path ?? item.name}>
-            {item.name}
+            {item.label || item.name}
           </h2>
           {meta ? <span className="image-viewer-meta">{meta}</span> : null}
         </div>
