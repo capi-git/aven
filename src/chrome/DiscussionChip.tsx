@@ -8,6 +8,7 @@ import {
   type DiscussionHost,
   type DiscussionPartnerChoice,
 } from "../lib/discussions";
+import type { ComposerFit } from "../lib/composerFit";
 import { providerShortName } from "../lib/discussionVoices";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
 
@@ -96,6 +97,21 @@ export function discussionChipLabel(
   return `Discuss with ${who}${as} · ${plural(rounds, "round")}`;
 }
 
+/**
+ * The chip's words for the room it has: the full label, or "Discuss ·
+ * Codex · 3" when space is short. The tooltip keeps the full text.
+ */
+export function discussionChipFitLabel(
+  pick: DiscussionPick | null,
+  rounds: number,
+  role: AgentRoleId | undefined,
+  fit: ComposerFit,
+): string {
+  if (fit === "full") return discussionChipLabel(pick, rounds, role);
+  const who = pick ? providerShortName(pick.harness) : "…";
+  return `Discuss · ${who} · ${rounds}`;
+}
+
 function pickTooltip(pick: DiscussionPick | null): string {
   if (!pick) return "Choose who this chat discusses with";
   if (pick.kind === "new")
@@ -133,6 +149,8 @@ type Props = {
   onPreview?: () => void;
   /** Return the keyboard to the message box. */
   onDone: () => void;
+  /** How much room the message box gives the chip's words. */
+  fit?: ComposerFit;
 };
 
 /**
@@ -157,18 +175,23 @@ export function DiscussionChip({
   onTurnOff,
   onPreview,
   onDone,
+  fit = "full",
 }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
-  const label = discussionChipLabel(pick, rounds, role);
+  const full = discussionChipLabel(pick, rounds, role);
+  const label = discussionChipFitLabel(pick, rounds, role, fit);
   return (
     <div
       className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
       data-discussion-chip
+      data-full-label={full}
     >
       <button
         ref={anchor}
         type="button"
-        title={pickTooltip(pick)}
+        title={
+          label === full ? pickTooltip(pick) : `${full}: ${pickTooltip(pick)}`
+        }
         aria-haspopup="dialog"
         aria-expanded={open}
         onMouseDown={(event) => event.preventDefault()}

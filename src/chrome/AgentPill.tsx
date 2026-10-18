@@ -20,6 +20,7 @@ import {
   type HarnessId,
   type RuntimeMode,
 } from "../lib/session";
+import type { ComposerFit } from "../lib/composerFit";
 import { MOD } from "../lib/platform";
 import { popoverWidth } from "../lib/popover";
 import { usageAlternatives } from "../lib/usageAlternatives";
@@ -58,6 +59,12 @@ type Props = {
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   /** Hands focus back to the message field. */
   onClose?: () => void;
+  /**
+   * How much room the message box gives the pill: `compact` leaves out the
+   * effort, `narrow` the model too, keeping the mark. The tooltip and
+   * accessible name always say all of it.
+   */
+  fit?: ComposerFit;
 };
 
 /**
@@ -176,6 +183,7 @@ export const AgentPill = memo(function AgentPill({
   onModelSettingsChange,
   onRuntimeModeChange,
   onClose,
+  fit = "full",
 }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -236,6 +244,7 @@ export const AgentPill = memo(function AgentPill({
       <button
         type="button"
         data-agent-pill
+        data-fit={fit === "full" ? undefined : fit}
         aria-label={description}
         aria-keyshortcuts={`${MOD}.`}
         aria-expanded={open}
@@ -246,10 +255,15 @@ export const AgentPill = memo(function AgentPill({
         className="agent-pill model-control"
       >
         <HarnessIcon harness={current.harness} className="agent-pill-mark" />
-        <span key={current.id} className="agent-pill-model model-control-value">
-          {current.name}
-        </span>
-        {summary.effort ? (
+        {fit === "narrow" ? null : (
+          <span
+            key={current.id}
+            className="agent-pill-model model-control-value"
+          >
+            {current.name}
+          </span>
+        )}
+        {summary.effort && fit === "full" ? (
           <>
             <span className="agent-pill-separator" aria-hidden="true">
               ·

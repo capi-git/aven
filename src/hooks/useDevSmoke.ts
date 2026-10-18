@@ -600,6 +600,9 @@ async function startDiscussionFromComposer(
   item.click();
   const toggle = () =>
     inBox<HTMLElement>("[data-discussion-chip] [aria-haspopup]");
+  // The chip's full words; a narrow message box shows them shortened.
+  const chipText = () =>
+    inBox<HTMLElement>("[data-discussion-chip]")?.dataset.fullLabel;
   (await waitFor(toggle, 5_000, "the Discuss chip in the message box")).click();
   await waitFor(
     () => document.querySelector("[data-discussion-menu]"),
@@ -646,8 +649,7 @@ async function startDiscussionFromComposer(
       () =>
         !document.querySelector(
           `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
-        ) &&
-        inBox("[data-discussion-chip-label]")?.textContent?.includes(picked),
+        ) && chipText()?.includes(picked),
       5_000,
       `the chip to read "${picked}"`,
     );
@@ -657,10 +659,7 @@ async function startDiscussionFromComposer(
     throw new Error(`The Discuss dropdown offers no ${rounds} rounds`);
   count.click();
   await waitFor(
-    () =>
-      inBox("[data-discussion-chip-label]")?.textContent?.includes(
-        `${rounds} rounds`,
-      ),
+    () => chipText()?.includes(`${rounds} rounds`),
     5_000,
     `the chip to read ${rounds} rounds`,
   );
@@ -673,7 +672,7 @@ async function startDiscussionFromComposer(
     choice.click();
     const as = `as ${agentRole(role).name}`;
     await waitFor(
-      () => inBox("[data-discussion-chip-label]")?.textContent?.includes(as),
+      () => chipText()?.includes(as),
       5_000,
       `the chip to read "${as}"`,
     );
@@ -740,7 +739,8 @@ async function startRaceFromComposer(
   item.click();
   const toggle = () => inBox<HTMLElement>("[data-race-chip] [aria-haspopup]");
   await waitFor(toggle, 5_000, "the Race chip in the message box");
-  const label = inBox("[data-race-chip-label]")?.textContent ?? "";
+  // The chip's full words; a narrow message box shows them shortened.
+  const label = inBox<HTMLElement>("[data-race-chip]")?.dataset.fullLabel ?? "";
   // Two agents can race, so the dropdown opens only when asked.
   if (!document.querySelector("[data-race-menu]")) toggle()?.click();
   const dropdown = await waitFor(

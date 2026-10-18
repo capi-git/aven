@@ -163,6 +163,7 @@ import {
   type DiscussionHost,
 } from "../lib/discussions";
 import { useStartedDiscussionId } from "../hooks/useDiscussions";
+import { useWidth } from "../hooks/useNarrow";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -170,6 +171,7 @@ import {
   partnerChoice,
   type DiscussionPick,
 } from "./DiscussionChip";
+import { composerFit } from "../lib/composerFit";
 import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
@@ -590,6 +592,9 @@ function ComposerComponent({
   const ref = useRef<HTMLTextAreaElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const plusRef = useRef<HTMLDivElement>(null);
+  // How much the controls row can say: in a narrow chat, chips shorten and
+  // the agent pill keeps its mark, never cutting a word off.
+  const [controlsRef, controlsWidth] = useWidth<HTMLDivElement>();
   const highlightRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>(initialAttachments ?? []);
   const draftCallbacks = useRef({ onDraftChange, onAttachmentsChange });
@@ -761,6 +766,11 @@ function ComposerComponent({
     !planSelected &&
     !orchestrationSelected &&
     !discussActive;
+  const fit = composerFit(
+    controlsWidth,
+    !jumpInId &&
+      (raceActive || discussActive || planSelected || orchestrationSelected),
+  );
   const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
@@ -1988,7 +1998,11 @@ function ComposerComponent({
             />
           </div>
 
-          <div className="personal-composer-controls flex items-center gap-1 px-2 pb-2">
+          <div
+            ref={controlsRef}
+            className="personal-composer-controls flex items-center gap-1 px-2 pb-2"
+            data-fit={fit === "full" ? undefined : fit}
+          >
             <div
               ref={plusRef}
               className="personal-composer-add relative shrink-0"
@@ -2176,7 +2190,7 @@ function ComposerComponent({
                 className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
               >
                 <Share className="size-3.5" />
-                Orchestrator
+                {fit === "narrow" ? null : "Orchestrator"}
                 <X className="size-3" />
               </button>
             ) : null}
@@ -2184,6 +2198,7 @@ function ComposerComponent({
               <button
                 type="button"
                 title="Turn off Plan mode"
+                aria-label="Turn off Plan mode"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setPlanSelected(false);
@@ -2192,12 +2207,13 @@ function ComposerComponent({
                 className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-ui-caption text-yellow-200/90 hover:bg-yellow-300/18"
               >
                 <AiIdea className="size-3.5" />
-                Plan
+                {fit === "narrow" ? null : "Plan"}
                 <X className="size-3" />
               </button>
             ) : null}
             {raceActive ? (
               <RaceChip
+                fit={fit}
                 available={raceAvailable}
                 lanes={raceLanes}
                 onFirstModelChange={setRaceModel}
@@ -2217,6 +2233,7 @@ function ComposerComponent({
             ) : null}
             {discussActive && discussion && sessionId ? (
               <DiscussionChip
+                fit={fit}
                 host={discussion}
                 sessionId={sessionId}
                 harness={harness}
@@ -2266,6 +2283,7 @@ function ComposerComponent({
             </div>
             <div className="personal-composer-agent">
               <AgentPill
+                fit={fit}
                 harness={harness}
                 model={model}
                 modelSettings={modelSettings}

@@ -537,10 +537,12 @@ function app(flaws: Flaws = {}) {
           Math.floor(active.turn / 2) + 1
         } of ${ROUNDS} · with Sonnet in “Chat” <button data-team-watch="discuss:d1">Watch</button> <button data-team-stop="discussion">Stop discussion</button></div>`
       : "";
+    const chipLabel = `Discuss with ${
+      partner === "new" ? "new Claude chat" : "Claude"
+    }${role ? " as Skeptic" : ""} · ${rounds} rounds`;
+    // A narrow message box shortens the words; the chip keeps them in full.
     const chip = discussMode
-      ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with ${
-          partner === "new" ? "new Claude chat" : "Claude"
-        }${role ? " as Skeptic" : ""} · ${rounds} rounds</span></button></div>`
+      ? `<div data-discussion-chip data-full-label="${chipLabel}"><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss · Claude · ${rounds}</span></button></div>`
       : "";
     const placeholder =
       running() && focused === talk?.a && !flaws.boxToAgent

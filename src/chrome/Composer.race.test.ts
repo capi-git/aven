@@ -547,3 +547,45 @@ it("drops a refusal once the lanes change", async () => {
   expect(laneLabels()).toHaveLength(2);
   expect(menu()?.querySelector('[role="alert"]')).toBeNull();
 });
+
+it("shortens the chip and the agent pill in a narrow message box", async () => {
+  let width = 700;
+  const spy = vi
+    .spyOn(HTMLElement.prototype, "clientWidth", "get")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("personal-composer-controls") ? width : 0;
+    });
+  const pill = () => container.querySelector<HTMLElement>("[data-agent-pill]")!;
+  const model = () => pill().querySelector(".agent-pill-model")?.textContent;
+  // The controls row is measured when the message box appears.
+  const renderAt = async (next: number) => {
+    width = next;
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await turnRaceOn();
+  };
+  try {
+    await renderAt(700);
+    expect(chipLabel()).toBe("Race · Codex · Claude");
+    const name = model()!;
+    expect(name).toBeTruthy();
+
+    await renderAt(480);
+    expect(chipLabel()).toBe("Race · 2 agents");
+    // The full text stays in the tooltip and on the chip for the smoke test.
+    expect(chipToggle().title).toContain("Race · Codex · Claude");
+    expect(chip()!.dataset.fullLabel).toBe("Race · Codex · Claude");
+    expect(model()).toBe(name);
+    expect(pill().querySelector(".agent-pill-effort")).toBeNull();
+
+    await renderAt(360);
+    expect(chipLabel()).toBe("Race · 2");
+    // The pill keeps its mark, named in full for tooltips and screen readers.
+    expect(model()).toBeUndefined();
+    expect(pill().getAttribute("aria-label")).toContain(name);
+    expect(pill().title).toContain(name);
+  } finally {
+    spy.mockRestore();
+  }
+});

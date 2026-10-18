@@ -76,3 +76,51 @@ describe("SessionReview Ship it", () => {
     expect(takeShipRequest("/repo")).toMatchObject({ sessionId: "s1" });
   });
 });
+
+describe("SessionReview in a narrow chat", () => {
+  afterEach(() => vi.restoreAllMocks());
+  function widthOf(width: number) {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.hasAttribute("data-session-review") ? width : 0;
+      },
+    );
+  }
+  const actions = () =>
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-review-action]"),
+    );
+
+  it("keeps every word when there is room", async () => {
+    widthOf(560);
+    await render();
+    expect(actions().map((button) => button.textContent)).toEqual([
+      "Undo All",
+      "Keep All",
+      "Review",
+      "Ship it",
+    ]);
+  });
+
+  it("shows icons with tooltips and names instead of cutting words off", async () => {
+    widthOf(300);
+    await render();
+    const buttons = actions();
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Undo All",
+      "Keep All",
+      "Review",
+      "Ship it",
+    ]);
+    for (const button of buttons) {
+      expect(button.textContent).toBe("");
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.title).toContain(button.getAttribute("aria-label")!);
+    }
+    expect(
+      container
+        .querySelector("[data-session-review]")
+        ?.hasAttribute("data-narrow"),
+    ).toBe(true);
+  });
+});

@@ -51,10 +51,12 @@ function raceControls(
     toggle.setAttribute("aria-haspopup", "dialog");
     const label = document.createElement("span");
     label.dataset.raceChipLabel = "";
-    label.textContent = [
+    // A narrow message box shortens the words; the chip keeps them in full.
+    chip.dataset.fullLabel = [
       "Race",
       ...lanes.map((lane) => lane.split(" · ")[0]),
     ].join(" · ");
+    label.textContent = `Race · ${lanes.length}`;
     toggle.append(label);
     const off = fakeButton("×", () => {
       mode.on = false;

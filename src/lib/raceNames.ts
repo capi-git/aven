@@ -12,7 +12,9 @@ import {
   type NamedAgent,
 } from "./agentNames";
 import type { PaletteAgent } from "./commandPalette";
+import type { ComposerFit } from "./composerFit";
 import { HARNESS_TITLE, type HarnessId } from "./session";
+import { plural } from "./words";
 
 type LaneLike = Pick<PaletteAgent, "harness" | "label" | "model">;
 
@@ -57,4 +59,18 @@ export function raceFullName(agent: LaneLike): string {
  */
 export function raceChipLabel(lanes: readonly LaneLike[]): string {
   return ["Race", ...raceAgentNames(lanes)].join(" · ");
+}
+
+/**
+ * The chip's words for the room it has: "Race · Claude · Codex", then
+ * "Race · 2 agents", then "Race · 2". The tooltip keeps the full text.
+ */
+export function raceChipFitLabel(
+  lanes: readonly LaneLike[],
+  fit: ComposerFit,
+): string {
+  if (fit === "full" || !lanes.length) return raceChipLabel(lanes);
+  return fit === "compact"
+    ? `Race · ${plural(lanes.length, "agent")}`
+    : `Race · ${lanes.length}`;
 }

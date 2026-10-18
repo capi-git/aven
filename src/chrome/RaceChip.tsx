@@ -1,6 +1,11 @@
 import { useRef, type KeyboardEvent } from "react";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
-import { raceChipLabel, raceFullName } from "../lib/raceNames";
+import type { ComposerFit } from "../lib/composerFit";
+import {
+  raceChipFitLabel,
+  raceChipLabel,
+  raceFullName,
+} from "../lib/raceNames";
 import { ChevronDown, Race, X } from "./icons";
 import { Popover } from "./Popover";
 import { RaceOptions, type RaceProps } from "./RaceOptions";
@@ -15,6 +20,8 @@ type Props = RaceProps & {
   onTurnOff: () => void;
   /** Return the keyboard to the message box. */
   onDone: () => void;
+  /** How much room the message box gives the chip's words. */
+  fit?: ComposerFit;
 };
 
 /**
@@ -32,9 +39,12 @@ export function RaceChip({
   onOpenChange,
   onTurnOff,
   onDone,
+  fit = "full",
 }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
-  const label = raceChipLabel(lanes);
+  const full = raceChipLabel(lanes);
+  const label = raceChipFitLabel(lanes, fit);
+  const names = lanes.map(raceFullName).join(", ");
   // On the surface itself: it holds the keyboard when the dropdown opens,
   // so the arrow keys move through it from the start.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -45,12 +55,17 @@ export function RaceChip({
     <div
       className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
       data-race-chip
+      data-full-label={full}
     >
       <button
         ref={anchor}
         type="button"
         title={
-          lanes.map(raceFullName).join(", ") || "Choose the agents to race"
+          !names
+            ? "Choose the agents to race"
+            : label === full
+              ? names
+              : `${full} (${names})`
         }
         aria-haspopup="dialog"
         aria-expanded={open}
