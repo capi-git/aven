@@ -1735,7 +1735,10 @@ describe("native preview lifecycle", () => {
     );
     const items =
       document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-    expect(items).toHaveLength(5);
+    expect(items).toHaveLength(6);
+    expect([...items].map((item) => item.textContent)).toContain(
+      "Mark up page",
+    );
     for (const item of items) expect(item.disabled).toBe(true);
     expect(mocks.create).not.toHaveBeenCalled();
   });

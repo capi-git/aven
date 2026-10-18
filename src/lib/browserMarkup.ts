@@ -37,8 +37,13 @@ export const MARKUP_DEFAULT_COLOR = MARKUP_COLORS[0].value;
 /** Stroke width and text size, in CSS pixels, with the picture at 100%. */
 export const MARKUP_STROKE_WIDTH = 3;
 export const MARKUP_TEXT_SIZE = 16;
+/**
+ * Not the system font: its letter spacing changes with size, so text typed
+ * on screen, drawn into the scaled layer and exported at full size would
+ * each come out a different width. Helvetica Neue scales evenly.
+ */
 export const MARKUP_FONT_FAMILY =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
+  '"Helvetica Neue", Helvetica, Arial, sans-serif';
 /** A text mark's line box, as a multiple of its size. */
 export const MARKUP_TEXT_LINE_HEIGHT = 1.2;
 /** Undo keeps this many earlier states. */

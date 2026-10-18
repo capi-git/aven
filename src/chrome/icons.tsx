@@ -29,6 +29,7 @@ import CircleArrowDown01Icon from "@hugeicons/core-free-icons/CircleArrowDown01I
 import CancelCircleIcon from "@hugeicons/core-free-icons/CancelCircleIcon";
 import CircleDashedIcon from "@hugeicons/core-free-icons/CircleDashedIcon";
 import CircleDotIcon from "@hugeicons/core-free-icons/CircleDotIcon";
+import CircleIcon from "@hugeicons/core-free-icons/CircleIcon";
 import CloudUploadIcon from "@hugeicons/core-free-icons/CloudUploadIcon";
 import ColorPickerIcon from "@hugeicons/core-free-icons/ColorPickerIcon";
 import EyeIcon from "@hugeicons/core-free-icons/EyeIcon";
@@ -37,6 +38,7 @@ import CommentAdd01Icon from "@hugeicons/core-free-icons/CommentAdd01Icon";
 import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
 import Clock01Icon from "@hugeicons/core-free-icons/Clock01Icon";
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
+import Cursor02Icon from "@hugeicons/core-free-icons/Cursor02Icon";
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
 import DragDropVerticalIcon from "@hugeicons/core-free-icons/DragDropVerticalIcon";
 import File01Icon from "@hugeicons/core-free-icons/File01Icon";
@@ -79,6 +81,7 @@ import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import PaintBoardIcon from "@hugeicons/core-free-icons/PaintBoardIcon";
 import PauseIcon from "@hugeicons/core-free-icons/PauseIcon";
+import Pen01Icon from "@hugeicons/core-free-icons/Pen01Icon";
 import PencilEdit01Icon from "@hugeicons/core-free-icons/PencilEdit01Icon";
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon";
 import PinIcon from "@hugeicons/core-free-icons/PinIcon";
@@ -99,6 +102,7 @@ import SquareIcon from "@hugeicons/core-free-icons/SquareIcon";
 import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon";
 import SquareUnlock01Icon from "@hugeicons/core-free-icons/SquareUnlock01Icon";
 import StarIcon from "@hugeicons/core-free-icons/StarIcon";
+import TextIcon from "@hugeicons/core-free-icons/TextIcon";
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
 import TickDouble02Icon from "@hugeicons/core-free-icons/TickDouble02Icon";
 import UndoIcon from "@hugeicons/core-free-icons/UndoIcon";
@@ -158,6 +162,17 @@ const UnfoldVerticalIcon: IconSvgElement = [
   ["path", { d: "M7 17L12 22L17 17", ...stroke, key: "5" }],
 ];
 
+/** The catalog's LineIcon is a chat app's logo; markup needs a plain stroke. */
+const StraightLineIcon: IconSvgElement = [
+  ["path", { d: "M5 19L19 5", ...stroke, key: "0" }],
+];
+
+/** The same stroke with a head, so the line and arrow tools match in size. */
+const DiagonalArrowIcon: IconSvgElement = [
+  ["path", { d: "M5 19L19 5", ...stroke, key: "0" }],
+  ["path", { d: "M10 5H19V14", ...stroke, key: "1" }],
+];
+
 export const AlertCircle = wrap(AlertCircleIcon, "AlertCircle");
 export const AppWindow = wrap(AppWindowIcon, "AppWindow");
 export const Archive = wrap(Archive02Icon, "Archive");
@@ -170,6 +185,8 @@ export const ArrowRight = wrap(ArrowRight02Icon, "ArrowRight");
 export const ArrowUpRight = wrap(ArrowUpRight01Icon, "ArrowUpRight");
 /** ↙ : back into the window it came from. */
 export const ArrowDownLeft = wrap(ArrowDownLeft01Icon, "ArrowDownLeft");
+/** ↗ drawn edge to edge: the arrow you draw with in Mark up. */
+export const ArrowDiagonal = wrap(DiagonalArrowIcon, "ArrowDiagonal");
 export const Bot = wrap(BotIcon, "Bot");
 export const Brain = wrap(BrainIcon, "Brain");
 export const Briefcase = wrap(Briefcase01Icon, "Briefcase");
@@ -179,6 +196,7 @@ export const CaseSensitive = wrap(CaseSensitiveIcon, "CaseSensitive");
 export const Check = wrap(Tick02Icon, "Check");
 export const CheckCheck = wrap(TickDouble02Icon, "CheckCheck");
 export const CheckCircle = wrap(CheckmarkCircle02Icon, "CheckCircle");
+export const Circle = wrap(CircleIcon, "Circle");
 export const ChevronDown = wrap(ArrowDown01Icon, "ChevronDown");
 export const ChevronLeft = wrap(ArrowLeft01Icon, "ChevronLeft");
 export const ChevronRight = wrap(ArrowRight01Icon, "ChevronRight");
@@ -191,6 +209,7 @@ export const CircleHelp = wrap(HelpCircleIcon, "CircleHelp");
 export const CircleX = wrap(CancelCircleIcon, "CircleX");
 export const Clock = wrap(Clock01Icon, "Clock");
 export const CloudUpload = wrap(CloudUploadIcon, "CloudUpload");
+export const MousePointer = wrap(Cursor02Icon, "MousePointer");
 export const Copy = wrap(Copy01Icon, "Copy");
 export const ExternalLink = wrap(LinkSquare02Icon, "ExternalLink");
 export const Eye = wrap(EyeIcon, "Eye");
@@ -227,6 +246,7 @@ export const Keyboard = wrap(KeyboardIcon, "Keyboard");
 export const ListBullet = wrap(LeftToRightListBulletIcon, "ListBullet");
 export const ListEnd = wrap(ListEndIcon, "ListEnd");
 export const ListFilter = wrap(FilterIcon, "ListFilter");
+export const LineStraight = wrap(StraightLineIcon, "LineStraight");
 export const Loader = wrap(Loading03Icon, "Loader");
 export const LoaderCircle = wrap(Loading03Icon, "LoaderCircle");
 export const Lock = wrap(SquareLock02Icon, "Lock");
@@ -244,6 +264,7 @@ export const PanelBottom = wrap(LayoutBottomIcon, "PanelBottom");
 export const PanelLeft = wrap(LayoutAlignRightIcon, "PanelLeft");
 export const PanelRight = wrap(SidebarRight01Icon, "PanelRight");
 export const PanelTop = wrap(LayoutTopIcon, "PanelTop");
+export const Pen = wrap(Pen01Icon, "Pen");
 export const PenLine = wrap(PencilEdit01Icon, "PenLine");
 export const Pencil = wrap(PencilEdit02Icon, "Pencil");
 export const Pin = wrap(PinIcon, "Pin");
@@ -270,6 +291,7 @@ export const SquarePlus = wrap(AddSquareIcon, "SquarePlus");
 export const Star = wrap(StarIcon, "Star");
 export const StickyNote = wrap(Note01Icon, "StickyNote");
 export const Terminal = wrap(ComputerTerminal01Icon, "Terminal");
+export const Type = wrap(TextIcon, "Type");
 export const Trash2 = wrap(Delete02Icon, "Trash2");
 export const Undo2 = wrap(UndoIcon, "Undo2");
 export const UnfoldVertical = wrap(UnfoldVerticalIcon, "UnfoldVertical");
