@@ -2,7 +2,7 @@
 
 import { mascotPath } from "./projectMascots";
 
-export const RUNNER_SIZE = 16;
+export const RUNNER_SIZE = 18;
 export const RUNNER_SPEED_PX = 160;
 export const RUNNER_INSET = 10;
 /** Start the jump this far before the obstacle, land the same distance after. */
