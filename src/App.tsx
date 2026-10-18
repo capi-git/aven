@@ -590,6 +590,7 @@ import {
 } from "./lib/teamResult";
 import { installTeamWorkspace, type TeamWorkspace } from "./lib/teamWorkspace";
 import { useTeamStores } from "./hooks/useTeamRuns";
+import { useTeamPanelTidy } from "./hooks/useTeamPanelTidy";
 import { equalChromeData } from "./hooks/useChromeProps";
 import {
   backgroundWorkerIdsForStop,
@@ -3024,6 +3025,29 @@ export default function App({
 
   // This window's team panel and pills (see `useTeamWatch`).
   const teamWatch = useTeamWatch();
+  // Only live work floats: an ended race's pill goes after a moment, and a
+  // finished discussion's panel shrinks once you leave its chat or send its
+  // plan to build (see `useTeamPanelTidy`).
+  const sessionIdsKey = sessions.map((session) => session.id).join("\n");
+  const visibleSurfacesKey = visibleSurfaceIds.join("\n");
+  const chatsOnScreen = useMemo(
+    () =>
+      [
+        ...visibleActivitySessionIds({
+          workspaceVisible,
+          visibleSurfaceIds: visibleSurfacesKey
+            ? visibleSurfacesKey.split("\n")
+            : [],
+          tabs,
+          sessionIds: new Set(sessionIdsKey ? sessionIdsKey.split("\n") : []),
+          floatingSessionIds: [],
+        }),
+      ]
+        .sort()
+        .join("\n"),
+    [workspaceVisible, visibleSurfacesKey, tabs, sessionIdsKey],
+  );
+  useTeamPanelTidy(teamWatch, chatsOnScreen);
   // Chats in a discussion this window drives, while it runs or still owes a
   // closing note, and the two in the open or popped-out panel. A
   // discussion's partner has no tab: it plays out in the chat that started it.
