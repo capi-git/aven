@@ -74,7 +74,7 @@ describe("a board opening in a file pane", () => {
       [...(frame?.querySelectorAll(".work-board-column-title") ?? [])].map(
         (title) => title.textContent,
       ),
-    ).toEqual(["Needs you", "Working", "Ready to review", "Shipped"]);
+    ).toEqual(["Ideas", "Building", "Review", "Shipped"]);
     expect(container.querySelector("[data-board-stub]")).toBeNull();
 
     await act(async () => {

@@ -16,6 +16,8 @@
  * - Nothing: an idle chat with nothing pending shows no word.
  */
 import type { ChatReview } from "./chatReview";
+import type { Session } from "./session";
+import { holdUpHint, sessionHoldUps } from "./sessionHoldUp";
 import type { ShippedChat } from "./shippedChats";
 import { teamIsLive, type TeamKind, type TeamRun } from "./teamRuns";
 
@@ -48,6 +50,30 @@ export const CHAT_STATUS_HINT: Readonly<Record<ChatStatusWord, string>> = {
   review: "Has changes for you to review",
   shipped: "Its changes were shipped",
 };
+
+/**
+ * What each working chat waits on, for its status tooltip in place of the
+ * word's own hint: a retry, the usage limit or helper agents (see
+ * `holdUpHint`). Chats with nothing holding them up are left out.
+ */
+export function chatHoldUpHints(
+  sessions: readonly Session[],
+  now = Date.now(),
+): Record<string, string> {
+  const hints: Record<string, string> = {};
+  for (const session of sessions) {
+    const hint = holdUpHint(sessionHoldUps(session), now);
+    if (hint) hints[session.id] = hint;
+  }
+  return hints;
+}
+
+/** The tooltip for a chat's word: what holds a working chat up, if anything. */
+export function chatStatusHint(word: ChatStatusWord, holdUp?: string): string {
+  return holdUp && chatStage(word) === "working"
+    ? holdUp
+    : CHAT_STATUS_HINT[word];
+}
 
 /** The board's four columns, which the words fall into. */
 export type ChatStage = "needs-you" | "working" | "review" | "shipped";

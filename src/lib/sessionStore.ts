@@ -523,7 +523,11 @@ function sanitizeBlock(block: Block): Block | null {
   )
     next.orchestrationLeadId = block.orchestrationLeadId;
   if (block.role === "user" && block.internal) next.internal = true;
-  if (block.tool) next.tool = block.tool;
+  if (block.tool) {
+    // When a call started running only matters while it runs.
+    const { startedAt, ...tool } = block.tool;
+    next.tool = startedAt === undefined ? block.tool : tool;
+  }
   if (block.approval?.decided) {
     next.approval = {
       requestId: block.approval.requestId,

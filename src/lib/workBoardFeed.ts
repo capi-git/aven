@@ -7,9 +7,9 @@ import type { BoardChat } from "./workBoard";
 /**
  * What the workspace tells its project boards, published by App while a
  * board tab is open: the loaded chats as small rows, each chat's status
- * word and the team runs. Each part keeps its identity until something in
- * it changes, so a streamed reply, which changes none of them, re-renders
- * no board.
+ * word and the team runs, from which the board's cards move by themselves.
+ * Each part keeps its identity until something in it changes, so a
+ * streamed reply, which changes none of them, re-renders no board.
  */
 export type WorkBoardFeed = {
   chats: readonly BoardChat[];
@@ -30,6 +30,17 @@ export type WorkBoardActions = {
   preview(previewKey: string): void;
   openCommit(sessionId: string, cwd: string, commit: CommitTabSource): void;
   openUrl(url: string): void;
+  /**
+   * Build: a new chat in the project with the default agent and model,
+   * `text` sent at once, behind the board. Returns its id, or null.
+   */
+  build(project: string, text: string): string | null;
+  /**
+   * Open as draft: a new chat in the project, shown, with `text` typed in
+   * and not sent, so another agent, a race or the Orchestrator can be
+   * picked first. Returns its id.
+   */
+  draft(project: string, text: string): string | null;
 };
 
 const EMPTY: WorkBoardFeed = Object.freeze({

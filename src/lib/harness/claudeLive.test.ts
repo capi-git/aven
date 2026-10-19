@@ -1949,6 +1949,86 @@ describe("Claude connection form requests", () => {
   });
 });
 
+describe("what a Claude turn waits on", () => {
+  const waits = (events: HarnessEvent[]) =>
+    events.filter((event) => event.type === "turn.waiting");
+
+  it("says a new process is starting before it answers", async () => {
+    const { events, turn } = await startTurn("s1");
+    const starting = events.findIndex(
+      (event) =>
+        event.type === "turn.waiting" && event.set?.starting !== undefined,
+    );
+    const started = events.findIndex(
+      (event) => event.type === "session.started",
+    );
+    expect(starting).toBeGreaterThanOrEqual(0);
+    expect(starting).toBeLessThan(started);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("passes on retries and usage limits from the stream", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "system",
+      subtype: "api_retry",
+      attempt: 2,
+      max_retries: 10,
+      retry_delay_ms: 4_000,
+      error_status: 529,
+      error: "overloaded",
+      session_id: "sess_1",
+    });
+    emit({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", resetsAt: 1_800_003_600 },
+      session_id: "sess_1",
+    });
+    emit({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "allowed" },
+      session_id: "sess_1",
+    });
+    expect(waits(events).slice(-3)).toMatchObject([
+      { set: { retry: { attempt: 2, reason: "busy" } } },
+      { set: { usageLimit: { resetsAt: 1_800_003_600_000 } } },
+      { clear: ["usageLimit"] },
+    ]);
+    expect(events.some((event) => event.type === "status")).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("waits on helper agents once the reply is done", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: "one",
+      task_type: "local_agent",
+      description: "Inspect the app",
+      is_backgrounded: true,
+    });
+    expect(waits(events).some((event) => event.set?.helpers)).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    expect(waits(events).at(-1)).toMatchObject({
+      set: { helpers: expect.any(Number) },
+    });
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "one",
+      status: "completed",
+      summary: "Done",
+    });
+    await turn;
+    expect(
+      waits(events).filter((event) => event.set?.helpers !== undefined),
+    ).toHaveLength(1);
+  });
+});
+
 describe("Claude question cards", () => {
   const responseFor = (id: string) =>
     parse().find(

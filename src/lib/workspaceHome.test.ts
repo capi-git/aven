@@ -339,7 +339,7 @@ describe("currentActivity", () => {
           liveAgents: [{ id: "x", status: "running" }] as Session["liveAgents"],
         }),
       ),
-    ).toBe("Background agents working");
+    ).toBe("Waiting on 1 helper agent");
   });
 });
 

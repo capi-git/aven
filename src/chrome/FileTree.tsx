@@ -50,7 +50,12 @@ import {
   type FsEntry,
 } from "../lib/fs";
 import { isImeComposition } from "../lib/keyboard";
-import { displayPath, parentPath, rebasePath } from "../lib/paths";
+import {
+  displayAppData,
+  displayPath,
+  parentPath,
+  rebasePath,
+} from "../lib/paths";
 import { MOD, REVEAL_LABEL, SHIFT } from "../lib/platform";
 import type { OpenFileFn } from "../lib/search";
 import type { GitStatusMap } from "../hooks/useGitFileStatuses";
@@ -677,7 +682,7 @@ export const FileTree = memo(function FileTree({
             type="button"
             data-explorer-root
             aria-expanded={rootOpen}
-            title={cwd}
+            title={displayAppData(cwd)}
             onClick={() => {
               onSelect(cwd);
               toggle(cwd);

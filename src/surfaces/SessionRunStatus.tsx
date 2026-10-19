@@ -7,6 +7,7 @@ import {
   Square,
 } from "../chrome/icons";
 import { SessionAgentList } from "../chrome/SessionAgentList";
+import { useWakeAt } from "../hooks/useWakeAt";
 import { useActivity } from "../lib/activity";
 import type { Session, SessionAgent } from "../lib/session";
 import {
@@ -51,6 +52,8 @@ function VisibleRunStatus({
 }: Props) {
   const entries = useActivity();
   const status = sessionRunStatus(session, entries);
+  // A countdown or a threshold changes the words with no new event.
+  useWakeAt(status?.wakeAt);
   if (!status) return null;
   if (placement === "attention" && !runStatusNeedsOwnRow(status)) return null;
   const running = status.kind === "working";
@@ -94,7 +97,11 @@ function VisibleRunStatus({
     );
   }
   return (
-    <div className="session-run-status" data-run-state={status.kind}>
+    <div
+      className="session-run-status"
+      data-run-state={status.kind}
+      data-hold-up={status.holdUp}
+    >
       <span className="session-run-mark" aria-hidden="true">
         <span className={running ? "session-run-spinner" : undefined}>
           <Icon className="size-3.5" />

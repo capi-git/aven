@@ -1,6 +1,10 @@
 import { CircleDashed, X } from "./icons";
 import { MAX_PREVIEW_LINES } from "../lib/harness/preview";
-import { displayPath, resolveWorkspacePath } from "../lib/paths";
+import {
+  displayAppData,
+  displayPath,
+  resolveWorkspacePath,
+} from "../lib/paths";
 import type { ToolPreview, ToolPreviewLine } from "../lib/session";
 import { FileTypeIcon } from "./FileTypeIcon";
 
@@ -76,9 +80,10 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
   );
   const added = preview.additions ?? 0;
   const deleted = preview.deletions ?? 0;
-  const label = path
-    ? displayPath(path, cwd)
-    : fileName || preview.title || "File";
+  const label = displayAppData(
+    path ? displayPath(path, cwd) : fileName || preview.title || "File",
+  );
+  const tooltip = displayAppData(path);
 
   return (
     <div className="aven-inset-card overflow-hidden">
@@ -88,7 +93,7 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
           <button
             type="button"
             className="min-w-0 flex-1 truncate text-left font-mono text-ui-label font-medium text-content/85 hover:text-sky-300 hover:underline"
-            title={path}
+            title={tooltip}
             onClick={() => onOpenFile(filePath)}
           >
             {label}
@@ -96,7 +101,7 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
         ) : (
           <span
             className="min-w-0 flex-1 truncate font-mono text-ui-label font-medium text-content/85"
-            title={path}
+            title={tooltip}
           >
             {label}
           </span>

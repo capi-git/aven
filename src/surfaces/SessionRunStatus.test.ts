@@ -14,6 +14,7 @@ let host: HTMLDivElement;
 let session: Session;
 const stop = vi.fn();
 const openTerminal = vi.fn();
+const resume = vi.fn();
 async function render(
   visible = true,
   stopElsewhere = false,
@@ -55,6 +56,7 @@ beforeEach(() => {
   ledger.entries = [];
   stop.mockReset();
   openTerminal.mockReset();
+  resume.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -145,7 +147,7 @@ describe("persistent agent run status", () => {
     };
     ledger.entries = [outcome("completed")];
     await render();
-    expect(host.textContent).toContain("Agents still working");
+    expect(host.textContent).toContain("Waiting on 1 helper agent");
     expect(host.textContent).not.toContain("Finished");
     expect(host.querySelector("summary")?.textContent).toContain(
       "1 active · 1 done",
@@ -326,5 +328,43 @@ describe("persistent agent run status", () => {
     expect(
       host.querySelector('[role="timer"]')?.getAttribute("aria-live"),
     ).toBe("off");
+  });
+
+  it("counts a retry down and names a long command without new events", async () => {
+    session = {
+      ...session,
+      waitingOn: {
+        retry: { attempt: 1, retryAt: 13_000, reason: "connection" },
+      },
+    };
+    await render();
+    expect(
+      host.querySelector("[data-hold-up]")?.getAttribute("data-hold-up"),
+    ).toBe("retrying");
+    expect(host.textContent).toContain("Can’t reach Codex");
+    expect(host.textContent).toContain("Retrying in 3s (try 2)");
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(host.textContent).toContain("Retrying in 2s (try 2)");
+
+    session = {
+      ...session,
+      waitingOn: undefined,
+      blocks: [
+        ...session.blocks,
+        {
+          id: "shell",
+          role: "tool",
+          text: "npm test",
+          streaming: true,
+          tool: { kind: "execute", status: "in_progress", startedAt: 2_000 },
+        },
+      ],
+    };
+    await render();
+    expect(host.textContent).toContain("npm test");
+    expect(host.textContent).not.toContain("Running a command");
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(host.textContent).toContain("Running a command");
+    expect(host.textContent).toContain("npm test · 10s");
   });
 });

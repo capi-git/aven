@@ -82,7 +82,7 @@ On a Mac, ↗ in the panel's header opens it in a small window of its own that y
 
 ### Home, the sidebar and the board
 
-Home's "Running now" and Activity's "Running" show each discussion, race and run as one row with its agents' mascots and its status, opening the chat it started from. In the sidebar, a running race is one row (its agents fold into the chat you raced from), a discussion's two chats stay as your own rows, marked "Discussing with “<chat>”" and a run's agents fold into the lead's card. On a project's board, each is one card: in **Working** while it runs, in **Needs you** when it waits on you and in **Ready to review** when a race is ready to compare, with **Watch** (and **Open chat** when it needs you or **Compare** for a race).
+Home's "Running now" and Activity's "Running" show each discussion, race and run as one row with its agents' mascots and its status, opening the chat it started from. In the sidebar, a running race is one row (its agents fold into the chat you raced from), a discussion's two chats stay as your own rows, marked "Discussing with “<chat>”" and a run's agents fold into the lead's card. On a project's board, a discussion, race or run started from a card's chat is that card's work: the card is in **Building** with the team's mascots and **Watch** while it runs, marked **Needs you** with **Open chat** when it waits on you, and in **Review** with **Compare** when a race is ready to compare. One that no card links to is counted on the board's line for work outside the board, where **Add** gives it a card.
 
 ## Roles
 

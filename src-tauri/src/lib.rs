@@ -33,6 +33,7 @@ mod desktop_control;
 mod desktop_presence;
 mod dev_smoke;
 mod display_rate;
+mod feature_cards;
 mod floating_sidebar;
 mod fs;
 mod git;
@@ -551,6 +552,10 @@ pub fn run() {
             project_memory::project_memory_set,
             project_memory::project_memory_append,
             project_memory::project_memory_delete,
+            feature_cards::feature_cards_list,
+            feature_cards::feature_card_put,
+            feature_cards::feature_card_delete,
+            feature_cards::feature_cards_clear,
             memory_keeper::memory_keeper_read_files,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,

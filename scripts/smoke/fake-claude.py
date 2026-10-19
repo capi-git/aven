@@ -257,7 +257,7 @@ def emit_dev_server(session, turn, port):
 # "AVEN_SMOKE_EDIT <name>" makes the turn edit one file in its folder through
 # the Write tool, before any hold, the way an agent's edit reaches Aven: the
 # tool call first, then the write, then its result. The project board's check
-# watches the chat move from Working to Review once the turn ends.
+# watches the chat's card move from Building to Review once the turn ends.
 EDIT_PATTERN = re.compile(r"AVEN_SMOKE_EDIT ([\w.-]+)")
 # Time for Aven to snapshot the file before the stand-in writes it.
 EDIT_SETTLE_SECONDS = 0.8

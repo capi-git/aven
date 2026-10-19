@@ -59,7 +59,11 @@ import {
 } from "../lib/orchestrationPlan";
 import { playCue } from "../lib/sounds";
 import { legacyTaskListFromText } from "../lib/taskList";
-import { displayPath, resolveWorkspacePath } from "../lib/paths";
+import {
+  displayAppData,
+  displayPath,
+  resolveWorkspacePath,
+} from "../lib/paths";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
 import { harnessForTurn } from "../lib/secondOpinion";
 import { turnModelLabel } from "../lib/sessionLabels";
@@ -74,6 +78,7 @@ import {
   type PlanBuildTarget,
   type ToolPreview,
 } from "../lib/session";
+import { holdUpAt, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
@@ -156,6 +161,11 @@ type Props = {
   harness?: HarnessId;
   model?: string;
   pendingQuestion?: boolean;
+  /**
+   * What holds the running turn up (see `sessionHoldUps`): its working line
+   * names it in place of the clock. Keeps its identity while unchanged.
+   */
+  holdUps?: readonly SessionHoldUp[];
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
@@ -204,6 +214,7 @@ function AgentTranscriptComponent({
   harness,
   model,
   pendingQuestion = false,
+  holdUps,
   onApproval,
   onAddToChat,
   onSaveNote,
@@ -764,6 +775,7 @@ function AgentTranscriptComponent({
               preparingHandoff={preparingHandoff}
               waitingForApproval={waitingForApproval}
               pendingQuestion={pendingQuestion}
+              holdUps={isLastTurn ? holdUps : undefined}
               harness={harness}
               model={model}
               turnHarness={
@@ -851,6 +863,8 @@ type TranscriptTurnProps = Pick<
   preparingHandoff: boolean;
   waitingForApproval: boolean;
   pendingQuestion: boolean;
+  /** The live turn's hold-ups; undefined on every other turn. */
+  holdUps?: readonly SessionHoldUp[];
   /** The provider that produced this turn. */
   turnHarness?: HarnessId;
   /** The chat's current model, which a second opinion should not offer. */
@@ -901,6 +915,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   preparingHandoff,
   waitingForApproval,
   pendingQuestion,
+  holdUps,
   harness,
   model,
   turnHarness,
@@ -1061,6 +1076,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
       }
       subagent={hasRunningSubagent(turn)}
       modelName={turnModelName}
+      holdUps={holdUps}
     />
   ) : durationMs != null ? (
     formatWorkingDuration(durationMs, true, false, turnModelName)
@@ -1287,17 +1303,23 @@ function LiveFoldTitle({
   waitingLabel,
   subagent = false,
   modelName,
+  holdUps,
 }: {
   startedAt?: number;
   paused: boolean;
   waitingLabel?: string;
   subagent?: boolean;
   modelName?: string;
+  holdUps?: readonly SessionHoldUp[];
 }) {
   const elapsedMs = useElapsedFrom(startedAt, paused);
+  // The line ticks every second already; a hold-up reads the same clock.
+  const holdUp = holdUps?.length
+    ? holdUpAt(holdUps, Date.now()).words?.line
+    : undefined;
   const text = paused
     ? (waitingLabel ?? "Needs you · Approve or deny below")
-    : formatWorkingDuration(elapsedMs, false, subagent, modelName);
+    : (holdUp ?? formatWorkingDuration(elapsedMs, false, subagent, modelName));
   return (
     <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>
       {text}
@@ -2524,7 +2546,7 @@ function ActivityToolRow({
   return (
     <div className="flex min-w-0 flex-col">
       <div
-        aria-label={`Tool call: ${label}`}
+        aria-label={`Tool call: ${displayAppData(label)}`}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
         {bare ? null : <ActivityToolIcon state={state} live={live} />}
@@ -2709,7 +2731,7 @@ function ToolCall({
         <button
           type="button"
           aria-expanded={open}
-          aria-label={`${stateLabel} tool call: ${label}`}
+          aria-label={`${stateLabel} tool call: ${displayAppData(label)}`}
           onClick={() => setOpen((value) => !value)}
           className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
         >
@@ -2728,7 +2750,7 @@ function ToolCall({
         </button>
       ) : (
         <div
-          aria-label={`${stateLabel} tool call: ${label}`}
+          aria-label={`${stateLabel} tool call: ${displayAppData(label)}`}
           className="flex w-full min-w-0 items-center gap-2"
         >
           <ToolCallIcon state={state} />
@@ -2743,7 +2765,7 @@ function ToolCall({
       )}
       {open && expandable ? (
         <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words px-2.5 font-mono text-[12px] leading-5 text-content/55">
-          {expanded}
+          {displayAppData(expanded)}
         </pre>
       ) : null}
       <ApprovalControls block={block} onApproval={onApproval} />
@@ -2804,14 +2826,15 @@ function ToolCallSummary({
         ? preview?.query
         : undefined);
   if (!action || !target) {
+    const shownLabel = displayAppData(label);
     return (
       <span
         className={`min-w-0 flex-1 truncate font-mono text-ui-body ${
           failed ? "text-red-400" : chip ? "text-content/65" : "text-content/80"
         }`}
-        title={label}
+        title={shownLabel}
       >
-        {label}
+        {shownLabel}
       </span>
     );
   }
@@ -2825,6 +2848,9 @@ function ToolCallSummary({
       .pop() ||
     "file";
   const filePath = resolveWorkspacePath(preview?.path || target, cwd);
+  // What the row shows; opening still goes by the real path above.
+  const shownTarget = displayAppData(target);
+  const shownPath = displayAppData(preview?.path || target);
   const canOpen = interactive && !!onOpenFile && !!filePath;
   const actionTone = failed ? "text-red-400" : "text-content/50";
   const targetTone = failed
@@ -2847,14 +2873,14 @@ function ToolCallSummary({
                 ? `max-w-full bg-content/6 hover:bg-content/10 ${targetTone}`
                 : `flex-1 hover:underline ${targetTone}`
             }`}
-            title={preview?.path || target}
+            title={shownPath}
             onClick={(event) => {
               event.stopPropagation();
               onOpenFile?.(filePath);
             }}
           >
             <FileTypeIcon name={fileName} isDir={action === "List"} />
-            <span className="min-w-0 truncate">{target}</span>
+            <span className="min-w-0 truncate">{shownTarget}</span>
           </button>
         ) : (
           <span
@@ -2863,18 +2889,18 @@ function ToolCallSummary({
                 ? `max-w-full bg-content/6 ${targetTone}`
                 : `flex-1 ${targetTone}`
             }`}
-            title={preview?.path || target}
+            title={shownPath}
           >
             <FileTypeIcon name={fileName} isDir={action === "List"} />
-            <span className="min-w-0 truncate">{target}</span>
+            <span className="min-w-0 truncate">{shownTarget}</span>
           </span>
         )
       ) : (
         <span
           className={`flex min-w-0 flex-1 items-center gap-1.5 pl-1 ${targetTone}`}
-          title={target}
+          title={shownTarget}
         >
-          <span className="min-w-0 truncate">{target}</span>
+          <span className="min-w-0 truncate">{shownTarget}</span>
         </span>
       )}
     </span>

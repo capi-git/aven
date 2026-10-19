@@ -30,7 +30,12 @@ import { useActivity } from "../lib/activity";
 import { errorText, logError } from "../lib/errors";
 import { loadShowStaging, shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
-import { isEqualOrInside, pathKey, prettyCwd } from "../lib/paths";
+import {
+  displayAppData,
+  isEqualOrInside,
+  pathKey,
+  prettyCwd,
+} from "../lib/paths";
 import {
   finishRace,
   raceHost,
@@ -982,7 +987,7 @@ export function GitCopies({
               status.text,
               status.hint,
               chatLine,
-              `${where} · ${worktree.path}`,
+              `${where} · ${displayAppData(worktree.path)}`,
             ]
               .filter(Boolean)
               .join("\n")}
@@ -1024,7 +1029,10 @@ export function GitCopies({
                   <span className="min-w-0 flex-1 truncate">{chatLine}</span>
                 </p>
               ) : null}
-              <p className="git-copy-branch" title={worktree.path}>
+              <p
+                className="git-copy-branch"
+                title={displayAppData(worktree.path)}
+              >
                 <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
                 <span className="min-w-0 flex-1 truncate">
                   {race ? `${where} · ${copy.detail}` : where}

@@ -30,6 +30,7 @@ import {
 } from "../lib/devSmokeReveal";
 import { agentRole, roleBrief, type AgentRoleId } from "../lib/agentRoles";
 import { errorText } from "../lib/errors";
+import { deleteFeatureCard } from "../lib/featureCards";
 import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
@@ -1414,7 +1415,7 @@ export async function checkRaceResult(
 
 /** The file the board check's turn edits, in the check's project. */
 export const BOARD_EDIT_FILE = "aven-board-check.txt";
-const BOARD_COLUMN_IDS = ["needs-you", "working", "review", "shipped"];
+const BOARD_COLUMN_IDS = ["idea", "building", "review", "shipped"];
 
 /** The project's board on screen, if it is. */
 function boardOnScreen(project: string): HTMLElement | null {
@@ -1427,13 +1428,13 @@ function boardOnScreen(project: string): HTMLElement | null {
   );
 }
 
-/** A chat's card on the project's board on screen, and its column. */
+/** The card a chat is linked to on the project's board on screen, and its column. */
 function boardCard(
   project: string,
   sessionId: string,
 ): { card: HTMLElement; column: string | undefined } | null {
   const card = boardOnScreen(project)?.querySelector<HTMLElement>(
-    `[data-board-card="chat:${sessionId}"]`,
+    `[data-board-chats~="${sessionId}"]`,
   );
   return card
     ? {
@@ -1446,9 +1447,11 @@ function boardCard(
 
 /**
  * Open the project's board from the title bar's button while a new chat's
- * turn edits a file: the board must show its four columns, the chat's card
- * under Working while the turn runs and under Ready to review, naming the
- * file, once it ends; pressing the card must open the chat.
+ * turn edits a file: the board must show its four columns, Ideas, Building,
+ * Review and Shipped, and count the chat on its line for work outside the
+ * board; adding it from there must give it a card under Building while the
+ * turn runs, which moves by itself to Review, naming the file, once it ends;
+ * pressing the card must open the chat. The card is removed again after.
  */
 export async function checkBoard(
   get: () => Options,
@@ -1483,10 +1486,34 @@ export async function checkBoard(
   ].map((column) => column.dataset.boardColumn);
   if (columns.join() !== BOARD_COLUMN_IDS.join())
     throw new Error(`The board's columns are ${columns.join(", ")}`);
-  await waitFor(
-    () => boardCard(project, chat.id)?.column === "working",
+  // Not on a card yet, the chat is counted on the line above the columns.
+  const outside = await waitFor(
+    () =>
+      boardOnScreen(project)?.querySelector<HTMLElement>(
+        "[data-board-outside]",
+      ),
     10_000,
-    "the chat's card under Working",
+    "the line for chats outside the board",
+  );
+  const counted = outside.textContent ?? "";
+  if (!counted.includes("outside the board"))
+    throw new Error(`The line above the columns reads "${counted}"`);
+  outside
+    .querySelector<HTMLButtonElement>(".work-board-outside-toggle")
+    ?.click();
+  const add = await waitFor(
+    () =>
+      boardOnScreen(project)?.querySelector<HTMLButtonElement>(
+        `[data-outside-chat="${chat.id}"] .work-board-action`,
+      ),
+    5_000,
+    "the chat on the line for chats outside the board",
+  );
+  add.click();
+  await waitFor(
+    () => boardCard(project, chat.id)?.column === "building",
+    10_000,
+    "the chat's card under Building",
   );
   await reply();
   const { card } = await waitFor(
@@ -1495,62 +1522,68 @@ export async function checkBoard(
       return found?.column === "review" && found;
     },
     15_000,
-    "the chat's card to move to Ready to review",
+    "the chat's card to move to Review",
   );
-  const line = card.textContent ?? "";
-  if (!line.includes(BOARD_EDIT_FILE))
-    throw new Error(`The review card reads "${line}"`);
-  const buttons = [...card.querySelectorAll(".work-board-action")]
-    .map((button) => button.textContent?.trim())
-    .filter(Boolean);
-  if (!buttons.includes("Review") || !buttons.includes("Ship it"))
-    throw new Error(`The review card offers ${buttons.join(", ")}`);
-  card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
-  // The chat must be the focused surface. The board may stay on screen
-  // beside it when the workspace shows two groups of tabs side by side.
-  const surfaceOf = (element: Element | null) =>
-    element?.closest<HTMLElement>("[data-workspace-surface]")?.dataset
-      .workspaceSurface;
-  const chatFocused = () => {
-    const pane = chatPane(chat.id);
-    const focused = get().focusedSurfaceId;
-    return !!pane && (focused === undefined || surfaceOf(pane) === focused);
-  };
+  const cardId = card.dataset.boardCard;
   try {
-    await waitFor(chatFocused, 5_000, "the card to open its chat");
-  } catch (error) {
-    const pane = chatPane(chat.id);
-    throw new Error(
-      `${errorText(error)} (chat ${pane ? `on screen in ${surfaceOf(pane) ?? "no surface"}` : "not on screen"}, focused ${get().focusedSurfaceId ?? "unknown"}, board ${boardOnScreen(project) ? `on screen in ${surfaceOf(boardOnScreen(project))}` : "gone"})`,
+    const line = card.textContent ?? "";
+    if (!line.includes(BOARD_EDIT_FILE))
+      throw new Error(`The review card reads "${line}"`);
+    const buttons = [...card.querySelectorAll(".work-board-action")]
+      .map((button) => button.textContent?.trim())
+      .filter(Boolean);
+    if (!buttons.includes("Review") || !buttons.includes("Ship it"))
+      throw new Error(`The review card offers ${buttons.join(", ")}`);
+    card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
+    // The chat must be the focused surface. The board may stay on screen
+    // beside it when the workspace shows two groups of tabs side by side.
+    const surfaceOf = (element: Element | null) =>
+      element?.closest<HTMLElement>("[data-workspace-surface]")?.dataset
+        .workspaceSurface;
+    const chatFocused = () => {
+      const pane = chatPane(chat.id);
+      const focused = get().focusedSurfaceId;
+      return !!pane && (focused === undefined || surfaceOf(pane) === focused);
+    };
+    try {
+      await waitFor(chatFocused, 5_000, "the card to open its chat");
+    } catch (error) {
+      const pane = chatPane(chat.id);
+      throw new Error(
+        `${errorText(error)} (chat ${pane ? `on screen in ${surfaceOf(pane) ?? "no surface"}` : "not on screen"}, focused ${get().focusedSurfaceId ?? "unknown"}, board ${boardOnScreen(project) ? `on screen in ${surfaceOf(boardOnScreen(project))}` : "gone"})`,
+      );
+    }
+    // Leave no board open: bring it forward and close it as a person would.
+    const again = await waitFor(
+      () =>
+        [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            'button[aria-label="Open board"]',
+          ),
+        ].find((button) => button.getClientRects().length > 0),
+      5_000,
+      "the Open board button again",
     );
-  }
-  // Leave no board open: bring it forward and close it as a person would.
-  const again = await waitFor(
-    () =>
-      [
-        ...document.querySelectorAll<HTMLButtonElement>(
-          'button[aria-label="Open board"]',
+    again.click();
+    await waitFor(
+      () => boardOnScreen(project),
+      5_000,
+      "Open board to bring the board forward",
+    );
+    pressShortcut("w");
+    await waitFor(
+      () =>
+        ![...document.querySelectorAll<HTMLElement>("[data-work-board]")].some(
+          (board) => sameProjectPath(board.dataset.workBoard ?? "", project),
         ),
-      ].find((button) => button.getClientRects().length > 0),
-    5_000,
-    "the Open board button again",
-  );
-  again.click();
-  await waitFor(
-    () => boardOnScreen(project),
-    5_000,
-    "Open board to bring the board forward",
-  );
-  pressShortcut("w");
-  await waitFor(
-    () =>
-      ![...document.querySelectorAll<HTMLElement>("[data-work-board]")].some(
-        (board) => sameProjectPath(board.dataset.workBoard ?? "", project),
-      ),
-    5_000,
-    "Cmd+W to close the board",
-  );
-  return `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat; Cmd+W closed the board`;
+      5_000,
+      "Cmd+W to close the board",
+    );
+    return `four columns; added from the line for chats outside the board, the card moved from Building to Review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat; Cmd+W closed the board`;
+  } finally {
+    // The check's card leaves the project's board as it found it.
+    if (cardId) await deleteFeatureCard(project, cardId).catch(() => false);
+  }
 }
 
 /** A chat's pane on screen. */
@@ -3541,11 +3574,12 @@ export async function runDevSmoke(
     );
 
   // The project's board, opened from the title bar like a browser tab: a
-  // chat's card moves from Working to Ready to review once a turn that
-  // edits a file ends, and pressing the card opens the chat.
+  // chat added from the line for work outside the board gets a card, which
+  // moves from Building to Review once a turn that edits a file ends, and
+  // pressing the card opens the chat.
   if (safe && get().board)
     await step(
-      "the board follows a chat from Working to Review and opens it",
+      "the board's card follows a chat from Building to Review and opens it",
       () => checkBoard(get, config.projectPath),
     );
 

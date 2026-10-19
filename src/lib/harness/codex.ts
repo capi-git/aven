@@ -389,6 +389,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   if (existing && !existing.retired && existing.cwd === input.cwd) {
     return existing;
   }
+  // A new app-server takes a moment before it answers; the chat says so.
+  input.onEvent({ type: "turn.waiting", set: { starting: Date.now() } });
   if (existing) {
     if (existing.cwd !== input.cwd) resumeByThread.delete(input.sessionId);
     await stopCodexSession(input.sessionId);

@@ -8,7 +8,7 @@ import {
   isWeakToolTitle,
 } from "../lib/harness/preview";
 import { leafName } from "../lib/fileName";
-import { displayPath } from "../lib/paths";
+import { displayAppData, displayPath } from "../lib/paths";
 import type { Block } from "../lib/session";
 
 export type ToolCallState = "pending" | "accepted" | "rejected";
@@ -149,7 +149,10 @@ function isImageResultBlock(block: Block): boolean {
   return /(?:^|[^\\])!\[[^\]\n]*\]/.test(withoutCode);
 }
 
-/** First paragraph of a folded prose block, stripped to one plain line. */
+/**
+ * First paragraph of a folded prose block, stripped to one plain line, with
+ * Aven's data folder in words (`displayAppData`).
+ */
 export function proseSummary(text: string): string {
   const body = text.replace(/```[\s\S]*?(?:```|$)/g, " ");
   const paragraph =
@@ -157,7 +160,7 @@ export function proseSummary(text: string): string {
       .split(/\n\s*\n/)
       .map((part) => part.trim())
       .find(Boolean) ?? "";
-  return paragraph
+  return displayAppData(paragraph)
     .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/`([^`]*)`/g, "$1")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")

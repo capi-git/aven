@@ -13,12 +13,14 @@ import { BOARD_EDIT_FILE, checkBoard } from "./useDevSmoke";
 const PROJECT = "/tmp/check/project";
 
 type Flaws = {
-  /** The card stays under Working after the turn ends. */
+  /** The card stays under Building after the turn ends. */
   noReview?: boolean;
   /** The card's button leaves the board on screen. */
   boardStays?: boolean;
   /** Cmd+W leaves the board tab open. */
   boardKept?: boolean;
+  /** Add on the outside line puts nothing on the board. */
+  addFails?: boolean;
 };
 
 let listening = new AbortController();
@@ -28,7 +30,9 @@ function app(flaws: Flaws = {}) {
   // The board's tab, and whether it is the one on screen.
   let boardTab = false;
   let boardOpen = false;
+  let outsideOpen = false;
   let focused = "";
+  const linked = new Set<string>();
   listening = new AbortController();
   window.addEventListener(
     "keydown",
@@ -75,7 +79,7 @@ function app(flaws: Flaws = {}) {
     draw();
   }
   function card(session: Session) {
-    const column = session.busy || flaws.noReview ? "working" : "review";
+    const column = session.busy || flaws.noReview ? "building" : "review";
     const line =
       column === "review" ? `${BOARD_EDIT_FILE} · +1 −0` : "Thinking";
     const buttons =
@@ -84,12 +88,29 @@ function app(flaws: Flaws = {}) {
         : "";
     return [
       column,
-      `<article data-board-card="chat:${session.id}"><button class="work-board-card-open">Chat</button><span>${line}</span>${buttons}</article>`,
+      `<article data-board-card="card-${session.id}" data-board-chats="${session.id}"><button class="work-board-card-open">Chat</button><span>${line}</span>${buttons}</article>`,
     ] as const;
   }
+  function outside() {
+    const loose = state.sessions.filter(
+      (session) => session.busy && !linked.has(session.id),
+    );
+    if (!loose.length) return "";
+    const rows = outsideOpen
+      ? loose
+          .map(
+            (session) =>
+              `<li data-outside-chat="${session.id}"><button class="work-board-action">Add</button></li>`,
+          )
+          .join("")
+      : "";
+    return `<div data-board-outside><button class="work-board-outside-toggle">${loose.length} chat working outside the board</button><button class="work-board-outside-add">Add it</button><ul>${rows}</ul></div>`;
+  }
   function draw() {
-    const cards = state.sessions.map(card);
-    const columns = ["needs-you", "working", "review", "shipped"]
+    const cards = state.sessions
+      .filter((session) => linked.has(session.id))
+      .map(card);
+    const columns = ["idea", "building", "review", "shipped"]
       .map(
         (id) =>
           `<section data-board-column="${id}">${cards
@@ -100,7 +121,7 @@ function app(flaws: Flaws = {}) {
       .join("");
     document.body.innerHTML = `
       <div class="personal-titlebar"><button aria-label="Open board"></button></div>
-      ${boardTab ? `<div data-work-board="${PROJECT}"${boardOpen ? "" : " data-hidden"}>${columns}</div>` : ""}
+      ${boardTab ? `<div data-work-board="${PROJECT}"${boardOpen ? "" : " data-hidden"}>${outside()}${columns}</div>` : ""}
       ${boardOpen ? "" : `<div data-session-drop="${focused}"></div>`}`;
     document
       .querySelector('button[aria-label="Open board"]')!
@@ -109,6 +130,20 @@ function app(flaws: Flaws = {}) {
         boardOpen = true;
         draw();
       });
+    document
+      .querySelector(".work-board-outside-toggle")
+      ?.addEventListener("click", () => {
+        outsideOpen = !outsideOpen;
+        draw();
+      });
+    document
+      .querySelectorAll<HTMLElement>("[data-outside-chat]")
+      .forEach((row) =>
+        row.querySelector("button")!.addEventListener("click", () => {
+          if (!flaws.addFails) linked.add(row.dataset.outsideChat!);
+          draw();
+        }),
+      );
     document
       .querySelectorAll<HTMLButtonElement>(".work-board-card-open")
       .forEach((button) =>
@@ -150,10 +185,10 @@ describe("the real-app check's board step", () => {
     return { state, outcome: await result };
   };
 
-  it("passes when the card moves from Working to Review and opens the chat", async () => {
+  it("passes when the added card moves from Building to Review and opens the chat", async () => {
     const { state, outcome } = await run();
     expect(outcome).toEqual({
-      detail: `four columns; the card moved from Working to Ready to review with ${BOARD_EDIT_FILE} and offered Review, Ship it; pressing it opened the chat; Cmd+W closed the board`,
+      detail: `four columns; added from the line for chats outside the board, the card moved from Building to Review with ${BOARD_EDIT_FILE} and offered Review, Ship it; pressing it opened the chat; Cmd+W closed the board`,
     });
     // The turn edits the file through the stand-in, held while the board opens.
     expect(state.submit.mock.calls[0]?.[1]).toContain(
@@ -161,10 +196,17 @@ describe("the real-app check's board step", () => {
     );
   });
 
-  it("fails when the card never reaches Ready to review", async () => {
+  it("fails when the card never reaches Review", async () => {
     const { outcome } = await run({ noReview: true });
     expect(outcome).toEqual({
-      error: "Timed out waiting for the chat's card to move to Ready to review",
+      error: "Timed out waiting for the chat's card to move to Review",
+    });
+  });
+
+  it("fails when adding the chat from the outside line gives it no card", async () => {
+    const { outcome } = await run({ addFails: true });
+    expect(outcome).toEqual({
+      error: "Timed out waiting for the chat's card under Building",
     });
   });
 

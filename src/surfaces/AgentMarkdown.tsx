@@ -30,7 +30,7 @@ import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { boundedCode } from "./codeHighlightPlugin";
 import { rehypeHardBreaks } from "./hardBreaks";
 import { createLazyMermaidPlugin } from "./mermaidPlugin";
-import { resolveWorkspacePath } from "../lib/paths";
+import { displayAppData, resolveWorkspacePath } from "../lib/paths";
 import {
   LOCAL_FILE_LINK,
   fileLinkHref,
@@ -976,19 +976,19 @@ function MarkdownCodePath({ path }: { path: string }) {
   const openFile = onOpenFile ?? openInAppFile;
   const fileMenu = useFileLinkMenu(file, openFile);
   if (!file) {
-    return <span className="markdown-code-path">{path}</span>;
+    return <span className="markdown-code-path">{displayAppData(path)}</span>;
   }
   return (
     <>
       <button
         type="button"
         className="markdown-code-path markdown-code-path-link chat-reference"
-        title={file.path}
+        title={displayAppData(file.path)}
         onClick={() => openFile(file.path, file.navigation)}
         onContextMenu={fileMenu.onContextMenu}
         onKeyDown={fileMenu.onKeyDown}
       >
-        {path}
+        {displayAppData(path)}
       </button>
       {fileMenu.menu ? <ExplorerMenu {...fileMenu.menu} /> : null}
     </>

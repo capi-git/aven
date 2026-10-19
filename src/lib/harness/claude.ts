@@ -31,6 +31,7 @@ import {
   isTerminalAgentTaskStatus,
   isTodoTool,
   applyClaudeTaskTool,
+  claudeWaitEvent,
   normalizeClaudeCliEffort,
   parseBackgroundAgentTasks,
   parseControlCancelId,
@@ -441,6 +442,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.runtimeMode = input.runtimeMode;
     return existing;
   }
+  // A new process takes a moment before it answers; the chat says so.
+  input.onEvent({ type: "turn.waiting", set: { starting: Date.now() } });
   if (existing) {
     // The closed cards of the process being replaced belong to this turn.
     existing.onEvent = input.onEvent;
@@ -720,6 +723,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
 
   if (type === "control_response") {
     markInitialized(live);
+    return;
+  }
+
+  const wait = claudeWaitEvent(rec, Date.now());
+  if (wait) {
+    live.onEvent(wait);
     return;
   }
 
@@ -1670,9 +1679,14 @@ function completeAgentTask(
 
 function maybeFinishTurn(live: Live): void {
   if (!live.turnResultSeen) return;
-  if ([...live.agentTasks.values()].some((task) => task.status !== "unknown"))
+  const open = live.activeTurn || !!live.turnDone;
+  if ([...live.agentTasks.values()].some((task) => task.status !== "unknown")) {
+    // The reply is done; the turn stays open for its helper agents.
+    if (open)
+      live.onEvent({ type: "turn.waiting", set: { helpers: Date.now() } });
     return;
-  if (!live.activeTurn && !live.turnDone) return;
+  }
+  if (!open) return;
   finishActiveTurn(live, [
     { type: "message.completed" },
     { type: "reasoning.completed" },

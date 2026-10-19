@@ -1,4 +1,5 @@
 import { AlertCircle, Check, LoaderCircle, Pause, Square } from "./icons";
+import { displayAppData } from "../lib/paths";
 import type { SessionAgent } from "../lib/session";
 import "./SessionAgentList.css";
 
@@ -44,8 +45,10 @@ export function SessionAgentList({
               <Icon className="size-3.5" />
             </span>
             <div className="session-run-agent-copy">
-              <strong>{agent.title}</strong>
-              {agent.detail ? <span>{agent.detail}</span> : null}
+              <strong>{displayAppData(agent.title)}</strong>
+              {agent.detail ? (
+                <span>{displayAppData(agent.detail)}</span>
+              ) : null}
             </div>
             <span className="session-run-agent-label">
               {agentStatusLabels[agent.status]}

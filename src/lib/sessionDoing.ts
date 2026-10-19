@@ -1,14 +1,16 @@
 import { basename } from "./fs";
 import { toolDisplayLabel } from "./commandLabel";
 import { isWeakToolTitle } from "./harness/preview";
-import { displayPath } from "./paths";
+import { displayAppData, displayPath } from "./paths";
 import type { Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
+import { holdUpHint, sessionHoldUps } from "./sessionHoldUp";
 
 const DETAIL_MAX = 160;
 
+/** One shown line: Aven's data folder in words, clipped to fit. */
 function clip(text: string): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = displayAppData(text).replace(/\s+/g, " ").trim();
   return line.length > DETAIL_MAX
     ? `${line.slice(0, DETAIL_MAX - 1).trimEnd()}…`
     : line;
@@ -23,6 +25,10 @@ type Activity = {
 /** The current turn's latest activity, if it has one. */
 function latestActivity(session: Session): Activity | undefined {
   const said = (text: string): Activity => ({ text, specific: true });
+  // A retry, the usage limit or helper agents hold the turn up; its last
+  // words ("Writing a reply") are behind it.
+  const holdUp = holdUpHint(sessionHoldUps(session));
+  if (holdUp) return said(holdUp);
   const blocks = session.blocks;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];

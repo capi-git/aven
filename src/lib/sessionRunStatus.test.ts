@@ -67,8 +67,9 @@ describe("sessionRunStatus", () => {
     });
     expect(sessionRunStatus(current, [activity()])).toMatchObject({
       kind: "working",
-      label: "Agents still working",
+      label: "Waiting on 1 helper agent",
       detail: "1 active · 1 done",
+      holdUp: "helpers",
       canStop: true,
     });
     expect(sessionRunStatus(current, [activity()])?.durationMs).toBeUndefined();
