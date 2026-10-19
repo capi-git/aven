@@ -5,6 +5,8 @@ import {
   type DevPreview,
 } from "./devPreviews";
 import { displayPath, pathKey, prettyCwd, isEqualOrInside } from "./paths";
+import { raceLaneAtPath } from "./race";
+import { isRaceLanePath } from "./recents";
 import type { HarnessId, RuntimeMode, TurnIntent } from "./session";
 import {
   agentName,
@@ -241,13 +243,20 @@ export function sharedWorkNoteFor(
   now = Date.now(),
 ): string {
   const session = sharedWorkSession(context.sessionId);
-  const project = session?.project ?? context.cwd;
+  // A race lane works in its own copy of the project: only that copy's
+  // servers and edits concern it, and other chats ignore the copies.
+  const lane = isRaceLanePath(context.cwd)
+    ? (raceLaneAtPath(context.cwd)?.lane.path ?? context.cwd)
+    : undefined;
+  const project = lane ?? session?.project ?? context.cwd;
+  const inScope = (cwd: string) =>
+    lane ? isEqualOrInside(cwd, lane) : !isRaceLanePath(cwd);
   const previews = devPreviewsSnapshot();
   const live = liveServersFor(previews, {
     cwd: context.cwd,
-    project,
+    project: session?.project ?? context.cwd,
     sessionId: context.sessionId,
-  });
+  }).filter((preview) => inScope(preview.cwd));
   const servers: NoteServer[] = live.slice(0, MAX_SERVERS).map((preview) => ({
     url: preview.url,
     port: preview.port,
@@ -267,7 +276,8 @@ export function sharedWorkNoteFor(
     .filter(
       (turn) =>
         turn.sessionId !== context.sessionId &&
-        pathKey(turn.project) === pathKey(project) &&
+        (!!lane || pathKey(turn.project) === pathKey(project)) &&
+        inScope(turn.cwd) &&
         (turn.running > 0 ||
           (turn.files.length > 0 &&
             now - (turn.endedAt ?? 0) <= RECENT_TURN_MS)),
