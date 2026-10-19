@@ -4,13 +4,17 @@
 
 ### Added
 
-- A first-run walkthrough for new installs, in one dialog with four steps: **Welcome**, **Agents** (the provider setup that used to open by itself, with **Set up later** when no agent app is installed yet), **Project** and **Tour**. On **Project**, **Open a folder** adds a project you have, and **Try a sample** makes a tiny website (a page with a heading, a line of text and a button, its style sheet and a README) in Aven's own folder, with a first commit so Changes and Ship it work; nothing else on your computer is touched, and trying it again reuses it. **Skip setup** ends the walkthrough for good at any step. People who update from an earlier version don't see it.
+- A first-run walkthrough for new installs, in one dialog with four steps: **Welcome**, **Agents** (the agent app setup that used to open by itself, with **Set up later** when no agent app is installed yet), **Project** and **Tour**. On **Project**, **Open a folder** adds a project you have, and **Try a sample** makes a tiny website (a page with a heading, a line of text and a button, its style sheet and a README) in Aven's own folder, with a first commit so Changes and Ship it work; nothing else on your computer is touched, and trying it again reuses it. **Skip setup** ends the walkthrough for good at any step. People who update from an earlier version don't see it.
 - A short tour over the real app, six stops at most: the message box, the sidebar's projects and chats, the browser, the side panel's Changes and **Ship it**, the board and Activity, and project memory. Each stop dims everything but what it points at and says what it does, with **Skip tour**, **Back**, **Next** and "2 of 6"; Escape leaves and Enter goes on. It opens the side panel on Changes for its stop and puts it back after, and skips a stop that isn't on screen. Browser pages show as a still picture while it runs. **Help › Take the Tour Again**, or **Settings › General › Take the tour again**, runs it any time.
 - After the walkthrough, Home shows **Getting started**: "About five minutes · hide this any time", with five steps that tick themselves as you do them: **Connect an agent**, **Add a project**, **Send your first message**, **Preview it** and **Ship it**. **Start** on the next one does it: it opens setup, the folder picker, a new chat in the sample with "Make the heading bigger" ready to send (never sent for you), a new chat asking the agent to open a preview, or the side panel's Changes. × hides the card for good, and once all five are done it says so and doesn't come back.
 
 ### Fixed
 
 - The image popup sits on Aven's own window surface, in your theme and its glass, instead of covering the whole window in black, and follows light mode.
+
+### Changed
+
+- Agent setup speaks plainly: it asks which **agent apps** you want instead of providers, and its messages no longer mention a CLI or PATH ("Not installed yet. Install it, then press Check again. If you just installed it, restart Aven.").
 
 ## [0.1.146] - 2026-10-18
 
