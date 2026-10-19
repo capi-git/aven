@@ -749,9 +749,14 @@ export function unseenFinalReply(
   discussion: Discussion,
   sessions: readonly Session[],
 ): { text: string; shown: boolean } | null {
-  // Only B's reply can miss A: A speaks on even turns.
+  // Only when the last finished turn is B's (B speaks on odd turns): A has
+  // seen its own replies.
   const turn = discussion.settled - 1;
   if (turn < 1 || turn % 2 === 0) return null;
+  // Passed on to A before it stopped, so A has it, even if an earlier
+  // ending copied it into A's chat too.
+  if (discussion.ended?.kind !== "completed" && discussion.delivered)
+    return null;
   const starter = sessions.find((entry) => entry.id === discussion.a.sessionId);
   const copy = starter?.blocks.findLast(
     (block) =>
@@ -760,8 +765,6 @@ export function unseenFinalReply(
       block.discussionReply.turn === discussion.settled,
   );
   if (copy?.text.trim()) return { text: copy.text.trim(), shown: true };
-  if (discussion.ended?.kind !== "completed" && discussion.delivered)
-    return null;
   const text = continuationRelay(discussion, sessions)?.text;
   return text ? { text, shown: false } : null;
 }
