@@ -8,6 +8,7 @@
 - Replies start sooner after you edit project memory: Claude Code chats in the project keep running instead of each restarting on its next message. A chat already under way gets the new memory with that message, as Codex and the other apps already did.
 - Replies after a break start sooner: an agent app stays ready for 30 minutes after it finishes instead of 5, so your next message doesn't wait for it to restart and reload the chat. Aven keeps at most 8 idle ones ready, the most recently used, and still closes idle ones after 5 minutes (or at once) when your Mac is low on memory.
 - Replies start sooner when another chat is saving its Undo checkpoint: each chat now waits only for its own checkpoint work (Undo still runs alone within its project), and a message waits at most 5 seconds for its checkpoint. If that runs out, the reply goes ahead and the bar above the message box says "Undo isn't available for this reply."
+- The Effort list says what the quick and the slow levels cost: Low is "Quickest replies. Good for small, clear changes.", Extra High "Very thorough. Noticeably slower." and Max "Most thorough. Often several times slower." The level a chat uses doesn't change.
 
 ## [0.1.147] - 2026-10-19
 

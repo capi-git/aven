@@ -70,10 +70,13 @@ describe("model settings in the agent panel", () => {
   const choices = (label: string) => [
     ...group(label).querySelectorAll<HTMLButtonElement>('[role="radio"]'),
   ];
+  /** A choice's accessible name: its label, without any hint under it. */
+  const nameOf = (item: Element | null | undefined) =>
+    item?.getAttribute("aria-label") ?? item?.textContent;
   const choice = (label: string, text: string) =>
-    choices(label).find((item) => item.textContent === text)!;
+    choices(label).find((item) => nameOf(item) === text)!;
   const checked = (label: string) =>
-    group(label).querySelector('[aria-checked="true"]')?.textContent;
+    nameOf(group(label).querySelector('[aria-checked="true"]'));
 
   async function key(value: string) {
     const event = new KeyboardEvent("keydown", {
@@ -87,7 +90,7 @@ describe("model settings in the agent panel", () => {
 
   it("lists reasoning levels in order, with one tab stop on the current level", async () => {
     await render();
-    expect(choices("Effort").map((item) => item.textContent)).toEqual([
+    expect(choices("Effort").map(nameOf)).toEqual([
       "Low",
       "Medium",
       "High",
@@ -106,7 +109,7 @@ describe("model settings in the agent panel", () => {
     await render();
     await act(async () => choice("Effort", "Medium").focus());
     expect((await key("ArrowDown")).defaultPrevented).toBe(true);
-    expect(document.activeElement?.textContent).toBe("High");
+    expect(nameOf(document.activeElement)).toBe("High");
     expect(onChange).not.toHaveBeenCalled();
     await act(async () => (document.activeElement as HTMLElement).click());
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
@@ -114,16 +117,51 @@ describe("model settings in the agent panel", () => {
       fast: "false",
     });
     await key("Home");
-    expect(document.activeElement?.textContent).toBe("Low");
+    expect(nameOf(document.activeElement)).toBe("Low");
     await key("ArrowUp");
-    expect(document.activeElement?.textContent).toBe("Ultrathink");
+    expect(nameOf(document.activeElement)).toBe("Ultrathink");
+  });
+
+  it("says under the quick and the slow levels what they cost, without choosing for you", async () => {
+    await render();
+    const hints = Object.fromEntries(
+      choices("Effort").map((option) => [
+        nameOf(option),
+        option.querySelector(".agent-choice-hint")?.textContent ?? null,
+      ]),
+    );
+    expect(hints).toEqual({
+      Low: "Quickest replies. Good for small, clear changes.",
+      Medium: null,
+      High: null,
+      "Extra High": "Very thorough. Noticeably slower.",
+      Max: "Most thorough. Often several times slower.",
+      Ultracode: null,
+      Ultrathink: null,
+    });
+    // Screen readers hear the level's name, then the hint as its description.
+    const max = choice("Effort", "Max");
+    const hint = max.querySelector(".agent-choice-hint")!;
+    expect(max.getAttribute("aria-describedby")).toBe(hint.id);
+    expect(hint.id).not.toBe("");
+    expect(choice("Effort", "Medium").hasAttribute("aria-describedby")).toBe(
+      false,
+    );
+    // The level stays the one the chat has.
+    expect(checked("Effort")).toBe("Medium");
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () => max.click());
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      effort: "max",
+      fast: "false",
+    });
   });
 
   it("colors every standard effort level and mounts tiles only for the active row", async () => {
     await render();
     const tones = Object.fromEntries(
       choices("Effort").map((option) => [
-        option.textContent,
+        nameOf(option),
         option.getAttribute("data-effort-tone"),
       ]),
     );
@@ -229,7 +267,7 @@ describe("model settings in the agent panel", () => {
   it("preserves Grok's descending choices and commits the exact low value", async () => {
     const values = { effort: "high", fast: "false" };
     await renderModel("grok", "grok:grok-4.6", values);
-    expect(choices("Effort").map((option) => option.textContent)).toEqual([
+    expect(choices("Effort").map(nameOf)).toEqual([
       "Extra High",
       "High",
       "Medium",
@@ -262,13 +300,8 @@ describe("model settings in the agent panel", () => {
     setHarnessModels("codex", [future]);
     const values = { reasoningEffort: "low", serviceTier: "fast" };
     await renderModel("codex", future.id, values);
-    expect(choices("Effort").map((option) => option.textContent)).toEqual([
-      "Low",
-      "Adaptive",
-    ]);
-    expect(choices("Service Tier").map((option) => option.textContent)).toEqual(
-      ["Standard", "Fast"],
-    );
+    expect(choices("Effort").map(nameOf)).toEqual(["Low", "Adaptive"]);
+    expect(choices("Service Tier").map(nameOf)).toEqual(["Standard", "Fast"]);
     expect(checked("Service Tier")).toBe("Fast");
     await act(async () => choice("Effort", "Adaptive").click());
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
