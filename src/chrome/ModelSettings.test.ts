@@ -122,12 +122,12 @@ describe("model settings in the agent panel", () => {
     expect(nameOf(document.activeElement)).toBe("Ultrathink");
   });
 
-  it("says under the quick and the slow levels what they cost, without choosing for you", async () => {
+  it("says on hover what the quick and the slow levels cost, without choosing for you", async () => {
     await render();
     const hints = Object.fromEntries(
       choices("Effort").map((option) => [
         nameOf(option),
-        option.querySelector(".agent-choice-hint")?.textContent ?? null,
+        option.getAttribute("title"),
       ]),
     );
     expect(hints).toEqual({
@@ -139,14 +139,10 @@ describe("model settings in the agent panel", () => {
       Ultracode: null,
       Ultrathink: null,
     });
-    // Screen readers hear the level's name, then the hint as its description.
+    // Only the level's name shows in the row; the hint is not inline text.
     const max = choice("Effort", "Max");
-    const hint = max.querySelector(".agent-choice-hint")!;
-    expect(max.getAttribute("aria-describedby")).toBe(hint.id);
-    expect(hint.id).not.toBe("");
-    expect(choice("Effort", "Medium").hasAttribute("aria-describedby")).toBe(
-      false,
-    );
+    expect(max.textContent).toBe("Max");
+    expect(max.hasAttribute("aria-label")).toBe(false);
     // The level stays the one the chat has.
     expect(checked("Effort")).toBe("Medium");
     expect(onChange).not.toHaveBeenCalled();

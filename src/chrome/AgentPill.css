@@ -239,13 +239,6 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   background: var(--toolbar-panel-selected);
   color: var(--color-content);
 }
-.agent-choice-hint {
-  display: block;
-  margin-top: 1px;
-  color: color-mix(in srgb, var(--color-content) 52%, transparent);
-  font-size: var(--text-ui-caption);
-  line-height: 1.3;
-}
 .model-effort-dot {
   width: 6px;
   height: 6px;

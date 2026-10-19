@@ -2,7 +2,6 @@ import { harnessDescriptor } from "../lib/harness/descriptors";
 import { AiIdea, Check, Gauge, Zap } from "./icons";
 import "./ModelControls.css";
 import {
-  useId,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -129,9 +128,9 @@ function effortTileTone(value: string): EffortTone | undefined {
 }
 
 /**
- * A short line under the levels where the choice is easy to get wrong: the
- * quick one, and the ones that cost much more time. Only shown, never chosen
- * for you.
+ * A hover tip for the levels where the choice is easy to get wrong: the quick
+ * one, and the ones that cost much more time. Only shown, never chosen for
+ * you.
  */
 const EFFORT_HINTS: Partial<Record<EffortTone, string>> = {
   low: "Quickest replies. Good for small, clear changes.",
@@ -247,7 +246,6 @@ function EffortChoices({
   // The row under the pointer or keyboard plays the tile ripple; only that
   // row mounts its tiles.
   const [active, setActive] = useState<number | null>(null);
-  const hintId = useId();
   const known = setting.options.some((option) => option.value === value);
   return (
     <div
@@ -266,7 +264,6 @@ function EffortChoices({
       {setting.options.map((option, index) => {
         const selected = option.value === value;
         const tone = effortTileTone(option.value);
-        const hint = effortHint(option.value);
         const highlighted = index === active;
         return (
           <button
@@ -274,8 +271,7 @@ function EffortChoices({
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={hint ? option.label : undefined}
-            aria-describedby={hint ? `${hintId}-${index}` : undefined}
+            title={effortHint(option.value)}
             tabIndex={selected || (!known && index === 0) ? 0 : -1}
             data-effort-tone={tone}
             data-effort-active={tone && highlighted ? true : undefined}
@@ -286,14 +282,7 @@ function EffortChoices({
           >
             {tone && highlighted ? <EffortTileShimmer /> : null}
             <span className="model-effort-dot" aria-hidden="true" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{option.label}</span>
-              {hint ? (
-                <span id={`${hintId}-${index}`} className="agent-choice-hint">
-                  {hint}
-                </span>
-              ) : null}
-            </span>
+            <span className="min-w-0 flex-1 truncate">{option.label}</span>
             {selected ? (
               <Check className="agent-choice-check" strokeWidth={2} />
             ) : null}
