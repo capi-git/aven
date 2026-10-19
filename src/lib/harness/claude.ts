@@ -295,6 +295,7 @@ export function respondClaudeApproval(
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
+  live?.approvals.delete(requestId);
   pending.resolve(decision);
 }
 
@@ -302,11 +303,13 @@ export function respondClaudeQuestion(
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-): void {
+): boolean {
   const live = liveByThread.get(sessionId);
   const pending = live?.questions.get(requestId);
-  if (!pending) return;
+  if (!live || live.retired || !pending) return false;
+  live.questions.delete(requestId);
   pending.resolve(reply);
+  return true;
 }
 
 export async function cancelClaudeTurn(sessionId: string): Promise<void> {
@@ -341,11 +344,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   if (live) {
     live.retired = true;
     live.muteUpdates = true;
-    for (const [, pending] of live.approvals) pending.resolve("deny");
-    live.approvals.clear();
-    for (const [, pending] of live.questions)
-      pending.resolve({ kind: "skipped" });
-    live.questions.clear();
+    retirePendingRequests(live);
     live.activeTurn = false;
     live.turnDone?.();
     live.turnDone = null;
@@ -443,6 +442,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     return existing;
   }
   if (existing) {
+    // The closed cards of the process being replaced belong to this turn.
+    existing.onEvent = input.onEvent;
     // Permission/model changes require a new CLI process, not a new
     // conversation. Keep its resume id unless the working directory changes.
     if (existing.cwd !== input.cwd) {
@@ -534,6 +535,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       }
       if (current) {
         current.retired = true;
+        retirePendingRequests(current);
         markAgentsUnknown(
           current,
           "Claude Code exited before reporting the agent's final status",
@@ -1086,6 +1088,8 @@ async function handleControlRequest(
   if (toolName === "AskUserQuestion") {
     const questions = questionsFromUnknown(input);
     const uiId = live.nextApprovalUiId++;
+    // Wait before showing it: a reply can come from inside onEvent.
+    const answered = waitQuestion(live, uiId, control.requestId);
     live.onEvent({
       type: "question.asked",
       requestId: uiId,
@@ -1094,7 +1098,7 @@ async function handleControlRequest(
       questions,
       callId: control.toolUseId,
     });
-    const outcome = await waitQuestion(live, uiId, control.requestId);
+    const outcome = await answered;
     if (live.retired) return;
     const decision =
       outcome === "cancelled"
@@ -1162,6 +1166,7 @@ async function handleControlRequest(
   }
 
   const uiId = live.nextApprovalUiId++;
+  const decided = waitApproval(live, uiId, control.requestId, input);
   live.onEvent({
     type: "approval.requested",
     requestId: uiId,
@@ -1170,7 +1175,7 @@ async function handleControlRequest(
     callId: control.toolUseId,
     preview: previewFromTool(toolName, input),
   });
-  const decision = await waitApproval(live, uiId, control.requestId, input);
+  const decision = await decided;
   if (live.retired) return;
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   if (decision === "cancelled") return;
@@ -1204,13 +1209,14 @@ async function handleElicitation(
   }
   const prompt = elicitationPrompt(control.elicitation);
   const uiId = live.nextApprovalUiId++;
+  const answered = waitQuestion(live, uiId, control.requestId);
   live.onEvent({
     type: "question.asked",
     requestId: uiId,
     title: prompt.title,
     questions: prompt.questions,
   });
-  const reply = await waitQuestion(live, uiId, control.requestId);
+  const reply = await answered;
   if (live.retired) return;
   live.onEvent({
     type: "question.resolved",
@@ -1273,6 +1279,34 @@ function waitQuestion(
   return new Promise((resolve) => {
     live.questions.set(uiId, { requestId, resolve });
   });
+}
+
+/**
+ * The process is going away: close its open cards without answering it, so
+ * no question or approval stays on screen that nothing can answer. Callers
+ * mark the live retired first; its waiting handlers then stay silent.
+ */
+function retirePendingRequests(live: Live): void {
+  const approvals = [...live.approvals];
+  const questions = [...live.questions];
+  live.approvals.clear();
+  live.questions.clear();
+  for (const [uiId, pending] of approvals) {
+    pending.resolve("cancelled");
+    live.onEvent({
+      type: "approval.resolved",
+      requestId: uiId,
+      decision: "cancelled",
+    });
+  }
+  for (const [uiId, pending] of questions) {
+    pending.resolve("cancelled");
+    live.onEvent({
+      type: "question.resolved",
+      requestId: uiId,
+      decision: "cancelled",
+    });
+  }
 }
 
 function emitTaskListIfNeeded(

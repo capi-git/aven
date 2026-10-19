@@ -130,6 +130,22 @@ export function selectedAnswerLabels(
   });
 }
 
+/** The answers as plain text, one "Question: answer" line per question. */
+export function questionReplyText(
+  questions: readonly UserQuestion[],
+  reply: UserQuestionReply,
+): string {
+  if (reply.kind !== "answered") return "";
+  return questions
+    .flatMap((question) => {
+      const labels = selectedAnswerLabels(question, reply);
+      if (labels.length === 0) return [];
+      const name = question.header?.trim() || question.prompt.trim();
+      return [`${name}: ${labels.join(", ")}`];
+    })
+    .join("\n");
+}
+
 export function isCustomSelection(
   question: UserQuestion,
   optionId: string,

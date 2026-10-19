@@ -316,11 +316,13 @@ export function respondQuestion(
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-): void {
-  stateFor(flavor)
-    .liveByThread.get(sessionId)
-    ?.questions.get(requestId)
-    ?.resolve(reply);
+): boolean {
+  const live = stateFor(flavor).liveByThread.get(sessionId);
+  const pending = live?.questions.get(requestId);
+  if (!live || !pending) return false;
+  live.questions.delete(requestId);
+  pending.resolve(reply);
+  return true;
 }
 
 export async function cancelTurn(

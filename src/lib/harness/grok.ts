@@ -160,8 +160,13 @@ export function respondGrokQuestion(
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-) {
-  liveByThread.get(sessionId)?.questions.get(requestId)?.(reply);
+): boolean {
+  const live = liveByThread.get(sessionId);
+  const resolve = live?.questions.get(requestId);
+  if (!live || !resolve) return false;
+  live.questions.delete(requestId);
+  resolve(reply);
+  return true;
 }
 
 export async function cancelGrokTurn(sessionId: string): Promise<void> {
@@ -274,6 +279,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       acp.close(new Error("Grok Build exited"));
       liveByThread.delete(input.sessionId);
       emit({ type: "session.ended", code });
+      closeOpenQuestions(liveRef.current);
     },
     (line) => {
       console.debug("[aven] grok stderr", line);
@@ -583,6 +589,9 @@ async function handlePermission(live: Live, id: number, params: unknown) {
     return;
   }
 
+  const decided = new Promise<ApprovalDecision>((resolve) => {
+    live.approvals.set(id, resolve);
+  });
   live.onEvent({
     type: "approval.requested",
     requestId: id,
@@ -592,9 +601,7 @@ async function handlePermission(live: Live, id: number, params: unknown) {
     preview: request.preview,
   });
 
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
-    live.approvals.set(id, resolve);
-  });
+  const decision = await decided;
   live.approvals.delete(id);
   live.onEvent({ type: "approval.resolved", requestId: id, decision });
 
@@ -606,8 +613,20 @@ async function handlePermission(live: Live, id: number, params: unknown) {
   });
 }
 
+/** The process exited: nothing can answer its open questions any more. */
+function closeOpenQuestions(live: Live | null): void {
+  if (!live) return;
+  const open = [...live.questions.values()];
+  live.questions.clear();
+  for (const resolve of open) resolve({ kind: "skipped" });
+}
+
 async function handleAskQuestion(live: Live, id: number, params: unknown) {
   const questions = askQuestionsFromAcp(params);
+  // Wait before showing it: a reply can come from inside onEvent.
+  const answered = new Promise<UserQuestionReply>((resolve) => {
+    live.questions.set(id, resolve);
+  });
   live.onEvent({
     type: "question.asked",
     requestId: id,
@@ -615,9 +634,7 @@ async function handleAskQuestion(live: Live, id: number, params: unknown) {
     questions,
   });
 
-  const reply = await new Promise<UserQuestionReply>((resolve) => {
-    live.questions.set(id, resolve);
-  });
+  const reply = await answered;
   live.questions.delete(id);
   live.onEvent({
     type: "question.resolved",

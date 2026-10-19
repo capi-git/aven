@@ -21,22 +21,45 @@ type Props = {
   onReply: (requestId: number, reply: UserQuestionReply) => void;
 };
 
+/**
+ * How long a reply may go without the agent acknowledging it or the card
+ * closing before the form gives the buttons back.
+ */
+export const QUESTION_REPLY_TIMEOUT_MS = 5_000;
+const NOT_SENT = "Couldn't send your answer. Try again.";
+
 export function QuestionForm({ prompt, onReply }: Props) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
+  const [waiting, setWaiting] = useState(false);
+  const [stalled, setStalled] = useState(false);
   const sending = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const submitting = !!prompt.submitting;
+  const busy = submitting || waiting;
+  // A replacement question can reuse the id, so its content also counts.
+  const asked = useMemo(
+    () => JSON.stringify(prompt.questions),
+    [prompt.questions],
+  );
 
   useEffect(() => {
     setStep(0);
     setAnswers({});
     setCustom({});
-  }, [prompt.requestId]);
+  }, [prompt.requestId, asked]);
 
   useEffect(() => {
+    // The agent acknowledged the reply, rejected it, or asked anew.
+    clearTimeout(timer.current);
+    timer.current = undefined;
     sending.current = submitting;
-  }, [prompt.requestId, submitting, prompt.error]);
+    setWaiting(false);
+    setStalled(false);
+  }, [prompt.requestId, asked, submitting, prompt.error]);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const questions = prompt.questions;
   const total = questions.length;
@@ -53,6 +76,17 @@ export function QuestionForm({ prompt, onReply }: Props) {
     // Hold immediately too: another click can arrive before the provider's
     // submitting event has committed the disabled controls.
     sending.current = true;
+    setWaiting(true);
+    setStalled(false);
+    clearTimeout(timer.current);
+    // Never a dead button: without an acknowledgement or the card closing,
+    // give the controls back and say so.
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      sending.current = false;
+      setWaiting(false);
+      setStalled(true);
+    }, QUESTION_REPLY_TIMEOUT_MS);
     onReply(
       prompt.requestId,
       buildQuestionReply(questions, nextAnswers, nextCustom),
@@ -60,7 +94,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
   };
 
   const skipCurrent = () => {
-    if (submitting || sending.current) return;
+    if (busy || sending.current) return;
     if (!question) {
       finish();
       return;
@@ -79,7 +113,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
   };
 
   const continueCurrent = () => {
-    if (submitting || sending.current || !question || !ready) return;
+    if (busy || sending.current || !question || !ready) return;
     if (last) {
       finish();
       return;
@@ -90,12 +124,13 @@ export function QuestionForm({ prompt, onReply }: Props) {
   if (!question) return null;
 
   const title = question.header?.trim() || prompt.title?.trim() || "Question";
+  const error = prompt.error || (stalled ? NOT_SENT : undefined);
 
   return (
     <div className="px-1.5 pb-1.5" data-question-form>
       <form
         className="aven-inset-card px-3 py-2.5"
-        aria-busy={submitting}
+        aria-busy={busy}
         onSubmit={(event) => {
           event.preventDefault();
           continueCurrent();
@@ -116,7 +151,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
           ) : null}
           <button
             type="button"
-            disabled={submitting}
+            disabled={busy}
             className="h-6 shrink-0 rounded-md px-1.5 text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
             onClick={skipCurrent}
           >
@@ -129,7 +164,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
             question={question}
             selected={answers[question.id] ?? []}
             custom={custom[question.id] ?? ""}
-            disabled={submitting}
+            disabled={busy}
             onSelect={(optionId) =>
               setAnswers((current) => ({
                 ...current,
@@ -161,18 +196,18 @@ export function QuestionForm({ prompt, onReply }: Props) {
             }}
           />
         </div>
-        {prompt.error ? (
+        {error ? (
           <p role="alert" className="mt-2 text-ui-label text-content/80">
-            {prompt.error}
+            {error}
           </p>
         ) : null}
         <div className="mt-2.5 flex justify-end">
           <button
             type="submit"
-            disabled={submitting || !ready}
+            disabled={busy || !ready}
             className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
           >
-            {submitting ? "Sending…" : "Continue"}
+            {busy ? "Sending…" : "Continue"}
           </button>
         </div>
       </form>

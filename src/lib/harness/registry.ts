@@ -58,11 +58,15 @@ export type HarnessAdapter = {
     requestId: number,
     decision: ApprovalDecision,
   ): void;
+  /**
+   * True when the agent was still waiting on this question and took the
+   * reply; false when nothing waits on it any more.
+   */
   respondQuestion?(
     sessionId: string,
     requestId: number,
     reply: UserQuestionReply,
-  ): void;
+  ): boolean;
   /** Kill the child but keep resume state for later rebind. */
   stopSession(sessionId: string): Promise<void>;
   /** Drop resume state and kill the child (delete, harness switch, idle detach). */
@@ -359,13 +363,16 @@ export function respondHarnessApproval(
   getHarness(harness)?.respondApproval(sessionId, requestId, decision);
 }
 
+/** True when the agent was still waiting on this question and took the reply. */
 export function respondHarnessQuestion(
   harness: HarnessId,
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-): void {
-  getHarness(harness)?.respondQuestion?.(sessionId, requestId, reply);
+): boolean {
+  return (
+    getHarness(harness)?.respondQuestion?.(sessionId, requestId, reply) ?? false
+  );
 }
 
 export async function stopHarnessSession(
