@@ -122,7 +122,7 @@ export type RaceRecord = {
   review?: RaceReview;
   /** How each lane's latest turn ended, by lane; null while it works. */
   ends?: (RaceLaneEnd | null)[];
-  /** When Continue with <agent> sent the kept lane its recap. */
+  /** When the kept lane was left its recap: on keeping, or Continue with. */
   continuedAt?: number;
   /**
    * The window that started the race, which alone posts its notices. Absent
