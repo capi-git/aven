@@ -6,8 +6,11 @@ import {
   setHarnessModels,
 } from "../models";
 import type { HarnessId } from "../session";
+import { notifyMemoryPressure } from "../memoryPressure";
 import {
   HARNESS_IDLE_PARK_MS,
+  HARNESS_PRESSURE_PARK_MS,
+  HARNESS_WARM_LIMIT,
   HARNESS_CATALOG_TTL_MS,
   HARNESS_CATALOG_RETRY_MS,
   bindHarnessSession,
@@ -38,7 +41,29 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   control.isTauri.mockReturnValue(false);
   control.invoke.mockReset().mockResolvedValue(undefined);
+  // Project memory delivery remembers what each conversation holds.
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
+  });
 });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function turnInput(harness: "claude" | "codex", sessionId: string) {
+  return {
+    harness,
+    sessionId,
+    cwd: "/tmp",
+    model: `${harness}:test`,
+    text: "hi",
+    runtimeMode: "supervised" as const,
+    onEvent: () => undefined,
+  };
+}
 
 function stub(
   id: "cursor" | "codex" | "claude" | "pi",
@@ -475,6 +500,87 @@ describe("harness registry", () => {
     expect(stopSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(stopSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps a settled child warm through a half-hour break", async () => {
+    vi.useFakeTimers();
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { stopSession }));
+    await sendHarnessTurn(turnInput("claude", "break"));
+    expect(HARNESS_IDLE_PARK_MS).toBe(30 * 60_000);
+    await vi.advanceTimersByTimeAsync(29 * 60_000);
+    expect(stopSession).not.toHaveBeenCalled();
+    // A follow-up starts the wait again from when it settles.
+    await sendHarnessTurn(turnInput("claude", "break"));
+    await vi.advanceTimersByTimeAsync(29 * 60_000);
+    expect(stopSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(stopSession).toHaveBeenCalledExactlyOnceWith("break");
+  });
+
+  it("parks idle children sooner while memory is tight, and every idle child when it is critical", async () => {
+    vi.useFakeTimers();
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { stopSession }));
+    await sendHarnessTurn(turnInput("claude", "older"));
+    await vi.advanceTimersByTimeAsync(HARNESS_PRESSURE_PARK_MS + 60_000);
+    await sendHarnessTurn(turnInput("claude", "recent"));
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    notifyMemoryPressure("warn");
+    await vi.advanceTimersByTimeAsync(0);
+    // Idle six minutes: parked now. Idle one minute: parked at five.
+    expect(stopSession.mock.calls).toEqual([["older"]]);
+    await vi.advanceTimersByTimeAsync(HARNESS_PRESSURE_PARK_MS - 60_000 - 1);
+    expect(stopSession).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(stopSession.mock.calls).toEqual([["older"], ["recent"]]);
+
+    // Still under pressure: a chat that settles now parks after five minutes.
+    await sendHarnessTurn(turnInput("claude", "after"));
+    await vi.advanceTimersByTimeAsync(HARNESS_PRESSURE_PARK_MS);
+    expect(stopSession).toHaveBeenLastCalledWith("after");
+
+    await sendHarnessTurn(turnInput("claude", "critical"));
+    notifyMemoryPressure("critical");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stopSession).toHaveBeenLastCalledWith("critical");
+    expect(stopSession).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps only the most recently used idle children warm and never parks a busy one", async () => {
+    vi.useFakeTimers();
+    const stopSession = vi.fn(async () => undefined);
+    let finishBusy!: () => void;
+    registerHarness(
+      stub("claude", {
+        stopSession,
+        sendTurn: (input) =>
+          input.sessionId === "busy"
+            ? new Promise<void>((resolve) => {
+                finishBusy = resolve;
+              })
+            : Promise.resolve(),
+      }),
+    );
+    const busy = sendHarnessTurn(turnInput("claude", "busy"));
+    for (let index = 0; index < HARNESS_WARM_LIMIT; index += 1) {
+      await sendHarnessTurn(turnInput("claude", `idle-${index}`));
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    expect(stopSession).not.toHaveBeenCalled();
+    // One more idle chat than the limit: the one used longest ago parks.
+    await sendHarnessTurn(turnInput("claude", "newest"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stopSession.mock.calls).toEqual([["idle-0"]]);
+    // Using an idle chat again makes it the most recent.
+    await sendHarnessTurn(turnInput("claude", "idle-1"));
+    await sendHarnessTurn(turnInput("claude", "another"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stopSession.mock.calls).toEqual([["idle-0"], ["idle-2"]]);
+    expect(stopSession).not.toHaveBeenCalledWith("busy");
+    finishBusy();
+    await busy;
   });
 
   it.each(["running", "waiting", "unknown"] as const)(

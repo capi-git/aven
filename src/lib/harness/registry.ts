@@ -4,6 +4,10 @@ import type { Block, HarnessId, TaskListMeta } from "../session";
 import type { PrContent } from "../gitText";
 import type { HarnessDescriptor } from "./descriptors";
 import { hasLiveCatalog, modelsFor } from "../models";
+import {
+  subscribeMemoryPressure,
+  type MemoryPressureLevel,
+} from "../memoryPressure";
 import type { UserQuestionReply } from "../userQuestion";
 import type { NativeCommandProvider } from "./nativeCommands";
 import {
@@ -100,10 +104,26 @@ const catalogRefreshes = new Map<HarnessId, CatalogRefresh>();
 
 /**
  * After a turn settles, keep the child warm for follow-ups, then park it.
- * Resume state stays, so the next prompt respawns instead of starting over.
+ * Resume state stays, so the next prompt respawns instead of starting over;
+ * that respawn (and reloading a long conversation) is what a short break
+ * would otherwise cost.
  */
-export const HARNESS_IDLE_PARK_MS = 5 * 60_000;
-const idleParkTimers = new Map<string, ReturnType<typeof setTimeout>>();
+export const HARNESS_IDLE_PARK_MS = 30 * 60_000;
+/** While macOS reports memory pressure, idle children park this soon. */
+export const HARNESS_PRESSURE_PARK_MS = 5 * 60_000;
+/** Idle children kept warm at most; the least recently used park first. */
+export const HARNESS_WARM_LIMIT = 8;
+type IdleChild = {
+  harness: HarnessId;
+  /** When the child became idle. */
+  since: number;
+  timer: ReturnType<typeof setTimeout>;
+};
+/** Idle children, least recently used first. */
+const idleParkTimers = new Map<string, IdleChild>();
+/** Parking stays quick for a while after the last memory pressure notice. */
+let pressureUntil = 0;
+let watchingPressure = false;
 type RuntimeActivity = {
   harness: HarnessId;
   turns: number;
@@ -183,9 +203,45 @@ function endRuntimeActivity(
 }
 
 function cancelIdlePark(sessionId: string): void {
-  const timer = idleParkTimers.get(sessionId);
-  if (timer) clearTimeout(timer);
+  const idle = idleParkTimers.get(sessionId);
+  if (idle) clearTimeout(idle.timer);
   idleParkTimers.delete(sessionId);
+}
+
+function idleParkDelay(): number {
+  return Date.now() < pressureUntil
+    ? HARNESS_PRESSURE_PARK_MS
+    : HARNESS_IDLE_PARK_MS;
+}
+
+function idleParkTimer(sessionId: string, since: number) {
+  return setTimeout(
+    () => parkIdleChild(sessionId),
+    Math.max(0, since + idleParkDelay() - Date.now()),
+  );
+}
+
+function parkIdleChild(sessionId: string): void {
+  const idle = idleParkTimers.get(sessionId);
+  if (!idle) return;
+  cancelIdlePark(sessionId);
+  void stopHarnessSession(idle.harness, sessionId).catch(() => undefined);
+}
+
+/**
+ * macOS says memory is tight: park children idle for a few minutes now (every
+ * idle child when it is critical), and keep parking them that soon for a while.
+ */
+export function parkIdleHarnessesForMemory(level: MemoryPressureLevel): void {
+  pressureUntil = Date.now() + HARNESS_IDLE_PARK_MS;
+  for (const [sessionId, idle] of [...idleParkTimers]) {
+    if (level === "critical") {
+      parkIdleChild(sessionId);
+    } else {
+      clearTimeout(idle.timer);
+      idle.timer = idleParkTimer(sessionId, idle.since);
+    }
+  }
 }
 
 function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
@@ -202,19 +258,28 @@ function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
       ))
   )
     return;
-  idleParkTimers.set(
-    sessionId,
-    setTimeout(() => {
-      idleParkTimers.delete(sessionId);
-      void stopHarnessSession(harness, sessionId).catch(() => undefined);
-    }, HARNESS_IDLE_PARK_MS),
-  );
+  if (!watchingPressure) {
+    watchingPressure = true;
+    subscribeMemoryPressure(parkIdleHarnessesForMemory);
+  }
+  const since = Date.now();
+  idleParkTimers.set(sessionId, {
+    harness,
+    since,
+    timer: idleParkTimer(sessionId, since),
+  });
+  // Busy children are never parked; past the limit, the idle ones used
+  // longest ago go first.
+  const excess = idleParkTimers.size - HARNESS_WARM_LIMIT;
+  for (const id of [...idleParkTimers.keys()].slice(0, Math.max(0, excess)))
+    parkIdleChild(id);
 }
 
 /** Test seam. */
 export function resetHarnessIdlePark(): void {
-  for (const timer of idleParkTimers.values()) clearTimeout(timer);
+  for (const idle of idleParkTimers.values()) clearTimeout(idle.timer);
   idleParkTimers.clear();
+  pressureUntil = 0;
   runtimeActivity.clear();
   turnStops.clear();
 }

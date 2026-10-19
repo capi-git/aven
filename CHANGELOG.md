@@ -6,6 +6,7 @@
 
 - Replies start sooner: Aven no longer wakes a chat's sleeping browser pages before sending each message, which could hold a message for up to 8 seconds per page. They wake when the agent first looks for its pages.
 - Replies start sooner after you edit project memory: Claude Code chats in the project keep running instead of each restarting on its next message. A chat already under way gets the new memory with that message, as Codex and the other apps already did.
+- Replies after a break start sooner: an agent app stays ready for 30 minutes after it finishes instead of 5, so your next message doesn't wait for it to restart and reload the chat. Aven keeps at most 8 idle ones ready, the most recently used, and still closes idle ones after 5 minutes (or at once) when your Mac is low on memory.
 
 ## [0.1.147] - 2026-10-19
 
