@@ -365,6 +365,7 @@ pub fn run() {
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,
             browser_agent::browser_agent_open_file_result,
+            browser_agent::browser_agent_wake_result,
             browser::browser_create,
             browser::browser_navigate,
             browser::browser_action,

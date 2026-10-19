@@ -44,7 +44,12 @@ struct PendingOpen {
 enum PendingKind {
     Browser,
     File,
+    Wake,
 }
+
+/// How long `list` waits for the owning window to wake a task's sleeping
+/// pages. Each page gets 8 s in the window; a slower one is left out.
+const WAKE_WAIT: Duration = Duration::from_secs(12);
 
 struct Server {
     app: AppHandle,
@@ -636,6 +641,44 @@ pub fn browser_agent_open_file_result(
     Ok(())
 }
 
+/// The owning window woke the task's sleeping pages (or could not) and
+/// refreshed its grant. `list` goes on with whatever the grant holds now.
+#[tauri::command]
+pub fn browser_agent_wake_result(
+    caller: Webview,
+    request_id: String,
+    error: Option<String>,
+) -> Result<(), String> {
+    crate::browser::label(&caller, "agent-check")?;
+    let Some(Ok(server)) = SERVER.get() else {
+        return Err("Browser request expired".into());
+    };
+    let mut pending = server
+        .pending
+        .lock()
+        .map_err(|_| "Browser access is unavailable")?;
+    let request = pending.get(&request_id).ok_or("Browser request expired")?;
+    validate_pending_wake_reply(request, caller.label())?;
+    let result = error.map_or_else(
+        || Ok(String::new()),
+        |error| Err(error.chars().take(500).collect()),
+    );
+    if let Some(request) = pending.remove(&request_id) {
+        let _ = request.sender.send(result);
+    }
+    Ok(())
+}
+
+fn validate_pending_wake_reply(request: &PendingOpen, owner: &str) -> Result<(), String> {
+    if request.owner != owner {
+        return Err("Browser request belongs to another app window".into());
+    }
+    if request.kind != PendingKind::Wake {
+        return Err("This request is not a page wake request".into());
+    }
+    Ok(())
+}
+
 fn validate_pending_file_reply(request: &PendingOpen, owner: &str) -> Result<(), String> {
     if request.owner != owner {
         return Err("File request belongs to another app window".into());
@@ -1095,6 +1138,71 @@ fn open_page(
     result.map(|id| (id, url))
 }
 
+/// A task's sleeping pages wake when its agent first looks for them, not
+/// before every message. Ask the owning window to wake them and refresh the
+/// grant, then return the pages the grant holds now. A page that would not
+/// wake is left out with a note; the others are still listed.
+fn wake_session_pages(
+    server: &Server,
+    caller: &Webview,
+    grant: &Grant,
+    token: String,
+) -> Result<(Vec<String>, Option<String>), String> {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let (sender, receiver) = mpsc::channel();
+    server
+        .pending
+        .lock()
+        .map_err(|_| "Browser access is unavailable")?
+        .insert(
+            request_id.clone(),
+            PendingOpen {
+                owner: grant.owner.clone(),
+                token: token.clone(),
+                kind: PendingKind::Wake,
+                sender,
+            },
+        );
+    let emitted = caller.emit_to(
+        EventTarget::webview(&grant.owner),
+        "browser-agent-wake",
+        json!({"requestId":request_id,"sessionId":grant.session_id}),
+    );
+    let woke = if emitted.is_ok() {
+        receiver
+            .recv_timeout(WAKE_WAIT)
+            .map_err(|_| "Some saved pages took too long to wake and are not listed.".to_string())
+            .and_then(|value| value)
+    } else {
+        Err("The app could not wake saved pages, so only open ones are listed.".into())
+    };
+    server
+        .pending
+        .lock()
+        .map_err(|_| "Browser access is unavailable")?
+        .remove(&request_id);
+    let grants = server
+        .grants
+        .lock()
+        .map_err(|_| "Browser access is unavailable")?;
+    Ok((granted_pages(&grants, &token, grant)?, woke.err()))
+}
+
+/// The pages a task may use after its grant was refreshed. The grant must
+/// still be this task's, in the same window.
+fn granted_pages(
+    grants: &HashMap<String, Grant>,
+    token: &str,
+    grant: &Grant,
+) -> Result<Vec<String>, String> {
+    match grants.get(token) {
+        Some(current) if current.owner == grant.owner && current.session_id == grant.session_id => {
+            Ok(current.ids.clone())
+        }
+        _ => Err("Browser access is unavailable or has expired".into()),
+    }
+}
+
 fn dispatch(
     server: &Arc<Server>,
     envelope: Envelope,
@@ -1110,7 +1218,12 @@ fn dispatch(
             crate::desktop_control::execute(&server.app, &envelope.token, request, connected)
         }
         Request::List {} => {
-            Ok(json!({"tabs": crate::browser::agent_tab_states(&caller, &grant.ids)}))
+            let (ids, note) = wake_session_pages(server, &caller, grant, envelope.token)?;
+            let mut listed = json!({"tabs": crate::browser::agent_tab_states(&caller, &ids)});
+            if let Some(note) = note {
+                listed["note"] = Value::String(note);
+            }
+            Ok(listed)
         }
         Request::Open {
             url,
@@ -1923,6 +2036,42 @@ mod tests {
         assert!(validate_pending_file_reply(&request, "other-window").is_err());
         request.kind = PendingKind::Browser;
         assert!(validate_pending_file_reply(&request, "main").is_err());
+    }
+
+    #[test]
+    fn wake_replies_must_match_the_request_kind_and_owner() {
+        let (sender, _receiver) = mpsc::channel();
+        let mut request = PendingOpen {
+            owner: "main".into(),
+            token: "secret".into(),
+            kind: PendingKind::Wake,
+            sender,
+        };
+        assert!(validate_pending_wake_reply(&request, "main").is_ok());
+        assert!(validate_pending_wake_reply(&request, "other-window").is_err());
+        assert!(validate_pending_file_reply(&request, "main").is_err());
+        request.kind = PendingKind::File;
+        assert!(validate_pending_wake_reply(&request, "main").is_err());
+    }
+
+    #[test]
+    fn list_after_a_wake_uses_the_refreshed_grant_of_the_same_task_only() {
+        let before = grants()["secret"].clone();
+        let mut grants = grants();
+        // The window woke a sleeping page and rebound the task.
+        grants.get_mut("secret").unwrap().ids = vec!["tab-a".into(), "tab-woken".into()];
+        assert_eq!(
+            granted_pages(&grants, "secret", &before).unwrap(),
+            vec!["tab-a".to_string(), "tab-woken".to_string()]
+        );
+        // Revoked while waking: nothing is listed.
+        assert!(granted_pages(&grants, "wrong", &before).is_err());
+        // A token now naming another task or window never lends its pages.
+        grants.get_mut("secret").unwrap().session_id = "session-b".into();
+        assert!(granted_pages(&grants, "secret", &before).is_err());
+        grants.get_mut("secret").unwrap().session_id = "session-a".into();
+        grants.get_mut("secret").unwrap().owner = "other-window".into();
+        assert!(granted_pages(&grants, "secret", &before).is_err());
     }
 
     #[test]

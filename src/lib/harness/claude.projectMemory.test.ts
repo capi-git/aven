@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import { harnessProjectMemory, NO_PROJECT_MEMORY } from "../projectMemory";
-import type { HarnessProjectMemory } from "./types";
+import type { HarnessProjectMemory, SendTurnInput } from "./types";
 
 const sent: string[] = [];
 const spawned: string[][] = [];
@@ -34,6 +34,10 @@ const {
   stopClaudeSession,
   __claudeTestReset,
 } = await import("./claude");
+const { ensureClaudeRegistered } = await import("./claudeAdapter");
+const { resetHarnessIdlePark, sendHarnessTurn } = await import("./registry");
+const { resetProjectMemoryDeliveryState } =
+  await import("./projectMemoryDelivery");
 
 const ONE = harnessProjectMemory("- Use pnpm, not npm.");
 const TWO = harnessProjectMemory("- Use pnpm, not npm.\n- Ship small.");
@@ -68,11 +72,21 @@ function memoryStorage(): Storage {
   };
 }
 
+const prompts: string[] = [];
+
+/** The text of the last prompt the CLI received. */
+function lastPrompt(): string {
+  return prompts.at(-1) ?? "";
+}
+
 /** Run one turn; answer the CLI's start-up handshake when it relaunches. */
-async function turn(projectMemory: HarnessProjectMemory | undefined) {
+async function turn(
+  projectMemory: HarnessProjectMemory | undefined,
+  send: (input: SendTurnInput) => Promise<void> = sendClaudeTurn,
+) {
   const launches = spawned.length;
   const users = parse().filter((m) => m.type === "user").length;
-  const running = sendClaudeTurn({
+  const running = send({
     sessionId: "s1",
     cwd: "/repo",
     model: "claude:claude-sonnet-5",
@@ -107,9 +121,25 @@ async function turn(projectMemory: HarnessProjectMemory | undefined) {
     () => parse().filter((m) => m.type === "user").length > users,
     "prompt",
   );
+  prompts.push(
+    promptText(
+      parse()
+        .filter((m) => m.type === "user")
+        .at(-1)!,
+    ),
+  );
   emit({ type: "result", subtype: "success", session_id: "sess_1" });
   await running;
   sent.length = 0;
+}
+
+function promptText(message: Record<string, unknown>): string {
+  const content = (message.message as { content: unknown }).content;
+  if (typeof content === "string") return content;
+  return (content as Array<{ type: string; text?: string }>)
+    .filter((part) => part.type === "text")
+    .map((part) => part.text ?? "")
+    .join("");
 }
 
 function appended(args: string[]) {
@@ -121,17 +151,21 @@ describe("Claude Code project memory", () => {
     vi.stubGlobal("localStorage", memoryStorage());
     sent.length = 0;
     spawned.length = 0;
+    prompts.length = 0;
     onLine = undefined;
     __claudeTestReset();
+    resetProjectMemoryDeliveryState();
   });
 
   afterEach(async () => {
     await stopClaudeSession("s1");
     __claudeTestReset();
+    resetHarnessIdlePark();
+    resetProjectMemoryDeliveryState();
     vi.unstubAllGlobals();
   });
 
-  it("appends the memory to the system prompt and relaunches with the conversation when it changes", async () => {
+  it("appends the memory to a new CLI's system prompt and keeps a running CLI when it changes", async () => {
     await turn(ONE);
     expect(spawned).toHaveLength(1);
     expect(appended(spawned[0])).toBe(
@@ -142,20 +176,72 @@ describe("Claude Code project memory", () => {
     await turn(ONE);
     expect(spawned).toHaveLength(1);
 
+    // A change reaches a chat under way ahead of its next message (see the
+    // registry test below), so the CLI is not restarted for it.
+    await turn(TWO);
+    expect(spawned).toHaveLength(1);
+    await turn(undefined);
+    expect(spawned).toHaveLength(1);
+    await turn(NO_PROJECT_MEMORY);
+    expect(spawned).toHaveLength(1);
+
+    // The next CLI for the chat starts with the memory it has now.
+    await turn(TWO);
+    await stopClaudeSession("s1");
     await turn(TWO);
     expect(spawned).toHaveLength(2);
     expect(appended(spawned[1])).toBe(
       `${AVEN_BROWSER_HOST_POLICY}\n\n${TWO.text}`,
     );
     expect(spawned[1][spawned[1].indexOf("--resume") + 1]).toBe("sess_1");
+  });
 
-    // A turn that does not know the memory keeps the running process.
-    await turn(undefined);
-    expect(spawned).toHaveLength(2);
+  it("gives a chat under way a memory change ahead of its next message, without a restart", async () => {
+    ensureClaudeRegistered();
+    const send = (projectMemory: HarnessProjectMemory, text: string) =>
+      turn(projectMemory, (input) =>
+        sendHarnessTurn({ ...input, harness: "claude", text }),
+      );
+    await send(ONE, "first");
+    expect(spawned).toHaveLength(1);
+    expect(appended(spawned[0])).toContain(ONE.text);
 
-    await turn(NO_PROJECT_MEMORY);
-    expect(spawned).toHaveLength(3);
-    expect(appended(spawned[2])).toBe(AVEN_BROWSER_HOST_POLICY);
+    await send(ONE, "second");
+    expect(lastPrompt()).toBe("second");
+
+    await send(TWO, "third");
+    expect(spawned).toHaveLength(1);
+    const prompt = lastPrompt();
+    expect(prompt).toContain(
+      "This replaces the project memory given earlier in this conversation.",
+    );
+    expect(prompt).toContain("- Ship small.");
+    expect(prompt.endsWith("\n\nthird")).toBe(true);
+
+    // Given once: the next message goes alone.
+    await send(TWO, "fourth");
+    expect(lastPrompt()).toBe("fourth");
+    expect(spawned).toHaveLength(1);
+  });
+
+  it("compacting a chat whose memory changed relaunches it with the current memory", async () => {
+    await turn(ONE);
+    await turn(TWO);
+    expect(spawned).toHaveLength(1);
+    const compacting = compactClaudeContext({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      modelSettings: {},
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+    await waitFor(() => spawned.length === 2, "relaunch");
+    expect(appended(spawned[1])).toBe(
+      `${AVEN_BROWSER_HOST_POLICY}\n\n${TWO.text}`,
+    );
+    await stopClaudeSession("s1");
+    await compacting.catch(() => undefined);
   });
 
   it("keeps the memory when compaction relaunches the CLI", async () => {

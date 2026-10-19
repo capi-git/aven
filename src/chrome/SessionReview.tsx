@@ -17,6 +17,7 @@ import {
 import { useNarrow } from "../hooks/useNarrow";
 import {
   keepSessionChanges,
+  sessionCheckpointMissed,
   sessionCheckpointStatus,
   subscribeReviewChanged,
   undoSessionChanges,
@@ -52,6 +53,7 @@ export function SessionReview({
   onOpenDiff,
 }: Props) {
   const [files, setFiles] = useState<CheckpointFile[]>([]);
+  const [missed, setMissed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
   const [barRef, narrow] = useNarrow<HTMLDivElement>(REVIEW_BAR_NARROW_PX);
@@ -61,8 +63,10 @@ export function SessionReview({
   const load = useCallback(() => {
     if (!cwd || cwd === "~") {
       setFiles([]);
+      setMissed(false);
       return;
     }
+    setMissed(sessionCheckpointMissed(sessionId));
     void sessionCheckpointStatus(sessionId, cwd)
       .then((status) => setFiles(status.files))
       .catch(() => setFiles([]));
@@ -103,7 +107,22 @@ export function SessionReview({
     if (files.length <= 1) setExpanded(false);
   }, [files.length]);
 
-  if (files.length === 0) return null;
+  if (files.length === 0)
+    return missed && !busy ? (
+      <div className="px-2" data-session-review-shell>
+        <div
+          role="status"
+          className="flex min-w-0 items-center gap-2 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1.5 text-ui-label text-content/60"
+          data-session-review-missed
+        >
+          <Undo2 className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <span className="min-w-0">
+            Undo isn't available for this reply. Aven couldn't save a checkpoint
+            in time.
+          </span>
+        </div>
+      </div>
+    ) : null;
 
   const disabled = busy || acting != null;
   const many = files.length > 1;

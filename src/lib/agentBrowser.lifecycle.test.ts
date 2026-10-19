@@ -6,6 +6,7 @@ const native = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   grants: new Map<string, string[]>(),
+  handlers: new Map<string, (event: { payload: unknown }) => Promise<void>>(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: native.invoke,
@@ -32,7 +33,18 @@ let dispose: (() => void) | undefined;
 beforeEach(() => {
   vi.resetModules();
   native.grants.clear();
-  native.listen.mockReset().mockResolvedValue(() => {});
+  native.handlers.clear();
+  native.listen
+    .mockReset()
+    .mockImplementation(
+      async (
+        name: string,
+        handler: (event: { payload: unknown }) => Promise<void>,
+      ) => {
+        native.handlers.set(name, handler);
+        return () => native.handlers.delete(name);
+      },
+    );
   native.invoke
     .mockReset()
     .mockImplementation(
@@ -58,6 +70,19 @@ afterEach(async () => {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
 });
 
+/** The native `list` action asking this window to wake a task's pages. */
+async function agentLists(sessionId: string, requestId = "wake") {
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
+  await native.handlers.get("browser-agent-wake")!({
+    payload: { requestId, sessionId },
+  });
+  return native.invoke.mock.calls.find(
+    ([command, args]) =>
+      command === "browser_agent_wake_result" &&
+      (args as { requestId: string }).requestId === requestId,
+  )?.[1] as { requestId: string; error?: string } | undefined;
+}
+
 function adapter(overrides: Partial<HarnessAdapter>): HarnessAdapter {
   return {
     id: "claude",
@@ -75,7 +100,27 @@ function adapter(overrides: Partial<HarnessAdapter>): HarnessAdapter {
 }
 
 describe("agent browser lifecycle ordering", () => {
-  it("wakes only visited pages in the task's scope and waits for their replacement native page", async () => {
+  it("sends a message without waking its sleeping pages", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["awake", "sleeping"],
+      open: vi.fn(),
+    });
+    api.registerAgentBrowserPage("awake", "native-awake");
+    // A wake that would never finish: the message must not wait for it.
+    const wake = vi.fn(() => new Promise<void>(() => {}));
+    api.registerAgentBrowserWake("sleeping", wake);
+    const prompt = await api.prepareAgentBrowserPrompt("Fix the header", {
+      sessionId: "quick-session",
+      cwd: "/project",
+    });
+    expect(prompt).toContain("--aven-browser");
+    expect(wake).not.toHaveBeenCalled();
+    expect(native.grants.get("quick-session")).toEqual(["native-awake"]);
+    expect(api.isAgentBrowserPageProtected("sleeping")).toBe(false);
+  });
+
+  it("wakes only visited pages in the task's scope when its agent lists them, and waits for their replacement native page", async () => {
     const api = await import("./agentBrowser");
     const wakeStarted = deferred();
     const finishWake = deferred();
@@ -92,35 +137,71 @@ describe("agent browser lifecycle ordering", () => {
     api.registerAgentBrowserWake("other-workspace", otherWake);
     api.registerAgentBrowserPage("other-workspace", "native-other");
     const context = { sessionId: "wake-session", cwd: "/project" };
-    let prepared = false;
-    const preparation = api
-      .prepareAgentBrowserPrompt("Inspect my page", context)
-      .then((prompt) => {
-        prepared = true;
-        return prompt;
-      });
-    await wakeStarted.promise;
-    expect(ownWake).toHaveBeenCalledOnce();
-    expect(otherWake).not.toHaveBeenCalled();
-    expect(prepared).toBe(false);
-    expect(api.isAgentBrowserPageProtected("sleeping")).toBe(true);
-    expect(api.isAgentBrowserPageProtected("other-workspace")).toBe(false);
-    finishWake.resolve();
-    for (let index = 0; index < 12; index += 1) await Promise.resolve();
-    expect(prepared).toBe(false);
-    expect(native.grants.get(context.sessionId) ?? []).toEqual([]);
-    api.registerAgentBrowserPage("sleeping", "replacement-native");
-    const prompt = await preparation;
+    const prompt = await api.prepareAgentBrowserPrompt(
+      "Inspect my page",
+      context,
+    );
     expect(prompt).toContain("--aven-browser");
     expect(prompt).toContain(
       `'${binding.executablePath}' --aven-desktop '{"action":"status"}'`,
     );
     expect(prompt).not.toContain(binding.socketPath);
+    expect(ownWake).not.toHaveBeenCalled();
+    expect(native.grants.get(context.sessionId)).toEqual([]);
+
+    let replied = false;
+    const listing = agentLists(context.sessionId).then((reply) => {
+      replied = true;
+      return reply;
+    });
+    await wakeStarted.promise;
+    expect(ownWake).toHaveBeenCalledOnce();
+    expect(otherWake).not.toHaveBeenCalled();
+    expect(api.isAgentBrowserPageProtected("sleeping")).toBe(true);
+    expect(api.isAgentBrowserPageProtected("other-workspace")).toBe(false);
+    finishWake.resolve();
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    expect(replied).toBe(false);
+    expect(native.grants.get(context.sessionId)).toEqual([]);
+    api.registerAgentBrowserPage("sleeping", "replacement-native");
+    expect(await listing).toEqual({ requestId: "wake" });
     expect(native.grants.get(context.sessionId)).toEqual([
       "replacement-native",
     ]);
     expect(otherWake).not.toHaveBeenCalled();
     expect(api.isAgentBrowserPageProtected("sleeping")).toBe(false);
+  });
+
+  it("wakes and binds again when a page was falling asleep as the message went out", async () => {
+    const api = await import("./agentBrowser");
+    const invoke = native.invoke.getMockImplementation()!;
+    let binds = 0;
+    native.invoke.mockImplementation(
+      async (command: string, args: { sessionId: string }) => {
+        if (command === "browser_agent_bind" && ++binds === 1)
+          throw "A browser page is going to sleep; wake it before connecting the agent";
+        return invoke(command, args);
+      },
+    );
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    api.registerAgentBrowserPage("page", "native-page");
+    const wake = vi.fn(() => {
+      api.registerAgentBrowserPage("page", "woken-native");
+    });
+    api.registerAgentBrowserWake("page", wake);
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    const prompt = await api.prepareAgentBrowserPrompt("Inspect", {
+      sessionId: "dozing-session",
+      cwd: "/project",
+    });
+    expect(prompt).toContain("--aven-browser");
+    expect(wake).toHaveBeenCalledOnce();
+    expect(binds).toBeGreaterThanOrEqual(2);
+    expect(native.grants.get("dozing-session")).toEqual(["woken-native"]);
+    expect(api.isAgentBrowserPageProtected("page")).toBe(false);
   });
 
   it("keeps pages protected until every overlapping prompt has acquired its native grant", async () => {
@@ -167,7 +248,7 @@ describe("agent browser lifecycle ordering", () => {
     expect(native.grants.get("session-b")).toEqual(["native-page"]);
   });
 
-  it("scope refreshes leave sleeping pages asleep until the next prompt", async () => {
+  it("scope refreshes and later messages leave sleeping pages asleep until the agent lists them", async () => {
     const api = await import("./agentBrowser");
     dispose = api.installAgentBrowserHost({
       surfaces: () => ["page"],
@@ -185,6 +266,9 @@ describe("agent browser lifecycle ordering", () => {
     expect(wake).not.toHaveBeenCalled();
     expect(native.grants.get(context.sessionId)).toEqual([]);
     await api.prepareAgentBrowserPrompt("Continue", context);
+    expect(wake).not.toHaveBeenCalled();
+    expect(native.grants.get(context.sessionId)).toEqual([]);
+    expect(await agentLists(context.sessionId)).toEqual({ requestId: "wake" });
     expect(wake).toHaveBeenCalledOnce();
     expect(native.grants.get(context.sessionId)).toEqual(["new-native-page"]);
   });
@@ -206,6 +290,7 @@ describe("agent browser lifecycle ordering", () => {
       sessionId: "replacement-pane-session",
       cwd: "/project",
     });
+    await agentLists("replacement-pane-session");
     expect(oldWake).not.toHaveBeenCalled();
     expect(nextWake).toHaveBeenCalledOnce();
   });
@@ -218,42 +303,55 @@ describe("agent browser lifecycle ordering", () => {
       surfaces: () => ["page"],
       open: vi.fn(),
     });
+    const context = { sessionId: "revoked-session", cwd: "/project" };
+    await api.prepareAgentBrowserPrompt("Inspect", context);
     api.registerAgentBrowserWake("page", async () => {
       started.resolve();
       await finished.promise;
       api.registerAgentBrowserPage("page", "new-native-page");
     });
-    const context = { sessionId: "revoked-session", cwd: "/project" };
-    const preparation = api.prepareAgentBrowserPrompt("Inspect", context);
+    const listing = agentLists(context.sessionId);
     await started.promise;
     await api.forgetAgentBrowser(context.sessionId);
     finished.resolve();
-    const prompt = await preparation;
-    expect(prompt).toContain("unavailable for this turn");
-    expect(prompt).toContain(
-      "Native desktop control uses the same scoped connection and is also unavailable",
-    );
-    expect(prompt).not.toContain("--aven-desktop");
+    expect((await listing)?.error).toBe("This browser task has expired.");
     expect(native.grants.has(context.sessionId)).toBe(false);
+    expect(api.isAgentBrowserPageProtected("page")).toBe(false);
   });
 
-  it("a failed wake does not advertise working browser access", async () => {
+  it("a page that will not wake is reported while the others are still granted", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["broken", "fine"],
+      open: vi.fn(),
+    });
+    const context = { sessionId: "failed-wake-session", cwd: "/project" };
+    await api.prepareAgentBrowserPrompt("Inspect", context);
+    api.registerAgentBrowserWake("broken", async () => {
+      throw new Error("Native close could not be confirmed");
+    });
+    api.registerAgentBrowserWake("fine", () => {
+      api.registerAgentBrowserPage("fine", "native-fine");
+    });
+    expect(await agentLists(context.sessionId)).toEqual({
+      requestId: "wake",
+      error: "Native close could not be confirmed",
+    });
+    expect(native.grants.get(context.sessionId)).toEqual(["native-fine"]);
+    expect(api.isAgentBrowserPageProtected("broken")).toBe(false);
+    expect(api.isAgentBrowserPageProtected("fine")).toBe(false);
+  });
+
+  it("answers a wake request for a task this window no longer runs", async () => {
     const api = await import("./agentBrowser");
     dispose = api.installAgentBrowserHost({
       surfaces: () => ["page"],
       open: vi.fn(),
     });
-    api.registerAgentBrowserWake("page", async () => {
-      throw new Error("Native close could not be confirmed");
+    expect(await agentLists("unknown-session")).toEqual({
+      requestId: "wake",
+      error: "The requesting task is no longer available.",
     });
-    expect(
-      await api.prepareAgentBrowserPrompt("Inspect", {
-        sessionId: "failed-wake-session",
-        cwd: "/project",
-      }),
-    ).toContain("unavailable for this turn");
-    expect(native.grants.has("failed-wake-session")).toBe(false);
-    expect(api.isAgentBrowserPageProtected("page")).toBe(false);
   });
 
   it("late cleanup of an old adapter cannot revoke a newer binding for the same session", async () => {

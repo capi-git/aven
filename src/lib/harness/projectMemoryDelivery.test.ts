@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { harnessDescriptor, HARNESS_IDS } from "./descriptors";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
-import { buildClaudeSpawnArgs, claudeSettingsKey } from "./claudeProtocol";
+import { buildClaudeSpawnArgs } from "./claudeProtocol";
 import {
   buildThreadStartParams,
   codexDeveloperInstructions,
@@ -102,19 +102,6 @@ describe("how each provider receives project memory", () => {
       projectMemory: ONE.text,
     });
     expect(isolated.join(" ")).not.toContain("aven-project-memory");
-  });
-
-  it("Claude Code relaunches when the memory changes", () => {
-    const base = {
-      model: "claude-sonnet-5",
-      runtimeMode: "supervised" as const,
-    };
-    expect(claudeSettingsKey({ ...base, memory: ONE.revision })).not.toBe(
-      claudeSettingsKey({ ...base, memory: TWO.revision }),
-    );
-    expect(claudeSettingsKey(base)).toBe(
-      claudeSettingsKey({ ...base, memory: "" }),
-    );
   });
 
   it("Codex adds the memory to the thread's developer instructions", () => {
