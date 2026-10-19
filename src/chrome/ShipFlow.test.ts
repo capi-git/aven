@@ -365,3 +365,72 @@ describe("ShipFlow", () => {
     expect(container.textContent).toContain("Failed");
   });
 });
+
+function typeInto(field: HTMLTextAreaElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  setValue.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("ShipFlow as the Changes panel's only commit", () => {
+  it("commits only with ⌘↩ from the message box when Commit is chosen", async () => {
+    await render({ index: index() });
+    const field = container.querySelector("textarea")!;
+    expect(field.placeholder).toMatch(/↩ to ship\)$/);
+    await act(async () => button("Commit").click());
+    await act(async () => typeInto(field, "Fix the footer"));
+    // A plain Return is a new line, not a ship.
+    await act(async () =>
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
+    expect(mocks.calls).toEqual([]);
+    await act(async () =>
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    await settle();
+    expect(mocks.calls.slice(0, 2)).toEqual(["git_stage_all", "git_commit"]);
+    expect(mocks.calls).not.toContain("git_push");
+    expect(container.textContent).toContain("Committed 2 files · on feature");
+    expect(localStorage.getItem("aven.shipMode")).toBe("commit");
+  });
+
+  it("cancels a message being written and ignores its late result after a retry", async () => {
+    vi.mocked(generateCommitMessage).mockClear();
+    let resolveFirst!: (message: string) => void;
+    vi.mocked(generateCommitMessage)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce("New message");
+    await render({ index: index() });
+    await act(async () => button("Write the commit message").click());
+    await settle();
+    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+    await act(async () =>
+      button("Writing with Claude Haiku 4.5. Cancel").click(),
+    );
+    expect(signal?.aborted).toBe(true);
+    await act(async () => button("Write the commit message").click());
+    await settle();
+    const field = container.querySelector("textarea")!;
+    expect(field.value).toBe("New message");
+    await act(async () => resolveFirst("Old message"));
+    await settle();
+    expect(field.value).toBe("New message");
+  });
+});

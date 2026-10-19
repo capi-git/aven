@@ -9,7 +9,6 @@ import {
   type GitDiffIndex,
   type GitPr,
 } from "../lib/fs";
-import { generateCommitMessage } from "../lib/harness";
 import {
   closeImageViewer,
   imageViewerSnapshot,
@@ -18,6 +17,8 @@ import {
 import { requestShip, takeShipRequest } from "../lib/shipRequest";
 
 const mocks = vi.hoisted(() => ({
+  /** Git commands that change the copy, in the order they ran. */
+  writes: [] as string[],
   diffIndex: vi.fn(),
   diffFiles: vi.fn(),
   stageAll: vi.fn(),
@@ -30,11 +31,31 @@ const mocks = vi.hoisted(() => ({
   graph: vi.fn(),
 }));
 
+/** Writes the panel and Ship it make, which only need to succeed here. */
+const GIT_WRITES = new Set([
+  "git_stage_file",
+  "git_unstage_file",
+  "git_unstage_all",
+  "git_discard_file",
+  "git_discard_all",
+  "git_commit",
+  "git_push",
+]);
+
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (command: string, args: { cwd: string }) => {
+  invoke: (command: string, args: { cwd: string; relative?: string }) => {
+    if (GIT_WRITES.has(command)) {
+      mocks.writes.push(
+        args.relative ? `${command} ${args.relative}` : command,
+      );
+      return Promise.resolve(undefined);
+    }
     if (command === "git_diff_files") return mocks.diffFiles(args.cwd);
     if (command === "git_diff_index") return mocks.diffIndex(args.cwd);
-    if (command === "git_stage_all") return mocks.stageAll(args.cwd);
+    if (command === "git_stage_all") {
+      mocks.writes.push(command);
+      return mocks.stageAll(args.cwd);
+    }
     if (command === "git_pr_status") return mocks.prStatus(args.cwd);
     if (command === "git_pr_squash_merge")
       return mocks.squashMerge(args.cwd, (args as { number?: number }).number);
@@ -76,11 +97,20 @@ let hidden: boolean;
 let cwd: string;
 let sequence = 0;
 let index: GitDiffIndex;
+/** This test's localStorage; CI's Node has none of its own to rely on. */
+let stored: Map<string, string>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  stored = new Map();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+    removeItem: (key: string) => void stored.delete(key),
+  });
+  mocks.writes.length = 0;
   hidden = false;
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
@@ -148,70 +178,6 @@ function changed(
 function button(label: string) {
   return container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 }
-
-describe("GitChangesPanel commit message generation", () => {
-  it("cancels promptly and ignores a late result after a retry", async () => {
-    index.files = [changed("change.ts", true, false)];
-    let resolveFirst!: (message: string) => void;
-    vi.mocked(generateCommitMessage)
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveFirst = resolve;
-          }),
-      )
-      .mockResolvedValueOnce("New message");
-    await render();
-
-    await act(async () => button("Generate commit message")!.click());
-    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
-    expect(signal?.aborted).toBe(false);
-
-    await act(async () => button("Cancel commit message generation")!.click());
-    expect(signal?.aborted).toBe(true);
-    expect(button("Generate commit message")?.disabled).toBe(false);
-    expect(container.querySelector("textarea")?.disabled).toBe(false);
-
-    await act(async () => button("Generate commit message")!.click());
-    expect(container.querySelector("textarea")?.value).toBe("New message");
-
-    await act(async () => resolveFirst("Old message"));
-    expect(container.querySelector("textarea")?.value).toBe("New message");
-  });
-});
-
-describe("GitChangesPanel typing over a message being written", () => {
-  it("names who writes it and hands the message back when you type", async () => {
-    index.files = [changed("change.ts", true, false)];
-    let finish!: (message: string) => void;
-    vi.mocked(generateCommitMessage).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    await render();
-    await act(async () => button("Generate commit message")!.click());
-    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
-    const cancel = button("Cancel commit message generation")!;
-    expect(cancel.title).toContain("Writing with Claude Haiku 4.5");
-    const field = container.querySelector<HTMLTextAreaElement>(
-      '[placeholder^="Message"]',
-    )!;
-    expect(field.disabled).toBe(false);
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!;
-      setValue.call(field, "My own words");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(signal?.aborted).toBe(true);
-    await act(async () => finish("Model words"));
-    expect(field.value).toBe("My own words");
-  });
-});
 
 describe("GitChangesPanel Open All Changes", () => {
   it("scopes the review to the section it was opened from", async () => {
@@ -667,10 +633,10 @@ describe("Ship it", () => {
     );
   }
 
-  it("sums up the changes, opens the flow, and sets the commit box aside", async () => {
+  it("sums up the changes and opens the flow", async () => {
     index.remote = "origin";
     index.upstream = "origin/feature";
-    index.ahead = 1;
+    index.behind = 1;
     index.files = [
       { ...changed("a.ts", false, true), additions: 7, deletions: 2 },
       { ...changed("b.ts", false, true), additions: 0, deletions: 4 },
@@ -685,13 +651,11 @@ describe("Ship it", () => {
     expect(stats[0].textContent).toBe("+7−2");
     // Create PR waits for the files; Ship it offers the pull request instead.
     expect(container.textContent).not.toContain("Create PR");
+    // Ship it can't pull, so the incoming commit keeps its Sync button.
     expect(container.textContent).toContain("Sync Changes");
     await act(async () => shipButton()!.click());
     expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
     expect(container.textContent).toContain("No tests ran");
-    expect(
-      container.querySelector('[placeholder^="Message"]')?.closest(".hidden"),
-    ).not.toBeNull();
     expect(container.textContent).not.toContain("Sync Changes");
     await act(async () =>
       container
@@ -787,5 +751,93 @@ describe("clean copy", () => {
     });
     expect(container.textContent).toContain("No Git here yet");
     expect(container.textContent).not.toContain("All clean");
+  });
+});
+
+function textButton(text: string) {
+  return Array.from(
+    container.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((candidate) => candidate.textContent?.trim() === text);
+}
+
+function typeInto(field: HTMLTextAreaElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  setValue.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("Ship it as the one way to commit", () => {
+  it("leaves no separate commit box or Commit menu beside it", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    expect(textButton("Ship it")).toBeDefined();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(button("Generate commit message")).toBeNull();
+    expect(button("Commit options")).toBeNull();
+    expect(textButton("Commit")).toBeUndefined();
+    expect(container.textContent).not.toContain("Commit & Push");
+  });
+
+  it("commits only, and keeps a message typed before it was closed", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    const field = () =>
+      container.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Commit message"]',
+      )!;
+    await act(async () => textButton("Ship it")!.click());
+    await act(async () => typeInto(field(), "Fix the footer"));
+    await act(async () => button("Close Ship it")!.click());
+    await act(async () => textButton("Ship it")!.click());
+    expect(field().value).toBe("Fix the footer");
+
+    const commitOnly = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="How far to ship"] [role="radio"]',
+      ),
+    ).find((radio) => radio.textContent === "Commit")!;
+    await act(async () => commitOnly.click());
+    expect(commitOnly.getAttribute("aria-checked")).toBe("true");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".ship-flow-primary")!.click(),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(mocks.writes).toEqual(["git_stage_all", "git_commit"]);
+    expect(container.textContent).toContain("Committed 1 file");
+  });
+});
+
+describe("sync actions beside Ship it", () => {
+  beforeEach(() => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+  });
+
+  it("leaves pushing and publishing to Ship it while files are uncommitted", async () => {
+    index.ahead = 2;
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    expect(container.textContent).toContain("↑2");
+    expect(container.textContent).not.toContain("Sync Changes");
+    mocks.diffIndex.mockResolvedValue({ ...index, upstream: null, ahead: 0 });
+    await act(async () => notifyGitChanged(cwd));
+    expect(container.textContent).toContain("Not on origin yet");
+    expect(container.textContent).not.toContain("Publish Branch");
+  });
+
+  it("keeps publishing, syncing and opening a PR for a clean branch", async () => {
+    index.ahead = 2;
+    index.aheadOfDefault = 2;
+    await render();
+    expect(container.textContent).toContain("Sync Changes");
+    expect(container.textContent).toContain("Create PR");
+    mocks.diffIndex.mockResolvedValue({ ...index, upstream: null });
+    await act(async () => notifyGitChanged(cwd));
+    expect(container.textContent).toContain("Publish Branch");
   });
 });

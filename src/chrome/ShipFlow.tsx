@@ -355,7 +355,9 @@ export function ShipFlow({
               rows={2}
               value={message}
               placeholder={
-                generating ? "Or type your own message" : "Commit message"
+                generating
+                  ? "Or type your own message"
+                  : `Commit message (${MOD}↩ to ship)`
               }
               aria-label="Commit message"
               disabled={running}
