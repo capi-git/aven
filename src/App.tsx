@@ -5775,6 +5775,26 @@ export default function App({
       const session = seed
         ? { ...newDefaultSession(path), composerSeed: seed }
         : newDefaultSession(path);
+      // A suggested message takes the place of an untouched new chat already
+      // open in this project (the walkthrough leaves one), not a second tab.
+      if (seed) {
+        const active = tabsRef.current.find(
+          (entry) => entry.id === activeTabIdRef.current,
+        );
+        const focused = sessionsRef.current.find(
+          (entry) => entry.id === active?.focusedId,
+        );
+        if (
+          focused &&
+          sameProjectPath(focused.cwd, path) &&
+          isBlankSession(focused) &&
+          !readComposerDraft(focused.id)?.text
+        ) {
+          setProjectCwd(path);
+          rememberRecentProject(path);
+          if (replaceBlankPaneWithSession(session)) return;
+        }
+      }
       const tab = newTab(session.id);
       setProjectCwd(path);
       rememberRecentProject(path);
@@ -5783,7 +5803,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [appendTab, showWorkspace],
+    [appendTab, replaceBlankPaneWithSession, showWorkspace],
   );
   const onNewProjectTask = useCallback(
     (path: string) => startProjectChat(path),
