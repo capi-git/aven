@@ -4,6 +4,7 @@ import { clearProjectLogo } from "./projectLogos";
 import { clearProjectChatBackground } from "./chatBackground";
 import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
 import { clearProjectMemory } from "./projectMemory";
+import { clearFeatureCards } from "./featureCards";
 import { normalizeProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
 import type { Session } from "./session";
@@ -34,7 +35,7 @@ export async function projectSessionCount(path: string): Promise<number> {
   return sessions.length;
 }
 
-/** Saved chats, rail appearance and project memory. The caller owns the live-session lifecycle. */
+/** Saved chats, rail appearance, project memory and board cards. The caller owns the live-session lifecycle. */
 export async function removeProjectData(
   path: string,
   options: {
@@ -64,6 +65,7 @@ export async function removeProjectData(
     await clearProjectLogo(key);
     await clearProjectChatBackground(key);
     await clearProjectMemory(normalized);
+    await clearFeatureCards(normalized);
     options.assertWorkspaceReady();
     clearProjectChatBackgroundSetting(key);
     clearTabGroupSettings(key);

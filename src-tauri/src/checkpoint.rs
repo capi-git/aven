@@ -232,7 +232,7 @@ impl CheckpointStore {
         let foreign_touched = self.foreign_touched_paths(cwd, session_id);
         if foreign_touched.contains(&relative) || manifest.diverged.contains(&relative) {
             return Err(
-                "Exact lines are unavailable because another session also changed this file".into(),
+                "Exact lines are unavailable because another chat also changed this file".into(),
             );
         }
 

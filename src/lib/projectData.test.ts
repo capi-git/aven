@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   backgroundSetting: vi.fn(),
   tabs: vi.fn(),
   memory: vi.fn(),
+  cards: vi.fn(),
 }));
 vi.mock("./sessionStore", () => ({ listProjectSessionIds: mocks.list }));
 vi.mock("./projectLogos", () => ({ clearProjectLogo: mocks.logo }));
@@ -19,6 +20,7 @@ vi.mock("./projectChatBackground", () => ({
 }));
 vi.mock("./tabGroups", () => ({ clearTabGroupSettings: mocks.tabs }));
 vi.mock("./projectMemory", () => ({ clearProjectMemory: mocks.memory }));
+vi.mock("./featureCards", () => ({ clearFeatureCards: mocks.cards }));
 
 describe("project data removal", () => {
   beforeEach(() => {
@@ -27,6 +29,7 @@ describe("project data removal", () => {
     mocks.logo.mockResolvedValue(undefined);
     mocks.background.mockResolvedValue(undefined);
     mocks.memory.mockResolvedValue(undefined);
+    mocks.cards.mockResolvedValue(undefined);
   });
 
   function options() {
@@ -76,6 +79,7 @@ describe("project data removal", () => {
     expect(mocks.backgroundSetting).toHaveBeenCalledOnce();
     expect(mocks.tabs).toHaveBeenCalledOnce();
     expect(mocks.memory).toHaveBeenCalledExactlyOnceWith("/project");
+    expect(mocks.cards).toHaveBeenCalledExactlyOnceWith("/project");
   });
 
   it("stops after cancellation and reports any completed deletions", async () => {

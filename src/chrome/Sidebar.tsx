@@ -209,6 +209,8 @@ export type SidebarProps = {
     archived: boolean,
   ) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
+  /** Put the chats on their project's board, each its own card. */
+  onAddToBoard?: (sessionIds: string[]) => void;
   onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
   onDeleteSessions?: (sessionIds: readonly string[]) => void;
@@ -369,6 +371,7 @@ function SidebarComponent({
   onArchiveSessions,
   onPinSession,
   onPinSessions,
+  onAddToBoard,
   onDeleteSession,
   onDeleteSessions,
   canGoBack = false,
@@ -968,6 +971,19 @@ function SidebarComponent({
           },
         ]
       : []),
+    ...(onAddToBoard
+      ? [
+          { kind: "sep" as const },
+          {
+            kind: "item" as const,
+            id: "add-to-board",
+            label: "Add to board",
+            description: multipleMenuSessions
+              ? "A card for each on the project's board"
+              : "A card for it on the project's board",
+          },
+        ]
+      : []),
     { kind: "sep" as const },
     { kind: "item" as const, id: "folder-new", label: "New folder" },
     ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
@@ -1161,6 +1177,10 @@ function SidebarComponent({
     }
     if (id === "rename") {
       setRenamingSessionId(sessionId);
+      return;
+    }
+    if (id === "add-to-board") {
+      onAddToBoard?.(sessionIds);
       return;
     }
     if (id === "folder-new") {
