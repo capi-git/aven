@@ -91,7 +91,7 @@ describe("relay rules", () => {
     );
     expect(prompt).toContain("lasts 3 rounds");
     expect(prompt).toContain(
-      "This is a discussion: read files if useful, but don't change files, run builds or commit unless the user asks.",
+      "This is a discussion: read files and run checks if useful, but don't change files or commit unless the user asks.",
     );
     expect(prompt).toContain("Topic: Should we cache the lookups?");
     expect(relayBlockMeta(discussion)).toEqual({
@@ -136,7 +136,7 @@ describe("relay rules", () => {
       "another agent: Opus (Claude Code) in the chat “Caching plan”",
     );
     expect(first).toContain("Topic: Should we cache the lookups?");
-    expect(first).toContain("don't change files, run builds or commit");
+    expect(first).toContain("don't change files or commit");
     expect(first).toContain(
       "Opus in “Caching plan” says:\n\nYes, with a short TTL.",
     );
