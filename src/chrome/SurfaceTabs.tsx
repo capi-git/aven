@@ -69,10 +69,10 @@ export function surfaceTabPresentation(
 
   if (isSessionChangesTab(file)) {
     return {
-      name: "Session Changes",
-      label: "Session Changes",
+      name: "Chat Changes",
+      label: "Chat Changes",
       iconName: "CHANGES",
-      tooltip: "Changes captured for this session only",
+      tooltip: "Changes made in this chat",
     };
   }
 

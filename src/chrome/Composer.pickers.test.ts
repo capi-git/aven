@@ -417,7 +417,7 @@ describe("recent skill chips", () => {
     await act(async () => chip("/plan").click());
     expect(field().value).toBe("");
     expect(
-      container.querySelector('[title="Turn off Plan mode"]'),
+      container.querySelector('[aria-label="Turn off Plan mode"]'),
     ).not.toBeNull();
     await type("Outline the migration");
     await press("Enter");

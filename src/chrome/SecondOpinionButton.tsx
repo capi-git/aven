@@ -47,7 +47,10 @@ type Props = {
   fromModel?: string;
   onPick: (harness: HarnessId, model: string) => void;
   icon?: IconComponent;
+  /** The trigger's name, as screen readers announce it. */
   title?: string;
+  /** What the trigger does, on hover; defaults to its name. */
+  hint?: string;
   disabledTitle?: string;
   description?: string;
   menuLabel?: string;
@@ -82,9 +85,10 @@ export function HandoffButton({
       onPick={onPick}
       icon={Replace}
       title="Handoff"
+      hint="Continue this chat with another AI"
       disabledTitle="Enable another installed provider in Settings to hand off"
-      description="Hand this session to another agent to continue the work."
-      menuLabel="Hand this session to another agent"
+      description="Another AI picks up this chat's work in a new chat."
+      menuLabel="Hand this chat to another AI"
     />
   );
 }
@@ -123,9 +127,10 @@ export function SecondOpinionButton({
   onPick,
   icon: Icon = MessageMultiple,
   title = "Second opinion",
+  hint,
   disabledTitle = "No different model available for a second opinion",
-  description = "Send this turn to another agent to review the work.",
-  menuLabel = "Send this turn to another agent",
+  description = "Another AI checks this reply's work and fixes what's wrong.",
+  menuLabel = "Ask another AI to check this reply",
   includeCurrent = false,
   excludeModelName,
   disabled: disabledByCaller = false,
@@ -328,7 +333,7 @@ export function SecondOpinionButton({
       <button
         ref={button}
         type="button"
-        title={label}
+        title={noTargets ? label : (hint ?? label)}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

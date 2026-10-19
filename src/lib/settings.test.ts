@@ -218,7 +218,7 @@ describe("workspace navigation keybindings", () => {
     const contexts = [...new Set(KEYBINDINGS.map((row) => row.when))];
     expect(contexts.map(formatKeybindingContext)).toEqual([
       "Always",
-      "In a conversation, with other views closed",
+      "In a chat, with other views closed",
       "In the workspace, outside text fields or in an empty composer",
       "Outside the editor",
       "In the editor",
@@ -227,21 +227,23 @@ describe("workspace navigation keybindings", () => {
       filterKeybindings(KEYBINDINGS, "emptyComposer").map((row) => row.when),
     ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
     expect(
-      filterKeybindings(KEYBINDINGS, "conversation").map((row) => row.command),
-    ).toEqual(["Session: Archive"]);
+      filterKeybindings(KEYBINDINGS, "other views closed").map(
+        (row) => row.command,
+      ),
+    ).toEqual(["Chat: Archive"]);
     expect(
       filterKeybindings(KEYBINDINGS, "empty composer").map((row) => row.when),
     ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
     expect(formatKeybindingContext("Custom context")).toBe("Custom context");
   });
 
-  it("documents session and project cycling in the shortcut list", () => {
+  it("documents chat and project cycling in the shortcut list", () => {
     const rows = KEYBINDINGS.filter((row) =>
-      /^(Session|Project): (Previous|Next)$/.test(row.command),
+      /^(Chat|Project): (Previous|Next)$/.test(row.command),
     );
     expect(rows.map((row) => row.command)).toEqual([
-      "Session: Previous",
-      "Session: Next",
+      "Chat: Previous",
+      "Chat: Next",
       "Project: Previous",
       "Project: Next",
     ]);

@@ -153,7 +153,7 @@ describe("chosen-provider setup", () => {
   it("requires an explicit Run after the chosen installation is prepared", async () => {
     await render();
     await chooseCodex();
-    await click("Install CLI");
+    await click("Install");
     expect(invoke).toHaveBeenCalledWith("provider_setup_plan", {
       harness: "codex",
       action: "install",
@@ -187,8 +187,8 @@ describe("chosen-provider setup", () => {
         }),
     );
     await act(async () => {
-      button("Install CLI").click();
-      button("Install CLI").click();
+      button("Install").click();
+      button("Install").click();
     });
     expect(invoke).toHaveBeenCalledTimes(2);
     await act(async () => root.unmount());
@@ -252,7 +252,7 @@ describe("chosen-provider setup", () => {
     await chooseCodex();
     expect(container.textContent).toContain("Signed in");
     expect(container.textContent).not.toContain("Send test message");
-    expect(container.textContent).toContain("Start your first task in Aven");
+    expect(container.textContent).toContain("Start your first chat in Aven");
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(recordHarnessAvailability).toHaveBeenCalledExactlyOnceWith(
       "codex",

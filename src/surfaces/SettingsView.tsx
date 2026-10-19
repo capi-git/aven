@@ -482,7 +482,7 @@ function GitPage() {
   return (
     <SettingsGroup
       title="Agents and Git"
-      description="Applies to every agent in every project from its next turn. Asking for something different in a chat still wins."
+      description="Applies to every agent in every project from your next message. Asking for something different in a chat still wins."
       scope="Device"
     >
       <Row label={SETTINGS.gitFinish.label} description={selected?.description}>
@@ -647,7 +647,7 @@ function PreferencesPage({
 
   const workspaceGroup = (
     <SettingsGroup
-      title="Project rail &amp; extras"
+      title="Sidebar &amp; extras"
       description="Choose what appears around your work."
       scope="Device"
     >
@@ -809,8 +809,8 @@ function PreferencesPage({
   return (
     <>
       <SettingsGroup
-        title="Tasks"
-        description="Task defaults and behavior."
+        title="Chats"
+        description="How new chats start and handle your follow-up messages."
         scope="Device"
       >
         <Row {...SETTINGS.defaultTaskAccess.row}>
@@ -824,15 +824,15 @@ function PreferencesPage({
             label={SETTINGS.followUpBehavior.label}
             value={followUpBehavior}
             options={[
-              { value: "queue", label: "Queue" },
-              { value: "steer", label: "Steer" },
+              { value: "queue", label: "Wait their turn" },
+              { value: "steer", label: "Send right away" },
             ]}
             onChange={onFollowUpBehavior}
           />
         </Row>
       </SettingsGroup>
       <SettingsGroup
-        title="Conversation &amp; review"
+        title="Reading &amp; review"
         description="Read and review in the way that works for you."
         scope="Device"
       >
@@ -869,8 +869,8 @@ function PreferencesPage({
         <AgentKeepAwakeRow />
       </SettingsGroup>
       <SettingsGroup
-        title="Advanced"
-        description="Provider-specific behavior."
+        title="Claude Code"
+        description="Settings that only affect Claude Code."
         scope="Device"
       >
         <Row {...SETTINGS.claudeHooks.row}>
@@ -1244,7 +1244,7 @@ function AppearancePage({
       </SettingsGroup>
       <SettingsGroup
         title="Chat background"
-        description="Personalize your conversations."
+        description="Personalize your chats."
       >
         <ChatBackgroundCard appearance={appearance} />
       </SettingsGroup>
@@ -1372,7 +1372,7 @@ function ChatBackgroundCard({
               <div className="min-w-0">
                 <div className="text-ui-label text-content">Visibility</div>
                 <p className="text-ui-caption text-content/40">
-                  Keep it subtle so long conversations stay readable.
+                  Keep it subtle so long chats stay readable.
                 </p>
               </div>
               <Slider
@@ -1540,7 +1540,7 @@ function ProvidersPage() {
         <Heading title="Providers & models" />
         <p className="settings-section-note">
           Choose what appears in the model picker. Hiding a provider keeps its
-          existing tasks intact.
+          existing chats intact.
         </p>
         {primaryProviders.map(renderProvider)}
         {otherProviders.length > 0 ? (
@@ -1557,7 +1557,7 @@ function ProvidersPage() {
       </div>
       <SettingsGroup
         title="Model discovery"
-        description="Stay current without changing the models selected for your tasks."
+        description="Stay current without changing the models selected for your chats."
         scope="Device"
       >
         <Row {...SETTINGS.providerToolAutoUpdates.row}>
@@ -1907,11 +1907,11 @@ function ArchivePage({
       >
         {!looksLikeProject(cwd) ? (
           <p className="py-4 text-ui-label text-content/50">
-            Open a project to see its archived conversations.
+            Open a project to see its archived chats.
           </p>
         ) : archived.length === 0 ? (
           <p className="py-4 text-ui-label text-content/50">
-            No archived conversations in this project.
+            No archived chats in this project.
           </p>
         ) : (
           archived.map((session) => (

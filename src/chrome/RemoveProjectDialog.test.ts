@@ -58,7 +58,7 @@ describe("project deletion confirmation", () => {
     await act(async () => resolve(2));
     expect(deleteButton().disabled).toBe(false);
     expect(document.body.textContent).toContain(
-      "2 saved conversations will be removed.",
+      "2 saved chats will be removed.",
     );
     await act(async () => deleteButton().click());
     expect(confirm).toHaveBeenCalledOnce();

@@ -119,9 +119,9 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
   },
   {
     id: "toggle_inspector",
-    label: "Toggle inspector",
+    label: "Toggle side panel",
     keys: `${SHIFT}B`,
-    keywords: "right panel",
+    keywords: "right panel inspector files",
   },
   {
     id: "toggle_terminal",

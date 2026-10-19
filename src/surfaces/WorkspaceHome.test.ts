@@ -296,10 +296,10 @@ describe("header", () => {
     ).toContain("All quiet — pick up where you left off.");
   });
 
-  it("keeps New task, Open browser and Search", async () => {
+  it("keeps New chat, Open browser and Search", async () => {
     const value = props();
     await render(value);
-    await act(async () => button("New task").click());
+    await act(async () => button("New chat").click());
     await act(async () => button("Open browser").click());
     await act(async () => button("Search").click());
     expect(value.onNew).toHaveBeenCalledOnce();
@@ -577,7 +577,7 @@ describe("Your agents", () => {
     expect(app.textContent).toContain("+12");
     expect(app.textContent).toContain("3h ago");
     expect(app.getAttribute("data-state")).toBe("idle");
-    expect(site.textContent).toContain("No sessions yet");
+    expect(site.textContent).toContain("No chats yet");
     expect(site.getAttribute("data-state")).toBe("resting");
     expect(container.querySelector(".workspace-home-agent-bubble")).toBeNull();
   });
@@ -632,7 +632,7 @@ describe("Your agents", () => {
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("app-latest");
     await act(async () => button("Open site", site).click());
     expect(value.onProject).toHaveBeenCalledExactlyOnceWith(SITE);
-    await act(async () => button("New task in site", site).click());
+    await act(async () => button("New chat in site", site).click());
     expect(value.onNewProjectTask).toHaveBeenCalledExactlyOnceWith(SITE);
 
     const customize = button("Customize app", app);
@@ -974,7 +974,7 @@ describe("Recent chats", () => {
   it("explains an empty list", async () => {
     await render(props());
     expect(section("Recent chats")?.textContent).toContain(
-      "Your sessions will appear here.",
+      "Your chats will appear here.",
     );
     await render(
       props({

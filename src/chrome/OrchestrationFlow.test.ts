@@ -171,7 +171,7 @@ describe("orchestration composer and card", () => {
     );
     await click(button("Plan mode"));
     expect(
-      document.querySelector('[title="Turn off Plan mode"]'),
+      document.querySelector('[aria-label="Turn off Plan mode"]'),
     ).not.toBeNull();
     await click(
       document.querySelector(
@@ -179,7 +179,9 @@ describe("orchestration composer and card", () => {
       )!,
     );
     await click(button("Orchestrator"));
-    expect(document.querySelector('[title="Turn off Plan mode"]')).toBeNull();
+    expect(
+      document.querySelector('[aria-label="Turn off Plan mode"]'),
+    ).toBeNull();
     const textarea = container.querySelector("textarea")!;
     await act(async () =>
       textarea.dispatchEvent(

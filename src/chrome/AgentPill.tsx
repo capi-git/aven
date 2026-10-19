@@ -349,7 +349,7 @@ export const AgentPill = memo(function AgentPill({
                     title="Access"
                     note={
                       busy
-                        ? "Applies from the next turn."
+                        ? "Applies from your next message."
                         : RUNTIME_MODE_HINT[runtimeMode]
                     }
                     data-access-options

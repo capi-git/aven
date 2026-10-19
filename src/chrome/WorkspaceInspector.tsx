@@ -114,7 +114,7 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   return (
     <section
       className="workspace-inspector"
-      aria-label="Workspace inspector"
+      aria-label="Side panel"
       aria-hidden={!active || undefined}
       inert={!active || undefined}
     >
@@ -146,8 +146,8 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
           <button
             type="button"
             className="workspace-inspector-close"
-            aria-label="Pin inspector"
-            title="Keep inspector open"
+            aria-label="Pin side panel"
+            title="Keep the side panel open"
             onClick={props.onPin}
           >
             <PanelRight className="size-3.5" strokeWidth={1.75} aria-hidden />
@@ -156,8 +156,8 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
         <button
           type="button"
           className="workspace-inspector-close"
-          aria-label="Hide inspector"
-          title="Hide inspector"
+          aria-label="Hide side panel"
+          title="Hide side panel"
           onClick={props.onClose}
         >
           <X className="size-3.5" strokeWidth={1.75} aria-hidden />

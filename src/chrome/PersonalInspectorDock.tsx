@@ -42,7 +42,7 @@ export function PersonalInspectorDock({
       <aside ref={resize.setPaneRef} className="personal-inspector-dock">
         <div
           role="separator"
-          aria-label="Resize file panel"
+          aria-label="Resize side panel"
           aria-orientation="vertical"
           aria-valuemin={260}
           aria-valuemax={380}

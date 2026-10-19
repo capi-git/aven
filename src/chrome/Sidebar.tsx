@@ -964,7 +964,7 @@ function SidebarComponent({
           {
             kind: "item" as const,
             id: "copy-aven-session-id",
-            label: "Copy Aven session ID",
+            label: "Copy Aven chat ID",
           },
         ]
       : []),
@@ -1346,8 +1346,8 @@ function SidebarComponent({
       ref={searchInputRef}
       type="text"
       value={searchQuery}
-      placeholder="Filter tasks…"
-      aria-label="Filter tasks"
+      placeholder="Filter chats…"
+      aria-label="Filter chats"
       spellCheck={false}
       autoComplete="off"
       autoCorrect="off"
@@ -1381,7 +1381,7 @@ function SidebarComponent({
         <>
           {!cwd || cwd === "~" ? (
             <p className="px-4 py-4 text-ui-label leading-relaxed text-content/60">
-              Open a project to see its tasks.
+              Open a project to see its chats.
             </p>
           ) : (
             <div>
@@ -1390,7 +1390,7 @@ function SidebarComponent({
               served from a covering index and resolves within a frame or two,
               so a placeholder only ever flashed — reading as a glitch rather
               than as progress. This is checked before the empty state so that
-              cannot claim "No sessions yet" before the rows have landed.
+              cannot claim "No chats yet" before the rows have landed.
             */}
               {pendingFirstLoad ? null : status === "error" &&
                 sessions.length === 0 ? (
@@ -1404,11 +1404,11 @@ function SidebarComponent({
                 narrowedByUser ? (
                   <p className="px-3 py-2 text-ui-label text-content/50">
                     {searchNarrowed
-                      ? "No matching sessions"
-                      : "No sessions match these filters"}
+                      ? "No matching chats"
+                      : "No chats match these filters"}
                   </p>
                 ) : (
-                  <p className="personal-tasks-empty">No tasks yet.</p>
+                  <p className="personal-tasks-empty">No chats yet.</p>
                 )
               ) : (
                 <MotionList
@@ -1557,8 +1557,8 @@ function SidebarComponent({
                                       type="button"
                                       data-no-drag
                                       data-tauri-drag-region="false"
-                                      title="New session"
-                                      aria-label="New session"
+                                      title="New chat"
+                                      aria-label="New chat"
                                       onClick={() =>
                                         onNewInFolder(entry.folder.id)
                                       }
@@ -1569,7 +1569,7 @@ function SidebarComponent({
                                         strokeWidth={1.75}
                                       />
                                       <span className="text-ui-body font-semibold leading-snug">
-                                        New session
+                                        New chat
                                       </span>
                                     </button>
                                   </div>
@@ -1786,7 +1786,7 @@ function SidebarComponent({
                 <button
                   type="button"
                   className="personal-new-session"
-                  aria-label="New session without a project"
+                  aria-label="New chat without a project"
                   disabled={startingStandalone}
                   onClick={() => {
                     setTasksExpanded(true);
@@ -1794,9 +1794,7 @@ function SidebarComponent({
                   }}
                 >
                   <Plus className="size-3.5" />
-                  <span>
-                    {startingStandalone ? "Starting…" : "New session"}
-                  </span>
+                  <span>{startingStandalone ? "Starting…" : "New chat"}</span>
                 </button>
               ) : null}
               <div
@@ -1813,18 +1811,19 @@ function SidebarComponent({
                 {onOpenStandalone ? (
                   <section
                     className="personal-standalone-group"
-                    aria-label="Sessions without a project"
+                    aria-label="Chats without a project"
                   >
                     <div className="personal-projects-heading">
                       <button
                         type="button"
                         className="personal-sessions-heading"
+                        title="Chats that aren't in a project"
                         onClick={() => {
                           setTasksExpanded(true);
                           onOpenStandalone();
                         }}
                       >
-                        Sessions
+                        Chats
                       </button>
                     </div>
                     {standaloneActive ? (
@@ -1868,7 +1867,7 @@ function SidebarComponent({
                                   {...plainRowProps(session.id)}
                                   {...talkRow(session.id)}
                                 >
-                                  {plainLead(session, "Session running")}
+                                  {plainLead(session, "Working")}
                                   <span className="personal-task-title">
                                     {sessionDisplayTitle(
                                       session.title,
@@ -1897,7 +1896,7 @@ function SidebarComponent({
                             className="personal-view-project-tasks"
                             onClick={onOpenStandalone}
                           >
-                            View all sessions
+                            View all chats
                           </button>
                         ) : null}
                       </div>
@@ -1909,7 +1908,7 @@ function SidebarComponent({
                   {inProject ? (
                     <>
                       <SessionsHeaderButton
-                        label="Filter tasks by title"
+                        label="Filter chats by title"
                         active={taskSearchOpen || searchNarrowed}
                         onClick={() => {
                           setTasksExpanded(true);
@@ -1920,7 +1919,7 @@ function SidebarComponent({
                         <Search className="size-3" />
                       </SessionsHeaderButton>
                       <SessionsHeaderButton
-                        label="Task filters"
+                        label="Chat filters"
                         active={filtersActive}
                         open={!!filterMenu}
                         hasPopup
@@ -2031,11 +2030,11 @@ function SidebarComponent({
                                   requestProjectHistory(project.path)
                                 }
                               >
-                                Could not load tasks. Retry
+                                Could not load chats. Retry
                               </button>
                             ) : requestedProjectPaths.has(project.path) ? (
                               <p className="personal-tasks-empty" role="status">
-                                Loading tasks…
+                                Loading chats…
                               </p>
                             ) : (
                               <button
@@ -2047,7 +2046,7 @@ function SidebarComponent({
                                     : onSelectProject?.(project.path)
                                 }
                               >
-                                Load tasks
+                                Load chats
                               </button>
                             )
                           ) : null}
@@ -2098,7 +2097,7 @@ function SidebarComponent({
                                         : undefined
                                     }
                                   >
-                                    {plainLead(session, "Task running")}
+                                    {plainLead(session, "Working")}
                                     <span className="personal-task-title">
                                       {sessionDisplayTitle(
                                         session.title,
@@ -2128,11 +2127,11 @@ function SidebarComponent({
                               className="personal-view-project-tasks"
                               onClick={() => onSelectProject?.(project.path)}
                             >
-                              View all {otherSessions.length} tasks
+                              View all {otherSessions.length} chats
                             </button>
                           ) : null}
                           {historyLoaded && otherSessions.length === 0 ? (
-                            <p className="personal-tasks-empty">No tasks yet</p>
+                            <p className="personal-tasks-empty">No chats yet</p>
                           ) : null}
                         </div>
                       ) : null}
@@ -2177,7 +2176,7 @@ function SidebarComponent({
           items={[
             { kind: "item", id: "rename", label: "Rename", shortcut: "F2" },
           ]}
-          ariaLabel="Session actions"
+          ariaLabel="Chat actions"
           onClose={() => setPlainRowMenu(null)}
           onPick={(id) => {
             const sessionId = plainRowMenu.sessionId;
@@ -2193,8 +2192,8 @@ function SidebarComponent({
           items={sessionMenuItems}
           ariaLabel={
             multipleMenuSessions
-              ? `${menuSessionIds.length} selected session actions`
-              : "Session actions"
+              ? `${menuSessionIds.length} selected chat actions`
+              : "Chat actions"
           }
           onPick={onSessionMenuPick}
           onClose={closeSessionMenu}
@@ -2643,11 +2642,13 @@ function SessionCard({
   const time = formatRelative(session.updatedAt, now);
   const model = resolveModel(session.harness, session.model).name;
   const teamNeeds = useContext(TeamNeeds);
-  const approvalLabel = teamNeeds.has(session.id)
-    ? "Needs you"
-    : session.orchestration
-      ? "Needs you"
-      : "Needs approval";
+  const approvalLabel = "Needs you";
+  // Its own approval or question says what it waits for; a team's need says
+  // why on the team's own card.
+  const approvalHint =
+    teamNeeds.has(session.id) || session.orchestration
+      ? approvalLabel
+      : "Needs you: approve an action or answer a question";
   const statusClass = needsApproval
     ? "text-[color:var(--aven-needs-you)]"
     : busy
@@ -2664,7 +2665,7 @@ function SessionCard({
     <span
       className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
       title={
-        needsApproval ? approvalLabel : busy ? "Working" : done ? "Done" : time
+        needsApproval ? approvalHint : busy ? "Working" : done ? "Done" : time
       }
     >
       {needsApproval ? (

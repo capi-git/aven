@@ -179,7 +179,7 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let open_automations =
         MenuItemBuilder::with_id("open_automations", "Automations").build(app)?;
     let open_notes = MenuItemBuilder::with_id("open_notes", "Notes").build(app)?;
-    let new_tab = MenuItemBuilder::with_id("new_tab", "New Tab")
+    let new_tab = MenuItemBuilder::with_id("new_tab", "New Chat")
         .accelerator("CmdOrCtrl+T")
         .build(app)?;
     let new_terminal = MenuItemBuilder::with_id("new_terminal", "New Terminal")
@@ -232,7 +232,7 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let toggle_sidebar = MenuItemBuilder::with_id("toggle_sidebar", "Toggle Sidebar")
         .accelerator("CmdOrCtrl+B")
         .build(app)?;
-    let toggle_inspector = MenuItemBuilder::with_id("toggle_inspector", "Toggle File Panel")
+    let toggle_inspector = MenuItemBuilder::with_id("toggle_inspector", "Toggle Side Panel")
         .accelerator("CmdOrCtrl+Shift+B")
         .build(app)?;
     let open_model_picker = MenuItemBuilder::with_id("open_model_picker", "Switch Model…")

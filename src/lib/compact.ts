@@ -4,7 +4,7 @@ export const COMPACT_COMMAND: BuiltinSkill = {
   kind: "builtin",
   name: "compact",
   invocation: "compact",
-  description: "Summarize older conversation context to free space.",
+  description: "Summarize older messages to free up space in this chat.",
   scope: "builtin",
   source: "monocode",
 };

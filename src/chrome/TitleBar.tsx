@@ -42,6 +42,7 @@ import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { looksLikeProject } from "../lib/recents";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import type { HarnessId } from "../lib/session";
+import { UNTITLED_CHAT_TITLE } from "../lib/untitledChat";
 import { getModelSnapshot, subscribeModels } from "../lib/models";
 import {
   compactModelNames,
@@ -207,7 +208,7 @@ export type TitleBarProps = {
 
 function sessionMeta(tab: Tab): string {
   if (tab.more.length === 1) return tab.more[0];
-  if (tab.sessionCount > 1) return `${tab.sessionCount} sessions`;
+  if (tab.sessionCount > 1) return `${tab.sessionCount} chats`;
   return "";
 }
 
@@ -227,7 +228,7 @@ export function tabCopy(
   const models = compactModelNames(modelNames);
   // The composer's agent pill names the model; an untitled tab does not
   // repeat it. The tooltip still lists every model in the tab.
-  const untitled = "New session";
+  const untitled = UNTITLED_CHAT_TITLE;
 
   let headline: string;
   const metaParts: string[] = [];
@@ -661,7 +662,7 @@ function BrowserTitleTabItem({
           aria-selected={active}
           aria-description={
             preview
-              ? "Preview tab. Keep open to retain in the tab strip."
+              ? "Preview tab. The next page you open takes its place unless you keep it open."
               : visible && !active
                 ? "Visible in split"
                 : undefined
@@ -1574,23 +1575,21 @@ function TitleBarComponent({
         {
           kind: "item",
           id: "others",
-          label: unified ? "Close other sessions" : "Close other tabs",
+          label: unified ? "Close other chats" : "Close other tabs",
           disabled: contextCloseIds?.others.length === 0,
         },
         {
           kind: "item",
           id: "right",
           label: unified
-            ? "Close sessions to the right"
+            ? "Close chats to the right"
             : "Close tabs to the right",
           disabled: contextCloseIds?.right.length === 0,
         },
         {
           kind: "item",
           id: "left",
-          label: unified
-            ? "Close sessions to the left"
-            : "Close tabs to the left",
+          label: unified ? "Close chats to the left" : "Close tabs to the left",
           disabled: contextCloseIds?.left.length === 0,
         },
       ]
@@ -1704,7 +1703,7 @@ function TitleBarComponent({
     : [];
   // Empty strip space: actions for the whole strip.
   const barItems: ExplorerMenuItem[] = [];
-  barItems.push({ kind: "item", id: "bar-new-session", label: "New session" });
+  barItems.push({ kind: "item", id: "bar-new-session", label: "New chat" });
   if (onNewBrowser)
     barItems.push({
       kind: "item",
@@ -1931,7 +1930,7 @@ function TitleBarComponent({
             <IconButton label={`Go to File (${MOD}P)`} onClick={onGoToFile}>
               <Search className="size-3.5" strokeWidth={1.75} />
             </IconButton>
-            <IconButton label={`New session (${MOD}T)`} onClick={onNew}>
+            <IconButton label={`New chat (${MOD}T)`} onClick={onNew}>
               <Plus className="size-3.5" strokeWidth={1.75} />
             </IconButton>
           </>
@@ -2296,8 +2295,8 @@ function TitleBarComponent({
             {paneLocal ? (
               <button
                 type="button"
-                aria-label="New session"
-                title="New session"
+                aria-label="New chat"
+                title="New chat"
                 data-tauri-drag-region="false"
                 className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
                 onClick={onNew}
@@ -2361,7 +2360,7 @@ function TitleBarComponent({
                 type="button"
                 className="personal-tab-preview-action"
                 aria-label="Keep browser open"
-                title="Keep open"
+                title="Keep this page as a tab. Otherwise the next page you open takes its place."
                 onClick={() => onKeepBrowser?.(focusedId)}
               >
                 <Pin className="size-3" />
@@ -2372,6 +2371,7 @@ function TitleBarComponent({
               type="button"
               className="personal-tab-preview-action"
               aria-label="Recent browser tabs"
+              title="Pages you opened recently, including ones no longer shown as tabs"
               aria-haspopup="menu"
               aria-expanded={Boolean(recentMenu)}
               onClick={(event) => {
@@ -2452,7 +2452,7 @@ function TitleBarComponent({
             {
               kind: "item",
               id: "split",
-              label: "Show beside session",
+              label: "Show beside chat",
               checked: browserMode === "split",
             },
             {

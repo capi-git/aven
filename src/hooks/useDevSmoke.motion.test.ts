@@ -39,7 +39,7 @@ const config = { projectPath: PROJECT, binDir: "/tmp/check/bin" };
 const REACTION_MS = 1_200;
 
 type Flaws = {
-  /** The sidebar's New task leaves Home on screen (the 0.1.141 QA bug). */
+  /** The sidebar's New chat leaves Home on screen (the 0.1.141 QA bug). */
   homeStays?: boolean;
   /** The mascot reacts a second time a moment after the first. */
   reactsTwice?: boolean;
@@ -192,7 +192,7 @@ describe("the real-app check's motion steps", () => {
       ["agent turn through the normal send path", true],
       ["the project's mark steps while its agent works and reacts once", true],
       [
-        "Home shows each project's agent, and New task leaves Home for the chat",
+        "Home shows each project's agent, and New chat leaves Home for the chat",
         true,
       ],
       ["Parallel work starts folded to one line", true],
@@ -208,10 +208,10 @@ describe("the real-app check's motion steps", () => {
     );
   });
 
-  it("fail when New task in the sidebar leaves Home in front of the chat", async () => {
+  it("fail when New chat in the sidebar leaves Home in front of the chat", async () => {
     const home = named(await check({ homeStays: true }), "Home shows");
     expect(home.passed).toBe(false);
-    expect(home.detail).toContain("Home to give way to the new task");
+    expect(home.detail).toContain("Home to give way to the new chat");
   });
 
   it("fail when the mascot reacts twice to one turn", async () => {

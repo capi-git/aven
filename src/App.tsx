@@ -539,6 +539,7 @@ import {
   type Session,
   type TurnIntent,
 } from "./lib/session";
+import { isUntitledChatTitle } from "./lib/untitledChat";
 
 import {
   canDispatchQueuedHead,
@@ -3382,7 +3383,7 @@ export default function App({
         });
       } catch (error) {
         void message(String(error), {
-          title: "Could not start session",
+          title: "Could not start chat",
           kind: "error",
         });
       } finally {
@@ -4233,9 +4234,9 @@ export default function App({
         finishClear();
         return;
       }
-      void confirmDiscardUnsaved(
-        "Close this conversation with unsaved files?",
-      ).then((ok) => ok && finishClear());
+      void confirmDiscardUnsaved("Close this chat with unsaved files?").then(
+        (ok) => ok && finishClear(),
+      );
     },
     [tabs, persistSession, refreshHistory, sidebarCwd],
   );
@@ -4824,7 +4825,7 @@ export default function App({
           );
           if (!stub)
             throw new Error(
-              "This session is no longer available in local history.",
+              "This chat is no longer available in local history.",
             );
           const session = {
             ...newSession(
@@ -5155,7 +5156,7 @@ export default function App({
       const seed = open ?? summary;
       const label = seed
         ? sessionDisplayTitle(seed.title, seed.harness)
-        : "this session";
+        : "this chat";
       if (
         mode === "delete" &&
         !skipDeleteConfirm &&
@@ -5193,7 +5194,7 @@ export default function App({
             if (
               unsaved &&
               !(await confirmDiscardUnsaved(
-                `${mode === "archive" ? "Archive" : "Delete"} this conversation with unsaved files?`,
+                `${mode === "archive" ? "Archive" : "Delete"} this chat with unsaved files?`,
               ))
             )
               return false;
@@ -5320,7 +5321,7 @@ export default function App({
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        void message(`Could not ${mode} this conversation.\n\n${detail}`, {
+        void message(`Could not ${mode} this chat.\n\n${detail}`, {
           title: "Aven",
           kind: "error",
         });
@@ -5352,13 +5353,10 @@ export default function App({
         );
         return true;
       } catch (error) {
-        void message(
-          `Could not unarchive this conversation.\n\n${String(error)}`,
-          {
-            title: "Aven",
-            kind: "error",
-          },
-        );
+        void message(`Could not unarchive this chat.\n\n${String(error)}`, {
+          title: "Aven",
+          kind: "error",
+        });
         return false;
       }
     },
@@ -5444,7 +5442,7 @@ export default function App({
       if (sessionIds.length === 0) return;
       if (
         !window.confirm(
-          `Delete ${sessionIds.length} selected conversations? This can’t be undone.`,
+          `Delete ${sessionIds.length} selected chats? This can’t be undone.`,
         )
       )
         return;
@@ -5693,7 +5691,7 @@ export default function App({
   const onNewProjectTask = useCallback(
     (path: string) => {
       revealProjectTask(path);
-      // The sidebar's "New task" can be pressed over Home; the new chat has
+      // The sidebar's "New chat" can be pressed over Home; the new chat has
       // to replace it, or nothing seems to happen.
       showWorkspace();
       const session = newDefaultSession(path);
@@ -7408,7 +7406,7 @@ export default function App({
         ...laneCheckout(source),
         title: formatSessionTitle(
           harness,
-          display === "New session" ? HANDOFF_TITLE : display,
+          isUntitledChatTitle(display) ? HANDOFF_TITLE : display,
         ),
         handoffCard: buildHandoffComposerCard({
           from,
@@ -7733,7 +7731,7 @@ export default function App({
                         detail:
                           status === "unknown"
                             ? "Could not confirm the agent process stopped"
-                            : "Stopped with this conversation",
+                            : "Stopped with this chat",
                       }
                     : agent,
                 ),
@@ -9798,7 +9796,7 @@ export default function App({
     sessions,
     floatingSidebarLabel: floatingSidebarLayer,
     expectFloatingSidebar: IS_MAC,
-    // The sidebar's own New task, as its project rows (and the floating
+    // The sidebar's own New chat, as its project rows (and the floating
     // sidebar, by name) call it.
     newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
@@ -10724,7 +10722,7 @@ export default function App({
 }
 function conversationTitle(session: Session): string {
   const title = sessionDisplayTitle(session.title, session.harness);
-  return title === "New session" ? "" : title;
+  return isUntitledChatTitle(title) ? "" : title;
 }
 
 function lastUserBlockId(session: Session): string | undefined {

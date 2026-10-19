@@ -26,42 +26,46 @@ export type UsagePanelContentProps = {
   onClose: () => void;
 };
 
-function remainingPercent(used: number): number | null {
+/**
+ * Whole percent used, as the footer rounds it, so the two always agree.
+ */
+function usedPercent(used: number): number | null {
   return Number.isFinite(used)
-    ? Math.round(100 - Math.min(100, Math.max(0, used)))
+    ? Math.round(Math.min(100, Math.max(0, used)))
     : null;
 }
 
-function RemainingBar({
+/** How much is used, filling up as the footer's meter does. */
+function UsedBar({
   label,
-  remaining,
+  used,
   loading = false,
 }: {
   label: string;
-  remaining: number | null;
+  used: number | null;
   loading?: boolean;
 }) {
   return (
     <div
       className="usage-panel-track"
       role="progressbar"
-      aria-label={`${label} remaining`}
+      aria-label={`${label} used`}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={remaining ?? undefined}
+      aria-valuenow={used ?? undefined}
       aria-valuetext={
-        remaining == null
+        used == null
           ? loading
             ? "Checking usage"
             : "Unknown"
-          : `${remaining}% remaining`
+          : `${used}% used`
       }
-      data-unknown={remaining == null || undefined}
+      data-unknown={used == null || undefined}
       data-loading={loading || undefined}
-      data-low={(remaining != null && remaining <= 10) || undefined}
+      data-low={(used != null && used >= 90) || undefined}
     >
-      {remaining != null && (
-        <span className="usage-panel-fill" style={{ width: `${remaining}%` }} />
+      {used != null && (
+        <span className="usage-panel-fill" style={{ width: `${used}%` }} />
       )}
     </div>
   );
@@ -83,7 +87,7 @@ function RateWindow({
   /** How fast this window is filling, when there is enough to tell. */
   pace?: UsagePace;
 }) {
-  const remaining = window ? remainingPercent(window.usedPercent) : null;
+  const used = window ? usedPercent(window.usedPercent) : null;
   const loading = status === "fetching";
   const reset = window?.resetsAt;
   const hasReset = reset != null && Number.isFinite(reset);
@@ -91,7 +95,7 @@ function RateWindow({
   // Only a limit that comes before the reset is worth a line.
   const forecast = outlook?.state === "clear" ? null : outlook;
   const detail =
-    remaining == null
+    used == null
       ? loading
         ? "Checking usage…"
         : status === "idle"
@@ -111,20 +115,16 @@ function RateWindow({
       <div className="usage-panel-row">
         <span className="usage-panel-label">{label}</span>
         <span className="usage-panel-remaining">
-          {remaining == null ? (
+          {used == null ? (
             "—"
           ) : (
             <>
-              <strong>{remaining}%</strong> left
+              <strong>{used}%</strong> used
             </>
           )}
         </span>
       </div>
-      <RemainingBar
-        label={`${provider} ${label}`}
-        remaining={remaining}
-        loading={loading}
-      />
+      <UsedBar label={`${provider} ${label}`} used={used} loading={loading} />
       <div
         className="usage-panel-detail"
         data-warning={forecast?.state === "warning" || undefined}
@@ -239,9 +239,9 @@ export function UsagePanelContent({
     context?.window != null &&
     Number.isFinite(context.window) &&
     context.window > 0;
-  const remaining =
+  const used =
     hasUsed && hasCapacity
-      ? remainingPercent((context.used / context.window!) * 100)
+      ? usedPercent((context.used / context.window!) * 100)
       : null;
   const refreshing = snapshot.providers.some(
     (provider) => provider.status === "fetching",
@@ -283,31 +283,30 @@ export function UsagePanelContent({
       <div className="usage-panel-body">
         <section
           className="usage-panel-context"
-          aria-label="Selected task context"
+          aria-label="This chat's context"
         >
           <div className="usage-panel-row">
             <h3>Context</h3>
             <span className="usage-panel-remaining">
-              {remaining == null ? (
+              {used == null ? (
                 "—"
               ) : (
                 <>
-                  <strong>{remaining}%</strong> left
+                  <strong>{used}%</strong> used
                 </>
               )}
             </span>
           </div>
-          <RemainingBar label="Selected task context" remaining={remaining} />
+          <UsedBar label="This chat's context" used={used} />
           <div className="usage-panel-detail">
             {hasUsed ? (
               <>
-                {remaining != null && `${100 - remaining}% used · `}
                 {formatTokens(context.used)}
-                {hasCapacity && ` / ${formatTokens(context.window!)}`} tokens
+                {hasCapacity && ` of ${formatTokens(context.window!)}`} tokens
                 {!hasCapacity && " used · capacity unavailable"}
               </>
             ) : (
-              "Available after the task reports usage"
+              "Shows after the agent's next reply"
             )}
           </div>
         </section>
@@ -321,15 +320,15 @@ export function UsagePanelContent({
         ))}
         {!snapshot.providers.length && (
           <p className="usage-panel-empty">
-            Provider usage is not available for this task.
+            Provider usage is not available for this chat.
           </p>
         )}
       </div>
       <footer className="usage-panel-footer">
-        <span>Provider limits apply across tasks.</span>
+        <span>Provider limits apply across all your chats.</span>
         {cost != null && (
-          <span title="Provider-reported cost for the selected task">
-            Task cost <strong>${cost.toFixed(2)}</strong>
+          <span title="What the provider reports this chat has cost">
+            Chat cost <strong>${cost.toFixed(2)}</strong>
           </span>
         )}
       </footer>

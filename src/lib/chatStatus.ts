@@ -41,7 +41,7 @@ export const CHAT_STATUS_LABEL: Readonly<Record<ChatStatusWord, string>> = {
 /** What each word means, for its tooltip. */
 export const CHAT_STATUS_HINT: Readonly<Record<ChatStatusWord, string>> = {
   "needs-you": "Waiting on your approval or answer",
-  working: "Working on a turn",
+  working: "Working on your request",
   racing: "Racing: several agents work on the same message",
   discussing: "Talking a question through with another chat",
   orchestrating: "A lead is sharing out the work to agents",

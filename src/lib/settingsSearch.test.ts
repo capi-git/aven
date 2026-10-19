@@ -16,13 +16,13 @@ describe("settings search", () => {
   });
 
   it.each([
-    ["permissions", "Default task access", "tasks"],
-    ["queued", "Follow-up behavior", "tasks"],
+    ["permissions", "Default access for new chats", "tasks"],
+    ["queued", "While an agent is working, new messages", "tasks"],
     ["memory", "Memory saver", "browser"],
     ["ram", "Memory saver", "browser"],
     ["sleeping tabs", "Memory saver", "browser"],
-    ["lightweight", "Lightweight browser", "browser"],
-    ["low-end", "Lightweight browser", "browser"],
+    ["lightweight", "Use less memory for web pages", "browser"],
+    ["low-end", "Use less memory for web pages", "browser"],
     ["do not disturb", "Quiet mode", "notifications"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],
@@ -36,7 +36,7 @@ describe("settings search", () => {
     ["default model", "Providers", "providers"],
     ["cli updates", "Keep provider tools up to date", "providers"],
     ["recover project", "Archived projects", "archive"],
-    ["recover chat", "Archived conversations", "archive"],
+    ["recover chat", "Archived chats", "archive"],
   ])("finds %s in the correct section", (query, label, section) => {
     expect(searchSettings(query)).toContainEqual(
       expect.objectContaining({
@@ -58,8 +58,12 @@ describe("settings search", () => {
 
   it("ranks an exact label before related descriptions and normalizes input", () => {
     expect(searchSettings("  THÉME  ")[0].label).toBe("Theme");
-    expect(searchSettings("follow-up")[0].label).toBe("Follow-up behavior");
-    expect(searchSettings("followup")[0].label).toBe("Follow-up behavior");
+    expect(searchSettings("follow-up")[0].label).toBe(
+      "While an agent is working, new messages",
+    );
+    expect(searchSettings("followup")[0].label).toBe(
+      "While an agent is working, new messages",
+    );
   });
 
   it("requires every term and returns no invented settings", () => {

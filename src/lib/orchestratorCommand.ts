@@ -5,7 +5,7 @@ export const ORCHESTRATOR_COMMAND: BuiltinSkill = {
   kind: "builtin",
   name: "orchestrator",
   invocation: "orchestrator",
-  description: "Plan and coordinate agent work.",
+  description: "Split the job into parts and run an agent on each.",
   scope: "builtin",
   source: "monocode",
 };

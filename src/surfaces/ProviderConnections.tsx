@@ -239,9 +239,10 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           </span>
         </div>
         <p>
-          Claude and Codex keep these in their own settings, and tasks use the
-          same ones. When a server needs approval or asks a question, Aven shows
-          it in the task. Full access approves server tools automatically.
+          Extra tools your agents can use. Claude and Codex keep these in their
+          own settings, and chats use the same ones. When a server needs
+          approval or asks a question, Aven shows it in the chat. Full access
+          approves server tools automatically.
         </p>
         {busy?.startsWith("signin:") ? (
           <p className="provider-connection-notice" role="status">

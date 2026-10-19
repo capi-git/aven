@@ -17,7 +17,7 @@ Aven brings agent conversations, your project and a browser into one window. Use
 ## What you can do
 
 - **Keep work together:** conversations, split panes, an embedded browser, a file editor, Git changes and terminals.
-- **Comment on a page:** click Edit page, select an element and add a comment beside it. **Add to chat** puts your comment and an element screenshot in the draft for review before sending.
+- **Comment on a page:** click Comment on page, select an element and add a comment beside it. **Add to chat** puts your comment and an element screenshot in the draft for review before sending.
 - **Run agents on a schedule:** Automations start agents at set times while your computer is awake and Aven is open, with ready-made examples to start from.
 - **Guide agents:** review approvals, queue follow-ups and inspect changes.
 - **Put agents together:** from the **+** menu in the message box, have two chats talk a question through ([Discuss](docs/ORCHESTRATION.md#discussions)), give one task to several agents and keep the best result ([Race](docs/RACE.md)) or let a lead agent share out the work to other agents ([Orchestrator](docs/ORCHESTRATION.md)). **Watch** any of them in a floating panel, or on a Mac in a small window of its own.

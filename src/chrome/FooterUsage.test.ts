@@ -189,10 +189,10 @@ describe("footer usage", () => {
     expect(context.textContent).toBe("Context25%");
     expect(context.querySelector(".footer-usage-meter")).not.toBeNull();
     expect(context.getAttribute("title")).toBe(
-      "Context: 25% of this chat's context window used (50K of 200K tokens)",
+      "Context: 25% of this chat's context used (50K of 200K tokens)",
     );
     expect(button(/Show usage details/).getAttribute("aria-label")).toContain(
-      "Context: 25% of this chat's context window used (50K of 200K tokens). Claude: 2% of your 5-hour limit used",
+      "Context: 25% of this chat's context used (50K of 200K tokens). Claude: 2% of your 5-hour limit used",
     );
   });
 

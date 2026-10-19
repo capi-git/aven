@@ -565,7 +565,7 @@ function effortSetting(
 ): ModelSetting {
   return {
     id: "effort",
-    label: "Reasoning",
+    label: "Effort",
     kind: "select",
     value:
       value && options.some((item) => item.value === value)

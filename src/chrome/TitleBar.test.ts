@@ -105,13 +105,13 @@ describe("tabCopy", () => {
     expect(copy.meta).toBe("");
   });
 
-  it("labels an empty tab New session", () => {
+  it("labels an empty tab New chat", () => {
     const copy = tabCopy(tab({ project: "agent-terminal" }));
-    expect(copy.headline).toBe("New session");
+    expect(copy.headline).toBe("New chat");
     expect(copy.meta).toBe("");
   });
 
-  it("labels an untitled session New session and keeps its real model in the tooltip", () => {
+  it("labels an untitled chat New chat and keeps its real model in the tooltip", () => {
     setHarnessModels("codex", [
       { id: "codex:qa-model", harness: "codex", name: "QA Model" },
     ]);
@@ -120,7 +120,7 @@ describe("tabCopy", () => {
       true,
     );
     expect(copy).toEqual({
-      headline: "New session",
+      headline: "New chat",
       meta: "QA Model",
       tooltip: "QA Model",
     });
@@ -141,7 +141,7 @@ describe("tabCopy", () => {
       }),
     );
     expect(copy.headline).toBe("Fix browser");
-    expect(copy.meta).toBe("focused-model +2 models · 4 sessions");
+    expect(copy.meta).toBe("focused-model +2 models · 4 chats");
     expect(copy.tooltip).toBe(
       "agent-terminal · Fix browser · focused-model · second-model · third-model",
     );
@@ -600,7 +600,7 @@ describe("browser tab integration", () => {
     const first = container.querySelector('[data-surface-tab-id="a"]')!;
     const second = container.querySelector('[data-surface-tab-id="b"]')!;
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "New session",
+      "New chat",
     );
     expect(second.querySelector(".personal-title-tab-label")?.textContent).toBe(
       "Repair tabs",
@@ -611,7 +611,7 @@ describe("browser tab integration", () => {
       ]),
     );
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "New session",
+      "New chat",
     );
     expect(
       first.querySelector('[role="tab"]')?.getAttribute("title"),
@@ -623,7 +623,7 @@ describe("browser tab integration", () => {
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("aria-label"),
     ).toContain("Repair tabs · QA Model 2");
-    await click('[aria-label="Close New session"]');
+    await click('[aria-label="Close New chat"]');
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
   });
 
@@ -696,7 +696,7 @@ describe("browser tab integration", () => {
         .querySelector('[data-surface-tab-id="a"] [role="tab"]')
         ?.getAttribute("aria-selected"),
     ).toBe("true");
-    await click('[aria-label="New session"]');
+    await click('[aria-label="New chat"]');
     await click('[aria-label="New browser"]');
     expect(props.onNew).toHaveBeenCalledOnce();
     expect(props.onNewBrowser).toHaveBeenCalledOnce();
@@ -828,7 +828,7 @@ describe("browser tab integration", () => {
       onNewView: vi.fn(),
     });
     expect(
-      container.querySelector('[aria-label="Close New session"]'),
+      container.querySelector('[aria-label="Close New chat"]'),
     ).not.toBeNull();
     await act(async () =>
       container
@@ -844,7 +844,7 @@ describe("browser tab integration", () => {
     await act(async () => newView.click());
     expect(props.onNewView).toHaveBeenCalledExactlyOnceWith("a");
     expect(props.onSelect).not.toHaveBeenCalled();
-    await click('[aria-label="Close New session"]');
+    await click('[aria-label="Close New chat"]');
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
   });
 
@@ -1436,10 +1436,7 @@ describe("browser tab integration", () => {
         browserTabs: [{ id: "web-a", title: "Preview" }],
       });
       const targets: Array<[HTMLElement, string]> = [
-        [
-          container.querySelector<HTMLElement>('[role="tablist"]')!,
-          "New session",
-        ],
+        [container.querySelector<HTMLElement>('[role="tablist"]')!, "New chat"],
         [surfaceTabButton("a"), "Close tab"],
         [surfaceTabButton("web-a"), "Close browser"],
       ];
@@ -1578,7 +1575,7 @@ describe("browser tab integration", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
-  it("labels a blank standalone tab New session without exposing its workspace folder name", async () => {
+  it("labels a blank standalone tab New chat without exposing its workspace folder name", async () => {
     const cwd =
       "/Users/test/Library/Application Support/com.capi.monocode.personal/projectless-workspaces/work";
     vi.stubGlobal("localStorage", {
@@ -1592,8 +1589,8 @@ describe("browser tab integration", () => {
       tabs: [tab({ id: "a", project: "work", blank: true })],
     });
     const button = container.querySelector('[role="tab"]')!;
-    expect(button.getAttribute("aria-label")).toBe("New session");
-    expect(button.getAttribute("title")).toBe("New session");
+    expect(button.getAttribute("aria-label")).toBe("New chat");
+    expect(button.getAttribute("title")).toBe("New chat");
   });
 
   it("marks only the browser selected and restores task selection when it loses focus", async () => {
@@ -1644,7 +1641,7 @@ describe("browser tab integration", () => {
         item.getAttribute("aria-checked"),
       ]),
     ).toEqual([
-      ["Show beside session", "false"],
+      ["Show beside chat", "false"],
       ["Show as tab", "true"],
     ]);
     await act(async () => items[0].click());

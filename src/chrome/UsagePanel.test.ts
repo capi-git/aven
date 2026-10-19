@@ -75,12 +75,12 @@ async function render(value = snapshot()) {
 
 function bar(label: string) {
   return container.querySelector<HTMLElement>(
-    `[role="progressbar"][aria-label="${label} remaining"]`,
+    `[role="progressbar"][aria-label="${label} used"]`,
   )!;
 }
 
 describe("usage panel", () => {
-  it("shows reported Fable weekly allowances with their own remaining usage and reset", async () => {
+  it("shows reported Fable weekly allowances with their own usage and reset", async () => {
     const claude = parseClaudeOAuthUsage(
       JSON.stringify({
         five_hour: { utilization: 80 },
@@ -107,18 +107,16 @@ describe("usage panel", () => {
       errorRateLimits("claude", "offline", claude),
     ]) {
       await render(snapshot({ providers: [limits] }));
-      expect(bar("Claude Code Weekly").getAttribute("aria-valuenow")).toBe(
-        "98",
-      );
+      expect(bar("Claude Code Weekly").getAttribute("aria-valuenow")).toBe("2");
       expect(
         bar("Claude Code Fable 5 weekly").getAttribute("aria-valuenow"),
-      ).toBe("58");
+      ).toBe("42");
       expect(
         bar("Claude Code Fable 5 weekly").parentElement?.textContent,
       ).toContain("Resets in 2d");
       expect(
         bar("Claude Code Fable 5.1 weekly").getAttribute("aria-valuenow"),
-      ).toBe("100");
+      ).toBe("0");
       expect(
         bar("Claude Code Fable 5.1 weekly").parentElement?.textContent,
       ).toContain("Reset time not reported");
@@ -148,35 +146,35 @@ describe("usage panel", () => {
     );
   });
 
-  it("shows remaining capacity consistently for context and each provider window", async () => {
+  it("shows usage consistently for context and each provider window", async () => {
     await render();
-    expect(bar("Selected task context").getAttribute("aria-valuenow")).toBe(
-      "69",
+    expect(bar("This chat's context").getAttribute("aria-valuenow")).toBe("31");
+    expect(bar("This chat's context").getAttribute("aria-valuetext")).toBe(
+      "31% used",
     );
-    expect(bar("Selected task context").getAttribute("aria-valuetext")).toBe(
-      "69% remaining",
-    );
-    expect(container.textContent).toContain("31% used · 307K / 1M tokens");
-    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("75");
-    expect(bar("Codex Weekly").getAttribute("aria-valuenow")).toBe("20");
-    expect(bar("Claude Code 5-hour").getAttribute("aria-valuenow")).toBe("75");
+    expect(container.textContent).toContain("31% used");
+    expect(container.textContent).toContain("307K of 1M tokens");
+    expect(container.textContent).not.toContain("left");
+    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("25");
+    expect(bar("Codex Weekly").getAttribute("aria-valuenow")).toBe("80");
+    expect(bar("Claude Code 5-hour").getAttribute("aria-valuenow")).toBe("25");
     expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(5);
     expect(
       container.querySelector('[role="slider"], input[type="range"]'),
     ).toBeNull();
     expect(container.textContent).toContain(
-      "Provider limits apply across tasks.",
+      "Provider limits apply across all your chats.",
     );
   });
 
   it.each([
-    [0, "100", "100%"],
-    [100, "0", "0%"],
-    [-4, "100", "100%"],
-    [105, "0", "0%"],
+    [0, "0", "0%"],
+    [100, "100", "100%"],
+    [-4, "0", "0%"],
+    [105, "100", "100%"],
   ])(
-    "represents %s%% used as %s%% remaining without overflowing the bar",
-    async (used, remaining, width) => {
+    "represents %s%% used as %s%% used without overflowing the bar",
+    async (used, shown, width) => {
       await render(
         snapshot({
           providers: [
@@ -191,14 +189,14 @@ describe("usage panel", () => {
         }),
       );
       const progress = bar("Codex 5-hour");
-      expect(progress.getAttribute("aria-valuenow")).toBe(remaining);
+      expect(progress.getAttribute("aria-valuenow")).toBe(shown);
       expect(
         progress.querySelector<HTMLElement>(".usage-panel-fill")?.style.width,
       ).toBe(width);
     },
   );
 
-  it("keeps idle, missing and invalid data unknown instead of drawing a full remaining bar", async () => {
+  it("keeps idle, missing and invalid data unknown instead of drawing an empty bar", async () => {
     await render(
       snapshot({
         context: { used: 40_000 },
@@ -250,7 +248,7 @@ describe("usage panel", () => {
 
   it("retains cached values during refresh and clearly marks failed refreshes", async () => {
     await render(snapshot({ providers: [provider({ status: "fetching" })] }));
-    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("75");
+    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("25");
     expect(container.textContent).toContain("Refreshing…");
     await render(
       snapshot({
@@ -259,7 +257,7 @@ describe("usage panel", () => {
         ],
       }),
     );
-    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("75");
+    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("25");
     expect(container.textContent).toContain("Last known usage");
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "Could not connect to Codex.",
@@ -287,7 +285,7 @@ describe("usage panel", () => {
     expect(bar("Codex 5-hour").hasAttribute("aria-valuenow")).toBe(false);
     expect(container.textContent).toContain("Usage unavailable");
     expect(container.textContent).toContain("Sign in to read usage.");
-    expect(container.textContent).not.toContain("100% left");
+    expect(container.textContent).not.toContain("0% used");
   });
 
   it("shows reset countdowns and the exact local reset time, then asks for a fresh reading when due", async () => {
@@ -313,7 +311,7 @@ describe("usage panel", () => {
     );
     await act(async () => vi.advanceTimersByTime(60_000));
     expect(detail.textContent).toBe("Reset due · refresh usage");
-    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("75");
+    expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("25");
   });
 
   it("says how long a window lasts at this pace, in amber when the limit comes soon", async () => {
@@ -406,16 +404,16 @@ describe("usage panel", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("honors the light palette and includes only a measured task cost", async () => {
+  it("honors the light palette and includes only a measured chat cost", async () => {
     await render(
       snapshot({ theme: { mode: "light", accent: "#087e83" }, costUsd: 0 }),
     );
     expect(
       container.querySelector(".usage-panel")?.getAttribute("data-theme"),
     ).toBe("light");
-    expect(container.textContent).toContain("Task cost $0.00");
+    expect(container.textContent).toContain("Chat cost $0.00");
     await render(snapshot({ costUsd: Number.NaN }));
-    expect(container.textContent).not.toContain("Task cost");
+    expect(container.textContent).not.toContain("Chat cost");
   });
 
   it("applies custom workspace surface and foreground on successive snapshots", async () => {

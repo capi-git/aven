@@ -353,7 +353,7 @@ describe("settings navigation", () => {
       "Keyboard shortcuts",
       "Provider setup",
       "Providers & models",
-      "Tasks & review",
+      "Chats & review",
       "Skills & tools",
       "Git",
       "Connections",
@@ -442,9 +442,9 @@ describe("settings navigation", () => {
   it("keeps an unpicked search when the external sidebar changes category without reviving an old focus destination", async () => {
     await mount();
     await search("follow-up behavior");
-    await click(result("Follow-up behavior"));
+    await click(result("While an agent is working, new messages"));
     const destination = container.querySelector<HTMLElement>(
-      "#setting-follow-up-behavior",
+      "#setting-while-an-agent-is-working-new-messages",
     )!;
     expect(focusIsWithin(destination)).toBe(true);
     expect(destination.dataset.searchMatch).toBe("true");
@@ -452,7 +452,7 @@ describe("settings navigation", () => {
     await act(async () => externalSelectSection("appearance"));
     await act(async () => externalSelectSection("tasks"));
     const revisited = container.querySelector<HTMLElement>(
-      "#setting-follow-up-behavior",
+      "#setting-while-an-agent-is-working-new-messages",
     )!;
     expect(revisited.dataset.searchMatch).toBeUndefined();
     expect(focusIsWithin(revisited)).toBe(false);
@@ -485,7 +485,7 @@ describe("settings navigation", () => {
       ["Providers", "Providers & models", "setting-providers"],
       ["When an agent finishes", "Git", "setting-when-an-agent-finishes"],
       ["Archived projects", "Archive", "setting-archived-projects"],
-      ["Archived conversations", "Archive", "setting-archived-conversations"],
+      ["Archived chats", "Archive", "setting-archived-chats"],
     ]) {
       await search(label);
       await click(result(label));
@@ -506,14 +506,16 @@ describe("settings navigation", () => {
   it("refocuses a setting picked again from a new search", async () => {
     await mount();
     await search("follow-up behavior");
-    await click(result("Follow-up behavior"));
+    await click(result("While an agent is working, new messages"));
     const destination = () =>
-      container.querySelector<HTMLElement>("#setting-follow-up-behavior")!;
+      container.querySelector<HTMLElement>(
+        "#setting-while-an-agent-is-working-new-messages",
+      )!;
     expect(focusIsWithin(destination())).toBe(true);
 
     await search("follow-up behavior");
     expect(focusIsWithin(destination())).toBe(false);
-    await click(result("Follow-up behavior"));
+    await click(result("While an agent is working, new messages"));
     expect(focusIsWithin(destination())).toBe(true);
     expect(destination().dataset.searchMatch).toBe("true");
   });
@@ -588,9 +590,9 @@ describe("settings navigation", () => {
   it("keeps focus in search when dismissing a new query after opening an earlier result", async () => {
     await mount();
     await search("follow-up behavior");
-    await click(result("Follow-up behavior"));
+    await click(result("While an agent is working, new messages"));
     const earlierDestination = container.querySelector<HTMLElement>(
-      "#setting-follow-up-behavior",
+      "#setting-while-an-agent-is-working-new-messages",
     )!;
     expect(earlierDestination.dataset.searchMatch).toBe("true");
 
@@ -598,7 +600,7 @@ describe("settings navigation", () => {
     await key(input, "Escape");
     expect(input.value).toBe("");
     expect(document.activeElement).toBe(input);
-    expect(container.querySelector("h1")?.textContent).toBe("Tasks & review");
+    expect(container.querySelector("h1")?.textContent).toBe("Chats & review");
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -606,7 +608,7 @@ describe("settings navigation", () => {
     await mount("tasks", true);
     await search("theme");
     const row = container.querySelector<HTMLElement>(
-      "#setting-follow-up-behavior",
+      "#setting-while-an-agent-is-working-new-messages",
     )!;
     row.focus();
     await key(row, "Escape");
@@ -663,12 +665,12 @@ describe("settings navigation", () => {
     expect(notes.getAttribute("aria-checked")).toBe("true");
     await click(notes);
     expect(loadNotesEnabled()).toBe(false);
-    await section("Tasks & review");
+    await section("Chats & review");
     const steer = [
       ...container.querySelectorAll<HTMLButtonElement>(
-        '[role="radiogroup"][aria-label="Follow-up behavior"] [role="radio"]',
+        '[role="radiogroup"][aria-label="While an agent is working, new messages"] [role="radio"]',
       ),
-    ].find((button) => button.textContent === "Steer")!;
+    ].find((button) => button.textContent === "Send right away")!;
     await click(steer);
     expect(loadFollowUpBehavior()).toBe("steer");
     await section("Appearance");

@@ -657,8 +657,7 @@ function ModelList({
                     className="size-3 shrink-0 opacity-80"
                   />
                   <span className="truncate">
-                    {HARNESS_TITLE[item.harness]} ·{" "}
-                    {HARNESS_LABEL[item.harness]}
+                    {HARNESS_TITLE[item.harness]}
                   </span>
                 </span>
               </span>

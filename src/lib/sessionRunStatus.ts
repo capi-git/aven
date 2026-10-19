@@ -261,7 +261,7 @@ export function sessionRunStatus(
       failed: {
         kind: "failed",
         label: "Failed",
-        detail: "Check the error in the conversation",
+        detail: "Check the error in the chat",
       },
       stopped: {
         kind: "stopped",

@@ -58,7 +58,7 @@ export function readWindowWork(raw: unknown): WindowWork {
       return [
         {
           id,
-          title: text(agent.title) || "Untitled task",
+          title: text(agent.title) || "Untitled chat",
           project: text(agent.project),
           state,
         },

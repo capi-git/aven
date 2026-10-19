@@ -198,7 +198,7 @@ export function MenuBar({
           {
             kind: "item",
             id: "new_tab",
-            label: "New Tab",
+            label: "New Chat",
             shortcut: `${MOD}T`,
           },
           {

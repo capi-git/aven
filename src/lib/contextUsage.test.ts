@@ -52,14 +52,14 @@ describe("formatTokens", () => {
 describe("contextTooltip", () => {
   it("reads like the composer hover", () => {
     expect(contextTooltip({ used: 176_000, window: 256_000 })).toEqual({
-      headline: "69% context used",
-      detail: "176K / 256K tokens",
+      headline: "69% of this chat's context used",
+      detail: "176K of 256K tokens",
     });
   });
 
   it("omits the denominator when the window is unknown", () => {
     expect(contextTooltip({ used: 176_000 })).toEqual({
-      headline: "Context used",
+      headline: "Context used in this chat",
       detail: "176K tokens",
     });
   });

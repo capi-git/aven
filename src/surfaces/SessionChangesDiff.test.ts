@@ -155,7 +155,7 @@ describe("Session Changes after Ship it", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(container.textContent).toContain("No session changes");
+    expect(container.textContent).toContain("No changes in this chat");
     expect(
       [...container.querySelectorAll("button")].some(
         (button) => button.textContent === "Close",

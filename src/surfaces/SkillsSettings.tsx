@@ -241,7 +241,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </span>
           </div>
           <p>
-            Agents open web pages and local previews beside the task, each in
+            Agents open web pages and local previews beside the chat, each in
             its own tabs. Nothing to set up.
           </p>
         </div>

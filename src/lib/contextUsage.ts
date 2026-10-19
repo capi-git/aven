@@ -39,16 +39,22 @@ export function formatTokens(count: number): string {
   return `${millions < 10 ? millions.toFixed(1).replace(/\.0$/, "") : Math.round(millions)}M`;
 }
 
-/** Two-line hover text: "69% context used" over "176K / 256K tokens". */
+/**
+ * Two-line hover text: "69% of this chat's context used" over "176K of 256K
+ * tokens".
+ */
 export function contextTooltip(usage: ContextUsage): {
   headline: string;
   detail: string;
 } {
   const percent = contextPercent(usage);
   return {
-    headline: percent === null ? "Context used" : `${percent}% context used`,
+    headline:
+      percent === null
+        ? "Context used in this chat"
+        : `${percent}% of this chat's context used`,
     detail: usage.window
-      ? `${formatTokens(usage.used)} / ${formatTokens(usage.window)} tokens`
+      ? `${formatTokens(usage.used)} of ${formatTokens(usage.window)} tokens`
       : `${formatTokens(usage.used)} tokens`,
   };
 }

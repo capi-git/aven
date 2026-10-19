@@ -79,7 +79,7 @@ it("paints the workspace theme before showing, follows live state and sends expl
     expect(
       document.documentElement.style.getPropertyValue("--access-window-bg"),
     ).toBe("#faf4e6");
-    expect(host.textContent).toContain("Changes apply to the next turn");
+    expect(host.textContent).toContain("Applies from your next message");
     expect(host.querySelector('[aria-checked="true"]')?.textContent).toContain(
       "Auto",
     );

@@ -69,7 +69,7 @@ export function SessionFiltersMenu({
       maxHeight={480}
       onDismiss={onClose}
       role="menu"
-      aria-label="Filter sessions"
+      aria-label="Filter chats"
       onContextMenu={(event) => event.preventDefault()}
       className="overflow-y-auto overscroll-none p-1"
     >
@@ -86,7 +86,7 @@ export function SessionFiltersMenu({
         onClick={() => toggleStatus("working")}
       />
       <FilterItem
-        label="Needs approval"
+        label="Needs you"
         checked={filters.status.needsApproval}
         onClick={() => toggleStatus("needsApproval")}
       />

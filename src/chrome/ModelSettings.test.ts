@@ -87,7 +87,7 @@ describe("model settings in the agent panel", () => {
 
   it("lists reasoning levels in order, with one tab stop on the current level", async () => {
     await render();
-    expect(choices("Reasoning").map((item) => item.textContent)).toEqual([
+    expect(choices("Effort").map((item) => item.textContent)).toEqual([
       "Low",
       "Medium",
       "High",
@@ -96,15 +96,15 @@ describe("model settings in the agent panel", () => {
       "Ultracode",
       "Ultrathink",
     ]);
-    expect(checked("Reasoning")).toBe("Medium");
+    expect(checked("Effort")).toBe("Medium");
     expect(
-      choices("Reasoning").map((item) => item.getAttribute("tabindex")),
+      choices("Effort").map((item) => item.getAttribute("tabindex")),
     ).toEqual(["-1", "0", "-1", "-1", "-1", "-1", "-1"]);
   });
 
   it("moves through levels with the arrow keys and commits only on Enter or click", async () => {
     await render();
-    await act(async () => choice("Reasoning", "Medium").focus());
+    await act(async () => choice("Effort", "Medium").focus());
     expect((await key("ArrowDown")).defaultPrevented).toBe(true);
     expect(document.activeElement?.textContent).toBe("High");
     expect(onChange).not.toHaveBeenCalled();
@@ -122,7 +122,7 @@ describe("model settings in the agent panel", () => {
   it("colors every standard effort level and mounts tiles only for the active row", async () => {
     await render();
     const tones = Object.fromEntries(
-      choices("Reasoning").map((option) => [
+      choices("Effort").map((option) => [
         option.textContent,
         option.getAttribute("data-effort-tone"),
       ]),
@@ -138,7 +138,7 @@ describe("model settings in the agent panel", () => {
     });
     // Nothing ripples until a row is pointed at or focused.
     expect(host.querySelector(".model-effort-tiles")).toBeNull();
-    const max = choice("Reasoning", "Max");
+    const max = choice("Effort", "Max");
     await act(async () =>
       max.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })),
     );
@@ -156,7 +156,7 @@ describe("model settings in the agent panel", () => {
     expect(max.querySelector(".model-effort-tiles")).toBeNull();
     expect(host.querySelectorAll(".model-effort-tiles")).toHaveLength(1);
     expect(
-      choice("Reasoning", "Ultracode").hasAttribute("data-effort-active"),
+      choice("Effort", "Ultracode").hasAttribute("data-effort-active"),
     ).toBe(true);
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -182,7 +182,7 @@ describe("model settings in the agent panel", () => {
           settings: [
             {
               id: settingId,
-              label: "Reasoning",
+              label: "Effort",
               kind: "select",
               value: "low",
               options,
@@ -193,11 +193,11 @@ describe("model settings in the agent panel", () => {
       const values = { [settingId]: "low", serviceTier: "fast" };
       await renderModel(harness, id, values);
       expect(
-        choices("Reasoning").map((option) =>
+        choices("Effort").map((option) =>
           option.getAttribute("data-effort-tone"),
         ),
       ).toEqual(["low", "medium", "high", "xhigh"]);
-      await act(async () => choice("Reasoning", "Extra High").click());
+      await act(async () => choice("Effort", "Extra High").click());
       expect(onChange).toHaveBeenCalledExactlyOnceWith({
         ...values,
         [settingId]: extraHigh,
@@ -229,21 +229,21 @@ describe("model settings in the agent panel", () => {
   it("preserves Grok's descending choices and commits the exact low value", async () => {
     const values = { effort: "high", fast: "false" };
     await renderModel("grok", "grok:grok-4.6", values);
-    expect(choices("Reasoning").map((option) => option.textContent)).toEqual([
+    expect(choices("Effort").map((option) => option.textContent)).toEqual([
       "Extra High",
       "High",
       "Medium",
       "Low",
     ]);
-    const original = choice("Reasoning", "Low");
+    const original = choice("Effort", "Low");
     await act(async () => original.click());
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
       effort: "low",
       fast: "false",
     });
     await renderModel("grok", "grok:grok-4.6", onChange.mock.calls[0][0]);
-    expect(choice("Reasoning", "Low")).toBe(original);
-    expect(checked("Reasoning")).toBe("Low");
+    expect(choice("Effort", "Low")).toBe(original);
+    expect(checked("Effort")).toBe("Low");
   });
 
   it("keeps a future Codex reasoning value exact and offers the service tier as a choice", async () => {
@@ -262,7 +262,7 @@ describe("model settings in the agent panel", () => {
     setHarnessModels("codex", [future]);
     const values = { reasoningEffort: "low", serviceTier: "fast" };
     await renderModel("codex", future.id, values);
-    expect(choices("Reasoning").map((option) => option.textContent)).toEqual([
+    expect(choices("Effort").map((option) => option.textContent)).toEqual([
       "Low",
       "Adaptive",
     ]);
@@ -270,13 +270,13 @@ describe("model settings in the agent panel", () => {
       ["Standard", "Fast"],
     );
     expect(checked("Service Tier")).toBe("Fast");
-    await act(async () => choice("Reasoning", "Adaptive").click());
+    await act(async () => choice("Effort", "Adaptive").click());
     expect(onChange).toHaveBeenCalledExactlyOnceWith({
       reasoningEffort: "adaptive",
       serviceTier: "fast",
     });
     await renderModel("codex", future.id, onChange.mock.calls[0][0]);
-    expect(checked("Reasoning")).toBe("Adaptive");
+    expect(checked("Effort")).toBe("Adaptive");
     await act(async () => choice("Service Tier", "Standard").click());
     expect(onChange).toHaveBeenLastCalledWith({
       reasoningEffort: "adaptive",
@@ -293,7 +293,7 @@ describe("model settings in the agent panel", () => {
 describe("the pill's summary of model settings", () => {
   const effort = (options: string[]): ModelSetting => ({
     id: "effort",
-    label: "Reasoning",
+    label: "Effort",
     kind: "select",
     value: options[0].toLowerCase(),
     options: options.map((option) => ({

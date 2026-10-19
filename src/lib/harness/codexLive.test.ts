@@ -945,7 +945,7 @@ describe("codex live turn sequence", () => {
     });
     expect(events).toContainEqual({
       type: "status",
-      text: expect.stringContaining("copy of the conversation"),
+      text: expect.stringContaining("copy of the chat"),
     });
     reply(starts[0].id as number, {
       turn: { id: "turn_fork", status: "inProgress" },

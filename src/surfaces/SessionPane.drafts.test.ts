@@ -166,13 +166,13 @@ describe("session pane draft and header ownership", () => {
     expect(container.querySelector("[data-pane-strip]")).toBeNull();
     await render({}, true);
     const label = () => container.querySelector("[data-pane-strip-label]");
-    expect(label()?.textContent).toBe("New session");
+    expect(label()?.textContent).toBe("New chat");
     await act(async () =>
       setHarnessModels("codex", [
         { id: "codex:qa-model", harness: "codex", name: "QA Model" },
       ]),
     );
-    expect(label()?.textContent).toBe("New session");
+    expect(label()?.textContent).toBe("New chat");
     // The model is named in the pill, and in the strip's tooltip.
     expect(label()?.getAttribute("title")).toBe("QA Model");
     await render({ title: "codex · Repair preview" });

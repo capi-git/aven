@@ -506,8 +506,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           {onToggleInspector ? (
             <button
               type="button"
-              aria-label="Toggle file sidebar"
-              title={inspectorOpen ? "Hide file sidebar" : "Show file sidebar"}
+              aria-label="Toggle side panel"
+              title={inspectorOpen ? "Hide side panel" : "Show side panel"}
               data-inspector-toggle
               aria-pressed={!!inspectorOpen}
               onClick={onToggleInspector}

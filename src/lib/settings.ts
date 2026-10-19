@@ -31,7 +31,7 @@ export const SETTINGS_SECTIONS: {
     id: "general",
     group: "Personal",
     label: "General",
-    description: "Updates, the project rail, and small extras.",
+    description: "Updates, the sidebar, and small extras.",
   },
   {
     id: "appearance",
@@ -55,20 +55,20 @@ export const SETTINGS_SECTIONS: {
     id: "provider-setup",
     group: "Agents",
     label: "Provider setup",
-    description:
-      "Choose providers, install their CLIs, and connect your accounts.",
+    description: "Choose providers, install them, and connect your accounts.",
   },
   {
     id: "providers",
     group: "Agents",
     label: "Providers & models",
-    description: "Choose your agents, models, and defaults for new tasks.",
+    description: "Choose your agents, models, and defaults for new chats.",
   },
   {
     id: "tasks",
     group: "Agents",
-    label: "Tasks & review",
-    description: "How agents start, take follow-ups, and show their work.",
+    label: "Chats & review",
+    description:
+      "How chats start, handle your follow-up messages, and show their work.",
   },
   {
     id: "skills",
@@ -99,7 +99,7 @@ export const SETTINGS_SECTIONS: {
     id: "archive",
     group: "Archived",
     label: "Archive",
-    description: "Find and restore archived projects and conversations.",
+    description: "Find and restore archived projects and chats.",
   },
 ];
 
@@ -229,7 +229,7 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
   { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
   { command: "View: Reset Zoom", keys: `${MOD}0`, when: "Always" },
-  { command: "Tab: New", keys: `${MOD}T`, when: "Always" },
+  { command: "Chat: New", keys: `${MOD}T`, when: "Always" },
   { command: "Tab: Close Others", keys: `${MOD}${ALT}T`, when: "Always" },
   { command: "Tab: Next", keys: `${MOD}${SHIFT}]`, when: "Always" },
   { command: "Tab: Previous", keys: `${MOD}${SHIFT}[`, when: "Always" },
@@ -244,17 +244,17 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Tab: Activate 1–8", keys: `${MOD}1 … ${MOD}8`, when: "Always" },
   { command: "Tab: Activate Last", keys: `${MOD}9`, when: "Always" },
   {
-    command: "Session: Archive",
+    command: "Chat: Archive",
     keys: `${MOD}${SHIFT}A`,
     when: "sessionFocus && !overlay",
   },
   {
-    command: "Session: Previous",
+    command: "Chat: Previous",
     keys: `${MOD}${SHIFT}↑`,
     when: "!overlay && (!textFocus || emptyComposer)",
   },
   {
-    command: "Session: Next",
+    command: "Chat: Next",
     keys: `${MOD}${SHIFT}↓`,
     when: "!overlay && (!textFocus || emptyComposer)",
   },
@@ -290,7 +290,7 @@ export const KEYBINDINGS: KeybindingRow[] = [
 export function formatKeybindingContext(when: string): string {
   switch (when) {
     case "sessionFocus && !overlay":
-      return "In a conversation, with other views closed";
+      return "In a chat, with other views closed";
     case "!overlay && (!textFocus || emptyComposer)":
       return "In the workspace, outside text fields or in an empty composer";
     case "!editorFocus":

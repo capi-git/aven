@@ -65,7 +65,7 @@ type Options = DevPerfOptions & {
   floatingSidebarLabel: string | null;
   /** Whether this platform attaches the floating sidebar at all. */
   expectFloatingSidebar: boolean;
-  /** The sidebar's "New task in <project>". */
+  /** The sidebar's "New chat in <project>". */
   newProjectTask: (path: string) => void;
   submit: (sessionId: string, text: string) => void;
   /** The workspace's own utility views, opened as their buttons would. */
@@ -316,7 +316,7 @@ async function expectOnScreen(view: UtilityView | null) {
   }
 }
 
-/** A new task in `path`, as the sidebar's New task opens one. */
+/** A new chat in `path`, as the sidebar's New chat opens one. */
 async function openNewTask(get: () => Options, path: string): Promise<Session> {
   const before = new Set(get().sessions.map((session) => session.id));
   get().newProjectTask(path);
@@ -2511,11 +2511,11 @@ export async function runDevSmoke(
     );
 
   // Home: every project's agent with its mascot, the working one moving,
-  // Right now and today's recap; then the sidebar's New task pressed over
+  // Right now and today's recap; then the sidebar's New chat pressed over
   // Home leaves it for the new chat.
   if (safe && typedTask && motion)
     await step(
-      "Home shows each project's agent, and New task leaves Home for the chat",
+      "Home shows each project's agent, and New chat leaves Home for the chat",
       async () => {
         const reply = await startHeldTurn(
           get,
@@ -2601,7 +2601,7 @@ export async function runDevSmoke(
       await waitFor(
         () => !homeOnScreen() && workspaceOnScreen(),
         5_000,
-        "Home to give way to the new task",
+        "Home to give way to the new chat",
       );
       await waitFor(
         () =>

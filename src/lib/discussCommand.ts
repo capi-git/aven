@@ -6,7 +6,7 @@ export const DISCUSS_COMMAND: BuiltinSkill = {
   name: "discuss",
   invocation: "discuss",
   description:
-    "Turn on Discuss mode: talk your message through with another chat.",
+    "Turn on Discuss mode: another chat talks your message over with this one.",
   scope: "builtin",
   source: "monocode",
 };

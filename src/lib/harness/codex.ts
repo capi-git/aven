@@ -533,7 +533,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           opened = forked;
           if (!threadId || threadId === resume.threadId) {
             throw new Error(
-              "Codex could not create a separate conversation. Your existing history is unchanged; please retry.",
+              "Codex could not create a separate chat. Your existing history is unchanged; please retry.",
             );
           }
           didResume = true;
@@ -616,7 +616,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     if (didFork) {
       live.onEvent({
         type: "status",
-        text: "Continued from a copy of the conversation because it is open in another Codex connection. Its saved history is included; the original stays unchanged.",
+        text: "Continued from a copy of the chat because it is open in another Codex connection. Its saved history is included; the original stays unchanged.",
       });
     }
     return live;

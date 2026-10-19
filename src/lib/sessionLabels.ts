@@ -5,6 +5,7 @@ import {
   type HarnessId,
   type Session,
 } from "./session";
+import { isUntitledChatTitle, UNTITLED_CHAT_TITLE } from "./untitledChat";
 
 export type SessionModelIdentity = {
   harness: HarnessId;
@@ -94,17 +95,17 @@ export function compactModelNames(names: readonly string[]): string {
 /**
  * `titleOverride` names the pane by role instead of its conversation title,
  * e.g. a race agent's "Provider · Model". The model is shown once, in the
- * composer's agent pill, so an untitled chat is a "New session" here and the
+ * composer's agent pill, so an untitled chat is a "New chat" here and the
  * model stays in the tooltip.
  */
 export function sessionPaneLabel(session: Session, titleOverride?: string) {
   const display = (
     titleOverride ?? sessionDisplayTitle(session.title, session.harness)
   ).trim();
-  const title = display === "New session" ? "" : display;
+  const title = isUntitledChatTitle(display) ? "" : display;
   const model = sessionModelName(sessionModelIdentity(session));
   return {
-    headline: title || "New session",
+    headline: title || UNTITLED_CHAT_TITLE,
     tooltip:
       title && !title.includes(model) ? `${title} · ${model}` : title || model,
   };

@@ -1,21 +1,20 @@
 import { timeAgo } from "./orchestrationSummary";
 import { sessionDisplayTitle, type Session } from "./session";
+import { isUntitledChatTitle } from "./untitledChat";
 
 /** Longest first-message name a picker row shows; the row truncates beyond. */
 const FIRST_MESSAGE_MAX = 60;
 
-const UNTITLED = "New session";
-
 /**
  * A chat's name where you pick one (Discuss's partner, a race's reviewer):
  * its title, or, while it has none, its first message, or "Empty chat".
- * Several untitled chats never all read "New session".
+ * Several untitled chats never all read "New chat".
  */
 export function chatChoiceTitle(
   session: Pick<Session, "title" | "harness" | "blocks">,
 ): string {
   const title = sessionDisplayTitle(session.title, session.harness).trim();
-  if (title && title !== UNTITLED) return title;
+  if (title && !isUntitledChatTitle(title)) return title;
   const first = session.blocks
     .find((block) => block.role === "user" && block.text.trim())
     ?.text.trim()

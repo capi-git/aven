@@ -15,7 +15,7 @@ export const SETTINGS = {
     section: "provider-setup",
     label: "Provider setup",
     description:
-      "Choose providers, install their CLIs, sign in, and check your connections.",
+      "Choose providers, install them, sign in, and check your connections.",
     keywords:
       "onboarding first launch getting started cli installation login authentication Windows macOS PATH Claude Codex",
   }),
@@ -36,7 +36,8 @@ export const SETTINGS = {
   inAppBrowser: defineSetting({
     section: "skills",
     label: "In-app browser",
-    description: "Browser tools are built into Aven and scoped to each task.",
+    description:
+      "Browser tools are built into Aven and kept separate for each chat.",
     keywords: "tools chromium web localhost automation",
   }),
   desktopControl: defineSetting({
@@ -51,25 +52,26 @@ export const SETTINGS = {
     section: "connections",
     label: "Agent connections",
     description:
-      "Add, remove, and sign in to MCP servers for Claude and Codex.",
+      "Extra tools your agents can use: add, remove, and sign in to MCP servers for Claude and Codex.",
     keywords:
       "mcp servers connectors apps sign in login add remove claude.ai chatgpt integration status",
     rowDescription:
-      "Add, remove, and sign in to the MCP servers Claude and Codex can reach. Each provider keeps its own settings and sign-in.",
+      "Extra tools your agents can use. Add, remove, and sign in to the MCP servers Claude and Codex can reach. Each provider keeps its own settings and sign-in.",
   }),
   defaultTaskAccess: defineSetting({
     section: "tasks",
-    label: "Default task access",
-    description: "Choose the approval policy for new tasks.",
-    keywords: "permissions full access supervised auto accept safety",
+    label: "Default access for new chats",
+    description: "Choose what agents may do without asking in new chats.",
+    keywords:
+      "permissions full access ask first supervised auto accept safety task session approval policy",
     rowDescription:
-      "Applies to new tasks. Existing tasks keep their own access setting.",
+      "Applies to new chats. Existing chats keep their own access.",
   }),
   transcriptLayout: defineSetting({
     section: "tasks",
     label: "Transcript layout",
     description: "Choose full-width prompts or chat-style messages.",
-    keywords: "conversation alignment bubbles",
+    keywords: "conversation chat alignment bubbles",
     rowDescription: "Choose full-width prompts or a familiar chat layout.",
   }),
   diffViewer: defineSetting({
@@ -119,17 +121,18 @@ export const SETTINGS = {
       storageChanges: true,
     }),
     section: "tasks",
-    label: "Follow-up behavior",
+    label: "While an agent is working, new messages",
     description:
-      "Queue messages until a turn finishes, or steer it immediately.",
-    keywords: "followup queued send busy running",
+      "Hold new messages until the agent finishes, or send them to it right away.",
+    keywords:
+      "follow-up followup behavior queue queued steer send busy running",
     rowDescription:
-      "Queue follow-ups until the active turn finishes, or steer the active turn immediately.",
+      "Wait their turn: sent once the agent finishes. Send right away: the agent reads it while it works.",
   }),
   transcriptAnchor: defineSetting({
     section: "tasks",
     label: "Anchor prompts to top",
-    description: "Position new prompts at the top of the conversation.",
+    description: "Position new prompts at the top of the chat.",
     keywords: "chat scrolling reply bottom",
     rowDescription:
       "Keep your latest prompt at the top while the response grows below it.",
@@ -142,9 +145,9 @@ export const SETTINGS = {
       eventDetail: true,
     }),
     section: "general",
-    label: "Composer mascot",
-    description: "Show the animated project mascot during a turn.",
-    keywords: "pet animation working",
+    label: "Mascot in the message box",
+    description: "Show the project's animated mascot while an agent works.",
+    keywords: "composer pet animation working",
     rowDescription: "Show a small animated mascot while an agent is working.",
   }),
   gridArcadeEnabled: defineSetting({
@@ -155,11 +158,11 @@ export const SETTINGS = {
       eventDetail: true,
     }),
     section: "general",
-    label: "Empty session games",
-    description: "Show small games in empty conversations.",
-    keywords: "pacman snake arcade idle",
+    label: "Games in empty chats",
+    description: "Show small games in empty chats.",
+    keywords: "pacman snake arcade idle session conversation",
     rowDescription:
-      "Show interactive games in empty sessions. Turn off for a quieter workspace.",
+      "Show small games to play in empty chats. Turn off for a quieter workspace.",
   }),
   notesEnabled: defineSetting({
     ...defineStoredSetting<boolean>({
@@ -170,10 +173,10 @@ export const SETTINGS = {
     }),
     section: "general",
     label: "Notes",
-    description: "Show the shared Markdown notebook in the project rail.",
+    description: "Show the shared Markdown notebook in the sidebar.",
     keywords: "notebook note save add chat",
     rowDescription:
-      "Keep reusable notes in the sidebar. Add them to a conversation with @note.",
+      "Keep reusable notes in the sidebar. Add them to a chat with @note.",
   }),
   liveAgentsEnabled: defineSetting({
     ...defineStoredSetting<boolean>({
@@ -185,10 +188,10 @@ export const SETTINGS = {
     section: "general",
     label: "Working agents",
     description:
-      "Show running tasks and recently finished work in the project rail.",
+      "Show running agents and recently finished work in the sidebar.",
     keywords: "activity status progress card",
     rowDescription:
-      "Show running agents together in the sidebar when multiple tasks are active.",
+      "Show running agents together in the sidebar when several chats are working.",
   }),
   browserMemorySaver: defineSetting({
     ...defineStoredSetting<boolean>({
@@ -212,15 +215,15 @@ export const SETTINGS = {
       storageChanges: true,
     }),
     section: "browser",
-    label: "Lightweight browser",
+    label: "Use less memory for web pages",
     description:
-      "Uses Chromium's reduced-memory mode for web pages and keeps only your most recent inactive tab ready. For laptops with little memory; applies when Aven starts.",
+      "Runs web pages in a lighter mode and keeps only your most recent inactive tab ready. For computers with little memory; applies when Aven starts.",
     keywords:
-      "ram memory low-end lightweight performance browser laptop restart",
+      "ram memory low-end lightweight browser chromium reduced performance laptop restart",
     rowDescription:
-      "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts.",
+      "Runs web pages in a lighter mode that needs less memory. With Memory saver on, also keeps only your most recent inactive tab ready and puts others to sleep after two minutes. For computers with little memory; the lighter mode applies when Aven starts.",
     restartDescription:
-      "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change.",
+      "Runs web pages in a lighter mode that needs less memory. Restart Aven to apply this change.",
   }),
   devPreviewAutoOpen: defineSetting({
     ...defineStoredSetting<boolean>({
@@ -241,24 +244,24 @@ export const SETTINGS = {
   sounds: defineSetting({
     section: "notifications",
     label: "Sounds",
-    description: "Control sound cues for tasks and workspace actions.",
+    description: "Control sound cues for agents and workspace actions.",
     keywords: "audio mute volume",
     rowDescription:
-      "Play short cues for task completion, inbox items, updates, and interactions.",
+      "Play short cues when an agent finishes, and for inbox items, updates, and interactions.",
   }),
   notifications: defineSetting({
     section: "notifications",
     label: "Notifications",
-    description: "Show desktop notifications when a task needs attention.",
+    description: "Show desktop notifications when an agent needs you.",
     keywords: "alerts banners macos completion",
     rowDescription:
-      "Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off.",
+      "Send macOS notifications when an agent needs you while you are elsewhere. Activity keeps a local history even when these are off.",
   }),
   activityAlerts: defineSetting({
     section: "notifications",
     label: "Activity alerts",
     description:
-      "Choose alerts for input requests, failures, and finished tasks.",
+      "Choose alerts for when an agent needs you, fails, or finishes.",
     keywords: "approvals errors stopped attention sound",
     rowDescription:
       "Choose which outcomes can interrupt you. Every outcome still appears in Activity.",
@@ -266,10 +269,10 @@ export const SETTINGS = {
   quietMode: defineSetting({
     section: "notifications",
     label: "Quiet mode",
-    description: "Record activity without task banners or sounds.",
+    description: "Record activity without banners or sounds.",
     keywords: "do not disturb dnd mute focus",
     rowDescription:
-      "Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged.",
+      "Keep recording Activity without agent banners or sounds. Your other sound settings stay unchanged.",
   }),
   claudeHooks: defineSetting({
     ...defineStoredSetting<boolean>({
@@ -278,10 +281,10 @@ export const SETTINGS = {
     }),
     section: "tasks",
     label: "Claude Code hooks",
-    description: "Run configured Claude Code hooks on future turns.",
+    description: "Run your configured Claude Code hooks.",
     keywords: "automation pretooluse settings json",
     rowDescription:
-      "Run your configured Claude Code hooks. Changes apply on the next turn.",
+      "Run your configured Claude Code hooks. Changes apply from your next message.",
   }),
   version: defineSetting({
     section: "general",
@@ -390,16 +393,15 @@ export const SETTINGS = {
   }),
   archivedConversations: defineSetting({
     section: "archive",
-    label: "Archived conversations",
-    description: "Browse, restore, or delete archived conversations.",
-    keywords: "history recover unarchive sessions tasks chats",
+    label: "Archived chats",
+    description: "Browse, restore, or delete archived chats.",
+    keywords: "history recover unarchive sessions tasks conversations",
   }),
   showArchived: defineSetting({
     section: "archive",
     label: "Show archived in the sidebar",
-    description: "Include archived conversations in the sidebar.",
-    keywords: "history hidden sessions tasks chats",
-    rowDescription:
-      "Keep archived conversations listed alongside the active ones.",
+    description: "Include archived chats in the sidebar.",
+    keywords: "history hidden sessions tasks conversations",
+    rowDescription: "Keep archived chats listed alongside the active ones.",
   }),
 };

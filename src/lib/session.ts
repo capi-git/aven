@@ -10,6 +10,7 @@ import type { InboxAskContext } from "./inboxAsk";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
 import type { OrchestrationProposal } from "./orchestrationPlan";
 import { loadDefaultRuntimeMode, type RuntimeMode } from "./runtimeMode";
+import { isUntitledChatTitle, UNTITLED_CHAT_TITLE } from "./untitledChat";
 export {
   DEFAULT_RUNTIME_MODE,
   RUNTIME_MODES,
@@ -447,8 +448,12 @@ export function sessionIsWaitingForInput(session: Session): boolean {
 export function sessionDisplayTitle(title: string, harness: HarnessId): string {
   const prefix = `${HARNESS_LABEL[harness]} · `;
   if (title.startsWith(prefix)) return title.slice(prefix.length);
-  if (title === HARNESS_LABEL[harness] || title === HARNESS_TITLE[harness]) {
-    return "New session";
+  if (
+    title === HARNESS_LABEL[harness] ||
+    title === HARNESS_TITLE[harness] ||
+    isUntitledChatTitle(title)
+  ) {
+    return UNTITLED_CHAT_TITLE;
   }
   return title;
 }

@@ -35,9 +35,9 @@ describe("truthful session labels", () => {
         harness: "codex",
       },
     ]);
-    // The pill names the model; an untitled pane is a new session.
+    // The pill names the model; an untitled pane is a new chat.
     expect(sessionPaneLabel(session())).toEqual({
-      headline: "New session",
+      headline: "New chat",
       tooltip: "Local Model 2",
     });
     expect(sessionModelName({ harness: "codex", model: "local-model" })).toBe(
@@ -62,7 +62,7 @@ describe("truthful session labels", () => {
         }),
       ),
     ).toEqual({
-      headline: "New session",
+      headline: "New chat",
       tooltip: "Claude Code QA Model",
     });
     expect(
@@ -94,10 +94,11 @@ describe("truthful session labels", () => {
       tooltip: "Repair browser · local-model",
     });
     expect(sessionPaneLabel(session({ title: "  " })).headline).toBe(
-      "New session",
+      "New chat",
     );
+    // Older chats, and some providers, still call an untitled chat this.
     expect(sessionPaneLabel(session({ title: "New session" })).headline).toBe(
-      "New session",
+      "New chat",
     );
   });
 

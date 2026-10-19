@@ -1013,8 +1013,8 @@ export function ScheduleEditor({
       </div>
       {draft.runtimeMode === "supervised" ? (
         <p className="scheduled-warning" role="note">
-          Supervised runs pause whenever the agent asks for approval. If nobody
-          is there to answer, the run waits until you open its chat.
+          With Ask first, a run pauses whenever the agent asks for approval. If
+          nobody is there to answer, the run waits until you open its chat.
         </p>
       ) : null}
       <div className="scheduled-field">

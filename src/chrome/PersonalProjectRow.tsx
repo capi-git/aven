@@ -125,7 +125,7 @@ export function PersonalProjectRow({
           {
             kind: "item" as const,
             id: "delete",
-            label: "Delete project conversations…",
+            label: "Delete project and its chats…",
             danger: true,
           },
         ]
@@ -194,7 +194,7 @@ export function PersonalProjectRow({
         <button
           type="button"
           className="personal-project-row-action personal-project-disclosure"
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${label} tasks`}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${label} chats`}
           aria-expanded={expanded}
           onClick={onToggle}
         >
@@ -219,8 +219,8 @@ export function PersonalProjectRow({
           <button
             type="button"
             className="personal-project-row-action"
-            aria-label={`New task in ${label}`}
-            title={`New task in ${label}`}
+            aria-label={`New chat in ${label}`}
+            title={`New chat in ${label}`}
             onClick={onNew}
           >
             <Plus className="size-3.5" />
