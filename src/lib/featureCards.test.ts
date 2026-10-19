@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import {
+  addChatsToBoard,
   addFeatureCards,
   addFeatureIdea,
   clearFeatureCards,
@@ -159,14 +160,30 @@ describe("featureCards", () => {
       },
       { id: b.id, from: undefined, basis: "b:working::", column: "building" },
     ]);
-    const [savedA, savedB] = cards();
+    const savedA = cards().find((card) => card.id === a.id);
+    const savedB = cards().find((card) => card.id === b.id);
     expect(savedA).toMatchObject({
       column: "shipped",
       basis: "a:shipped::9",
       shippedAt: NOW - 100,
     });
     expect(savedB).toMatchObject({ column: "review", basis: "b:review:1:" });
-    expect((await storage.list("/work/site"))[0].column).toBe("shipped");
+    // Cards added together share a time: find each by its id.
+    const stored = await storage.list("/work/site");
+    expect(stored.find((card) => card.id === a.id)?.column).toBe("shipped");
+    expect(stored.find((card) => card.id === b.id)?.column).toBe("review");
+  });
+
+  it("adds a card for each chat not on the board yet", async () => {
+    await addFeatureCards(PROJECT, [{ title: "Search", chatIds: ["one"] }]);
+    const added = await addChatsToBoard(PROJECT, [
+      { title: "Chat one", chatIds: ["one"], column: "building" },
+      { title: "Chat two", chatIds: ["two"], column: "review" },
+    ]);
+    expect(added.map((card) => [card.title, card.column])).toEqual([
+      ["Chat two", "review"],
+    ]);
+    expect(cards().map((card) => card.title)).toEqual(["Search", "Chat two"]);
   });
 
   it("deletes a card and clears a project's cards", async () => {
