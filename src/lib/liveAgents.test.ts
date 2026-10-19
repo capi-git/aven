@@ -392,3 +392,21 @@ describe("unseen finished sessions the user can look at", () => {
     ).toEqual([lead.id]);
   });
 });
+
+describe("Aven's own data folder in a live agent's activity", () => {
+  it("names it Aven data", () => {
+    const busy = chat("/repo", {
+      busy: true,
+      blocks: [
+        { id: "u1", role: "user", text: "hello", startedAt: 1_000 },
+        edit(
+          "t1",
+          "/Users/jack/Library/Application Support/com.capi.monocode.personal/projectless-workspaces/p1/notes.md",
+        ),
+      ],
+    });
+    expect(liveAgentsFromSessions([busy])[0]?.activity).toBe(
+      "Edited Aven data/projectless-workspaces/p1/notes.md",
+    );
+  });
+});

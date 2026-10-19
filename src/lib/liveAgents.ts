@@ -1,6 +1,6 @@
 import { toolDisplayLabel } from "./commandLabel";
 import { isInFlightSession } from "./inFlight";
-import { displayPath } from "./paths";
+import { displayAppData, displayPath } from "./paths";
 import { activeSessionAgents, uncertainSessionAgents } from "./sessionAgents";
 import {
   sessionDisplayTitle,
@@ -267,13 +267,15 @@ function activityLabel(block: Block | undefined, cwd: string): string {
     ? displayPath(preview.path, cwd)
     : preview?.fileName;
   return (
-    toolDisplayLabel({
-      kind: block.tool?.kind,
-      title: block.text || block.tool?.title,
-      path,
-      query: preview?.query,
-      previewKind: preview?.kind,
-      cwd,
-    }) || "Working"
+    displayAppData(
+      toolDisplayLabel({
+        kind: block.tool?.kind,
+        title: block.text || block.tool?.title,
+        path,
+        query: preview?.query,
+        previewKind: preview?.kind,
+        cwd,
+      }),
+    ) || "Working"
   );
 }

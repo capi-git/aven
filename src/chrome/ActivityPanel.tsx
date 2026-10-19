@@ -26,6 +26,7 @@ import {
 import { teamsNeedingYou } from "../lib/teamAttention";
 import { teamAnchor, type TeamNeed, type TeamRun } from "../lib/teamRuns";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
+import { displayAppData } from "../lib/paths";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import { UNTITLED_CHAT_TITLE } from "../lib/untitledChat";
 import {
@@ -233,16 +234,19 @@ export function ActivityPanel({
                   {activityOutcomeLabel(entry)} · {projectName(entry.cwd)} ·{" "}
                   {appName(entry.harness)}
                 </span>
-                <span className="activity-summary" title={entry.summary}>
-                  {entry.summary}
+                <span
+                  className="activity-summary"
+                  title={displayAppData(entry.summary)}
+                >
+                  {displayAppData(entry.summary)}
                 </span>
                 {entry.detail ? (
                   <span
                     className="activity-summary"
                     data-activity-detail
-                    title={entry.detail}
+                    title={displayAppData(entry.detail)}
                   >
-                    {entry.detail}
+                    {displayAppData(entry.detail)}
                   </span>
                 ) : null}
               </span>

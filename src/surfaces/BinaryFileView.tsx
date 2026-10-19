@@ -7,7 +7,7 @@ import { copyText } from "../lib/clipboard";
 import { formatFileSize } from "../lib/filePreview";
 import { watchFile } from "../lib/fileWatch";
 import { basename, revealPath } from "../lib/fs";
-import { displayPath } from "../lib/paths";
+import { displayAppData, displayPath } from "../lib/paths";
 
 type Props = { path: string; cwd: string };
 
@@ -171,7 +171,7 @@ function FileCard({
         <p className="text-ui-body text-content">{title}</p>
         <p className="mt-1 text-ui-label leading-5 text-content/50">{detail}</p>
         <p className="mt-1 truncate font-mono text-ui-caption text-content/35">
-          {displayPath(path, cwd)}
+          {displayAppData(displayPath(path, cwd))}
         </p>
         <div className="mt-4 flex items-center justify-center gap-2">
           {onRetry ? (

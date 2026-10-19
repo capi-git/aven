@@ -8,7 +8,7 @@ import {
 } from "react";
 import { basename, pickFolder } from "../lib/fs";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
-import { prettyCwd, prettyParent } from "../lib/paths";
+import { displayAppData, prettyCwd, prettyParent } from "../lib/paths";
 import {
   looksLikeProject,
   sameProjectPath,
@@ -78,7 +78,7 @@ export function CwdPicker({
 
   const projectless = isProjectlessCwd(cwd);
   const inProject = !projectless && looksLikeProject(cwd);
-  const label = projectless ? "No project" : prettyCwd(cwd);
+  const label = projectless ? "No project" : displayAppData(prettyCwd(cwd));
   const otherRecents = useMemo(
     () =>
       recents.filter((item) => !inProject || !sameProjectPath(item.path, cwd)),
@@ -290,7 +290,7 @@ export function CwdPicker({
                     {basename(cwd)}
                   </p>
                   <p className="truncate font-mono text-ui-caption">
-                    {prettyParent(cwd)}
+                    {displayAppData(prettyParent(cwd))}
                   </p>
                 </div>
               </>
@@ -305,7 +305,7 @@ export function CwdPicker({
                     key={item.path}
                     type="button"
                     role="menuitem"
-                    title={item.path}
+                    title={displayAppData(item.path)}
                     onMouseDown={(e) => e.stopPropagation()}
                     onMouseEnter={() => {
                       setMoreOpen(false);
@@ -322,7 +322,7 @@ export function CwdPicker({
                       {basename(item.path)}
                     </span>
                     <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
-                      {prettyParent(item.path)}
+                      {displayAppData(prettyParent(item.path))}
                     </span>
                   </button>
                 ))}
@@ -426,7 +426,7 @@ export function CwdPicker({
               key={item.path}
               type="button"
               role="menuitem"
-              title={item.path}
+              title={displayAppData(item.path)}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => pick({ kind: "recent", path: item.path })}
               className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left text-content/80 hover:bg-content/5 hover:text-content"
@@ -435,7 +435,7 @@ export function CwdPicker({
                 {basename(item.path)}
               </span>
               <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
-                {prettyParent(item.path)}
+                {displayAppData(prettyParent(item.path))}
               </span>
             </button>
           ))}

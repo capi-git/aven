@@ -33,3 +33,44 @@ describe("what a working chat is doing", () => {
     ).toBe("vitest run");
   });
 });
+
+describe("Aven's own data folder in the doing line", () => {
+  const shot =
+    "/Users/jack/Library/Application Support/com.capi.monocode.personal/turn-shots/s1/1-after.png";
+  const reading = (block: Session["blocks"][number]): Session => ({
+    ...newSession("claude", "/work/site"),
+    busy: true,
+    blocks: [{ id: "u", role: "user", text: "Check it" }, block],
+  });
+
+  it("names a picture Aven took as Aven data", () => {
+    const session = reading({
+      id: "t",
+      role: "tool",
+      text: "Read",
+      tool: {
+        kind: "read",
+        status: "in_progress",
+        preview: { kind: "read", path: shot, fileName: "1-after.png" },
+      },
+    });
+    expect(sessionDoing(session)).toBe(
+      "Read Aven data/turn-shots/s1/1-after.png",
+    );
+    // The chat itself still holds the real path.
+    expect(session.blocks[1].tool?.preview?.path).toBe(shot);
+  });
+
+  it("names it in a line the harness wrote", () => {
+    expect(
+      currentActivity(
+        reading({
+          id: "t",
+          role: "tool",
+          text: "Reading ~/Library/Application Support/com.capi.aven.dev/turn-shots/s1/1-after.png",
+          tool: { kind: "other", status: "in_progress" },
+        }),
+      ),
+    ).toBe("Reading Aven data/turn-shots/s1/1-after.png");
+  });
+});

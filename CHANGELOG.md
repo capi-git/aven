@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Activity lines, file chips, the agents list and folder paths show Aven's own folder as **Aven data** instead of its old internal name, so a screenshot the agent reads shows as "Read Aven data/turn-shots/…/preview-login.png". The folder itself and the paths agents get are unchanged.
+
 ## [0.1.147] - 2026-10-19
 
 ### Added

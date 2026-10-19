@@ -60,7 +60,12 @@ import {
   type GitFileDiffKind,
 } from "../lib/fs";
 import { syncWatchedMtime, watchFile } from "../lib/fileWatch";
-import { displayPath, joinPath, parentPath } from "../lib/paths";
+import {
+  displayAppData,
+  displayPath,
+  joinPath,
+  parentPath,
+} from "../lib/paths";
 import { IS_WIN } from "../lib/platform";
 import type { EditorNavigation } from "../lib/search";
 import { MarkdownPreview } from "./AgentMarkdown";
@@ -578,8 +583,8 @@ export function FileEditor({
         />
       )}
       <footer className="file-editor-status flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
-        <span className="min-w-0 flex-1 truncate" title={path}>
-          {relativePath}
+        <span className="min-w-0 flex-1 truncate" title={displayAppData(path)}>
+          {displayAppData(relativePath)}
         </span>
         {saveState.status === "saving" ? (
           <span>Saving…</span>
