@@ -38,7 +38,7 @@ import { getSession } from "./sessionStore";
 import { CONTINUE_PROMPT } from "./inFlight";
 import { raceLaneName } from "./raceLanes";
 import { namedLanes, raceDistinctNames } from "./raceNames";
-import { queueTurnNote } from "./turnNotes";
+import { pendingTurnNotes, queueTurnNote } from "./turnNotes";
 import { finalReply } from "./replyText";
 import type { Block, HarnessId, Session } from "./session";
 import type { TeamWorkspace } from "./teamWorkspace";
@@ -688,8 +688,17 @@ export async function noteRaceKept(
   if (!race || lane === undefined) return;
   await queueRaceRecap(raceId, session, load);
   const origin = race.origin?.sessionId;
-  if (origin && origin !== race.lanes[lane]?.sessionId)
-    queueTurnNote(origin, { kind: "race", text: raceKeptNote(race, lane) });
+  if (!origin || origin === race.lanes[lane]?.sessionId) return;
+  // A chat holds one race note, so a second race kept from it before its
+  // next message adds to the note rather than replacing it.
+  const text = raceKeptNote(race, lane);
+  const waiting = pendingTurnNotes(origin).find((note) => note.kind === "race");
+  if (waiting?.text.includes(text)) return;
+  queueTurnNote(origin, {
+    kind: "race",
+    text: waiting ? `${waiting.text}\n\n${text}` : text,
+    hint: waiting?.hint,
+  });
 }
 
 /**

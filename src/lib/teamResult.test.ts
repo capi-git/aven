@@ -408,6 +408,39 @@ describe("continuing after a race", () => {
       expect(pendingTurnNotes("l1")).toHaveLength(0);
     });
 
+    it("adds a second kept race to the note waiting in the chat both started from", async () => {
+      const origin = { sessionId: "origin", blockId: "b" };
+      saveRace(
+        race({
+          state: "kept",
+          outcome: { kind: "lane", lane: 1, files: 2 },
+          origin,
+        }),
+      );
+      await noteRaceKept("r1");
+      saveRace(
+        race({
+          id: "r2",
+          prompt: "Add a dark theme",
+          state: "kept",
+          outcome: { kind: "lane", lane: 0, files: 1 },
+          origin,
+          lanes: race().lanes.map((lane, slot) => ({
+            ...lane,
+            sessionId: `m${slot}`,
+          })),
+        }),
+      );
+      await noteRaceKept("r2");
+      // Telling it about the same race again changes nothing.
+      await noteRaceKept("r2");
+      const notes = pendingTurnNotes("origin");
+      expect(notes).toHaveLength(1);
+      expect(notes[0].text).toBe(
+        "The user had other agents try “Fix the login loop” in separate copies of this project and kept Codex's version (2 files). Those changes are now in this project.\n\nThe user had other agents try “Add a dark theme” in separate copies of this project and kept Claude's version (1 file). Those changes are now in this project.",
+      );
+    });
+
     it("names a mix of files, and tells no chat when none started it", async () => {
       const mix = race({
         state: "kept",
