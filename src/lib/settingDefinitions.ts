@@ -15,7 +15,7 @@ export const SETTINGS = {
     section: "provider-setup",
     label: "Provider setup",
     description:
-      "Choose providers, install them, sign in, and check your connections.",
+      "Choose agent apps, install them, sign in, and check your connections.",
     keywords:
       "onboarding first launch getting started cli installation login authentication Windows macOS PATH Claude Codex",
   }),
@@ -285,6 +285,13 @@ export const SETTINGS = {
     keywords: "automation pretooluse settings json",
     rowDescription:
       "Run your configured Claude Code hooks. Changes apply from your next message.",
+  }),
+  tour: defineSetting({
+    section: "general",
+    label: "Tour",
+    description:
+      "Take the short tour of the message box, sidebar, preview, Changes, board and project memory again.",
+    keywords: "walkthrough onboarding guide help getting started welcome",
   }),
   version: defineSetting({
     section: "general",

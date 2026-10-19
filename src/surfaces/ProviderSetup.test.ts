@@ -320,3 +320,58 @@ describe("chosen-provider setup", () => {
     });
   });
 });
+
+describe("provider setup as the walkthrough's Agents step", () => {
+  const onBack = vi.fn();
+  const onContinue = vi.fn<(harness?: HarnessId) => void>();
+  async function renderEmbedded() {
+    onBack.mockClear();
+    onContinue.mockClear();
+    await act(async () =>
+      root.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(ProviderSetup, {
+            embedded: { onBack, onContinue },
+          }),
+        ),
+      ),
+    );
+  }
+
+  it("has no step strip or Start step of its own, and Back leaves for Welcome", async () => {
+    await renderEmbedded();
+    expect(container.querySelector(".provider-setup-progress")).toBeNull();
+    expect(container.textContent).not.toContain("Start");
+    await click("Back");
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
+  it("goes on with the usable provider after Connect, saving setup as finished", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      ...ready,
+      harness: "pi",
+      status: "installed",
+      message: "Follow the provider guide, then start a task.",
+    });
+    await renderEmbedded();
+    container.querySelector("details")!.open = true;
+    await click("Connect Pi");
+    await click("Continue");
+    await click("Continue setup later");
+    expect(onContinue).toHaveBeenCalledExactlyOnceWith("pi");
+    expect(loadProviderSetup()).toEqual({ selected: ["pi"], finished: true });
+    // The walkthrough moves on; nothing here says "Open Aven".
+    expect(container.textContent).not.toContain("Open Aven");
+  });
+
+  it("lets you set up later with no agent app installed", async () => {
+    await renderEmbedded();
+    await click("Set up later");
+    expect(onContinue).toHaveBeenCalledExactlyOnceWith();
+    expect(loadProviderSetup().finished).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

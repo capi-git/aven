@@ -1,0 +1,143 @@
+/* Home's Getting started card, in the same glass as Home's panels. */
+.getting-started {
+  max-width: 560px;
+  margin-bottom: 22px;
+  padding: 14px 16px 6px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-inset-card));
+  box-shadow: var(--aven-glass-sheen, none);
+}
+
+.getting-started-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-home .getting-started h2 {
+  margin: 0 0 2px;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+}
+
+.getting-started-header p {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+
+.getting-started-hide {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  color: var(--aven-muted);
+}
+
+.getting-started-hide:hover {
+  background: var(--aven-control-hover, var(--aven-hover));
+  color: var(--color-content);
+}
+
+.getting-started-bar {
+  height: 4px;
+  margin: 12px 0 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+
+.getting-started-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--aven-git-add);
+  transform-origin: left center;
+  transition: transform var(--aven-motion-glide) var(--aven-ease-out);
+}
+
+.getting-started-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.getting-started-steps > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 2px;
+  border-top: 1px solid var(--aven-line);
+}
+
+.getting-started-steps > li:first-child {
+  border-top: 0;
+}
+
+.getting-started-check {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid color-mix(in srgb, var(--color-content) 25%, transparent);
+  border-radius: 50%;
+}
+
+.getting-started-steps > li[data-done] .getting-started-check {
+  border-color: var(--aven-git-add);
+  background: var(--aven-git-add);
+  color: var(--color-background-base);
+}
+
+.getting-started-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.getting-started-title {
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+}
+
+.getting-started-text small {
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.getting-started-steps > li[data-done] .getting-started-title {
+  color: var(--aven-muted);
+  text-decoration: line-through;
+}
+
+.getting-started-start {
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: var(--color-content);
+  color: var(--color-background-base);
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+}
+
+.getting-started-start:hover {
+  opacity: 0.85;
+}
+
+.getting-started :is(button):focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}

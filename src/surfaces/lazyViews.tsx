@@ -33,8 +33,13 @@ export const WorkBoard = retryableLazy(() =>
 export const WhatsNewDialog = retryableLazy(() =>
   import("../chrome/WhatsNewDialog").then((module) => module.WhatsNewDialog),
 );
-export const ProviderSetupDialog = retryableLazy(() =>
-  import("./ProviderSetup").then((module) => module.ProviderSetupDialog),
+/** The first-run walkthrough; provider setup is its Agents step. */
+export const WalkthroughDialog = retryableLazy(() =>
+  import("./Walkthrough").then((module) => module.Walkthrough),
+);
+/** The guided tour over the workspace, at the walkthrough's end or from Help. */
+export const TourOverlay = retryableLazy(() =>
+  import("../chrome/Tour").then((module) => module.Tour),
 );
 
 const PRELOADED = [

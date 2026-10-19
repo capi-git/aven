@@ -1864,6 +1864,7 @@ function ComposerComponent({
         <div
           ref={boxRef}
           data-composer-box
+          data-tour="composer"
           data-file-drag={fileDrag || undefined}
           data-attachments-only={attachmentsOnly || undefined}
           className={`relative z-10 rounded-lg border bg-content/3 ${

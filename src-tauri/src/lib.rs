@@ -62,6 +62,7 @@ mod pty;
 mod race;
 mod rate_limits;
 mod retired_files;
+mod sample_project;
 mod scheduled_agents;
 mod search;
 #[cfg(target_os = "macos")]
@@ -392,6 +393,7 @@ pub fn run() {
             browser_snapshot::browser_snapshot,
             browser_snapshot::browser_capture,
             projectless::projectless_cwd,
+            sample_project::create_sample_project,
             window::workspace_window_labels,
             workspace_window::workspace_window_open,
             workspace_window::workspace_window_update,

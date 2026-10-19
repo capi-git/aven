@@ -433,6 +433,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         type="button"
         className="workspace-status-queue workspace-status-task"
         data-tauri-drag-region="false"
+        data-tour="activity"
         aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
         title={`Activity · ${summary.label}`}
         aria-haspopup="dialog"

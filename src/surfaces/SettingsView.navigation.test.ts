@@ -56,6 +56,7 @@ let container: HTMLDivElement;
 let root: Root;
 const onClose = vi.fn();
 const onSection = vi.fn();
+const onTakeTour = vi.fn();
 const noop = () => {};
 let externalSelectSection: (section: SettingsSectionId) => void;
 
@@ -88,6 +89,7 @@ function ControlledSettings({
     onArchiveSession: noop,
     onDeleteSession: noop,
     onOpenWhatsNew: noop,
+    onTakeTour,
   });
   if (!besideRail) return view;
   // Beside the rail, the app's project rail hosts the navigation and search,
@@ -229,6 +231,26 @@ function focusIsWithin(element: HTMLElement) {
     element.contains(document.activeElement)
   );
 }
+
+describe("take the tour again", () => {
+  it("runs the tour from General, and search finds it", async () => {
+    onTakeTour.mockClear();
+    await mount("general");
+    const row = container.querySelector<HTMLElement>(`#${SETTINGS.tour.id}`)!;
+    const take = [...row.querySelectorAll("button")].find(
+      (button) => button.textContent === "Take the tour again",
+    )!;
+    expect(take.disabled).toBe(false);
+    await act(async () => take.click());
+    expect(onTakeTour).toHaveBeenCalledOnce();
+    expect(searchSettings("tour").map((result) => result.id)).toContain(
+      SETTINGS.tour.id,
+    );
+    expect(searchSettings("walkthrough").map((result) => result.id)).toContain(
+      SETTINGS.tour.id,
+    );
+  });
+});
 
 describe("settings navigation", () => {
   it("renders every searchable definition at its matching row or card anchor", async () => {

@@ -166,6 +166,7 @@ export function PersonalProjectRow({
         className="personal-project-row"
         data-project-path={path}
         data-active={active || undefined}
+        data-tour={active ? "project-active" : "project"}
       >
         <button
           type="button"

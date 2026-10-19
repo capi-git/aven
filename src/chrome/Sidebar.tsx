@@ -1799,6 +1799,7 @@ function SidebarComponent({
               ) : null}
               <div
                 ref={setScroller}
+                data-tour="projects"
                 className="personal-projects-scroll min-h-0 flex-1 overflow-y-auto"
               >
                 {discussions.length ? (

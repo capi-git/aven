@@ -2323,6 +2323,7 @@ function TitleBarComponent({
                       : "Open browser"
                 }
                 data-tauri-drag-region="false"
+                data-tour="browser-button"
                 className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
                 onClick={() =>
                   onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
@@ -2341,6 +2342,7 @@ function TitleBarComponent({
                 aria-label="Open board"
                 title="Open this project's board"
                 data-tauri-drag-region="false"
+                data-tour="board"
                 className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
                 onClick={onOpenBoard}
               >

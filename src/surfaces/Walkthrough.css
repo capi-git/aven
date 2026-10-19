@@ -1,0 +1,242 @@
+/* The first-run walkthrough: one centred dialog in the shared modal
+   material (Overlays.css), with a step strip on top. */
+.walkthrough-frame {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px 12px;
+  pointer-events: none;
+}
+
+.modal-panel[role="dialog"].walkthrough-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(86vh, 820px);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring);
+}
+
+.walkthrough-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 22px 26px 24px;
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+}
+
+.walkthrough-top {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.walkthrough-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  font-size: var(--text-ui-caption);
+}
+
+.walkthrough-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.walkthrough-steps li[aria-current="step"] {
+  color: var(--color-content);
+  font-weight: 500;
+}
+
+.walkthrough-steps li[data-done] svg {
+  color: var(--aven-git-add);
+}
+
+.walkthrough-skip-setup {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.walkthrough-cast {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.walkthrough-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.walkthrough-title[data-centred] {
+  font-size: 21px;
+  text-align: center;
+}
+
+.walkthrough-lead {
+  margin: 6px 0 18px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+}
+
+.walkthrough-lead[data-centred] {
+  max-width: 420px;
+  margin: 8px auto 20px;
+  text-align: center;
+}
+
+.walkthrough-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.walkthrough-choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 520px) {
+  .walkthrough-cards,
+  .walkthrough-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.walkthrough-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-inset-card);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.walkthrough-card strong {
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+}
+
+.walkthrough-choice {
+  padding: 14px;
+  cursor: pointer;
+  transition:
+    background-color var(--aven-motion-fast) ease,
+    border-color var(--aven-motion-fast) ease;
+}
+
+.walkthrough-choice:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.walkthrough-choice[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+}
+
+.walkthrough-choice:disabled {
+  cursor: default;
+}
+
+.walkthrough-error {
+  margin: -8px 0 16px;
+  color: color-mix(in srgb, var(--aven-git-del) 80%, var(--color-content));
+  font-size: var(--text-ui-caption);
+  line-height: 1.5;
+}
+
+.walkthrough-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.walkthrough-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.walkthrough-primary,
+.walkthrough-secondary,
+.walkthrough-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.walkthrough-primary {
+  color: var(--color-background-base);
+  background: var(--color-content);
+  font-weight: 600;
+}
+
+.walkthrough-secondary {
+  color: var(--color-content);
+  background: var(--aven-control-bg, var(--aven-hover));
+}
+
+.walkthrough-quiet {
+  padding: 0 4px;
+  color: var(--aven-muted);
+}
+
+.walkthrough-primary:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.walkthrough-secondary:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.walkthrough-quiet:hover:not(:disabled) {
+  color: var(--color-content);
+}
+
+.walkthrough-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.walkthrough-panel :is(button, summary):focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}
+
+/* Provider setup inside the walkthrough brings its own steps and footer. */
+.walkthrough-panel .provider-setup[data-embedded] {
+  padding: 0;
+}

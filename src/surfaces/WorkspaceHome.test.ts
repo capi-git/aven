@@ -20,6 +20,7 @@ import { WorkspaceHome } from "./WorkspaceHome";
 import { useWorkspaceHomeData } from "../hooks/useWorkspaceHomeData";
 import type { ActivityEntry } from "../lib/activity";
 import { dayKey } from "../lib/activityStreak";
+import type { GettingStartedCard } from "../lib/gettingStarted";
 import { HOME_VISIT_KEY } from "../lib/homeBriefing";
 import { projectKey } from "../lib/paths";
 import type { ProjectAppearance } from "../lib/projectAppearance";
@@ -90,6 +91,20 @@ const reviews = vi.hoisted(() => ({
   }[],
   load: vi.fn(),
 }));
+// Counts the Getting started card's renders, drawing the real one.
+const gettingStartedRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./GettingStarted", async (original) => {
+  const react = await import("react");
+  const real = await original<typeof import("./GettingStarted")>();
+  return {
+    GettingStartedCard: (
+      props: Parameters<typeof real.GettingStartedCard>[0],
+    ) => {
+      gettingStartedRenders.count += 1;
+      return react.createElement(real.GettingStartedCard, props);
+    },
+  };
+});
 vi.mock("../lib/reviewRequests", () => ({
   peekReviewRequests: () => null,
   loadReviewRequests: (paths: readonly string[]) => {
@@ -1207,5 +1222,94 @@ describe("rendering cost", () => {
     // The app committed every flush; the home did not render once.
     expect(shellCommits).toBe(4);
     expect(marks.commits).toBe(0);
+  });
+});
+
+describe("Getting started on Home", () => {
+  const card = (doneCount: number): GettingStartedCard => {
+    const ids = ["agent", "project", "message", "preview", "ship"] as const;
+    return {
+      steps: ids.map((id, index) => ({
+        id,
+        title: `Step ${id}`,
+        detail: `About ${id}`,
+        done: index < doneCount,
+      })),
+      next: ids[doneCount] ?? null,
+      doneCount,
+      allDone: doneCount === ids.length,
+    };
+  };
+
+  it("shows nothing unless the card is given", async () => {
+    await render(props());
+    expect(container.querySelector(".getting-started")).toBeNull();
+  });
+
+  it("ticks done steps and puts Start on the next one only", async () => {
+    const onGettingStartedStart = vi.fn();
+    const onGettingStartedHide = vi.fn();
+    await render(
+      props({
+        gettingStarted: card(2),
+        onGettingStartedStart,
+        onGettingStartedHide,
+      }),
+    );
+    const shown = section("Getting started")!;
+    expect(shown.textContent).toContain(
+      "About five minutes · hide this any time",
+    );
+    expect(
+      [...shown.querySelectorAll("li")].map((row) =>
+        row.hasAttribute("data-done"),
+      ),
+    ).toEqual([true, true, false, false, false]);
+    expect(
+      shown
+        .querySelector('[role="progressbar"]')
+        ?.getAttribute("aria-valuetext"),
+    ).toBe("Two of 5 done");
+    const starts = [...shown.querySelectorAll("button")].filter(
+      (element) => element.textContent === "Start",
+    );
+    expect(starts).toHaveLength(1);
+    expect(starts[0].closest("li")?.dataset.step).toBe("message");
+    await act(async () => starts[0].click());
+    expect(onGettingStartedStart).toHaveBeenCalledExactlyOnceWith("message");
+    await act(async () => button("Hide Getting started", shown).click());
+    expect(onGettingStartedHide).toHaveBeenCalledOnce();
+    for (const element of shown.querySelectorAll("button")) {
+      expect(element.type).toBe("button");
+      expect(
+        (element.getAttribute("aria-label") ?? element.textContent)?.trim(),
+      ).toBeTruthy();
+    }
+  });
+
+  it("says so once all five are done", async () => {
+    await render(props({ gettingStarted: card(5) }));
+    const shown = section("You’re all set")!;
+    expect(shown.textContent).toContain("This card won’t show again.");
+    expect(
+      [...shown.querySelectorAll("button")].some(
+        (element) => element.textContent === "Start",
+      ),
+    ).toBe(false);
+    expect(button("Close Getting started", shown)).toBeDefined();
+  });
+
+  it("does not re-render Home when an equal card is passed again", async () => {
+    await render(props({ gettingStarted: card(1), projects }));
+    marks.commits = 0;
+    gettingStartedRenders.count = 0;
+    // A new object with the same content, as App builds on every render.
+    await render(props({ gettingStarted: card(1), projects }));
+    expect(gettingStartedRenders.count).toBe(0);
+    expect(marks.commits).toBe(0);
+    await render(props({ gettingStarted: card(2), projects }));
+    expect(
+      section("Getting started")!.querySelectorAll("li[data-done]"),
+    ).toHaveLength(2);
   });
 });

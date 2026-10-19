@@ -1,0 +1,119 @@
+/* The guided tour: a soft spotlight on one element and a small popover
+   beside it. The dimming is the spotlight's own shadow, so the element
+   stays live-looking and nothing redraws behind it. */
+.aven-tour {
+  position: fixed;
+  inset: 0;
+  /* The window's own base colour: dims in dark themes, fades in light. */
+  --aven-tour-scrim: color-mix(
+    in srgb,
+    var(--color-background-base) 62%,
+    transparent
+  );
+}
+
+.aven-tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--aven-tour-scrim);
+}
+
+.aven-tour-spotlight {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: var(--aven-radius-card, 12px);
+  box-shadow: 0 0 0 9999px var(--aven-tour-scrim);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+  pointer-events: none;
+  animation: aven-fade var(--aven-motion-base) var(--aven-ease-out);
+}
+
+.aven-tour-popover {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(320px, calc(100vw - 24px));
+  padding: 14px;
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-overlay, 14px);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
+  color: var(--color-content);
+  visibility: hidden;
+}
+
+.aven-tour-popover[data-placed="true"] {
+  visibility: visible;
+  animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring);
+}
+
+.aven-tour-popover h3 {
+  margin: 0 0 6px;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+}
+
+.aven-tour-popover p {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+}
+
+.aven-tour-popover footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.aven-tour-count {
+  margin-right: auto;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.aven-tour-popover button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.aven-tour-skip {
+  color: var(--aven-muted);
+}
+
+.aven-tour-skip:hover {
+  color: var(--color-content);
+}
+
+.aven-tour-secondary {
+  color: var(--color-content);
+  background: var(--aven-control-bg, var(--aven-hover));
+}
+
+.aven-tour-secondary:hover {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.aven-tour-primary {
+  color: var(--color-background-base);
+  background: var(--color-content);
+}
+
+.aven-tour-primary:hover {
+  opacity: 0.85;
+}
+
+.aven-tour-popover button:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}

@@ -40,6 +40,10 @@ import {
   useProjectLabels,
 } from "../hooks/useProjectLabels";
 import { activityStreak } from "../lib/activityStreak";
+import type {
+  GettingStartedCard as GettingStartedCardData,
+  GettingStartedStepId,
+} from "../lib/gettingStarted";
 import { basename } from "../lib/fs";
 import {
   briefingHasNews,
@@ -95,6 +99,7 @@ import {
   type HomeSession,
 } from "../lib/workspaceHome";
 import { plural } from "../lib/words";
+import { GettingStartedCard } from "./GettingStarted";
 import "./EmptySession.css";
 import "./WorkspaceHome.css";
 
@@ -131,6 +136,10 @@ export type WorkspaceHomeProps = {
   onAddProject: () => void;
   /** Asks for the projects' saved sessions, for Resume and last activity. */
   onLoadProjects?: (paths: readonly string[]) => void;
+  /** First steps after the walkthrough, on a fresh install only. */
+  gettingStarted?: GettingStartedCardData | null;
+  onGettingStartedStart?: (step: GettingStartedStepId) => void;
+  onGettingStartedHide?: () => void;
 };
 
 /** Rows of Needs you shown before "Show more". */
@@ -150,6 +159,7 @@ const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
   "projectStatus",
   "usageProviders",
   "windows",
+  "gettingStarted",
 ];
 
 const NO_FINISHED: readonly HomeFinished[] = [];
@@ -219,6 +229,9 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onOpenBoard,
   onAddProject,
   onLoadProjects,
+  gettingStarted,
+  onGettingStartedStart,
+  onGettingStartedHide,
 }: WorkspaceHomeProps) {
   const labels = useProjectLabels();
   const discussing = useDiscussingSessionIds();
@@ -316,6 +329,14 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
             </button>
           </div>
         </header>
+
+        {gettingStarted ? (
+          <GettingStartedCard
+            card={gettingStarted}
+            onStart={(step) => onGettingStartedStart?.(step)}
+            onHide={() => onGettingStartedHide?.()}
+          />
+        ) : null}
 
         <AwayBriefing
           finished={finished}
