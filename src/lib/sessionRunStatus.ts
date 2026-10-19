@@ -8,6 +8,7 @@ import {
 } from "./harness/preview";
 import { sessionIsWaitingForInput, type Block, type Session } from "./session";
 import { sessionDoing } from "./sessionDoing";
+import { holdUpAt, sessionHoldUps, type SessionHoldUp } from "./sessionHoldUp";
 import { isBlockingQuestion } from "./userQuestion";
 import {
   activeSessionAgents,
@@ -28,9 +29,15 @@ export type SessionRunStatus = {
   detail: string;
   /** While working: what the turn does now, without the agent count. */
   doing?: string;
+  /** While working: what holds it up instead (see `sessionHoldUps`). */
+  holdUp?: SessionHoldUp["kind"];
+  /** When these words next change on their own (a countdown, a threshold). */
+  wakeAt?: number;
   startedAt?: number;
   durationMs?: number;
   canStop: boolean;
+  /** The queue is paused: Resume sends what waits in it. */
+  canResume?: boolean;
   recovery?: "claude-login";
 };
 
@@ -156,10 +163,15 @@ function latestOutcome(
   return latest;
 }
 
-/** Runtime state wins over transcript appearance and historical notifications. */
+/**
+ * Runtime state wins over transcript appearance and historical notifications.
+ * While working, a hold-up (a retry, the usage limit, a slow start, a long
+ * command, helper agents) names itself at `now` in place of the work.
+ */
 export function sessionRunStatus(
   session: Session,
   entries: readonly ActivityEntry[],
+  now = Date.now(),
 ): SessionRunStatus | null {
   const turn = currentTurn(session.blocks);
   const startedAt = validTime(turn?.block.startedAt)
@@ -180,6 +192,7 @@ export function sessionRunStatus(
       canStop,
     };
   }
+  const { words: holdUp, wakeAt } = holdUpAt(sessionHoldUps(session), now);
   if (session.busy) {
     const doing = workingDetail(
       session,
@@ -190,10 +203,20 @@ export function sessionRunStatus(
       : "";
     return {
       kind: "working",
-      // Plain "Working…" until the turn does something it can name.
-      label: doing || active ? "Working" : "Working…",
-      detail: [active, doing].filter(Boolean).join(" · "),
-      ...(doing ? { doing } : {}),
+      ...(holdUp
+        ? {
+            label: holdUp.label,
+            detail: holdUp.detail,
+            doing: holdUp.kind === "command" && doing ? doing : holdUp.label,
+            holdUp: holdUp.kind,
+          }
+        : {
+            // Plain "Working…" until the turn does something it can name.
+            label: doing || active ? "Working" : "Working…",
+            detail: [active, doing].filter(Boolean).join(" · "),
+            ...(doing ? { doing } : {}),
+          }),
+      ...(wakeAt !== undefined ? { wakeAt } : {}),
       ...(startedAt !== undefined && !validTime(turn?.block.durationMs)
         ? { startedAt }
         : {}),
@@ -201,11 +224,11 @@ export function sessionRunStatus(
     };
   }
   if (agents.length) {
-    const working = agents.some((agent) => agent.status === "running");
     return {
-      kind: working ? "working" : "waiting",
-      label: working ? "Agents still working" : "Agents waiting",
+      kind: holdUp ? "working" : "waiting",
+      label: holdUp?.label ?? "Agents waiting",
       detail: sessionAgentSummary(session.liveAgents ?? []),
+      ...(holdUp ? { holdUp: holdUp.kind } : {}),
       canStop: true,
     };
   }
@@ -234,6 +257,7 @@ export function sessionRunStatus(
               ? "Finish editing the queued message"
               : `${count} ready to send`,
       canStop: false,
+      ...(session.queueStatus === "paused" ? { canResume: true } : {}),
     };
   }
   const outcome = latestOutcome(session, turn?.block, entries);

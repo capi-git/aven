@@ -7830,7 +7830,9 @@ export default function App({
           if (turnGen.current.get(sessionId) === gen) {
             flushHarnessEvents();
             const finished = sessionsRef.current.map((session) =>
-              session.id === sessionId ? { ...session, busy: false } : session,
+              session.id === sessionId
+                ? { ...session, busy: false, waitingOn: undefined }
+                : session,
             );
             sessionsRef.current = finished;
             syncDockBadge(finished);

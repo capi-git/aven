@@ -4,6 +4,8 @@ import type {
   TaskListItem,
   ToolPreview,
   TurnIntent,
+  TurnRetryReason,
+  TurnWait,
 } from "../session";
 import { localAttachmentBlock } from "../attachments";
 import { normalizeTaskListStatus } from "../taskList";
@@ -455,7 +457,15 @@ export function mapCodexNotification(
       "Codex error";
     const willRetry = rec.willRetry === true;
     if (willRetry) {
-      return { events: [{ type: "status", text: message }] };
+      return {
+        events: [
+          { type: "status", text: message },
+          {
+            type: "turn.waiting",
+            set: { retry: codexRetry(message, errorObj) },
+          },
+        ],
+      };
     }
     return { events: [{ type: "session.error", message }] };
   }
@@ -470,6 +480,38 @@ export function mapCodexNotification(
   }
 
   return { events: [] };
+}
+
+/**
+ * A retry Codex announced, from its `error` notification: the message reads
+ * like "Reconnecting... 2/5", and `codexErrorInfo` names the failure as a
+ * string or as an object's one key. Neither carries a delay.
+ */
+function codexRetry(
+  message: string,
+  error: Record<string, unknown> | null,
+): NonNullable<TurnWait["retry"]> {
+  const attempt = Number(message.match(/(\d+)\s*\/\s*\d+/)?.[1]);
+  const info = error?.codexErrorInfo;
+  const kind = (
+    typeof info === "string"
+      ? info
+      : (Object.keys(asRecord(info) ?? {})[0] ?? "")
+  ).toLowerCase();
+  const reason: TurnRetryReason | undefined = /overload/.test(kind)
+    ? "busy"
+    : /usagelimit|ratelimit/.test(kind)
+      ? "rate-limit"
+      : /internalserver/.test(kind)
+        ? "server"
+        : /connection|disconnect/.test(kind) ||
+            /reconnect|disconnect|network|timed? ?out/i.test(message)
+          ? "connection"
+          : undefined;
+  return {
+    ...(attempt > 0 ? { attempt } : {}),
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /** Codex thread items Aven already renders elsewhere or that are internal metadata. */
