@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The Changes panel has one way to commit: **Ship it**. The separate message box and its Commit menu are gone; Ship it has the message box (with ⌘↩ and **Write**) and lets you choose Commit, Push or Open PR. While you have uncommitted changes, Publish Branch and Create PR step aside for Ship it; Sync stays when there are commits to bring in, and View PR and merging stay while a pull request is open.
+- Changed files are one list, each file once, with open and discard. **Show staging** in its header brings back the Staged and Changes split with stage and unstage, and Aven remembers your choice. With staging hidden, a staged file has a small dot, Ship it takes every changed file, and discarding a file asks first and discards all of its changes, staged ones included.
+
 ## [0.1.146] - 2026-10-18
 
 ### Added
