@@ -255,6 +255,9 @@ export function reviewLine(
     review.files === 1 && review.names[0]
       ? review.names[0]
       : plural(review.files, "file");
+  // Lines another chat also changed can't be split between them; show none
+  // rather than a misleading "+0 −0".
+  if (!review.additions && !review.deletions) return what;
   return `${what} · +${review.additions} −${review.deletions}`;
 }
 
@@ -552,7 +555,7 @@ function boardCard(
       { kind: "compare", raceId: teamKeyOf(ready.id) },
       { kind: "watch", teamId: ready.id },
     );
-  } else if (reviewed.length) {
+  } else if (reviewed.length && column !== "shipped") {
     const id = reviewed[0];
     const all = reviewed.map((entry) => reviews[entry]);
     const cwd = chats.get(id)?.workCwd ?? all[0].cwd;
@@ -594,6 +597,17 @@ function boardCard(
         cwd: shipped[ship.sessionId]?.cwd ?? input.project,
         commit: ship.event.commit,
       });
+    // Moved here by hand while its changes are still waiting: say so, and
+    // offer to look at them rather than a Ship it that reads as undone.
+    if (!ship && reviewed.length) {
+      const id = reviewed[0];
+      line = `${line} · changes not shipped yet`;
+      actions.push({
+        kind: "review",
+        sessionId: id,
+        cwd: chats.get(id)?.workCwd ?? reviews[id].cwd,
+      });
+    }
   } else if (!needsYou) {
     line = !newest
       ? "No chat yet"

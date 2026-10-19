@@ -565,6 +565,38 @@ describe("workBoard", () => {
       "Row.js · +48 −12",
     );
   });
+
+  it("leaves out line counts another chat's edits made unknowable", () => {
+    expect(
+      reviewLine(
+        review("x", {
+          files: 1,
+          names: ["style.css"],
+          additions: 0,
+          deletions: 0,
+        }),
+      ),
+    ).toBe("style.css");
+  });
+
+  it("keeps a card moved to Shipped by hand there, offering Review instead of Ship it", () => {
+    const statuses: Record<string, ChatStatusWord> = { fix: "review" };
+    const reviews = { fix: review("fix") };
+    const basis = cardBasis(["fix"], statuses, reviews, {});
+    const moved = card("f", { column: "shipped", chatIds: ["fix"], basis });
+    const model = board({
+      cards: [moved],
+      statuses,
+      reviews,
+      chats: [chat("fix", { workCwd: "/copies/site-1" })],
+    });
+    const drawn = model.columns.shipped[0];
+    expect(drawn.line).toContain("changes not shipped yet");
+    expect(drawn.actions).toEqual([
+      { kind: "review", sessionId: "fix", cwd: "/copies/site-1" },
+    ]);
+    expect(model.settles).toEqual([]);
+  });
 });
 
 describe("boardChats", () => {
