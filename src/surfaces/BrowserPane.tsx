@@ -1,3 +1,4 @@
+import { SLOW_PAGE_MS, slowPageNotice } from "../lib/browserSlowLoad";
 import { errorText as errorMessage, logError } from "../lib/errors";
 import {
   browserIsTransferred,
@@ -163,6 +164,9 @@ function BrowserPaneSession({
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number | null>(null);
+  // Read when the slow-load timer fires, without restarting it.
+  const loadProgressRef = useRef(loadProgress);
+  loadProgressRef.current = loadProgress;
   const [zoomFactor, setZoomFactor] = useState<number | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
@@ -940,10 +944,11 @@ function BrowserPaneSession({
   useEffect(() => {
     if (!loading || !isTauri()) return;
     const timeout = window.setTimeout(() => {
-      setNotice(
-        "This page is taking longer to load. Check that the address or local server is available; the preview will continue loading.",
-      );
-    }, 20_000);
+      // A page already showing that keeps streaming video, live data or
+      // trackers never finishes loading; that isn't worth a warning.
+      const notice = slowPageNotice(urlRef.current, loadProgressRef.current);
+      if (notice) setNotice(notice);
+    }, SLOW_PAGE_MS);
     return () => clearTimeout(timeout);
   }, [loading, url]);
 
