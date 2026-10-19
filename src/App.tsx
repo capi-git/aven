@@ -545,6 +545,7 @@ import {
   canDispatchQueuedHead,
   dequeueQueuedMessage,
   queuedMessageForSubmit,
+  queuedSubmitOptions,
   shouldEnqueueSubmission,
 } from "./lib/messageQueue";
 import {
@@ -6355,6 +6356,10 @@ export default function App({
                       noteCard,
                       handoffCard,
                       intent,
+                      ...(options?.displayText !== undefined
+                        ? { displayText: options.displayText }
+                        : {}),
+                      ...(options?.verbatim ? { verbatim: true } : {}),
                     },
                   ],
                   queueStatus: s.queueStatus === "paused" ? "paused" : "active",
@@ -6380,18 +6385,25 @@ export default function App({
             if (options?.queuedMessageId) {
               next = dequeueQueuedMessage(next, options.queuedMessageId);
             }
-            return appendSteerUser(next, submittedText, visible, cards);
+            return appendSteerUser(
+              next,
+              options?.displayText ?? submittedText,
+              visible,
+              cards,
+            );
           }),
         );
         const steeredGeneration = turnGen.current.get(sessionId);
         void (async () => {
           try {
             const prepared = await prepareAttachments(attachments);
-            const prompt = await preparePrompt(harnessText, {
-              harness: current.harness,
-              sessionId,
-              cwd: workCwd,
-            });
+            const prompt = options?.verbatim
+              ? harnessText
+              : await preparePrompt(harnessText, {
+                  harness: current.harness,
+                  sessionId,
+                  cwd: workCwd,
+                });
             const browserPrompt = rawCommand
               ? prompt
               : await prepareAgentBrowserPrompt(
@@ -7212,12 +7224,12 @@ export default function App({
           ) {
             return;
           }
-          onSubmit(session.id, head.text, head.attachments, {
-            queuedMessageId: head.id,
-            noteCard: head.noteCard,
-            handoffCard: head.handoffCard,
-            intent: head.intent,
-          });
+          onSubmit(
+            session.id,
+            head.text,
+            head.attachments,
+            queuedSubmitOptions(head),
+          );
         }, 0),
       );
     }
@@ -7267,7 +7279,15 @@ export default function App({
                 ...session,
                 queuedMessages: session.queuedMessages?.map((message) =>
                   message.id === messageId
-                    ? { ...message, text, attachments }
+                    ? {
+                        ...message,
+                        text,
+                        attachments,
+                        // Rewritten, it shows as you wrote it.
+                        ...(text !== message.text
+                          ? { displayText: undefined }
+                          : {}),
+                      }
                     : message,
                 ),
                 editingQueuedMessageId: undefined,
@@ -7297,11 +7317,8 @@ export default function App({
         return;
       }
       onSubmit(sessionId, message.text, message.attachments, {
+        ...queuedSubmitOptions(message),
         followUpBehavior: "steer",
-        queuedMessageId: message.id,
-        noteCard: message.noteCard,
-        handoffCard: message.handoffCard,
-        intent: message.intent,
       });
     },
     [onSubmit, enqueueHarnessEvent, flushHarnessEvents],
