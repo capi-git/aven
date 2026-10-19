@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Plainer words across the app. A conversation is a **chat** everywhere (New chat, Chats in the sidebar, Filter chats, Chat Changes, Archived chats, Chats & review), instead of a mix of session, task and conversation. The + menu says what each mode does ("Plans first; you approve before it changes anything", "Splits the job into parts and runs an agent on each"), access levels read **Ask first**, Auto-accept edits, Auto and Full access with a plain line each, the effort picker is called **Effort** for every app, and "Applies from the next turn" became "Applies from your next message".
+- Usage reads the same way in the footer and its panel: both show how much is **used**. The context ring says "64% of this chat's context used", and **Compact now** became **Free up space**.
+- The browser's Edit page is now **Comment on page**, Keep open and Recent explain themselves on hover, the right-hand panel is the **side panel** everywhere, "Needs approval" became **Needs you**, and the buttons under a reply say what they do ("Add to Project memory — every agent in this project will see it", "Ask another AI to check this reply").
+- Settings speak plainly: **While an agent is working, new messages** wait their turn or send right away (was Follow-up: Queue or Steer), "Use less memory for web pages", "Games in empty chats", "Mascot in the message box", and Install instead of Install CLI.
+
 ## [0.1.146] - 2026-10-18
 
 ### Added
