@@ -39,6 +39,8 @@ import { useTeamOf } from "../hooks/useTeamRuns";
 import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
 import { teamIsOpen, teamRole } from "../lib/teamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
+import { sessionHoldUps, type SessionHoldUp } from "../lib/sessionHoldUp";
+import { equalChromeData } from "../hooks/useChromeProps";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { DiscussionActions } from "../chrome/DiscussionWrapUpNote";
@@ -598,6 +600,13 @@ export const SessionPane = memo(function SessionPane({
     () => ({ session: statusSession, visible }),
     [statusSession, visible],
   );
+  // What holds the turn up, for the transcript's working line. It changes
+  // rarely, so it keeps its identity through streamed tokens.
+  const nextHoldUps = sessionHoldUps(statusSession);
+  const holdUpsRef = useRef<readonly SessionHoldUp[]>(nextHoldUps);
+  if (!equalChromeData(holdUpsRef.current, nextHoldUps))
+    holdUpsRef.current = nextHoldUps;
+  const holdUps = holdUpsRef.current;
   const review = useMemo(
     () =>
       inboxAsk ? null : (
@@ -750,6 +759,7 @@ export const SessionPane = memo(function SessionPane({
                 harness={session.harness}
                 model={session.model}
                 pendingQuestion={isBlockingQuestion(session.pendingQuestion)}
+                holdUps={holdUps}
                 onApproval={approve}
                 onAddToChat={addSelectionToChat}
                 onSaveNote={notesEnabled ? saveNote : undefined}
@@ -821,6 +831,7 @@ export const SessionPane = memo(function SessionPane({
             placement={teamRow ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
+            onResumeQueue={resumeQueue}
           />
           <TeamRunStatusContext.Provider value={teamRunStatus}>
             {composer}
