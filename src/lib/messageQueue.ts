@@ -68,6 +68,20 @@ export function canDispatchQueuedHead(session: Session): boolean {
   return true;
 }
 
+/** What sending a queued row passes on, as the message was first sent. */
+export function queuedSubmitOptions(message: QueuedMessage) {
+  return {
+    queuedMessageId: message.id,
+    noteCard: message.noteCard,
+    handoffCard: message.handoffCard,
+    intent: message.intent,
+    ...(message.displayText !== undefined
+      ? { displayText: message.displayText }
+      : {}),
+    ...(message.verbatim ? { verbatim: true as const } : {}),
+  };
+}
+
 /** Resolve a queued row for auto-dispatch (head, idle) or an explicit Steer. */
 export function queuedMessageForSubmit(
   session: Session,

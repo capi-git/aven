@@ -72,11 +72,12 @@ export function isHarnessAvailable(id: HarnessId): boolean {
 
 /**
  * Still finding out whether this provider is installed: nothing has answered
- * for it yet, and a probe is under way or has yet to run in this window.
+ * for it yet, and a probe is under way or has yet to run in this window, or
+ * its lookup is still out after the probe stopped waiting for it.
  */
 export function isCheckingHarnessAvailability(id: HarnessId): boolean {
   if (answered.has(id) || observations.has(id)) return false;
-  return inflight != null || probedAt === 0;
+  return inflight != null || lookups.has(id) || probedAt === 0;
 }
 
 /** Record binary presence discovered by a selected-provider setup check.
@@ -85,8 +86,12 @@ export function recordHarnessAvailability(
   id: HarnessId,
   available: boolean,
 ): void {
+  // A late lookup kept this provider checking with no probe left to say it
+  // stopped. This answer ends that, so tell views even if nothing changed.
+  const endsLateLookup =
+    inflight == null && probedAt > 0 && isCheckingHarnessAvailability(id);
   observations.set(id, (observations.get(id) ?? 0) + 1);
-  if (availability[id] === available) return;
+  if (availability[id] === available && !endsLateLookup) return;
   availability = { ...availability, [id]: available };
   emit();
 }

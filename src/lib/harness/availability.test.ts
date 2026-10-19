@@ -149,11 +149,30 @@ it("records each provider as it answers, without waiting for a stuck one", async
   await vi.advanceTimersByTimeAsync(store.HARNESS_LOOKUP_TIMEOUT_MS);
   expect(settled).toBe(true);
   expect(store.hasProbedHarnessAvailability()).toBe(true);
-  expect(store.isCheckingHarnessAvailability("cursor")).toBe(false);
+  // Its lookup is still out, so it isn't reported missing yet.
+  expect(store.isCheckingHarnessAvailability("cursor")).toBe(true);
+  expect(store.isCheckingHarnessAvailability("claude")).toBe(false);
   // Its answer still counts when it finally arrives.
+  listener.mockClear();
   finishCursor("/cli/cursor-agent");
   await vi.advanceTimersByTimeAsync(0);
   expect(store.isHarnessAvailable("cursor")).toBe(true);
+  expect(store.isCheckingHarnessAvailability("cursor")).toBe(false);
+  expect(listener).toHaveBeenCalled();
+});
+
+it("stops checking when a setup check answers for a late lookup, even with the same result", async () => {
+  vi.useFakeTimers();
+  stuck(resolvers.resolveCodexBinary);
+  const listener = vi.fn();
+  store.subscribeHarnessAvailability(listener);
+  void store.probeHarnessAvailability();
+  await vi.advanceTimersByTimeAsync(store.HARNESS_LOOKUP_TIMEOUT_MS);
+  expect(store.isCheckingHarnessAvailability("codex")).toBe(true);
+  listener.mockClear();
+  store.recordHarnessAvailability("codex", false);
+  expect(store.isCheckingHarnessAvailability("codex")).toBe(false);
+  expect(listener).toHaveBeenCalledOnce();
 });
 
 it("lets later probes finish while a lookup is stuck, without asking that CLI again", async () => {

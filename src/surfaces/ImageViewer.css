@@ -1,7 +1,8 @@
-/* The image popup. It sits on the app's own surface, in its theme: the
-   window's colour, or its glass where the window has it, with the work
-   underneath hidden while it is open (see `image-viewer-open` below) so no
-   text reads through. Motion lives in motion.css. */
+/* The image popup. It sits on the app's own surface, in its theme (its
+   wrapper carries the app shell's class, so these tokens resolve as they do
+   in the app): the window's colour, or its glass where the window has it,
+   with the work underneath hidden while it is open (see `image-viewer-open`
+   below) so no text reads through. Motion lives in motion.css. */
 .image-viewer {
   --image-viewer-text: var(--color-content);
   --image-viewer-muted: var(--aven-muted);

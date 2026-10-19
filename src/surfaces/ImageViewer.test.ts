@@ -155,6 +155,31 @@ describe("ImageViewer", () => {
     ).toBe(false);
   });
 
+  it("takes the app shell's colours while staying above the hidden app", async () => {
+    // The page's own colours are a window without the app shell's.
+    await show(pair);
+    expect(dialog()!.closest(".personal-shell")).toBeNull();
+    await act(async () => closeImageViewer());
+
+    const app = document.createElement("div");
+    app.id = "root";
+    const shell = document.createElement("div");
+    shell.className = "personal-shell";
+    app.append(shell);
+    document.body.prepend(app);
+    await show(pair);
+    const theme = dialog()!.closest<HTMLElement>(".personal-shell")!;
+    expect(theme).not.toBe(shell);
+    // Outside the app, which hides while the popup is open, and with no box
+    // of its own to sit under other layers.
+    expect(theme.parentElement).toBe(document.body);
+    expect(app.contains(dialog())).toBe(false);
+    expect(theme.style.display).toBe("contents");
+    expect(document.querySelector(".personal-shell")).toBe(shell);
+    await key("Escape");
+    expect(dialog()).toBeNull();
+  });
+
   it("hides the arrows and the count for a single picture", async () => {
     await show([pair[0]]);
     expect(button("Previous image")).toBeUndefined();

@@ -476,8 +476,10 @@ function ChangedFiles({
       if (action === "stage") await gitStageFile(cwd, file.relative);
       else if (action === "unstage") await gitUnstageFile(cwd, file.relative);
       else {
-        // Unstaged first: if the discard then fails, the file is still there.
-        if (whole && file.staged) await gitUnstageFile(cwd, file.relative);
+        // Unstaged first, even when the list shows nothing staged: something
+        // may have been staged since it last refreshed. If the discard then
+        // fails, the file is still there.
+        if (whole) await gitUnstageFile(cwd, file.relative);
         await gitDiscardFile(cwd, file.relative);
       }
       onMutated([file.path]);
@@ -509,7 +511,7 @@ function ChangedFiles({
       if (action === "stage") await gitStageAll(cwd);
       else if (action === "unstage") await gitUnstageAll(cwd);
       else {
-        if (whole && staged.length > 0) await gitUnstageAll(cwd);
+        if (whole) await gitUnstageAll(cwd);
         await gitDiscardAll(cwd);
       }
       onMutated(paths);
@@ -922,9 +924,9 @@ function GitSyncActions({
 }: {
   index: GitDiffIndex;
   /**
-   * Uncommitted files. Ship it then commits, pushes (publishing the branch)
-   * and opens the pull request, so only what it can't do is offered here:
-   * pulling incoming commits, and the open pull request.
+   * Uncommitted files. Ship it then commits and opens the pull request, so
+   * Create PR waits for them. Publishing and syncing stay offered: commits
+   * already made can be pushed without committing the files first.
    */
   dirty: boolean;
   pr: GitPr | null;
@@ -967,9 +969,8 @@ function GitSyncActions({
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
-  const showPublish = canPublish && !dirty;
-  // Ship it can't push while commits are waiting to be pulled.
-  const showSync = canSync && (!dirty || behind > 0);
+  const showPublish = canPublish;
+  const showSync = canSync;
   const showCreatePr = !hasOpenPr && !onDefault && !dirty;
   const showViewPr = hasOpenPr;
   if (!showPublish && !showSync && !showCreatePr && !showViewPr) return null;
