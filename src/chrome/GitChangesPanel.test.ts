@@ -180,7 +180,20 @@ function button(label: string) {
 }
 
 describe("GitChangesPanel Open All Changes", () => {
+  it("opens every change from the single list", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    const onOpenAllChanges = vi.fn();
+    await render(true, onOpenAllChanges);
+    const opens = container.querySelectorAll<HTMLButtonElement>(
+      '[title="Open All Changes"]',
+    );
+    expect(opens).toHaveLength(1);
+    await act(async () => opens[0].click());
+    expect(onOpenAllChanges).toHaveBeenCalledExactlyOnceWith();
+  });
+
   it("scopes the review to the section it was opened from", async () => {
+    stored.set("aven.changesStaging", "1");
     index.files = [changed("a.ts", true, true), changed("b.ts", false, true)];
     const onOpenAllChanges = vi.fn();
     await render(true, onOpenAllChanges);
@@ -412,6 +425,7 @@ describe("Changes panel visibility polling", () => {
   });
 
   it("keeps a mutation-triggered manual refresh deferred while hidden", async () => {
+    stored.set("aven.changesStaging", "1");
     index.files = [
       {
         path: `${cwd}/file.ts`,
@@ -769,6 +783,33 @@ function typeInto(field: HTMLTextAreaElement, value: string) {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/** The file list's section headers, by title. */
+function sectionTitles() {
+  return Array.from(
+    container.querySelectorAll(".tracking-\\[0\\.04em\\]"),
+    (title) => title.textContent,
+  );
+}
+
+function row(relative: string) {
+  return container.querySelector<HTMLButtonElement>(
+    `button[title^="${relative}"]`,
+  )!;
+}
+
+/** A row's button; with staging shown, from whichever section offers it. */
+function rowAction(relative: string, title: string) {
+  for (const found of container.querySelectorAll<HTMLButtonElement>(
+    `button[title^="${relative}"]`,
+  )) {
+    const action = found
+      .closest("li")!
+      .querySelector<HTMLButtonElement>(`[title="${title}"]`);
+    if (action) return action;
+  }
+  return null;
+}
+
 describe("Ship it as the one way to commit", () => {
   it("leaves no separate commit box or Commit menu beside it", async () => {
     index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
@@ -839,5 +880,178 @@ describe("sync actions beside Ship it", () => {
     mocks.diffIndex.mockResolvedValue({ ...index, upstream: null });
     await act(async () => notifyGitChanged(cwd));
     expect(container.textContent).toContain("Publish Branch");
+  });
+});
+
+describe("one list of changes", () => {
+  it("lists every changed file once by default, without staging buttons", async () => {
+    index.files = [
+      changed("a.ts", true, false),
+      changed("b.ts", false, true),
+      changed("c.ts", true, true),
+    ];
+    await render();
+    expect(sectionTitles()).toEqual(["Changes"]);
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+    expect(container.querySelector('[title="Stage All Changes"]')).toBeNull();
+    expect(container.querySelector('[title="Stage Changes"]')).toBeNull();
+    expect(container.querySelector('[title="Unstage Changes"]')).toBeNull();
+    expect(rowAction("b.ts", "Discard Changes")).not.toBeNull();
+    expect(
+      container.querySelector('[title="Discard All Changes"]'),
+    ).not.toBeNull();
+  });
+
+  it("marks staged files quietly so nothing staged is hidden", async () => {
+    index.files = [
+      changed("a.ts", true, false),
+      changed("b.ts", false, true),
+      changed("c.ts", true, true),
+    ];
+    await render();
+    expect(row("a.ts").title).toBe("a.ts (staged)");
+    expect(row("b.ts").title).toBe("b.ts");
+    expect(row("c.ts").title).toBe("c.ts (partly staged)");
+    const marked = (relative: string) =>
+      row(relative).closest("li")!.querySelector("[data-staged-mark]");
+    expect(marked("a.ts")).not.toBeNull();
+    expect(marked("b.ts")).toBeNull();
+    expect(marked("c.ts")).not.toBeNull();
+  });
+
+  it("opens the newest edits, or the staged change when that is all there is", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", true, true)];
+    const onOpenFile = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(GitChangesPanel, {
+          cwd,
+          enabled: true,
+          onOpenFile,
+          onOpenAllChanges: vi.fn(),
+          onOpenCommit: vi.fn(),
+          selectedPath: "a.ts",
+          selectedKind: "staged",
+        }),
+      ),
+    );
+    await act(async () => row("a.ts").click());
+    await act(async () => row("b.ts").click());
+    expect(onOpenFile.mock.calls).toEqual([
+      [`${cwd}/a.ts`, "staged"],
+      [`${cwd}/b.ts`, "unstaged"],
+    ]);
+    // The open file's row stays selected whichever side it shows.
+    expect(row("a.ts").closest("div")!.className).toContain("bg-content/10");
+  });
+
+  it("brings back Staged and Changes with a toggle it remembers", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    const toggle = button("Show staging")!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => toggle.click());
+    expect(sectionTitles()).toEqual(["Staged", "Changes"]);
+    expect(button("Hide staging")?.getAttribute("aria-pressed")).toBe("true");
+    expect(rowAction("a.ts", "Unstage Changes")).not.toBeNull();
+    expect(rowAction("b.ts", "Stage Changes")).not.toBeNull();
+    expect(
+      container.querySelector('[title="Stage All Changes"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-staged-mark]")).toBeNull();
+    expect(stored.get("aven.changesStaging")).toBe("1");
+
+    // Opened again later, the panel keeps the split.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(sectionTitles()).toEqual(["Staged", "Changes"]);
+    await act(async () => button("Hide staging")!.click());
+    expect(sectionTitles()).toEqual(["Changes"]);
+    expect(stored.get("aven.changesStaging")).toBe("0");
+  });
+
+  it("discards a file back to its last commit, staged changes too, after asking", async () => {
+    index.files = [
+      { ...changed("both.ts", true, true) },
+      { ...changed("new.ts", true, false), status: "added" },
+      changed("edit.ts", false, true),
+    ];
+    await render();
+    mocks.ask.mockResolvedValueOnce(false);
+    await act(async () => rowAction("both.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all changes in both.ts, including staged changes? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual([]);
+
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("both.ts", "Discard Changes")!.click());
+    expect(mocks.writes).toEqual([
+      "git_unstage_file both.ts",
+      "git_discard_file both.ts",
+    ]);
+
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("new.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Delete new file new.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Delete" }),
+    );
+    expect(mocks.writes).toEqual([
+      "git_unstage_file new.ts",
+      "git_discard_file new.ts",
+    ]);
+
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("edit.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard changes in edit.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_file edit.ts"]);
+  });
+
+  it("discards every file from the header, staged ones too, after asking", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    const discardAll = container.querySelector<HTMLButtonElement>(
+      '[title="Discard All Changes"]',
+    )!;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => discardAll.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all changes in 2 files, including staged changes? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
+  });
+
+  it("keeps staged changes when discarding from the Changes section", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, true), changed("b.ts", false, true)];
+    await render();
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("a.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard changes in a.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_file a.ts"]);
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[title="Discard All Changes"]')!
+        .click(),
+    );
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all unstaged changes in 2 files? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_all"]);
   });
 });

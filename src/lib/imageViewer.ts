@@ -205,18 +205,20 @@ export function openImageFile(
 
 /**
  * A changed picture in the Changes panel: the viewer shows it with the other
- * pictures changed in the same section. SVG keeps its text diff.
+ * pictures changed in the same section, or every changed picture without a
+ * `kind`. SVG keeps its text diff.
  */
 export function changedImageGroup(
   files: readonly GitChangedFile[],
   path: string,
-  kind: GitFileDiffKind,
+  kind?: GitFileDiffKind,
 ): { items: ImageViewerItem[]; index: number } | null {
   if (!isImagePath(path)) return null;
   const key = pathKey(path);
   const images = files.filter(
     (file) =>
-      (kind === "staged" ? file.staged : file.unstaged) &&
+      (kind === undefined ||
+        (kind === "staged" ? file.staged : file.unstaged)) &&
       file.status !== "deleted" &&
       isImagePath(file.path),
   );

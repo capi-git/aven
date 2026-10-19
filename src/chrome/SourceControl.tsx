@@ -12,7 +12,7 @@ type Props = {
   /** The project folder when `cwd` is another copy of it. */
   projectCwd?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
-  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
 };

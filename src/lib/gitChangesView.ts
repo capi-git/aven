@@ -1,4 +1,9 @@
-import type { GitChangedFile, GitDiffIndex } from "./fs";
+import {
+  basename,
+  type GitChangedFile,
+  type GitDiffIndex,
+  type GitFileDiffKind,
+} from "./fs";
 
 /** "just now", "5m ago", "3h ago", "2d ago", "3w ago", then a date. */
 export function shortTimeAgo(at: number, now: number): string {
@@ -84,4 +89,80 @@ export function upstreamLabel(index: GitDiffIndex): string {
 /** "3 files" / "1 file". */
 export function filesLabel(count: number): string {
   return `${count} ${count === 1 ? "file" : "files"}`;
+}
+
+const SHOW_STAGING_KEY = "aven.changesStaging";
+
+/**
+ * Whether the Changes panel splits its files into Staged and Changes. Off by
+ * default: the panel lists every changed file once and Ship it stages them.
+ */
+export function loadShowStaging(): boolean {
+  try {
+    return localStorage.getItem(SHOW_STAGING_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveShowStaging(show: boolean): void {
+  try {
+    localStorage.setItem(SHOW_STAGING_KEY, show ? "1" : "0");
+  } catch {
+    // Private mode or a full quota: the panel keeps the choice until it closes.
+  }
+}
+
+/**
+ * The diff a file opens from the single list: its newest edits, or the
+ * staged change when nothing newer is left beside it.
+ */
+export function changeKindFor(
+  file: Pick<GitChangedFile, "unstaged">,
+): GitFileDiffKind {
+  return file.unstaged ? "unstaged" : "staged";
+}
+
+/**
+ * The question asked before discarding `files`. `whole` discards each file
+ * back to its last commit, staged changes included, as the single list does;
+ * otherwise only unstaged changes go and staged ones stay.
+ */
+export function discardPrompt(
+  files: readonly Pick<GitChangedFile, "relative" | "status" | "staged">[],
+  whole: boolean,
+): { message: string; okLabel: string } | null {
+  const [only] = files;
+  if (!only) return null;
+  if (files.length === 1) {
+    const name = basename(only.relative);
+    if (only.status === "untracked")
+      return { message: `Delete untracked file ${name}?`, okLabel: "Delete" };
+    if (whole && only.staged && only.status === "added")
+      return {
+        message: `Delete new file ${name}? This cannot be undone.`,
+        okLabel: "Delete",
+      };
+    if (whole && only.staged)
+      return {
+        message: `Discard all changes in ${name}, including staged changes? This cannot be undone.`,
+        okLabel: "Discard",
+      };
+    return {
+      message: `Discard changes in ${name}? This cannot be undone.`,
+      okLabel: "Discard",
+    };
+  }
+  const n = files.length;
+  if (!whole)
+    return {
+      message: `Discard all unstaged changes in ${n} files? This cannot be undone.`,
+      okLabel: "Discard",
+    };
+  return {
+    message: files.some((file) => file.staged)
+      ? `Discard all changes in ${n} files, including staged changes? This cannot be undone.`
+      : `Discard all changes in ${n} files? This cannot be undone.`,
+    okLabel: "Discard",
+  };
 }

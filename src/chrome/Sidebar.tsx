@@ -227,7 +227,7 @@ export type SidebarProps = {
   onGoBack?: () => void;
   onGoForward?: () => void;
   onOpenDiff?: (path: string, kind?: GitFileDiffKind) => void;
-  onOpenAllChanges?: (kind: GitFileDiffKind) => void;
+  onOpenAllChanges?: (kind?: GitFileDiffKind) => void;
   onOpenCommit?: (commit: GitHistoryCommit) => void;
   selectedDiffPath?: string;
   selectedDiffKind?: GitFileDiffKind;

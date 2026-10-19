@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitDiffIndex } from "./fs";
 import {
+  changeKindFor,
   churnBar,
+  discardPrompt,
   filesLabel,
   largestChurn,
   lineTotals,
+  loadShowStaging,
+  saveShowStaging,
   shortTimeAgo,
   upstreamLabel,
 } from "./gitChangesView";
@@ -68,5 +72,100 @@ describe("labels", () => {
     expect(upstreamLabel({ ...index, branch: null })).toBe("No branch");
     expect(filesLabel(1)).toBe("1 file");
     expect(filesLabel(3)).toBe("3 files");
+  });
+});
+
+describe("staging toggle", () => {
+  let stored: Map<string, string>;
+  beforeEach(() => {
+    stored = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is off until turned on, and remembered", () => {
+    expect(loadShowStaging()).toBe(false);
+    saveShowStaging(true);
+    expect(stored.get("aven.changesStaging")).toBe("1");
+    expect(loadShowStaging()).toBe(true);
+    saveShowStaging(false);
+    expect(loadShowStaging()).toBe(false);
+  });
+
+  it("stays off when storage can't be read", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    });
+    expect(loadShowStaging()).toBe(false);
+    expect(() => saveShowStaging(true)).not.toThrow();
+  });
+});
+
+describe("single list", () => {
+  const file = (
+    relative: string,
+    status: string,
+    staged: boolean,
+    unstaged = !staged,
+  ) => ({ relative, status, staged, unstaged });
+
+  it("opens a file's newest edits, or its staged change when that is all", () => {
+    expect(changeKindFor({ unstaged: true })).toBe("unstaged");
+    expect(changeKindFor({ unstaged: false })).toBe("staged");
+  });
+
+  it("asks before discarding, naming staged changes the single list drops", () => {
+    expect(discardPrompt([], true)).toBeNull();
+    expect(
+      discardPrompt([file("src/new.ts", "untracked", false)], true),
+    ).toEqual({ message: "Delete untracked file new.ts?", okLabel: "Delete" });
+    expect(discardPrompt([file("src/a.ts", "added", true)], true)).toEqual({
+      message: "Delete new file a.ts? This cannot be undone.",
+      okLabel: "Delete",
+    });
+    expect(
+      discardPrompt([file("src/a.ts", "modified", true, true)], true),
+    ).toEqual({
+      message:
+        "Discard all changes in a.ts, including staged changes? This cannot be undone.",
+      okLabel: "Discard",
+    });
+    expect(discardPrompt([file("a.ts", "modified", false)], true)).toEqual({
+      message: "Discard changes in a.ts? This cannot be undone.",
+      okLabel: "Discard",
+    });
+    const two = [
+      file("a.ts", "modified", true),
+      file("b.ts", "deleted", false),
+    ];
+    expect(discardPrompt(two, true)?.message).toBe(
+      "Discard all changes in 2 files, including staged changes? This cannot be undone.",
+    );
+    expect(discardPrompt([two[1], two[1]], true)?.message).toBe(
+      "Discard all changes in 2 files? This cannot be undone.",
+    );
+  });
+
+  it("keeps the Changes section's wording, which leaves staged changes alone", () => {
+    expect(
+      discardPrompt([file("a.ts", "modified", true, true)], false),
+    ).toEqual({
+      message: "Discard changes in a.ts? This cannot be undone.",
+      okLabel: "Discard",
+    });
+    expect(
+      discardPrompt(
+        [file("a.ts", "modified", false), file("b.ts", "modified", false)],
+        false,
+      )?.message,
+    ).toBe("Discard all unstaged changes in 2 files? This cannot be undone.");
   });
 });

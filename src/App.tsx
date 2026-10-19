@@ -4579,9 +4579,9 @@ export default function App({
     [onOpenDiff],
   );
 
-  /** Stack one section's working-tree changes in one review, whatever the diff-view setting. */
+  /** Stack the working-tree changes in one review, whatever the diff-view setting: one section's, or all of them without a kind. */
   const onOpenAllChanges = useCallback(
-    (kind: GitFileDiffKind) => {
+    (kind?: GitFileDiffKind) => {
       leaveExpandedPreview();
       setTabs((prev) =>
         prev.map((tab) =>

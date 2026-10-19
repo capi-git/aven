@@ -24,7 +24,7 @@ export type WorkspaceInspectorProps = {
   onFileMoved?: (from: string, to: string) => void;
   onFileDeleted?: (path: string) => void;
   onOpenDiff: (path: string, kind?: GitFileDiffKind) => void;
-  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
   /** Opens the branch switcher from the Changes header. */
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
