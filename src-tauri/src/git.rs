@@ -534,7 +534,7 @@ pub async fn git_stage_contents(
     .map_err(|e| e.to_string())?
 }
 
-/// Unstage a file (`git restore --staged`).
+/// Unstage a file (`git reset -- <path>`).
 #[tauri::command]
 pub async fn git_unstage_file(cwd: String, relative: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -575,11 +575,9 @@ pub async fn git_stage_all(cwd: String) -> Result<(), String> {
 /// Unstage every staged file.
 #[tauri::command]
 pub async fn git_unstage_all(cwd: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_checked(&expand_home(&cwd), &["restore", "--staged", "--", "."])
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || git_unstage_all_for(&expand_home(&cwd)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -1757,18 +1755,20 @@ fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<Strin
     Ok(hash)
 }
 
+// Unstaging uses `git reset` with a path rather than `git restore --staged`:
+// before the first commit HEAD doesn't resolve and `restore` fails, while
+// `reset` empties those paths from the index. The path also keeps `reset`
+// from touching HEAD or an unfinished merge.
 fn git_unstage_file_for(root: &Path, relative: &str) -> Result<(), String> {
     let relative = resolve_repo_path(root, relative)?;
     git_checked(
         root,
-        &[
-            "--literal-pathspecs",
-            "restore",
-            "--staged",
-            "--",
-            &relative,
-        ],
+        &["--literal-pathspecs", "reset", "-q", "--", &relative],
     )
+}
+
+fn git_unstage_all_for(root: &Path) -> Result<(), String> {
+    git_checked(root, &["reset", "-q", "--", "."])
 }
 
 fn git_discard_file_for(root: &Path, relative: &str) -> Result<(), String> {
@@ -4573,6 +4573,41 @@ mod tests {
             .unwrap();
         assert!(!unstaged.staged);
         assert!(unstaged.unstaged);
+    }
+
+    #[test]
+    fn git_unstage_works_before_the_first_commit() {
+        let dir = tmp("git-unstage-unborn");
+        if !init_git(&dir.0, "main", None) {
+            return;
+        }
+        std::fs::write(dir.0.join("a.txt"), "alpha\n").unwrap();
+        std::fs::write(dir.0.join("b.txt"), "beta\n").unwrap();
+        git_stage_file_for(&dir.0, "a.txt").unwrap();
+        git_stage_file_for(&dir.0, "b.txt").unwrap();
+        let staged = |name: &str| {
+            git_diff_index_for(&dir.0)
+                .files
+                .into_iter()
+                .find(|file| file.relative == name)
+                .unwrap()
+                .staged
+        };
+        assert!(staged("a.txt"));
+
+        git_unstage_file_for(&dir.0, "a.txt").unwrap();
+        assert!(!staged("a.txt"));
+        assert!(staged("b.txt"));
+
+        git_unstage_all_for(&dir.0).unwrap();
+        assert!(!staged("b.txt"));
+        assert_eq!(
+            std::fs::read_to_string(dir.0.join("a.txt")).unwrap(),
+            "alpha\n"
+        );
+        // Discarding the new file now just deletes it.
+        git_discard_file_for(&dir.0, "a.txt").unwrap();
+        assert!(!dir.0.join("a.txt").exists());
     }
 
     #[test]
