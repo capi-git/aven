@@ -344,6 +344,15 @@ describe("changed pictures", () => {
     expect(changedImageGroup(files, "/w/d.webp", "staged")?.items).toEqual([
       { name: "d.webp", path: "/w/d.webp" },
     ]);
+    // The single list has no sections: every changed picture, staged or not.
+    expect(changedImageGroup(files, "/w/d.webp")).toEqual({
+      items: [
+        { name: "a.png", path: "/w/a.png" },
+        { name: "d.webp", path: "/w/d.webp" },
+        { name: "e.jpg", path: "/w/e.jpg" },
+      ],
+      index: 1,
+    });
   });
 
   it("keeps a changed SVG or text file on its diff", () => {

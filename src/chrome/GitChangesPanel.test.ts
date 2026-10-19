@@ -9,7 +9,6 @@ import {
   type GitDiffIndex,
   type GitPr,
 } from "../lib/fs";
-import { generateCommitMessage } from "../lib/harness";
 import {
   closeImageViewer,
   imageViewerSnapshot,
@@ -18,6 +17,8 @@ import {
 import { requestShip, takeShipRequest } from "../lib/shipRequest";
 
 const mocks = vi.hoisted(() => ({
+  /** Git commands that change the copy, in the order they ran. */
+  writes: [] as string[],
   diffIndex: vi.fn(),
   diffFiles: vi.fn(),
   stageAll: vi.fn(),
@@ -30,11 +31,31 @@ const mocks = vi.hoisted(() => ({
   graph: vi.fn(),
 }));
 
+/** Writes the panel and Ship it make, which only need to succeed here. */
+const GIT_WRITES = new Set([
+  "git_stage_file",
+  "git_unstage_file",
+  "git_unstage_all",
+  "git_discard_file",
+  "git_discard_all",
+  "git_commit",
+  "git_push",
+]);
+
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (command: string, args: { cwd: string }) => {
+  invoke: (command: string, args: { cwd: string; relative?: string }) => {
+    if (GIT_WRITES.has(command)) {
+      mocks.writes.push(
+        args.relative ? `${command} ${args.relative}` : command,
+      );
+      return Promise.resolve(undefined);
+    }
     if (command === "git_diff_files") return mocks.diffFiles(args.cwd);
     if (command === "git_diff_index") return mocks.diffIndex(args.cwd);
-    if (command === "git_stage_all") return mocks.stageAll(args.cwd);
+    if (command === "git_stage_all") {
+      mocks.writes.push(command);
+      return mocks.stageAll(args.cwd);
+    }
     if (command === "git_pr_status") return mocks.prStatus(args.cwd);
     if (command === "git_pr_squash_merge")
       return mocks.squashMerge(args.cwd, (args as { number?: number }).number);
@@ -76,11 +97,20 @@ let hidden: boolean;
 let cwd: string;
 let sequence = 0;
 let index: GitDiffIndex;
+/** This test's localStorage; CI's Node has none of its own to rely on. */
+let stored: Map<string, string>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  stored = new Map();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+    removeItem: (key: string) => void stored.delete(key),
+  });
+  mocks.writes.length = 0;
   hidden = false;
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
@@ -149,72 +179,21 @@ function button(label: string) {
   return container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 }
 
-describe("GitChangesPanel commit message generation", () => {
-  it("cancels promptly and ignores a late result after a retry", async () => {
-    index.files = [changed("change.ts", true, false)];
-    let resolveFirst!: (message: string) => void;
-    vi.mocked(generateCommitMessage)
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveFirst = resolve;
-          }),
-      )
-      .mockResolvedValueOnce("New message");
-    await render();
-
-    await act(async () => button("Generate commit message")!.click());
-    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
-    expect(signal?.aborted).toBe(false);
-
-    await act(async () => button("Cancel commit message generation")!.click());
-    expect(signal?.aborted).toBe(true);
-    expect(button("Generate commit message")?.disabled).toBe(false);
-    expect(container.querySelector("textarea")?.disabled).toBe(false);
-
-    await act(async () => button("Generate commit message")!.click());
-    expect(container.querySelector("textarea")?.value).toBe("New message");
-
-    await act(async () => resolveFirst("Old message"));
-    expect(container.querySelector("textarea")?.value).toBe("New message");
-  });
-});
-
-describe("GitChangesPanel typing over a message being written", () => {
-  it("names who writes it and hands the message back when you type", async () => {
-    index.files = [changed("change.ts", true, false)];
-    let finish!: (message: string) => void;
-    vi.mocked(generateCommitMessage).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    await render();
-    await act(async () => button("Generate commit message")!.click());
-    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
-    const cancel = button("Cancel commit message generation")!;
-    expect(cancel.title).toContain("Writing with Claude Haiku 4.5");
-    const field = container.querySelector<HTMLTextAreaElement>(
-      '[placeholder^="Message"]',
-    )!;
-    expect(field.disabled).toBe(false);
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!;
-      setValue.call(field, "My own words");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(signal?.aborted).toBe(true);
-    await act(async () => finish("Model words"));
-    expect(field.value).toBe("My own words");
-  });
-});
-
 describe("GitChangesPanel Open All Changes", () => {
+  it("opens every change from the single list", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    const onOpenAllChanges = vi.fn();
+    await render(true, onOpenAllChanges);
+    const opens = container.querySelectorAll<HTMLButtonElement>(
+      '[title="Open All Changes"]',
+    );
+    expect(opens).toHaveLength(1);
+    await act(async () => opens[0].click());
+    expect(onOpenAllChanges).toHaveBeenCalledExactlyOnceWith();
+  });
+
   it("scopes the review to the section it was opened from", async () => {
+    stored.set("aven.changesStaging", "1");
     index.files = [changed("a.ts", true, true), changed("b.ts", false, true)];
     const onOpenAllChanges = vi.fn();
     await render(true, onOpenAllChanges);
@@ -446,6 +425,7 @@ describe("Changes panel visibility polling", () => {
   });
 
   it("keeps a mutation-triggered manual refresh deferred while hidden", async () => {
+    stored.set("aven.changesStaging", "1");
     index.files = [
       {
         path: `${cwd}/file.ts`,
@@ -667,10 +647,10 @@ describe("Ship it", () => {
     );
   }
 
-  it("sums up the changes, opens the flow, and sets the commit box aside", async () => {
+  it("sums up the changes and opens the flow", async () => {
     index.remote = "origin";
     index.upstream = "origin/feature";
-    index.ahead = 1;
+    index.behind = 1;
     index.files = [
       { ...changed("a.ts", false, true), additions: 7, deletions: 2 },
       { ...changed("b.ts", false, true), additions: 0, deletions: 4 },
@@ -685,13 +665,11 @@ describe("Ship it", () => {
     expect(stats[0].textContent).toBe("+7−2");
     // Create PR waits for the files; Ship it offers the pull request instead.
     expect(container.textContent).not.toContain("Create PR");
+    // Ship it can't pull, so the incoming commit keeps its Sync button.
     expect(container.textContent).toContain("Sync Changes");
     await act(async () => shipButton()!.click());
     expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
     expect(container.textContent).toContain("No tests ran");
-    expect(
-      container.querySelector('[placeholder^="Message"]')?.closest(".hidden"),
-    ).not.toBeNull();
     expect(container.textContent).not.toContain("Sync Changes");
     await act(async () =>
       container
@@ -787,5 +765,321 @@ describe("clean copy", () => {
     });
     expect(container.textContent).toContain("No Git here yet");
     expect(container.textContent).not.toContain("All clean");
+  });
+});
+
+function textButton(text: string) {
+  return Array.from(
+    container.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((candidate) => candidate.textContent?.trim() === text);
+}
+
+function typeInto(field: HTMLTextAreaElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  setValue.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** The file list's section headers, by title. */
+function sectionTitles() {
+  return Array.from(
+    container.querySelectorAll(".tracking-\\[0\\.04em\\]"),
+    (title) => title.textContent,
+  );
+}
+
+function row(relative: string) {
+  return container.querySelector<HTMLButtonElement>(
+    `button[title^="${relative}"]`,
+  )!;
+}
+
+/** A row's button; with staging shown, from whichever section offers it. */
+function rowAction(relative: string, title: string) {
+  for (const found of container.querySelectorAll<HTMLButtonElement>(
+    `button[title^="${relative}"]`,
+  )) {
+    const action = found
+      .closest("li")!
+      .querySelector<HTMLButtonElement>(`[title="${title}"]`);
+    if (action) return action;
+  }
+  return null;
+}
+
+describe("Ship it as the one way to commit", () => {
+  it("leaves no separate commit box or Commit menu beside it", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    expect(textButton("Ship it")).toBeDefined();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(button("Generate commit message")).toBeNull();
+    expect(button("Commit options")).toBeNull();
+    expect(textButton("Commit")).toBeUndefined();
+    expect(container.textContent).not.toContain("Commit & Push");
+  });
+
+  it("commits only, and keeps a message typed before it was closed", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    const field = () =>
+      container.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Commit message"]',
+      )!;
+    await act(async () => textButton("Ship it")!.click());
+    await act(async () => typeInto(field(), "Fix the footer"));
+    await act(async () => button("Close Ship it")!.click());
+    await act(async () => textButton("Ship it")!.click());
+    expect(field().value).toBe("Fix the footer");
+
+    const commitOnly = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="How far to ship"] [role="radio"]',
+      ),
+    ).find((radio) => radio.textContent === "Commit")!;
+    await act(async () => commitOnly.click());
+    expect(commitOnly.getAttribute("aria-checked")).toBe("true");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".ship-flow-primary")!.click(),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(mocks.writes).toEqual(["git_stage_all", "git_commit"]);
+    expect(container.textContent).toContain("Committed 1 file");
+  });
+
+  /** Ship it's choice of files, as "All 2" or "Staged 1". */
+  function checkedScope() {
+    return container.querySelector(
+      '[aria-label="Files to ship"] [aria-checked="true"]',
+    )?.textContent;
+  }
+
+  it("ships every file by default while staging is hidden, even with some staged", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("All 2");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "2 files",
+    );
+  });
+
+  it("keeps a staged subset by default while staging is shown", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("Staged 1");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "1 file",
+    );
+  });
+});
+
+describe("sync actions beside Ship it", () => {
+  beforeEach(() => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+  });
+
+  it("leaves pushing and publishing to Ship it while files are uncommitted", async () => {
+    index.ahead = 2;
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    expect(container.textContent).toContain("↑2");
+    expect(container.textContent).not.toContain("Sync Changes");
+    mocks.diffIndex.mockResolvedValue({ ...index, upstream: null, ahead: 0 });
+    await act(async () => notifyGitChanged(cwd));
+    expect(container.textContent).toContain("Not on origin yet");
+    expect(container.textContent).not.toContain("Publish Branch");
+  });
+
+  it("keeps publishing, syncing and opening a PR for a clean branch", async () => {
+    index.ahead = 2;
+    index.aheadOfDefault = 2;
+    await render();
+    expect(container.textContent).toContain("Sync Changes");
+    expect(container.textContent).toContain("Create PR");
+    mocks.diffIndex.mockResolvedValue({ ...index, upstream: null });
+    await act(async () => notifyGitChanged(cwd));
+    expect(container.textContent).toContain("Publish Branch");
+  });
+});
+
+describe("one list of changes", () => {
+  it("lists every changed file once by default, without staging buttons", async () => {
+    index.files = [
+      changed("a.ts", true, false),
+      changed("b.ts", false, true),
+      changed("c.ts", true, true),
+    ];
+    await render();
+    expect(sectionTitles()).toEqual(["Changes"]);
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+    expect(container.querySelector('[title="Stage All Changes"]')).toBeNull();
+    expect(container.querySelector('[title="Stage Changes"]')).toBeNull();
+    expect(container.querySelector('[title="Unstage Changes"]')).toBeNull();
+    expect(rowAction("b.ts", "Discard Changes")).not.toBeNull();
+    expect(
+      container.querySelector('[title="Discard All Changes"]'),
+    ).not.toBeNull();
+  });
+
+  it("marks staged files quietly so nothing staged is hidden", async () => {
+    index.files = [
+      changed("a.ts", true, false),
+      changed("b.ts", false, true),
+      changed("c.ts", true, true),
+    ];
+    await render();
+    expect(row("a.ts").title).toBe("a.ts (staged)");
+    expect(row("b.ts").title).toBe("b.ts");
+    expect(row("c.ts").title).toBe("c.ts (partly staged)");
+    const marked = (relative: string) =>
+      row(relative).closest("li")!.querySelector("[data-staged-mark]");
+    expect(marked("a.ts")).not.toBeNull();
+    expect(marked("b.ts")).toBeNull();
+    expect(marked("c.ts")).not.toBeNull();
+  });
+
+  it("opens the newest edits, or the staged change when that is all there is", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", true, true)];
+    const onOpenFile = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(GitChangesPanel, {
+          cwd,
+          enabled: true,
+          onOpenFile,
+          onOpenAllChanges: vi.fn(),
+          onOpenCommit: vi.fn(),
+          selectedPath: "a.ts",
+          selectedKind: "staged",
+        }),
+      ),
+    );
+    await act(async () => row("a.ts").click());
+    await act(async () => row("b.ts").click());
+    expect(onOpenFile.mock.calls).toEqual([
+      [`${cwd}/a.ts`, "staged"],
+      [`${cwd}/b.ts`, "unstaged"],
+    ]);
+    // The open file's row stays selected whichever side it shows.
+    expect(row("a.ts").closest("div")!.className).toContain("bg-content/10");
+  });
+
+  it("brings back Staged and Changes with a toggle it remembers", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    const toggle = button("Show staging")!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => toggle.click());
+    expect(sectionTitles()).toEqual(["Staged", "Changes"]);
+    expect(button("Hide staging")?.getAttribute("aria-pressed")).toBe("true");
+    expect(rowAction("a.ts", "Unstage Changes")).not.toBeNull();
+    expect(rowAction("b.ts", "Stage Changes")).not.toBeNull();
+    expect(
+      container.querySelector('[title="Stage All Changes"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-staged-mark]")).toBeNull();
+    expect(stored.get("aven.changesStaging")).toBe("1");
+
+    // Opened again later, the panel keeps the split.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(sectionTitles()).toEqual(["Staged", "Changes"]);
+    await act(async () => button("Hide staging")!.click());
+    expect(sectionTitles()).toEqual(["Changes"]);
+    expect(stored.get("aven.changesStaging")).toBe("0");
+  });
+
+  it("discards a file back to its last commit, staged changes too, after asking", async () => {
+    index.files = [
+      { ...changed("both.ts", true, true) },
+      { ...changed("new.ts", true, false), status: "added" },
+      changed("edit.ts", false, true),
+    ];
+    await render();
+    mocks.ask.mockResolvedValueOnce(false);
+    await act(async () => rowAction("both.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all changes in both.ts, including staged changes? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual([]);
+
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("both.ts", "Discard Changes")!.click());
+    expect(mocks.writes).toEqual([
+      "git_unstage_file both.ts",
+      "git_discard_file both.ts",
+    ]);
+
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("new.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Delete new file new.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Delete" }),
+    );
+    expect(mocks.writes).toEqual([
+      "git_unstage_file new.ts",
+      "git_discard_file new.ts",
+    ]);
+
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("edit.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard changes in edit.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_file edit.ts"]);
+  });
+
+  it("discards every file from the header, staged ones too, after asking", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    const discardAll = container.querySelector<HTMLButtonElement>(
+      '[title="Discard All Changes"]',
+    )!;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => discardAll.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all changes in 2 files, including staged changes? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
+  });
+
+  it("keeps staged changes when discarding from the Changes section", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, true), changed("b.ts", false, true)];
+    await render();
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => rowAction("a.ts", "Discard Changes")!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard changes in a.ts? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_file a.ts"]);
+    mocks.writes.length = 0;
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[title="Discard All Changes"]')!
+        .click(),
+    );
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      "Discard all unstaged changes in 2 files? This cannot be undone.",
+      expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_discard_all"]);
   });
 });

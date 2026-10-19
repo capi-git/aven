@@ -7,7 +7,6 @@ import {
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
   ArrowUp,
-  Check,
   ChevronDown,
   ChevronRight,
   CloudUpload,
@@ -22,8 +21,7 @@ import {
   Plus,
   RefreshCw,
   Undo2,
-  WandSparkles,
-  X,
+  Ungroup,
 } from "./icons";
 import {
   useCallback,
@@ -45,7 +43,6 @@ import {
 } from "./GitHistoryGraph";
 import {
   basename,
-  gitCommit,
   gitDiffIndex,
   gitDiffFiles,
   gitDiscardAll,
@@ -72,13 +69,8 @@ import {
   saveChangesView,
   type ChangesView,
 } from "../lib/appearance";
-import {
-  generateCommitMessage,
-  generatePrContent,
-  textModelLabel,
-} from "../lib/harness";
+import { generatePrContent } from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
-import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { currentCopyLabel, GitCopies } from "./GitCopies";
@@ -94,10 +86,14 @@ import {
 import { errorText, logError } from "../lib/errors";
 import { headCommit, useGitHistory } from "../hooks/useGitHistory";
 import {
+  changeKindFor,
   churnBar,
+  discardPrompt,
   filesLabel,
   largestChurn,
   lineTotals,
+  loadShowStaging,
+  saveShowStaging,
 } from "../lib/gitChangesView";
 import { subscribeShipRequests, takeShipRequest } from "../lib/shipRequest";
 import { ChangesHeader, CleanState } from "./GitChangesHeader";
@@ -147,7 +143,8 @@ type Props = {
   /** The project folder, for its name and mark when `cwd` is another copy. */
   projectCwd?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
-  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  /** Stacks the changes in one review: one side of them, or all without a kind. */
+  onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
   /** Opens the branch switcher anchored to the header's branch button. */
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
@@ -180,11 +177,12 @@ export function GitChangesPanel({
   );
   const files = useMemo(() => index?.files ?? [], [index]);
   // A changed picture opens in the image viewer, beside the others changed
-  // with it; everything else opens its diff.
+  // with it (in its section, or every one from the single list); everything
+  // else opens its diff.
   const openChange = useCallback(
-    (path: string, kind: GitFileDiffKind) => {
+    (path: string, kind: GitFileDiffKind, everyFile?: boolean) => {
       const group = imageViewerAvailable()
-        ? changedImageGroup(files, path, kind)
+        ? changedImageGroup(files, path, everyFile ? undefined : kind)
         : null;
       if (!group || !openImageViewer(group)) onOpenFile(path, kind);
     },
@@ -377,20 +375,21 @@ function ChangedFiles({
   onShowHistory: () => void;
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
   onWorktrees: (worktrees: Parameters<typeof currentCopyLabel>[0]) => void;
-  onOpenFile: (path: string, kind: GitFileDiffKind) => void;
-  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  onOpenFile: OpenChange;
+  onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const messageRef = useRef<HTMLTextAreaElement>(null);
-  const generateAbortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Ship it's commit message. It is kept here, so a draft is still there when
+  // Ship it is closed and opened again.
   const [message, setMessage] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [stagedExpanded, setStagedExpanded] = useState(stagedOpen);
   const [changesExpanded, setChangesExpanded] = useState(changesOpen);
   const [view, setView] = useState<ChangesView>(changesView);
+  // Off: one list of every changed file. On: Staged and Changes sections,
+  // with buttons to stage and unstage.
+  const [showStaging, setShowStaging] = useState(loadShowStaging);
   const { pr, reload: reloadPr } = usePrStatus(cwd, index?.branch, enabled);
   const staged = useMemo(() => files.filter((file) => file.staged), [files]);
   const unstaged = useMemo(
@@ -415,8 +414,6 @@ function ChangedFiles({
     !!index?.branch &&
     !!index.defaultBranch &&
     index.branch === index.defaultBranch;
-  const canGenerate = files.length > 0 && !busy;
-  const canCommit = staged.length > 0 && message.trim().length > 0 && !busy;
   const canCreatePr =
     hasRemote &&
     !hasOpenPr &&
@@ -431,51 +428,16 @@ function ChangedFiles({
     hasRemote &&
     Boolean(index?.upstream) &&
     ((index?.ahead ?? 0) > 0 || (index?.behind ?? 0) > 0);
-  const canCommitPush = canCommit && hasRemote && !diverged;
-  const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
-  // Typing over a message being written takes it back at once.
-  const canEditMessage = staged.length > 0 && (!busy || busy === "generate");
-
-  // Abandon an in-flight generation when the project changes or the panel
-  // unmounts, so a late result never lands in another project's message.
-  useEffect(
-    () => () => {
-      if (generateAbortRef.current) {
-        generateAbortRef.current.abort();
-        generateAbortRef.current = null;
-        setBusy(null);
-      }
-    },
-    [cwd],
-  );
-
-  // Measured again when the box is shown: hidden, it measures as nothing.
-  const messageHidden = files.length === 0 || !!ship;
-  useEffect(() => {
-    if (!enabled || messageHidden) return;
-    const el = messageRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [message, enabled, messageHidden]);
-
-  useEffect(() => {
-    if (!enabled) {
-      setMenuOpen(false);
-      return;
-    }
-    if (!menuOpen) return;
-    const onPointer = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener("pointerdown", onPointer);
-    return () => window.removeEventListener("pointerdown", onPointer);
-  }, [menuOpen, enabled]);
 
   const toggleView = () => {
     changesView = view === "tree" ? "list" : "tree";
     saveChangesView(changesView);
     setView(changesView);
+  };
+
+  const toggleStaging = () => {
+    saveShowStaging(!showStaging);
+    setShowStaging(!showStaging);
   };
 
   const fail = (error: unknown) => {
@@ -493,117 +455,67 @@ function ChangedFiles({
     );
   };
 
+  /**
+   * Stage, unstage or discard one file. `whole` is the single list's discard:
+   * the file goes back to its last commit, staged changes included. The
+   * Changes section's discard leaves staged changes alone.
+   */
   const run = async (
     file: GitChangedFile,
     action: "stage" | "unstage" | "discard",
+    whole = false,
   ) => {
     if (busy) return;
     if (action === "discard") {
-      const name = basename(file.relative);
-      const untracked = file.status === "untracked";
-      const ok = await confirmNative(
-        untracked
-          ? `Delete untracked file ${name}?`
-          : `Discard changes in ${name}? This cannot be undone.`,
-        untracked ? "Delete" : "Discard",
-      );
-      if (!ok) return;
+      const prompt = discardPrompt([file], whole);
+      if (!prompt || !(await confirmNative(prompt.message, prompt.okLabel)))
+        return;
     }
     setBusy(file.relative);
     try {
       if (action === "stage") await gitStageFile(cwd, file.relative);
       else if (action === "unstage") await gitUnstageFile(cwd, file.relative);
-      else await gitDiscardFile(cwd, file.relative);
+      else {
+        // Unstaged first: if the discard then fails, the file is still there.
+        if (whole && file.staged) await gitUnstageFile(cwd, file.relative);
+        await gitDiscardFile(cwd, file.relative);
+      }
       onMutated([file.path]);
     } catch (error) {
       fail(error);
+      onMutated([file.path]);
     } finally {
       setBusy(null);
     }
   };
 
-  const runAll = async (action: "stage" | "unstage" | "discard") => {
+  const runAll = async (
+    action: "stage" | "unstage" | "discard",
+    whole = false,
+  ) => {
     if (busy) return;
+    // The single list discards every file; the Changes section only what
+    // is unstaged.
+    const discarded = whole ? files : unstaged;
     if (action === "discard") {
-      const n = unstaged.length;
-      if (n === 0) return;
-      const only = unstaged[0];
-      const untrackedOnly = n === 1 && only?.status === "untracked";
-      const ok = await confirmNative(
-        untrackedOnly
-          ? `Delete untracked file ${basename(only.relative)}?`
-          : n === 1 && only
-            ? `Discard changes in ${basename(only.relative)}? This cannot be undone.`
-            : `Discard all unstaged changes in ${n} files? This cannot be undone.`,
-        untrackedOnly ? "Delete" : "Discard",
-      );
-      if (!ok) return;
+      const prompt = discardPrompt(discarded, whole);
+      if (!prompt || !(await confirmNative(prompt.message, prompt.okLabel)))
+        return;
     }
+    const paths =
+      action === "discard" ? discarded.map((file) => file.path) : undefined;
     setBusy(action);
     try {
       if (action === "stage") await gitStageAll(cwd);
       else if (action === "unstage") await gitUnstageAll(cwd);
-      else await gitDiscardAll(cwd);
-      onMutated(
-        action === "discard" ? unstaged.map((file) => file.path) : undefined,
-      );
+      else {
+        if (whole && staged.length > 0) await gitUnstageAll(cwd);
+        await gitDiscardAll(cwd);
+      }
+      onMutated(paths);
     } catch (error) {
       fail(error);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const generate = async () => {
-    if (!canGenerate || generateAbortRef.current) return;
-    const controller = new AbortController();
-    generateAbortRef.current = controller;
-    setBusy("generate");
-    try {
-      const generated = await generateCommitMessage(
-        cwd,
-        textHarness,
-        controller.signal,
-      );
-      if (!controller.signal.aborted) setMessage(generated);
-    } catch (error) {
-      if (!controller.signal.aborted) fail(error);
-    } finally {
-      if (generateAbortRef.current === controller) {
-        generateAbortRef.current = null;
-        setBusy(null);
-      }
-    }
-  };
-
-  const cancelGenerate = () => {
-    generateAbortRef.current?.abort();
-    generateAbortRef.current = null;
-    setBusy(null);
-  };
-
-  const commit = async (push: boolean, createPr = false) => {
-    if (!canCommit) return;
-    if (
-      (push || createPr) &&
-      !(await confirmDefault(createPr ? "pr" : "push"))
-    ) {
-      return;
-    }
-    setBusy(createPr ? "pr" : "commit");
-    setMenuOpen(false);
-    try {
-      await gitCommit(cwd, message);
-      if (push || createPr) await gitPush(cwd);
-      setMessage("");
-      onMutated();
-      if (createPr) {
-        await openCreatedPr();
-        reloadPr();
-      }
-    } catch (error) {
-      fail(error);
-      onMutated();
+      onMutated(paths);
     } finally {
       setBusy(null);
     }
@@ -675,6 +587,21 @@ function ChangedFiles({
     }
   };
 
+  const stagingToggle: SectionAction = {
+    title: showStaging ? "Hide staging" : "Show staging",
+    icon: <Ungroup className="size-3.5" strokeWidth={1.75} />,
+    pressed: showStaging,
+    onClick: toggleStaging,
+  };
+  const rowProps = {
+    view,
+    largest,
+    selected,
+    selectedKind,
+    busy,
+    onOpenFile,
+  };
+
   return (
     <aside
       className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink"}`}
@@ -690,6 +617,7 @@ function ChangedFiles({
             enabled={enabled}
             textHarness={textHarness}
             sessionId={ship.sessionId}
+            stagingShown={showStaging}
             message={message}
             onMessageChange={setMessage}
             onBusyChange={onShipBusy}
@@ -717,110 +645,6 @@ function ChangedFiles({
             onShip={() => onShipChange({ opened: Date.now() })}
           />
         ) : null}
-        <div className={files.length === 0 || ship ? "hidden" : "relative"}>
-          <textarea
-            ref={messageRef}
-            rows={1}
-            value={message}
-            placeholder={`Message (${MOD}↩ to commit)`}
-            disabled={!canEditMessage}
-            onChange={(event) => {
-              if (busy === "generate") cancelGenerate();
-              setMessage(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (
-                (event.metaKey || event.ctrlKey) &&
-                event.key === "Enter" &&
-                canCommit
-              ) {
-                event.preventDefault();
-                void commit(false);
-              }
-            }}
-            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-          />
-          <button
-            type="button"
-            title={
-              busy === "generate"
-                ? `Writing with ${textModelLabel(textHarness)}. Press to cancel, or type your own.`
-                : "Generate commit message"
-            }
-            aria-label={
-              busy === "generate"
-                ? "Cancel commit message generation"
-                : "Generate commit message"
-            }
-            disabled={busy !== "generate" && !canGenerate}
-            onClick={() =>
-              busy === "generate" ? cancelGenerate() : void generate()
-            }
-            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 hover:text-content disabled:opacity-40"
-          >
-            {busy === "generate" ? (
-              <>
-                <Loader
-                  className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
-                  strokeWidth={1.75}
-                />
-                <X
-                  className="hidden size-3.5 group-hover:block group-focus-visible:block"
-                  strokeWidth={1.75}
-                />
-              </>
-            ) : (
-              <WandSparkles className="size-3" strokeWidth={1} />
-            )}
-          </button>
-        </div>
-        <div
-          ref={menuRef}
-          className={
-            files.length === 0 || ship ? "hidden" : "relative -mt-0.5 flex"
-          }
-        >
-          <button
-            type="button"
-            disabled={!canCommit}
-            onClick={() => void commit(false)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content/10 text-ui-label font-medium text-content enabled:hover:bg-content/15 disabled:opacity-40"
-          >
-            <Check className="size-3.5" strokeWidth={2} />
-            Commit
-          </button>
-
-          <button
-            type="button"
-            title="Commit options"
-            aria-label="Commit options"
-            disabled={!canCommit}
-            onClick={() => setMenuOpen((open) => !open)}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-content/10 bg-content/10 text-content enabled:hover:bg-content/15 disabled:opacity-40"
-          >
-            <ChevronDown className="size-3.5" strokeWidth={2} />
-          </button>
-          {enabled && menuOpen ? (
-            <div className="absolute top-full right-0 z-30 mt-1 min-w-48 aven-glass-overlay [--aven-radius-overlay:12px] py-1">
-              <button
-                type="button"
-                disabled={!canCommitPush}
-                onClick={() => void commit(true)}
-                className="flex h-7 w-full items-center px-3 text-left text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
-              >
-                Commit & Push
-              </button>
-              <button
-                type="button"
-                disabled={!canCommitPushPr}
-                onClick={() => void commit(true, true)}
-                className="flex h-7 w-full items-center px-3 text-left text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
-              >
-                Commit, Push & Create PR
-              </button>
-            </div>
-          ) : null}
-        </div>
         {index && !ship ? (
           <GitSyncActions
             index={index}
@@ -855,7 +679,7 @@ function ChangedFiles({
               Loading changes…
             </p>
           )
-        ) : (
+        ) : showStaging ? (
           <>
             {staged.length > 0 ? (
               <FileSection
@@ -870,6 +694,7 @@ function ChangedFiles({
                 view={view}
                 onToggleView={toggleView}
                 headerActions={[
+                  stagingToggle,
                   {
                     title: "Open All Changes",
                     icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
@@ -884,14 +709,9 @@ function ChangedFiles({
               >
                 <ChangeList
                   files={staged}
-                  view={view}
                   kind="staged"
-                  largest={largest}
-                  selected={selected}
-                  selectedKind={selectedKind}
-                  busy={busy}
-                  onOpenFile={onOpenFile}
-                  onAction={run}
+                  {...rowProps}
+                  onAction={(file, action) => void run(file, action)}
                 />
               </FileSection>
             ) : null}
@@ -908,6 +728,8 @@ function ChangedFiles({
                 view={view}
                 onToggleView={toggleView}
                 headerActions={[
+                  // The toggle sits in the first section's header.
+                  ...(staged.length > 0 ? [] : [stagingToggle]),
                   {
                     title: "Open All Changes",
                     icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
@@ -927,18 +749,46 @@ function ChangedFiles({
               >
                 <ChangeList
                   files={unstaged}
-                  view={view}
                   kind="unstaged"
-                  largest={largest}
-                  selected={selected}
-                  selectedKind={selectedKind}
-                  busy={busy}
-                  onOpenFile={onOpenFile}
-                  onAction={run}
+                  {...rowProps}
+                  onAction={(file, action) => void run(file, action)}
                 />
               </FileSection>
             ) : null}
           </>
+        ) : (
+          <FileSection
+            title="Changes"
+            count={files.length}
+            totals={totals}
+            open={changesExpanded}
+            onToggle={() => {
+              changesOpen = !changesExpanded;
+              setChangesExpanded(changesOpen);
+            }}
+            view={view}
+            onToggleView={toggleView}
+            headerActions={[
+              stagingToggle,
+              {
+                title: "Open All Changes",
+                icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                onClick: () => onOpenAllChanges(),
+              },
+              {
+                title: "Discard All Changes",
+                icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
+                onClick: () => void runAll("discard", true),
+              },
+            ]}
+          >
+            <ChangeList
+              files={files}
+              kind="all"
+              {...rowProps}
+              onAction={(file, action) => void run(file, action, true)}
+            />
+          </FileSection>
         )}
         <GitCopies
           cwd={cwd}
@@ -1071,7 +921,11 @@ function GitSyncActions({
   onViewPr,
 }: {
   index: GitDiffIndex;
-  /** Uncommitted files: a pull request waits for them, and Ship it offers one. */
+  /**
+   * Uncommitted files. Ship it then commits, pushes (publishing the branch)
+   * and opens the pull request, so only what it can't do is offered here:
+   * pulling incoming commits, and the open pull request.
+   */
   dirty: boolean;
   pr: GitPr | null;
   busy: string | null;
@@ -1113,13 +967,16 @@ function GitSyncActions({
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
+  const showPublish = canPublish && !dirty;
+  // Ship it can't push while commits are waiting to be pulled.
+  const showSync = canSync && (!dirty || behind > 0);
   const showCreatePr = !hasOpenPr && !onDefault && !dirty;
   const showViewPr = hasOpenPr;
-  if (!canPublish && !canSync && !showCreatePr && !showViewPr) return null;
+  if (!showPublish && !showSync && !showCreatePr && !showViewPr) return null;
 
   return (
     <div className="flex flex-col gap-1.5">
-      {canPublish ? (
+      {showPublish ? (
         <button
           type="button"
           title={syncTitle}
@@ -1137,7 +994,7 @@ function GitSyncActions({
           )}
           <span className="min-w-0 truncate">Publish Branch</span>
         </button>
-      ) : canSync ? (
+      ) : showSync ? (
         <button
           type="button"
           title={syncTitle}
@@ -1259,7 +1116,7 @@ function ShipBar({
         type="button"
         className="git-ship-button"
         disabled={disabled}
-        title="Commit these changes, push them and open a pull request"
+        title="Commit these changes, and choose whether to push them or open a pull request"
         onClick={onShip}
       >
         <ArrowUp className="size-3.5" strokeWidth={2} />
@@ -1268,6 +1125,14 @@ function ShipBar({
     </div>
   );
 }
+
+/** A button in a file section's header; `pressed` marks a toggle that is on. */
+type SectionAction = {
+  title: string;
+  icon: ReactNode;
+  pressed?: boolean;
+  onClick: () => void;
+};
 
 function FileSection({
   title,
@@ -1287,7 +1152,7 @@ function FileSection({
   onToggle: () => void;
   view: ChangesView;
   onToggleView: () => void;
-  headerActions: { title: string; icon: ReactNode; onClick: () => void }[];
+  headerActions: SectionAction[];
   children: ReactNode;
 }) {
   return (
@@ -1336,6 +1201,7 @@ function FileSection({
           <IconAction
             key={action.title}
             title={action.title}
+            pressed={action.pressed}
             onClick={action.onClick}
           >
             {action.icon}
@@ -1357,16 +1223,29 @@ type ChangeDir = {
   status: string | null;
 };
 
+/**
+ * Opens a changed file's diff. `everyFile` comes from the single list, where a
+ * picture opens beside every changed picture rather than one section's.
+ */
+type OpenChange = (
+  path: string,
+  kind: GitFileDiffKind,
+  everyFile?: boolean,
+) => void;
+
+/** One side of staging, or "all": every changed file once, in a single list. */
+type ListKind = GitFileDiffKind | "all";
+
 type ChangeRowProps = {
   files: GitChangedFile[];
   view: ChangesView;
-  kind: GitFileDiffKind;
+  kind: ListKind;
   /** Most changed lines in any file shown, which sizes each row's bar. */
   largest: number;
   selected?: string;
   selectedKind?: GitFileDiffKind;
   busy: string | null;
-  onOpenFile: (path: string, kind: GitFileDiffKind) => void;
+  onOpenFile: OpenChange;
   onAction: (
     file: GitChangedFile,
     action: "stage" | "unstage" | "discard",
@@ -1507,9 +1386,10 @@ function isActive(
   file: GitChangedFile,
   selected: string | undefined,
   selectedKind: GitFileDiffKind | undefined,
-  kind: GitFileDiffKind,
+  kind: ListKind,
 ): boolean {
-  return selected === file.relative && (!selectedKind || selectedKind === kind);
+  if (selected !== file.relative) return false;
+  return kind === "all" || !selectedKind || selectedKind === kind;
 }
 
 /** Nests changed files under their directories, VS Code's tree view. */
@@ -1571,11 +1451,11 @@ function ChangeRow({
   file: GitChangedFile;
   active: boolean;
   busy: boolean;
-  kind: GitFileDiffKind;
+  kind: ListKind;
   largest: number;
   /** Set in tree view: nesting level, and the folder path moves to the tree. */
   depth?: number;
-  onOpenFile: (path: string, kind: GitFileDiffKind) => void;
+  onOpenFile: OpenChange;
   onAction: (
     file: GitChangedFile,
     action: "stage" | "unstage" | "discard",
@@ -1586,6 +1466,11 @@ function ChangeRow({
   const dir = tree ? "" : dirname(file.relative);
   const canOpen = file.status !== "deleted";
   const bar = churnBar(file, largest);
+  const single = kind === "all";
+  // The single list keeps a quiet mark on staged files, so nothing staged is
+  // out of sight while staging is hidden.
+  const stagedNote =
+    !single || !file.staged ? "" : file.unstaged ? "partly staged" : "staged";
   return (
     <li>
       <div
@@ -1600,9 +1485,16 @@ function ChangeRow({
       >
         <button
           type="button"
-          title={file.relative}
+          title={
+            stagedNote ? `${file.relative} (${stagedNote})` : file.relative
+          }
           onClick={() => {
-            if (canOpen) onOpenFile(file.path, kind);
+            if (canOpen)
+              onOpenFile(
+                file.path,
+                single ? changeKindFor(file) : kind,
+                single,
+              );
           }}
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
         >
@@ -1614,6 +1506,9 @@ function ChangeRow({
               <span className="ml-1.5 text-ui-caption text-content/40">
                 {dir}
               </span>
+            ) : null}
+            {stagedNote ? (
+              <span className="sr-only">, {stagedNote}</span>
             ) : null}
           </span>
         </button>
@@ -1644,7 +1539,7 @@ function ChangeRow({
             active ? "flex" : "hidden group-focus-within:flex group-hover:flex"
           }`}
         >
-          {kind === "unstaged" ? (
+          {kind !== "staged" ? (
             <IconAction
               title="Discard Changes"
               disabled={busy}
@@ -1661,7 +1556,7 @@ function ChangeRow({
             >
               <Minus className="size-3.5" strokeWidth={1.75} />
             </IconAction>
-          ) : (
+          ) : kind === "unstaged" ? (
             <IconAction
               title="Stage Changes"
               disabled={busy}
@@ -1669,11 +1564,18 @@ function ChangeRow({
             >
               <Plus className="size-3.5" strokeWidth={1.75} />
             </IconAction>
-          )}
+          ) : null}
         </div>
         <span
-          className={`w-3.5 shrink-0 text-right font-mono text-ui-caption font-semibold ${statusColor(file.status)}`}
+          className={`relative w-3.5 shrink-0 text-right font-mono text-ui-caption font-semibold ${statusColor(file.status)}`}
         >
+          {stagedNote ? (
+            <span
+              data-staged-mark
+              className="absolute top-1/2 left-0 size-1 -translate-y-1/2 rounded-full bg-current"
+              aria-hidden
+            />
+          ) : null}
           {statusLetter(file.status)}
         </span>
       </div>
@@ -1684,11 +1586,14 @@ function ChangeRow({
 function IconAction({
   title,
   disabled,
+  pressed,
   onClick,
   children,
 }: {
   title: string;
   disabled?: boolean;
+  /** A toggle's state; leave out for a plain button. */
+  pressed?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -1697,9 +1602,10 @@ function IconAction({
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className="grid size-5 place-items-center rounded text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
+      className="grid size-5 place-items-center rounded text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40 aria-pressed:bg-content/10 aria-pressed:text-content"
     >
       {children}
     </button>
