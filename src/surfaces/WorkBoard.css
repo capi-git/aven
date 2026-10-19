@@ -1,6 +1,7 @@
-/* A project's board: four columns of small cards in the workspace's glass.
-   The board scrolls as a whole, so a card gliding between columns is never
-   clipped by a column of its own. */
+/* A project's board of features: four columns of small cards in the
+   workspace's glass, Ideas, Building, Review and Shipped. The board scrolls
+   as a whole, so a card gliding or dragged between columns is never clipped
+   by a column of its own. */
 .work-board {
   --work-board-glide: var(--aven-motion-duration, 220ms)
     var(--aven-motion-easing, cubic-bezier(0.22, 1, 0.36, 1));
@@ -69,6 +70,7 @@
 
 .work-board-column {
   --work-board-tone: var(--color-content);
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 140px;
@@ -81,11 +83,7 @@
   box-shadow: var(--aven-glass-sheen, none);
 }
 
-.work-board-column[data-board-column="needs-you"] {
-  --work-board-tone: var(--aven-needs-you);
-}
-
-.work-board-column[data-board-column="working"] {
+.work-board-column[data-board-column="building"] {
   --work-board-tone: var(--color-accent);
 }
 
@@ -119,6 +117,7 @@
 }
 
 .work-board-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -126,11 +125,78 @@
   border: 1px solid var(--aven-line);
   border-radius: 10px;
   background: var(--aven-raised);
+  touch-action: none;
 }
 
-.work-board-card[data-column="needs-you"] {
+/* A card one of whose chats waits on you keeps its place, marked in amber. */
+.work-board-card[data-needs-you] {
   border-color: var(--aven-needs-you-edge);
   box-shadow: inset 2px 0 0 var(--aven-needs-you);
+}
+
+.work-board-needs-you {
+  margin: 0;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--aven-needs-you-edge);
+  border-radius: 6px;
+  background: var(--aven-needs-you-wash);
+  color: var(--aven-needs-you);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-board-needs-you-label {
+  font-weight: 600;
+}
+
+/* The card's ⋯: shown on hover or focus, and always for touch. */
+.work-board-card-more {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--aven-muted);
+  opacity: 0;
+}
+
+.work-board-card:hover .work-board-card-more,
+.work-board-card:focus-within .work-board-card-more,
+.work-board-card-more[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.work-board-card-more:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+@media (hover: none) {
+  .work-board-card-more {
+    opacity: 1;
+  }
+}
+
+/* Dragged with the pointer: it rides above the columns, and the column it
+   would land in is outlined. */
+.work-board-card[data-dragging] {
+  z-index: 2;
+  box-shadow: var(--aven-glass-card-shadow, 0 8px 24px rgb(0 0 0 / 0.3));
+  cursor: grabbing;
+  opacity: 0.94;
+}
+
+.work-board-column[data-drop-target] {
+  border-color: var(--color-accent);
+  box-shadow:
+    var(--aven-glass-sheen, none),
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
 .work-board-card-open {
@@ -138,14 +204,18 @@
   min-width: 0;
   flex-direction: column;
   gap: 4px;
+  padding-right: 18px;
   border-radius: 6px;
   color: inherit;
   text-align: left;
 }
 
 .work-board-card-open:focus-visible,
+.work-board-card-more:focus-visible,
 .work-board-action:focus-visible,
-.work-board-older:focus-visible {
+.work-board-older:focus-visible,
+.work-board-outside button:focus-visible,
+.work-board-import:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
@@ -201,6 +271,221 @@
   font-size: var(--text-ui-label);
 }
 
+/* An empty board asks for its first idea. */
+.work-board-empty[data-invite] {
+  color: var(--color-content);
+}
+
+/* Ideas' foot, and a card being edited: the app's own fields. */
+.work-board-input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
+  background: var(--aven-field-bg, transparent);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+}
+
+.work-board-input::placeholder {
+  color: var(--aven-muted);
+}
+
+.work-board-input:focus-visible {
+  border-color: var(--aven-focus-ring, var(--color-accent));
+  outline: none;
+}
+
+.work-board-add {
+  margin-top: auto;
+}
+
+.work-board-add-input:not(:focus) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.work-board-add-input:not(:focus):hover {
+  background: var(--aven-hover);
+}
+
+.work-board-note-input {
+  resize: vertical;
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+}
+
+.work-board-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-board-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.work-board-error {
+  margin: -8px 2px 12px;
+  color: var(--aven-git-del, #f87171);
+  font-size: var(--text-ui-label);
+}
+
+/* Work no card links to: one slim line above the columns. */
+.work-board-outside {
+  margin: -6px 2px 12px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.work-board-outside-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.work-board-outside[data-needs-you] .work-board-outside-toggle {
+  color: var(--aven-needs-you);
+}
+
+.work-board-outside-toggle,
+.work-board-outside-add {
+  border-radius: 4px;
+  color: inherit;
+}
+
+.work-board-outside-toggle:hover,
+.work-board-outside-add:hover {
+  color: var(--color-content);
+}
+
+.work-board-outside-add {
+  color: var(--color-content);
+  font-weight: 500;
+}
+
+.work-board-outside-list {
+  display: flex;
+  max-width: 560px;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-board-outside-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.work-board-outside-chat {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--color-content);
+  text-align: left;
+}
+
+.work-board-outside-chat:hover {
+  background: var(--aven-hover);
+}
+
+.work-board-outside-stage {
+  flex: none;
+  margin-left: auto;
+  color: var(--aven-muted);
+}
+
+.work-board-outside-stage[data-stage="needs-you"] {
+  color: var(--aven-needs-you);
+}
+
+/* Ideas' Import issues, and the list it opens. */
+.work-board-import {
+  margin-left: auto;
+  border-radius: 4px;
+  color: var(--aven-muted);
+  font-weight: 400;
+}
+
+.work-board-import:hover {
+  color: var(--color-content);
+}
+
+.work-board-import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  outline: none;
+}
+
+.work-board-import-hint,
+.work-board-import-note {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+}
+
+.work-board-import-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-board-import-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px;
+  border-radius: 6px;
+  font-size: var(--text-ui-body);
+}
+
+.work-board-import-item:hover:not([data-added]) {
+  background: var(--aven-hover);
+}
+
+.work-board-import-number,
+.work-board-import-added {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-board-import-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-board-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .work-board-older {
   align-self: flex-start;
   margin: 0 2px;
@@ -213,7 +498,8 @@
 }
 
 /* Motion: a card that changed column glides there (useCardGlide); a new
-   one fades in. Transforms and opacity only. */
+   one fades in. Transforms and opacity only, and none with Reduce motion,
+   Aven's or the system's. */
 .work-board-card[data-gliding] {
   position: relative;
   z-index: 1;
@@ -232,6 +518,14 @@
     opacity: 0;
     transform: translateY(4px);
   }
+}
+
+:root[data-motion="reduce"] .work-board-card[data-gliding=""] {
+  transition: none;
+}
+
+:root[data-motion="reduce"] .work-board-card[data-glide-enter] {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

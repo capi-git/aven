@@ -790,6 +790,12 @@ import {
   installWorkBoardActions,
   type WorkBoardActions,
 } from "./lib/workBoardFeed";
+import {
+  addChatsToBoard,
+  boardProjectFor,
+  type FeatureCardDraft,
+} from "./lib/featureCards";
+import { chatBoardColumn } from "./lib/workBoard";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -1183,6 +1189,11 @@ export default function App({
   });
   // What a project board's buttons do, kept current below and installed once.
   const boardActionsRef = useRef<WorkBoardActions | null>(null);
+  const addToBoardRef = useRef<(sessionIds: string[]) => void>(() => {});
+  const onAddToBoard = useCallback(
+    (sessionIds: string[]) => addToBoardRef.current(sessionIds),
+    [],
+  );
   useEffect(
     () =>
       installWorkBoardActions({
@@ -1195,6 +1206,8 @@ export default function App({
         preview: (...args) => boardActionsRef.current?.preview(...args),
         openCommit: (...args) => boardActionsRef.current?.openCommit(...args),
         openUrl: (...args) => boardActionsRef.current?.openUrl(...args),
+        build: (...args) => boardActionsRef.current?.build(...args) ?? null,
+        draft: (...args) => boardActionsRef.current?.draft(...args) ?? null,
       }),
     [],
   );
@@ -5765,9 +5778,12 @@ export default function App({
     if (path) onCreatedProject(path, profileId);
     return !!path;
   }, [onCreatedProject]);
-  /** A new chat in `path`, its message box holding `seed` (never sent). */
+  /**
+   * A new chat in `path`, its message box holding `seed` (never sent).
+   * Returns the chat's id.
+   */
   const startProjectChat = useCallback(
-    (path: string, seed?: string) => {
+    (path: string, seed?: string): string => {
       revealProjectTask(path);
       // The sidebar's "New chat" can be pressed over Home; the new chat has
       // to replace it, or nothing seems to happen.
@@ -5792,7 +5808,7 @@ export default function App({
         ) {
           setProjectCwd(path);
           rememberRecentProject(path);
-          if (replaceBlankPaneWithSession(session)) return;
+          if (replaceBlankPaneWithSession(session)) return session.id;
         }
       }
       const tab = newTab(session.id);
@@ -5802,11 +5818,12 @@ export default function App({
       appendTab(tab, path);
       setActiveTabId(tab.id);
       setComposerFocused(true);
+      return session.id;
     },
     [appendTab, replaceBlankPaneWithSession, showWorkspace],
   );
   const onNewProjectTask = useCallback(
-    (path: string) => startProjectChat(path),
+    (path: string) => void startProjectChat(path),
     [startProjectChat],
   );
 
@@ -9583,6 +9600,41 @@ export default function App({
         }),
       ),
     openUrl: (url) => void openInAppUrl(url),
+    // Behind the board, with the default agent and model, as Getting
+    // started's first message would be if it were sent.
+    build: (project, text) => {
+      const session = newDefaultSession(project);
+      setSessions((previous) => [...previous, session]);
+      appendTab(newTab(session.id), project);
+      onSubmit(session.id, text, []);
+      return session.id;
+    },
+    draft: (project, text) => startProjectChat(project, text),
+  };
+  /**
+   * Add to board, from a chat's menu: a card per chat on its project's
+   * board, in the column its state implies; then the board comes forward.
+   */
+  addToBoardRef.current = (sessionIds) => {
+    const drafts = new Map<string, FeatureCardDraft[]>();
+    for (const id of sessionIds) {
+      const loaded = sessionsRef.current.find((session) => session.id === id);
+      const saved = historyRef.current.find((row) => row.id === id);
+      const chat = loaded ?? saved;
+      const project = boardProjectFor(chat?.cwd);
+      if (!chat || !project) continue;
+      drafts.set(project, [
+        ...(drafts.get(project) ?? []),
+        {
+          title: sessionDisplayTitle(chat.title, chat.harness),
+          chatIds: [id],
+          column: chatBoardColumn(chatStatusRef.current[id]),
+        },
+      ]);
+    }
+    for (const [project, cards] of drafts) void addChatsToBoard(project, cards);
+    const first = drafts.keys().next().value;
+    if (first) openBoardRef.current(first);
   };
   const openRaceOverview = (tabId: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === tabId);
@@ -9938,6 +9990,7 @@ export default function App({
     onArchiveSessions: onArchiveHistorySessions,
     onPinSession: onPinHistorySession,
     onPinSessions: onPinHistorySessions,
+    onAddToBoard,
     onDeleteSession: onDeleteHistorySession,
     onDeleteSessions: onDeleteHistorySessions,
     onOpenFile,

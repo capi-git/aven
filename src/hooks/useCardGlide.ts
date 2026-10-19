@@ -1,13 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
+import { motionReduced } from "../lib/motion";
 
 type Point = { x: number; y: number };
-
-function reducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 /**
  * Cards that moved since the last commit glide from where they were, even
@@ -15,14 +15,16 @@ function reducedMotion(): boolean {
  * card React remounted elsewhere still starts from its old place. Only
  * transforms move (the stylesheet sets the transition on `[data-gliding]`);
  * a card that appeared fades in through `data-glide-enter`. Nothing moves
- * with reduced motion. Positions are read after each commit, and again after
- * the container scrolls or resizes, never on a timer.
+ * with Reduce motion (Aven's setting or the system's). Positions are read
+ * after each commit, and again after the container scrolls or resizes, never
+ * on a timer. `remember(key)` reads one card where it is drawn now, such as
+ * where a dragged card was let go, so its next move glides from there.
  */
 export function useCardGlide(
   container: RefObject<HTMLElement | null>,
   /** Changes whenever cards may have moved, such as their ids in order. */
   layoutKey: string,
-): void {
+): { remember(key: string): void } {
   const places = useRef<Map<string, Point> | null>(null);
   const frame = useRef<number | null>(null);
 
@@ -74,7 +76,7 @@ export function useCardGlide(
         moving.push({ card, dx: was.x - place.x, dy: was.y - place.y });
     }
     places.current = after;
-    if (reducedMotion()) return;
+    if (motionReduced()) return;
     for (const card of entering) card.setAttribute("data-glide-enter", "");
     if (!moving.length && !entering.length) return;
     // Draw each moved card where it was, then let it glide to its place.
@@ -141,4 +143,24 @@ export function useCardGlide(
     },
     [],
   );
+
+  const remember = useCallback(
+    (key: string) => {
+      const root = container.current;
+      const known = places.current;
+      if (!root || !known) return;
+      const card = [
+        ...root.querySelectorAll<HTMLElement>("[data-glide-key]"),
+      ].find((entry) => entry.dataset.glideKey === key);
+      if (!card) return;
+      const origin = root.getBoundingClientRect();
+      const rect = card.getBoundingClientRect();
+      known.set(key, {
+        x: rect.left - origin.left + root.scrollLeft,
+        y: rect.top - origin.top + root.scrollTop,
+      });
+    },
+    [container],
+  );
+  return { remember };
 }

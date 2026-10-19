@@ -27,7 +27,7 @@ export function WorkBoardHeading({
 }
 
 /**
- * The board while its own code loads: its title and four empty columns,
+ * The board while its own code loads: its title and its four columns,
  * drawn at once with the workspace's code and styles, so opening a board
  * never shows a blank pane. The board itself then draws in the same place.
  */
@@ -40,7 +40,7 @@ export function WorkBoardFrame({ project }: { project: string }) {
       aria-busy="true"
       aria-label={`${projectDisplayName(project, labels)} board`}
     >
-      <WorkBoardHeading project={project} line="Loading chats…" />
+      <WorkBoardHeading project={project} line="Loading…" />
       <div className="work-board-columns">
         {BOARD_COLUMNS.map((column) => (
           <section
