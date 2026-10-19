@@ -417,6 +417,19 @@ describe("continuing after a race", () => {
       expect(raceKeptNote(mix, 1)).toBe(
         "The user had other agents try “Fix the login loop” in separate copies of this project and kept files from several agents' versions (3 files). Those changes are now in this project.",
       );
+      // Picks that all came from one agent name it.
+      expect(
+        raceKeptNote(
+          race({
+            state: "kept",
+            outcome: { kind: "mix", files: 2 },
+            picks: { "b.ts": 1, "c.ts": 1 },
+          }),
+          1,
+        ),
+      ).toBe(
+        "The user had other agents try “Fix the login loop” in separate copies of this project and kept files from Codex's version (2 files). Those changes are now in this project.",
+      );
       saveRace(mix);
       await noteRaceKept(
         "r1",

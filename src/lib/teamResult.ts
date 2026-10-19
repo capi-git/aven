@@ -630,10 +630,15 @@ export function raceRecapHint(
 export function raceKeptNote(race: RaceRecord, lane: number): string {
   const task = clip(race.prompt.replace(/\s+/g, " ").trim(), 200);
   const count = files(race.outcome?.files ?? 0);
+  // A mix whose picks all came from one agent names it.
+  const sources = new Set(Object.values(race.picks ?? {}));
+  const source = sources.size === 1 ? [...sources][0] : undefined;
   const kept =
-    race.outcome?.kind === "mix"
-      ? `files from several agents' versions (${count})`
-      : `${possessive(raceLaneName(race, lane))} version (${count})`;
+    race.outcome?.kind !== "mix"
+      ? `${possessive(raceLaneName(race, lane))} version (${count})`
+      : source !== undefined
+        ? `files from ${possessive(raceLaneName(race, source))} version (${count})`
+        : `files from several agents' versions (${count})`;
   return `The user had other agents try “${task}” in separate copies of this project and kept ${kept}. Those changes are now in this project.`;
 }
 
