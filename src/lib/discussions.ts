@@ -718,6 +718,34 @@ export function continuationRelay(
   return capRelay(discussionReply(session.blocks, discussion.id, turn) ?? "");
 }
 
+/**
+ * The other chat's last reply when the chat that started the discussion
+ * never received it, for its "Have … build it" message: a finished
+ * discussion's (copied into that chat, shown only) or one stopped before it
+ * was passed on (read from the other chat, when open here). `shown` when
+ * the starting chat already shows it. Null when there is none.
+ */
+export function unseenFinalReply(
+  discussion: Discussion,
+  sessions: readonly Session[],
+): { text: string; shown: boolean } | null {
+  // Only B's reply can miss A: A speaks on even turns.
+  const turn = discussion.settled - 1;
+  if (turn < 1 || turn % 2 === 0) return null;
+  const starter = sessions.find((entry) => entry.id === discussion.a.sessionId);
+  const copy = starter?.blocks.findLast(
+    (block) =>
+      block.role === "system" &&
+      block.discussionReply?.id === discussion.id &&
+      block.discussionReply.turn === discussion.settled,
+  );
+  if (copy?.text.trim()) return { text: copy.text.trim(), shown: true };
+  if (discussion.ended?.kind !== "completed" && discussion.delivered)
+    return null;
+  const text = continuationRelay(discussion, sessions)?.text;
+  return text ? { text, shown: false } : null;
+}
+
 // --- Transcript --------------------------------------------------------------
 
 /**

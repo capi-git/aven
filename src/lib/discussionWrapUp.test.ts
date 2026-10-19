@@ -295,6 +295,18 @@ describe("discussionBuildMessage", () => {
     ).toBe("Please carry out the plan from your discussion with Claude.");
   });
 
+  it("adds the partner's last reply when it never reached this chat", () => {
+    const { discussion } = finished();
+    expect(
+      discussionBuildMessage(discussion, "a", " Agreed, with a TTL. "),
+    ).toBe(
+      "Please carry out the plan from your discussion with Codex.\n\nCodex's last reply, which you haven't seen yet:\n\nAgreed, with a TTL.",
+    );
+    expect(discussionBuildMessage(discussion, "a", "  ")).toBe(
+      "Please carry out the plan from your discussion with Codex.",
+    );
+  });
+
   it("names each side by its app, with the model only beside the same app", () => {
     const { discussion } = finished();
     expect(discussionAgentName(discussion, "a")).toBe("Claude");

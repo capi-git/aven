@@ -11,12 +11,14 @@ import {
   interjectDiscussion,
   jumpInPlan,
   pauseDiscussion,
+  finalReplyMeta,
   readDiscussion,
   relayBlockMeta,
   relayDisplayText,
   relayInterjections,
   relayPrompt,
   settleDiscussion,
+  unseenFinalReply,
   type Discussion,
   type DiscussionParty,
 } from "./discussions";
@@ -306,6 +308,71 @@ describe("continuationRelay", () => {
     expect(
       continuationRelay(continued, [chat("chat-b", transcript(0, "Old"))]),
     ).toEqual({ text: "", truncated: false });
+  });
+});
+
+describe("unseenFinalReply", () => {
+  const chat = (id: string, blocks: Block[]): Session => ({
+    ...newSession("claude", "/work/site"),
+    id,
+    blocks,
+  });
+  /** B's chat: the relay it answered at turn 1, then its reply. */
+  const partner = (reply: string) =>
+    chat("chat-b", [
+      {
+        id: "relay-1",
+        role: "user",
+        text: "relayed",
+        startedAt: 1,
+        discussion: relayBlockMeta(answer(fresh(2), "Cache by URL.")),
+      },
+      { id: "reply-1", role: "assistant", text: reply },
+    ]);
+
+  it("finds B's last reply, which the starting chat never got", () => {
+    const ended = answer(answer(fresh(1), "Cache by URL."), "Agreed.");
+    expect(ended.status).toBe("ended");
+    // Copied into the starting chat when it ended, shown only.
+    const starter = chat("chat-a", [
+      {
+        id: "copy",
+        role: "system",
+        text: "Agreed.",
+        discussionReply: finalReplyMeta(ended, false, 3),
+      },
+    ]);
+    expect(unseenFinalReply(ended, [starter])).toEqual({
+      text: "Agreed.",
+      shown: true,
+    });
+    // Without the copy, read from B's chat when it is open here.
+    expect(
+      unseenFinalReply(ended, [chat("chat-a", []), partner("Agreed.")]),
+    ).toEqual({ text: "Agreed.", shown: false });
+    expect(unseenFinalReply(ended, [chat("chat-a", [])])).toBeNull();
+  });
+
+  it("finds one stopped before it was passed on, and nothing A already has", () => {
+    const answered = answer(answer(fresh(2), "Cache by URL."), "Agreed.");
+    const stopped = endDiscussion(answered, { kind: "stopped" }, 5);
+    expect(unseenFinalReply(stopped, [partner("Agreed.")])).toEqual({
+      text: "Agreed.",
+      shown: false,
+    });
+    const passedOn = endDiscussion(
+      { ...answered, delivered: true },
+      { kind: "stopped" },
+      5,
+    );
+    expect(unseenFinalReply(passedOn, [partner("Agreed.")])).toBeNull();
+    // A spoke last: B has nothing A hasn't seen.
+    const afterA = endDiscussion(
+      answer(fresh(2), "Cache by URL."),
+      { kind: "stopped" },
+      5,
+    );
+    expect(unseenFinalReply(afterA, [partner("Agreed.")])).toBeNull();
   });
 });
 

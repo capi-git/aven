@@ -23,6 +23,7 @@ import {
   relayPrompt,
   sidebarDiscussions,
   speakingSide,
+  unseenFinalReply,
   type Discussion,
   type DiscussionBlocker,
   type DiscussionCandidate,
@@ -68,7 +69,13 @@ export type DiscussionTurnOptions = {
  * the normal send path like one typed in the chat, queued behind a turn
  * already running.
  */
-export type DiscussionMessageOptions = { followUpBehavior: "queue" };
+export type DiscussionMessageOptions = {
+  followUpBehavior: "queue";
+  /** Shown in the transcript when the chat already shows the rest. */
+  displayText?: string;
+  /** It quotes another agent: its `/` and `@` stay as text. */
+  verbatim?: true;
+};
 
 type Options = {
   /** Committed sessions; a change re-checks the discussions this window drives. */
@@ -644,15 +651,27 @@ export function useDiscussionBroker({
           // A new partner has no tab, and is parked once the discussion ends.
           const session = await load(party.sessionId);
           if (!session) return `Couldn't open “${party.title}”.`;
-          const { onSubmit, focusChat } = latest.current;
+          const { onSubmit, focusChat, sessionsRef } = latest.current;
           focusChat?.(session.id);
+          // The other chat's last reply never reached the starting chat.
+          const unseen =
+            side === "a"
+              ? unseenFinalReply(discussion, [session, ...sessionsRef.current])
+              : null;
           let accepted: void | boolean = false;
           try {
             accepted = onSubmit(
               session.id,
-              discussionBuildMessage(discussion, side),
+              discussionBuildMessage(discussion, side, unseen?.text),
               [],
-              { followUpBehavior: "queue" },
+              {
+                followUpBehavior: "queue",
+                ...(unseen ? { verbatim: true as const } : {}),
+                // That reply is already shown just above.
+                ...(unseen?.shown
+                  ? { displayText: discussionBuildMessage(discussion, side) }
+                  : {}),
+              },
             );
           } catch (error) {
             logError("Discussion build", error);
