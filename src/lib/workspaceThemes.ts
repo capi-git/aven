@@ -9,6 +9,7 @@ import {
   applyThemeTint,
   AVEN_THEME_COLORS,
   MONO_THEME_COLORS,
+  BLACK_THEME_COLORS,
   BODY_GLASS_DEFAULT,
   COVE_THEME_COLORS,
   SKY_THEME_COLORS,
@@ -155,13 +156,12 @@ export const WORKSPACE_THEME_PRESETS: readonly WorkspaceThemePreset[] = [
     ["#171b25", "#aab6d6", "#8794b6"],
     ["#e9edf5", "#64718d", "#9aa7c6"],
   ),
-  preset(
-    "Black",
-    240,
-    0,
-    ["#000000", "#c4c4c8", "#85858f"],
-    ["#ffffff", "#343438", "#757580"],
-  ),
+  {
+    name: "Black",
+    hue: 240,
+    saturation: 0,
+    colors: BLACK_THEME_COLORS,
+  },
   preset(
     "Graphite",
     240,
