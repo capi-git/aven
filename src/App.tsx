@@ -683,12 +683,33 @@ import {
   LazyViewSlot,
   NotesView,
   preloadLazyViews,
-  ProviderSetupDialog,
   SearchView,
   SettingsView,
+  TourOverlay,
+  WalkthroughDialog,
   WhatsNewDialog,
 } from "./surfaces/lazyViews";
-import { shouldOfferProviderSetup } from "./lib/providerSetup";
+import { loadProviderSetup, saveProviderSetup } from "./lib/providerSetup";
+import {
+  loadWalkthrough,
+  saveWalkthrough,
+  shouldOfferWalkthrough,
+  walkthroughReducer,
+  type WalkthroughAction,
+  type WalkthroughState,
+} from "./lib/walkthrough";
+import { offerGettingStarted } from "./lib/gettingStarted";
+import type { GettingStartedStepId } from "./lib/gettingStarted";
+import { useGettingStarted } from "./hooks/useGettingStarted";
+import {
+  createSampleProject,
+  isSampleProject,
+  PREVIEW_MESSAGE,
+  SAMPLE_FIRST_MESSAGE,
+} from "./lib/sampleProject";
+import { TOUR_START_EVENT, startTour } from "./lib/tour";
+import type { TourPrepare } from "./chrome/Tour";
+import type { WalkthroughProjectChoice } from "./surfaces/Walkthrough";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
@@ -926,8 +947,11 @@ export default function App({
     const tab = newTab(session.id);
     return { session, tab };
   });
-  const [providerSetupOpen, setProviderSetupOpen] = useState(() =>
-    shouldOfferProviderSetup(
+  // The first-run walkthrough: only a fresh install with no existing work
+  // sees it, under the rule that offered provider setup before it. The
+  // automated checks start from a finished setup, so they never do.
+  const [walkthrough, setWalkthrough] = useState<WalkthroughState | null>(() =>
+    shouldOfferWalkthrough(
       Boolean(
         windowTransfer ||
         lastProjectPath() ||
@@ -935,8 +959,24 @@ export default function App({
         bootHistory.length ||
         resumed?.sessions.some((session) => session.blocks.length > 0),
       ),
-    ),
+    )
+      ? loadWalkthrough()
+      : null,
   );
+  const walkthroughRef = useRef(walkthrough);
+  walkthroughRef.current = walkthrough;
+  useEffect(() => {
+    // Begun on this install: it resumes if Aven quits part way, and Home
+    // offers its Getting started card afterwards.
+    const current = walkthroughRef.current;
+    if (!current || current.started) return;
+    const next = walkthroughReducer(current, { type: "start" });
+    saveWalkthrough(next);
+    offerGettingStarted();
+    setWalkthrough(next);
+  }, []);
+  // Help › Take the Tour Again, or Settings: the tour alone, not the setup.
+  const [tourAgain, setTourAgain] = useState(false);
   const {
     sessions,
     sessionsRef,
@@ -1793,6 +1833,40 @@ export default function App({
         ?.focus(),
     );
   }, []);
+  const inspectorRef = useRef(inspector);
+  inspectorRef.current = inspector;
+  // The tour may open the side panel on Changes to point at it, and puts it
+  // back as it was when it moves on. Nothing else is opened for it.
+  const tourPrepare = useMemo<TourPrepare>(
+    () => ({
+      changes: () => {
+        const before = inspectorRef.current;
+        if (before.open && before.tab === "changes") return;
+        setInspector((previous) => ({
+          ...previous,
+          open: true,
+          tab: "changes",
+        }));
+        return () =>
+          setInspector((previous) => ({
+            ...previous,
+            open: before.open,
+            tab: before.tab,
+          }));
+      },
+    }),
+    [],
+  );
+  useEffect(() => {
+    const onStart = () => {
+      // The walkthrough's own tour is already on its way.
+      if (walkthroughRef.current) return;
+      showWorkspace();
+      setTourAgain(true);
+    };
+    window.addEventListener(TOUR_START_EVENT, onStart);
+    return () => window.removeEventListener(TOUR_START_EVENT, onStart);
+  }, [showWorkspace]);
   const browserExpanded = browserFocused;
   const [updateNotice, setUpdateNotice] = useState(installedUpdate);
   const [whatsNewVersion, setWhatsNewVersion] = useState<string | null>(null);
@@ -5689,14 +5763,18 @@ export default function App({
     setAddProjectAnchor(null);
     const path = await pickFolder();
     if (path) onCreatedProject(path, profileId);
+    return !!path;
   }, [onCreatedProject]);
-  const onNewProjectTask = useCallback(
-    (path: string) => {
+  /** A new chat in `path`, its message box holding `seed` (never sent). */
+  const startProjectChat = useCallback(
+    (path: string, seed?: string) => {
       revealProjectTask(path);
       // The sidebar's "New chat" can be pressed over Home; the new chat has
       // to replace it, or nothing seems to happen.
       showWorkspace();
-      const session = newDefaultSession(path);
+      const session = seed
+        ? { ...newDefaultSession(path), composerSeed: seed }
+        : newDefaultSession(path);
       const tab = newTab(session.id);
       setProjectCwd(path);
       rememberRecentProject(path);
@@ -5706,6 +5784,83 @@ export default function App({
       setComposerFocused(true);
     },
     [appendTab, showWorkspace],
+  );
+  const onNewProjectTask = useCallback(
+    (path: string) => startProjectChat(path),
+    [startProjectChat],
+  );
+
+  const dispatchWalkthrough = useCallback(
+    (action: WalkthroughAction) => {
+      const current = walkthroughRef.current;
+      if (!current) return;
+      const next = walkthroughReducer(current, action);
+      saveWalkthrough(next);
+      if (!next.ended) {
+        // The tour runs over the workspace with what was just added.
+        if (next.step === "tour" && current.step !== "tour") showWorkspace();
+        setWalkthrough(next);
+        return;
+      }
+      walkthroughRef.current = null;
+      setWalkthrough(null);
+      // Ended or skipped, setup counts as finished or deferred, as closing
+      // provider setup did; Settings can always open it again.
+      if (!loadProviderSetup().finished)
+        saveProviderSetup({ ...loadProviderSetup(), finished: true });
+      // Home holds the Getting started card that follows.
+      onOpenHome();
+    },
+    [onOpenHome, showWorkspace],
+  );
+  /** The Agents step is done: start the first chat with that provider. */
+  const onWalkthroughAgents = useCallback(
+    (harness?: HarnessId) => {
+      void probeHarnessAvailability({ force: true });
+      if (!harness) return;
+      saveLastModelChoice(harness, preferredModelId(harness));
+      // The fresh welcome chat was seeded before setup. Keep it on the
+      // provider chosen here; never alter an existing chat.
+      setSessions((previous) =>
+        previous.map((session) =>
+          session.id === seed.session.id && session.blocks.length === 0
+            ? {
+                ...session,
+                harness,
+                title: HARNESS_LABEL[harness],
+                model: preferredModelId(harness),
+                modelSettings: preferredModelSettings(
+                  resolveModel(harness, preferredModelId(harness)),
+                ),
+              }
+            : session,
+        ),
+      );
+      void refreshHarnessCatalogs([harness], { force: true }).catch(
+        () => undefined,
+      );
+    },
+    [seed.session.id, setSessions],
+  );
+  const onTourClose = useCallback(
+    (finished: boolean) => {
+      setTourAgain(false);
+      if (walkthroughRef.current?.step === "tour")
+        dispatchWalkthrough({ type: finished ? "finish" : "skip" });
+    },
+    [dispatchWalkthrough],
+  );
+  /** The Project step: a folder of the user's, or the sample. */
+  const onWalkthroughProject = useCallback(
+    async (choice: WalkthroughProjectChoice) => {
+      const profileId = profilesRef.current.activeProfileId;
+      const path =
+        choice === "sample" ? await createSampleProject() : await pickFolder();
+      if (!path) return false;
+      onCreatedProject(path, profileId);
+      return true;
+    },
+    [onCreatedProject],
   );
 
   const removingProjects = useRef(new Set<string>());
@@ -9649,6 +9804,44 @@ export default function App({
     teams,
     leadDecided,
   });
+  // Home's Getting started card, after the walkthrough on a fresh install.
+  const gettingStarted = useGettingStarted({
+    ready: !walkthrough,
+    sessions,
+    history,
+    browsers: browserWorkspaces,
+    shipped: shippedChats,
+    projects: profiles.profileProjects,
+  });
+  const gettingStartedTarget = gettingStarted.target;
+  const onGettingStartedStart = useCallback(
+    (step: GettingStartedStepId) => {
+      const target = gettingStartedTarget;
+      if (step === "agent") openSettings("provider-setup");
+      else if (step === "project" || !target) void pickProject();
+      else if (step === "message")
+        startProjectChat(
+          target,
+          isSampleProject(target) ? SAMPLE_FIRST_MESSAGE : undefined,
+        );
+      else if (step === "preview") startProjectChat(target, PREVIEW_MESSAGE);
+      else {
+        // Ship it lives in the side panel's Changes for the project.
+        onSelectProject(target);
+        showWorkspace();
+        setSidebarTab("changes");
+      }
+    },
+    [
+      gettingStartedTarget,
+      onSelectProject,
+      openSettings,
+      pickProject,
+      setSidebarTab,
+      showWorkspace,
+      startProjectChat,
+    ],
+  );
   // The project boards on screen read the chats as small rows (workBoard).
   const boardOnScreen =
     workspaceVisible &&
@@ -9991,6 +10184,9 @@ export default function App({
                           for (const path of paths)
                             void refreshProfileHistory(path);
                         }}
+                        gettingStarted={gettingStarted.card}
+                        onGettingStartedStart={onGettingStartedStart}
+                        onGettingStartedHide={gettingStarted.hide}
                       />
                     ) : null}
                     <div
@@ -10529,6 +10725,7 @@ export default function App({
                             onRemoveProject(path, { purgeData: true })
                           }
                           onOpenWhatsNew={onOpenWhatsNew}
+                          onTakeTour={startTour}
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -10636,41 +10833,20 @@ export default function App({
             <ImageViewer onOpenInTab={onOpenImageInTab} />
             <UpdateNoticeDialog />
             <UpdateRestartDialog />
-            {providerSetupOpen ? (
-              <LazyViewSlot label="provider setup" quiet>
-                <ProviderSetupDialog
-                  onDone={(harness) => {
-                    setProviderSetupOpen(false);
-                    if (!harness) return;
-                    saveLastModelChoice(harness, preferredModelId(harness));
-                    // The fresh welcome task was seeded before setup. Keep it on
-                    // the provider chosen here; never alter an existing task.
-                    setSessions((previous) =>
-                      previous.map((session) =>
-                        session.id === seed.session.id &&
-                        session.blocks.length === 0
-                          ? {
-                              ...session,
-                              harness,
-                              title: HARNESS_LABEL[harness],
-                              model: preferredModelId(harness),
-                              modelSettings: preferredModelSettings(
-                                resolveModel(
-                                  harness,
-                                  preferredModelId(harness),
-                                ),
-                              ),
-                            }
-                          : session,
-                      ),
-                    );
-                    void probeHarnessAvailability({ force: true });
-                    void refreshHarnessCatalogs([harness], {
-                      force: true,
-                    }).catch(() => undefined);
-                  }}
-                  onChooseFolder={() => void pickProject()}
+            {walkthrough && walkthrough.step !== "tour" ? (
+              <LazyViewSlot label="setup" quiet>
+                <WalkthroughDialog
+                  step={walkthrough.step}
+                  done={walkthrough.done}
+                  onAction={dispatchWalkthrough}
+                  onAgentsDone={onWalkthroughAgents}
+                  onProject={onWalkthroughProject}
                 />
+              </LazyViewSlot>
+            ) : null}
+            {walkthrough?.step === "tour" || tourAgain ? (
+              <LazyViewSlot label="tour" quiet>
+                <TourOverlay prepare={tourPrepare} onClose={onTourClose} />
               </LazyViewSlot>
             ) : null}
             {paletteOpen ? (

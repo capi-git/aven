@@ -86,11 +86,26 @@ export function memoryStorage(seed: Record<string, string> = {}): Storage {
   };
 }
 
-/** Starting choices for the check: no setup dialog, no tool updates. */
+/**
+ * Starting choices for the check: no setup walkthrough, tour or Getting
+ * started card, no tool updates.
+ */
 export const SMOKE_SEED: Record<string, string> = {
   "aven.providerSetup.v1": JSON.stringify({
     selected: ["claude"],
     finished: true,
+  }),
+  "aven.walkthrough.v1": JSON.stringify({
+    started: false,
+    ended: true,
+    step: "welcome",
+    done: [],
+  }),
+  "aven.gettingStarted.v1": JSON.stringify({
+    offered: false,
+    hidden: true,
+    completed: false,
+    ticked: [],
   }),
   "monocode.lastModel": JSON.stringify({
     harness: "claude",

@@ -3,7 +3,6 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { Check, ChevronRight, Loader, RefreshCw } from "../chrome/icons";
-import { Modal } from "../chrome/Modal";
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { IS_MAC, IS_WIN } from "../lib/platform";
@@ -32,11 +31,21 @@ const LABELS: Record<ProviderSetupCheck["status"], string> = {
 type Props = {
   onDone?: (harness?: HarnessId) => void;
   onChooseFolder?: () => void;
+  /**
+   * Inside the first-run walkthrough: no step strip or Start step of its
+   * own. Back leaves for the walkthrough's previous step, and Continue (or
+   * Set up later) saves setup as finished and goes on with the provider to
+   * start the first chat with, if one is usable.
+   */
+  embedded?: {
+    onBack: () => void;
+    onContinue: (harness?: HarnessId) => void;
+  };
 };
 type TerminalRun = { id: string; plan: ProviderSetupPlan };
 
 /** Selecting a provider never installs it, signs in, or changes picker preferences. */
-export function ProviderSetup({ onDone, onChooseFolder }: Props) {
+export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
   const [selected, setSelected] = useState(() => loadProviderSetup().selected);
   const [step, setStep] = useState<"choose" | "connect" | "finish">("choose");
   const [checks, setChecks] = useState<
@@ -179,11 +188,13 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
   };
   const finish = () => {
     persist(selected, true);
-    setStep("finish");
+    if (embedded) embedded.onContinue(usable[0]);
+    else setStep("finish");
   };
   const skip = () => {
     persist(selected, true);
-    onDone?.();
+    if (embedded) embedded.onContinue();
+    else onDone?.();
   };
   const verified = selected.filter(
     (id) => tested[id] && checks[id]?.status === "ready",
@@ -195,23 +206,25 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
   const busy = Object.values(pending).some(Boolean) || preparing || !!terminal;
 
   return (
-    <div className="provider-setup">
-      <div className="provider-setup-progress" aria-label="Setup progress">
-        {["Choose", "Connect", "Start"].map((label, index) => (
-          <span
-            key={label}
-            aria-current={
-              index === ["choose", "connect", "finish"].indexOf(step)
-                ? "step"
-                : undefined
-            }
-          >
-            <span className="provider-setup-step-number">{index + 1}</span>
-            {label}
-          </span>
-        ))}
-        <small>{IS_WIN ? "Windows" : IS_MAC ? "macOS" : "Linux"}</small>
-      </div>
+    <div className="provider-setup" data-embedded={embedded ? "" : undefined}>
+      {embedded ? null : (
+        <div className="provider-setup-progress" aria-label="Setup progress">
+          {["Choose", "Connect", "Start"].map((label, index) => (
+            <span
+              key={label}
+              aria-current={
+                index === ["choose", "connect", "finish"].indexOf(step)
+                  ? "step"
+                  : undefined
+              }
+            >
+              <span className="provider-setup-step-number">{index + 1}</span>
+              {label}
+            </span>
+          ))}
+          <small>{IS_WIN ? "Windows" : IS_MAC ? "macOS" : "Linux"}</small>
+        </div>
+      )}
       {!saved ? (
         <p role="alert" className="provider-setup-error">
           Your setup choices couldn’t be saved on this device.
@@ -267,7 +280,19 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
             accounts and usage are managed by that provider.
           </p>
           <footer className="provider-setup-footer">
-            {onDone ? (
+            {embedded ? (
+              <div className="provider-setup-actions">
+                <button
+                  className="provider-setup-secondary"
+                  onClick={embedded.onBack}
+                >
+                  Back
+                </button>
+                <button className="provider-setup-secondary" onClick={skip}>
+                  Set up later
+                </button>
+              </div>
+            ) : onDone ? (
               <button className="provider-setup-secondary" onClick={skip}>
                 Set up later
               </button>
@@ -511,7 +536,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
           </footer>
         </>
       ) : null}
-      {step === "finish" ? (
+      {step === "finish" && !embedded ? (
         <>
           <div className="provider-setup-finish-mark" aria-hidden>
             <Check className="size-7" />
@@ -607,25 +632,5 @@ function ProviderChoice({
         {selected ? <Check className="size-3" /> : null}
       </span>
     </button>
-  );
-}
-
-export function ProviderSetupDialog({
-  onDone,
-  onChooseFolder,
-}: Props & { onDone: (harness?: HarnessId) => void }) {
-  const dismiss = () => {
-    saveProviderSetup({ ...loadProviderSetup(), finished: true });
-    onDone();
-  };
-  return (
-    <Modal
-      title="Welcome to Aven"
-      description="Connect the providers you want to work with."
-      className="provider-setup-modal"
-      onClose={dismiss}
-    >
-      <ProviderSetup onDone={onDone} onChooseFolder={onChooseFolder} />
-    </Modal>
   );
 }

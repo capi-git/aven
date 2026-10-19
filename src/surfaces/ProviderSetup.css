@@ -3,9 +3,6 @@
   padding: 22px 20px 18px;
   font-size: var(--text-ui-label);
 }
-.provider-setup-modal {
-  max-height: min(80vh, 800px);
-}
 .provider-setup-progress {
   display: flex;
   align-items: center;

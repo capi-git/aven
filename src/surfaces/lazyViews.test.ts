@@ -19,9 +19,8 @@ vi.mock("../chrome/CommandPalette", () => ({
 vi.mock("../chrome/WhatsNewDialog", () => ({
   WhatsNewDialog: stand("whats-new"),
 }));
-vi.mock("./ProviderSetup", () => ({
-  ProviderSetupDialog: stand("provider-setup"),
-}));
+vi.mock("./Walkthrough", () => ({ Walkthrough: stand("walkthrough") }));
+vi.mock("../chrome/Tour", () => ({ Tour: stand("tour") }));
 
 import * as views from "./lazyViews";
 
