@@ -74,4 +74,21 @@ describe("git finish preference", () => {
       `${agentGitInstructions("leave")}\n\nFix it`,
     );
   });
+
+  it("leaves it out for a lead's workers and race agents, which have their own git rules", async () => {
+    const { prepareAgentBrowserPrompt } = await import("./agentBrowser");
+    saveGitFinishBehavior("pr");
+    const chat = { sessionId: "s1", cwd: "/repo" };
+    expect(await prepareAgentBrowserPrompt("Fix it", chat)).toBe(
+      `${agentGitInstructions("pr")}\n\nFix it`,
+    );
+    expect(
+      await prepareAgentBrowserPrompt("Fix it", chat, { worker: true }),
+    ).toBe("Fix it");
+    const lane = {
+      sessionId: "s2",
+      cwd: "/Users/me/Library/Application Support/com.capi.monocode.personal/races/050df34e-f720-4782-8f47-95a70f047dc9/1",
+    };
+    expect(await prepareAgentBrowserPrompt("Fix it", lane)).toBe("Fix it");
+  });
 });

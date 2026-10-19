@@ -46,7 +46,7 @@ Race asks before anything that can't be undone:
 
 Keeping or discarding stops the agents and deletes their folders.
 
-After you keep one, the card becomes its result: "Kept Codex's version · 7 files" (or "Kept 3 files from 2 agents"), with why when you kept the suggested agent, the agents' final states, **Review changes** (the Changes panel) and **Continue with Codex**. Continuing opens that agent's chat and sends it a short recap of its task, what was kept and its last reply, since its earlier conversation can't follow it into your project; the chat shows "Carry on from the race: your version was kept." in its place. For a per-file mix it continues with the agent most files came from. Per-file picks are saved with the race, so reopening Compare keeps them. Aven keeps every running race and the 20 most recent finished ones.
+After you keep one, the card becomes its result: "Kept Codex's version · 7 files" (or "Kept 3 files from 2 agents"), with why when you kept the suggested agent, the agents' final states, **Review changes** (the Changes panel) and **Continue with Codex**. Its earlier conversation can't follow it into your project, so keeping leaves that agent a short recap of its task, what was kept and its last reply, which goes with your next message to its chat however you open it; the chat you raced from is told, the same way, whose version is now in the project. Continuing opens that agent's chat. For a per-file mix it continues with the agent most files came from. Per-file picks are saved with the race, so reopening Compare keeps them. Aven keeps every running race and the 20 most recent finished ones.
 
 ## Parallel work
 

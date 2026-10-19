@@ -10,6 +10,7 @@ import {
   type DiscussionSummary,
 } from "../lib/discussions";
 import type { DiscussionTranscripts } from "../lib/discussionThread";
+import { discussionBuildMessage } from "../lib/discussionWrapUp";
 import { appendUser, stopStreaming } from "../lib/harness/apply";
 import {
   newSession,
@@ -34,7 +35,7 @@ let root: Root;
 let store: DiscussionStore;
 let sent: Sent[];
 /** Messages sent as the user, such as a wrap-up's build request. */
-let messages: { sessionId: string; text: string }[];
+let messages: { sessionId: string; text: string; shown?: string }[];
 let focused: string[];
 let notes: { sessionId: string; text: string }[];
 /** What closing notes carried to show where they landed. */
@@ -87,10 +88,17 @@ function Harness({ initial }: { initial: Session[] }) {
     onSubmit: (sessionId, text, _attachments, options) => {
       if (!accept) return false;
       if (!("discussion" in options)) {
-        messages.push({ sessionId, text });
+        const shown = options.displayText;
+        messages.push({
+          sessionId,
+          text,
+          ...(shown !== undefined ? { shown } : {}),
+        });
         setSessions((list) =>
           list.map((session) =>
-            session.id === sessionId ? appendUser(session, text, []) : session,
+            session.id === sessionId
+              ? appendUser(session, shown ?? text, [])
+              : session,
           ),
         );
         return undefined;
@@ -1051,6 +1059,30 @@ describe("useDiscussionBroker's wrap-up", () => {
     });
     expect(refused).toBeNull();
     expect(messages).toHaveLength(1);
+  });
+
+  it("passes the starting chat the other's last reply it never got, shown once", async () => {
+    const id = await complete();
+    await act(async () => {
+      await host.build!(id, "a");
+    });
+    const ask = discussionBuildMessage(store.get(id)!, "a");
+    expect(ask).not.toContain("Agreed, with a TTL.");
+    expect(messages).toEqual([
+      {
+        sessionId: "a",
+        text: discussionBuildMessage(
+          store.get(id)!,
+          "a",
+          "Agreed, with a TTL.",
+        ),
+        // Its copy is already in the chat, just above.
+        shown: ask,
+      },
+    ]);
+    expect(messages[0].text).toContain(
+      "'s last reply, which you haven't seen yet:\n\nAgreed, with a TTL.",
+    );
   });
 
   it("brings back a chat that was parked once the discussion ended, then builds", async () => {

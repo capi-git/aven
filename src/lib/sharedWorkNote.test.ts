@@ -85,8 +85,13 @@ function terminalServer(port: number) {
   });
 }
 
-function agentServer(sessionId: string, port: number, callId = `c${port}`) {
-  const place = () => ({ project: SITE, cwd: SITE });
+function agentServer(
+  sessionId: string,
+  port: number,
+  callId = `c${port}`,
+  cwd = SITE,
+) {
+  const place = () => ({ project: SITE, cwd });
   observeAgentPreviewEvent(
     sessionId,
     { type: "tool.started", callId, title: "npm run dev", kind: "execute" },
@@ -290,6 +295,60 @@ describe("sharedWorkNoteFor", () => {
     const key = `${SITE}\n5174`;
     markDuplicateDevServer(key, "kept");
     expect(noteFor("codex")).not.toContain("second dev server");
+  });
+});
+
+describe("race lanes", () => {
+  const RACE =
+    "/Users/me/Library/Application Support/com.capi.monocode.personal/races/050df34e-f720-4782-8f47-95a70f047dc9";
+  const LANE_1 = `${RACE}/1`;
+  const LANE_2 = `${RACE}/2`;
+
+  beforeEach(() => {
+    chat("main", "claude", "Fix login");
+    chat("codex", "codex", "Tidy API");
+    chat("lane1", "codex", "Reset button · Codex", { cwd: LANE_1 });
+    chat("lane1b", "claude", "Follow-up", { cwd: LANE_1 });
+    chat("lane2", "claude", "Reset button · Claude", { cwd: LANE_2 });
+    terminalServer(3000);
+    agentServer("main", 5173);
+    agentServer("lane1", 5180, "l1", LANE_1);
+    agentServer("lane2", 5181, "l2", LANE_2);
+    working("main", "src/App.tsx");
+    working("lane1b", "src/Button.tsx");
+    working("lane2", "src/Reset.tsx");
+  });
+
+  it("tells a lane only about its own copy's servers and edits", () => {
+    const note = noteFor("lane1");
+    expect(note).toContain("http://localhost:5180/ (started by you)");
+    expect(note).toContain(
+      "Other agents here: Claude in “Follow-up” is working, editing src/Button.tsx.",
+    );
+    expect(note).not.toContain(":5173");
+    expect(note).not.toContain(":3000");
+    expect(note).not.toContain(":5181");
+    expect(note).not.toContain("Fix login");
+    expect(note).not.toContain("Reset.tsx");
+    expect(noteFor("lane2")).toContain(
+      "http://localhost:5181/ (started by you)",
+    );
+    expect(noteFor("lane2")).not.toContain("Other agents here");
+  });
+
+  it("leaves the lanes out of the main project's note", () => {
+    const note = noteFor("codex");
+    expect(note).toContain(
+      "Dev servers running: http://localhost:3000/ (started in the user's terminal); http://localhost:5173/ (started by Claude in “Fix login”).",
+    );
+    expect(note).toContain(
+      "Other agents here: Claude in “Fix login” is working, editing src/App.tsx.",
+    );
+    expect(note).not.toContain(":5180");
+    expect(note).not.toContain(":5181");
+    expect(note).not.toContain("Reset button");
+    expect(note).not.toContain("Follow-up");
+    expect(note).not.toContain("Application Support");
   });
 });
 

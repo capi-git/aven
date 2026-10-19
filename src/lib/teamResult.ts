@@ -623,14 +623,76 @@ export function raceRecapHint(
     : `${name} knows which version you kept`;
 }
 
+/**
+ * What the chat a race was started from hears once a version is kept: its
+ * agent never saw the race, but the kept changes are now in its project.
+ */
+export function raceKeptNote(race: RaceRecord, lane: number): string {
+  const task = clip(race.prompt.replace(/\s+/g, " ").trim(), 200);
+  const count = files(race.outcome?.files ?? 0);
+  const kept =
+    race.outcome?.kind === "mix"
+      ? `files from several agents' versions (${count})`
+      : `${possessive(raceLaneName(race, lane))} version (${count})`;
+  return `The user had other agents try “${task}” in separate copies of this project and kept ${kept}. Those changes are now in this project.`;
+}
+
 const continuing = new Set<string>();
+
+/** Leave the kept lane's chat its recap for its next message, once a race. */
+async function queueRaceRecap(
+  raceId: string,
+  session: LaneChat,
+  load: (id: string) => Promise<readonly Block[]>,
+): Promise<void> {
+  const race = getRace(raceId);
+  const lane = race ? continueLane(race) : undefined;
+  const record = lane !== undefined ? race?.lanes[lane] : undefined;
+  if (!race || lane === undefined || !record) return;
+  if (race.continuedAt || continuing.has(raceId)) return;
+  continuing.add(raceId);
+  try {
+    const reply = finalReply(
+      session(record.sessionId)?.blocks ?? (await load(record.sessionId)),
+    );
+    queueTurnNote(record.sessionId, {
+      kind: "race",
+      text: raceRecapNote(race, lane, reply),
+      hint: raceRecapHint(race, raceLaneName(race, lane)),
+    });
+    updateRace(raceId, { continuedAt: Date.now() });
+  } catch (error) {
+    logError("Continue the race", error);
+  } finally {
+    continuing.delete(raceId);
+  }
+}
+
+/**
+ * Once a race is kept: the kept agent gets its recap with its next message,
+ * however you reach its chat, and the chat the race was started from hears
+ * whose version is now in the project.
+ */
+export async function noteRaceKept(
+  raceId: string,
+  session: LaneChat = () => undefined,
+  load: (id: string) => Promise<readonly Block[]> = savedBlocks,
+): Promise<void> {
+  const race = getRace(raceId);
+  const lane = race ? continueLane(race) : undefined;
+  if (!race || lane === undefined) return;
+  await queueRaceRecap(raceId, session, load);
+  const origin = race.origin?.sessionId;
+  if (origin && origin !== race.lanes[lane]?.sessionId)
+    queueTurnNote(origin, { kind: "race", text: raceKeptNote(race, lane) });
+}
 
 /**
  * Continue with <agent>: open the kept lane's chat with the cursor in its
- * message box, and leave it the recap for your next message there, once.
- * Nothing is sent until you write. `session` reads a loaded chat's last
- * reply; a closed one's saved transcript is read. Resolves with what went
- * wrong, or null.
+ * message box, and leave it the recap for your next message there, unless
+ * it already got one when the race was kept. Nothing is sent until you
+ * write. `session` reads a loaded chat's last reply; a closed one's saved
+ * transcript is read. Resolves with what went wrong, or null.
  */
 export async function continueRace(
   raceId: string,
@@ -644,24 +706,7 @@ export async function continueRace(
   if (!race || lane === undefined || !record)
     return "Nothing was kept to continue from.";
   if (!workspace) return "Couldn't open the agent's chat. Try again.";
-  if (!race.continuedAt && !continuing.has(raceId)) {
-    continuing.add(raceId);
-    try {
-      const reply = finalReply(
-        session(record.sessionId)?.blocks ?? (await load(record.sessionId)),
-      );
-      queueTurnNote(record.sessionId, {
-        kind: "race",
-        text: raceRecapNote(race, lane, reply),
-        hint: raceRecapHint(race, raceLaneName(race, lane)),
-      });
-      updateRace(raceId, { continuedAt: Date.now() });
-    } catch (error) {
-      logError("Continue the race", error);
-    } finally {
-      continuing.delete(raceId);
-    }
-  }
+  await queueRaceRecap(raceId, session, load);
   workspace.openChat(record.sessionId);
   return null;
 }

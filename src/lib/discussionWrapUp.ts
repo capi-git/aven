@@ -256,16 +256,22 @@ export function discussionAgentName(
 /**
  * What a build button sends to `side`'s chat, as the user: carry out the
  * plan, quoting what both agreed on when the wrap-up has it, and otherwise
- * just the plan from the discussion.
+ * just the plan from the discussion. `unseen` is the partner's last reply
+ * when it never reached this chat (see `unseenFinalReply`).
  */
 export function discussionBuildMessage(
   discussion: Discussion,
   side: DiscussionSide,
+  unseen?: string,
 ): string {
   const partner = discussionAgentName(discussion, otherSide(side));
   const ask = `Please carry out the plan from your discussion with ${partner}.`;
   const agreed =
     discussion.summary?.status === "done" ? discussion.summary.agreed : [];
-  if (!agreed.length) return ask;
-  return `${ask} You agreed on:\n\n${agreed.map((item) => `- ${item}`).join("\n")}`;
+  const message = agreed.length
+    ? `${ask} You agreed on:\n\n${agreed.map((item) => `- ${item}`).join("\n")}`
+    : ask;
+  return unseen?.trim()
+    ? `${message}\n\n${partner}'s last reply, which you haven't seen yet:\n\n${unseen.trim()}`
+    : message;
 }

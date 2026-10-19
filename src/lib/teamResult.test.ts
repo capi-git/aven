@@ -7,19 +7,21 @@ import type { WrapUpDeps } from "./discussionWrapUp";
 import { filesTouched, type OrchestrationTask } from "./orchestration";
 import { getRace, saveRace, updateRace, type RaceRecord } from "./race";
 import type { Block } from "./session";
-import { forgetTurnNotes, pendingTurnNotes } from "./turnNotes";
+import { forgetTurnNotes, pendingTurnNotes, takeTurnNotes } from "./turnNotes";
 import {
   continueLane,
   continueRace,
   sectionMarker,
   finalReply,
   leadVerdict,
+  noteRaceKept,
   parseRaceJudge,
   parseRunSummary,
   RACE_JUDGE_PROMPT,
   RACE_JUDGE_SIGNATURE,
   raceContinueTitle,
   raceDigest,
+  raceKeptNote,
   raceRecapHint,
   raceRecapNote,
   replyOpening,
@@ -347,6 +349,84 @@ describe("continuing after a race", () => {
     expect(await continueRace("r2", { openChat })).toBe(
       "Nothing was kept to continue from.",
     );
+  });
+
+  describe("once a race is kept", () => {
+    beforeEach(() => {
+      const data = new Map<string, string>();
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: {
+          getItem: (key: string) => data.get(key) ?? null,
+          setItem: (key: string, value: string) => void data.set(key, value),
+          removeItem: (key: string) => void data.delete(key),
+        },
+      });
+    });
+
+    it("leaves the kept agent its recap and tells the starting chat, once", async () => {
+      saveRace(
+        race({
+          state: "kept",
+          outcome: { kind: "lane", lane: 1, files: 2 },
+          origin: { sessionId: "origin", blockId: "b" },
+        }),
+      );
+      const chat = (id: string) =>
+        id === "l1"
+          ? {
+              blocks: [
+                { id: "a", role: "assistant", text: "Fixed it." } as Block,
+              ],
+            }
+          : undefined;
+      await noteRaceKept("r1", chat);
+      const recap = pendingTurnNotes("l1");
+      expect(recap).toHaveLength(1);
+      expect(recap[0]).toMatchObject({
+        kind: "race",
+        hint: "Codex knows which version you kept",
+      });
+      expect(recap[0].text).toContain(
+        "Your final reply then was:\n\nFixed it.",
+      );
+      expect(getRace("r1")?.continuedAt).toEqual(expect.any(Number));
+      expect(pendingTurnNotes("origin")).toEqual([
+        expect.objectContaining({
+          kind: "race",
+          text: "The user had other agents try “Fix the login loop” in separate copies of this project and kept Codex's version (2 files). Those changes are now in this project.",
+        }),
+      ]);
+      // Your next message there carries it; Continue with then only opens
+      // the chat, without a second recap.
+      expect(takeTurnNotes("l1", "Now add a test").text).toContain(
+        "Your version was kept",
+      );
+      const openChat = vi.fn();
+      expect(await continueRace("r1", { openChat }, chat)).toBeNull();
+      expect(openChat).toHaveBeenCalledWith("l1");
+      expect(pendingTurnNotes("l1")).toHaveLength(0);
+    });
+
+    it("names a mix of files, and tells no chat when none started it", async () => {
+      const mix = race({
+        state: "kept",
+        outcome: { kind: "mix", files: 3 },
+        picks: { "a.ts": 0, "b.ts": 1, "c.ts": 1 },
+      });
+      expect(raceKeptNote(mix, 1)).toBe(
+        "The user had other agents try “Fix the login loop” in separate copies of this project and kept files from several agents' versions (3 files). Those changes are now in this project.",
+      );
+      saveRace(mix);
+      await noteRaceKept(
+        "r1",
+        () => undefined,
+        async () => [],
+      );
+      expect(pendingTurnNotes("l1")).toHaveLength(1);
+      expect(pendingTurnNotes("l0")).toHaveLength(0);
+      expect(pendingTurnNotes("origin")).toHaveLength(0);
+    });
   });
 
   it("reads a chat's last reply and its opening lines", () => {

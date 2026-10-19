@@ -590,6 +590,7 @@ import {
 } from "./lib/teamActivity";
 import {
   leadVerdict,
+  noteRaceKept,
   reconcileRaceReviews,
   summarizeRun,
   watchRaceSuggestions,
@@ -6393,12 +6394,16 @@ export default function App({
             });
             const browserPrompt = rawCommand
               ? prompt
-              : await prepareAgentBrowserPrompt(prompt, {
-                  harness: current.harness,
-                  title: current.title,
-                  sessionId,
-                  cwd: workCwd,
-                });
+              : await prepareAgentBrowserPrompt(
+                  prompt,
+                  {
+                    harness: current.harness,
+                    title: current.title,
+                    sessionId,
+                    cwd: workCwd,
+                  },
+                  { worker: !!current.orchestrationLeadId },
+                );
             await steerHarnessTurn({
               harness: current.harness,
               sessionId,
@@ -6822,12 +6827,16 @@ export default function App({
                   });
           const browserPrompt = rawCommand
             ? prompt
-            : await prepareAgentBrowserPrompt(prompt, {
-                harness: current.harness,
-                title: current.title,
-                sessionId,
-                cwd: workCwd,
-              });
+            : await prepareAgentBrowserPrompt(
+                prompt,
+                {
+                  harness: current.harness,
+                  title: current.title,
+                  sessionId,
+                  cwd: workCwd,
+                },
+                { worker: !!current.orchestrationLeadId },
+              );
           const turnPrompt = proposalDraft
             ? orchestrationPlanningPrompt(browserPrompt, proposalDraft.settings)
             : intent === "plan" && !rawCommand
@@ -9492,6 +9501,12 @@ export default function App({
       const finished = getRace(race.id);
       for (const lane of finished ? raceLanesNotKept(finished) : [])
         void onRemoveHistorySession(finished!.lanes[lane].sessionId, "archive");
+      // The kept agent and the chat the race started from each hear what
+      // was kept with their next message.
+      if (finished?.state === "kept")
+        void noteRaceKept(finished.id, (id) =>
+          sessionsRef.current.find((session) => session.id === id),
+        );
     },
     // The same open-or-restore path as a notification: a lane whose tab was
     // closed comes back into one.
