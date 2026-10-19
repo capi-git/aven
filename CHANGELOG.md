@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Changed
-
-- A long reply says what it's waiting on instead of just "Working": "Claude is busy · retrying in 20s (try 2)", "Usage limit reached · resets 3:40 PM", "Starting Claude…", "Running a command · 2m", and "Waiting on 3 helper agents · 19m" once the reply is done but helper agents still run. It shows above the message box, on the reply's working line and in the chat's sidebar and tab tooltips; a paused queue offers **Resume** there, and a tab with a chat that needs you gets an amber dot.
-
 ## [0.1.147] - 2026-10-19
 
 ### Added

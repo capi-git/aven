@@ -831,7 +831,6 @@ export const SessionPane = memo(function SessionPane({
             placement={teamRow ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
-            onResumeQueue={resumeQueue}
           />
           <TeamRunStatusContext.Provider value={teamRunStatus}>
             {composer}

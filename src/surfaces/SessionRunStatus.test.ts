@@ -29,7 +29,6 @@ async function render(
         placement,
         onStop: stop,
         onOpenTerminal: openTerminal,
-        onResumeQueue: resume,
       }),
     ),
   );
@@ -367,28 +366,5 @@ describe("persistent agent run status", () => {
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(host.textContent).toContain("Running a command");
     expect(host.textContent).toContain("npm test · 10s");
-  });
-
-  it("offers the queue's Resume while it is paused", async () => {
-    session = {
-      ...session,
-      busy: false,
-      queuedMessages: [{ id: "q", text: "Next", attachments: [] }],
-      queueStatus: "paused",
-    };
-    await render();
-    expect(host.textContent).toContain("Queue paused");
-    const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (el) => el.textContent === "Resume",
-    )!;
-    await act(async () => button.click());
-    expect(resume).toHaveBeenCalledOnce();
-    session = { ...session, queueStatus: "active" };
-    await render();
-    expect(
-      [...host.querySelectorAll("button")].some(
-        (el) => el.textContent === "Resume",
-      ),
-    ).toBe(false);
   });
 });

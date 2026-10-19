@@ -176,14 +176,6 @@ describe("what holds a working chat up", () => {
       kind: "queued",
       label: "Queue paused",
       detail: "1 message waiting",
-      canResume: true,
     });
-    expect(
-      sessionRunStatus(
-        session({ busy: false, queuedMessages: queued }),
-        [],
-        NOW,
-      )?.canResume,
-    ).toBeUndefined();
   });
 });

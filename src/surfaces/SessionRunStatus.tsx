@@ -4,7 +4,6 @@ import {
   Check,
   LoaderCircle,
   Pause,
-  Play,
   Square,
 } from "../chrome/icons";
 import { SessionAgentList } from "../chrome/SessionAgentList";
@@ -36,8 +35,6 @@ type Props = {
   placement?: "row" | "attention";
   onStop: (sessionId: string) => void;
   onOpenTerminal?: (sessionId: string) => void;
-  /** Sends what waits in a paused queue (the queue's own Resume). */
-  onResumeQueue?: () => void;
 };
 
 /** Outside the transcript scroller, so long responses cannot hide the state. */
@@ -52,7 +49,6 @@ function VisibleRunStatus({
   placement = "row",
   onStop,
   onOpenTerminal,
-  onResumeQueue,
 }: Props) {
   const entries = useActivity();
   const status = sessionRunStatus(session, entries);
@@ -138,16 +134,6 @@ function VisibleRunStatus({
         durationMs={status.durationMs}
         running={running}
       />
-      {status.canResume && onResumeQueue ? (
-        <button
-          type="button"
-          className="session-run-stop"
-          onClick={onResumeQueue}
-        >
-          <Play className="size-2.5" aria-hidden="true" />
-          Resume
-        </button>
-      ) : null}
       {status.canStop && !stopElsewhere ? (
         <button
           type="button"

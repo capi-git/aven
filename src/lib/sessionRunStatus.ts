@@ -36,8 +36,6 @@ export type SessionRunStatus = {
   startedAt?: number;
   durationMs?: number;
   canStop: boolean;
-  /** The queue is paused: Resume sends what waits in it. */
-  canResume?: boolean;
   recovery?: "claude-login";
 };
 
@@ -257,7 +255,6 @@ export function sessionRunStatus(
               ? "Finish editing the queued message"
               : `${count} ready to send`,
       canStop: false,
-      ...(session.queueStatus === "paused" ? { canResume: true } : {}),
     };
   }
   const outcome = latestOutcome(session, turn?.block, entries);
