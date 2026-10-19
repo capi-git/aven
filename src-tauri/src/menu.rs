@@ -56,6 +56,15 @@ fn is_broadcast_command(id: &str) -> bool {
     )
 }
 
+/// Menu commands only one window acts on: the focused one, else a visible
+/// one (see `single_target`).
+fn is_single_window_command(id: &str) -> bool {
+    matches!(
+        id,
+        "toggle_sidebar" | "toggle_inspector" | "zoom_in" | "zoom_out" | "zoom_reset" | "take_tour"
+    )
+}
+
 /// Picks the window a single-window menu command belongs to: the focused one,
 /// else the first visible one, else any. Labels are sorted for stability.
 fn single_target(windows: &[(String, bool, bool)]) -> Option<&str> {
@@ -146,7 +155,7 @@ pub fn dispatch(app: &AppHandle, id: &str) {
         _ if is_broadcast_command(id) => {
             let _ = app.emit(id, ());
         }
-        "toggle_sidebar" | "toggle_inspector" | "zoom_in" | "zoom_out" | "zoom_reset" => {
+        _ if is_single_window_command(id) => {
             emit_to_one_window(app, id);
         }
         _ => {}
@@ -332,11 +341,14 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             .minimize()
             .maximize()
             .build()?;
+        let take_tour = MenuItemBuilder::with_id("take_tour", "Take the Tour Again").build(app)?;
         let github = MenuItemBuilder::with_id("help_github", "View on GitHub").build(app)?;
         let report_bug = MenuItemBuilder::with_id("help_report_bug", "Report a Bug…").build(app)?;
         let request_feature =
             MenuItemBuilder::with_id("help_request_feature", "Request a Feature…").build(app)?;
         let help = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, "Help")
+            .item(&take_tour)
+            .separator()
             .item(&github)
             .separator()
             .item(&report_bug)
@@ -391,6 +403,26 @@ mod tests {
             assert!(!is_broadcast_command(id), "{id} is not a broadcast");
         }
         assert!(!is_broadcast_command("open_scheduled"));
+    }
+
+    #[test]
+    fn take_the_tour_again_reaches_one_window_only() {
+        // The tour runs over one workspace; every window running it at
+        // once would be noise.
+        assert!(is_single_window_command("take_tour"));
+        assert!(!is_broadcast_command("take_tour"));
+        assert_eq!(help_url("take_tour"), None);
+        for id in [
+            "toggle_sidebar",
+            "toggle_inspector",
+            "zoom_in",
+            "zoom_out",
+            "zoom_reset",
+        ] {
+            assert!(is_single_window_command(id), "{id}");
+        }
+        assert!(!is_single_window_command("open_settings"));
+        assert!(!is_single_window_command("help_github"));
     }
 
     #[test]

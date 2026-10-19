@@ -39,13 +39,26 @@ type Props = {
 /**
  * The window's one image popup. It shows whatever `openImageViewer` asks
  * for, over everything, until Escape, the backdrop or Close dismisses it.
+ *
+ * It sits on the page, beside the app, so it stays above every layer there
+ * (the composer's runner, menus) while the app hides underneath it. Its
+ * colours are the app's: the app shell's own colours differ from the page
+ * root's, so the popup is wrapped in the shell's class on a box-less
+ * element. A window without the shell (a detached workspace) keeps the
+ * page's colours, as its own surfaces do.
  */
 export function ImageViewer({ onOpenInTab }: Props) {
   useEffect(() => registerImageViewerHost(), []);
   const state = useImageViewerState();
   if (!state) return null;
+  const inShell = document.querySelector(".personal-shell") !== null;
   return createPortal(
-    <ImageViewerDialog state={state} onOpenInTab={onOpenInTab} />,
+    <div
+      className={inShell ? "personal-shell image-viewer-theme" : undefined}
+      style={{ display: "contents" }}
+    >
+      <ImageViewerDialog state={state} onOpenInTab={onOpenInTab} />
+    </div>,
     document.body,
   );
 }

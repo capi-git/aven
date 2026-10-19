@@ -33,6 +33,9 @@ export function persistedMessageQueue(raw: unknown): QueuedMessage[] {
       value.intent === "orchestrate"
     )
       result.intent = value.intent;
+    if (typeof value.displayText === "string")
+      result.displayText = value.displayText;
+    if (value.verbatim === true) result.verbatim = true;
     const note = value.noteCard;
     if (
       note &&

@@ -879,6 +879,19 @@ describe("Ship it as the one way to commit", () => {
       "1 file",
     );
   });
+
+  it("ships every file again when staging is hidden while it is open", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("Staged 1");
+    await act(async () => button("Hide staging")!.click());
+    expect(checkedScope()).toBe("All 2");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "2 files",
+    );
+  });
 });
 
 describe("sync actions beside Ship it", () => {
@@ -887,16 +900,19 @@ describe("sync actions beside Ship it", () => {
     index.upstream = "origin/feature";
   });
 
-  it("leaves pushing and publishing to Ship it while files are uncommitted", async () => {
+  it("still pushes and publishes existing commits while files are uncommitted", async () => {
     index.ahead = 2;
+    index.aheadOfDefault = 2;
     index.files = [changed("a.ts", false, true)];
     await render();
     expect(container.textContent).toContain("↑2");
-    expect(container.textContent).not.toContain("Sync Changes");
+    expect(container.textContent).toContain("Sync Changes");
+    // The pull request waits for Ship it to commit the files.
+    expect(container.textContent).not.toContain("Create PR");
     mocks.diffIndex.mockResolvedValue({ ...index, upstream: null, ahead: 0 });
     await act(async () => notifyGitChanged(cwd));
     expect(container.textContent).toContain("Not on origin yet");
-    expect(container.textContent).not.toContain("Publish Branch");
+    expect(container.textContent).toContain("Publish Branch");
   });
 
   it("keeps publishing, syncing and opening a PR for a clean branch", async () => {
@@ -1040,7 +1056,11 @@ describe("one list of changes", () => {
       "Discard changes in edit.ts? This cannot be undone.",
       expect.objectContaining({ okLabel: "Discard" }),
     );
-    expect(mocks.writes).toEqual(["git_discard_file edit.ts"]);
+    // Unstaged anyway, in case something was staged since the list loaded.
+    expect(mocks.writes).toEqual([
+      "git_unstage_file edit.ts",
+      "git_discard_file edit.ts",
+    ]);
   });
 
   it("discards every file from the header, staged ones too, after asking", async () => {
@@ -1054,6 +1074,18 @@ describe("one list of changes", () => {
     expect(mocks.ask).toHaveBeenLastCalledWith(
       "Discard all changes in 2 files, including staged changes? This cannot be undone.",
       expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
+  });
+
+  it("unstages before discarding every file even when none looked staged", async () => {
+    index.files = [changed("a.ts", false, true), changed("b.ts", false, true)];
+    await render();
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[title="Discard All Changes"]')!
+        .click(),
     );
     expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
   });

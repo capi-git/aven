@@ -9,6 +9,7 @@ import {
   isEditingQueuedHead,
   queuedHead,
   queuedMessageForSubmit,
+  queuedSubmitOptions,
   shouldQueueFollowUp,
   shouldEnqueueSubmission,
 } from "./messageQueue";
@@ -142,6 +143,35 @@ describe("busy follow-up routing", () => {
     const restored = restoredMessageQueue(queuedMessages);
     expect(restored).toEqual({ queuedMessages, queueStatus: "paused" });
     expect(canDispatchQueuedHead(chat(restored))).toBe(false);
+  });
+  it("sends a queued partner reply as first sent: verbatim, shown without the quote", () => {
+    const build: QueuedMessage = {
+      id: "build",
+      text: "Build it.\n\nTheir reply: use /reset and @src",
+      attachments: [],
+      displayText: "Build it.",
+      verbatim: true,
+    };
+    expect(persistedMessageQueue([build])).toEqual([build]);
+    expect(queuedSubmitOptions(build)).toEqual({
+      queuedMessageId: "build",
+      noteCard: undefined,
+      handoffCard: undefined,
+      intent: undefined,
+      displayText: "Build it.",
+      verbatim: true,
+    });
+    // A queue saved before these were kept still loads, and sends as typed.
+    const saved = persistedMessageQueue([
+      { id: "old", text: "Older message", attachments: [] },
+      { ...build, id: "odd", displayText: 3, verbatim: "yes" },
+    ]);
+    expect(saved).toEqual([
+      { id: "old", text: "Older message", attachments: [] },
+      { id: "odd", text: build.text, attachments: [] },
+    ]);
+    expect(queuedSubmitOptions(saved[0])).not.toHaveProperty("verbatim");
+    expect(queuedSubmitOptions(saved[0])).not.toHaveProperty("displayText");
   });
   it("queues fx even when the user prefers steering, while keeping supported steering", () => {
     registerHarness(codexAdapter);

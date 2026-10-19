@@ -33,6 +33,7 @@ vi.mock("../lib/uiScale", async (original) => ({
 }));
 
 import { NOTIFICATION_CLICK_EVENT } from "../lib/notifications";
+import { TOUR_START_EVENT } from "../lib/tour";
 import type { Session } from "../lib/session";
 import {
   useWorkspaceShortcuts,
@@ -170,6 +171,18 @@ it("routes menu commands, and ignores the same command repeated within 80 ms", a
     new KeyboardEvent("keydown", { key: "t", metaKey: true, bubbles: true }),
   );
   expect(actions.onNew).toHaveBeenCalledTimes(1);
+});
+
+it("starts the tour from Help › Take the Tour Again", async () => {
+  await render(fakeActions());
+  const started = vi.fn();
+  window.addEventListener(TOUR_START_EVENT, started);
+  try {
+    native.handlers.get("take_tour")!({ payload: undefined });
+    expect(started).toHaveBeenCalledTimes(1);
+  } finally {
+    window.removeEventListener(TOUR_START_EVENT, started);
+  }
 });
 
 it("closes an open utility instead of the focused pane", async () => {

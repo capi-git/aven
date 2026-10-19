@@ -162,21 +162,21 @@ pub fn provider_setup_check(app: AppHandle, harness: String) -> Result<ProviderS
 
 fn check_provider(provider: Provider) -> ProviderSetupCheck {
     let Some(binary) = crate::harness::resolved_setup_binary(provider.id()) else {
-        return result(provider, SetupStatus::Missing, None, "This CLI was not found. Install the provider you chose, then check again. If it was just installed to a custom PATH, restart Aven.");
+        return result(provider, SetupStatus::Missing, None, "Not installed yet. Install it, then press Check again. If you just installed it, restart Aven.");
     };
     let version = match capture(&binary, &["--version".into()], None, PROBE_TIMEOUT) {
         Ok(output) if output.success && !output.truncated => numeric_version(&output.stdout),
-        _ => return result(provider, SetupStatus::Error, None, "The CLI was found but its version check failed or timed out. Check its installation, then try again."),
+        _ => return result(provider, SetupStatus::Error, None, "Found, but it didn't answer its version check. Check its installation, then try again."),
     };
     let args = match provider {
         Provider::Claude => vec!["auth".into(), "status".into()],
         Provider::Codex => vec!["login".into(), "status".into()],
-        _ => return result(provider, SetupStatus::Installed, version, "The CLI is installed. Sign-in cannot be checked automatically for this provider. Follow its setup instructions, then start a task in Aven to check the connection."),
+        _ => return result(provider, SetupStatus::Installed, version, "Installed. Aven can't check sign-in for this app, so follow its setup instructions, then start a chat to check the connection."),
     };
     match capture(&binary, &args, None, PROBE_TIMEOUT) {
         Ok(output) => interpret_auth(provider, version, &output),
         Err(CaptureFailure::Timeout) => result(provider, SetupStatus::Error, version, "The sign-in check timed out and was stopped. Check the provider in a terminal, then try again."),
-        Err(_) => result(provider, SetupStatus::Error, version, "The CLI could not check sign-in. Check its installation or update it, then try again."),
+        Err(_) => result(provider, SetupStatus::Error, version, "Sign-in couldn't be checked. Check its installation or update it, then try again."),
     }
 }
 
@@ -230,8 +230,8 @@ fn interpret_auth(
     };
     let message = match status {
         SetupStatus::Ready => "Sign-in was confirmed. Start a task to check that this account can send a message.",
-        SetupStatus::SignInRequired => "The CLI is installed and needs sign-in. Connect your account, then check again.",
-        _ => "The CLI is installed, but its sign-in status could not be confirmed. Update the CLI or check it in a terminal, then try again.",
+        SetupStatus::SignInRequired => "Installed, and needs you to sign in. Sign in, then press Check again.",
+        _ => "Installed, but sign-in couldn't be confirmed. Update it or check it in a terminal, then try again.",
     };
     result(provider, status, version, message)
 }
@@ -324,7 +324,7 @@ fn plan_for(
     } else if action == SetupAction::SignIn
         && matches!(provider, Provider::Claude | Provider::Codex)
     {
-        plan.message = "Install this CLI before signing in, then check again. If it was just installed to a custom PATH, restart Aven.".into();
+        plan.message = "Install it before signing in, then press Check again. If you just installed it, restart Aven.".into();
     }
     plan
 }
@@ -347,7 +347,7 @@ pub fn provider_setup_verify(
     let _work = crate::update_restart::begin_runtime_work(&app, "testing an agent connection")?;
     let provider = Provider::parse(&harness)?;
     if provider != Provider::Claude {
-        return Ok(result(provider, SetupStatus::Installed, None, "A setup test message is not available for this provider. Start a task in Aven to test your connection."));
+        return Ok(result(provider, SetupStatus::Installed, None, "A setup test message is not available for this provider. Start a chat in Aven to test your connection."));
     }
     let check = check_provider(provider);
     if check.status != SetupStatus::Ready {

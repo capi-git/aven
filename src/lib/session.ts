@@ -209,6 +209,10 @@ export type QueuedMessage = {
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   intent?: TurnIntent;
+  /** What the transcript shows in place of `text`, as for a direct send. */
+  displayText?: string;
+  /** Another agent's words: sent without skill or @ expansion. */
+  verbatim?: boolean;
 };
 
 export type MessageQueueStatus = "active" | "paused" | "resuming";

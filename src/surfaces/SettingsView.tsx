@@ -242,6 +242,8 @@ type Props = {
   onRestoreProject?: (path: string) => void;
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
+  /** Leave Settings and run the tour over the workspace. */
+  onTakeTour?: () => void;
 };
 
 export function SettingsView({
@@ -260,6 +262,7 @@ export function SettingsView({
   onRestoreProject,
   onDeleteProject,
   onOpenWhatsNew,
+  onTakeTour,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -417,7 +420,11 @@ export function SettingsView({
               </div>
             )}
             {isPreferencesSection(section) ? (
-              <PreferencesPage page={section} onOpenWhatsNew={onOpenWhatsNew} />
+              <PreferencesPage
+                page={section}
+                onOpenWhatsNew={onOpenWhatsNew}
+                onTakeTour={onTakeTour}
+              />
             ) : null}
             {section === "appearance" ? (
               <AppearancePage
@@ -506,9 +513,11 @@ function GitPage() {
 function PreferencesPage({
   page,
   onOpenWhatsNew,
+  onTakeTour,
 }: {
   page: PreferencesSection;
   onOpenWhatsNew: (version: string) => void;
+  onTakeTour?: () => void;
 }) {
   const defaultAccess = useSyncExternalStore(
     subscribeDefaultRuntimeMode,
@@ -754,6 +763,18 @@ function PreferencesPage({
           scope="Device"
         >
           <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
+          <Row
+            id={SETTINGS.tour.id}
+            label={SETTINGS.tour.label}
+            description={SETTINGS.tour.row.description}
+          >
+            <SecondaryButton
+              onClick={() => onTakeTour?.()}
+              disabled={!onTakeTour}
+            >
+              Take the tour again
+            </SecondaryButton>
+          </Row>
         </SettingsGroup>
       </>
     );

@@ -366,6 +366,16 @@ describe("unseenFinalReply", () => {
       5,
     );
     expect(unseenFinalReply(passedOn, [partner("Agreed.")])).toBeNull();
+    // Nor when an earlier ending had also copied it into A's chat.
+    const copied = chat("chat-a", [
+      {
+        id: "copy",
+        role: "system",
+        text: "Agreed.",
+        discussionReply: finalReplyMeta(passedOn, false, 3),
+      },
+    ]);
+    expect(unseenFinalReply(passedOn, [copied, partner("Agreed.")])).toBeNull();
     // A spoke last: B has nothing A hasn't seen.
     const afterA = endDiscussion(
       answer(fresh(2), "Cache by URL."),

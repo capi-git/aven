@@ -55,7 +55,7 @@ export const SETTINGS_SECTIONS: {
     id: "provider-setup",
     group: "Agents",
     label: "Provider setup",
-    description: "Choose providers, install them, and connect your accounts.",
+    description: "Choose agent apps, install them, and connect your accounts.",
   },
   {
     id: "providers",
