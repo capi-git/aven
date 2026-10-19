@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeBrowserUrl } from "./browser";
 import { COMPUTER_USE_TASK_GUIDANCE } from "./computerUseSkill";
+import { failureText } from "./errors";
 import { listenerGroup } from "./listenerGroup";
 import type { EditorNavigation } from "./search";
 import type { AgentBrowserOpenOptions } from "./agentBrowserOpen";
@@ -43,6 +44,9 @@ type OpenFileRequest = {
   line?: number | null;
   column?: number | null;
 };
+type WakeRequest = { requestId: string; sessionId: string };
+/** Part of the native bind's refusal while a granted page is closing to sleep. */
+const PAGE_FALLING_ASLEEP = "going to sleep";
 let host: AgentBrowserHost | null = null;
 let hostReady: Promise<unknown> = Promise.resolve();
 const contexts = new Map<string, AgentBrowserContext>();
@@ -105,12 +109,20 @@ function protectSessionBrowserPages(context: AgentBrowserContext) {
   };
 }
 
-async function wakeSessionBrowserPages(context: AgentBrowserContext) {
+/**
+ * Wake the task's visited pages and wait for their native pages. A page that
+ * will not wake fails the whole call, unless `settle` is set: then the others
+ * still wake and the first failure is returned.
+ */
+async function wakeSessionBrowserPages(
+  context: AgentBrowserContext,
+  options: { settle?: boolean } = {},
+): Promise<string | undefined> {
   const currentHost = host;
   const surfaces = currentHost?.surfaces(context);
   if (!currentHost || !surfaces)
     throw new Error("This task no longer owns a browser workspace.");
-  await Promise.all(
+  const results = await Promise.allSettled(
     surfaces.map(async (surfaceId) => {
       const wake = pageWakers.get(surfaceId);
       // Never-viewed saved tabs have no waker and remain lazy. Existing live
@@ -130,6 +142,28 @@ async function wakeSessionBrowserPages(context: AgentBrowserContext) {
   );
   if (host !== currentHost || contexts.get(context.sessionId) !== context)
     throw new Error("This browser task has expired.");
+  const failed = results.find((result) => result.status === "rejected");
+  if (!failed) return undefined;
+  if (!options.settle) throw failed.reason;
+  return failureText(failed.reason, "A browser page could not wake.");
+}
+
+/**
+ * The agent asked for its pages (the native `list` action): wake the ones
+ * asleep and grant them. Pages sleep through ordinary messages, so a reply
+ * never waits for pages the agent may not use.
+ */
+async function wakeForAgent(
+  context: AgentBrowserContext,
+): Promise<string | undefined> {
+  const release = protectSessionBrowserPages(context);
+  try {
+    const failure = await wakeSessionBrowserPages(context, { settle: true });
+    await bind(context);
+    return failure;
+  } finally {
+    release();
+  }
 }
 
 /** Transfers must not wait for saved tabs whose native pane has never mounted. */
@@ -359,7 +393,30 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
         },
       )
     : Promise.resolve(() => {});
-  const subscriptions = listenerGroup([listener, fileListener]);
+  // The native side asks before it lists a task's pages; it lists whatever
+  // the grant holds once this replies, so always reply.
+  const wakeListener = isTauri()
+    ? getCurrentWebview().listen<WakeRequest>(
+        "browser-agent-wake",
+        async ({ payload }) => {
+          if (disposed || host !== next) return;
+          let error: string | undefined;
+          try {
+            const context = contexts.get(payload.sessionId);
+            if (!context || next.surfaces(context) == null)
+              throw new Error("The requesting task is no longer available.");
+            error = await wakeForAgent(context);
+          } catch (failure) {
+            error = failureText(failure, "Could not wake the browser pages.");
+          }
+          await invoke("browser_agent_wake_result", {
+            requestId: payload.requestId,
+            ...(error ? { error } : {}),
+          }).catch(() => {});
+        },
+      )
+    : Promise.resolve(() => {});
+  const subscriptions = listenerGroup([listener, fileListener, wakeListener]);
   hostReady = subscriptions.ready;
   void hostReady.catch(() => {});
   return () => {
@@ -418,8 +475,15 @@ async function withBrowserGuidance(
     await hostReady;
     const release = protectSessionBrowserPages(stored);
     try {
-      await wakeSessionBrowserPages(stored);
-      const binding = await bind(stored, true);
+      // Sleeping pages stay asleep: the agent's first look at its pages
+      // wakes them (`wakeForAgent`), so a message never waits for them.
+      const binding = await bind(stored, true).catch(async (error) => {
+        if (!failureText(error, "").includes(PAGE_FALLING_ASLEEP)) throw error;
+        // A page was falling asleep as the message went out. Let it finish
+        // and wake it, then try once more.
+        await wakeSessionBrowserPages(stored);
+        return bind(stored, true);
+      });
       // Running dev servers reach the agent in the shared-work note
       // (`sharedWorkNote.ts`), only when they change.
       return `${agentBrowserInstructions(binding.executablePath)}\n\n${agentDesktopInstructions(binding.executablePath)}\n\n${text}`;

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Replies start sooner: Aven no longer wakes a chat's sleeping browser pages before sending each message, which could hold a message for up to 8 seconds per page. They wake when the agent first looks for its pages.
+
 ## [0.1.147] - 2026-10-19
 
 ### Added

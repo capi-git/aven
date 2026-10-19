@@ -466,7 +466,7 @@ describe("agent browser session connection", () => {
       { requestId: "failed", error: "File unavailable" },
     );
   });
-  it("unregisters both routes when the host closes", async () => {
+  it("unregisters every route when the host closes", async () => {
     const api = await import("./agentBrowser");
     dispose = api.installAgentBrowserHost({
       surfaces: () => [],
@@ -474,7 +474,11 @@ describe("agent browser session connection", () => {
       openFile: vi.fn(),
     });
     await api.prepareAgentBrowserPrompt("Open", { sessionId: "s", cwd: "/p" });
-    expect(mocks.handlers.size).toBe(2);
+    expect([...mocks.handlers.keys()].sort()).toEqual([
+      "browser-agent-open",
+      "browser-agent-open-file",
+      "browser-agent-wake",
+    ]);
     dispose();
     dispose = undefined;
     expect(mocks.handlers.size).toBe(0);
