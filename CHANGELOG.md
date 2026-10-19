@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.1.148] - 2026-10-19
+
+### Changed
+
+- The project board is now a board of the features you want built, in four columns: **Ideas**, **Building**, **Review** and **Shipped**. Write an idea in **Add an idea** at the foot of Ideas (Enter adds it, Escape clears it), and press **Build** to start a new chat that sends it, with your default agent, to be built. From then on the card moves by itself: to Building while any of its chats works (with the agent's mascot and what it's doing), to Review once work stops with changes (with **Review** and **Ship it**), and to Shipped with the date once you ship. When an agent waits on you, the card stays where it is with an amber **Needs you** saying what's needed, and **Allow** or **Answer**. Races, discussions and runs started from a card's chat count as its work.
+- Each card's **⋯** menu has **Open as draft** (a new chat with the idea typed in but not sent, so you can pick another agent, a race or the Orchestrator first), **Edit**, **Move to** and **Delete**. You can also drag a card to another column; a card you move stays there until something new happens in its chats. Shipped shows this week's cards, with the older ones folded away.
+- **Add to board** in a chat's menu in the sidebar gives it a card in the column its state implies. Chats that are working, need you or have changes but aren't on the board are counted on one line above the columns ("2 chats working outside the board"), where **Add them** puts them on it. In a project on GitHub, **Import issues** in Ideas adds open issues as ideas, each linked to its issue.
+- Cards are kept with Aven's own data for each project, never in the project's files, and go when you delete the project's data. Moving cards follows the Reduce motion setting.
+- A long reply says what it's waiting on instead of just "Working": "Claude is busy · retrying in 20s (try 2)", "Usage limit reached · resets 3:40 PM", "Starting Claude…", "Running a command · 2m", and "Waiting on 3 helper agents · 19m" once the reply is done but helper agents still run. It shows above the message box, on the reply's working line and in the chat's sidebar and tab tooltips, and a tab with a chat that needs you gets an amber dot.
+- Replies start sooner: Aven no longer wakes a chat's sleeping browser pages before sending each message, which could hold a message for several seconds (up to 8). They wake when the agent first looks for its pages.
+- Replies start sooner after you edit project memory: Claude Code chats in the project keep running instead of each restarting on its next message. A chat already under way gets the new memory with that message, as Codex and the other apps already did.
+- Replies after a break start sooner: an agent app stays ready for 30 minutes after it finishes instead of 5, so your next message doesn't wait for it to restart and reload the chat. Aven keeps at most 8 idle ones ready, the most recently used, and still closes idle ones after 5 minutes (or at once) when your Mac is low on memory.
+- Replies start sooner when another chat is saving its Undo checkpoint: each chat now waits only for its own checkpoint work (Undo still runs alone within its project), and a message waits at most 5 seconds for its checkpoint. If that runs out, the reply goes ahead and the bar above the message box says "Undo isn't available for this reply."
+- The Effort list says what the quick and the slow levels cost: Low is "Quickest replies. Good for small, clear changes.", Extra High "Very thorough. Noticeably slower." and Max "Most thorough. Often several times slower." The level a chat uses doesn't change.
+
+### Fixed
+
+- **Continue** on an agent's question can no longer do nothing. If the agent stopped waiting for the answer (for example because it restarted), the card closes and your answers go to it as a message: "That question had expired, so your answers were sent as a message." If an answer can't be sent, the button comes back after a few seconds with "Couldn't send your answer. Try again." Answers and approvals also reach the right agent after you switch agents mid-reply, and cards close when an agent stops.
+- Activity lines, file chips, the agents list and folder paths show Aven's own folder as **Aven data** instead of its old internal name, so a screenshot the agent reads shows as "Read Aven data/turn-shots/…/preview-login.png". The folder itself and the paths agents get are unchanged.
+- A board card for a file another chat also changed shows the file name instead of "+0 −0", and the note in a chat's changes says "another chat also changed this file".
+
 ## [0.1.147] - 2026-10-19
 
 ### Added
