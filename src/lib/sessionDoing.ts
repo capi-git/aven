@@ -1,14 +1,15 @@
 import { basename } from "./fs";
 import { toolDisplayLabel } from "./commandLabel";
 import { isWeakToolTitle } from "./harness/preview";
-import { displayPath } from "./paths";
+import { displayAppData, displayPath } from "./paths";
 import type { Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
 
 const DETAIL_MAX = 160;
 
+/** One shown line: Aven's data folder in words, clipped to fit. */
 function clip(text: string): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = displayAppData(text).replace(/\s+/g, " ").trim();
   return line.length > DETAIL_MAX
     ? `${line.slice(0, DETAIL_MAX - 1).trimEnd()}…`
     : line;

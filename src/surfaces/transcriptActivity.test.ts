@@ -947,4 +947,12 @@ describe("proseSummary", () => {
       proseSummary("```ts\nconst a = 1;\n```\n\n- Ran [checks](x.md)"),
     ).toBe("Ran checks");
   });
+
+  it("names Aven's own data folder in words", () => {
+    expect(
+      proseSummary(
+        "Reading `~/Library/Application Support/com.capi.monocode.personal/turn-shots/s1/1-after.png` now.",
+      ),
+    ).toBe("Reading Aven data/turn-shots/s1/1-after.png now.");
+  });
 });

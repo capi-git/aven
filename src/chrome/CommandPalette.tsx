@@ -31,6 +31,7 @@ import type { ProjectFile } from "../lib/fs";
 import { fuzzyMatch } from "../lib/fuzzy";
 import { isImeComposition } from "../lib/keyboard";
 import { LAYER } from "../lib/layers";
+import { displayAppData } from "../lib/paths";
 import { MOD } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
 import { sessionDisplayTitle } from "../lib/session";
@@ -623,7 +624,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
           {item.project.name}
         </span>
         <span className="shrink-0 truncate text-ui-label text-content/40">
-          {item.project.path}
+          {displayAppData(item.project.path)}
         </span>
       </>
     );

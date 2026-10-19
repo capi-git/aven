@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { displayAppData } from "./paths";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "./session";
 import { loadSoundsEnabled } from "./sounds";
 import {
@@ -360,7 +361,8 @@ export async function publishSessionActivity(
       sessionId: session.id,
       title: text.title,
       subtitle: text.subtitle,
-      body,
+      // The banner is shown, not kept: the saved entry above keeps the text.
+      body: displayAppData(body),
       sound: prefs.sound && loadSoundsEnabled(),
     });
     return { added: true, bannerSent: true, playSound: false };

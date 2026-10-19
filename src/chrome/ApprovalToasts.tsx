@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ApprovalDecision } from "../lib/harness";
 import type { PendingApprovalNotice } from "../lib/approvalToast";
 import { LAYER } from "../lib/layers";
+import { displayAppData } from "../lib/paths";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
@@ -80,7 +81,7 @@ function ApprovalToastCard({
           </span>
         </span>
         <span className="line-clamp-3 text-ui-label leading-relaxed text-content/70">
-          {label}
+          {displayAppData(label)}
         </span>
         <span className="text-ui-caption text-content/40">{harness}</span>
       </button>

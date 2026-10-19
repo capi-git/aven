@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LAYER } from "../lib/layers";
-import { prettyCwd } from "../lib/paths";
+import { displayAppData, prettyCwd } from "../lib/paths";
 import { projectSessionCount } from "../lib/projectData";
 
 type Props = {
@@ -88,7 +88,7 @@ export function RemoveProjectDialog({
             </p>
           ) : null}
           <p className="truncate text-ui-caption leading-tight text-content/40">
-            {prettyCwd(path)}
+            {displayAppData(prettyCwd(path))}
           </p>
         </div>
 

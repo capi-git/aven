@@ -126,7 +126,12 @@ import {
   subscribeModels,
   subscribePickerVisibility,
 } from "../lib/models";
-import { prettyCwd, projectKey, projectName } from "../lib/paths";
+import {
+  displayAppData,
+  prettyCwd,
+  projectKey,
+  projectName,
+} from "../lib/paths";
 import { saveAgentKeepAwake } from "../lib/agentKeepAwake";
 import { useAgentKeepAwakeSetting } from "../hooks/useAgentKeepAwake";
 import { HAS_NATIVE_GLASS, IS_MAC } from "../lib/platform";
@@ -1890,7 +1895,7 @@ function ArchivePage({
                   {archivedProjectLabel(project.path)}
                 </div>
                 <div className="truncate text-ui-caption text-content/40">
-                  {prettyCwd(project.path)}
+                  {displayAppData(prettyCwd(project.path))}
                 </div>
               </div>
               {onRestoreProject ? (

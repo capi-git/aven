@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { basename, type GitDiffIndex, type GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo, upstreamLabel } from "../lib/gitChangesView";
+import { displayAppData } from "../lib/paths";
 import { ChevronDown, GitBranch, GitCompare, Plus } from "./icons";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMascot } from "./ProjectMascot";
@@ -50,11 +51,14 @@ export function ChangesHeader({
           appearance={appearance}
           className="project-mark-large"
         />
-        <span className="git-hero-project" title={projectCwd || cwd}>
+        <span
+          className="git-hero-project"
+          title={displayAppData(projectCwd || cwd)}
+        >
           {name}
         </span>
         {copyLabel ? (
-          <span className="git-hero-copy" title={cwd}>
+          <span className="git-hero-copy" title={displayAppData(cwd)}>
             {copyLabel}
           </span>
         ) : null}

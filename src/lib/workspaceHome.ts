@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "./activity";
 import { basename } from "./fs";
-import { projectKey } from "./paths";
+import { displayAppData, projectKey } from "./paths";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
@@ -140,8 +140,9 @@ export type HomeScope = {
 
 const DETAIL_MAX = 160;
 
+/** One line Home shows: Aven's data folder in words, clipped to fit. */
 function clip(text: string): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = displayAppData(text).replace(/\s+/g, " ").trim();
   return line.length > DETAIL_MAX
     ? `${line.slice(0, DETAIL_MAX - 1).trimEnd()}…`
     : line;

@@ -37,7 +37,7 @@ import {
   rankProjectFiles,
   recentOpenedFiles,
 } from "../lib/fileIndex";
-import { prettyCwd, projectName } from "../lib/paths";
+import { displayAppData, prettyCwd, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject, type RecentProject } from "../lib/recents";
 import { searchProject, type OpenFileFn } from "../lib/search";
@@ -599,7 +599,7 @@ function rowCopy(
     // The project's own logo or mascot; `hit.path` is the folder, not an image.
     icon: <ProjectMark path={hit.path} />,
     title: <MatchText text={hit.name} positions={hit.positions} active />,
-    meta: prettyCwd(hit.path),
+    meta: displayAppData(prettyCwd(hit.path)),
   };
 }
 

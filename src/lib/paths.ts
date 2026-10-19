@@ -162,6 +162,38 @@ export function displayPath(path: string, cwd?: string): string {
   return normalized;
 }
 
+/** What a shown path calls Aven's own data folder (see `displayAppData`). */
+export const APP_DATA_LABEL = "Aven data";
+
+// Aven's data folder keeps the identifier it first shipped with, so existing
+// chats stay where they are, and the dev build has its own. Neither name is
+// Aven's, so a shown path names the folder in words instead.
+const APP_ID = String.raw`com\.capi\.(?:monocode\.personal|aven\.dev)`;
+const SEP = String.raw`[\\/]+`;
+const USER = String.raw`[^\\/\r\n]+`;
+const MAC_DATA = String.raw`(?:/Users/${USER}|~)/Library/Application Support/`;
+const WINDOWS_DATA = String.raw`(?:(?:[A-Za-z]:${SEP}Users${SEP}${USER}|~)${SEP}AppData${SEP}(?:Roaming|Local)|%(?:LOCAL)?APPDATA%)${SEP}`;
+const APP_DATA = new RegExp(
+  String.raw`(?<![\w.~/\\-])(?:${MAC_DATA}|${WINDOWS_DATA})${APP_ID}(?![\w-]|\.[\w-])`,
+  "gi",
+);
+const MENTIONS_APP_ID = /com\.capi\.(?:monocode|aven)\./i;
+
+/**
+ * `text` as shown to the user, with Aven's own data folder (the macOS
+ * Application Support folder or Windows AppData folder named after its
+ * identifier, absolute or from `~`) read as "Aven data": "Read Aven
+ * data/turn-shots/…/after.png". Works on a lone path or a whole line.
+ * Display only: paths given to agents, saved, compared or opened stay as
+ * they are.
+ */
+export function displayAppData(text: string): string;
+export function displayAppData(text: string | undefined): string | undefined;
+export function displayAppData(text: string | undefined): string | undefined {
+  if (!text || !MENTIONS_APP_ID.test(text)) return text;
+  return text.replace(APP_DATA, APP_DATA_LABEL);
+}
+
 /** Folder name for tab labels — `~` when the cwd is home. */
 export function projectName(cwd: string): string {
   if (!cwd || prettyCwd(cwd) === "~") return "~";

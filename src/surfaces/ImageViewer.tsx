@@ -28,6 +28,7 @@ import {
   type ImageViewerState,
 } from "../lib/imageViewer";
 import { LAYER } from "../lib/layers";
+import { displayAppData } from "../lib/paths";
 import { REVEAL_LABEL } from "../lib/platform";
 import "./ImageViewer.css";
 
@@ -243,7 +244,7 @@ function ImageViewerDialog({
         <div className="image-viewer-title">
           {/* A captioned picture, such as an agent's Before shot, goes by its
               caption; its saved file name stays in the tooltip. */}
-          <h2 id={titleId} title={path ?? item.name}>
+          <h2 id={titleId} title={displayAppData(path) ?? item.name}>
             {item.label || item.name}
           </h2>
           {meta ? <span className="image-viewer-meta">{meta}</span> : null}

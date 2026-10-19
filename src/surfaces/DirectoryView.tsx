@@ -7,6 +7,7 @@ import {
   RefreshCw,
 } from "../chrome/icons";
 import { basename, listDir, type FsEntry } from "../lib/fs";
+import { displayAppData } from "../lib/paths";
 import "./DirectoryView.css";
 
 type Location = { path: string; name: string };
@@ -128,7 +129,7 @@ export function DirectoryView({
                   {index > 0 && <ChevronRight size={12} aria-hidden />}
                   <button
                     type="button"
-                    title={location.path}
+                    title={displayAppData(location.path)}
                     aria-current={
                       index === trail.length - 1 ? "location" : undefined
                     }
@@ -154,7 +155,7 @@ export function DirectoryView({
           <Folder size={18} aria-hidden />
           {current.name}
         </h2>
-        <p className="directory-view-path">{current.path}</p>
+        <p className="directory-view-path">{displayAppData(current.path)}</p>
       </header>
       <div
         className="directory-view-content"
@@ -192,7 +193,7 @@ export function DirectoryView({
                   className="directory-view-entry"
                   type="button"
                   aria-label={`Open ${entry.isDir ? "folder" : "file"} ${entry.name}`}
-                  title={entry.path}
+                  title={displayAppData(entry.path)}
                   disabled={!entry.isDir && !onOpenFile}
                   onClick={() =>
                     entry.isDir
