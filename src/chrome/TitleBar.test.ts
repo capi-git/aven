@@ -141,7 +141,7 @@ describe("tabCopy", () => {
       }),
     );
     expect(copy.headline).toBe("Fix browser");
-    expect(copy.meta).toBe("focused-model +2 models · 4 sessions");
+    expect(copy.meta).toBe("focused-model +2 models · 4 chats");
     expect(copy.tooltip).toBe(
       "agent-terminal · Fix browser · focused-model · second-model · third-model",
     );

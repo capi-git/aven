@@ -363,7 +363,7 @@ describe("orchestration in other workspace lists", () => {
         act(() =>
           container
             .querySelector<HTMLButtonElement>(
-              '[aria-label="Expand other tasks"]',
+              '[aria-label="Expand other chats"]',
             )!
             .click(),
         );
@@ -430,7 +430,7 @@ describe("renaming chats outside the current project", () => {
         act(() =>
           container
             .querySelector<HTMLButtonElement>(
-              '[aria-label="Expand other tasks"]',
+              '[aria-label="Expand other chats"]',
             )!
             .click(),
         );

@@ -194,7 +194,7 @@ export function PersonalProjectRow({
         <button
           type="button"
           className="personal-project-row-action personal-project-disclosure"
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${label} tasks`}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${label} chats`}
           aria-expanded={expanded}
           onClick={onToggle}
         >

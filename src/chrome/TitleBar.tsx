@@ -208,7 +208,7 @@ export type TitleBarProps = {
 
 function sessionMeta(tab: Tab): string {
   if (tab.more.length === 1) return tab.more[0];
-  if (tab.sessionCount > 1) return `${tab.sessionCount} sessions`;
+  if (tab.sessionCount > 1) return `${tab.sessionCount} chats`;
   return "";
 }
 
