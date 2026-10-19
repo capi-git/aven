@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Project memory opened from the hover sidebar finds Claude Code and Codex instead of saying they aren't installed, and one slow app no longer makes every app look missing. While Aven is still checking, the switch says "Checking for Claude Code or Codex…". The editor says why Save or Copy can't be pressed ("Nothing to save yet", "No changes to save"), and the list of who receives the memory is now one plain line: every agent in the project gets it, whichever app runs it.
+- A missing agent app reads "Claude Code isn't installed. Install it from Settings, or restart Aven if you just installed it." instead of an install command.
+
 ## [0.1.146] - 2026-10-18
 
 ### Added
