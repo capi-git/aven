@@ -1380,6 +1380,7 @@ function BrowserPaneSession({
       className="browser-pane"
       aria-label="Browser preview"
       data-browser-pane={id}
+      data-tour="browser-pane"
       // No page yet: the pane shows the workspace background like other panes.
       data-blank={(!url && !error && !sleeping) || undefined}
       onKeyDown={(event) => {

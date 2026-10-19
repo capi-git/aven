@@ -286,6 +286,13 @@ export const SETTINGS = {
     rowDescription:
       "Run your configured Claude Code hooks. Changes apply from your next message.",
   }),
+  tour: defineSetting({
+    section: "general",
+    label: "Tour",
+    description:
+      "Take the short tour of the message box, sidebar, preview, Changes, board and project memory again.",
+    keywords: "walkthrough onboarding guide help getting started welcome",
+  }),
   version: defineSetting({
     section: "general",
     label: "Version",

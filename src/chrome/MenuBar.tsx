@@ -2,9 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../lib/platform";
+import { startTour } from "../lib/tour";
 import { runUpdateFlow } from "../lib/updater";
 
-type MenuKey = "file" | "view" | "terminal";
+type MenuKey = "file" | "view" | "terminal" | "help";
 
 type Props = {
   onNew: () => void;
@@ -167,6 +168,9 @@ export function MenuBar({
         case "zoom_reset":
           onZoomReset?.();
           break;
+        case "take_tour":
+          startTour();
+          break;
       }
     },
     [
@@ -327,6 +331,10 @@ export function MenuBar({
             shortcut: `${MOD}J`,
           },
         ];
+      case "help":
+        return [
+          { kind: "item", id: "take_tour", label: "Take the Tour Again" },
+        ];
     }
   };
 
@@ -338,6 +346,7 @@ export function MenuBar({
     { key: "file", label: "File" },
     { key: "view", label: "View" },
     { key: "terminal", label: "Terminal" },
+    { key: "help", label: "Help" },
   ];
 
   return (

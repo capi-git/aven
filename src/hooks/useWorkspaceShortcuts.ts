@@ -16,6 +16,7 @@ import {
   zoomOutUiScale,
 } from "../lib/uiScale";
 import { runUpdateFlow } from "../lib/updater";
+import { startTour } from "../lib/tour";
 import { listenInThisWindow } from "../lib/windowMenuEvents";
 import {
   hasWorkspaceOverlay,
@@ -411,6 +412,8 @@ export function useWorkspaceShortcuts({
       listenInThisWindow("toggle_inspector", () =>
         run("toggle_inspector", actions.current.onToggleInspector),
       ),
+      // Help › Take the Tour Again: the workspace runs the tour.
+      listenInThisWindow("take_tour", () => startTour()),
       listen("open_project", () => {
         void actions.current.pickProject();
       }),

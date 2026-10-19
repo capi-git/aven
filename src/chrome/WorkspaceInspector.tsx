@@ -115,6 +115,7 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
     <section
       className="workspace-inspector"
       aria-label="Side panel"
+      data-tour="changes"
       aria-hidden={!active || undefined}
       inert={!active || undefined}
     >
