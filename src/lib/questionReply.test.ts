@@ -152,7 +152,11 @@ describe("deliverQuestionReply", () => {
     waiting.get("claude")!.add(3);
     const switched = chat({
       harness: "codex",
-      pendingSwitch: { from: "claude", fromModel: "claude:opus" },
+      pendingSwitch: {
+        from: "claude",
+        fromModel: "claude:opus",
+        fromSettings: {},
+      },
     });
     expect(deliverQuestionReply(switched, 3, answered)).toBe(true);
     expect(taken.get("claude")).toEqual([["chat", 3]]);
@@ -167,7 +171,11 @@ describe("deliverQuestionReply", () => {
     deliverApproval(
       chat({
         harness: "codex",
-        pendingSwitch: { from: "claude", fromModel: "claude:opus" },
+        pendingSwitch: {
+          from: "claude",
+          fromModel: "claude:opus",
+          fromSettings: {},
+        },
       }),
       5,
       "allow",
