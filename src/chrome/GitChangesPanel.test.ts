@@ -879,6 +879,19 @@ describe("Ship it as the one way to commit", () => {
       "1 file",
     );
   });
+
+  it("ships every file again when staging is hidden while it is open", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("Staged 1");
+    await act(async () => button("Hide staging")!.click());
+    expect(checkedScope()).toBe("All 2");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "2 files",
+    );
+  });
 });
 
 describe("sync actions beside Ship it", () => {

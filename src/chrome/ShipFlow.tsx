@@ -130,6 +130,13 @@ export function ShipFlow({
   const [scope, setScope] = useState<ShipScope>(() =>
     defaultShipScope(files, stagingShown),
   );
+  // Hiding staging while the flow is open ships every file again, as it
+  // would have had the flow opened that way.
+  const [scopeStaging, setScopeStaging] = useState(stagingShown);
+  if (scopeStaging !== stagingShown) {
+    setScopeStaging(stagingShown);
+    if (!stagingShown) setScope("all");
+  }
   const [phase, setPhase] = useState<Phase>({ kind: "compose" });
   const [generating, setGenerating] = useState(false);
   // Who is writing the message, named while it does: "Claude Haiku 4.5".
