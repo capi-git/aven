@@ -257,12 +257,13 @@ function ProjectStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set on every mount: development's double mount runs the cleanup once.
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const go = async () => {
     if (busy) return;
     setBusy(true);
