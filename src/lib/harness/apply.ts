@@ -4,11 +4,13 @@ import type {
   Session,
   TaskListItem,
   ToolPreview,
+  TurnWait,
 } from "../session";
 import { mergeContextUsage } from "../contextUsage";
 import { displayPath } from "../paths";
 import {
   composeToolTitle,
+  isAgentTool,
   isFileTool,
   isWeakToolTitle,
   mergeToolPreview,
@@ -45,12 +47,14 @@ export function applyHarnessEvents(
       texts.push(following.text);
       index++;
     }
-    next = patchStreaming(
-      next,
-      event.type === "message.delta" ? "assistant" : "reasoning",
-      texts,
-      true,
-      key,
+    next = outputResumed(
+      patchStreaming(
+        next,
+        event.type === "message.delta" ? "assistant" : "reasoning",
+        texts,
+        true,
+        key,
+      ),
     );
   }
   return next;
@@ -86,41 +90,61 @@ export function applyHarnessEvent(
     }
     case "agents.cleared":
       return { ...session, liveAgents: undefined };
+    case "turn.waiting":
+      return updateTurnWait(session, event.set, event.clear);
+    case "session.started":
+      return updateTurnWait(session, undefined, ["starting"]);
     case "message.delta":
-      return patchStreaming(session, "assistant", event.text, true, event.key);
+      return outputResumed(
+        patchStreaming(session, "assistant", event.text, true, event.key),
+      );
     case "message.completed":
       return finishRole(session, "assistant", event.key);
     case "reasoning.delta":
-      return patchStreaming(session, "reasoning", event.text, true);
+      return outputResumed(
+        patchStreaming(session, "reasoning", event.text, true),
+      );
     case "reasoning.completed":
       return finishRole(session, "reasoning");
     case "tool.started":
-      return upsertTool(session, {
-        callId: event.callId,
-        title: event.title,
-        kind: event.kind,
-        status: event.status,
-        preview: event.preview,
-        streaming: true,
-      });
+      return toolOutput(
+        upsertTool(session, {
+          callId: event.callId,
+          title: event.title,
+          kind: event.kind,
+          status: event.status,
+          preview: event.preview,
+          streaming: true,
+        }),
+        event,
+      );
     case "tool.updated":
-      return upsertTool(session, {
-        callId: event.callId,
-        title: event.title,
-        kind: event.kind,
-        status: event.status,
-        detail: event.detail,
-        preview: event.preview,
-        streaming: event.status !== "completed" && event.status !== "failed",
-      });
+      return toolOutput(
+        upsertTool(session, {
+          callId: event.callId,
+          title: event.title,
+          kind: event.kind,
+          status: event.status,
+          detail: event.detail,
+          preview: event.preview,
+          streaming: event.status !== "completed" && event.status !== "failed",
+        }),
+        event,
+      );
     case "approval.requested":
       return attachApproval(session, event);
     case "approval.resolved": {
+      const at = Date.now();
       const blocks = session.blocks.map((block) =>
         block.approval?.requestId === event.requestId
           ? {
               ...block,
               approval: { ...block.approval, decided: event.decision },
+              // An allowed call starts running now, not when it was asked.
+              ...(event.decision === "allow" &&
+              block.tool?.startedAt !== undefined
+                ? { tool: { ...block.tool, startedAt: at } }
+                : {}),
             }
           : block,
       );
@@ -173,7 +197,7 @@ export function applyHarnessEvent(
     case "tasks.updated":
       return upsertTaskList(session, event);
     case "plan":
-      return upsertPlan(session, event);
+      return outputResumed(upsertPlan(session, event));
     case "session.error":
       return appendBlock(stopStreaming(session), {
         id: crypto.randomUUID(),
@@ -205,6 +229,61 @@ export function applyHarnessEvent(
     default:
       return session;
   }
+}
+
+/**
+ * Merge what the turn waits on: `clear` drops parts, then `set` adds or
+ * replaces them. A start and the wait for helpers keep the time they began.
+ * Unchanged, the session is returned as it was.
+ */
+function updateTurnWait(
+  session: Session,
+  set: TurnWait | undefined,
+  clear: readonly (keyof TurnWait)[] = [],
+): Session {
+  const current = session.waitingOn;
+  if (!set && !clear.some((key) => current?.[key] !== undefined))
+    return session;
+  const next: TurnWait = { ...current };
+  for (const key of clear) delete next[key];
+  if (set?.starting !== undefined) next.starting ??= set.starting;
+  if (set?.helpers !== undefined) next.helpers ??= set.helpers;
+  if (set?.retry) next.retry = set.retry;
+  if (set?.usageLimit) next.usageLimit = set.usageLimit;
+  if (sameTurnWait(current, next)) return session;
+  return {
+    ...session,
+    waitingOn: Object.keys(next).length ? next : undefined,
+  };
+}
+
+function sameTurnWait(a: TurnWait | undefined, b: TurnWait): boolean {
+  return (
+    !!a &&
+    a.starting === b.starting &&
+    a.helpers === b.helpers &&
+    a.retry?.attempt === b.retry?.attempt &&
+    a.retry?.retryAt === b.retry?.retryAt &&
+    a.retry?.reason === b.retry?.reason &&
+    !a.retry === !b.retry &&
+    a.usageLimit?.resetsAt === b.usageLimit?.resetsAt &&
+    !a.usageLimit === !b.usageLimit
+  );
+}
+
+/** The agent's own output: whatever its turn waited on is over. */
+function outputResumed(session: Session): Session {
+  return session.waitingOn ? { ...session, waitingOn: undefined } : session;
+}
+
+/** A helper agent's progress is not its lead's output. */
+function toolOutput(
+  session: Session,
+  event: { kind?: string; title?: string },
+): Session {
+  return isAgentTool(event.kind, event.title)
+    ? session
+    : outputResumed(session);
 }
 
 function upsertPlan(
@@ -413,6 +492,7 @@ export function appendUser(
     {
       ...session,
       busy: true,
+      waitingOn: undefined,
       ...(session.liveAgents
         ? {
             liveAgents: session.liveAgents.filter(
@@ -462,6 +542,7 @@ export function stopStreaming(session: Session): Session {
   return {
     ...settled,
     busy: false,
+    waitingOn: undefined,
     pendingQuestion: undefined,
     blocks: stampTurnDuration(settled.blocks.map(stopBlockProgress)),
   };
@@ -846,6 +927,7 @@ function upsertTool(
         status: patch.status,
         ...(detail ? { detail } : {}),
         ...(preview ? { preview } : {}),
+        ...(patch.streaming ? { startedAt: Date.now() } : {}),
       },
     });
   }
@@ -865,6 +947,9 @@ function upsertTool(
   );
   const kind = patch.kind ?? prev.tool?.kind;
   const status = patch.status ?? prev.tool?.status;
+  // A call first seen through its approval starts running when it streams.
+  const startedAt =
+    prev.tool?.startedAt ?? (patch.streaming ? Date.now() : undefined);
   if (
     prev.text === label &&
     prev.streaming === patch.streaming &&
@@ -872,6 +957,7 @@ function upsertTool(
     prev.tool?.kind === kind &&
     prev.tool?.status === status &&
     prev.tool?.detail === detail &&
+    prev.tool?.startedAt === startedAt &&
     samePreview(prev.tool?.preview, preview)
   ) {
     return session;
@@ -888,6 +974,7 @@ function upsertTool(
       status,
       ...(detail ? { detail } : {}),
       ...(preview ? { preview } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
     },
   };
   return { ...session, blocks };

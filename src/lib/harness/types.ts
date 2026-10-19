@@ -7,6 +7,7 @@ import type {
   TaskListItem,
   ToolPreview,
   TurnIntent,
+  TurnWait,
 } from "../session";
 import type { UserQuestion } from "../userQuestion";
 
@@ -33,6 +34,15 @@ export type HarnessEvent =
       key?: string;
       discussionEnd?: DiscussionWrapUpMeta;
       discussionReply?: DiscussionRelayMeta;
+    }
+  /**
+   * What the turn waits on besides its own output (see `TurnWait`): `set`
+   * adds or replaces parts, `clear` drops them.
+   */
+  | {
+      type: "turn.waiting";
+      set?: TurnWait;
+      clear?: readonly (keyof TurnWait)[];
     }
   | { type: "message.delta"; text: string; key?: string }
   | { type: "message.completed"; key?: string }

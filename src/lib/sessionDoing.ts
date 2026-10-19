@@ -4,6 +4,7 @@ import { isWeakToolTitle } from "./harness/preview";
 import { displayAppData, displayPath } from "./paths";
 import type { Session } from "./session";
 import { isActiveSessionAgent } from "./sessionAgents";
+import { holdUpHint, sessionHoldUps } from "./sessionHoldUp";
 
 const DETAIL_MAX = 160;
 
@@ -24,6 +25,10 @@ type Activity = {
 /** The current turn's latest activity, if it has one. */
 function latestActivity(session: Session): Activity | undefined {
   const said = (text: string): Activity => ({ text, specific: true });
+  // A retry, the usage limit or helper agents hold the turn up; its last
+  // words ("Writing a reply") are behind it.
+  const holdUp = holdUpHint(sessionHoldUps(session));
+  if (holdUp) return said(holdUp);
   const blocks = session.blocks;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];

@@ -217,6 +217,33 @@ export type QueuedMessage = {
 
 export type MessageQueueStatus = "active" | "paused" | "resuming";
 
+/** Why a provider retries a request, as far as it said. */
+export type TurnRetryReason =
+  "busy" | "rate-limit" | "server" | "connection" | "no-response";
+
+/**
+ * What a running turn waits on besides its own output, as its harness
+ * reported it (see `sessionHoldUps`). In memory only: a new turn starts
+ * without it, the turn's end drops it, and the agent's own output clears
+ * what it no longer waits on.
+ */
+export type TurnWait = {
+  /** The agent's process is starting, since then (epoch ms). */
+  starting?: number;
+  /** A failed request is about to be tried again. */
+  retry?: {
+    /** Failed tries so far, counted from 1. */
+    attempt?: number;
+    /** When the next try goes out (epoch ms). */
+    retryAt?: number;
+    reason?: TurnRetryReason;
+  };
+  /** The account's usage limit holds requests back until `resetsAt` (epoch ms). */
+  usageLimit?: { resetsAt?: number };
+  /** The reply is done; the turn stays open for its helper agents since then (epoch ms). */
+  helpers?: number;
+};
+
 export type Block = {
   /** Provider item identity while streaming; distinct adjacent items stay separate. */
   messageKey?: string;
@@ -238,6 +265,8 @@ export type Block = {
     status?: string;
     detail?: string;
     preview?: ToolPreview;
+    /** When the call started running, as Aven saw it (epoch ms). Never saved. */
+    startedAt?: number;
   };
   approval?: {
     requestId: number;
@@ -297,6 +326,8 @@ export type Session = {
   blocks: Block[];
   /** True while a harness turn is in flight. */
   busy?: boolean;
+  /** What the running turn waits on besides its own output. In memory only. */
+  waitingOn?: TurnWait;
   /** Follow-ups waiting for the current turn; restored paused from durable history. */
   queuedMessages?: QueuedMessage[];
   /** Paused after user stops current turn; resuming waits for continued turn. */

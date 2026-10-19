@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession, type Session } from "../session";
 import { applyHarnessEvent, applyHarnessEvents } from "./apply";
 import type { HarnessEvent } from "./types";
@@ -25,6 +25,14 @@ function oneByOne(session: Session, events: readonly HarnessEvent[]) {
 }
 
 describe("batched harness events", () => {
+  // Tool calls note when they start; both runs read the same clock.
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("preserves mixed snapshots, repeated tokens, whitespace and message boundaries", () => {
     const events: HarnessEvent[] = [
       { type: "message.delta", text: " " },

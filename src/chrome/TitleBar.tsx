@@ -114,6 +114,8 @@ export type Tab = {
   groupId?: string;
   /** A session in this tab is waiting on an approval or question. */
   needsInput?: boolean;
+  /** What holds a working chat in this tab up (see `holdUpHint`). */
+  waitingOn?: string;
   /** The tab holds one race's agents; `title` is the race prompt. */
   race?: boolean;
   /** The chats in this tab, whose finished turns flash it. */
@@ -262,6 +264,8 @@ export function tabCopy(
   tooltipParts.push(...modelNames);
   if (tab.files.length > 0) tooltipParts.push(tab.files.join(", "));
   if (tab.dirty) tooltipParts.push("Unsaved changes");
+  if (tab.needsInput) tooltipParts.push("Needs you");
+  else if (tab.waitingOn) tooltipParts.push(tab.waitingOn);
 
   return { headline, meta, tooltip: tooltipParts.join(" · ") };
 }
@@ -499,6 +503,14 @@ function TitleTabItem({
               </span>
               {visible && !active ? (
                 <span className="personal-title-tab-visible" aria-hidden />
+              ) : null}
+              {tab.needsInput ? (
+                <span
+                  className="personal-title-tab-needs-you"
+                  data-tab-needs-you
+                  title="Needs you"
+                  aria-hidden
+                />
               ) : null}
               {tab.dirty ? (
                 <span

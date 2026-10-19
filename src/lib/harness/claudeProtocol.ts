@@ -3,8 +3,10 @@ import type {
   RuntimeMode,
   TaskListItem,
   ToolPreview,
+  TurnRetryReason,
 } from "../session";
 import { localAttachmentBlock } from "../attachments";
+import { parseResetTimestamp } from "../rateLimits";
 import {
   isTaskListToolName,
   normalizeTaskListStatus,
@@ -520,6 +522,76 @@ export function statusTextFromSystem(
   if (notable) return text;
   // Compaction is worth one row even when the CLI sends no prose with it.
   return compact ? "Compacted context" : undefined;
+}
+
+/**
+ * What Claude says the turn waits on, from two stream-json messages:
+ *
+ * - `system/api_retry` (`attempt`, `max_retries`, `retry_delay_ms`,
+ *   `error_status`, `error`, and `no_response` when the API sent nothing):
+ *   a failed request goes out again after the delay.
+ * - `rate_limit_event` (`rate_limit_info`: `status` "allowed",
+ *   "allowed_warning" or "rejected", `resetsAt` in epoch seconds, and the
+ *   overage fields): only a rejection with no overage to fall back on holds
+ *   requests back. Any other status means the limit no longer does.
+ */
+export function claudeWaitEvent(
+  rec: Record<string, unknown>,
+  now: number,
+): Extract<HarnessEvent, { type: "turn.waiting" }> | undefined {
+  const type = stringField(rec, "type");
+  if (type === "system" && stringField(rec, "subtype") === "api_retry") {
+    const attempt = wholeNumber(rec.attempt);
+    const delay = wholeNumber(rec.retry_delay_ms);
+    const reason = claudeRetryReason(rec);
+    return {
+      type: "turn.waiting",
+      set: {
+        retry: {
+          ...(attempt ? { attempt } : {}),
+          ...(delay !== undefined ? { retryAt: now + delay } : {}),
+          ...(reason ? { reason } : {}),
+        },
+      },
+    };
+  }
+  if (type !== "rate_limit_event") return undefined;
+  const info = asRecord(rec.rate_limit_info);
+  const status = stringField(info, "status");
+  if (!info || !status) return undefined;
+  const overage = stringField(info, "overageStatus");
+  const blocked =
+    status === "rejected" &&
+    info.isUsingOverage !== true &&
+    overage !== "allowed" &&
+    overage !== "allowed_warning";
+  if (!blocked) return { type: "turn.waiting", clear: ["usageLimit"] };
+  const resetsAt = parseResetTimestamp(info.resetsAt);
+  return {
+    type: "turn.waiting",
+    set: { usageLimit: resetsAt !== null ? { resetsAt } : {} },
+  };
+}
+
+function wholeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : undefined;
+}
+
+function claudeRetryReason(
+  rec: Record<string, unknown>,
+): TurnRetryReason | undefined {
+  if (asRecord(rec.no_response)) return "no-response";
+  const error = stringField(rec, "error");
+  const status = wholeNumber(rec.error_status);
+  if (error === "overloaded" || status === 529) return "busy";
+  if (error === "rate_limit" || status === 429) return "rate-limit";
+  if (error === "server_error" || (status !== undefined && status >= 500))
+    return "server";
+  // No HTTP status at all: the request never got an answer.
+  if (rec.error_status === null) return "connection";
+  return undefined;
 }
 
 export function turnStatusFromResult(rec: Record<string, unknown>): {

@@ -78,6 +78,7 @@ import {
   type PlanBuildTarget,
   type ToolPreview,
 } from "../lib/session";
+import { holdUpAt, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
@@ -160,6 +161,11 @@ type Props = {
   harness?: HarnessId;
   model?: string;
   pendingQuestion?: boolean;
+  /**
+   * What holds the running turn up (see `sessionHoldUps`): its working line
+   * names it in place of the clock. Keeps its identity while unchanged.
+   */
+  holdUps?: readonly SessionHoldUp[];
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
@@ -208,6 +214,7 @@ function AgentTranscriptComponent({
   harness,
   model,
   pendingQuestion = false,
+  holdUps,
   onApproval,
   onAddToChat,
   onSaveNote,
@@ -768,6 +775,7 @@ function AgentTranscriptComponent({
               preparingHandoff={preparingHandoff}
               waitingForApproval={waitingForApproval}
               pendingQuestion={pendingQuestion}
+              holdUps={isLastTurn ? holdUps : undefined}
               harness={harness}
               model={model}
               turnHarness={
@@ -855,6 +863,8 @@ type TranscriptTurnProps = Pick<
   preparingHandoff: boolean;
   waitingForApproval: boolean;
   pendingQuestion: boolean;
+  /** The live turn's hold-ups; undefined on every other turn. */
+  holdUps?: readonly SessionHoldUp[];
   /** The provider that produced this turn. */
   turnHarness?: HarnessId;
   /** The chat's current model, which a second opinion should not offer. */
@@ -905,6 +915,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   preparingHandoff,
   waitingForApproval,
   pendingQuestion,
+  holdUps,
   harness,
   model,
   turnHarness,
@@ -1065,6 +1076,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
       }
       subagent={hasRunningSubagent(turn)}
       modelName={turnModelName}
+      holdUps={holdUps}
     />
   ) : durationMs != null ? (
     formatWorkingDuration(durationMs, true, false, turnModelName)
@@ -1291,17 +1303,23 @@ function LiveFoldTitle({
   waitingLabel,
   subagent = false,
   modelName,
+  holdUps,
 }: {
   startedAt?: number;
   paused: boolean;
   waitingLabel?: string;
   subagent?: boolean;
   modelName?: string;
+  holdUps?: readonly SessionHoldUp[];
 }) {
   const elapsedMs = useElapsedFrom(startedAt, paused);
+  // The line ticks every second already; a hold-up reads the same clock.
+  const holdUp = holdUps?.length
+    ? holdUpAt(holdUps, Date.now()).words?.line
+    : undefined;
   const text = paused
     ? (waitingLabel ?? "Needs you · Approve or deny below")
-    : formatWorkingDuration(elapsedMs, false, subagent, modelName);
+    : (holdUp ?? formatWorkingDuration(elapsedMs, false, subagent, modelName));
   return (
     <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>
       {text}
