@@ -44,12 +44,13 @@ const RETRY_GRACE_MS = 30_000;
  * decides which of them shows at a given time.
  */
 export function sessionHoldUps(session: Session): SessionHoldUp[] {
-  if (sessionIsWaitingForInput(session)) return [];
   const running =
     session.liveAgents?.filter((agent) => agent.status === "running").length ??
     0;
-  if (!session.busy)
-    return running ? [{ kind: "helpers", count: running }] : [];
+  // Most chats are idle: done before reading their transcript.
+  if ((!session.busy && !running) || sessionIsWaitingForInput(session))
+    return [];
+  if (!session.busy) return [{ kind: "helpers", count: running }];
   const holdUps: SessionHoldUp[] = [];
   const wait = session.waitingOn;
   if (wait?.retry)
@@ -172,9 +173,9 @@ export function holdUpAt(
 }
 
 /**
- * One line for a chat's status tooltip in the sidebar or a tab: a retry,
- * the usage limit or helper agents, with no clock that would go stale.
- * Starts and commands are too short-lived for a tooltip.
+ * One line for a chat's status tooltip in the sidebar or a tab, or for a
+ * line that does not tick: a retry, the usage limit or helper agents, with
+ * no clock that would go stale. Starts and commands are too short-lived.
  */
 export function holdUpHint(
   holdUps: readonly SessionHoldUp[],
@@ -182,10 +183,12 @@ export function holdUpHint(
 ): string | undefined {
   const holdUp = holdUps.find(
     (entry) =>
-      entry.kind === "retrying" ||
       entry.kind === "helpers" ||
+      (entry.kind === "retrying" &&
+        (entry.retryAt === undefined ||
+          now < entry.retryAt + RETRY_GRACE_MS)) ||
       (entry.kind === "usage-limit" &&
-        (entry.resetsAt === undefined || entry.resetsAt > now)),
+        (entry.resetsAt === undefined || now < entry.resetsAt)),
   );
   return holdUp ? wordHoldUp(holdUp, now, true).words.line : undefined;
 }

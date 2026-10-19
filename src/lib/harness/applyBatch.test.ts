@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession, type Session } from "../session";
 import { applyHarnessEvent, applyHarnessEvents } from "./apply";
 import type { HarnessEvent } from "./types";
@@ -25,6 +25,10 @@ function oneByOne(session: Session, events: readonly HarnessEvent[]) {
 }
 
 describe("batched harness events", () => {
+  // Tool calls note when they start; both runs read the same clock.
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -116,8 +120,6 @@ describe("batched harness events", () => {
   });
 
   it("matches per-event application for random token, snapshot and boundary streams", () => {
-    // Tool calls note when they start; both runs read the same clock.
-    vi.spyOn(Date, "now").mockReturnValue(1_000);
     let seed = 7;
     const random = () => {
       seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;

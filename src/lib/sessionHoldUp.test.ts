@@ -305,5 +305,14 @@ describe("holdUpHint", () => {
         NOW,
       ),
     ).toBeUndefined();
+    // Nor does a retry that never reported back.
+    expect(
+      holdUpHint(
+        sessionHoldUps(
+          session({ waitingOn: { retry: { retryAt: NOW - 30_000 } } }),
+        ),
+        NOW,
+      ),
+    ).toBeUndefined();
   });
 });
