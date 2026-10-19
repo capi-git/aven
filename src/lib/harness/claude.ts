@@ -185,6 +185,8 @@ const cancelledThreads = new Set<string>();
  * it from the system prompt.
  */
 const memoryByThread = new Map<string, HarnessProjectMemory>();
+/** The memory revision each chat's CLI was last launched with. */
+const launchedMemoryByThread = new Map<string, string>();
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
   resolveClaudeBinary;
@@ -235,6 +237,9 @@ export async function compactClaudeContext(
     live.cwd !== input.cwd ||
     live.settingsKey !== settingsKey
   ) {
+    live = await ensureLive(input);
+  } else if (launchedWithOtherMemory(input)) {
+    await stopClaudeSession(input.sessionId);
     live = await ensureLive(input);
   }
   if (cancelledThreads.delete(input.sessionId)) return;
@@ -381,6 +386,7 @@ export async function forgetClaudeSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
   tasksByThread.delete(sessionId);
   memoryByThread.delete(sessionId);
+  launchedMemoryByThread.delete(sessionId);
   await stopClaudeSession(sessionId);
 }
 
@@ -1710,7 +1716,16 @@ function projectMemoryFor(
   return memoryByThread.get(input.sessionId);
 }
 
+/**
+ * Settings that need a new CLI process. Project memory is not one of them: a
+ * new CLI starts with the current memory in its system prompt
+ * (`launchOptions`), and a chat already under way gets a change ahead of its
+ * next message (`projectMemoryDelivery.ts`). So editing the memory no longer
+ * restarts every Claude chat in the project on its next message.
+ */
 function settingsKeyFor(input: HarnessSessionInput): string {
+  // Remember this turn's memory for a later compaction, which carries none.
+  projectMemoryFor(input);
   return claudeSettingsKey({
     model: nativeModelId(input.model),
     effort: input.modelSettings?.effort,
@@ -1719,8 +1734,19 @@ function settingsKeyFor(input: HarnessSessionInput): string {
     context: input.modelSettings?.context,
     runtimeMode: input.runtimeMode,
     hooks: loadClaudeHooks(),
-    memory: projectMemoryFor(input)?.revision,
   });
+}
+
+/**
+ * Whether the chat's running CLI started with other project memory than the
+ * chat has now. Compaction re-renders the system prompt from the launch
+ * options, so it relaunches such a CLI first.
+ */
+function launchedWithOtherMemory(input: HarnessSessionInput): boolean {
+  return (
+    (launchedMemoryByThread.get(input.sessionId) ?? "") !==
+    (projectMemoryFor(input)?.revision ?? "")
+  );
 }
 
 function launchOptions(
@@ -1762,8 +1788,14 @@ function launchOptions(
     resume,
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
-    projectMemory: projectMemoryFor(input)?.text || undefined,
+    projectMemory: launchMemory(input),
   };
+}
+
+function launchMemory(input: HarnessSessionInput): string | undefined {
+  const memory = projectMemoryFor(input);
+  launchedMemoryByThread.set(input.sessionId, memory?.revision ?? "");
+  return memory?.text || undefined;
 }
 
 /** Exported for tests. */
@@ -1774,4 +1806,5 @@ export function __claudeTestReset(): void {
   stoppingByThread.clear();
   cancelledThreads.clear();
   memoryByThread.clear();
+  launchedMemoryByThread.clear();
 }

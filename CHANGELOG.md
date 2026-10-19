@@ -5,6 +5,7 @@
 ### Changed
 
 - Replies start sooner: Aven no longer wakes a chat's sleeping browser pages before sending each message, which could hold a message for up to 8 seconds per page. They wake when the agent first looks for its pages.
+- Replies start sooner after you edit project memory: Claude Code chats in the project keep running instead of each restarting on its next message. A chat already under way gets the new memory with that message, as Codex and the other apps already did.
 
 ## [0.1.147] - 2026-10-19
 
