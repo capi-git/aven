@@ -238,13 +238,16 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "choose" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Which providers would you like to use?</h3>
+            <h3>Which agent apps would you like to use?</h3>
             <p>
-              Choose one or more. You can add others later. Nothing is installed
-              until you choose to run an installation.
+              Choose one or more; you can add others later. Nothing is installed
+              until you ask.
             </p>
           </div>
-          <div className="provider-setup-choices" aria-label="Choose providers">
+          <div
+            className="provider-setup-choices"
+            aria-label="Choose agent apps"
+          >
             {HARNESSES.slice(0, 2).map((harness) => (
               <ProviderChoice
                 key={harness}
@@ -261,7 +264,8 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
               }
             >
               <summary>
-                More providers <ChevronRight className="size-3.5" aria-hidden />
+                More agent apps{" "}
+                <ChevronRight className="size-3.5" aria-hidden />
               </summary>
               <div>
                 {HARNESSES.slice(2).map((harness) => (
@@ -276,8 +280,8 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
             </details>
           </div>
           <p className="provider-setup-note">
-            Aven works through each provider’s own command-line tool. Provider
-            accounts and usage are managed by that provider.
+            Aven runs the agent apps installed on this computer. Your accounts
+            and usage stay with each app’s maker.
           </p>
           <footer className="provider-setup-footer">
             {embedded ? (
@@ -312,10 +316,10 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "connect" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Connect your selected providers</h3>
+            <h3>Connect your agent apps</h3>
             <p>
-              We’ll check only the providers you chose. Installation, sign-in
-              and a test message each start when you ask.
+              Aven checks only the ones you chose. Installing, signing in and a
+              test message each start when you ask.
             </p>
           </div>
           <div className="provider-setup-checks">
@@ -511,8 +515,8 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
             </section>
           ) : null}
           <p className="provider-setup-note">
-            Installed but still not found? Reopen Aven after installation so it
-            can see changes to your command search path (PATH).
+            Installed but still not found? Quit and reopen Aven so it can find
+            it.
           </p>
           <footer className="provider-setup-footer">
             <button
@@ -592,7 +596,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
                   className="provider-setup-primary"
                   onClick={() => setStep("choose")}
                 >
-                  Choose providers
+                  Choose agent apps
                 </button>
               )}
             </div>

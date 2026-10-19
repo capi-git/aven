@@ -15,7 +15,7 @@ export const SETTINGS = {
     section: "provider-setup",
     label: "Provider setup",
     description:
-      "Choose providers, install them, sign in, and check your connections.",
+      "Choose agent apps, install them, sign in, and check your connections.",
     keywords:
       "onboarding first launch getting started cli installation login authentication Windows macOS PATH Claude Codex",
   }),
