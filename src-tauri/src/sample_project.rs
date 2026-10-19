@@ -134,7 +134,8 @@ fn ensure_sample(data_dir: &Path) -> Result<PathBuf, String> {
             .map_err(|error| format!("Could not write the sample's {name}: {error}"))?;
     }
     if !folder.join(".git").exists() {
-        crate::git::git_checked(&folder, &["init", "-q", "-b", "main"])
+        // `init.defaultBranch` rather than `-b`, which older Git lacks.
+        crate::git::git_checked(&folder, &["-c", "init.defaultBranch=main", "init", "-q"])
             .map_err(|error| format!("Could not start Git in the sample: {error}"))?;
     }
     if !has_commit(&folder) {
@@ -245,6 +246,7 @@ mod tests {
         assert!(index.contains("style.css"));
         assert_eq!(git(&folder, &["rev-list", "--count", "HEAD"]), "1");
         assert_eq!(git(&folder, &["status", "--porcelain"]), "");
+        assert_eq!(git(&folder, &["branch", "--show-current"]), "main");
         assert_eq!(
             git(&folder, &["log", "-1", "--format=%an|%s"]),
             "Aven|Start the sample site"
