@@ -30,6 +30,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readAgentRole, roleBrief, type AgentRoleId } from "./agentRoles";
 import { logError } from "./errors";
 import { isPreparingHandoff } from "./handoff";
+import { pathKey, projectName } from "./paths";
+import { isProjectlessCwd } from "./projectlessWorkspace";
 import {
   HARNESS_TITLE,
   hasPendingApproval,
@@ -267,16 +269,27 @@ function partyLabel(party: DiscussionParty): string {
   return `${party.model} in “${party.title}”`;
 }
 
-function framing(other: DiscussionParty, rounds: number): string {
+function framing(
+  other: DiscussionParty,
+  self: DiscussionParty,
+  rounds: number,
+): string {
   return [
-    `The user would like you to discuss a topic with another agent: ${describeParty(other)}.`,
+    `The user would like you to discuss a topic with another agent: ${describeParty(other, self)}.`,
     `Aven relays messages between you. Your reply here is sent to them, and their reply comes back to you as a message. You cannot contact them any other way, and they only see what you write in your reply. The discussion lasts ${plural(rounds, "round")}. Keep each reply focused and conversational.`,
     "This is a discussion: read files if useful, but don't change files, run builds or commit unless the user asks.",
   ].join("\n\n");
 }
 
-function describeParty(other: DiscussionParty): string {
-  return `${other.model} (${HARNESS_TITLE[other.harness]}) in the chat “${other.title}”`;
+function describeParty(other: DiscussionParty, self: DiscussionParty): string {
+  // Another project's chat sees other files: say whose folder, by name only.
+  const elsewhere =
+    other.cwd &&
+    pathKey(other.cwd) !== pathKey(self.cwd) &&
+    !isProjectlessCwd(other.cwd);
+  return `${other.model} (${HARNESS_TITLE[other.harness]}) in the chat “${other.title}”${
+    elsewhere ? `, working in ${projectName(other.cwd)}` : ""
+  }`;
 }
 
 /**
@@ -316,7 +329,14 @@ export function relayPrompt(
   const { carried, fresh } = relayInterjections(discussion);
   const parts: string[] = [];
   if (turn <= 1)
-    parts.push(framing(sender, discussion.rounds), `Topic: ${topic}`);
+    parts.push(
+      framing(
+        sender,
+        discussionParty(discussion, speakingSide(discussion)),
+        discussion.rounds,
+      ),
+      `Topic: ${topic}`,
+    );
   const brief = partnerBrief(discussion);
   if (brief) parts.push(brief);
   if (turn === 0) {

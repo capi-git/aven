@@ -153,6 +153,29 @@ describe("relay rules", () => {
     expect(second).toContain("(Round 2 of 3.)");
   });
 
+  it("names the other chat's folder only when it works in another project", () => {
+    const apart = fresh();
+    expect(relayPrompt(apart)).toContain(
+      "another agent: GPT-5 (Codex) in the chat “Review”, working in api.",
+    );
+    expect(relayPrompt(reply(apart, "Yes."))).toContain(
+      "another agent: Opus (Claude Code) in the chat “Caching plan”, working in site.",
+    );
+    const together = createDiscussion({
+      id: "d2",
+      owner: "main",
+      a: A,
+      b: { ...B, cwd: "/work/site/" },
+      topic: "Topic",
+      rounds: 1,
+      now: 1,
+    });
+    expect(relayPrompt(together)).toContain(
+      "another agent: GPT-5 (Codex) in the chat “Review”.",
+    );
+    expect(relayPrompt(together)).not.toContain("working in");
+  });
+
   it("tells each agent when it is giving its last reply", () => {
     let discussion = fresh(1);
     discussion = reply(discussion, "Opening thoughts");
