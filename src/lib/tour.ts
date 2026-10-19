@@ -42,7 +42,7 @@ export const TOUR_STOPS: readonly TourStop[] = [
     id: "board",
     anchors: ["board", "activity"],
     title: "Board and Activity",
-    body: "The board shows a project's chats by where they stand, from Needs you to Shipped. Activity lists what finished and what needs you.",
+    body: "The board holds features you want. Build hands one to an agent, and it moves to Shipped by itself. Activity lists what finished and what needs you.",
   },
   {
     id: "memory",
