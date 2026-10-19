@@ -851,6 +851,34 @@ describe("Ship it as the one way to commit", () => {
     expect(mocks.writes).toEqual(["git_stage_all", "git_commit"]);
     expect(container.textContent).toContain("Committed 1 file");
   });
+
+  /** Ship it's choice of files, as "All 2" or "Staged 1". */
+  function checkedScope() {
+    return container.querySelector(
+      '[aria-label="Files to ship"] [aria-checked="true"]',
+    )?.textContent;
+  }
+
+  it("ships every file by default while staging is hidden, even with some staged", async () => {
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("All 2");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "2 files",
+    );
+  });
+
+  it("keeps a staged subset by default while staging is shown", async () => {
+    stored.set("aven.changesStaging", "1");
+    index.files = [changed("a.ts", true, false), changed("b.ts", false, true)];
+    await render();
+    await act(async () => textButton("Ship it")!.click());
+    expect(checkedScope()).toBe("Staged 1");
+    expect(container.querySelector(".ship-flow-count")?.textContent).toContain(
+      "1 file",
+    );
+  });
 });
 
 describe("sync actions beside Ship it", () => {

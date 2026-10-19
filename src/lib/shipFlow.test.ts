@@ -138,6 +138,12 @@ describe("ship scope and summary", () => {
     expect(defaultShipScope([file("a", true, false)])).toBe("all");
   });
 
+  it("ships everything when the Changes panel hides staging", () => {
+    const files = [file("a", true, false), file("b", false, true)];
+    expect(defaultShipScope(files, false)).toBe("all");
+    expect(defaultShipScope(files, true)).toBe("staged");
+  });
+
   it("counts the files and lines that will be committed", () => {
     const files = [
       file("a", true, false, 10, 2),

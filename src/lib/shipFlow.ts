@@ -142,8 +142,16 @@ export function shipSummary(
   };
 }
 
-/** Staged-only when the person staged a subset on purpose; otherwise everything. */
-export function defaultShipScope(files: readonly GitChangedFile[]): ShipScope {
+/**
+ * Staged-only when the person staged a subset on purpose; otherwise
+ * everything. With staging hidden in the Changes panel (`stagingShown`
+ * false), a staged subset is not taken as deliberate, so everything ships.
+ */
+export function defaultShipScope(
+  files: readonly GitChangedFile[],
+  stagingShown = true,
+): ShipScope {
+  if (!stagingShown) return "all";
   const staged = files.some((file) => file.staged);
   const unstaged = files.some((file) => file.unstaged);
   return staged && unstaged ? "staged" : "all";

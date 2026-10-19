@@ -80,6 +80,11 @@ type Props = {
   textHarness?: HarnessId;
   /** Conversation the request came from; otherwise the folder's latest. */
   sessionId?: string;
+  /**
+   * The Changes panel shows Staged and Changes apart. When it doesn't, the
+   * files ship all together by default, even if some are staged.
+   */
+  stagingShown?: boolean;
   message: string;
   onMessageChange: (message: string) => void;
   onBusyChange: (busy: boolean) => void;
@@ -104,6 +109,7 @@ export function ShipFlow({
   enabled,
   textHarness,
   sessionId,
+  stagingShown = true,
   message,
   onMessageChange,
   onBusyChange,
@@ -121,7 +127,9 @@ export function ShipFlow({
   const [mode, setMode] = useState<ShipMode>(() =>
     preferredShipMode(options, loadShipMode()),
   );
-  const [scope, setScope] = useState<ShipScope>(() => defaultShipScope(files));
+  const [scope, setScope] = useState<ShipScope>(() =>
+    defaultShipScope(files, stagingShown),
+  );
   const [phase, setPhase] = useState<Phase>({ kind: "compose" });
   const [generating, setGenerating] = useState(false);
   // Who is writing the message, named while it does: "Claude Haiku 4.5".

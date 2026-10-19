@@ -617,6 +617,7 @@ function ChangedFiles({
             enabled={enabled}
             textHarness={textHarness}
             sessionId={ship.sessionId}
+            stagingShown={showStaging}
             message={message}
             onMessageChange={setMessage}
             onBusyChange={onShipBusy}
