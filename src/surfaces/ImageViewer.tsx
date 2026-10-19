@@ -2,6 +2,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -58,6 +59,13 @@ function ImageViewerDialog({
   state: ImageViewerState;
   onOpenInTab: (path: string) => void;
 }) {
+  // The work underneath steps aside while the popup is open (ImageViewer.css).
+  // A layout effect, so it is back before focus returns to it on close.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("image-viewer-open");
+    return () => root.classList.remove("image-viewer-open");
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const pressed = useRef<EventTarget | null>(null);
   const titleId = useId();

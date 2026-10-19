@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The image popup sits on Aven's own window surface, in your theme and its glass, instead of covering the whole window in black, and follows light mode.
+
 ## [0.1.146] - 2026-10-18
 
 ### Added

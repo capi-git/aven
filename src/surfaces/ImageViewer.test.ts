@@ -144,6 +144,17 @@ describe("ImageViewer", () => {
     expect(imageViewerSnapshot()?.index).toBe(0);
   });
 
+  it("sets the work aside while open, so the backdrop is the app's own surface", async () => {
+    await show(pair);
+    expect(
+      document.documentElement.classList.contains("image-viewer-open"),
+    ).toBe(true);
+    await key("Escape");
+    expect(
+      document.documentElement.classList.contains("image-viewer-open"),
+    ).toBe(false);
+  });
+
   it("hides the arrows and the count for a single picture", async () => {
     await show([pair[0]]);
     expect(button("Previous image")).toBeUndefined();
