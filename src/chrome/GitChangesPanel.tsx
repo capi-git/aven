@@ -922,9 +922,9 @@ function GitSyncActions({
 }: {
   index: GitDiffIndex;
   /**
-   * Uncommitted files. Ship it then commits, pushes (publishing the branch)
-   * and opens the pull request, so only what it can't do is offered here:
-   * pulling incoming commits, and the open pull request.
+   * Uncommitted files. Ship it then commits and opens the pull request, so
+   * Create PR waits for them. Publishing and syncing stay offered: commits
+   * already made can be pushed without committing the files first.
    */
   dirty: boolean;
   pr: GitPr | null;
@@ -967,9 +967,8 @@ function GitSyncActions({
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
-  const showPublish = canPublish && !dirty;
-  // Ship it can't push while commits are waiting to be pulled.
-  const showSync = canSync && (!dirty || behind > 0);
+  const showPublish = canPublish;
+  const showSync = canSync;
   const showCreatePr = !hasOpenPr && !onDefault && !dirty;
   const showViewPr = hasOpenPr;
   if (!showPublish && !showSync && !showCreatePr && !showViewPr) return null;

@@ -887,16 +887,19 @@ describe("sync actions beside Ship it", () => {
     index.upstream = "origin/feature";
   });
 
-  it("leaves pushing and publishing to Ship it while files are uncommitted", async () => {
+  it("still pushes and publishes existing commits while files are uncommitted", async () => {
     index.ahead = 2;
+    index.aheadOfDefault = 2;
     index.files = [changed("a.ts", false, true)];
     await render();
     expect(container.textContent).toContain("↑2");
-    expect(container.textContent).not.toContain("Sync Changes");
+    expect(container.textContent).toContain("Sync Changes");
+    // The pull request waits for Ship it to commit the files.
+    expect(container.textContent).not.toContain("Create PR");
     mocks.diffIndex.mockResolvedValue({ ...index, upstream: null, ahead: 0 });
     await act(async () => notifyGitChanged(cwd));
     expect(container.textContent).toContain("Not on origin yet");
-    expect(container.textContent).not.toContain("Publish Branch");
+    expect(container.textContent).toContain("Publish Branch");
   });
 
   it("keeps publishing, syncing and opening a PR for a clean branch", async () => {
