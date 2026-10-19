@@ -2,9 +2,27 @@
 
 ## [Unreleased]
 
+## [0.1.147] - 2026-10-18
+
+### Changed
+
+- The Changes panel has one way to commit: **Ship it**. The separate message box and its Commit menu are gone; Ship it has the message box (with ⌘↩ and **Write**) and lets you choose Commit, Push or Open PR. While you have uncommitted changes, Publish Branch and Create PR step aside for Ship it; Sync stays when there are commits to bring in, and View PR and merging stay while a pull request is open.
+- Changed files are one list, each file once, with open and discard. **Show staging** in its header brings back the Staged and Changes split with stage and unstage, and Aven remembers your choice. With staging hidden, a staged file has a small dot, Ship it takes every changed file, and discarding a file asks first and discards all of its changes, staged ones included.
+- Plainer words across the app. A conversation is a **chat** everywhere (New chat, Chats in the sidebar, Filter chats, Chat Changes, Archived chats, Chats & review), instead of a mix of session, task and conversation. The + menu says what each mode does ("Plans first; you approve before it changes anything", "Splits the job into parts and runs an agent on each"), access levels read **Ask first**, Auto-accept edits, Auto and Full access with a plain line each, the effort picker is called **Effort** for every app, and "Applies from the next turn" became "Applies from your next message".
+- Usage reads the same way in the footer and its panel: both show how much is **used**. The context ring says "64% of this chat's context used", and **Compact now** became **Free up space**.
+- The browser's Edit page is now **Comment on page**, Keep open and Recent explain themselves on hover, the right-hand panel is the **side panel** everywhere, "Needs approval" became **Needs you**, and the buttons under a reply say what they do ("Add to Project memory — every agent in this project will see it", "Ask another AI to check this reply").
+- Settings speak plainly: **While an agent is working, new messages** wait their turn or send right away (was Follow-up: Queue or Steer), "Use less memory for web pages", "Games in empty chats", "Mascot in the message box", and Install instead of Install CLI.
+
 ### Fixed
 
 - The image popup sits on Aven's own window surface, in your theme and its glass, instead of covering the whole window in black, and follows light mode.
+- Project memory opened from the hover sidebar finds Claude Code and Codex instead of saying they aren't installed, and one slow app no longer makes every app look missing. While Aven is still checking, the switch says "Checking for Claude Code or Codex…". The editor says why Save or Copy can't be pressed ("Nothing to save yet", "No changes to save"), and the list of who receives the memory is now one plain line: every agent in the project gets it, whichever app runs it.
+- A missing agent app reads "Claude Code isn't installed. Install it from Settings, or restart Aven if you just installed it." instead of an install command.
+- Agents in a race hear only about their own copy: its own dev server and edits, not the main project's server or the other agents' files, and they're told to preview their copy on its own server instead of a page that's already open. Chats in the main project no longer hear about the race copies.
+- Your commit or pull request preference no longer reaches an orchestrator's workers or a race's agents, whose own rules say not to commit or push.
+- Discussion partners are told it's a discussion: read files and run checks, but don't change files or commit unless you ask. A partner from another project is introduced with that project's name.
+- Keeping a race's result tells the kept agent what it built however you open its chat, and tells the chat the race started from whose version is now in the project.
+- **Have … build it** passes the chat that started a discussion the other agent's last reply when it hadn't seen it.
 
 ## [0.1.146] - 2026-10-18
 
