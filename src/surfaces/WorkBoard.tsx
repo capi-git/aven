@@ -132,11 +132,16 @@ export function WorkBoard({
   if (stable.current !== model && !equalChromeData(stable.current, model))
     stable.current = model;
   const shown = stable.current;
-  // Cards whose chats changed moved by themselves: save where they went.
+  // Cards whose chats changed moved by themselves: save where they went,
+  // once for each change, so a save that fails is not retried in a loop.
   const settles = shown.settles;
+  const settled = useRef("");
   useEffect(() => {
-    if (visible && board.loaded && settles.length)
-      void settleFeatureCards(project, settles);
+    if (!visible || !board.loaded || !settles.length) return;
+    const key = JSON.stringify(settles);
+    if (key === settled.current) return;
+    settled.current = key;
+    void settleFeatureCards(project, settles);
   }, [visible, board.loaded, project, settles]);
   const loading = !live || !board.loaded;
   return (

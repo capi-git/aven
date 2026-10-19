@@ -849,6 +849,25 @@ describe("WorkBoard", () => {
     expect(moved.style.transform).toBe("");
   });
 
+  it("tries a failing move by itself once, not over and over", async () => {
+    publishWorkBoardFeed(feed([], {}));
+    await render();
+    await cards([{ title: "Search", chatIds: ["run"] }]);
+    const put = vi.fn(() => Promise.reject("disk full"));
+    setFeatureCardBackend({ ...storage, put });
+    await render(false);
+    await render(true);
+    await act(async () =>
+      publishWorkBoardFeed(feed([chat("run")], { run: "working" })),
+    );
+    await settle();
+    await settle();
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't save the board: disk full",
+    );
+  });
+
   it("says when the board can't be saved", async () => {
     publishWorkBoardFeed(feed([], {}));
     await render();
