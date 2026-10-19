@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { ChatReview } from "./chatReview";
 import type { ChatStatusWord } from "./chatStatus";
 import type { FeatureCard } from "./featureCards";
-import { newSession, type Block, type Session } from "./session";
+import {
+  formatSessionTitle,
+  newSession,
+  type Block,
+  type Session,
+} from "./session";
 import type { ShippedChat } from "./shippedChats";
 import { NO_LEAD_DECIDED } from "./teamAttention";
 import type { TeamMember, TeamRun, TeamStatus } from "./teamRuns";
@@ -11,6 +16,7 @@ import {
   boardTodayText,
   cardBasis,
   chatBoardColumn,
+  chatCardDrafts,
   outsideText,
   reviewLine,
   sourceLabel,
@@ -525,6 +531,33 @@ describe("workBoard", () => {
     expect(chatBoardColumn("shipped")).toBe("shipped");
     expect(chatBoardColumn("needs-you")).toBe("building");
     expect(chatBoardColumn(undefined)).toBe("building");
+  });
+
+  it("makes a card for each chat added to the board, on its project's board", () => {
+    const drafts = chatCardDrafts(
+      [
+        {
+          id: "a",
+          cwd: PROJECT,
+          title: formatSessionTitle("claude", "Fix sign-in"),
+          harness: "claude",
+        },
+        { id: "b", cwd: "/work/other", title: "Docs", harness: "codex" },
+        { id: "c", cwd: PROJECT, title: "Search", harness: "codex" },
+        { id: "home", cwd: "~", title: "Scratch", harness: "claude" },
+      ],
+      { a: "review", c: "working" },
+    );
+    expect([...drafts.entries()]).toEqual([
+      [
+        PROJECT,
+        [
+          { title: "Fix sign-in", chatIds: ["a"], column: "review" },
+          { title: "Search", chatIds: ["c"], column: "building" },
+        ],
+      ],
+      ["/work/other", [{ title: "Docs", chatIds: ["b"], column: "building" }]],
+    ]);
   });
 
   it("names a single changed file", () => {

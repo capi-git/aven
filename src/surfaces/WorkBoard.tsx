@@ -748,7 +748,11 @@ function OutsideLine({
       {open ? (
         <ul className="work-board-outside-list" role="list">
           {outside.map((entry) => (
-            <li key={entry.id} className="work-board-outside-item">
+            <li
+              key={entry.id}
+              className="work-board-outside-item"
+              data-outside-chat={entry.sessionId}
+            >
               <button
                 type="button"
                 className="work-board-outside-chat"

@@ -23,15 +23,22 @@ import { appName } from "./agentNames";
 import { chatStage, type ChatStatusWord } from "./chatStatus";
 import type { ChatReview } from "./chatReview";
 import type { DevPreview } from "./devPreviews";
-import type {
-  FeatureCard,
-  FeatureCardSettle,
-  FeatureColumn,
+import {
+  boardProjectFor,
+  type FeatureCard,
+  type FeatureCardDraft,
+  type FeatureCardSettle,
+  type FeatureColumn,
 } from "./featureCards";
 import { pendingRequestKey, type LeadDecided } from "./teamAttention";
 import { isEqualOrInside } from "./paths";
 import { requestText } from "./requestText";
-import { sessionWorkCwd, type HarnessId, type Session } from "./session";
+import {
+  sessionDisplayTitle,
+  sessionWorkCwd,
+  type HarnessId,
+  type Session,
+} from "./session";
 import { shipEvents, type ShipEvent, type ShippedChat } from "./shippedChats";
 import {
   TEAM_KIND_LABEL,
@@ -333,6 +340,31 @@ export function chatBoardColumn(
   word: ChatStatusWord | undefined,
 ): FeatureColumn {
   return cardColumnFor([word]) ?? "building";
+}
+
+/**
+ * Add to board: a card for each chat, titled from it, linked to it and in
+ * the column its state implies, grouped by the project whose board it goes
+ * on. Scratch chats have no board.
+ */
+export function chatCardDrafts(
+  chats: readonly Pick<Session, "id" | "cwd" | "title" | "harness">[],
+  statuses: Readonly<Record<string, ChatStatusWord>>,
+): Map<string, FeatureCardDraft[]> {
+  const drafts = new Map<string, FeatureCardDraft[]>();
+  for (const chat of chats) {
+    const project = boardProjectFor(chat.cwd);
+    if (!project) continue;
+    drafts.set(project, [
+      ...(drafts.get(project) ?? []),
+      {
+        title: sessionDisplayTitle(chat.title, chat.harness),
+        chatIds: [chat.id],
+        column: chatBoardColumn(statuses[chat.id]),
+      },
+    ]);
+  }
+  return drafts;
 }
 
 function teamTouches(team: TeamRun, ids: ReadonlySet<string>): boolean {

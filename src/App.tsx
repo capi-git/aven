@@ -790,12 +790,8 @@ import {
   installWorkBoardActions,
   type WorkBoardActions,
 } from "./lib/workBoardFeed";
-import {
-  addChatsToBoard,
-  boardProjectFor,
-  type FeatureCardDraft,
-} from "./lib/featureCards";
-import { chatBoardColumn } from "./lib/workBoard";
+import { addChatsToBoard } from "./lib/featureCards";
+import { chatCardDrafts } from "./lib/workBoard";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -9616,22 +9612,15 @@ export default function App({
    * board, in the column its state implies; then the board comes forward.
    */
   addToBoardRef.current = (sessionIds) => {
-    const drafts = new Map<string, FeatureCardDraft[]>();
-    for (const id of sessionIds) {
-      const loaded = sessionsRef.current.find((session) => session.id === id);
-      const saved = historyRef.current.find((row) => row.id === id);
-      const chat = loaded ?? saved;
-      const project = boardProjectFor(chat?.cwd);
-      if (!chat || !project) continue;
-      drafts.set(project, [
-        ...(drafts.get(project) ?? []),
-        {
-          title: sessionDisplayTitle(chat.title, chat.harness),
-          chatIds: [id],
-          column: chatBoardColumn(chatStatusRef.current[id]),
-        },
-      ]);
-    }
+    const drafts = chatCardDrafts(
+      sessionIds.flatMap((id) => {
+        const chat =
+          sessionsRef.current.find((session) => session.id === id) ??
+          historyRef.current.find((row) => row.id === id);
+        return chat ? [chat] : [];
+      }),
+      chatStatusRef.current,
+    );
     for (const [project, cards] of drafts) void addChatsToBoard(project, cards);
     const first = drafts.keys().next().value;
     if (first) openBoardRef.current(first);
