@@ -72,6 +72,29 @@ export const MONO_THEME_COLORS = {
   },
 } satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
 
+/**
+ * Aven's black is a backdrop for glass. A Solid window (the Glass slider all
+ * the way off, or a platform without glass) has no desktop behind it, and
+ * pure black there reads as a hole rather than as Aven, so it paints this
+ * neutral grey instead: the former Mono background. Saved colours stay black,
+ * so turning glass back on restores the black glass.
+ */
+export const AVEN_SOLID_DARK_BACKGROUND = MONO_THEME_COLORS.dark.background;
+
+/** The Black palette: solid black in dark mode by choice, so Solid keeps it. */
+export const BLACK_THEME_COLORS = {
+  dark: {
+    background: "#000000",
+    accent: "#c4c4c8",
+    highlight: "#85858f",
+  },
+  light: {
+    background: "#ffffff",
+    accent: "#343438",
+    highlight: "#757580",
+  },
+} satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
+
 /** The former sky-blue default, kept selectable; saved colors are not rewritten. */
 export const SKY_THEME_COLORS = {
   dark: {
@@ -305,10 +328,37 @@ export function themeForeground(background: string): string {
  * light background saved with the old picker would keep Light mode dark.
  */
 function themeBackground(scheme: ColorScheme): string | null {
-  const color = normalizeThemeColor(appliedThemeColors[scheme]?.background);
-  if (scheme === "light" && color && themeForeground(color) !== "#000000")
+  if (scheme === "dark") return darkThemeBackground();
+  const color = normalizeThemeColor(appliedThemeColors.light?.background);
+  if (color && themeForeground(color) !== "#000000")
     return AVEN_THEME_COLORS.light.background;
   return color;
+}
+
+/**
+ * Whether a dark palette keeps Aven's default black background. The Black
+ * palette uses the same black on purpose, so it does not count.
+ */
+function keepsAvenDarkBackground(
+  colors: Partial<Record<ThemeColorTarget, string>> | undefined,
+): boolean {
+  if (
+    normalizeThemeColor(colors?.background) !==
+    AVEN_THEME_COLORS.dark.background
+  )
+    return false;
+  return !(
+    normalizeThemeColor(colors?.accent) === BLACK_THEME_COLORS.dark.accent &&
+    normalizeThemeColor(colors?.highlight) === BLACK_THEME_COLORS.dark.highlight
+  );
+}
+
+/** The dark background the window shows: Aven's black turns grey at Solid. */
+function darkThemeBackground(): string | null {
+  const colors = appliedThemeColors.dark;
+  if (windowIsSolid() && keepsAvenDarkBackground(colors))
+    return AVEN_SOLID_DARK_BACKGROUND;
+  return normalizeThemeColor(colors?.background);
 }
 
 function paintThemeColors(scheme: ColorScheme) {
@@ -440,6 +490,11 @@ function windowTranslucencyWanted(): boolean {
   return appliedSidebarOpacity < SIDEBAR_OPACITY_MAX;
 }
 
+/** The Glass slider at Solid, or a platform without glass. */
+function windowIsSolid(): boolean {
+  return !HAS_NATIVE_GLASS || !windowTranslucencyWanted();
+}
+
 let appliedNativeGlass: boolean | null = null;
 let paintedWindowColor: string | null = null;
 /** Mirrors index.css `:root`, which always defines the shell's hue inputs. */
@@ -488,7 +543,7 @@ function hslRgb(hue: number, saturation: number, lightness: number) {
  * surface, so AppKit can paint it instead and the result is unchanged.
  */
 function nativeGlassTint(): GlassTint {
-  const custom = normalizeThemeColor(appliedThemeColors.dark?.background);
+  const custom = darkThemeBackground();
   const [r, g, b] = custom
     ? hexRgb(custom)
     : hslRgb(appliedThemeHue, appliedThemeSaturation, 4);
@@ -633,7 +688,12 @@ export function applySidebarOpacity(value: number) {
     ? clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX)
     : 1;
   document.documentElement.style.setProperty("--sidebar-opacity", String(next));
+  const wasSolid = windowIsSolid();
   appliedSidebarOpacity = next;
+  // Aven's black turns grey at Solid and back to black glass above it. The
+  // native window follows below, as glass turns off or on.
+  if (windowIsSolid() !== wasSolid)
+    paintThemeColors(isLightScheme() ? "light" : "dark");
   syncNativeGlassIfChanged();
   refreshNativeTint();
   return next;

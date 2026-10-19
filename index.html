@@ -33,6 +33,9 @@
           if (scheme === "light") {
             root.classList.add("theme-light");
           }
+          var isMac =
+            typeof navigator !== "undefined" &&
+            /Mac|iPhone|iPad/.test(navigator.platform);
           // Paint the first frame in the active workspace's own theme, so
           // startup never flashes a default or older palette first. A corrupt
           // store must not skip the platform classes below.
@@ -60,17 +63,36 @@
                 theme.colors && theme.colors[light ? "light" : "dark"];
               var background = colors && colors.background;
               if (/^#[0-9a-fA-F]{6}$/.test(background || "")) {
+                // A Solid window (glass all the way off, or no glass on this
+                // platform) shows Aven's black as grey, as appearance.ts
+                // paints it next. The Black palette keeps its black.
+                if (
+                  !light &&
+                  background.toLowerCase() === "#000000" &&
+                  !(
+                    String(colors.accent).toLowerCase() === "#c4c4c8" &&
+                    String(colors.highlight).toLowerCase() === "#85858f"
+                  ) &&
+                  (!isMac || theme.opacity >= 1)
+                ) {
+                  background = "#0a0a0a";
+                }
                 root.style.setProperty("--boot-background", background);
               }
             }
           } catch (_) {}
+          // Without a saved theme, a platform without glass starts Solid.
+          if (
+            !isMac &&
+            !root.style.getPropertyValue("--boot-background") &&
+            !root.classList.contains("theme-light")
+          ) {
+            root.style.setProperty("--boot-background", "#0a0a0a");
+          }
           var bodyGlass = localStorage.getItem("monocode.bodyGlass");
           if (bodyGlass === "1" || bodyGlass === "true") {
             root.classList.add("glass-body");
           }
-          var isMac =
-            typeof navigator !== "undefined" &&
-            /Mac|iPhone|iPad/.test(navigator.platform);
           if (isMac) {
             root.classList.add("is-mac");
           }

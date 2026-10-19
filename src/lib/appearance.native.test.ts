@@ -120,7 +120,8 @@ describe("native workspace transparency", () => {
     });
     appearance.applySidebarOpacity(1);
     const style = document.documentElement.style;
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
+    // Aven's black ("#000" in full) shows as grey in a Solid window.
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#0a0a0a");
     expect(style.getPropertyValue("--theme-content-color")).toBe("#ffffff");
     expect(style.getPropertyValue("--theme-accent-color")).toBe("#aabbcc");
     expect(style.getPropertyValue("--theme-highlight-color")).toBe("#776699");
