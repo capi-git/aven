@@ -44,3 +44,26 @@ it("accepts only web destinations for link actions", () => {
     ),
   ).toBe(false);
 });
+
+it("lets a popped-out chat answer only its own question", () => {
+  const openIds = new Set(["a"]);
+  const reply = { kind: "answered", answers: { q: ["yes"] } };
+  expect(
+    validSessionPipAction(
+      { id: "a", action: "onQuestionReply", args: ["a", 3, reply] },
+      openIds,
+    ),
+  ).toBe(true);
+  expect(
+    validSessionPipAction(
+      { id: "a", action: "onQuestionReply", args: ["b", 3, reply] },
+      openIds,
+    ),
+  ).toBe(false);
+  expect(
+    validSessionPipAction(
+      { id: "b", action: "onQuestionReply", args: ["b", 3, reply] },
+      openIds,
+    ),
+  ).toBe(false);
+});

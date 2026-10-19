@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QuestionForm } from "./QuestionForm";
+import { QUESTION_REPLY_TIMEOUT_MS, QuestionForm } from "./QuestionForm";
 import {
   CUSTOM_OPTION_ID,
   type UserQuestionPrompt,
@@ -227,6 +227,91 @@ describe("QuestionForm answer delivery", () => {
       kind: "answered",
       answers: { colour: [CUSTOM_OPTION_ID] },
       custom: { colour: "Purple" },
+    });
+  });
+});
+
+describe("QuestionForm when a reply goes unacknowledged", () => {
+  const next = () =>
+    container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const alert = () => container.querySelector('[role="alert"]');
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives the buttons back and says so when nothing acknowledges the reply", () => {
+    const onReply = vi.fn();
+    const options = renderQuestion(onReply);
+    act(() => options[1].click());
+    act(() => next().click());
+    expect(onReply).toHaveBeenCalledOnce();
+    expect(next().textContent).toBe("Sending…");
+    expect(next().disabled).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(QUESTION_REPLY_TIMEOUT_MS - 1);
+    });
+    expect(alert()).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(alert()?.textContent).toBe("Couldn't send your answer. Try again.");
+    expect(next().textContent).toBe("Continue");
+    expect(next().disabled).toBe(false);
+    expect(options[1].getAttribute("aria-pressed")).toBe("true");
+
+    act(() => next().click());
+    expect(onReply).toHaveBeenCalledTimes(2);
+    expect(alert()).toBeNull();
+  });
+
+  it("keeps waiting once the agent acknowledges the reply", () => {
+    const onReply = vi.fn();
+    const options = renderQuestion(onReply);
+    act(() => options[0].click());
+    act(() => next().click());
+    renderQuestion(onReply, false, { submitting: true });
+    act(() => {
+      vi.advanceTimersByTime(QUESTION_REPLY_TIMEOUT_MS * 2);
+    });
+    expect(alert()).toBeNull();
+    expect(next().textContent).toBe("Sending…");
+    expect(onReply).toHaveBeenCalledOnce();
+  });
+
+  it("starts over for a replacement question that reuses the id", () => {
+    const onReply = vi.fn();
+    const options = renderQuestion(onReply);
+    act(() => options[0].click());
+    act(() => next().click());
+    const replacement = renderQuestion(onReply, false, {
+      questions: [
+        {
+          id: "size",
+          prompt: "Pick a size",
+          multiSelect: false,
+          allowCustom: false,
+          options: [
+            { id: "small", label: "Small" },
+            { id: "large", label: "Large" },
+          ],
+        },
+      ],
+    });
+    expect(container.textContent).toContain("Pick a size");
+    expect(
+      replacement.map((option) => option.getAttribute("aria-pressed")),
+    ).toEqual(["false", "false"]);
+    act(() => replacement[1].click());
+    act(() => next().click());
+    expect(onReply).toHaveBeenLastCalledWith(7, {
+      kind: "answered",
+      answers: { size: ["large"] },
     });
   });
 });

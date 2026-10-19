@@ -54,6 +54,9 @@ vi.mock("./opencodeClient", () => ({
     async rejectQuestion(...args: unknown[]) {
       calls.push({ method: "rejectQuestion", args });
     }
+    async replyQuestion(...args: unknown[]) {
+      calls.push({ method: "replyQuestion", args });
+    }
     async abortSession() {}
     async closeEvents() {}
     async subscribeEvents(_id: string, callback: typeof onEvent) {
@@ -65,20 +68,28 @@ vi.mock("./opencodeClient", () => ({
 const {
   bindOpenCodeSession,
   forgetOpenCodeSession,
+  respondOpenCodeQuestion,
   sendOpenCodeTurn,
   stopOpenCodeSession,
 } = await import("./opencode");
 
 const fullPermission = [{ permission: "*", pattern: "*", action: "allow" }];
 
-function send(mode: RuntimeMode, events: HarnessEvent[] = []) {
+function send(
+  mode: RuntimeMode,
+  events: HarnessEvent[] = [],
+  also?: (event: HarnessEvent) => void,
+) {
   return sendOpenCodeTurn({
     sessionId: "opencode-live",
     cwd: "/repo",
     model: "opencode:anthropic/claude-sonnet-4-6",
     runtimeMode: mode,
     text: "check the project",
-    onEvent: (event) => events.push(event),
+    onEvent: (event) => {
+      events.push(event);
+      also?.(event);
+    },
   });
 }
 
@@ -332,5 +343,77 @@ describe("OpenCode event stream cleanup", () => {
 
     await stopOpenCodeSession("opencode-live");
     expect(closeHarnessSse).not.toHaveBeenCalled();
+  });
+});
+
+describe("OpenCode question cards", () => {
+  const ask = () =>
+    onEvent!({
+      type: "question.asked",
+      properties: {
+        sessionID: "oc_1",
+        id: "question_1",
+        questions: [
+          {
+            question: "Which branch?",
+            header: "Branch",
+            options: [{ label: "Main", description: "Use main" }],
+          },
+        ],
+      },
+    });
+
+  it("takes a reply given while the question is being shown", async () => {
+    const events: HarnessEvent[] = [];
+    const delivered: boolean[] = [];
+    const turn = send("supervised", events, (event) => {
+      if (event.type === "question.asked")
+        delivered.push(
+          respondOpenCodeQuestion("opencode-live", event.requestId, {
+            kind: "answered",
+            answers: { "Which branch?": ["Main"] },
+          }),
+        );
+    });
+    await waitForPrompt(1);
+    ask();
+    await vi.waitFor(() =>
+      expect(
+        calls.find((call) => call.method === "replyQuestion")?.args,
+      ).toEqual(["question_1", [["Main"]]]),
+    );
+    expect(delivered).toEqual([true]);
+    const card = events.find((event) => event.type === "question.asked") as {
+      requestId: number;
+    };
+    expect(
+      respondOpenCodeQuestion("opencode-live", card.requestId, {
+        kind: "skipped",
+      }),
+    ).toBe(false);
+    finish();
+    await turn;
+  });
+
+  it("closes an open question when the server exits", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = send("supervised", events);
+    await waitForPrompt(1);
+    ask();
+    const card = events.find((event) => event.type === "question.asked") as {
+      requestId: number;
+    };
+    onChildExit!(1);
+    await turn.catch(() => undefined);
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: card.requestId,
+      decision: "skipped",
+    });
+    expect(
+      respondOpenCodeQuestion("opencode-live", card.requestId, {
+        kind: "skipped",
+      }),
+    ).toBe(false);
   });
 });

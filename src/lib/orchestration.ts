@@ -17,7 +17,7 @@ import { pendingApprovalForSession } from "./approvalToast";
 import { logError } from "./errors";
 import { pendingRequestKey } from "./teamAttention";
 import { displayPath } from "./paths";
-import type { UserQuestionReply } from "./userQuestion";
+import { questionReplyText, type UserQuestionReply } from "./userQuestion";
 import {
   validateOrchestrationSettings,
   validateProposedTasks,
@@ -135,7 +135,15 @@ export type OrchestrationHost = {
     requestId: number,
     decision: ApprovalDecision,
   ): void;
-  answerQuestion(id: string, requestId: number, reply: UserQuestionReply): void;
+  /**
+   * False when the agent no longer waited on the question; its card is
+   * closed then, and the answer was not delivered.
+   */
+  answerQuestion(
+    id: string,
+    requestId: number,
+    reply: UserQuestionReply,
+  ): boolean;
 };
 type Storage = {
   save(run: OrchestrationRun): Promise<void>;
@@ -1314,7 +1322,27 @@ export class Orchestrator {
                 kind: "answered",
                 answers: questionAnswers(input.answers, pending.questions),
               };
-        this.host!.answerQuestion(target.sessionId, pending.requestId, reply);
+        const delivered = this.host!.answerQuestion(
+          target.sessionId,
+          pending.requestId,
+          reply,
+        );
+        if (delivered === false) {
+          // The agent stopped waiting on it; give it the answer as guidance.
+          const answer = questionReplyText(pending.questions ?? [], reply);
+          if (answer) {
+            if (target.status !== "running")
+              throw new Error(
+                `${target.title} stopped waiting on that question. Send your answer with message.`,
+              );
+            await this.host!.steer(target.sessionId, answer);
+          }
+          return record(this.run(run.leadId)!, {
+            taskId: target.id,
+            answered: !!answer,
+            ...(answer ? { sentAsMessage: true } : {}),
+          });
+        }
         return record(this.run(run.leadId)!, {
           taskId: target.id,
           answered: reply.kind === "answered",

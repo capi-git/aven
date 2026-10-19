@@ -26,6 +26,7 @@ const {
   compactGrokContext,
   sendGrokTurn,
   respondGrokApproval,
+  respondGrokQuestion,
   stopGrokSession,
 } = await import("./grok");
 import type { HarnessEvent } from "./types";
@@ -276,5 +277,100 @@ describe("grok live turn sequence", () => {
     reply(request.id, {});
     await compact;
     await stopGrokSession("t4");
+  });
+});
+
+describe("grok question cards", () => {
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  const ask = (id: number) =>
+    onLine!(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id,
+        method: "_x.ai/ask_user_question",
+        params: {
+          sessionId: "S1",
+          questions: [
+            {
+              question: "Which target?",
+              options: [{ label: "Desktop" }, { label: "Web" }],
+            },
+          ],
+        },
+      }),
+    );
+
+  async function prompting(
+    sessionId: string,
+    events: HarnessEvent[],
+    also?: (event: HarnessEvent) => void,
+  ) {
+    const turn = sendGrokTurn({
+      sessionId,
+      cwd: "/repo",
+      model: "grok:grok-4.6",
+      runtimeMode: "supervised",
+      text: "pick one",
+      attachments: [],
+      onEvent: (event) => {
+        events.push(event);
+        also?.(event);
+      },
+    });
+    await handshake();
+    await waitFor(
+      () => parse().some((m) => m.method === "session/prompt"),
+      "prompt",
+    );
+    return {
+      turn,
+      promptId: parse().find((m) => m.method === "session/prompt")!.id,
+    };
+  }
+
+  it("takes a reply given while the question is being shown", async () => {
+    const events: HarnessEvent[] = [];
+    const delivered: boolean[] = [];
+    const { turn, promptId } = await prompting("t5", events, (event) => {
+      if (event.type === "question.asked")
+        delivered.push(
+          respondGrokQuestion("t5", event.requestId, {
+            kind: "answered",
+            answers: { "Which target?": ["Web"] },
+          }),
+        );
+    });
+    ask(40);
+    await waitFor(
+      () => parse().some((m) => m.id === 40 && m.result),
+      "question answer",
+    );
+    expect(delivered).toEqual([true]);
+    expect(respondGrokQuestion("t5", 40, { kind: "skipped" })).toBe(false);
+    reply(promptId, { stopReason: "end_turn" });
+    await turn;
+    await stopGrokSession("t5");
+  });
+
+  it("closes an open question when Grok Build exits", async () => {
+    const events: HarnessEvent[] = [];
+    const { turn } = await prompting("t6", events);
+    ask(41);
+    await waitFor(
+      () => events.some((event) => event.type === "question.asked"),
+      "question card",
+    );
+    onExit!(1);
+    await turn.catch(() => undefined);
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: 41,
+      decision: "skipped",
+    });
+    expect(respondGrokQuestion("t6", 41, { kind: "skipped" })).toBe(false);
+    await stopGrokSession("t6");
   });
 });

@@ -426,8 +426,6 @@ import {
   refreshHarnessCatalogs,
   registerBuiltinHarnesses,
   promoteLastAssistantToPlan,
-  respondHarnessApproval,
-  respondHarnessQuestion,
   sendHarnessTurn,
   steerHarnessTurn,
   startHarnessBridge,
@@ -456,6 +454,11 @@ import {
   wrapHandoffPrompt,
 } from "./lib/handoff";
 import { requestOutgoingHandoff } from "./lib/handoffTurn";
+import {
+  answerQuestion,
+  deliverApproval,
+  deliverQuestionReply,
+} from "./lib/questionReply";
 import { appendSteerFailure } from "./lib/sessionSteerFailure";
 import { isEditTool } from "./lib/harness/preview";
 import {
@@ -8068,7 +8071,7 @@ export default function App({
     (sessionId: string, requestId: number, decision: ApprovalDecision) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return;
-      respondHarnessApproval(session.harness, sessionId, requestId, decision);
+      deliverApproval(session, requestId, decision);
     },
     [],
   );
@@ -8077,9 +8080,23 @@ export default function App({
     (sessionId: string, requestId: number, reply: UserQuestionReply) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return;
-      respondHarnessQuestion(session.harness, sessionId, requestId, reply);
+      answerQuestion(session, requestId, reply, {
+        close: (id) =>
+          enqueueHarnessEvent(sessionId, {
+            type: "question.resolved",
+            requestId: id,
+            decision: "cancelled",
+          }),
+        send: (text) =>
+          onSubmit(sessionId, text, [], { followUpBehavior: "queue" }) !==
+          false,
+        note: (text) => {
+          enqueueHarnessEvent(sessionId, { type: "status", text });
+          flushHarnessEvents();
+        },
+      });
     },
-    [],
+    [enqueueHarnessEvent, flushHarnessEvents, onSubmit],
   );
 
   const onOpenApprovalSession = useCallback(
@@ -8276,13 +8293,19 @@ export default function App({
       },
       respondApproval: (id, requestId, decision) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
-        if (session)
-          respondHarnessApproval(session.harness, id, requestId, decision);
+        if (session) deliverApproval(session, requestId, decision);
       },
       answerQuestion: (id, requestId, reply) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
-        if (session)
-          respondHarnessQuestion(session.harness, id, requestId, reply);
+        if (!session) return false;
+        if (deliverQuestionReply(session, requestId, reply)) return true;
+        // Nothing waits on it any more: never leave the card up.
+        enqueueHarnessEvent(id, {
+          type: "question.resolved",
+          requestId,
+          decision: "cancelled",
+        });
+        return false;
       },
       stop: async (id) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
@@ -8302,7 +8325,7 @@ export default function App({
         }
       },
     });
-  }, [onSubmit, onStop]);
+  }, [onSubmit, onStop, enqueueHarnessEvent]);
 
   useEffect(() => {
     orchestrator.sync();

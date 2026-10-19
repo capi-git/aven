@@ -93,7 +93,9 @@ export function planComposerSwitch(
   };
 }
 
-export function sessionChildHarnesses(session: Session): HarnessId[] {
+export function sessionChildHarnesses(
+  session: Pick<Session, "harness" | "pendingSwitch" | "blocks">,
+): HarnessId[] {
   const ids = new Set<HarnessId>([session.harness]);
   if (session.pendingSwitch) ids.add(session.pendingSwitch.from);
   const last = lastHandoffBlock(session.blocks)?.handoff;

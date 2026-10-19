@@ -451,10 +451,12 @@ describe("OMP workflow dialogs", () => {
       "fast",
       "careful",
     ]);
-    respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
-      kind: "answered",
-      answers: { choose: ["1"] },
-    });
+    expect(
+      respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+        kind: "answered",
+        answers: { choose: ["1"] },
+      }),
+    ).toBe(true);
     await vi.waitFor(() =>
       expect(transport.requests.at(-1)?.command).toEqual({
         type: "extension_ui_response",
@@ -462,6 +464,11 @@ describe("OMP workflow dialogs", () => {
         value: "\u001b[32mcareful\u001b[0m",
       }),
     );
+    expect(
+      respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+        kind: "skipped",
+      }),
+    ).toBe(false);
     frame("omp-test", {
       type: "prompt_result",
       id: running.request.id,

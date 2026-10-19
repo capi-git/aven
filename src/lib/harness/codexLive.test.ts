@@ -1718,11 +1718,19 @@ describe("Codex connection prompts", () => {
       title: string;
     };
     expect(asked.title).toBe("aventest: Which color do you want?");
-    respondCodexQuestion("codex-mcp-form", asked.requestId, {
-      kind: "answered",
-      answers: { color: ["blue"] },
-    });
+    expect(
+      respondCodexQuestion("codex-mcp-form", asked.requestId, {
+        kind: "answered",
+        answers: { color: ["blue"] },
+      }),
+    ).toBe(true);
     await waitFor(() => parse().some((m) => m.id === 304), "form response");
+    // Nothing waits on the answered card any more.
+    expect(
+      respondCodexQuestion("codex-mcp-form", asked.requestId, {
+        kind: "skipped",
+      }),
+    ).toBe(false);
     expect(parse().find((m) => m.id === 304)?.result).toEqual({
       action: "accept",
       content: { color: "blue" },
@@ -1768,8 +1776,13 @@ describe("Codex connection prompts", () => {
       kind: "answered" as const,
       answers: { [first.questions[0].id]: ["option-1"] },
     };
-    respondCodexQuestion("codex-async", first.requestId, answer);
-    respondCodexQuestion("codex-async", first.requestId, answer);
+    expect(respondCodexQuestion("codex-async", first.requestId, answer)).toBe(
+      true,
+    );
+    // Already on its way: the second click is not a dead one.
+    expect(respondCodexQuestion("codex-async", first.requestId, answer)).toBe(
+      true,
+    );
     await waitFor(
       () => parse().some((message) => message.method === "turn/steer"),
       "async answer steer",

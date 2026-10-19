@@ -224,11 +224,13 @@ export function respondOpenCodeQuestion(
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-): void {
+): boolean {
   const live = liveByThread.get(sessionId);
   const pending = live?.questions.get(requestId);
-  if (!pending) return;
+  if (!live || !pending) return false;
+  live.questions.delete(requestId);
   pending.resolve(reply);
+  return true;
 }
 
 export async function cancelOpenCodeTurn(sessionId: string): Promise<void> {
@@ -328,6 +330,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       liveByThread.delete(input.sessionId);
       input.onEvent({ type: "session.ended", code });
       const live = liveRef.current;
+      // Nothing can answer its open questions any more.
+      if (live) {
+        const open = [...live.questions.values()];
+        live.questions.clear();
+        for (const pending of open) pending.resolve({ kind: "skipped" });
+      }
       live?.turnFailed?.(new Error("OpenCode server exited"));
       if (live) {
         live.turnDone = null;
@@ -642,6 +650,7 @@ function handleEvent(live: Live, event: Record<string, unknown>): void {
           preview,
         });
       }
+      void waitApproval(live, uiId, id);
       live.onEvent({
         type: "approval.requested",
         requestId: uiId,
@@ -650,7 +659,6 @@ function handleEvent(live: Live, event: Record<string, unknown>): void {
         callId,
         preview,
       });
-      void waitApproval(live, uiId, id);
       break;
     }
     case "question.asked": {
@@ -659,13 +667,14 @@ function handleEvent(live: Live, event: Record<string, unknown>): void {
       if (!id) break;
       const questions = questionsFromUnknown(properties);
       const uiId = live.nextApprovalUiId++;
+      // Wait before showing it: a reply can come from inside onEvent.
+      void waitQuestion(live, uiId, id, questions);
       live.onEvent({
         type: "question.asked",
         requestId: uiId,
         title: questionPromptTitle(questions) || "OpenCode question",
         questions,
       });
-      void waitQuestion(live, uiId, id, questions);
       break;
     }
     case "session.status": {

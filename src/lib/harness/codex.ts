@@ -261,17 +261,19 @@ export function respondCodexQuestion(
   sessionId: string,
   requestId: number,
   reply: UserQuestionReply,
-): void {
+): boolean {
   const live = liveByThread.get(sessionId);
-  if (!live || live.shownQuestionId !== requestId) return;
+  if (!live || live.retired || live.shownQuestionId !== requestId) return false;
   const asynchronous = live.asyncQuestions.get(requestId);
   if (asynchronous) {
+    if (live.cancelled) return false;
     void respondAsyncQuestion(live, requestId, asynchronous, reply);
-    return;
+    return true;
   }
-  const pending = live?.questions.get(requestId);
-  if (!pending) return;
+  const pending = live.questions.get(requestId);
+  if (!pending) return false;
   pending.resolve(reply);
+  return true;
 }
 
 export async function cancelCodexTurn(sessionId: string): Promise<void> {
