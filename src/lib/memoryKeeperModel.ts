@@ -1,4 +1,7 @@
-import { isHarnessAvailable } from "./harness/availability";
+import {
+  isCheckingHarnessAvailability,
+  isHarnessAvailable,
+} from "./harness/availability";
 import { claudeTextModel } from "./harness/claudeText";
 import { codexTextModel } from "./harness/codexText";
 import type { RateLimitProvider } from "./rateLimits";
@@ -25,4 +28,11 @@ export function pickKeeperModel(
   if (available("codex"))
     return { harness: "codex", label: label("Codex", codexTextModel().name) };
   return null;
+}
+
+/** Aven has yet to learn whether Claude Code or Codex is installed here. */
+export function isKeeperModelChecking(
+  checking: (id: RateLimitProvider) => boolean = isCheckingHarnessAvailability,
+): boolean {
+  return checking("claude") || checking("codex");
 }

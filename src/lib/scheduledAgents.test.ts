@@ -410,7 +410,7 @@ describe("start checks", () => {
   it("explains a missing provider", async () => {
     expect(
       await scheduledAgentProblem(agent(), checks({ installed: () => false })),
-    ).toMatch(/Claude Code CLI not found/);
+    ).toMatch(/Claude Code isn't installed/);
   });
 
   it("explains a missing project folder", async () => {

@@ -16,6 +16,7 @@ import {
 
 const native = vi.hoisted(() => ({
   available: new Set<string>(["claude"]),
+  checking: false,
   memory: null as null | { body: string; updatedAt: number },
   saves: [] as { body: string; baseUpdatedAt: number | null }[],
 }));
@@ -46,6 +47,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../lib/harness/availability", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   isHarnessAvailable: (id: string) => native.available.has(id),
+  isCheckingHarnessAvailability: () => native.checking,
 }));
 
 function memoryStorage(): Storage {
@@ -71,6 +73,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   resetMemoryKeeperCache();
   native.available = new Set(["claude"]);
+  native.checking = false;
   native.memory = null;
   native.saves = [];
   container = document.createElement("div");
@@ -220,6 +223,29 @@ describe("the switch", () => {
     expect(container.textContent).toContain(
       "Needs Claude Code or Codex installed.",
     );
+  });
+
+  it("says it is still checking, not that nothing is installed", async () => {
+    native.available = new Set();
+    native.checking = true;
+    await render(
+      createElement(MemoryKeeperSwitch, { path: PROJECT, details: true }),
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('[role="switch"]')!.disabled,
+    ).toBe(true);
+    expect(container.textContent).toContain(
+      "Checking for Claude Code or Codex…",
+    );
+    expect(container.textContent).not.toContain("Needs");
+  });
+
+  it("explains a disabled switch in its tooltip when shown alone", async () => {
+    native.available = new Set();
+    await render(createElement(MemoryKeeperSwitch, { path: PROJECT }));
+    expect(
+      container.querySelector<HTMLButtonElement>('[role="switch"]')!.title,
+    ).toBe("Needs Claude Code or Codex installed.");
   });
 });
 

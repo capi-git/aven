@@ -5,16 +5,6 @@ import { useMemoryKeeperProject } from "../hooks/useMemoryKeeperProject";
 import { useProjectMemory } from "../hooks/useProjectMemory";
 import { copyText } from "../lib/clipboard";
 import { errorText } from "../lib/errors";
-import {
-  getHarnessAvailabilitySnapshot,
-  hasProbedHarnessAvailability,
-  isHarnessAvailable,
-} from "../lib/harness/availability";
-import { HARNESS_IDS } from "../lib/harness/descriptors";
-import {
-  PROJECT_MEMORY_CHANNEL_LABELS,
-  projectMemoryRecipients,
-} from "../lib/harness/projectMemoryDelivery";
 import { LAYER } from "../lib/layers";
 import { markKeeperChangeSeen } from "../lib/memoryKeeper";
 import { projectName } from "../lib/paths";
@@ -27,8 +17,6 @@ import {
   projectMemorySize,
   saveProjectMemory,
 } from "../lib/projectMemory";
-import { HARNESS_TITLE } from "../lib/session";
-import { HarnessIcon } from "./HarnessIcon";
 import { Check, Copy } from "./icons";
 import { MemoryKeeperChangeNote, MemoryKeeperSwitch } from "./MemoryKeeper";
 import { ProjectMark } from "./ProjectMark";
@@ -42,15 +30,6 @@ const PLACEHOLDER = `Decisions, conventions, work in progress and gotchas. For e
 - Use pnpm, not npm.
 - The payments refactor is half done on feat/payments.
 - Run the API tests with \`make test-api\`; they need Docker.`;
-
-/** Installed providers once they are known, otherwise every provider. */
-function recipientIds() {
-  // Reading the snapshot keeps this in step without starting a probe.
-  void getHarnessAvailabilitySnapshot();
-  if (!hasProbedHarnessAvailability()) return HARNESS_IDS;
-  const installed = HARNESS_IDS.filter((id) => isHarnessAvailable(id));
-  return installed.length > 0 ? installed : HARNESS_IDS;
-}
 
 /**
  * Edit the memory every agent in a project receives. Plain Markdown, kept in
@@ -137,7 +116,18 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
     );
   };
 
-  const recipients = projectMemoryRecipients(recipientIds());
+  // Disabled buttons give no feedback of their own; say why in plain words.
+  const saveHint = loading
+    ? ""
+    : saving
+      ? "Saving…"
+      : over
+        ? "Too long to save"
+        : dirty
+          ? ""
+          : text.trim()
+            ? "No changes to save"
+            : "Nothing to save yet";
   const edited = memory
     ? projectMemoryEdited(memory.updatedAt, Date.now())
     : "";
@@ -179,9 +169,8 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
         </header>
 
         <p className="text-ui-label leading-snug text-content/55">
-          Every agent working in this project receives this as background
-          context, whichever model runs it. It stays in Aven and is never
-          written to the project's files.
+          Every agent in this project gets this, whichever app runs it. It stays
+          in Aven and is never written to the project's files.
         </p>
 
         <textarea
@@ -225,31 +214,10 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
 
         <MemoryKeeperSwitch path={path} details />
 
-        <div className="flex flex-col gap-1">
-          <p className="text-ui-caption text-content/45">Received by</p>
-          <ul className="flex flex-col gap-1">
-            {recipients.map((group) => (
-              <li
-                key={group.channel}
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-label text-content/70"
-              >
-                <span className="w-36 shrink-0 text-content/45">
-                  {PROJECT_MEMORY_CHANNEL_LABELS[group.channel]}
-                </span>
-                {group.harnesses.map((id) => (
-                  <span key={id} className="flex items-center gap-1">
-                    <HarnessIcon harness={id} className="size-3.5 shrink-0" />
-                    {HARNESS_TITLE[id]}
-                  </span>
-                ))}
-              </li>
-            ))}
-          </ul>
-          <p className="text-ui-caption leading-snug text-content/40">
-            Changes reach new chats right away, and chats already open with
-            their next message.
-          </p>
-        </div>
+        <p className="text-ui-caption leading-snug text-content/40">
+          Changes reach new chats right away, and chats already open with their
+          next message.
+        </p>
 
         {error ? (
           <p role="alert" className="text-ui-label leading-snug text-red-300">
@@ -292,7 +260,11 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             type="button"
             disabled={!text.trim()}
             onClick={copy}
-            title="Copy as Markdown, for example to paste into AGENTS.md"
+            title={
+              text.trim()
+                ? "Copy as Markdown, for example to paste into AGENTS.md"
+                : "Nothing to copy yet"
+            }
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-ui-label text-content/60 hover:bg-content/8 hover:text-content disabled:opacity-40"
           >
             {copied ? (
@@ -302,7 +274,12 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             )}
             {copied ? "Copied" : "Copy"}
           </button>
-          <span className="flex-1" />
+          <span
+            id="project-memory-save-hint"
+            className="min-w-0 flex-1 truncate text-right text-ui-caption text-content/40"
+          >
+            {saveHint}
+          </span>
           <button
             type="button"
             onClick={onClose}
@@ -314,7 +291,8 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             type="button"
             disabled={!dirty || over || saving || loading}
             onClick={() => void save()}
-            title={`Save (${MOD}↩)`}
+            title={saveHint || `Save (${MOD}↩)`}
+            aria-describedby={saveHint ? "project-memory-save-hint" : undefined}
             className="rounded-md bg-content/12 px-3 py-1.5 text-ui-label font-medium text-content hover:bg-content/18 disabled:opacity-40"
           >
             Save

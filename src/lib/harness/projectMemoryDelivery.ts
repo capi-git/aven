@@ -27,29 +27,6 @@ export const PROJECT_MEMORY_CHANNELS: Record<HarnessId, ProjectMemoryChannel> =
     fx: "message",
   };
 
-export const PROJECT_MEMORY_CHANNEL_LABELS: Record<
-  ProjectMemoryChannel,
-  string
-> = {
-  system: "System prompt",
-  developer: "Developer instructions",
-  message: "First message",
-};
-
-/** Providers grouped by how they receive it, in the order the editor lists them. */
-export function projectMemoryRecipients(
-  harnesses: readonly HarnessId[],
-): Array<{ channel: ProjectMemoryChannel; harnesses: HarnessId[] }> {
-  return (["system", "developer", "message"] as const)
-    .map((channel) => ({
-      channel,
-      harnesses: harnesses.filter(
-        (id) => PROJECT_MEMORY_CHANNELS[id] === channel,
-      ),
-    }))
-    .filter((group) => group.harnesses.length > 0);
-}
-
 const CLEARED_NOTICE =
   "<aven-project-memory>\nThe project memory Aven gave earlier in this conversation was cleared. Disregard it.\n</aven-project-memory>";
 const UPDATE_NOTE =
