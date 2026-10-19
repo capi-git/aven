@@ -2,14 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- Agents in a race hear only about their own copy: its own dev server and edits, not the main project's server or the other agents' files, and they're told to preview their copy on its own server instead of a page that's already open. Chats in the main project no longer hear about the race copies.
-- Your commit or pull request preference no longer reaches an orchestrator's workers or a race's agents, whose own rules say not to commit or push.
-- Discussion partners are told it's a discussion: read files and run checks, but don't change files or commit unless you ask. A partner from another project is introduced with that project's name.
-- Keeping a race's result tells the kept agent what it built however you open its chat, and tells the chat the race started from whose version is now in the project.
-- **Have … build it** passes the chat that started a discussion the other agent's last reply when it hadn't seen it.
-
 ## [0.1.146] - 2026-10-18
 
 ### Added
