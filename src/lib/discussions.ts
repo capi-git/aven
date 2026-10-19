@@ -271,6 +271,7 @@ function framing(other: DiscussionParty, rounds: number): string {
   return [
     `The user would like you to discuss a topic with another agent: ${describeParty(other)}.`,
     `Aven relays messages between you. Your reply here is sent to them, and their reply comes back to you as a message. You cannot contact them any other way, and they only see what you write in your reply. The discussion lasts ${plural(rounds, "round")}. Keep each reply focused and conversational.`,
+    "This is a discussion: read files if useful, but don't change files, run builds or commit unless the user asks.",
   ].join("\n\n");
 }
 

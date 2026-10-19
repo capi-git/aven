@@ -90,6 +90,9 @@ describe("relay rules", () => {
       "discuss a topic with another agent: GPT-5 (Codex) in the chat “Review”",
     );
     expect(prompt).toContain("lasts 3 rounds");
+    expect(prompt).toContain(
+      "This is a discussion: read files if useful, but don't change files, run builds or commit unless the user asks.",
+    );
     expect(prompt).toContain("Topic: Should we cache the lookups?");
     expect(relayBlockMeta(discussion)).toEqual({
       id: "d1",
@@ -133,6 +136,7 @@ describe("relay rules", () => {
       "another agent: Opus (Claude Code) in the chat “Caching plan”",
     );
     expect(first).toContain("Topic: Should we cache the lookups?");
+    expect(first).toContain("don't change files, run builds or commit");
     expect(first).toContain(
       "Opus in “Caching plan” says:\n\nYes, with a short TTL.",
     );
@@ -142,6 +146,7 @@ describe("relay rules", () => {
     const toA = reply(toB, "Agreed, but invalidate on writes.");
     const second = relayPrompt(toA);
     expect(second).not.toContain("would like you to discuss");
+    expect(second).not.toContain("This is a discussion");
     expect(second).toContain(
       "GPT-5 in “Review” says:\n\nAgreed, but invalidate on writes.",
     );
