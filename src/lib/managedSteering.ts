@@ -12,11 +12,15 @@ export async function steerManagedTurn(
 ): Promise<void> {
   const text = isNativeCommandPrompt(input.text, input.harness)
     ? nativeCommandPrompt(input.harness, input.text)
-    : await prepareAgentBrowserPrompt(input.text, {
-        sessionId: input.sessionId,
-        cwd: input.cwd,
-        harness: input.harness,
-      });
+    : await prepareAgentBrowserPrompt(
+        input.text,
+        {
+          sessionId: input.sessionId,
+          cwd: input.cwd,
+          harness: input.harness,
+        },
+        { worker: true },
+      );
   if (!isCurrentTurn())
     throw new Error("This agent's turn changed before the guidance was sent.");
   await steerHarnessTurn({ ...input, text });

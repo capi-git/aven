@@ -6395,12 +6395,16 @@ export default function App({
             });
             const browserPrompt = rawCommand
               ? prompt
-              : await prepareAgentBrowserPrompt(prompt, {
-                  harness: current.harness,
-                  title: current.title,
-                  sessionId,
-                  cwd: workCwd,
-                });
+              : await prepareAgentBrowserPrompt(
+                  prompt,
+                  {
+                    harness: current.harness,
+                    title: current.title,
+                    sessionId,
+                    cwd: workCwd,
+                  },
+                  { worker: !!current.orchestrationLeadId },
+                );
             await steerHarnessTurn({
               harness: current.harness,
               sessionId,
@@ -6824,12 +6828,16 @@ export default function App({
                   });
           const browserPrompt = rawCommand
             ? prompt
-            : await prepareAgentBrowserPrompt(prompt, {
-                harness: current.harness,
-                title: current.title,
-                sessionId,
-                cwd: workCwd,
-              });
+            : await prepareAgentBrowserPrompt(
+                prompt,
+                {
+                  harness: current.harness,
+                  title: current.title,
+                  sessionId,
+                  cwd: workCwd,
+                },
+                { worker: !!current.orchestrationLeadId },
+              );
           const turnPrompt = proposalDraft
             ? orchestrationPlanningPrompt(browserPrompt, proposalDraft.settings)
             : intent === "plan" && !rawCommand

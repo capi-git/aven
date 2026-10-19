@@ -45,11 +45,16 @@ describe("managed browser steering", () => {
       await steerManagedTurn(first, () => true);
       await steerManagedTurn(second, () => true);
       expect(mocks.prepare).toHaveBeenCalledTimes(2);
-      expect(mocks.prepare).toHaveBeenNthCalledWith(1, first.text, {
-        sessionId: first.sessionId,
-        cwd: first.cwd,
-        harness: first.harness,
-      });
+      expect(mocks.prepare).toHaveBeenNthCalledWith(
+        1,
+        first.text,
+        {
+          sessionId: first.sessionId,
+          cwd: first.cwd,
+          harness: first.harness,
+        },
+        { worker: true },
+      );
       expect(mocks.steer).toHaveBeenNthCalledWith(2, {
         ...second,
         text: expect.stringContaining(

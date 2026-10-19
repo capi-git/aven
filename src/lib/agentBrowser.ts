@@ -6,6 +6,7 @@ import { listenerGroup } from "./listenerGroup";
 import type { EditorNavigation } from "./search";
 import type { AgentBrowserOpenOptions } from "./agentBrowserOpen";
 import { agentGitInstructions } from "./gitPreference";
+import { isRaceLanePath } from "./recents";
 
 export type AgentBrowserContext = {
   sessionId: string;
@@ -390,9 +391,15 @@ export function agentBrowserInstructions(executablePath: string): string {
 export async function prepareAgentBrowserPrompt(
   text: string,
   context: AgentBrowserContext,
+  options: { worker?: boolean } = {},
 ): Promise<string> {
   // The Git preference applies even when browser tools are unavailable.
-  const git = agentGitInstructions();
+  // Not to a lead's workers, which share one checkout and must not commit,
+  // nor to race agents, whose copies are never pushed.
+  const git =
+    options.worker || isRaceLanePath(context.cwd)
+      ? null
+      : agentGitInstructions();
   return withBrowserGuidance(git ? `${git}\n\n${text}` : text, context);
 }
 
