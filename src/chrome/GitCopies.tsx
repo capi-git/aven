@@ -28,7 +28,7 @@ import {
 } from "../lib/fs";
 import { useActivity } from "../lib/activity";
 import { errorText, logError } from "../lib/errors";
-import { shortTimeAgo } from "../lib/gitChangesView";
+import { loadShowStaging, shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { isEqualOrInside, pathKey, prettyCwd } from "../lib/paths";
 import {
@@ -758,6 +758,7 @@ function CopyShip({
         cwd={path}
         index={state.index}
         files={state.index.files}
+        stagingShown={loadShowStaging()}
         pr={state.pr}
         enabled={enabled}
         textHarness={textHarness}
