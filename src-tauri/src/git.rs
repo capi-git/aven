@@ -4611,6 +4611,24 @@ mod tests {
     }
 
     #[test]
+    fn git_unstage_succeeds_when_nothing_is_staged() {
+        let dir = tmp("git-unstage-noop");
+        if !init_git_commit(&dir.0, &[("a.txt", "alpha\n")]) {
+            return;
+        }
+        std::fs::write(dir.0.join("a.txt"), "beta\n").unwrap();
+        std::fs::write(dir.0.join("new.txt"), "hello\n").unwrap();
+
+        // A whole-file discard unstages first without knowing what is staged.
+        git_unstage_file_for(&dir.0, "a.txt").unwrap();
+        git_unstage_file_for(&dir.0, "new.txt").unwrap();
+        git_unstage_all_for(&dir.0).unwrap();
+        git_discard_file_for(&dir.0, "a.txt").unwrap();
+        git_discard_file_for(&dir.0, "new.txt").unwrap();
+        assert!(git_diff_index_for(&dir.0).files.is_empty());
+    }
+
+    #[test]
     fn git_stage_contents_stages_partial_hunk() {
         let dir = tmp("git-stage-contents");
         if !init_git_commit(&dir.0, &[("a.txt", "alpha\nbeta\ngamma\ndelta\n")]) {

@@ -1043,7 +1043,11 @@ describe("one list of changes", () => {
       "Discard changes in edit.ts? This cannot be undone.",
       expect.objectContaining({ okLabel: "Discard" }),
     );
-    expect(mocks.writes).toEqual(["git_discard_file edit.ts"]);
+    // Unstaged anyway, in case something was staged since the list loaded.
+    expect(mocks.writes).toEqual([
+      "git_unstage_file edit.ts",
+      "git_discard_file edit.ts",
+    ]);
   });
 
   it("discards every file from the header, staged ones too, after asking", async () => {
@@ -1057,6 +1061,18 @@ describe("one list of changes", () => {
     expect(mocks.ask).toHaveBeenLastCalledWith(
       "Discard all changes in 2 files, including staged changes? This cannot be undone.",
       expect.objectContaining({ okLabel: "Discard" }),
+    );
+    expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
+  });
+
+  it("unstages before discarding every file even when none looked staged", async () => {
+    index.files = [changed("a.ts", false, true), changed("b.ts", false, true)];
+    await render();
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[title="Discard All Changes"]')!
+        .click(),
     );
     expect(mocks.writes).toEqual(["git_unstage_all", "git_discard_all"]);
   });

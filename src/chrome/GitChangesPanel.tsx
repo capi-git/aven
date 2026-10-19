@@ -476,8 +476,10 @@ function ChangedFiles({
       if (action === "stage") await gitStageFile(cwd, file.relative);
       else if (action === "unstage") await gitUnstageFile(cwd, file.relative);
       else {
-        // Unstaged first: if the discard then fails, the file is still there.
-        if (whole && file.staged) await gitUnstageFile(cwd, file.relative);
+        // Unstaged first, even when the list shows nothing staged: something
+        // may have been staged since it last refreshed. If the discard then
+        // fails, the file is still there.
+        if (whole) await gitUnstageFile(cwd, file.relative);
         await gitDiscardFile(cwd, file.relative);
       }
       onMutated([file.path]);
@@ -509,7 +511,7 @@ function ChangedFiles({
       if (action === "stage") await gitStageAll(cwd);
       else if (action === "unstage") await gitUnstageAll(cwd);
       else {
-        if (whole && staged.length > 0) await gitUnstageAll(cwd);
+        if (whole) await gitUnstageAll(cwd);
         await gitDiscardAll(cwd);
       }
       onMutated(paths);
