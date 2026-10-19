@@ -73,18 +73,41 @@ export function ensureSessionCheckpoint(
   sessionId: string,
   cwd: string,
 ): Promise<void> {
-  return enqueueCheckpoint(sessionId, () =>
-    invoke<void>("session_checkpoint_ensure", { sessionId, cwd }),
-  );
+  return enqueueCheckpoint(sessionId, async () => {
+    await invoke<boolean>("session_checkpoint_ensure", { sessionId, cwd });
+  });
 }
 
-/** Snapshot the worktree before a live turn so Keep/Undo can target this session. */
+/** Chats whose last message went ahead without a checkpoint. */
+const missedCheckpoints = new Set<string>();
+
+/**
+ * True when the chat's last message went ahead without a checkpoint, so its
+ * changes can't be undone from the review bar.
+ */
+export function sessionCheckpointMissed(sessionId: string): boolean {
+  return missedCheckpoints.has(sessionId);
+}
+
+/**
+ * Snapshot the worktree before a live turn so Keep/Undo can target this
+ * session. The native side waits a few seconds at most and then lets the
+ * message go ahead without one. This does not queue behind the chat's other
+ * checkpoint work: the native side orders them per chat, and that wait counts
+ * toward the limit.
+ */
 export async function beginSessionTurn(
   sessionId: string,
   cwd: string,
 ): Promise<void> {
   if (!cwd || cwd === "~") return;
-  await ensureSessionCheckpoint(sessionId, cwd);
+  const ready = await invoke<boolean>("session_checkpoint_ensure", {
+    sessionId,
+    cwd,
+    beforeTurn: true,
+  });
+  if (ready === false) missedCheckpoints.add(sessionId);
+  else missedCheckpoints.delete(sessionId);
   notifyReviewChanged(sessionId);
 }
 

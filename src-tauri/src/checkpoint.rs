@@ -1,9 +1,11 @@
-#[cfg(test)]
-use std::collections::HashMap;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -16,30 +18,129 @@ use crate::git::{
 };
 
 const MAX_SNAPSHOT_FILES: usize = 500;
+/// How long a message waits for its chat's checkpoint before it goes ahead
+/// without one.
+const TURN_CHECKPOINT_WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct CheckpointStore {
     root: PathBuf,
-    gate: Arc<Mutex<()>>,
+    locks: Arc<CheckpointLocks>,
+}
+
+/// Chats in different projects never wait for each other. Within a project,
+/// Undo runs alone, because it reads every chat's claims and writes the files
+/// they share; everything else shares the project and waits only for other
+/// operations of its own chat.
+#[derive(Default)]
+struct CheckpointLocks {
+    projects: Mutex<HashMap<PathBuf, Arc<RwLock<()>>>>,
+    sessions: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Access {
+    /// Reads or writes only this chat's own checkpoint.
+    Chat,
+    /// Undo: also reads other chats' claims and writes shared files.
+    Project,
+}
+
+/// The lock for `key`, created on first use.
+fn keyed_lock<K: Eq + Hash + Clone, L: Default>(
+    map: &Mutex<HashMap<K, Arc<L>>>,
+    key: &K,
+) -> Arc<L> {
+    recover(map.lock()).entry(key.clone()).or_default().clone()
+}
+
+/// Forget `key`'s lock once nobody holds or waits for it.
+fn release_lock<K: Eq + Hash, L>(map: &Mutex<HashMap<K, Arc<L>>>, key: &K, lock: Arc<L>) {
+    let mut map = recover(map.lock());
+    drop(lock);
+    if map
+        .get(key)
+        .is_some_and(|held| Arc::strong_count(held) == 1)
+    {
+        map.remove(key);
+    }
+}
+
+/// The locks guard no data of their own (manifests are replaced atomically),
+/// so a panic elsewhere must not lock a chat out of its checkpoint.
+fn recover<G>(result: std::sync::LockResult<G>) -> G {
+    result.unwrap_or_else(|error| error.into_inner())
+}
+
+const TURN_WAITING: u8 = 0;
+const TURN_COMMITTED: u8 = 1;
+const TURN_ABANDONED: u8 = 2;
+
+/// A checkpoint a message is waiting for, which the message may stop
+/// waiting for. Exactly one of committing and abandoning wins.
+#[derive(Default)]
+struct TurnCheckpoint(AtomicU8);
+
+impl TurnCheckpoint {
+    fn waiting(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == TURN_WAITING
+    }
+
+    /// The checkpoint is about to be written; the message waits for it.
+    fn commit(&self) -> bool {
+        self.0
+            .compare_exchange(
+                TURN_WAITING,
+                TURN_COMMITTED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
+    /// The message goes ahead without it.
+    fn abandon(&self) -> bool {
+        self.0
+            .compare_exchange(
+                TURN_WAITING,
+                TURN_ABANDONED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
 }
 
 impl CheckpointStore {
     fn new(root: PathBuf) -> Self {
         Self {
             root,
-            gate: Arc::new(Mutex::new(())),
+            locks: Arc::default(),
         }
     }
 
-    fn exclusive<T>(
+    /// Run `operation` holding the project's lock (shared, or alone for
+    /// `Access::Project`) and then this chat's lock.
+    fn locked<T>(
         &self,
+        session_id: &str,
+        cwd: &str,
+        access: Access,
         operation: impl FnOnce(&Self) -> Result<T, String>,
     ) -> Result<T, String> {
-        let _guard = self
-            .gate
-            .lock()
-            .map_err(|_| "Checkpoint store lock poisoned".to_string())?;
-        operation(self)
+        let project_key = project_root(cwd).unwrap_or_else(|_| PathBuf::from(cwd.trim()));
+        let session_key = session_id.to_owned();
+        let project = keyed_lock(&self.locks.projects, &project_key);
+        let session = keyed_lock(&self.locks.sessions, &session_key);
+        let result = {
+            let _shared = (access == Access::Chat).then(|| recover(project.read()));
+            let _alone = (access == Access::Project).then(|| recover(project.write()));
+            let _chat: MutexGuard<'_, ()> = recover(session.lock());
+            operation(self)
+        };
+        release_lock(&self.locks.sessions, &session_key, session);
+        release_lock(&self.locks.projects, &project_key, project);
+        result
     }
 
     fn session_dir(&self, session_id: &str) -> PathBuf {
@@ -47,19 +148,83 @@ impl CheckpointStore {
     }
 
     fn ensure(&self, session_id: &str, cwd: &str) -> Result<(), String> {
+        self.ensure_for(session_id, cwd, &TurnCheckpoint::default())
+            .map(|_| ())
+    }
+
+    /// Take the checkpoint a message starts from, waiting at most `wait`.
+    /// Returns whether the chat has a checkpoint. When the time runs out the
+    /// message goes ahead anyway: a checkpoint made for an earlier message
+    /// still serves; otherwise the half-made one is dropped, so this
+    /// message's changes are not recorded and Undo never claims them.
+    fn ensure_before_turn(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        wait: Duration,
+    ) -> Result<bool, String> {
+        let turn = Arc::new(TurnCheckpoint::default());
+        let (sender, receiver) = mpsc::channel();
+        {
+            let (store, turn) = (self.clone(), turn.clone());
+            let (session_id, cwd) = (session_id.to_owned(), cwd.to_owned());
+            std::thread::spawn(move || {
+                let result = store.locked(&session_id, &cwd, Access::Chat, |store| {
+                    store.ensure_for(&session_id, &cwd, &turn)
+                });
+                let _ = sender.send(result);
+            });
+        }
+        match receiver.recv_timeout(wait) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) if turn.abandon() => {
+                // Manifests are replaced whole, so reading one unlocked is safe.
+                Ok(matches!(self.load_matching(session_id, cwd), Ok(Some(_))))
+            }
+            // Already writing it: that takes a moment, so wait.
+            Err(RecvTimeoutError::Timeout) => receiver
+                .recv()
+                .map_err(|_| "The checkpoint stopped unexpectedly".to_string())?,
+            Err(RecvTimeoutError::Disconnected) => {
+                Err("The checkpoint stopped unexpectedly".into())
+            }
+        }
+    }
+
+    /// `ensure`, giving up without recording anything once `turn` stops
+    /// waiting. Returns whether the chat has a checkpoint.
+    fn ensure_for(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        turn: &TurnCheckpoint,
+    ) -> Result<bool, String> {
         let root = project_root(cwd)?;
         let dir = self.session_dir(session_id);
         if let Some(manifest) = read_manifest(&dir)? {
             if same_cwd(&manifest.cwd, cwd) {
-                return Ok(());
+                return Ok(true);
+            }
+            if !turn.waiting() {
+                return Ok(false);
             }
             let _ = std::fs::remove_dir_all(&dir);
         }
+        if !turn.waiting() {
+            return Ok(false);
+        }
         std::fs::create_dir_all(dir.join("files")).map_err(|e| e.to_string())?;
+        let given_up = || {
+            let _ = std::fs::remove_dir_all(&dir);
+            Ok(false)
+        };
 
         let mut files = BTreeMap::new();
         let mut tracked = BTreeSet::new();
         for file in git_diff_files_for(&root).files {
+            if !turn.waiting() {
+                return given_up();
+            }
             if files.len() >= MAX_SNAPSHOT_FILES {
                 break;
             }
@@ -70,6 +235,9 @@ impl CheckpointStore {
                 tracked.insert(relative.clone());
             }
             files.insert(relative.clone(), snapshot_file(&dir, &root, &relative)?);
+        }
+        if !turn.commit() {
+            return given_up();
         }
         write_manifest(
             &dir,
@@ -83,7 +251,8 @@ impl CheckpointStore {
                 stats: BTreeMap::new(),
                 diverged: BTreeSet::new(),
             },
-        )
+        )?;
+        Ok(true)
     }
 
     fn prepare(&self, session_id: &str, cwd: &str, paths: &[String]) -> Result<(), String> {
@@ -491,16 +660,28 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Make sure the chat has a checkpoint. Before a message (`before_turn`) it
+/// waits at most `TURN_CHECKPOINT_WAIT` and answers false when the message
+/// goes ahead without one; otherwise it always waits and answers true.
 #[tauri::command]
 pub async fn session_checkpoint_ensure(
     store: State<'_, CheckpointStore>,
     session_id: String,
     cwd: String,
-) -> Result<(), String> {
+    before_turn: Option<bool>,
+) -> Result<bool, String> {
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.ensure(&session_id, &cwd))
+        if before_turn == Some(true) {
+            store.ensure_before_turn(&session_id, &cwd, TURN_CHECKPOINT_WAIT)
+        } else {
+            store
+                .locked(&session_id, &cwd, Access::Chat, |store| {
+                    store.ensure(&session_id, &cwd)
+                })
+                .map(|()| true)
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -519,7 +700,9 @@ pub async fn session_checkpoint_prepare(
     }
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.prepare(&session_id, &cwd, &paths))
+        store.locked(&session_id, &cwd, Access::Chat, |store| {
+            store.prepare(&session_id, &cwd, &paths)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -538,7 +721,9 @@ pub async fn session_checkpoint_capture(
     }
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.capture(&session_id, &cwd, &paths))
+        store.locked(&session_id, &cwd, Access::Chat, |store| {
+            store.capture(&session_id, &cwd, &paths)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -553,7 +738,9 @@ pub async fn session_checkpoint_status(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.status(&session_id, &cwd))
+        store.locked(&session_id, &cwd, Access::Chat, |store| {
+            store.status(&session_id, &cwd)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -569,7 +756,9 @@ pub async fn session_checkpoint_file_diff(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.file_diff(&session_id, &cwd, &relative))
+        store.locked(&session_id, &cwd, Access::Chat, |store| {
+            store.file_diff(&session_id, &cwd, &relative)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -585,7 +774,9 @@ pub async fn session_checkpoint_undo(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.undo(&session_id, &cwd, relative.as_deref()))
+        store.locked(&session_id, &cwd, Access::Project, |store| {
+            store.undo(&session_id, &cwd, relative.as_deref())
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -601,7 +792,9 @@ pub async fn session_checkpoint_keep(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store.exclusive(|store| store.keep(&session_id, &cwd, relative.as_deref()))
+        store.locked(&session_id, &cwd, Access::Chat, |store| {
+            store.keep(&session_id, &cwd, relative.as_deref())
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1955,5 +2148,191 @@ mod tests {
     fn rejects_invalid_session_id() {
         let err = validate_id("../x", "session").unwrap_err();
         assert!(err.contains("Invalid"));
+    }
+
+    /// Hold `session_id`'s locks with `access` on another thread until the
+    /// returned sender is dropped or sent to.
+    fn hold(
+        store: &CheckpointStore,
+        session_id: &str,
+        cwd: &str,
+        access: Access,
+    ) -> (mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let (held, is_held) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+        let (store, session_id, cwd) = (store.clone(), session_id.to_owned(), cwd.to_owned());
+        let thread = std::thread::spawn(move || {
+            store
+                .locked(&session_id, &cwd, access, |_| {
+                    held.send(()).unwrap();
+                    let _ = released.recv();
+                    Ok(())
+                })
+                .unwrap();
+        });
+        is_held.recv().unwrap();
+        (release, thread)
+    }
+
+    /// Whether an operation for `session_id` finishes within a short wait.
+    fn finishes_soon(store: &CheckpointStore, session_id: &str, cwd: &str, access: Access) -> bool {
+        let (done, finished) = mpsc::channel();
+        let (store, session_id, cwd) = (store.clone(), session_id.to_owned(), cwd.to_owned());
+        std::thread::spawn(move || {
+            let _ = store.locked(&session_id, &cwd, access, |_| Ok(()));
+            let _ = done.send(());
+        });
+        finished.recv_timeout(Duration::from_millis(200)).is_ok()
+    }
+
+    /// Wait until no operation holds or waits for this chat's lock.
+    fn settle(store: &CheckpointStore, session_id: &str) {
+        for _ in 0..500 {
+            if !store
+                .locks
+                .sessions
+                .lock()
+                .unwrap()
+                .contains_key(session_id)
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("{session_id} kept its checkpoint lock");
+    }
+
+    #[test]
+    fn a_chat_waits_only_for_its_own_checkpoint_operations() {
+        let project = tmp("chat-locks");
+        let cwd = project.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        // One chat's long snapshot or status read.
+        let (release, thread) = hold(&store, "slow", &cwd, Access::Chat);
+        assert!(finishes_soon(&store, "other", &cwd, Access::Chat));
+        assert!(!finishes_soon(&store, "slow", &cwd, Access::Chat));
+        // Undo needs the project to itself, so it waits for the slow chat.
+        assert!(!finishes_soon(&store, "other", &cwd, Access::Project));
+        drop(release);
+        thread.join().unwrap();
+        settle(&store, "slow");
+        settle(&store, "other");
+        assert!(store.locks.projects.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn undo_runs_alone_in_its_own_project_only() {
+        let first = tmp("undo-alone");
+        let second = tmp("undo-elsewhere");
+        let first_cwd = first.0.to_string_lossy().into_owned();
+        let second_cwd = second.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        let (release, thread) = hold(&store, "undoing", &first_cwd, Access::Project);
+        assert!(!finishes_soon(
+            &store,
+            "neighbour",
+            &first_cwd,
+            Access::Chat
+        ));
+        assert!(finishes_soon(
+            &store,
+            "elsewhere",
+            &second_cwd,
+            Access::Chat
+        ));
+        assert!(finishes_soon(
+            &store,
+            "elsewhere",
+            &second_cwd,
+            Access::Project
+        ));
+        drop(release);
+        thread.join().unwrap();
+        settle(&store, "neighbour");
+        assert!(store.locks.sessions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_turn_checkpoint_is_either_committed_or_abandoned() {
+        let turn = TurnCheckpoint::default();
+        assert!(turn.waiting());
+        assert!(turn.abandon());
+        assert!(!turn.waiting());
+        assert!(!turn.commit());
+        let turn = TurnCheckpoint::default();
+        assert!(turn.commit());
+        assert!(!turn.abandon());
+        assert!(!turn.waiting());
+    }
+
+    #[test]
+    fn a_message_goes_ahead_without_a_checkpoint_that_takes_too_long() {
+        let repo = tmp("turn-timeout");
+        if !init_git_commit(&repo.0, &[("a.txt", "one\n")]) {
+            return;
+        }
+        std::fs::write(repo.0.join("a.txt"), "user\n").unwrap();
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        // Another chat's Undo holds the project.
+        let (release, thread) = hold(&store, "undoing", &cwd, Access::Project);
+        let started = std::time::Instant::now();
+        assert!(!store
+            .ensure_before_turn("s1", &cwd, Duration::from_millis(50))
+            .unwrap());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        drop(release);
+        thread.join().unwrap();
+        settle(&store, "s1");
+        // Nothing half-made was left behind, and the message's edits are
+        // not recorded, so Undo never offers them.
+        assert!(read_manifest(&store.session_dir("s1")).unwrap().is_none());
+        let paths = vec!["a.txt".to_string()];
+        store.prepare("s1", &cwd, &paths).unwrap();
+        std::fs::write(repo.0.join("a.txt"), "agent\n").unwrap();
+        store.capture("s1", &cwd, &paths).unwrap();
+        assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+
+        // The next message takes a checkpoint as usual.
+        assert!(store
+            .ensure_before_turn("s1", &cwd, Duration::from_secs(30))
+            .unwrap());
+        assert!(store.load_matching("s1", &cwd).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_earlier_checkpoint_still_serves_a_message_that_stops_waiting() {
+        let repo = tmp("turn-earlier");
+        if !init_git_commit(&repo.0, &[("a.txt", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        assert!(store
+            .ensure_before_turn("s1", &cwd, Duration::from_secs(30))
+            .unwrap());
+        let (release, thread) = hold(&store, "undoing", &cwd, Access::Project);
+        assert!(store
+            .ensure_before_turn("s1", &cwd, Duration::from_millis(50))
+            .unwrap());
+        drop(release);
+        thread.join().unwrap();
+        settle(&store, "s1");
+        assert!(store.load_matching("s1", &cwd).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_abandoned_checkpoint_records_nothing() {
+        let repo = tmp("turn-abandoned");
+        if !init_git_commit(&repo.0, &[("a.txt", "one\n")]) {
+            return;
+        }
+        std::fs::write(repo.0.join("a.txt"), "user\n").unwrap();
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        let turn = TurnCheckpoint::default();
+        assert!(turn.abandon());
+        assert!(!store.ensure_for("s1", &cwd, &turn).unwrap());
+        assert!(!store.session_dir("s1").exists());
     }
 }
