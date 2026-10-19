@@ -188,6 +188,8 @@ export type SidebarProps = {
    * row; chats with none are left out.
    */
   chatStatus?: Readonly<Record<string, ChatStatusWord>>;
+  /** What holds each working chat up, for its pill's tooltip (see `chatHoldUpHints`). */
+  chatStatusHints?: Readonly<Record<string, string>>;
   activeSessionId?: string;
   /** Open tabs, including blank ones not yet in history. */
   openSessions?: readonly SessionSummary[];
@@ -309,6 +311,10 @@ const NO_CHAT_STATUS: Readonly<Record<string, ChatStatusWord>> = {};
 /** Each row's one-word status (see `chatStatus`). */
 const ChatStatuses =
   createContext<Readonly<Record<string, ChatStatusWord>>>(NO_CHAT_STATUS);
+const NO_CHAT_HINTS: Readonly<Record<string, string>> = {};
+/** What holds each working row up (see `chatStatusHints`). */
+const ChatStatusHints =
+  createContext<Readonly<Record<string, string>>>(NO_CHAT_HINTS);
 const NO_CONFLICTS: WorkConflictMap = {};
 
 /** Personal is the default home for every project, so it cannot be deleted. */
@@ -397,6 +403,7 @@ function SidebarComponent({
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
+  chatStatusHints = NO_CHAT_HINTS,
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
@@ -1055,7 +1062,7 @@ function SidebarComponent({
     const word = chatStatus[sessionId];
     return word ? (
       <span className="personal-task-status">
-        <ChatStatusPill word={word} />
+        <ChatStatusPill word={word} holdUp={chatStatusHints[sessionId]} />
       </span>
     ) : null;
   };
@@ -2265,7 +2272,9 @@ function SidebarComponent({
     >
       <TeamNeeds.Provider value={teamNeedIds}>
         <ChatStatuses.Provider value={chatStatus}>
-          {sidebarContent}
+          <ChatStatusHints.Provider value={chatStatusHints}>
+            {sidebarContent}
+          </ChatStatusHints.Provider>
         </ChatStatuses.Provider>
       </TeamNeeds.Provider>
     </div>
@@ -2290,6 +2299,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "approvalSessionIds",
   "teamNeedIds",
   "chatStatus",
+  "chatStatusHints",
   "loadedProjectPaths",
   "projectHistoryErrors",
   "unseenFinishedIds",
@@ -2658,9 +2668,10 @@ function SessionCard({
         ? "text-emerald-400"
         : "text-content/45";
   const word = useContext(ChatStatuses)[session.id];
+  const holdUp = useContext(ChatStatusHints)[session.id];
   const status = word ? (
     <span className="personal-task-status flex shrink-0 items-center">
-      <ChatStatusPill word={word} />
+      <ChatStatusPill word={word} holdUp={holdUp} />
     </span>
   ) : (
     <span

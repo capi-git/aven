@@ -783,7 +783,12 @@ import {
 import { forgetChatReview, useChatReviews } from "./lib/chatReview";
 import { forgetShippedChat, useShippedChats } from "./lib/shippedChats";
 import { forgetTurnNotes, takeTurnNotes } from "./lib/turnNotes";
-import { chatStatuses, type ChatStatusWord } from "./lib/chatStatus";
+import {
+  chatHoldUpHints,
+  chatStatuses,
+  type ChatStatusWord,
+} from "./lib/chatStatus";
+import { holdUpHint, sessionHoldUps } from "./lib/sessionHoldUp";
 import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
 import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
 import {
@@ -901,6 +906,7 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.terminal === other.terminal &&
       tab.groupId === other.groupId &&
       tab.needsInput === other.needsInput &&
+      tab.waitingOn === other.waitingOn &&
       tab.race === other.race &&
       tab.board === other.board
     );
@@ -2413,6 +2419,17 @@ export default function App({
   )
     chatStatusRef.current = nextChatStatus;
   const chatStatus = chatStatusRef.current;
+  // What holds each working chat up, for its pill's tooltip. It changes
+  // rarely, so the sidebar keeps the same object through streamed tokens.
+  const nextChatStatusHints = useMemo(
+    () => chatHoldUpHints(sessions),
+    [sessions],
+  );
+  const chatStatusHintsRef =
+    useRef<Readonly<Record<string, string>>>(nextChatStatusHints);
+  if (!equalChromeData(chatStatusHintsRef.current, nextChatStatusHints))
+    chatStatusHintsRef.current = nextChatStatusHints;
+  const chatStatusHints = chatStatusHintsRef.current;
   const [notificationWindowFocused, setNotificationWindowFocused] = useState(
     () => document.hasFocus(),
   );
@@ -9929,6 +9946,7 @@ export default function App({
     approvalSessionIds,
     teamNeedIds,
     chatStatus,
+    chatStatusHints,
     activeSessionId: profileHome ? undefined : active?.id,
     status: historyFailed ? "error" : "idle",
     pending: historyPending,
@@ -11139,6 +11157,9 @@ function toTitleTab(
     needsInput: tabSessions.some((session) =>
       sessionNeedsUser(session, leadDecided),
     ),
+    waitingOn: ordered
+      .map((session) => holdUpHint(sessionHoldUps(session)))
+      .find(Boolean),
     race: Boolean(race),
     board,
   };
