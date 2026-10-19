@@ -44,6 +44,10 @@ beforeEach(() => {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
   });
+  // Servers rank by when they were seen; give every reading its own
+  // millisecond so two found in one tick keep a fixed order.
+  let clock = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => (clock += 1));
   resetDevPreviews();
   resetSharedWork();
   resetSharedWorkDeliveryState();
@@ -56,6 +60,7 @@ afterEach(() => {
   resetSharedWork();
   resetSharedWorkDeliveryState();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function chat(
@@ -339,7 +344,7 @@ describe("race lanes", () => {
   it("leaves the lanes out of the main project's note", () => {
     const note = noteFor("codex");
     expect(note).toContain(
-      "Dev servers running: http://localhost:3000/ (started in the user's terminal); http://localhost:5173/ (started by Claude in “Fix login”).",
+      "Dev servers running: http://localhost:5173/ (started by Claude in “Fix login”); http://localhost:3000/ (started in the user's terminal).",
     );
     expect(note).toContain(
       "Other agents here: Claude in “Fix login” is working, editing src/App.tsx.",
