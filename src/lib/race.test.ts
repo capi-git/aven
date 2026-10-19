@@ -265,6 +265,9 @@ describe("choosing results", () => {
     expect(prompt.startsWith("Fix it\n\n")).toBe(true);
     expect(prompt).toContain("3 agents");
     expect(prompt).toContain("Do not push");
+    expect(prompt).toContain(
+      "To preview, start this copy's own dev server from the current folder on a free port and open that address; pages already open show the original project, not this copy.",
+    );
   });
 });
 

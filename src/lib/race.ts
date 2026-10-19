@@ -709,7 +709,7 @@ export function raceOriginBlock(
 
 /** Appended to the prompt each lane receives. */
 export function racePrompt(prompt: string, laneCount: number): string {
-  return `${prompt}\n\n(Aven is giving this same task to ${laneCount} agents, each in its own copy of the project on a separate branch. Work only in the current directory. Do not push, switch branches, or edit the original project; the results will be compared and the user will keep one.)`;
+  return `${prompt}\n\n(Aven is giving this same task to ${laneCount} agents, each in its own copy of the project on a separate branch. Work only in the current directory. Do not push, switch branches, or edit the original project; the results will be compared and the user will keep one. To preview, start this copy's own dev server from the current folder on a free port and open that address; pages already open show the original project, not this copy.)`;
 }
 
 export type RaceBase = {
