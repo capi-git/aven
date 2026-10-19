@@ -62,7 +62,7 @@ function setup() {
     }),
     steer: vi.fn(async () => {}),
     respondApproval: vi.fn(),
-    answerQuestion: vi.fn(),
+    answerQuestion: vi.fn(() => true),
   };
   manager.bind(host);
   let request = 0;
@@ -937,6 +937,67 @@ describe("local orchestration", () => {
     expect(f.host.answerQuestion).toHaveBeenCalledWith(worker.id, 9, {
       kind: "answered",
       answers: { check: ["unit"] },
+    });
+  });
+  describe("when the agent stopped waiting on its question", () => {
+    async function asking() {
+      const f = setup();
+      await f.start();
+      await f.delegate(["a"]);
+      await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+      const worker = f.sessions.find(
+        (session) => session.id === f.tasks()[0].sessionId,
+      )!;
+      worker.pendingQuestion = {
+        requestId: 9,
+        title: "Pick a check",
+        questions: [
+          {
+            id: "check",
+            header: "Check",
+            prompt: "Which check?",
+            multiSelect: false,
+            allowCustom: false,
+            options: [{ id: "unit", label: "Unit" }],
+          },
+        ],
+      };
+      vi.mocked(f.host.answerQuestion).mockReturnValue(false);
+      return { f, worker, taskId: f.tasks()[0].id };
+    }
+
+    it("gives a running agent the answer as guidance", async () => {
+      const { f, worker, taskId } = await asking();
+      await expect(
+        f.call("answer", {
+          taskId,
+          requestId: 9,
+          answers: { check: ["unit"] },
+        }),
+      ).resolves.toEqual({ taskId, answered: true, sentAsMessage: true });
+      expect(f.host.steer).toHaveBeenCalledWith(worker.id, "Check: Unit");
+    });
+
+    it("tells the lead to use message once the agent has stopped", async () => {
+      const { f, worker, taskId } = await asking();
+      f.completions.get(worker.id)!({ status: "completed", text: "Done." });
+      await vi.waitFor(() => expect(f.tasks()[0].status).not.toBe("running"));
+      await expect(
+        f.call("answer", {
+          taskId,
+          requestId: 9,
+          answers: { check: ["unit"] },
+        }),
+      ).rejects.toThrow("stopped waiting on that question");
+      expect(f.host.steer).not.toHaveBeenCalled();
+    });
+
+    it("has nothing to send for a skip", async () => {
+      const { f, taskId } = await asking();
+      await expect(
+        f.call("answer", { taskId, requestId: 9, skip: true }),
+      ).resolves.toEqual({ taskId, answered: false });
+      expect(f.host.steer).not.toHaveBeenCalled();
     });
   });
   it.each(["approval", "question"] as const)(

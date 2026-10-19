@@ -2,14 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sent: string[] = [];
 let onLine: ((line: string) => void) | undefined;
+let onExit: ((code: number | null) => void) | undefined;
 
 vi.mock("./child", () => ({
   resolveCursorBinary: async () => ({ path: "/fake/cursor-agent" }),
   spawnChild: async () => undefined,
   killChild: async () => undefined,
   unwatchChild: () => undefined,
-  watchChild: (_id: string, line: (value: string) => void) => {
+  watchChild: (
+    _id: string,
+    line: (value: string) => void,
+    exit: (code: number | null) => void,
+  ) => {
     onLine = line;
+    onExit = exit;
   },
   writeChild: async (_id: string, line: string) => {
     sent.push(line);
@@ -20,8 +26,12 @@ vi.mock("./cursorStore", () => ({
   readStoredCursorToolCalls: async () => [],
 }));
 
-const { sendCursorTurn, stopCursorSession, __cursorTestReset } =
-  await import("./cursor");
+const {
+  respondCursorQuestion,
+  sendCursorTurn,
+  stopCursorSession,
+  __cursorTestReset,
+} = await import("./cursor");
 import type { HarnessEvent } from "./types";
 
 function parse() {
@@ -54,7 +64,10 @@ function outboundRequest(method: string) {
   return parse().find((message) => message.method === method);
 }
 
-async function startTurn(sessionId: string) {
+async function startTurn(
+  sessionId: string,
+  onEvent?: (event: HarnessEvent) => void,
+) {
   const events: HarnessEvent[] = [];
   const turn = sendCursorTurn({
     sessionId,
@@ -64,7 +77,10 @@ async function startTurn(sessionId: string) {
     runtimeMode: "supervised",
     text: "explore the codebase",
     attachments: [],
-    onEvent: (event) => events.push(event),
+    onEvent: (event) => {
+      events.push(event);
+      onEvent?.(event);
+    },
   });
 
   await waitFor(() => !!outboundRequest("initialize"), "initialize");
@@ -117,6 +133,7 @@ function agentEvents(events: HarnessEvent[]) {
 beforeEach(() => {
   sent.length = 0;
   onLine = undefined;
+  onExit = undefined;
   __cursorTestReset();
 });
 
@@ -335,5 +352,79 @@ describe("cursor background subagents", () => {
     reply(promptId, { stopReason: "end_turn" });
     await turn;
     expect(agentEvents(events).at(-1)).toMatchObject({ status: "completed" });
+  });
+});
+
+describe("cursor question cards", () => {
+  const ask = (id: number) =>
+    request(id, "cursor/ask_question", {
+      toolCallId: `call_q${id}`,
+      title: "Pick a target",
+      questions: [
+        {
+          id: "target",
+          prompt: "Which target?",
+          options: [
+            { id: "desktop", label: "Desktop" },
+            { id: "web", label: "Web" },
+          ],
+        },
+      ],
+    });
+  const answerTo = (id: number) =>
+    parse().find((message) => message.id === id && "result" in message);
+
+  it("takes a reply given while the question is being shown", async () => {
+    const delivered: boolean[] = [];
+    const { events, promptId, turn } = await startTurn(
+      "cursor-live",
+      (event) => {
+        if (event.type === "question.asked")
+          delivered.push(
+            respondCursorQuestion("cursor-live", event.requestId, {
+              kind: "answered",
+              answers: { target: ["web"] },
+            }),
+          );
+      },
+    );
+    ask(80);
+    await waitFor(() => !!answerTo(80), "question answer");
+    expect(delivered).toEqual([true]);
+    expect(answerTo(80)?.result).toEqual({
+      outcome: {
+        outcome: "answered",
+        answers: [{ questionId: "target", selectedOptionIds: ["web"] }],
+      },
+    });
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: 80,
+      decision: "answered",
+    });
+    expect(respondCursorQuestion("cursor-live", 80, { kind: "skipped" })).toBe(
+      false,
+    );
+    reply(promptId, { stopReason: "end_turn" });
+    await turn;
+  });
+
+  it("closes an open question when Cursor exits", async () => {
+    const { events, turn } = await startTurn("cursor-live");
+    ask(81);
+    await waitFor(
+      () => events.some((event) => event.type === "question.asked"),
+      "question card",
+    );
+    onExit!(1);
+    await turn.catch(() => undefined);
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: 81,
+      decision: "skipped",
+    });
+    expect(respondCursorQuestion("cursor-live", 81, { kind: "skipped" })).toBe(
+      false,
+    );
   });
 });

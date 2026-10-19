@@ -78,6 +78,7 @@ async function startTurn(
     intent?: TurnIntent;
     model?: string;
     modelSettings?: Record<string, string>;
+    onEvent?: (event: HarnessEvent) => void;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
@@ -90,7 +91,10 @@ async function startTurn(
     intent: options.intent,
     text: "explore the codebase",
     attachments: [],
-    onEvent: (event) => events.push(event),
+    onEvent: (event) => {
+      events.push(event);
+      options.onEvent?.(event);
+    },
   });
 
   await waitFor(
@@ -1942,5 +1946,221 @@ describe("Claude connection form requests", () => {
     });
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await turn;
+  });
+});
+
+describe("Claude question cards", () => {
+  const responseFor = (id: string) =>
+    parse().find(
+      (m) =>
+        (m.response as Record<string, unknown> | undefined)?.request_id === id,
+    );
+  const asked = (events: HarnessEvent[]) =>
+    events.find(
+      (event): event is Extract<HarnessEvent, { type: "question.asked" }> =>
+        event.type === "question.asked",
+    );
+  const askTwo = (requestId: string) =>
+    emit({
+      type: "control_request",
+      request_id: requestId,
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "AskUserQuestion",
+        tool_use_id: `tool_${requestId}`,
+        input: {
+          questions: [
+            {
+              question: "Which part should I start with?",
+              header: "Scope",
+              multiSelect: false,
+              options: [{ label: "Parser" }, { label: "Renderer" }],
+            },
+            {
+              question: "What should I fix?",
+              header: "Fixes",
+              multiSelect: true,
+              options: [{ label: "Significant bugs" }, { label: "Style nits" }],
+            },
+          ],
+        },
+      },
+    });
+
+  it("answers both questions of a two-question card and closes it", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    askTwo("ask_1");
+    await waitFor(() => !!asked(events), "question card");
+    const card = asked(events)!;
+    expect(card.questions.map((question) => question.header)).toEqual([
+      "Scope",
+      "Fixes",
+    ]);
+    const reply = {
+      kind: "answered" as const,
+      answers: {
+        [card.questions[0].id]: ["Parser"],
+        [card.questions[1].id]: ["Significant bugs", "Style nits"],
+      },
+    };
+    expect(respondClaudeQuestion("s1", card.requestId, reply)).toBe(true);
+    // The card is answered once; a second click reaches nothing.
+    expect(respondClaudeQuestion("s1", card.requestId, reply)).toBe(false);
+    await waitFor(() => !!responseFor("ask_1"), "AskUserQuestion response");
+    expect(responseFor("ask_1")).toMatchObject({
+      response: {
+        response: {
+          behavior: "allow",
+          updatedInput: {
+            answers: {
+              "Which part should I start with?": "Parser",
+              "What should I fix?": "Significant bugs, Style nits",
+            },
+          },
+        },
+      },
+    });
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: card.requestId,
+      decision: "answered",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("takes a reply given while the card is being shown", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const delivered: boolean[] = [];
+    const { events, turn } = await startTurn("s1", {
+      onEvent: (event) => {
+        if (event.type === "question.asked")
+          delivered.push(
+            respondClaudeQuestion("s1", event.requestId, { kind: "skipped" }),
+          );
+        if (event.type === "approval.requested") {
+          void import("./claude").then(({ respondClaudeApproval }) =>
+            respondClaudeApproval("s1", event.requestId, "deny"),
+          );
+        }
+      },
+    });
+    askTwo("ask_2");
+    await waitFor(() => !!responseFor("ask_2"), "skip response");
+    expect(delivered).toEqual([true]);
+    expect(responseFor("ask_2")).toMatchObject({
+      response: { response: { behavior: "deny" } },
+    });
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: asked(events)!.requestId,
+      decision: "skipped",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("closes open questions and approvals when the process is stopped", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    askTwo("ask_3");
+    emit({
+      type: "control_request",
+      request_id: "bash_3",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        input: { command: "npm test" },
+      },
+    });
+    await waitFor(
+      () =>
+        !!asked(events) &&
+        events.some((event) => event.type === "approval.requested"),
+      "question and approval cards",
+    );
+    const question = asked(events)!;
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    ) as Extract<HarnessEvent, { type: "approval.requested" }>;
+
+    await stopClaudeSession("s1");
+    await turn;
+
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: question.requestId,
+      decision: "cancelled",
+    });
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: approval.requestId,
+      decision: "cancelled",
+    });
+    // Each card closes once, and the stopped process is not answered.
+    expect(
+      events.filter((event) => event.type === "question.resolved"),
+    ).toHaveLength(1);
+    expect(responseFor("ask_3")).toBeUndefined();
+    expect(responseFor("bash_3")).toBeUndefined();
+    expect(
+      respondClaudeQuestion("s1", question.requestId, { kind: "skipped" }),
+    ).toBe(false);
+  });
+
+  it("closes open questions when Claude Code exits", async () => {
+    const { events, turn } = await startTurn("s1");
+    askTwo("ask_4");
+    await waitFor(() => !!asked(events), "question card");
+    onExit!(1);
+    await expect(turn).rejects.toThrow("Claude Code exited");
+    const closed = events.findIndex(
+      (event) =>
+        event.type === "question.resolved" && event.decision === "cancelled",
+    );
+    expect(closed).toBeGreaterThanOrEqual(0);
+    expect(closed).toBeLessThan(
+      events.findIndex((event) => event.type === "session.ended"),
+    );
+  });
+
+  it("closes the replaced process's question in the turn that replaced it", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const first = await startTurn("s1");
+    askTwo("ask_5");
+    await waitFor(() => !!asked(first.events), "question card");
+    const card = asked(first.events)!;
+
+    // A new message with other settings needs a new Claude Code process.
+    const next: HarnessEvent[] = [];
+    const second = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      modelSettings: { effort: "high" },
+      runtimeMode: "supervised",
+      text: "carry on",
+      attachments: [],
+      onEvent: (event) => next.push(event),
+    });
+    await waitFor(() => spawned.length === 2, "replacement process");
+    await first.turn;
+    expect(next).toContainEqual({
+      type: "question.resolved",
+      requestId: card.requestId,
+      decision: "cancelled",
+    });
+    expect(
+      respondClaudeQuestion("s1", card.requestId, { kind: "skipped" }),
+    ).toBe(false);
+
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length === 2,
+      "second prompt",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second;
   });
 });
