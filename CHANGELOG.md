@@ -2,19 +2,34 @@
 
 ## [Unreleased]
 
+## [0.1.147] - 2026-10-19
+
 ### Added
 
 - A first-run walkthrough for new installs, in one dialog with four steps: **Welcome**, **Agents** (the agent app setup that used to open by itself, with **Set up later** when no agent app is installed yet), **Project** and **Tour**. On **Project**, **Open a folder** adds a project you have, and **Try a sample** makes a tiny website (a page with a heading, a line of text and a button, its style sheet and a README) in Aven's own folder, with a first commit so Changes and Ship it work; nothing else on your computer is touched, and trying it again reuses it. **Skip setup** ends the walkthrough for good at any step. People who update from an earlier version don't see it.
 - A short tour over the real app, six stops at most: the message box, the sidebar's projects and chats, the browser, the side panel's Changes and **Ship it**, the board and Activity, and project memory. Each stop dims everything but what it points at and says what it does, with **Skip tour**, **Back**, **Next** and "2 of 6"; Escape leaves and Enter goes on. It opens the side panel on Changes for its stop and puts it back after, and skips a stop that isn't on screen. Browser pages show as a still picture while it runs. **Help › Take the Tour Again**, or **Settings › General › Take the tour again**, runs it any time.
 - After the walkthrough, Home shows **Getting started**: "About five minutes · hide this any time", with five steps that tick themselves as you do them: **Connect an agent**, **Add a project**, **Send your first message**, **Preview it** and **Ship it**. **Start** on the next one does it: it opens setup, the folder picker, a new chat in the sample with "Make the heading bigger" ready to send (never sent for you), a new chat asking the agent to open a preview, or the side panel's Changes. × hides the card for good, and once all five are done it says so and doesn't come back.
 
+### Changed
+
+- The Changes panel has one way to commit: **Ship it**. The separate message box and its Commit menu are gone; Ship it has the message box (with ⌘↩ and **Write**) and lets you choose Commit, Push or Open PR. While you have uncommitted changes, Create PR steps aside for Ship it; Publish Branch and Sync still push commits you already made, and View PR and merging stay while a pull request is open.
+- Changed files are one list, each file once, with open and discard. **Show staging** in its header brings back the Staged and Changes split with stage and unstage, and Aven remembers your choice. With staging hidden, a staged file has a small dot, Ship it takes every changed file, and discarding a file asks first and discards all of its changes, staged ones included.
+- Plainer words across the app. A conversation is a **chat** everywhere (New chat, Chats in the sidebar, Filter chats, Chat Changes, Archived chats, Chats & review), instead of a mix of session, task and conversation. The + menu says what each mode does ("Plans first; you approve before it changes anything", "Splits the job into parts and runs an agent on each"), access levels read **Ask first**, Auto-accept edits, Auto and Full access with a plain line each, the effort picker is called **Effort** for every app, and "Applies from the next turn" became "Applies from your next message".
+- Usage reads the same way in the footer and its panel: both show how much is **used**. The context ring says "64% of this chat's context used", and **Compact now** became **Free up space**.
+- The browser's Edit page is now **Comment on page**, Keep open and Recent explain themselves on hover, the right-hand panel is the **side panel** everywhere, "Needs approval" became **Needs you**, and the buttons under a reply say what they do ("Add to Project memory — every agent in this project will see it", "Ask another AI to check this reply").
+- Settings speak plainly: **While an agent is working, new messages** wait their turn or send right away (was Follow-up: Queue or Steer), "Use less memory for web pages", "Games in empty chats", "Mascot in the message box", and Install instead of Install CLI.
+- Agent setup speaks plainly: it asks which **agent apps** you want instead of providers, and its messages no longer mention a CLI or PATH ("Not installed yet. Install it, then press Check again. If you just installed it, restart Aven.").
+
 ### Fixed
 
 - The image popup sits on Aven's own window surface, in your theme and its glass, instead of covering the whole window in black, and follows light mode.
-
-### Changed
-
-- Agent setup speaks plainly: it asks which **agent apps** you want instead of providers, and its messages no longer mention a CLI or PATH ("Not installed yet. Install it, then press Check again. If you just installed it, restart Aven.").
+- Project memory opened from the hover sidebar finds Claude Code and Codex instead of saying they aren't installed, and one slow app no longer makes every app look missing. While Aven is still checking, the switch says "Checking for Claude Code or Codex…". The editor says why Save or Copy can't be pressed ("Nothing to save yet", "No changes to save"), and the list of who receives the memory is now one plain line: every agent in the project gets it, whichever app runs it.
+- A missing agent app reads "Claude Code isn't installed. Install it from Settings, or restart Aven if you just installed it." instead of an install command.
+- Agents in a race hear only about their own copy: its own dev server and edits, not the main project's server or the other agents' files, and they're told to preview their copy on its own server instead of a page that's already open. Chats in the main project no longer hear about the race copies.
+- Your commit or pull request preference no longer reaches an orchestrator's workers or a race's agents, whose own rules say not to commit or push.
+- Discussion partners are told it's a discussion: read files and run checks, but don't change files or commit unless you ask. A partner from another project is introduced with that project's name.
+- Keeping a race's result tells the kept agent what it built however you open its chat, and tells the chat the race started from whose version is now in the project.
+- **Have … build it** passes the chat that started a discussion the other agent's last reply when it hadn't seen it.
 
 ## [0.1.146] - 2026-10-18
 
