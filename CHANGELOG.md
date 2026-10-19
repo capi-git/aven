@@ -2,13 +2,6 @@
 
 ## [Unreleased]
 
-### Changed
-
-- The project board is now a board of the features you want built, in four columns: **Ideas**, **Building**, **Review** and **Shipped**. Write an idea in **Add an idea** at the foot of Ideas (Enter adds it, Escape clears it), and press **Build** to start a new chat that sends it, with your default agent, to be built. From then on the card moves by itself: to Building while any of its chats works (with the agent's mascot and what it's doing), to Review once work stops with changes (with **Review** and **Ship it**), and to Shipped with the date once you ship. When an agent waits on you, the card stays where it is with an amber **Needs you** saying what's needed, and **Allow** or **Answer**. Races, discussions and runs started from a card's chat count as its work.
-- Each card's **⋯** menu has **Open as draft** (a new chat with the idea typed in but not sent, so you can pick another agent, a race or the Orchestrator first), **Edit**, **Move to** and **Delete**. You can also drag a card to another column; a card you move stays there until something new happens in its chats. Shipped shows this week's cards, with the older ones folded away.
-- **Add to board** in a chat's menu in the sidebar gives it a card in the column its state implies. Chats that are working, need you or have changes but aren't on the board are counted on one line above the columns ("2 chats working outside the board"), where **Add them** puts them on it. In a project on GitHub, **Import issues** in Ideas adds open issues as ideas, each linked to its issue.
-- Cards are kept with Aven's own data for each project, never in the project's files, and go when you delete the project's data. Moving cards follows the Reduce motion setting.
-
 ## [0.1.147] - 2026-10-19
 
 ### Added
