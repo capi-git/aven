@@ -157,6 +157,11 @@ appears in a message or an attachment; tool output and reasoning do not count.
 Nothing is deleted while the turn is still running, and if Aven cannot tell
 whether a screenshot is shown, it keeps it.
 
+A chat keeps at most 300 screenshots. When it is full, a new screenshot makes
+room by deleting the chat's oldest screenshots that are neither labelled nor
+shown in its saved messages. Only when none can go is the screenshot refused,
+with "This chat already has 300 screenshots…".
+
 ## Markdown and code
 
 Ask to open a local file. The agent uses the scoped `openfile` action:

@@ -1348,12 +1348,21 @@ fn dispatch(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis();
+                // A full chat makes room from screenshots its saved
+                // messages do not show.
                 crate::turn_shots::store(
                     &app_data,
                     &grant.session_id,
                     label.as_deref(),
                     &image,
                     millis,
+                    |names| {
+                        server
+                            .app
+                            .try_state::<crate::session_store::SessionStore>()
+                            .ok_or("Chat history is unavailable")?
+                            .chat_mentions(&grant.session_id, names)
+                    },
                 )
             }
             #[cfg(not(all(feature = "chromium", target_os = "macos")))]

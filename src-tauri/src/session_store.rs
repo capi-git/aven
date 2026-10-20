@@ -2618,7 +2618,8 @@ mod tests {
             upsert_session(&conn, &sample("s2", "/tmp/a", "Second")).unwrap();
         }
         for id in ["s1", "s2"] {
-            crate::turn_shots::store(&root.0, id, Some("before"), &jpeg(1, 1), 1).unwrap();
+            crate::turn_shots::store(&root.0, id, Some("before"), &jpeg(1, 1), 1, |_| Ok(None))
+                .unwrap();
         }
         delete_session_and_assets(&store, Some(&root.0), "s1").unwrap();
         assert!(get_session(&store.conn.lock().unwrap(), "s1")

@@ -187,13 +187,16 @@ pub(crate) fn decode_png(data: &str) -> Result<(Vec<u8>, u32, u32), String> {
 }
 
 /// Write `<app data>/turn-shots/<session>/<millis>-<label>.jpg` without ever
-/// replacing an earlier image, and return the agent's JSON result.
+/// replacing an earlier image, and return the agent's JSON result. A chat at
+/// its limit first makes room (`make_room`); `mentions` answers which of some
+/// lowercase file names its saved messages show, as in `tidy_turn`.
 pub(crate) fn store(
     app_data: &Path,
     session_id: &str,
     label: Option<&str>,
     image: &Jpeg,
     millis: u128,
+    mentions: impl FnOnce(&[String]) -> Result<Option<HashSet<String>>, String>,
 ) -> Result<Value, String> {
     if !image.bytes.starts_with(&[0xff, 0xd8, 0xff]) {
         return Err("Screenshot is not a JPEG image".into());
@@ -205,20 +208,10 @@ pub(crate) fn store(
     let dir = session_dir(app_data, session_id)?;
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Could not save the screenshot: {error}"))?;
-    let existing = std::fs::read_dir(&dir)
-        .map_err(|error| format!("Could not save the screenshot: {error}"))?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|ext| EXTENSIONS.iter().any(|known| ext == *known))
-        })
-        .count();
-    if existing >= MAX_PER_SESSION {
-        return Err(format!(
-            "This task already has {MAX_PER_SESSION} screenshots. Start a new task to take more."
-        ));
+    let existing =
+        shots(&dir).map_err(|error| format!("Could not save the screenshot: {error}"))?;
+    if existing.len() >= MAX_PER_SESSION {
+        make_room(existing, mentions)?;
     }
     let slug = file_label(label);
     for attempt in 1..=16 {
@@ -250,6 +243,47 @@ pub(crate) fn store(
         }));
     }
     Err("Could not choose a screenshot file name. Retry shortly.".into())
+}
+
+/// A full chat makes room for one more screenshot by deleting its oldest
+/// unlabelled ones that its saved messages do not show. When none can go, or
+/// what the chat shows cannot be read, the screenshot is refused.
+fn make_room(
+    shots: Vec<Shot>,
+    mentions: impl FnOnce(&[String]) -> Result<Option<HashSet<String>>, String>,
+) -> Result<(), String> {
+    let needed = shots.len() + 1 - MAX_PER_SESSION;
+    let unlabelled: Vec<Shot> = shots.into_iter().filter(|shot| !shot.labelled).collect();
+    let names: Vec<String> = unlabelled
+        .iter()
+        .map(|shot| shot.name.to_ascii_lowercase())
+        .collect();
+    let shown = if unlabelled.is_empty() {
+        Some(HashSet::new())
+    } else {
+        mentions(&names).ok().flatten()
+    };
+    let Some(shown) = shown else {
+        return Err(format!(
+            "This chat already has {MAX_PER_SESSION} screenshots. Start a new chat to take more."
+        ));
+    };
+    let mut removed = 0;
+    for (shot, name) in unlabelled.iter().zip(&names) {
+        if removed == needed {
+            break;
+        }
+        if !shown.contains(name) && std::fs::remove_file(&shot.path).is_ok() {
+            removed += 1;
+        }
+    }
+    if removed < needed {
+        return Err(format!(
+            "This chat already has {MAX_PER_SESSION} screenshots, each labelled or shown in its \
+             messages. Start a new chat to take more."
+        ));
+    }
+    Ok(())
 }
 
 /// Missing folders are already clean; a chat never shares its folder.
@@ -356,6 +390,11 @@ pub(crate) mod tests {
         crate::turn_shot_image::compress(&png, 1.0).unwrap()
     }
 
+    /// A chat that was never saved.
+    pub(crate) fn unsaved(_: &[String]) -> Result<Option<HashSet<String>>, String> {
+        Ok(None)
+    }
+
     /// Only a PNG signature and header: enough for `decode_png`, not to decode.
     pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = vec![137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13];
@@ -454,15 +493,15 @@ pub(crate) mod tests {
         let root = TemporaryDirectory::new();
         let dir = root.0.join("turn-shots").join("s1");
         // Earlier turn, this turn (1000..=2000), and a later turn.
-        store(&root.0, "s1", None, &jpeg(1, 1), 900).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
-        store(&root.0, "s1", Some("before"), &jpeg(1, 1), 1100).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 1200).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 1300).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 1400).unwrap();
-        store(&root.0, "s1", Some("after"), &jpeg(1, 1), 2000).unwrap();
-        store(&root.0, "s1", None, &jpeg(1, 1), 2001).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 900, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000, unsaved).unwrap();
+        store(&root.0, "s1", Some("before"), &jpeg(1, 1), 1100, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1200, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1300, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1400, unsaved).unwrap();
+        store(&root.0, "s1", Some("after"), &jpeg(1, 1), 2000, unsaved).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 2001, unsaved).unwrap();
         // An earlier version's PNG from this turn, and files that are not
         // screenshots, are judged by name only.
         std::fs::write(dir.join("1500-page.png"), b"png").unwrap();
@@ -522,7 +561,7 @@ pub(crate) mod tests {
     fn a_turn_keeps_everything_when_the_chat_cannot_be_read() {
         let root = TemporaryDirectory::new();
         let dir = root.0.join("turn-shots").join("s1");
-        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000, unsaved).unwrap();
         let unreadable = tidy_turn(&root.0, "s1", 0, 5000, &HashSet::new(), |_| {
             Err("Chat history could not be opened".into())
         });
@@ -566,8 +605,24 @@ pub(crate) mod tests {
     #[test]
     fn stores_each_capture_under_its_session_without_overwriting() {
         let root = TemporaryDirectory::new();
-        let first = store(&root.0, "session-a", Some("Before"), &jpeg(2, 3), 1700).unwrap();
-        let second = store(&root.0, "session-a", Some("Before"), &jpeg(4, 5), 1700).unwrap();
+        let first = store(
+            &root.0,
+            "session-a",
+            Some("Before"),
+            &jpeg(2, 3),
+            1700,
+            unsaved,
+        )
+        .unwrap();
+        let second = store(
+            &root.0,
+            "session-a",
+            Some("Before"),
+            &jpeg(4, 5),
+            1700,
+            unsaved,
+        )
+        .unwrap();
         let dir = root.0.join("turn-shots").join("session-a");
         assert_eq!(
             first["path"],
@@ -589,7 +644,7 @@ pub(crate) mod tests {
             std::fs::read(dir.join("1700-before.jpg")).unwrap(),
             jpeg(2, 3).bytes
         );
-        let unlabeled = store(&root.0, "session-a", None, &jpeg(1, 1), 1800).unwrap();
+        let unlabeled = store(&root.0, "session-a", None, &jpeg(1, 1), 1800, unsaved).unwrap();
         assert_eq!(
             unlabeled["path"],
             dir.join("1800-page.jpg").to_string_lossy().as_ref()
@@ -599,37 +654,121 @@ pub(crate) mod tests {
             .unwrap()
             .starts_with("![Screenshot](<"));
         for session in ["", "../other", "a/b"] {
-            assert!(store(&root.0, session, None, &jpeg(1, 1), 1).is_err());
+            assert!(store(&root.0, session, None, &jpeg(1, 1), 1, unsaved).is_err());
         }
         let not_jpeg = Jpeg {
             bytes: png(1, 1),
             width: 1,
             height: 1,
         };
-        assert!(store(&root.0, "session-a", None, &not_jpeg, 1).is_err());
+        assert!(store(&root.0, "session-a", None, &not_jpeg, 1, unsaved).is_err());
+    }
+
+    /// Fill a chat to its limit: `labelled` labelled files first, then
+    /// unlabelled ones, one millisecond apart, alternating JPEG and PNG.
+    fn fill(root: &Path, session: &str, labelled: usize) -> PathBuf {
+        let dir = root.join("turn-shots").join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        for index in 0..MAX_PER_SESSION {
+            let label = if index < labelled {
+                "before"
+            } else {
+                UNLABELLED
+            };
+            let extension = EXTENSIONS[index % 2];
+            let name = format!("{}-{label}.{extension}", 1000 + index);
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        dir
     }
 
     #[test]
-    fn refuses_more_than_the_session_limit() {
+    fn a_full_chat_makes_room_from_its_oldest_unshown_screenshots() {
         let root = TemporaryDirectory::new();
-        let dir = root.0.join("turn-shots").join("busy");
-        std::fs::create_dir_all(&dir).unwrap();
-        // Earlier PNG files count towards the limit with new JPEG files.
-        for index in 0..MAX_PER_SESSION {
-            let extension = EXTENSIONS[index % 2];
-            std::fs::write(dir.join(format!("{index}-page.{extension}")), b"").unwrap();
+        // 1000-1009 are labelled; 1010 and 1011 (an earlier PNG) are shown.
+        let dir = fill(&root.0, "busy", 10);
+        let mut asked = Vec::new();
+        let saved = store(&root.0, "busy", None, &jpeg(1, 1), 9000, |names| {
+            asked = names.to_vec();
+            Ok(Some(set(&["1010-page.jpg", "1011-page.png"])))
+        })
+        .unwrap();
+        assert!(saved["path"].as_str().unwrap().ends_with("9000-page.jpg"));
+        // Only unlabelled screenshots are considered, oldest first.
+        assert_eq!(asked.len(), MAX_PER_SESSION - 10);
+        assert_eq!(
+            asked[..3],
+            ["1010-page.jpg", "1011-page.png", "1012-page.jpg"]
+        );
+        let left = names(&dir);
+        assert_eq!(left.len(), MAX_PER_SESSION);
+        assert!(!left.contains(&"1012-page.jpg".to_string()));
+        for kept in [
+            "1000-before.jpg",
+            "1009-before.png",
+            "1010-page.jpg",
+            "1011-page.png",
+        ] {
+            assert!(left.contains(&kept.to_string()), "{kept}");
         }
-        assert!(store(&root.0, "busy", None, &jpeg(1, 1), 1)
-            .unwrap_err()
-            .contains("already has"));
-        assert!(store(&root.0, "other", None, &jpeg(1, 1), 1).is_ok());
+        // The next one removes the next oldest unshown screenshot.
+        store(&root.0, "busy", Some("after"), &jpeg(1, 1), 9001, |_| {
+            Ok(Some(HashSet::new()))
+        })
+        .unwrap();
+        let left = names(&dir);
+        assert_eq!(left.len(), MAX_PER_SESSION);
+        assert!(!left.contains(&"1010-page.jpg".to_string()));
+        assert!(left.contains(&"9001-after.jpg".to_string()));
+        assert!(store(&root.0, "other", None, &jpeg(1, 1), 1, unsaved).is_ok());
+    }
+
+    #[test]
+    fn a_full_chat_refuses_only_when_nothing_can_go() {
+        let root = TemporaryDirectory::new();
+        // Every screenshot labelled: the saved chat is not even asked.
+        let dir = fill(&root.0, "labelled", MAX_PER_SESSION);
+        let error = store(&root.0, "labelled", None, &jpeg(1, 1), 9000, |_| {
+            panic!("not asked")
+        })
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "This chat already has 300 screenshots, each labelled or shown in its messages. \
+             Start a new chat to take more."
+        );
+        assert_eq!(names(&dir).len(), MAX_PER_SESSION);
+        // Every unlabelled one shown in the chat.
+        let dir = fill(&root.0, "shown", 100);
+        let error = store(&root.0, "shown", None, &jpeg(1, 1), 9000, |names| {
+            Ok(Some(names.iter().cloned().collect()))
+        })
+        .unwrap_err();
+        assert!(error.starts_with("This chat already has 300 screenshots, each labelled"));
+        assert_eq!(names(&dir).len(), MAX_PER_SESSION);
+        // Unsure what the chat shows: keep everything.
+        for (session, mentions) in [
+            ("unsaved", Ok(None)),
+            (
+                "unreadable",
+                Err("Chat history could not be opened".to_string()),
+            ),
+        ] {
+            let dir = fill(&root.0, session, 0);
+            let error = store(&root.0, session, None, &jpeg(1, 1), 9000, |_| mentions).unwrap_err();
+            assert_eq!(
+                error,
+                "This chat already has 300 screenshots. Start a new chat to take more."
+            );
+            assert_eq!(names(&dir).len(), MAX_PER_SESSION);
+        }
     }
 
     #[test]
     fn removing_a_session_deletes_only_its_folder() {
         let root = TemporaryDirectory::new();
-        store(&root.0, "gone", Some("after"), &jpeg(1, 1), 1).unwrap();
-        store(&root.0, "kept", Some("after"), &jpeg(1, 1), 1).unwrap();
+        store(&root.0, "gone", Some("after"), &jpeg(1, 1), 1, unsaved).unwrap();
+        store(&root.0, "kept", Some("after"), &jpeg(1, 1), 1, unsaved).unwrap();
         remove_session(&root.0, "gone").unwrap();
         remove_session(&root.0, "gone").unwrap();
         assert!(!root.0.join("turn-shots/gone").exists());
