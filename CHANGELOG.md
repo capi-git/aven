@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.149] - 2026-10-19
+
+### Changed
+
+- With Glass all the way off (Solid), Aven's default dark theme is a neutral dark grey (#0a0a0a) instead of pure black: the window, sidebar, chat and panels. Any glass keeps today's black glass, and light mode, custom colours and the Black palette are unchanged. Windows, which has no glass, gets the grey too.
+- The Effort list shows just the level names again; what Low, Extra High and Max cost ("Most thorough. Often several times slower.") shows when you hover over them.
+
+### Fixed
+
+- The browser no longer warns that a page "is taking longer to load" once the page is showing and only video, live data or trackers keep it loading, and it mentions a local server only for local previews.
+
 ## [0.1.148] - 2026-10-19
 
 ### Changed
