@@ -106,6 +106,7 @@ import {
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
+import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
 import {
   agentKeepAwakeProgress,
@@ -2331,6 +2332,9 @@ export default function App({
     busySessionIdsRef.current = nextBusySessionIds;
   }
   const busySessionIds = busySessionIdsRef.current;
+  // A turn's page screenshots that are neither labelled nor shown in the
+  // chat are deleted once the chat stops working.
+  useTurnShotTidy(busySessionIds, sessionsRef);
   // Working chats hold off idle sleep (Settings > Tasks), shared with
   // automations. Chats waiting for the user's answer or approval do not.
   const keepAwakeSessionIds = useMemo(

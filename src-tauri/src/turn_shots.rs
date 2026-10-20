@@ -2,14 +2,21 @@
 //! after pair. Each chat owns one folder under app data, deleted with the chat.
 //! New screenshots are compressed JPEG files (see `turn_shot_image`); PNG files
 //! saved by earlier versions stay as they are.
+//!
+//! A file is named `<millis>-<label>.jpg`; an unlabelled one uses the label
+//! `page`. When a turn ends, its unlabelled screenshots that the chat's
+//! messages do not show are deleted (`tidy_turn`).
 #![cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use serde_json::{json, Value};
+use tauri::{AppHandle, Manager, State};
 
+use crate::session_store::SessionStore;
 use crate::turn_shot_image::Jpeg;
 
 const DIR: &str = "turn-shots";
@@ -21,6 +28,10 @@ const EXTENSIONS: [&str; 2] = [EXTENSION, "png"];
 const MAX_PER_SESSION: usize = 300;
 const MAX_LABEL_BYTES: usize = 64;
 const MAX_FILE_LABEL_CHARS: usize = 32;
+/// The file label of a screenshot taken without a label.
+const UNLABELLED: &str = "page";
+/// Bounds the file names a turn's end may report as shown in the chat.
+const MAX_REFERENCED: usize = 10_000;
 
 fn session_dir(app_data: &Path, session_id: &str) -> Result<PathBuf, String> {
     crate::session_store::validate_id(session_id, "session")?;
@@ -39,10 +50,26 @@ pub(crate) fn validate_label(label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `page`, or `page-2` for a second capture in the same millisecond.
+fn is_unlabelled(slug: &str) -> bool {
+    slug == UNLABELLED
+        || slug
+            .strip_prefix(UNLABELLED)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|attempt| {
+                !attempt.is_empty() && attempt.bytes().all(|byte| byte.is_ascii_digit())
+            })
+}
+
 /// Labels become part of a file name, so keep only a lowercase ASCII slug.
+/// A labelled file never looks unlabelled: a label of "Page", or one with no
+/// ASCII letters or digits, is marked `labelled`.
 fn file_label(label: Option<&str>) -> String {
+    let Some(label) = label else {
+        return UNLABELLED.into();
+    };
     let mut slug = String::new();
-    for character in label.unwrap_or_default().chars() {
+    for character in label.chars() {
         if character.is_ascii_alphanumeric() {
             slug.push(character.to_ascii_lowercase());
         } else if !slug.is_empty() && !slug.ends_with('-') {
@@ -54,10 +81,60 @@ fn file_label(label: Option<&str>) -> String {
     }
     let slug = slug.trim_end_matches('-');
     if slug.is_empty() {
-        "page".into()
+        "labelled".into()
+    } else if is_unlabelled(slug) {
+        format!("labelled-{slug}")
     } else {
         slug.into()
     }
+}
+
+/// A saved screenshot, read from its file name.
+#[derive(Debug)]
+struct Shot {
+    name: String,
+    path: PathBuf,
+    millis: u64,
+    labelled: bool,
+}
+
+/// `<millis>-<slug>[-<attempt>].<jpg|png>`, as `store` names files.
+fn parse_shot(name: &str) -> Option<(u64, bool)> {
+    let (stem, extension) = name.rsplit_once('.')?;
+    let (millis, slug) = stem.split_once('-')?;
+    let valid = EXTENSIONS.contains(&extension)
+        && !millis.is_empty()
+        && millis.bytes().all(|byte| byte.is_ascii_digit())
+        && !slug.is_empty()
+        && slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+    valid.then_some((millis.parse().ok()?, !is_unlabelled(slug)))
+}
+
+/// The chat's screenshots, oldest first. Other files are never included.
+fn shots(dir: &Path) -> std::io::Result<Vec<Shot>> {
+    let mut shots = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        // Not followed: a link is never a screenshot this module saved.
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if let Some((millis, labelled)) = parse_shot(&name) {
+            shots.push(Shot {
+                path: entry.path(),
+                name,
+                millis,
+                labelled,
+            });
+        }
+    }
+    shots.sort_by(|a, b| (a.millis, &a.name).cmp(&(b.millis, &b.name)));
+    Ok(shots)
 }
 
 /// Markdown the agent can paste unchanged. App data paths contain spaces on
@@ -184,6 +261,76 @@ pub(crate) fn remove_session(app_data: &Path, session_id: &str) -> Result<(), St
     }
 }
 
+/// After a turn ends: delete the screenshots taken between `from` and `to`
+/// (milliseconds) that are unlabelled and that neither `referenced` (file
+/// names the window found in the chat's messages) nor the saved chat
+/// mentions. `mentions` answers which of some lowercase file names the
+/// chat's saved messages show or mention (`None` when the chat has no saved
+/// transcript); when it fails, everything is kept. Returns the names removed.
+pub(crate) fn tidy_turn(
+    app_data: &Path,
+    session_id: &str,
+    from: u64,
+    to: u64,
+    referenced: &HashSet<String>,
+    mentions: impl FnOnce(&[String]) -> Result<Option<HashSet<String>>, String>,
+) -> Result<Vec<String>, String> {
+    let dir = session_dir(app_data, session_id)?;
+    let shots = match shots(&dir) {
+        Ok(shots) => shots,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut candidates: Vec<Shot> = shots
+        .into_iter()
+        .filter(|shot| {
+            !shot.labelled
+                && (from..=to).contains(&shot.millis)
+                && !referenced.contains(&shot.name.to_ascii_lowercase())
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let names: Vec<String> = candidates
+        .iter()
+        .map(|shot| shot.name.to_ascii_lowercase())
+        .collect();
+    let saved = mentions(&names)?.unwrap_or_default();
+    candidates.retain(|shot| !saved.contains(&shot.name.to_ascii_lowercase()));
+    Ok(candidates
+        .into_iter()
+        .filter_map(|shot| std::fs::remove_file(&shot.path).ok().map(|()| shot.name))
+        .collect())
+}
+
+/// The window saw a chat stop working: tidy the screenshots of that turn.
+#[tauri::command(async)]
+pub fn turn_shots_tidy(
+    app: AppHandle,
+    store: State<'_, SessionStore>,
+    session_id: String,
+    from: u64,
+    to: u64,
+    referenced: Vec<String>,
+) -> Result<usize, String> {
+    if referenced.len() > MAX_REFERENCED || from > to {
+        return Err("Invalid screenshot cleanup request".into());
+    }
+    let referenced = referenced
+        .iter()
+        .map(|name| name.to_ascii_lowercase())
+        .collect();
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    tidy_turn(&app_data, &session_id, from, to, &referenced, |names| {
+        store.chat_mentions(&session_id, names)
+    })
+    .map(|removed| removed.len())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -228,7 +375,12 @@ pub(crate) mod tests {
             "after-settings-dark"
         );
         assert_eq!(file_label(Some("../../etc/passwd")), "etc-passwd");
-        assert_eq!(file_label(Some("☃☃")), "page");
+        // A labelled file never takes the unlabelled name.
+        assert_eq!(file_label(Some("☃☃")), "labelled");
+        assert_eq!(file_label(Some("Page")), "labelled-page");
+        assert_eq!(file_label(Some("page 2")), "labelled-page-2");
+        assert_eq!(file_label(Some("Pages")), "pages");
+        assert_eq!(file_label(Some("page two")), "page-two");
         assert_eq!(
             file_label(Some(&"x".repeat(60))).len(),
             MAX_FILE_LABEL_CHARS
@@ -238,6 +390,158 @@ pub(crate) mod tests {
         for label in ["", "   ", "a\nb", "tab\there", &"x".repeat(65)] {
             assert!(validate_label(label).is_err(), "{label:?}");
         }
+    }
+
+    #[test]
+    fn file_names_tell_when_and_whether_a_screenshot_was_labelled() {
+        assert_eq!(
+            parse_shot("1792438599200-page.jpg"),
+            Some((1792438599200, false))
+        );
+        assert_eq!(
+            parse_shot("1792438599200-page-2.jpg"),
+            Some((1792438599200, false))
+        );
+        assert_eq!(
+            parse_shot("1792438599200-page.png"),
+            Some((1792438599200, false))
+        );
+        assert_eq!(parse_shot("1700-before.jpg"), Some((1700, true)));
+        assert_eq!(parse_shot("1700-before-2.png"), Some((1700, true)));
+        assert_eq!(parse_shot("1700-labelled-page.jpg"), Some((1700, true)));
+        assert_eq!(parse_shot("1700-page-two.jpg"), Some((1700, true)));
+        for other in [
+            "1700-page.gif",
+            "1700-page",
+            "page.jpg",
+            "-page.jpg",
+            "17a0-page.jpg",
+            "1700-.jpg",
+            "1700-Page.jpg",
+            "1700-page.jpg.tmp",
+            ".DS_Store",
+        ] {
+            assert_eq!(parse_shot(other), None, "{other}");
+        }
+        // Every name `store` writes reads back with its label state.
+        for label in [
+            None,
+            Some("Before"),
+            Some("page"),
+            Some("☃"),
+            Some("page 3"),
+        ] {
+            let name = format!("1700-{}.{EXTENSION}", file_label(label));
+            assert_eq!(parse_shot(&name), Some((1700, label.is_some())), "{name}");
+        }
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn set(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn a_turn_keeps_only_labelled_and_shown_screenshots() {
+        let root = TemporaryDirectory::new();
+        let dir = root.0.join("turn-shots").join("s1");
+        // Earlier turn, this turn (1000..=2000), and a later turn.
+        store(&root.0, "s1", None, &jpeg(1, 1), 900).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
+        store(&root.0, "s1", Some("before"), &jpeg(1, 1), 1100).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1200).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1300).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 1400).unwrap();
+        store(&root.0, "s1", Some("after"), &jpeg(1, 1), 2000).unwrap();
+        store(&root.0, "s1", None, &jpeg(1, 1), 2001).unwrap();
+        // An earlier version's PNG from this turn, and files that are not
+        // screenshots, are judged by name only.
+        std::fs::write(dir.join("1500-page.png"), b"png").unwrap();
+        std::fs::write(dir.join("1600-notes.txt"), b"keep").unwrap();
+        std::fs::create_dir(dir.join("1700-page.jpg")).unwrap();
+        let mut asked = Vec::new();
+        let removed = tidy_turn(
+            &root.0,
+            "s1",
+            1000,
+            2000,
+            // The reply shows one (in any case); the saved chat mentions another.
+            &set(&["1200-page.jpg", "unrelated.jpg"]),
+            |names| {
+                asked = names.to_vec();
+                Ok(Some(set(&["1300-page.jpg"])))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            asked,
+            [
+                "1000-page-2.jpg",
+                "1000-page.jpg",
+                "1300-page.jpg",
+                "1400-page.jpg",
+                "1500-page.png"
+            ]
+        );
+        let mut removed = removed;
+        removed.sort();
+        assert_eq!(
+            removed,
+            [
+                "1000-page-2.jpg",
+                "1000-page.jpg",
+                "1400-page.jpg",
+                "1500-page.png"
+            ]
+        );
+        assert_eq!(
+            names(&dir),
+            [
+                "1100-before.jpg",
+                "1200-page.jpg",
+                "1300-page.jpg",
+                "1600-notes.txt",
+                "1700-page.jpg",
+                "2000-after.jpg",
+                "2001-page.jpg",
+                "900-page.jpg"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_turn_keeps_everything_when_the_chat_cannot_be_read() {
+        let root = TemporaryDirectory::new();
+        let dir = root.0.join("turn-shots").join("s1");
+        store(&root.0, "s1", None, &jpeg(1, 1), 1000).unwrap();
+        let unreadable = tidy_turn(&root.0, "s1", 0, 5000, &HashSet::new(), |_| {
+            Err("Chat history could not be opened".into())
+        });
+        assert!(unreadable.is_err());
+        assert_eq!(names(&dir), ["1000-page.jpg"]);
+        // Nothing to judge: the saved chat is not even asked.
+        let quiet = tidy_turn(&root.0, "s1", 0, 999, &HashSet::new(), |_| {
+            panic!("not asked")
+        });
+        assert_eq!(quiet.unwrap(), Vec::<String>::new());
+        // A chat that was never saved relies on the window's references.
+        let unsaved = tidy_turn(&root.0, "s1", 0, 5000, &HashSet::new(), |_| Ok(None));
+        assert_eq!(unsaved.unwrap(), ["1000-page.jpg"]);
+        // A chat without screenshots, or with an invalid id.
+        assert_eq!(
+            tidy_turn(&root.0, "none", 0, 5000, &HashSet::new(), |_| Ok(None)).unwrap(),
+            Vec::<String>::new()
+        );
+        assert!(tidy_turn(&root.0, "../s1", 0, 5000, &HashSet::new(), |_| Ok(None)).is_err());
     }
 
     #[test]

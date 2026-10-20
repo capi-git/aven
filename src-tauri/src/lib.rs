@@ -537,6 +537,7 @@ pub fn run() {
             session_store::session_search,
             session_store::session_get,
             session_store::session_delete,
+            turn_shots::turn_shots_tidy,
             session_store::session_set_archived,
             session_store::session_set_pinned,
             session_store::session_set_in_flight,

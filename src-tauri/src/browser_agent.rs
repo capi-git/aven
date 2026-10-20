@@ -1461,7 +1461,9 @@ captures are scaled to 1x) and returns {path,width,height,markdown}. A page
 shown on screen is captured as the user sees it; a background page is captured
 at its current size. Capture after the page finishes loading. Label is optional
 plain text up to 64 bytes. To show the image, paste the returned markdown; open
-the image with an image or file reader before describing it.
+the image with an image or file reader before describing it. When your turn
+ends, Aven deletes that turn's unlabelled screenshots that no message in this
+chat shows; label a screenshot to keep it.
 Native file pickers and cross-origin frame controls need the user's interaction.
 Openfile displays Markdown, code, JSON, and other UTF-8 text in this chat's Aven
 editor. Use an absolute path; the file must exist and be no larger than 8 MB.
@@ -1910,6 +1912,7 @@ mod tests {
             assert!(HELP.contains(advice), "{advice}");
         }
         assert!(HELP.contains("Screenshot saves a compressed JPEG of the page"));
+        assert!(HELP.contains("When your turn\nends, Aven deletes that turn's unlabelled screenshots that no message in this\nchat shows; label a screenshot to keep it."));
         assert!(!HELP.contains("PNG"));
         assert!(!HELP.contains("task"));
     }

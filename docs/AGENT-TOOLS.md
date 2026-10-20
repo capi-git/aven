@@ -150,6 +150,13 @@ at a fraction of a PNG's size. Screenshots are kept in Aven's app data folder
 under `turn-shots` and deleted with their chat. PNG files saved by earlier
 versions stay as they are.
 
+When a chat's turn ends, Aven deletes the screenshots taken during that turn
+that are neither labelled nor shown in the chat's messages, such as one taken
+only to look at a page. A screenshot counts as shown when its file name
+appears in a message or an attachment; tool output and reasoning do not count.
+Nothing is deleted while the turn is still running, and if Aven cannot tell
+whether a screenshot is shown, it keeps it.
+
 ## Markdown and code
 
 Ask to open a local file. The agent uses the scoped `openfile` action:
