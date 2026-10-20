@@ -1335,6 +1335,10 @@ fn dispatch(
                     .and_then(Value::as_str)
                     .ok_or("Chromium did not return an image")?;
                 let (png, _, _) = crate::turn_shots::decode_png(data)?;
+                // Captures are in device pixels; the backing scale brings a
+                // Retina capture back to the page's on-screen size.
+                let scale = tauri::async_runtime::block_on(page.scale_factor());
+                let image = crate::turn_shot_image::compress(&png, scale)?;
                 let app_data = server
                     .app
                     .path()
@@ -1348,7 +1352,7 @@ fn dispatch(
                     &app_data,
                     &grant.session_id,
                     label.as_deref(),
-                    &png,
+                    &image,
                     millis,
                 )
             }
@@ -1452,11 +1456,12 @@ Check pages by reading, not pictures. Use snapshot to check text, structure,
 state and behaviour, including after a click or fill. Take a screenshot only to
 judge how something looks, typically one labelled "before" and one "after" per
 visual change. Do not screenshot just to confirm text a snapshot shows.
-Screenshot saves a PNG of the page and returns {path,width,height,markdown}.
-A page shown on screen is captured as the user sees it; a background page is
-captured at its current size. Capture after the page finishes loading. Label is
-optional plain text up to 64 bytes. To show the image, paste the returned
-markdown; open the PNG with an image or file reader before describing it.
+Screenshot saves a compressed JPEG of the page at its on-screen size (Retina
+captures are scaled to 1x) and returns {path,width,height,markdown}. A page
+shown on screen is captured as the user sees it; a background page is captured
+at its current size. Capture after the page finishes loading. Label is optional
+plain text up to 64 bytes. To show the image, paste the returned markdown; open
+the image with an image or file reader before describing it.
 Native file pickers and cross-origin frame controls need the user's interaction.
 Openfile displays Markdown, code, JSON, and other UTF-8 text in this chat's Aven
 editor. Use an absolute path; the file must exist and be no larger than 8 MB.
@@ -1904,6 +1909,8 @@ mod tests {
         ] {
             assert!(HELP.contains(advice), "{advice}");
         }
+        assert!(HELP.contains("Screenshot saves a compressed JPEG of the page"));
+        assert!(!HELP.contains("PNG"));
         assert!(!HELP.contains("task"));
     }
 

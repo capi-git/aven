@@ -143,8 +143,12 @@ something looks, typically one before and one after each visual change, and
 never just to confirm text a snapshot already shows.
 
 A page on screen is captured as you see it, without changing its size or zoom.
-A background tab is captured at its current size. Screenshots are kept in Aven's
-app data folder under `turn-shots` and deleted with their task.
+A background tab is captured at its current size. Screenshots are saved as
+compressed JPEG files at the page's on-screen size: a Retina capture is scaled
+to 1x and the long edge is at most 2,000 pixels, so small text stays readable
+at a fraction of a PNG's size. Screenshots are kept in Aven's app data folder
+under `turn-shots` and deleted with their chat. PNG files saved by earlier
+versions stay as they are.
 
 ## Markdown and code
 

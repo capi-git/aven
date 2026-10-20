@@ -1295,6 +1295,23 @@ impl ChromiumPage {
         self.request(request, None, false, None).await
     }
 
+    /// Backing scale (2.0 on Retina) of the window showing this page: its
+    /// Picture in Picture window, a detached workspace, or its owner's window.
+    pub(crate) async fn scale_factor(&self) -> f64 {
+        let label = {
+            let placement = self.0.placement.lock().await;
+            placement
+                .window
+                .clone()
+                .or_else(|| placement.detached_window.clone())
+        };
+        label
+            .and_then(|label| self.0.caller.app_handle().get_window(&label))
+            .unwrap_or_else(|| self.0.caller.window())
+            .scale_factor()
+            .unwrap_or(1.0)
+    }
+
     /// A command that gives up sooner than the default wait. The native
     /// operation may still finish later; its result is then discarded.
     pub(crate) async fn command_within(

@@ -2486,7 +2486,7 @@ mod tests {
 
     #[test]
     fn delete_removes_the_sessions_page_screenshots() {
-        use crate::turn_shots::tests::{png, TemporaryDirectory};
+        use crate::turn_shots::tests::{jpeg, TemporaryDirectory};
         let root = TemporaryDirectory::new();
         let store = SessionStore::open_in_memory().unwrap();
         {
@@ -2495,15 +2495,15 @@ mod tests {
             upsert_session(&conn, &sample("s2", "/tmp/a", "Second")).unwrap();
         }
         for id in ["s1", "s2"] {
-            crate::turn_shots::store(&root.0, id, Some("before"), &png(1, 1), 1).unwrap();
+            crate::turn_shots::store(&root.0, id, Some("before"), &jpeg(1, 1), 1).unwrap();
         }
         delete_session_and_assets(&store, Some(&root.0), "s1").unwrap();
         assert!(get_session(&store.conn.lock().unwrap(), "s1")
             .unwrap()
             .is_none());
         assert!(!root.0.join("turn-shots/s1").exists());
-        assert!(root.0.join("turn-shots/s2/1-before.png").is_file());
-        // A task without screenshots, or without a resolvable app data folder,
+        assert!(root.0.join("turn-shots/s2/1-before.jpg").is_file());
+        // A chat without screenshots, or without a resolvable app data folder,
         // still deletes normally.
         delete_session_and_assets(&store, Some(&root.0), "s2").unwrap();
         delete_session_and_assets(&store, None, "missing").unwrap();

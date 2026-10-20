@@ -39,6 +39,15 @@ describe("displayAppData", () => {
     expect(displayAppData(path)).toBe(`Aven data/${SHOT}`);
   });
 
+  it("names the folder for compressed JPEG screenshots too", () => {
+    const shot = "turn-shots/11e225b6/1792438599200-page.jpg";
+    expect(
+      displayAppData(
+        `Reading /Users/jack/Library/Application Support/com.capi.monocode.personal/${shot}`,
+      ),
+    ).toBe(`Reading Aven data/${shot}`);
+  });
+
   it("keeps a Windows path's own separators", () => {
     expect(
       displayAppData(

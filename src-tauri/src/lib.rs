@@ -74,6 +74,7 @@ mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
 mod team_watch;
+mod turn_shot_image;
 mod turn_shots;
 mod update_restart;
 mod usage_panel;

@@ -1,5 +1,7 @@
 //! Page screenshots that agents show in their replies, usually a before and
-//! after pair. Each task owns one folder under app data, deleted with the task.
+//! after pair. Each chat owns one folder under app data, deleted with the chat.
+//! New screenshots are compressed JPEG files (see `turn_shot_image`); PNG files
+//! saved by earlier versions stay as they are.
 #![cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 
 use std::io::Write;
@@ -8,9 +10,14 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde_json::{json, Value};
 
+use crate::turn_shot_image::Jpeg;
+
 const DIR: &str = "turn-shots";
 /// Native capture already bounds images to 8 MB of base64; this guards disk.
 const MAX_BYTES: usize = 8 * 1024 * 1024;
+/// New screenshots; earlier versions saved `png`.
+const EXTENSION: &str = "jpg";
+const EXTENSIONS: [&str; 2] = [EXTENSION, "png"];
 const MAX_PER_SESSION: usize = 300;
 const MAX_LABEL_BYTES: usize = 64;
 const MAX_FILE_LABEL_CHARS: usize = 32;
@@ -102,26 +109,34 @@ pub(crate) fn decode_png(data: &str) -> Result<(Vec<u8>, u32, u32), String> {
     Ok((bytes, width, height))
 }
 
-/// Write `<app data>/turn-shots/<session>/<millis>-<label>.png` without ever
+/// Write `<app data>/turn-shots/<session>/<millis>-<label>.jpg` without ever
 /// replacing an earlier image, and return the agent's JSON result.
 pub(crate) fn store(
     app_data: &Path,
     session_id: &str,
     label: Option<&str>,
-    png: &[u8],
+    image: &Jpeg,
     millis: u128,
 ) -> Result<Value, String> {
-    let (width, height) = png_dimensions(png).ok_or("Screenshot is not a PNG image")?;
-    if png.len() > MAX_BYTES {
+    if !image.bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Err("Screenshot is not a JPEG image".into());
+    }
+    if image.bytes.len() > MAX_BYTES {
         return Err("Screenshot exceeds the size limit".into());
     }
+    let (width, height) = (image.width, image.height);
     let dir = session_dir(app_data, session_id)?;
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Could not save the screenshot: {error}"))?;
     let existing = std::fs::read_dir(&dir)
         .map_err(|error| format!("Could not save the screenshot: {error}"))?
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "png"))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|ext| EXTENSIONS.iter().any(|known| ext == *known))
+        })
         .count();
     if existing >= MAX_PER_SESSION {
         return Err(format!(
@@ -131,9 +146,9 @@ pub(crate) fn store(
     let slug = file_label(label);
     for attempt in 1..=16 {
         let name = if attempt == 1 {
-            format!("{millis}-{slug}.png")
+            format!("{millis}-{slug}.{EXTENSION}")
         } else {
-            format!("{millis}-{slug}-{attempt}.png")
+            format!("{millis}-{slug}-{attempt}.{EXTENSION}")
         };
         let path = dir.join(name);
         let mut file = match std::fs::OpenOptions::new()
@@ -145,7 +160,7 @@ pub(crate) fn store(
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(format!("Could not save the screenshot: {error}")),
         };
-        if let Err(error) = file.write_all(png).and_then(|()| file.sync_all()) {
+        if let Err(error) = file.write_all(&image.bytes).and_then(|()| file.sync_all()) {
             drop(file);
             let _ = std::fs::remove_file(&path);
             return Err(format!("Could not save the screenshot: {error}"));
@@ -160,7 +175,7 @@ pub(crate) fn store(
     Err("Could not choose a screenshot file name. Retry shortly.".into())
 }
 
-/// Missing folders are already clean; a task never shares its folder.
+/// Missing folders are already clean; a chat never shares its folder.
 pub(crate) fn remove_session(app_data: &Path, session_id: &str) -> Result<(), String> {
     match std::fs::remove_dir_all(session_dir(app_data, session_id)?) {
         Ok(()) => Ok(()),
@@ -188,6 +203,13 @@ pub(crate) mod tests {
         }
     }
 
+    /// A real JPEG of a page-like image, stored at its own size.
+    pub(crate) fn jpeg(width: u32, height: u32) -> Jpeg {
+        let png = crate::turn_shot_image::tests::page_png(width, height, false);
+        crate::turn_shot_image::compress(&png, 1.0).unwrap()
+    }
+
+    /// Only a PNG signature and header: enough for `decode_png`, not to decode.
     pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = vec![137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13];
         bytes.extend_from_slice(b"IHDR");
@@ -240,16 +262,16 @@ pub(crate) mod tests {
     #[test]
     fn stores_each_capture_under_its_session_without_overwriting() {
         let root = TemporaryDirectory::new();
-        let first = store(&root.0, "session-a", Some("Before"), &png(2, 3), 1700).unwrap();
-        let second = store(&root.0, "session-a", Some("Before"), &png(4, 5), 1700).unwrap();
+        let first = store(&root.0, "session-a", Some("Before"), &jpeg(2, 3), 1700).unwrap();
+        let second = store(&root.0, "session-a", Some("Before"), &jpeg(4, 5), 1700).unwrap();
         let dir = root.0.join("turn-shots").join("session-a");
         assert_eq!(
             first["path"],
-            dir.join("1700-before.png").to_string_lossy().as_ref()
+            dir.join("1700-before.jpg").to_string_lossy().as_ref()
         );
         assert_eq!(
             second["path"],
-            dir.join("1700-before-2.png").to_string_lossy().as_ref()
+            dir.join("1700-before-2.jpg").to_string_lossy().as_ref()
         );
         assert_eq!(
             (first["width"].as_u64(), first["height"].as_u64()),
@@ -257,25 +279,30 @@ pub(crate) mod tests {
         );
         assert_eq!(
             first["markdown"],
-            format!("![Before](<{}>)", dir.join("1700-before.png").display())
+            format!("![Before](<{}>)", dir.join("1700-before.jpg").display())
         );
         assert_eq!(
-            std::fs::read(dir.join("1700-before.png")).unwrap(),
-            png(2, 3)
+            std::fs::read(dir.join("1700-before.jpg")).unwrap(),
+            jpeg(2, 3).bytes
         );
-        let unlabeled = store(&root.0, "session-a", None, &png(1, 1), 1800).unwrap();
+        let unlabeled = store(&root.0, "session-a", None, &jpeg(1, 1), 1800).unwrap();
         assert_eq!(
             unlabeled["path"],
-            dir.join("1800-page.png").to_string_lossy().as_ref()
+            dir.join("1800-page.jpg").to_string_lossy().as_ref()
         );
         assert!(unlabeled["markdown"]
             .as_str()
             .unwrap()
             .starts_with("![Screenshot](<"));
         for session in ["", "../other", "a/b"] {
-            assert!(store(&root.0, session, None, &png(1, 1), 1).is_err());
+            assert!(store(&root.0, session, None, &jpeg(1, 1), 1).is_err());
         }
-        assert!(store(&root.0, "session-a", None, b"not a png", 1).is_err());
+        let not_jpeg = Jpeg {
+            bytes: png(1, 1),
+            width: 1,
+            height: 1,
+        };
+        assert!(store(&root.0, "session-a", None, &not_jpeg, 1).is_err());
     }
 
     #[test]
@@ -283,24 +310,26 @@ pub(crate) mod tests {
         let root = TemporaryDirectory::new();
         let dir = root.0.join("turn-shots").join("busy");
         std::fs::create_dir_all(&dir).unwrap();
+        // Earlier PNG files count towards the limit with new JPEG files.
         for index in 0..MAX_PER_SESSION {
-            std::fs::write(dir.join(format!("{index}-page.png")), b"").unwrap();
+            let extension = EXTENSIONS[index % 2];
+            std::fs::write(dir.join(format!("{index}-page.{extension}")), b"").unwrap();
         }
-        assert!(store(&root.0, "busy", None, &png(1, 1), 1)
+        assert!(store(&root.0, "busy", None, &jpeg(1, 1), 1)
             .unwrap_err()
             .contains("already has"));
-        assert!(store(&root.0, "other", None, &png(1, 1), 1).is_ok());
+        assert!(store(&root.0, "other", None, &jpeg(1, 1), 1).is_ok());
     }
 
     #[test]
     fn removing_a_session_deletes_only_its_folder() {
         let root = TemporaryDirectory::new();
-        store(&root.0, "gone", Some("after"), &png(1, 1), 1).unwrap();
-        store(&root.0, "kept", Some("after"), &png(1, 1), 1).unwrap();
+        store(&root.0, "gone", Some("after"), &jpeg(1, 1), 1).unwrap();
+        store(&root.0, "kept", Some("after"), &jpeg(1, 1), 1).unwrap();
         remove_session(&root.0, "gone").unwrap();
         remove_session(&root.0, "gone").unwrap();
         assert!(!root.0.join("turn-shots/gone").exists());
-        assert!(root.0.join("turn-shots/kept/1-after.png").is_file());
+        assert!(root.0.join("turn-shots/kept/1-after.jpg").is_file());
         assert!(remove_session(&root.0, "../kept").is_err());
         assert!(root.0.join("turn-shots/kept").is_dir());
     }

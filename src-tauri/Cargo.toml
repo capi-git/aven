@@ -30,6 +30,12 @@ base64 = "0.22"
 tauri-plugin-dialog = "2"
 rusqlite = { version = "0.40.2", features = ["bundled"], default-features = false }
 ureq = { version = "2.12.1", default-features = false, features = ["tls", "gzip"] }
+# Page screenshots are stored as JPEG; png is already in the dependency tree.
+jpeg-encoder = "0.7.1"
+png = "0.18.1"
+
+[dev-dependencies]
+jpeg-decoder = { version = "0.3.2", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
