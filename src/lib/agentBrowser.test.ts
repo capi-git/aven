@@ -74,6 +74,12 @@ describe("agent browser session connection", () => {
     expect(text).toContain(
       "Markdown images labelled Before and After on consecutive lines",
     );
+    expect(text).toContain(
+      "Check pages by reading, not pictures: use snapshot to check text, structure, state and behaviour.",
+    );
+    expect(text).toContain(
+      'Take a screenshot only to judge how something looks, typically one labelled "before" and one "after" per visual change; do not screenshot just to confirm text a snapshot shows.',
+    );
     expect(text).toContain("find pages first");
     expect(text).toContain(
       "Navigating a page to a different local server opens a new page instead, so use the id it returns.",

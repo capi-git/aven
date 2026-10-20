@@ -137,6 +137,11 @@ reference; the label is optional. A pair of images labelled **Before** and
 **After** appears side by side with captions, stacked when the conversation is
 narrow. Click either image to open it larger.
 
+Agents check pages by reading, not pictures: a snapshot shows a page's text,
+structure, state and behaviour. They take a screenshot only to judge how
+something looks, typically one before and one after each visual change, and
+never just to confirm text a snapshot already shows.
+
 A page on screen is captured as you see it, without changing its size or zoom.
 A background tab is captured at its current size. Screenshots are kept in Aven's
 app data folder under `turn-shots` and deleted with their task.
