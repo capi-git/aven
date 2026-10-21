@@ -4791,7 +4791,7 @@ export default function App({
         () => void addFileToChat(file.path, target.session),
       );
     },
-    [activateTab],
+    [activateTab, sessionsRef],
   );
 
   const onReorderFiles = useCallback((paneId: string, ids: string[]) => {
