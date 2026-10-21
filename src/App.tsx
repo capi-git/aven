@@ -158,6 +158,7 @@ import {
 } from "./lib/detachedWorkspaces";
 import { useWorkspaceHeaderKeys } from "./hooks/useWorkspaceHeaderKeys";
 import { requestAddToChat } from "./lib/quoteDraft";
+import { filesOpenInTabs, setOpenFiles } from "./lib/openFiles";
 import {
   ensureProjectlessWorkspace,
   isProjectlessCwd,
@@ -1943,6 +1944,10 @@ export default function App({
     lastTabByProjectRef.current = next;
     saveProjectFocusedTabs(next);
   }, [activeTabId, projectCwd, tabs]);
+  // `@` in a message offers the files open in this window's tabs first.
+  useEffect(() => {
+    setOpenFiles(filesOpenInTabs(tabs, activeTabId));
+  }, [activeTabId, tabs]);
   const leaveExpandedPreview = useCallback(() => {
     setHomeViewOpen(false);
     setBrowserWorkspaces((all) => {

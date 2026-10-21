@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ADD_TO_CHAT_EVENT,
   acknowledgeQuoteRequest,
+  appendMention,
   appendSelectionQuote,
   consumeQuoteRequest,
   isMarkdownBlockquotePosition,
+  requestAddFileToChat,
   requestAddToChat,
   type AddToChatRequest,
   type QuoteRequest,
@@ -44,6 +46,56 @@ describe("requestAddToChat", () => {
     requestAddToChat(" selected\r\ntext ");
     const event = dispatch.mock.calls[0][0] as CustomEvent<AddToChatRequest>;
     expect(event.detail).toEqual({ text: "selected\ntext", mode: "quote" });
+  });
+});
+
+describe("requests for one chat", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("names the chat an attachment is for", () => {
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    requestAddToChat("", "plain", [screenshot], "chat-2");
+    const event = dispatch.mock.calls[0][0] as CustomEvent<AddToChatRequest>;
+    expect(event.detail).toEqual({
+      text: "",
+      mode: "plain",
+      attachments: [screenshot],
+      sessionId: "chat-2",
+    });
+  });
+
+  it("asks a chat to mention a file by its path", () => {
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    requestAddFileToChat(" ");
+    expect(dispatch).not.toHaveBeenCalled();
+    requestAddFileToChat("/Users/me/Documents/notes.md", "chat-2");
+    const event = dispatch.mock.calls[0][0] as CustomEvent<AddToChatRequest>;
+    expect(event.type).toBe(ADD_TO_CHAT_EVENT);
+    expect(event.detail).toEqual({
+      text: "",
+      mode: "mention",
+      path: "/Users/me/Documents/notes.md",
+      sessionId: "chat-2",
+    });
+  });
+});
+
+describe("appendMention", () => {
+  it("adds @label after the message, a space apart", () => {
+    expect(appendMention("", "notes.md")).toBe("@notes.md ");
+    expect(appendMention("Look at", "notes.md")).toBe("Look at @notes.md ");
+    expect(appendMention("Look at\n", "notes.md")).toBe("Look at\n@notes.md ");
+    expect(appendMention("Look at", " ")).toBe("Look at");
+  });
+
+  it("is what a mention request adds", () => {
+    expect(
+      consumeQuoteRequest("Compare", null, {
+        id: 1,
+        text: "a.md",
+        mode: "mention",
+      }),
+    ).toEqual({ draft: "Compare @a.md ", consumedId: 1, changed: true });
   });
 });
 
