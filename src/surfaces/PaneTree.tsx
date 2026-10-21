@@ -52,6 +52,8 @@ type Shared = {
   onSelectFile: (paneId: string, fileId: string) => void;
   onCloseFile: (paneId: string, fileId: string) => void;
   onReorderFiles: (paneId: string, ids: string[]) => void;
+  /** Puts a file tab's file in a chat; gives file tabs "Add to chat". */
+  onAddFileToChat?: (paneId: string, fileId: string) => void;
   onFileDirtyChange: (fileId: string, dirty: boolean) => void;
   onFileErrorCountChange: (fileId: string, count: number) => void;
   onRatio: (splitId: string, index: number, ratio: number) => void;
@@ -155,6 +157,7 @@ function PaneTreeComponent({
   onSelectFile,
   onCloseFile,
   onReorderFiles,
+  onAddFileToChat,
   onFileDirtyChange,
   onFileErrorCountChange,
   onRatio,
@@ -375,6 +378,7 @@ function PaneTreeComponent({
                 onSelectFile={onSelectFile}
                 onCloseFile={onCloseFile}
                 onReorderFiles={onReorderFiles}
+                onAddToChat={onAddFileToChat}
                 onDirtyChange={onFileDirtyChange}
                 onErrorCountChange={onFileErrorCountChange}
                 onOpenFile={onOpenFile}

@@ -159,6 +159,7 @@ import {
 import { useWorkspaceHeaderKeys } from "./hooks/useWorkspaceHeaderKeys";
 import { requestAddToChat } from "./lib/quoteDraft";
 import { filesOpenInTabs, setOpenFiles } from "./lib/openFiles";
+import { addFileToChat, fileChatTarget } from "./lib/fileTabChat";
 import {
   ensureProjectlessWorkspace,
   isProjectlessCwd,
@@ -4758,6 +4759,39 @@ export default function App({
       });
     },
     [projectOfTab],
+  );
+
+  /** A file tab's "Add to chat": the chat beside it, else the active one. */
+  const onAddFileToChat = useCallback(
+    (paneId: string, fileId: string) => {
+      const tab = tabsRef.current.find((entry) =>
+        findSurfacePane(entry, paneId),
+      );
+      const file = tab
+        ? findSurfacePane(tab, paneId)?.pane.files.find(
+            (entry) => entry.id === fileId,
+          )
+        : undefined;
+      if (!file) return;
+      const target = fileChatTarget(
+        tabsRef.current,
+        paneId,
+        sessionsRef.current,
+        activeTabIdRef.current,
+      );
+      if (!target) return;
+      if (target.tabId !== tab?.id) {
+        viewRef.current.change((view) =>
+          selectWorkspaceView(view, target.tabId),
+        );
+        activateTab(target.tabId, false, target.session.id);
+      }
+      // After the chat's tab shows, so its message box can take focus.
+      requestAnimationFrame(
+        () => void addFileToChat(file.path, target.session),
+      );
+    },
+    [activateTab],
   );
 
   const onReorderFiles = useCallback((paneId: string, ids: string[]) => {
@@ -10652,6 +10686,7 @@ export default function App({
                                         onSelectFile={onSelectFileSurface}
                                         onCloseFile={onCloseFile}
                                         onReorderFiles={onReorderFiles}
+                                        onAddFileToChat={onAddFileToChat}
                                         onFileDirtyChange={onFileDirtyChange}
                                         onFileErrorCountChange={
                                           onFileErrorCountChange

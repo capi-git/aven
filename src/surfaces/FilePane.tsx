@@ -77,6 +77,8 @@ type Props = {
   onDirtyChange: (fileId: string, dirty: boolean) => void;
   onErrorCountChange: (fileId: string, count: number) => void;
   onReorderFiles: (paneId: string, ids: string[]) => void;
+  /** Puts a tab's file in a chat; gives file tabs "Add to chat". */
+  onAddToChat?: (paneId: string, fileId: string) => void;
   onOpenFile: (path: string) => void;
   onUpdatePlan: (sessionId: string, blockId: string, text: string) => void;
   onBuildPlan: (
@@ -107,6 +109,7 @@ function FilePaneComponent({
   onDirtyChange,
   onErrorCountChange,
   onReorderFiles,
+  onAddToChat,
   onOpenFile,
   onUpdatePlan,
   onBuildPlan,
@@ -148,6 +151,9 @@ function FilePaneComponent({
           onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
           onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
           onReorder={(ids) => onReorderFiles(pane.id, ids)}
+          onAddToChat={
+            onAddToChat ? (fileId) => onAddToChat(pane.id, fileId) : undefined
+          }
           onPaneDragStart={onPaneDragStart}
           paneFocused={focused}
         />
@@ -321,6 +327,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.onDirtyChange !== next.onDirtyChange ||
     previous.onErrorCountChange !== next.onErrorCountChange ||
     previous.onReorderFiles !== next.onReorderFiles ||
+    previous.onAddToChat !== next.onAddToChat ||
     previous.onOpenFile !== next.onOpenFile ||
     previous.onUpdatePlan !== next.onUpdatePlan ||
     previous.onBuildPlan !== next.onBuildPlan ||
