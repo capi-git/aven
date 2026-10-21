@@ -210,28 +210,41 @@ export function rankMentionFiles(
 }
 
 /**
- * A stable `@` label per path for this run, for files `@` knows from tabs:
- * the name, with spaces as dashes, and `~2`… when another file has it. It
- * never changes while the app runs, so a draft means the same file when sent.
+ * `@` labels given to files outside the project listing this run, per path,
+ * first one preferred. Each label belongs to one path for good, so a draft
+ * names the same file when it is sent, whatever opens or closes meanwhile.
  */
-const stableLabels = new Map<string, string>();
+const stableLabels = new Map<string, string[]>();
 const stableOwners = new Set<string>();
 
-export function stableMentionLabel(path: string): string | null {
-  const key = pathKey(path);
-  const known = stableLabels.get(key);
-  if (known) return known;
+function mentionBase(path: string): string | null {
   const name = basename(path);
-  const base = isTokenSafe(name) ? name : encodeMentionToken(name);
+  return isTokenSafe(name) ? name : encodeMentionToken(name);
+}
+
+/**
+ * A label for `path` that `taken` (the project's labels) leaves free: one it
+ * already has, or else a new one (its name with spaces as dashes, then
+ * `name~2`…), never a label another path was given.
+ */
+export function stableMentionLabel(
+  path: string,
+  taken: (label: string) => boolean = () => false,
+): string | null {
+  const key = pathKey(path);
+  const owned = stableLabels.get(key) ?? [];
+  const free = owned.find((label) => !taken(label));
+  if (free) return free;
+  const base = mentionBase(path);
   if (!base) return null;
-  let label = base;
-  for (let n = 2; stableOwners.has(label); n++) {
-    if (n >= 1000) return null;
-    label = `${base}~${n}`;
+  for (let n = 1; n < 1000; n++) {
+    const label = n === 1 ? base : `${base}~${n}`;
+    if (stableOwners.has(label) || taken(label)) continue;
+    stableOwners.add(label);
+    stableLabels.set(key, [...owned, label]);
+    return label;
   }
-  stableLabels.set(key, label);
-  stableOwners.add(label);
-  return label;
+  return null;
 }
 
 export function resetStableMentionLabels() {
@@ -276,7 +289,7 @@ export function mentionFilesFor(
       out.push(isOpen ? { ...listed, open: true } : listed);
       continue;
     }
-    if (!stableMentionLabel(path)) continue;
+    if (!mentionBase(path)) continue;
     out.push({
       name: basename(path),
       path,
@@ -293,9 +306,10 @@ export function mentionFilesFor(
 }
 
 /**
- * `index` with the files `@` knows from tabs on top. Each takes its stable
- * label where nothing in the project has it, so a label written before the
- * listing loaded still resolves; a project file keeps its own label first.
+ * `index` with the files `@` knows from tabs on top. A file outside the
+ * listing gets its stable label; a project file keeps its own, and answers
+ * to any label it was given while unlisted (a draft written before the
+ * listing loaded). Project labels always win.
  */
 export function withMentionExtras(
   index: MentionIndex,
@@ -304,26 +318,16 @@ export function withMentionExtras(
   if (extras.length === 0) return index;
   const labels = new Map<string, MentionFile>();
   const labelOf = new Map<string, string>();
-  const taken = (label: string) =>
-    labels.has(label) || index.labels.get(label) !== undefined;
+  const taken = (label: string) => index.labels.get(label) !== undefined;
   for (const file of extras) {
-    const label = stableMentionLabel(file.path);
-    if (!label) continue;
-    const labelled = () =>
-      index.labelOf.get(file.path) !== undefined || labelOf.has(file.path);
-    if (!taken(label)) {
-      labels.set(label, file);
-      if (!labelled()) labelOf.set(file.path, label);
-      continue;
+    const preferred = file.unlisted
+      ? stableMentionLabel(file.path, taken)
+      : null;
+    for (const label of stableLabels.get(pathKey(file.path)) ?? []) {
+      if (!taken(label)) labels.set(label, file);
     }
-    if (labelled()) continue;
-    for (let n = 2; n < 1000; n++) {
-      const next = `${label}~${n}`;
-      if (taken(next)) continue;
-      labels.set(next, file);
-      labelOf.set(file.path, next);
-      break;
-    }
+    if (preferred && index.labelOf.get(file.path) === undefined)
+      labelOf.set(file.path, preferred);
   }
   return {
     labels: {

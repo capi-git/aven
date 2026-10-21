@@ -123,12 +123,48 @@ describe("withMentionExtras", () => {
     expect(mentionLabel(extras[0]!, index)).toBe("README.md~2");
   });
 
-  it("lets an open file answer to its name where the project's is ambiguous", () => {
-    const extras = mentionFilesFor(known(["/p/apps/cli/App.tsx"]), files, "/p");
+  it("keeps an outside file's numbered label when its namesakes open", () => {
+    const outsideReadme = "/Users/me/README.md";
+    const alone = withMentionExtras(
+      buildMentionIndex(files),
+      mentionFilesFor(known([outsideReadme]), files, "/p"),
+    );
+    expect(alone.labelOf.get(outsideReadme)).toBe("README.md~2");
+
+    // The project's README and another outside one open too.
+    const later = withMentionExtras(
+      buildMentionIndex(files),
+      mentionFilesFor(
+        known(["/p/README.md", "/Users/me/b/README.md", outsideReadme]),
+        files,
+        "/p",
+      ),
+    );
+    expect(later.labels.get("README.md~2")?.path).toBe(outsideReadme);
+    expect(later.labelOf.get("/Users/me/b/README.md")).toBe("README.md~3");
+    expect(later.labels.get("README.md")).toBe(files[2]);
+  });
+
+  it("lets a project file answer to a label it had before the listing loaded", () => {
+    const cli = "/p/apps/cli/App.tsx";
+    // Before the listing loads, the open file is outside it.
+    const early = withMentionExtras(
+      buildMentionIndex([]),
+      mentionFilesFor(known([cli]), [], "/p"),
+    );
+    expect(early.labelOf.get(cli)).toBe("App.tsx");
+
+    const extras = mentionFilesFor(known([cli]), files, "/p");
     const index = withMentionExtras(buildMentionIndex(files), extras);
-    expect(index.labels.get("App.tsx")?.path).toBe("/p/apps/cli/App.tsx");
+    expect(index.labels.get("App.tsx")?.path).toBe(cli);
     // Its own label stays the project's.
     expect(mentionLabel(extras[0]!, index)).toBe("apps/cli/App.tsx");
+  });
+
+  it("gives a project file no extra name it never had", () => {
+    const extras = mentionFilesFor(known(["/p/apps/cli/App.tsx"]), files, "/p");
+    const index = withMentionExtras(buildMentionIndex(files), extras);
+    expect(index.labels.get("App.tsx")).toBeUndefined();
   });
 
   it("keeps each file's label as other files open and close", () => {
@@ -180,10 +216,15 @@ describe("applyFileMentionsToTurn with open files", () => {
   });
 
   it("resolves a name written before the project listing loaded", async () => {
+    const cli = "/p/apps/cli/App.tsx";
+    withMentionExtras(
+      buildMentionIndex([]),
+      mentionFilesFor(known([cli]), [], "/p"),
+    );
     const out = await applyFileMentionsToTurn(
       "fix @App.tsx",
       "/p",
-      known(["/p/apps/cli/App.tsx"]),
+      known([cli]),
     );
     expect(out).toContain("- @App.tsx → apps/cli/App.tsx");
   });
