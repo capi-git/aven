@@ -44,6 +44,8 @@ pub(crate) const CANCELLED: &str =
     "The desktop request was cancelled before the user answered. Observe the desktop before retrying.";
 pub(crate) const SCREEN_LOCKED: &str = "The Mac is locked. Desktop control is paused until the user unlocks; keep working in Aven's browser or code, or wait.";
 pub(crate) const SESSION_AWAY: &str = "The user's Mac session is not on screen (another user may be signed in). Desktop control is paused until the user returns; keep working in Aven's browser or code, or wait.";
+pub(crate) const UPLOAD_LOCKED: &str = "The Mac is locked, so Aven cannot ask the user to approve this upload. Nothing was uploaded; keep working, or wait for the user to unlock, then retry.";
+pub(crate) const UPLOAD_AWAY: &str = "The user's Mac session is not on screen, so Aven cannot ask them to approve this upload. Nothing was uploaded; wait for the user to return, then retry.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -335,13 +337,68 @@ pub(crate) enum PromptKind {
     App(AppIdentity),
     /// A stopped chat wants to observe or act again.
     Resume,
+    #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+    /// An agent wants to send local files to a website. Asked every time.
+    Upload(UploadPrompt),
+}
+
+/// An upload prompt that ended without an approval, in upload terms: the
+/// files stay on the Mac.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+pub(crate) fn upload_wait_error(error: String, session: Session) -> String {
+    match session {
+        Session::Locked => UPLOAD_LOCKED.into(),
+        Session::Away => UPLOAD_AWAY.into(),
+        Session::Active if error == CANCELLED => {
+            "The upload request ended before the user answered, so nothing was uploaded.".into()
+        }
+        Session::Active if error == NO_ANSWER => "The user did not answer the upload request, so nothing was uploaded. Ask in the chat before trying again; do not retry in a loop.".into(),
+        Session::Active => error,
+    }
+}
+
+/// One upload the user approves or declines: which files go to which site.
+/// Built from validated file metadata and the page's host, never page text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UploadPrompt {
+    /// The site's host, for example "framer.com".
+    pub site: String,
+    /// The file names, for example "llms.txt" or "a.png and 2 more files".
+    pub files: String,
+    /// Where they come from and their size, for example "From ~/Downloads · 3 KB".
+    pub detail: String,
+}
+
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+impl UploadPrompt {
+    pub(crate) fn new(site: &str, files: &str, detail: &str) -> Self {
+        Self {
+            site: clean_label(site, APP_NAME_LIMIT).unwrap_or_else(|| "this website".into()),
+            files: clean_label(files, APP_NAME_LIMIT).unwrap_or_else(|| "a file".into()),
+            detail: clean_label(detail, TITLE_LIMIT * 2).unwrap_or_default(),
+        }
+    }
+
+    /// A declined upload stays declined for these files and site until the
+    /// user's next message in that chat.
+    fn key(&self) -> String {
+        format!("\u{0}upload:{}:{}", self.site, self.files)
+    }
+
+    fn declined(&self) -> String {
+        format!(
+            "The user declined uploading {} to {}. Nothing was uploaded. Do not retry; ask the user in the chat.",
+            self.files, self.site
+        )
+    }
 }
 
 impl PromptKind {
-    fn key(&self) -> &str {
+    fn key(&self) -> String {
         match self {
-            Self::App(app) => &app.key,
-            Self::Resume => RESUME_KEY,
+            Self::App(app) => app.key.clone(),
+            Self::Resume => RESUME_KEY.into(),
+            Self::Upload(upload) => upload.key(),
         }
     }
 
@@ -352,6 +409,7 @@ impl PromptKind {
                 app.name
             ),
             Self::Resume => "The user declined to let this chat use their Mac again. Do not retry; ask the user in the chat.".into(),
+            Self::Upload(upload) => upload.declined(),
         }
     }
 }
@@ -639,7 +697,7 @@ impl Presence {
             return Admission::Go;
         };
         if self.denied.get(scope).is_some_and(|denied| {
-            denied.contains(kind.key())
+            denied.contains(&kind.key())
                 || (matches!(kind, PromptKind::App(_)) && denied.contains(MAC_KEY))
         }) {
             return Admission::Refuse(kind.declined());
@@ -661,6 +719,42 @@ impl Presence {
         Admission::Ask(id)
     }
 
+    #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+    /// Asks the user to approve one upload of local files to a website. Every
+    /// upload asks: an earlier approval never covers the next one. A decline
+    /// holds for the same files and site until the user's next message.
+    pub(crate) fn ask_upload(
+        &mut self,
+        scope: &str,
+        upload: UploadPrompt,
+        now: Instant,
+    ) -> Admission {
+        match self.session {
+            Session::Active => {}
+            Session::Locked => return Admission::Refuse(UPLOAD_LOCKED.into()),
+            Session::Away => return Admission::Refuse(UPLOAD_AWAY.into()),
+        }
+        if self
+            .denied
+            .get(scope)
+            .is_some_and(|denied| denied.contains(&upload.key()))
+        {
+            return Admission::Refuse(upload.declined());
+        }
+        if self.prompt.is_some() {
+            return Admission::Refuse(CONSENT_BUSY.into());
+        }
+        self.next_prompt = self.next_prompt.wrapping_add(1);
+        let id = self.next_prompt;
+        self.prompt = Some(Prompt {
+            id,
+            scope: scope.into(),
+            kind: PromptKind::Upload(upload),
+            deadline: now + CONSENT_TIMEOUT,
+        });
+        Admission::Ask(id)
+    }
+
     /// Applies the user's answer to one prompt. Stale IDs are ignored.
     pub(crate) fn answer(&mut self, id: u64, allow: bool) -> bool {
         if self.prompt.as_ref().is_none_or(|prompt| prompt.id != id) {
@@ -669,7 +763,10 @@ impl Presence {
         let Some(prompt) = self.prompt.take() else {
             return false;
         };
-        let outcome = if allow {
+        let outcome = if allow && matches!(prompt.kind, PromptKind::Upload(_)) {
+            // Approves this upload only; desktop control is unaffected.
+            Outcome::Allowed
+        } else if allow {
             self.stopped.remove(&prompt.scope);
             if let PromptKind::App(_) = &prompt.kind {
                 self.allowed
@@ -684,7 +781,7 @@ impl Presence {
                 .or_default()
                 .insert(match prompt.kind {
                     PromptKind::App(_) => MAC_KEY.into(),
-                    PromptKind::Resume => prompt.kind.key().into(),
+                    PromptKind::Resume | PromptKind::Upload(_) => prompt.kind.key(),
                 });
             Outcome::Declined(prompt.kind.declined())
         };
@@ -822,6 +919,11 @@ impl Presence {
         if let (true, Some(refusal)) = (was_active, session.refusal()) {
             self.epoch = self.epoch.wrapping_add(1);
             if let Some(prompt) = self.prompt.take() {
+                let refusal = match (&prompt.kind, session) {
+                    (PromptKind::Upload(_), Session::Locked) => UPLOAD_LOCKED,
+                    (PromptKind::Upload(_), _) => UPLOAD_AWAY,
+                    _ => refusal,
+                };
                 self.resolved
                     .insert(prompt.id, Outcome::Unavailable(refusal));
             }
@@ -1014,9 +1116,39 @@ impl Presence {
         }
         if let Some(prompt) = &self.prompt {
             let actor = self.actor(&prompt.scope);
+            if let PromptKind::Upload(upload) = &prompt.kind {
+                return Some(BarModel {
+                    kind: BarKind::Consent,
+                    color: actor.color,
+                    title: format!(
+                        "{} wants to upload {} to {}",
+                        actor.name, upload.files, upload.site
+                    ),
+                    detail: match (upload.detail.is_empty(), &actor.title) {
+                        (false, Some(title)) => format!("{} \u{b7} {title}", upload.detail),
+                        (false, None) => upload.detail.clone(),
+                        (true, Some(title)) => title.clone(),
+                        (true, None) => "Only this upload".into(),
+                    },
+                    buttons: vec![
+                        BarButton {
+                            label: "Don\u{2019}t Allow",
+                            action: ButtonAction::Deny(prompt.id),
+                            style: ButtonStyle::Plain,
+                        },
+                        BarButton {
+                            label: "Allow",
+                            action: ButtonAction::Allow(prompt.id),
+                            style: ButtonStyle::Prominent,
+                        },
+                    ],
+                });
+            }
             let title = match &prompt.kind {
                 PromptKind::App(_) => format!("{} wants to use your Mac", actor.name),
-                PromptKind::Resume => format!("{} wants to use your Mac again", actor.name),
+                PromptKind::Resume | PromptKind::Upload(_) => {
+                    format!("{} wants to use your Mac again", actor.name)
+                }
             };
             // One answer covers every app; name the one that asked first.
             let start = match &prompt.kind {
@@ -1027,7 +1159,9 @@ impl Presence {
                     format!("Starting by bringing {} forward", app.name)
                 }
                 PromptKind::App(app) => format!("Starting with {}", app.name),
-                PromptKind::Resume => "Apps, mouse and keyboard".to_string(),
+                PromptKind::Resume | PromptKind::Upload(_) => {
+                    "Apps, mouse and keyboard".to_string()
+                }
             };
             return Some(BarModel {
                 kind: BarKind::Consent,
@@ -1614,6 +1748,175 @@ mod tests {
         assert_eq!(Session::Active.refusal(), None);
         assert_eq!(Session::Locked.refusal(), Some(SCREEN_LOCKED));
         assert_eq!(Session::Away.refusal(), Some(SESSION_AWAY));
+    }
+
+    fn upload() -> UploadPrompt {
+        UploadPrompt::new("framer.com", "llms.txt", "From ~/Downloads \u{b7} 3 KB")
+    }
+
+    #[test]
+    fn every_upload_asks_with_the_files_and_site_and_allow_covers_only_that_upload() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("claude", Some("Publish llms.txt"))));
+        let Admission::Ask(id) = presence.ask_upload("chat", upload(), now) else {
+            panic!("an upload must ask");
+        };
+        let model = presence.model(now).unwrap();
+        assert_eq!(model.kind, BarKind::Consent);
+        assert_eq!(model.title, "Claude wants to upload llms.txt to framer.com");
+        assert_eq!(
+            model.detail,
+            "From ~/Downloads \u{b7} 3 KB \u{b7} Publish llms.txt"
+        );
+        assert_eq!(
+            model
+                .buttons
+                .iter()
+                .map(|button| button.label)
+                .collect::<Vec<_>>(),
+            ["Don\u{2019}t Allow", "Allow"]
+        );
+        assert_eq!(model.buttons[1].action, ButtonAction::Allow(id));
+        // A second request waits for this answer instead of stacking prompts.
+        assert_eq!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Refuse(CONSENT_BUSY.into())
+        );
+        assert!(presence.answer(id, true));
+        assert_eq!(presence.take_outcome(id, now), Some(Outcome::Allowed));
+        // Approval is not remembered: the next upload asks again, and it never
+        // lets the chat use the Mac.
+        assert!(matches!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Ask(_)
+        ));
+        assert!(!presence.has_app_consent("chat", &safari().key));
+    }
+
+    #[test]
+    fn a_declined_upload_stays_declined_until_the_users_next_message() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let Admission::Ask(id) = presence.ask_upload("chat", upload(), now) else {
+            panic!("an upload must ask");
+        };
+        assert!(presence.answer(id, false));
+        let declined = "The user declined uploading llms.txt to framer.com. Nothing was uploaded. Do not retry; ask the user in the chat.";
+        assert_eq!(
+            presence.take_outcome(id, now),
+            Some(Outcome::Declined(declined.into()))
+        );
+        assert_eq!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Refuse(declined.into())
+        );
+        // Other files, another site or another chat still ask.
+        let other = UploadPrompt::new("framer.com", "logo.svg", "");
+        assert!(matches!(
+            presence.ask_upload("chat", other, now),
+            Admission::Ask(_)
+        ));
+        presence.prompt = None;
+        assert!(matches!(
+            presence.ask_upload("other-chat", upload(), now),
+            Admission::Ask(_)
+        ));
+        presence.prompt = None;
+        // A decline never stops or denies desktop control.
+        assert!(!presence.stopped.contains("chat"));
+        assert!(!presence.denied["chat"].contains(MAC_KEY));
+        // The user's next message clears it.
+        presence.bind("chat", Some(actor("claude", None)));
+        assert!(matches!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn uploads_are_never_asked_at_the_lock_screen_and_a_lock_cancels_the_prompt() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let Admission::Ask(id) = presence.ask_upload("chat", upload(), now) else {
+            panic!("an upload must ask");
+        };
+        assert!(presence.set_session(Session::Locked));
+        assert_eq!(
+            presence.take_outcome(id, now),
+            Some(Outcome::Unavailable(UPLOAD_LOCKED))
+        );
+        assert!(presence.model(now).is_none());
+        assert_eq!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Refuse(UPLOAD_LOCKED.into())
+        );
+        assert!(presence.set_session(Session::Away));
+        assert_eq!(
+            presence.ask_upload("chat", upload(), now),
+            Admission::Refuse(UPLOAD_AWAY.into())
+        );
+        assert!(presence.set_session(Session::Active));
+        let Admission::Ask(id) = presence.ask_upload("chat", upload(), now) else {
+            panic!("an unlocked Mac asks again");
+        };
+        // Unanswered prompts expire; a closed chat cancels its prompt.
+        assert_eq!(
+            presence.take_outcome(id, now + CONSENT_TIMEOUT),
+            Some(Outcome::NoAnswer)
+        );
+        let Admission::Ask(id) = presence.ask_upload("chat", upload(), now) else {
+            panic!("asks again");
+        };
+        presence.forget(Some("chat"));
+        assert_eq!(presence.take_outcome(id, now), Some(Outcome::Cancelled));
+    }
+
+    #[test]
+    fn upload_waits_that_end_without_approval_say_nothing_was_uploaded() {
+        assert_eq!(
+            upload_wait_error(CANCELLED.into(), Session::Locked),
+            UPLOAD_LOCKED
+        );
+        assert_eq!(
+            upload_wait_error(NO_ANSWER.into(), Session::Away),
+            UPLOAD_AWAY
+        );
+        for error in [CANCELLED, NO_ANSWER] {
+            let message = upload_wait_error(error.into(), Session::Active);
+            assert!(message.contains("nothing was uploaded"), "{message}");
+            assert!(!message.contains("desktop"), "{message}");
+        }
+        let declined = upload().declined();
+        assert_eq!(
+            upload_wait_error(declined.clone(), Session::Active),
+            declined
+        );
+    }
+
+    #[test]
+    fn upload_prompts_strip_control_characters_and_bound_their_text() {
+        let prompt =
+            UploadPrompt::new("framer.com\u{202e}", &"x".repeat(200), "\nFrom ~/Downloads");
+        assert_eq!(prompt.site, "framer.com");
+        assert!(
+            prompt.files.chars().count() <= APP_NAME_LIMIT && prompt.files.ends_with('\u{2026}')
+        );
+        assert_eq!(prompt.detail, "From ~/Downloads");
+        let blank = UploadPrompt::new("", "", "");
+        assert_eq!(
+            (blank.site.as_str(), blank.files.as_str()),
+            ("this website", "a file")
+        );
+        let mut presence = Presence::default();
+        assert!(matches!(
+            presence.ask_upload("chat", blank, Instant::now()),
+            Admission::Ask(_)
+        ));
+        assert_eq!(
+            presence.model(Instant::now()).unwrap().detail,
+            "Only this upload"
+        );
     }
 
     #[test]

@@ -1135,6 +1135,46 @@ impl gate::Port for NativeDesktop {
     }
 }
 
+/// Asks the user, in Aven's presence bar, to approve one upload of local
+/// files to a website, and waits for the answer. Every upload asks, whether
+/// or not desktop control is on; nothing is remembered as approval. Refused
+/// at the lock screen, and withdrawn when the requesting agent disconnects or
+/// its chat ends. The bar is Aven's own native control, which the page cannot
+/// draw over or answer.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+pub(crate) fn ask_upload(
+    scope: &str,
+    upload: presence::UploadPrompt,
+    connected: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    let store = presence::store();
+    let read = platform::session_state();
+    if store.with(|state| state.observe_session(read)) {
+        platform::session_changed();
+    }
+    let id = match store.with(|state| state.ask_upload(scope, upload, std::time::Instant::now())) {
+        presence::Admission::Ask(id) => id,
+        presence::Admission::Refuse(error) => return Err(error),
+        presence::Admission::Go => return Ok(()),
+    };
+    if let Err(error) = platform::presence_show(None, false) {
+        store.with(|state| state.withdraw(id));
+        platform::presence_changed();
+        return Err(error);
+    }
+    let answer = store.wait_for_answer(id, || {
+        connected()
+            && platform::session_alive(scope)
+            && platform::session_state() == presence::Session::Active
+    });
+    platform::presence_changed();
+    answer.map_err(|error| {
+        let read = platform::session_state();
+        store.with(|state| state.observe_session(read));
+        presence::upload_wait_error(error, store.with(|state| state.session()))
+    })
+}
+
 /// Binds a chat's scope. `actor` is supplied by the frontend once per user
 /// turn; other rebinds pass None and keep the previous actor.
 pub(crate) fn bind_session(

@@ -134,6 +134,38 @@ render new pixels: a screenshot waits at most four seconds, then later
 screenshots fail at once with a clear message until the lock changes. Snapshot,
 click, fill, press and scroll keep working.
 
+## Uploading files
+
+An agent can send local files to a website through the page's own file
+chooser, for example to publish an `llms.txt` it wrote:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
+  '{"action":"upload","id":"PAGE_ID","ref":"REF","paths":["/absolute/path/llms.txt"]}'
+```
+
+`ref` is a file input from a snapshot (snapshots list hidden file inputs too),
+or the button or menu item that opens a chooser, such as **Add** or **Upload
+file**. Before anything leaves the Mac, Aven checks the files (absolute paths
+to existing, readable regular files; no folders, devices or pipes; at most 10
+files, 256 MB each and 512 MB together) and asks you in its bar: **Claude wants
+to upload llms.txt to framer.com**, with the folder and size, and **Don’t
+Allow** or **Allow**. Every upload asks; an approval covers only that upload,
+and a decline holds for the same files and site until your next message. The
+bar works whether or not desktop control is on, and Aven never asks while the
+Mac is locked.
+
+After you allow it, Aven arms that page's next file chooser, clicks the
+control like a pointer, and answers only the chooser that click opens, within
+five seconds, with the approved files. Choosers you open yourself, folder and
+save dialogs, and choosers in popup windows are never answered for you. If you
+click or type in that page while the upload waits, or the page navigates to
+another address or site, Aven stops and uploads nothing. The result lists the
+uploaded names, or says why nothing was sent: declined, no answer, no chooser
+opened (the control may open a menu first), a single-file chooser offered
+several files, or the page changed. A chooser that asks for other file types
+gets a note, since the site may reject the file.
+
 ## Before and after screenshots
 
 When a task changes how a page looks, the agent captures the preview before
