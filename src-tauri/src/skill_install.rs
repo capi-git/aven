@@ -34,6 +34,19 @@ const MAX_LINES_SHOWN: usize = 4_000;
 const READER_GRACE: Duration = Duration::from_secs(2);
 /// File times can be coarse; a copy made during the run is never this old.
 const MTIME_SLACK: Duration = Duration::from_secs(2);
+/// Variables the CLI reads to decide that a coding agent is running it.
+const AGENT_MARKERS: [&str; 10] = [
+    "AI_AGENT",
+    "CLAUDECODE",
+    "CLAUDE_CODE",
+    "CURSOR_AGENT",
+    "CURSOR_TRACE_ID",
+    "CODEX_SANDBOX",
+    "CODEX_CI",
+    "CODEX_THREAD_ID",
+    "GEMINI_CLI",
+    "OPENCODE_CLIENT",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -493,18 +506,8 @@ fn read_lines(
     }
 }
 
-/// Run `binary args` with no shell, forwarding output lines as they arrive.
-/// stderr is always shown; stdout only when `stream_stdout` (a `--json`
-/// result is read whole instead).
-fn run_streaming(
-    binary: &Path,
-    args: &[String],
-    cwd: &Path,
-    timeout: Duration,
-    stream_stdout: bool,
-    handle: &RunHandle,
-    on_line: Arc<dyn Fn(String) + Send + Sync>,
-) -> StreamedRun {
+/// The child process: an argument list, never a shell, with plain output.
+fn cli_command(binary: &Path, args: &[String], cwd: &Path) -> Command {
     let mut command = Command::new(binary);
     command
         .args(args)
@@ -517,6 +520,27 @@ fn run_streaming(
         .env("NO_COLOR", "1")
         .env("FORCE_COLOR", "0")
         .env("npm_config_update_notifier", "false");
+    // A person asked for this install. If Aven itself was started from an
+    // agent's terminal, the CLI must not narrow it to that one agent.
+    for key in AGENT_MARKERS {
+        command.env_remove(key);
+    }
+    command
+}
+
+/// Run `binary args` with no shell, forwarding output lines as they arrive.
+/// stderr is always shown; stdout only when `stream_stdout` (a `--json`
+/// result is read whole instead).
+fn run_streaming(
+    binary: &Path,
+    args: &[String],
+    cwd: &Path,
+    timeout: Duration,
+    stream_stdout: bool,
+    handle: &RunHandle,
+    on_line: Arc<dyn Fn(String) + Send + Sync>,
+) -> StreamedRun {
+    let mut command = cli_command(binary, args, cwd);
     let failed = |message: String| StreamedRun {
         end: RunEnd::FailedToStart,
         stdout: String::new(),
@@ -1012,6 +1036,30 @@ mod tests {
         let (run, lines) = fixture(&early, "echo never >&2", Duration::from_secs(5));
         assert_eq!(run.end, RunEnd::Cancelled);
         assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn the_cli_runs_directly_with_plain_output_and_no_agent_markers() {
+        let args = vec!["--yes".to_string(), "skills@1".to_string()];
+        let command = cli_command(Path::new("npx"), &args, &std::env::temp_dir());
+        assert_eq!(command.get_program(), "npx");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["--yes", "skills@1"]
+        );
+        let envs: HashMap<_, _> = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|v| v.to_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(envs.get("NO_COLOR"), Some(&Some("1".into())));
+        for key in AGENT_MARKERS {
+            assert_eq!(envs.get(key), Some(&None), "{key}");
+        }
     }
 
     #[test]
