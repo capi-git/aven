@@ -4,6 +4,8 @@ import type { ActivityEntry } from "./activity";
 import type { DevServerStop } from "./devServerStops";
 import type { SessionActivityEvent } from "./notifications";
 import type { ControlOutcome } from "./orchestration";
+import { resetDevPreviews, watchTerminalOutput } from "./devPreviews";
+import { devServerStopsWatched } from "./devServerStops";
 import { BotRunner, type BotSendOptions } from "./projectBotRunner";
 import { BOT_SETTLE_MS } from "./projectBotWake";
 import {
@@ -39,7 +41,7 @@ const START = new Date(2026, 9, 23, 14, 0).getTime();
 
 type Sent = { sessionId: string; text: string; options: BotSendOptions };
 
-function harness() {
+function harness(options: { realStops?: boolean } = {}) {
   let now = START;
   let nextId = 1;
   const timers = new Map<number, { at: number; run: () => void }>();
@@ -133,12 +135,16 @@ function harness() {
         onActivity = undefined;
       };
     },
-    subscribeStops: (listener) => {
-      onStop = listener;
-      return () => {
-        onStop = undefined;
-      };
-    },
+    ...(options.realStops
+      ? {}
+      : {
+          subscribeStops: (listener: (stop: DevServerStop) => void) => {
+            onStop = listener;
+            return () => {
+              onStop = undefined;
+            };
+          },
+        }),
   });
   const flush = async () => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
@@ -568,5 +574,36 @@ describe("a project bot waking up", () => {
       "All good now.",
     ]);
     h.runner.stop();
+  });
+
+  it("wakes when a terminal's dev server crashes, with its last output", async () => {
+    resetDevPreviews();
+    const h = harness({ realStops: true });
+    const terminal = watchTerminalOutput({
+      id: "t1",
+      project: PATH,
+      cwd: PATH,
+      placement: "terminal",
+    });
+    // No bot listening yet: the terminal keeps nothing.
+    expect(devServerStopsWatched()).toBe(false);
+    h.runner.start();
+    expect(devServerStopsWatched()).toBe(true);
+    terminal.foreground("node");
+    terminal.push("Tip server ready at http://localhost:5199/\n");
+    terminal.push(
+      "Error: The tip server fell over\n    at Server.<anonymous> (server.js:7:39)\n",
+    );
+    terminal.foreground(null);
+    await h.advance(0);
+    await h.advance(BOT_SETTLE_MS);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0].options.displayText).toBe("Dev server crashed");
+    expect(h.sent[0].text).toContain("(localhost:5199) stopped on its own");
+    expect(h.sent[0].text).toContain("Error: The tip server fell over");
+    expect(h.sent[0].text).toContain("server.js:7:39");
+    h.runner.stop();
+    expect(devServerStopsWatched()).toBe(false);
+    resetDevPreviews();
   });
 });
