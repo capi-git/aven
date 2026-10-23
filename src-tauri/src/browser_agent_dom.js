@@ -119,10 +119,22 @@
       '[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],' +
       '[role="option"],[role="combobox"],[role="treeitem"],[role="slider"],[role="spinbutton"],[role="searchbox"],[role="textbox"],' +
       '[aria-haspopup]:not([aria-haspopup="false"]),[tabindex]:not([tabindex="-1"]),[onclick]';
+    // One computed style per element for the whole snapshot.
+    const styles = new Map();
+    const cached = (element) => {
+      let style = styles.get(element);
+      if (!style) { style = styleOf(element); styles.set(element, style); }
+      return style;
+    };
+    const boxed = (element) => {
+      const rect = element.getBoundingClientRect();
+      return element.isConnected && rect.width > 0 && rect.height > 0 && cached(element).display !== 'none';
+    };
+    const seen = (element) => boxed(element) && cached(element).visibility !== 'hidden';
     const pointerCursor = (element) => {
-      if (tag(element, 'HTML') || tag(element, 'BODY') || styleOf(element).cursor !== 'pointer') return false;
+      if (tag(element, 'HTML') || tag(element, 'BODY') || cached(element).cursor !== 'pointer') return false;
       const parent = element.parentElement;
-      return !parent || styleOf(parent).cursor !== 'pointer';
+      return !parent || cached(parent).cursor !== 'pointer';
     };
     // Open menus, listboxes and dialogs are usually rendered last (portals);
     // a long page must not crowd them out of the snapshot.
@@ -163,21 +175,34 @@
       if (!(element.matches(selector) || frameTag(element) || pointerCursor(element))) return;
       if (frameTag(element)) return;
       if (!element.matches(selector) && element.parentElement && element.parentElement.closest(selector)) return;
-      if (visible(element)) { add(element, extra); return; }
+      if (seen(element)) { add(element, extra); return; }
       // A file input is often hidden behind a button; upload can still use it.
       if (file) { add(element, { ...extra, hidden: true }); return; }
       // Hidden only by its own style while its row is shown: typically a
       // control revealed on hover. Click and hover point there first.
       const parent = element.parentElement;
-      if (laidOut(element) && parent && styleOf(parent).visibility !== 'hidden') add(element, { ...extra, hidden: true });
+      if (boxed(element) && parent && cached(parent).visibility !== 'hidden') add(element, { ...extra, hidden: true });
     };
+    // Depth first in document order: a shadow root before the light children
+    // it shows, a same-site frame's document where the frame is. Nothing in a
+    // display: none subtree is shown, so only its file inputs are looked at.
     const visit = (root, frame) => {
-      const walker = (root.ownerDocument || root).createTreeWalker(root, 1);
-      for (let node = walker.nextNode(); node && !full; node = walker.nextNode()) {
+      const stack = [root];
+      while (stack.length && !full) {
+        const node = stack.pop();
+        if (node.nodeType !== 1) {
+          for (let child = node.lastElementChild; child; child = child.previousElementSibling) stack.push(child);
+          continue;
+        }
         if (++scanned > 30000) { full = truncated = true; return; }
         consider(node, frame);
-        if (node.shadowRoot) visit(node.shadowRoot, frame);
-        if (frameTag(node) && visible(node)) {
+        if (cached(node).display === 'none') {
+          for (const input of node.querySelectorAll('input[type="file"]')) consider(input, frame);
+          continue;
+        }
+        for (let child = node.lastElementChild; child; child = child.previousElementSibling) stack.push(child);
+        if (node.shadowRoot) stack.push(node.shadowRoot);
+        if (frameTag(node) && seen(node)) {
           let inner = null;
           try { inner = node.contentDocument; } catch { inner = null; }
           const name = limit(node.getAttribute('title') || node.getAttribute('name') || node.getAttribute('src') || 'frame', 80);
@@ -291,8 +316,15 @@
     globalThis.__supermonoAgentPress = undefined;
     const down = record.events.find(event => event.type === 'pointerdown' || event.type === 'mousedown');
     const onTarget = !!down && reaches(record.element, down.target);
-    return JSON.stringify({ ok: true, known: true, pressed: !!down, clicked: record.events.some(event => event.type === 'click'),
-      onTarget, ...(down && !onTarget ? { landedOn: describe(down.target) } : {}) });
+    const clicked = record.events.some(event => event.type === 'click');
+    // What the agent is told. A press the page took without a click event is
+    // not a failure: menus often act on pointerup and close before a click.
+    const report = !down ? {} : !onTarget
+      ? { pressed: true, landedOn: describe(down.target),
+        note: `The press landed on ${describe(down.target)}, not on the element: something moved or covered it. Take a snapshot before trying again.` }
+      : clicked ? { pressed: true }
+      : { pressed: true, note: 'The page took the press without a click event, as menus that act on pointerup do. It most likely worked: take a snapshot to see the result instead of clicking again.' };
+    return JSON.stringify({ ok: true, known: true, pressed: !!down, report });
   }
   const state = globalThis.__supermonoAgentSnapshot;
   if (!state || state.url !== location.href || state.document !== document || !request.ref.startsWith(`${state.generation}:`)) throw new Error('Stale reference. Take a new snapshot.');
@@ -300,7 +332,7 @@
   const pointerAction = ['click', 'hover', 'upload', 'upload-check'].includes(request.action);
   if (!element || !(pointerAction ? laidOut(element) || (request.action !== 'hover' && tag(element, 'INPUT') && element.type === 'file' && element.isConnected) : visible(element)))
     throw new Error('Element changed or is no longer visible. Take a new snapshot.');
-  if (frameTag(element)) throw new Error('This is an embedded frame from another site; its controls are not visible to the snapshot. Open its address in its own page if it has one, or use desktop control on the Aven window that shows this page.');
+  if (frameTag(element)) throw new Error('This is an embedded frame from another site; its controls are not visible to the snapshot. If it handles sign-in or payment, hand that step to the user. Otherwise open its address in its own page if it has one.');
   const disabled = element.disabled || element.getAttribute('aria-disabled') === 'true';
   if (disabled && request.action !== 'hover') throw new Error('This control is disabled.');
   const fileInput = tag(element, 'INPUT') && (element.type || '').toLowerCase() === 'file';

@@ -236,7 +236,9 @@ async function pointerAction(page, operation) {
     phase: "confirm",
     point: aimed.point,
   });
-  if (confirmed.method !== "pointer") return confirmed;
+  // As the host does: a direct click, or a covered hover (no point), is
+  // reported as it is.
+  if (confirmed.method !== "pointer" || !confirmed.point) return confirmed;
   // Move again so whatever appeared under the pointer gets its hover.
   await page.mouse("mouseMoved", confirmed.point);
   if (operation.action === "hover") return confirmed;
@@ -252,7 +254,8 @@ async function pointerAction(page, operation) {
     const fallback = await page.dom({ ...operation, pointer: false });
     return { ...fallback, fellBack: true };
   }
-  return { ...confirmed, ...verified };
+  // As the host does: the DOM script words the outcome for the agent.
+  return { ...confirmed, ...verified.report };
 }
 
 /** The host's upload: arm, click, answer the chooser that opens. */
@@ -324,7 +327,15 @@ try {
           action: "click",
           ref: item.ref,
         });
-        expect(chosen.method === "pointer", "item method");
+        // The item acts on pointerup and the menu closes before any click
+        // event: still a press that worked, never reported as a failure.
+        expect(
+          chosen.method === "pointer" &&
+            chosen.pressed === true &&
+            !("clicked" in chosen) &&
+            /without a click event/.test(chosen.note),
+          JSON.stringify(chosen),
+        );
         const log = await page.log();
         expect(
           log.includes("trigger:pointerdown") &&
@@ -348,7 +359,7 @@ try {
         });
         const log = await page.log();
         expect(
-          result.method === "pointer" && result.onTarget,
+          result.method === "pointer" && result.pressed && !result.landedOn,
           JSON.stringify(result),
         );
         expect(
@@ -395,6 +406,18 @@ try {
       const behind = await page.find(
         (item) => item.label === "Behind the overlay",
       );
+      // Hovering it: no pointer can reach it, so the result says what covers
+      // it instead of failing on a point that was never given.
+      const hovered = await pointerAction(page, {
+        action: "hover",
+        ref: behind.ref,
+      });
+      expect(
+        hovered.method === "pointer" &&
+          hovered.hovered === false &&
+          /overlay/.test(hovered.coveredBy || ""),
+        JSON.stringify(hovered),
+      );
       const covered = await pointerAction(page, {
         action: "click",
         ref: behind.ref,
@@ -424,7 +447,7 @@ try {
         ref: remove.ref,
       });
       expect(
-        result.method === "pointer" && result.pressed && result.onTarget,
+        result.method === "pointer" && result.pressed && !result.landedOn,
         JSON.stringify(result),
       );
       const hovered = await pointerAction(page, {
@@ -457,7 +480,7 @@ try {
         ref: save.ref,
       });
       expect(
-        result.method === "pointer" && result.onTarget,
+        result.method === "pointer" && result.pressed && !result.landedOn,
         JSON.stringify(result),
       );
       const name = await page.find((item) => item.label === "Site name");

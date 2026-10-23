@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <set>
 #include <string>
@@ -51,6 +52,14 @@ inline std::optional<AgentInputPoint> AgentPointerPoint(double x, double y, doub
   const AgentInputPoint point{x * zoom, y * zoom};
   if (point.x >= view_width + 1 || point.y >= view_height + 1) return std::nullopt;
   return point;
+}
+
+// After the confirm step: the DOM script either clicked the element directly
+// (method "element"), found it covered while hovering (no point), or names
+// the point to move to and press. Only the last moves the pointer.
+enum class AgentConfirmNext { kReport, kMove };
+inline AgentConfirmNext AgentAfterConfirm(bool pointer_method, bool has_point) {
+  return pointer_method && has_point ? AgentConfirmNext::kMove : AgentConfirmNext::kReport;
 }
 
 // Pauses of a careful mouse: after moving onto the element (menus and hover
@@ -124,6 +133,59 @@ inline constexpr std::size_t kAgentUploadMaxFiles = 10;
 // A chooser may open a little after the click (a site can wait for a menu or
 // a request first), within the user activation the click granted.
 inline constexpr double kAgentUploadWaitSeconds = 5;
+// The page side of an upload ends by this deadline whatever happens; the
+// host's own wait (40 s) is longer, so an upload is never left armed after
+// the agent was told it timed out.
+inline constexpr double kAgentUploadDeadlineSeconds = 30;
+
+// One approved upload in a page, from approval to its single result. It is
+// armed (a chooser that opens is answered) only around the steps that can
+// open one: the DOM calls that may click directly, and from the press until
+// the short wait after the click ends. Between those steps, and after the
+// result, every chooser is the user's.
+class AgentUploadGate {
+ public:
+  // Starts an upload; refused while another one is pending.
+  bool Begin(uint64_t id, double now) {
+    if (pending_) return false;
+    pending_ = true; armed_ = false; id_ = id;
+    deadline_ = now + kAgentUploadDeadlineSeconds; settle_ = 0;
+    return true;
+  }
+  bool Pending() const { return pending_; }
+  bool Current(uint64_t id) const { return pending_ && id_ == id; }
+  // Arms or disarms the upload `id`; stale ids are ignored.
+  void Arm(uint64_t id, bool on) { if (Current(id)) armed_ = on; }
+  bool Armed(double now) const { return pending_ && armed_ && now < Until(); }
+  // The click finished: the chooser has kAgentUploadWaitSeconds to open.
+  void Clicked(uint64_t id, double now) {
+    if (!Current(id)) return;
+    armed_ = true;
+    settle_ = std::min(deadline_, now + kAgentUploadWaitSeconds);
+  }
+  // Whether the upload ran out of time (deadline, or the wait after a click).
+  bool Expired(double now) const { return pending_ && now >= Until(); }
+  // Ends the upload; true only the first time, so its result is sent once.
+  bool Finish(uint64_t id) {
+    if (!Current(id)) return false;
+    pending_ = armed_ = false;
+    return true;
+  }
+  // Ends whatever upload is pending (the user's input, a navigation, the
+  // page closing, the host giving up). True when one was pending.
+  bool Cancel() {
+    if (!pending_) return false;
+    pending_ = armed_ = false;
+    return true;
+  }
+  uint64_t id() const { return id_; }
+
+ private:
+  double Until() const { return settle_ > 0 ? std::min(settle_, deadline_) : deadline_; }
+  bool pending_ = false, armed_ = false;
+  uint64_t id_ = 0;
+  double deadline_ = 0, settle_ = 0;
+};
 
 enum class AgentChooserMode { kOpen, kOpenMultiple, kFolder, kSave };
 enum class AgentChooserAnswer {

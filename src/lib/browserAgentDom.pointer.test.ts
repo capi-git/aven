@@ -116,6 +116,44 @@ describe("agent pointer actions and what snapshots list", () => {
     ).toBeUndefined();
   });
 
+  it("computes each style once and skips what display: none hides, except file inputs", () => {
+    document.body.innerHTML =
+      '<div id="closed" style="display: none"><button>Hidden action</button>' +
+      '<div><input type="file" aria-label="Picker"></div></div>' +
+      '<div style="cursor: pointer"><span style="cursor: pointer">Card</span></div>';
+    // As in a browser: nothing inside a display: none subtree has a box.
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(
+      function (this: HTMLElement) {
+        const size = this.closest("#closed") ? 0 : 20;
+        return {
+          x: 0,
+          y: 0,
+          width: size * 5,
+          height: size,
+          top: 0,
+          bottom: size,
+          left: 0,
+          right: size * 5,
+          toJSON() {},
+        };
+      },
+    );
+    const computed = vi.spyOn(window, "getComputedStyle");
+    const entries = snapshot();
+    expect(
+      entries.find((item) => item.label === "Hidden action"),
+    ).toBeUndefined();
+    expect(entries.find((item) => item.label === "Picker")).toMatchObject({
+      type: "file",
+      hidden: true,
+    });
+    expect(entries.filter((item) => item.label === "Card")).toHaveLength(1);
+    const elements = computed.mock.calls.map(([element]) => element);
+    expect(new Set(elements).size).toBe(elements.length);
+    // Nothing inside the hidden subtree was styled, except the file input.
+    expect(elements).not.toContain(document.querySelector("#closed button"));
+  });
+
   it("lists controls inside open shadow roots", () => {
     document.body.innerHTML = '<div id="host"></div>';
     const root = document
@@ -245,20 +283,28 @@ describe("agent pointer actions and what snapshots list", () => {
     confirm();
     trusted(button, "pointerdown");
     trusted(button, "click");
-    expect(verify()).toMatchObject({
+    expect(verify()).toEqual({
+      ok: true,
       known: true,
       pressed: true,
-      clicked: true,
-      onTarget: true,
+      report: { pressed: true },
     });
     // Read once: a second verify knows nothing.
     expect(verify().known).toBe(false);
+    // A menu item that acts on pointerup and closes before any click event:
+    // the press worked, so the agent is never told it failed.
+    confirm();
+    trusted(button, "pointerdown");
+    const quiet = verify().report;
+    expect(quiet.pressed).toBe(true);
+    expect(quiet).not.toHaveProperty("clicked");
+    expect(quiet.note).toContain("without a click event");
+    expect(quiet.note).toContain("instead of clicking again");
     // Something moved in between: the press landed elsewhere.
     confirm();
     trusted(other, "mousedown");
-    expect(verify()).toMatchObject({
+    expect(verify().report).toMatchObject({
       pressed: true,
-      onTarget: false,
       landedOn: 'div#other "Other"',
     });
     // A page's own synthetic events never count as the press.
@@ -293,11 +339,14 @@ describe("agent pointer actions and what snapshots list", () => {
       });
     expect(confirm()).toMatchObject({ method: "pointer", hovered: true });
     hit.mockReturnValue(document.querySelector("#toast"));
-    expect(confirm()).toMatchObject({
+    const covered = confirm();
+    expect(covered).toMatchObject({
       method: "pointer",
       hovered: false,
       coveredBy: "div#toast",
     });
+    // No point to move to: the host reports this result as it is.
+    expect(covered).not.toHaveProperty("point");
     // Disabled controls can still be hovered (tooltips say why), not clicked.
     button.disabled = true;
     const disabled = find("Share").ref;
@@ -322,6 +371,13 @@ describe("agent pointer actions and what snapshots list", () => {
     expect(() =>
       decode({ action: "click", ref: frame.ref, pointer: true }),
     ).toThrow("embedded frame from another site");
+    // Never steered towards driving another site's frame by other means.
+    expect(() =>
+      decode({ action: "click", ref: frame.ref, pointer: true }),
+    ).toThrow("If it handles sign-in or payment, hand that step to the user");
+    expect(() =>
+      decode({ action: "click", ref: frame.ref, pointer: true }),
+    ).not.toThrow("desktop control");
   });
 
   it("keeps the direct click for native pickers and says why", () => {

@@ -120,5 +120,53 @@ int main() {
     CHECK(AgentUploadUnaccepted({"README"}, {".md"}, {""}) == V{"README"});
     CHECK(AgentUploadUnaccepted({"b.txt"}, {}, {}).empty());
   }
+  // After confirm: move only to a named point; a direct click or a covered
+  // hover (no point) is reported as it is, never as "Invalid pointer point".
+  CHECK(AgentAfterConfirm(true, true) == AgentConfirmNext::kMove);
+  CHECK(AgentAfterConfirm(true, false) == AgentConfirmNext::kReport);
+  CHECK(AgentAfterConfirm(false, true) == AgentConfirmNext::kReport);
+  CHECK(AgentAfterConfirm(false, false) == AgentConfirmNext::kReport);
+
+  // The upload flow: one result, armed only around the steps that can open a
+  // chooser, never past its deadline or the user's own input.
+  {
+    AgentUploadGate gate;
+    CHECK(!gate.Pending() && !gate.Armed(0));
+    CHECK(gate.Begin(1, 100));
+    CHECK(!gate.Begin(2, 100));  // one upload per page
+    CHECK(gate.Pending() && !gate.Armed(100));  // approved, not yet armed
+    gate.Arm(1, true);  // around the aim step, which may click directly
+    CHECK(gate.Armed(100.1));
+    gate.Arm(1, false);  // the aim only chose a point
+    CHECK(!gate.Armed(100.2));  // a chooser now (the user's) is left alone
+    gate.Arm(2, true);  // a stale id never arms
+    CHECK(!gate.Armed(100.2));
+    gate.Arm(1, true);  // right before the press
+    gate.Clicked(1, 101);
+    CHECK(gate.Armed(105.9));
+    CHECK(!gate.Expired(105.9));
+    CHECK(gate.Expired(106));  // no chooser within the wait after the click
+    CHECK(!gate.Armed(106));
+    CHECK(gate.Finish(1));
+    CHECK(!gate.Finish(1));  // the result is sent once
+    CHECK(!gate.Pending() && !gate.Armed(106));
+    // A chooser answered during the click: the later click result is stale.
+    CHECK(gate.Begin(3, 200));
+    gate.Arm(3, true);
+    CHECK(gate.Finish(3));
+    gate.Clicked(3, 200.5);
+    CHECK(!gate.Pending() && !gate.Armed(200.5));
+    // The deadline bounds everything, even a click near its end.
+    CHECK(gate.Begin(4, 300));
+    gate.Arm(4, true);
+    gate.Clicked(4, 300 + kAgentUploadDeadlineSeconds - 1);
+    CHECK(gate.Expired(300 + kAgentUploadDeadlineSeconds));
+    CHECK(gate.Begin(5, 400) == false);  // still pending until finished
+    CHECK(gate.Cancel());  // the user clicked in the page, or the host gave up
+    CHECK(!gate.Cancel());
+    CHECK(gate.Begin(5, 400) && gate.id() == 5);
+    CHECK(gate.Expired(400 + kAgentUploadDeadlineSeconds));
+    CHECK(kAgentUploadDeadlineSeconds < 40);  // the host waits 40 s
+  }
   std::printf("%d agent input checks passed\n", checks);
 }

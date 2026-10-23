@@ -71,6 +71,18 @@ fn sleep_reservations() -> &'static Mutex<SleepReservations> {
     SLEEP_RESERVATIONS.get_or_init(|| Mutex::new(SleepReservations::default()))
 }
 
+/// The window and browser pages a scope (one chat's grant) may use, for
+/// desktop control of Aven's own window.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn scope_pages(scope: &str) -> Option<(String, Vec<String>)> {
+    let Some(Ok(server)) = SERVER.get() else {
+        return None;
+    };
+    let grants = server.grants.lock().ok()?;
+    let grant = grants.get(scope)?;
+    Some((grant.owner.clone(), grant.ids.clone()))
+}
+
 #[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
 fn grant_contains_page(grants: &HashMap<String, Grant>, owner: &str, id: &str) -> bool {
     grants
@@ -332,7 +344,7 @@ impl Request {
             {
                 Err("Invalid element reference".into())
             }
-            Self::Upload { paths, .. } => validate_upload_request(paths),
+            Self::Upload { paths, .. } => crate::browser_upload::validate_request(paths),
             Self::Screenshot {
                 label: Some(label), ..
             } => crate::turn_shots::validate_label(label),
@@ -387,92 +399,10 @@ fn validate_file_request(path: &str, line: Option<u32>, column: Option<u32>) -> 
     Ok(())
 }
 
-/// At most this many files, each at most `MAX_UPLOAD_FILE_BYTES`, per upload.
-const MAX_UPLOAD_FILES: usize = 10;
-const MAX_UPLOAD_FILE_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_UPLOAD_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
-/// The page side of an upload: click, wait for the chooser (up to 5 s), answer.
+/// The page side of an upload: click, wait for the chooser, answer. The page
+/// itself gives up after 30 s.
 #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 const UPLOAD_PAGE_WAIT: Duration = Duration::from_secs(40);
-
-fn validate_upload_request(paths: &[String]) -> Result<(), String> {
-    if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
-        return Err(format!("Upload between 1 and {MAX_UPLOAD_FILES} files."));
-    }
-    paths
-        .iter()
-        .try_for_each(|path| validate_file_request(path, None, None))
-}
-
-/// One local file the user is asked to send.
-#[derive(Debug, PartialEq)]
-struct UploadFile {
-    path: String,
-    name: String,
-    bytes: u64,
-}
-
-/// Checks the files before the user is asked: absolute paths to existing,
-/// readable regular files (never folders, devices, pipes or sockets), within
-/// the count and size bounds. Symbolic links resolve to their target, which
-/// is what is shown and sent. Nothing is read beyond opening each file.
-fn validate_upload_files(paths: &[String]) -> Result<Vec<UploadFile>, String> {
-    validate_upload_request(paths)?;
-    let mut files: Vec<UploadFile> = Vec::new();
-    let mut total = 0_u64;
-    for path in paths {
-        let shown = std::path::Path::new(path)
-            .file_name()
-            .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned());
-        let canonical = std::fs::canonicalize(path)
-            .map_err(|error| format!("Could not find {shown}: {error}"))?;
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            // A pipe swapped in after canonicalize must not block a worker.
-            options.custom_flags(libc::O_NONBLOCK);
-        }
-        let metadata = std::fs::metadata(&canonical)
-            .and_then(|metadata| {
-                if metadata.is_file() {
-                    options.open(&canonical)?.metadata()
-                } else {
-                    Ok(metadata)
-                }
-            })
-            .map_err(|error| format!("Could not read {shown}: {error}"))?;
-        if !metadata.is_file() {
-            return Err(format!(
-                "{shown} is not a regular file. Upload files only, not folders or devices."
-            ));
-        }
-        if metadata.len() > MAX_UPLOAD_FILE_BYTES {
-            return Err(format!("{shown} is larger than 256 MB."));
-        }
-        total += metadata.len();
-        if total > MAX_UPLOAD_TOTAL_BYTES {
-            return Err("These files are larger than 512 MB together.".into());
-        }
-        let path = canonical
-            .to_str()
-            .ok_or_else(|| format!("The path of {shown} is not valid UTF-8."))?
-            .to_owned();
-        if files.iter().any(|file| file.path == path) {
-            continue;
-        }
-        let name = canonical
-            .file_name()
-            .map_or_else(|| shown.clone(), |name| name.to_string_lossy().into_owned());
-        files.push(UploadFile {
-            path,
-            name,
-            bytes: metadata.len(),
-        });
-    }
-    Ok(files)
-}
 
 /// The site the user approves: the page's host, for http and https pages.
 fn upload_site(url: Option<&str>) -> Result<String, String> {
@@ -481,56 +411,6 @@ fn upload_site(url: Option<&str>) -> Result<String, String> {
         .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
         .filter(|host| !host.is_empty())
         .ok_or_else(|| "Uploads go only to http and https pages; this page has no site to approve. Take a snapshot to check the page.".into())
-}
-
-#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
-fn human_size(bytes: u64) -> String {
-    const KB: f64 = 1024.0;
-    let value = bytes as f64;
-    if value < KB {
-        format!("{bytes} bytes")
-    } else if value < KB * KB {
-        format!("{:.0} KB", (value / KB).max(1.0))
-    } else {
-        format!("{:.1} MB", value / KB / KB)
-    }
-}
-
-/// What the presence bar shows: "Claude wants to upload llms.txt to
-/// framer.com", with the folder and size below.
-#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
-fn upload_prompt(files: &[UploadFile], site: &str) -> crate::desktop_presence::UploadPrompt {
-    let names = match files {
-        [one] => one.name.clone(),
-        [first, second] => format!("{} and {}", first.name, second.name),
-        [first, rest @ ..] => format!("{} and {} more files", first.name, rest.len()),
-        [] => String::new(),
-    };
-    let folder = |file: &UploadFile| {
-        std::path::Path::new(&file.path)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-    };
-    let first = files.first().and_then(folder);
-    let from = match first {
-        Some(first)
-            if files
-                .iter()
-                .all(|file| folder(file).as_ref() == Some(&first)) =>
-        {
-            let home = std::env::var("HOME").unwrap_or_default();
-            match first.strip_prefix(&home) {
-                Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
-                    format!("From ~{rest}")
-                }
-                _ => format!("From {first}"),
-            }
-        }
-        Some(_) => "From several folders".into(),
-        None => String::new(),
-    };
-    let size = human_size(files.iter().map(|file| file.bytes).sum());
-    crate::desktop_presence::UploadPrompt::new(site, &names, &format!("{from} \u{b7} {size}"))
 }
 
 /// Match the editor's text-file policy without returning file contents to the
@@ -725,6 +605,7 @@ pub fn browser_agent_revoke(caller: Webview, session_id: String) -> Result<(), S
             .retain(|token, grant| {
                 if grant.owner == caller.label() && grant.session_id == session_id {
                     crate::desktop_control::remove_session_captures(token);
+                    crate::browser_upload::forget(Some(token));
                     false
                 } else {
                     true
@@ -864,6 +745,7 @@ pub(crate) fn window_destroyed(owner: &str) {
             grants.retain(|token, grant| {
                 if grant.owner == owner {
                     crate::desktop_control::remove_session_captures(token);
+                    crate::browser_upload::forget(Some(token));
                     false
                 } else {
                     true
@@ -887,6 +769,7 @@ pub(crate) fn shutdown() {
             let _ = std::fs::remove_dir(directory);
         }
     }
+    crate::browser_upload::forget(None);
     crate::desktop_control::shutdown();
 }
 
@@ -1556,7 +1439,7 @@ fn dispatch(
             paths,
         } => {
             let page = crate::browser::preview(&caller, &id)?;
-            let files = validate_upload_files(&paths)?;
+            let files = crate::browser_upload::check_files(&paths)?;
             let site = upload_site(page_url(&caller, &id).as_deref())?;
             #[cfg(all(feature = "chromium", target_os = "macos"))]
             {
@@ -1569,20 +1452,46 @@ fn dispatch(
                 if check["fileInput"] == true && check["multiple"] == false && files.len() > 1 {
                     return Err("This file input takes one file. Upload one file at a time.".into());
                 }
+                // The user approves exactly these bytes: private copies made
+                // now are what the bar describes and what the page receives.
+                let root = server
+                    .app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|error| error.to_string())?
+                    .join("upload-copies");
+                crate::browser_upload::sweep(&root);
+                let copies = crate::browser_upload::UploadCopies::create(&root, &files)?;
                 crate::desktop_control::ask_upload(
                     &envelope.token,
-                    upload_prompt(&files, &site),
+                    crate::browser_upload::prompt(copies.files(), &site),
                     connected,
                 )?;
-                let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
-                unconfirmed_input(
-                    "upload",
-                    tauri::async_runtime::block_on(page.command_within(
-                        json!({"action":"upload","site":site,"paths":paths,
-                            "request":{"action":"upload","ref":reference,"actor":marker_actor(grant)}}),
-                        UPLOAD_PAGE_WAIT,
-                    )),
-                )
+                let list: Vec<Value> = copies
+                    .files()
+                    .iter()
+                    .map(|file| json!({"path":file.path,"bytes":file.bytes}))
+                    .collect();
+                let result = tauri::async_runtime::block_on(page.command_within(
+                    json!({"action":"upload","site":site,"files":list,
+                        "request":{"action":"upload","ref":reference,"actor":marker_actor(grant)}}),
+                    UPLOAD_PAGE_WAIT,
+                ));
+                let timed_out = matches!(&result, Err(error) if error.contains("timed out"));
+                if timed_out {
+                    // Never leave the page armed after giving up on it.
+                    let _ =
+                        tauri::async_runtime::block_on(page.command_within(
+                            json!({"action":"upload-cancel"}),
+                            Duration::from_secs(3),
+                        ));
+                }
+                // Copies the page may have received stay for it to read;
+                // anything else that ended without an upload is deleted now.
+                if result.is_ok() || timed_out {
+                    copies.keep(&envelope.token);
+                }
+                unconfirmed_input("upload", result)
             }
             #[cfg(not(all(feature = "chromium", target_os = "macos")))]
             {
@@ -1695,11 +1604,15 @@ ends, Aven deletes that turn's unlabelled screenshots that no message in this
 chat shows; label a screenshot to keep it.
 Upload sends local files through the page's file chooser. ref is a file input,
 or the button or menu item that opens a chooser (such as "Add" or "Upload
-file"). Aven asks the user to approve every upload ("Claude wants to upload
-llms.txt to framer.com"), then clicks and answers only the chooser that click
-opens. The result lists the uploaded names; otherwise the error says why
-(declined, no chooser opened, the page moved). Never retry a declined upload;
-ask in the chat. Up to 10 files, 256 MB each.
+file"). Aven asks the user to approve every upload ("Claude wants to upload 1
+file to framer.com", listing every file with its folder), then clicks and
+answers only the chooser that click opens, with private copies of the files
+made when the user was asked. The result lists the uploaded names;
+otherwise the error says why (declined, no chooser opened, the page moved).
+Never retry a declined upload; ask in the chat. Up to 10 files, 256 MB each.
+Files in hidden folders of the home folder (~/.ssh, ~/.config...), in the
+Keychains folder, and files that look like secrets (private keys, certificates,
+.env files) are refused: ask the user to upload those themselves.
 Openfile displays Markdown, code, JSON, and other UTF-8 text in this chat's Aven
 editor. Use an absolute path; the file must exist and be no larger than 8 MB.
 Line and column are optional positive numbers; column requires line. File
@@ -1725,10 +1638,14 @@ Finish the job. Before handing a step back, try the other routes: snapshot
 again and click by ref, hover first, press keys (Tab, Enter, Space, Escape,
 arrows), wait a moment and snapshot again for a menu or dialog, scroll the
 element into view, and use upload for file choosers. If a step still does not
-respond, or needs a native dialog or a canvas app, use desktop control
-(--aven-desktop) on the Aven window that shows this page instead of handing it
-back: it is Aven's own window and your page. Aven's window titles name the tab
-in front, so the window holding your page may be titled with another project.
+respond (a canvas app, for example), use desktop control (--aven-desktop)
+inside this page on the Aven window that shows it instead of handing it back;
+Aven accepts desktop input there only inside the page. Aven's window titles
+name the tab in front, so the window holding your page may be titled with
+another project. Never operate file, open, save or folder dialogs, or Aven's
+own interface (settings, other chats, approval bars), through desktop control;
+use upload for files. When another site's frame handles sign-in or payment,
+hand that step to the user.
 If no window shows the page, open its address again to show it beside the
 chat. When desktop control is ready, Aven itself asks the user once to allow
 this chat; when it is off, ask the user once to turn it on, naming the step.
@@ -2136,35 +2053,42 @@ mod tests {
     }
     #[test]
     fn upload_is_a_scoped_ref_action_with_bounded_absolute_paths() {
-        let value = cli_request_value(
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["/tmp/llms.txt"]}"#,
-            false,
-        )
-        .unwrap();
+        // Absolute on every platform, like the openfile tests.
+        let absolute = std::env::temp_dir().join("llms.txt");
+        let absolute = absolute.to_str().unwrap();
+        let upload = |paths: Value| {
+            json!({"action":"upload","id":"tab-a","ref":"g1:4","paths":paths}).to_string()
+        };
+        let value = cli_request_value(&upload(json!([absolute])), false).unwrap();
         let request: Request = serde_json::from_value(value).unwrap();
         assert!(matches!(&request, Request::Upload { id, reference, paths }
-            if id == "tab-a" && reference == "g1:4" && paths == &["/tmp/llms.txt"]));
+            if id == "tab-a" && reference == "g1:4" && paths == &[absolute]));
         assert!(authorize(&grants(), "secret", &request).is_ok());
         assert!(authorize(&grants(), "wrong", &request).is_err());
         let other_tab = Request::Upload {
             id: "tab-b".into(),
             reference: "g1:4".into(),
-            paths: vec!["/tmp/llms.txt".into()],
+            paths: vec![absolute.into()],
         };
         assert!(authorize(&grants(), "secret", &other_tab).is_err());
-        let eleven = serde_json::to_string(&vec!["/tmp/a.txt"; 11]).unwrap();
+        // A NUL inside a valid JSON string reaches path validation, which refuses it.
+        let nul = format!("{absolute}\u{0}.txt");
+        let encoded = upload(json!([nul]));
+        assert!(encoded.contains("\\u0000"));
+        assert!(cli_request_value(&encoded, false)
+            .unwrap_err()
+            .contains("absolute local file path"));
         for input in [
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":[]}"#.to_string(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4"}"#.into(),
-            r#"{"action":"upload","id":"tab-a","paths":["/tmp/a.txt"]}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["llms.txt"]}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["~/llms.txt"]}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["file:///tmp/a.txt"]}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["/tmp/a .txt"]}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":"/tmp/a.txt"}"#.into(),
-            r#"{"action":"upload","id":"tab-a","ref":"g1:4","paths":["/tmp/a.txt"],"site":"x"}"#
-                .into(),
-            format!(r#"{{"action":"upload","id":"tab-a","ref":"g1:4","paths":{eleven}}}"#),
+            upload(json!([])),
+            json!({"action":"upload","id":"tab-a","ref":"g1:4"}).to_string(),
+            json!({"action":"upload","id":"tab-a","paths":[absolute]}).to_string(),
+            upload(json!(["llms.txt"])),
+            upload(json!(["~/llms.txt"])),
+            upload(json!(["file:///tmp/a.txt"])),
+            upload(json!(absolute)),
+            json!({"action":"upload","id":"tab-a","ref":"g1:4","paths":[absolute],"site":"x"})
+                .to_string(),
+            upload(json!(vec![absolute; 11])),
         ] {
             assert!(cli_request_value(&input, false).is_err(), "{input}");
         }
@@ -2192,99 +2116,6 @@ mod tests {
     }
 
     #[test]
-    fn upload_files_are_existing_readable_regular_files_within_bounds() {
-        struct TemporaryDirectory(std::path::PathBuf);
-        impl Drop for TemporaryDirectory {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let directory = TemporaryDirectory(
-            std::env::temp_dir().join(format!("aven-upload-test-{}", uuid::Uuid::new_v4())),
-        );
-        std::fs::create_dir(&directory.0).unwrap();
-        let path = |name: &str| directory.0.join(name).to_str().unwrap().to_owned();
-        std::fs::write(path("llms.txt"), "# Site\n").unwrap();
-        std::fs::write(path("logo.svg"), "<svg/>").unwrap();
-        let files = validate_upload_files(&[path("llms.txt"), path("logo.svg")]).unwrap();
-        let canonical = |name: &str| {
-            std::fs::canonicalize(path(name))
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_owned()
-        };
-        assert_eq!(
-            files,
-            vec![
-                UploadFile {
-                    path: canonical("llms.txt"),
-                    name: "llms.txt".into(),
-                    bytes: 7
-                },
-                UploadFile {
-                    path: canonical("logo.svg"),
-                    name: "logo.svg".into(),
-                    bytes: 6
-                },
-            ]
-        );
-        // The same file twice is sent once.
-        assert_eq!(
-            validate_upload_files(&[path("llms.txt"), path("llms.txt")])
-                .unwrap()
-                .len(),
-            1
-        );
-        #[cfg(unix)]
-        {
-            // A link is shown and sent as its target.
-            std::os::unix::fs::symlink(path("llms.txt"), path("link.txt")).unwrap();
-            let linked = validate_upload_files(&[path("link.txt")]).unwrap();
-            assert_eq!(linked[0].path, canonical("llms.txt"));
-            assert_eq!(linked[0].name, "llms.txt");
-            // Pipes and other special files are refused without blocking.
-            let fifo = std::ffi::CString::new(path("pipe")).unwrap();
-            assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-            assert!(validate_upload_files(&[path("pipe")])
-                .unwrap_err()
-                .contains("not a regular file"));
-            assert!(validate_upload_files(&["/dev/null".into()])
-                .unwrap_err()
-                .contains("not a regular file"));
-        }
-        assert!(
-            validate_upload_files(&[directory.0.to_str().unwrap().into()])
-                .unwrap_err()
-                .contains("not a regular file")
-        );
-        assert!(validate_upload_files(&[path("missing.txt")])
-            .unwrap_err()
-            .contains("Could not find missing.txt"));
-        assert!(validate_upload_files(&["relative.txt".into()]).is_err());
-        assert!(validate_upload_files(&[]).is_err());
-        // Size bounds (sparse files: nothing is written).
-        std::fs::File::create(path("huge.bin"))
-            .unwrap()
-            .set_len(MAX_UPLOAD_FILE_BYTES + 1)
-            .unwrap();
-        assert!(validate_upload_files(&[path("huge.bin")])
-            .unwrap_err()
-            .contains("larger than 256 MB"));
-        for name in ["a.bin", "b.bin", "c.bin"] {
-            std::fs::File::create(path(name))
-                .unwrap()
-                .set_len(200 * 1024 * 1024)
-                .unwrap();
-        }
-        assert!(
-            validate_upload_files(&[path("a.bin"), path("b.bin"), path("c.bin")])
-                .unwrap_err()
-                .contains("larger than 512 MB together")
-        );
-    }
-
-    #[test]
     fn uploads_name_the_pages_site_and_only_for_web_pages() {
         assert_eq!(
             upload_site(Some("https://Framer.com/projects/site?x=1")).unwrap(),
@@ -2306,53 +2137,26 @@ mod tests {
     }
 
     #[test]
-    fn the_upload_prompt_names_the_files_their_folder_and_size() {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/test".into());
-        let file = |folder: &str, name: &str, bytes: u64| UploadFile {
-            path: format!("{folder}/{name}"),
-            name: name.into(),
-            bytes,
-        };
-        let downloads = format!("{home}/Downloads");
-        let one = upload_prompt(&[file(&downloads, "llms.txt", 3 * 1024)], "framer.com");
-        assert_eq!(one.site, "framer.com");
-        assert_eq!(one.files, "llms.txt");
-        if std::env::var("HOME").is_ok() {
-            assert_eq!(one.detail, "From ~/Downloads \u{b7} 3 KB");
-        }
-        let two = upload_prompt(
-            &[file("/tmp/a", "a.png", 10), file("/tmp/a", "b.png", 20)],
-            "example.com",
-        );
-        assert_eq!(two.files, "a.png and b.png");
-        assert_eq!(two.detail, "From /tmp/a \u{b7} 30 bytes");
-        let many = upload_prompt(
-            &[
-                file("/tmp/a", "a.png", 1024 * 1024),
-                file("/tmp/b", "b.png", 1024 * 1024),
-                file("/tmp/b", "c.png", 512 * 1024),
-            ],
-            "example.com",
-        );
-        assert_eq!(many.files, "a.png and 2 more files");
-        assert_eq!(many.detail, "From several folders \u{b7} 2.5 MB");
-    }
-
-    #[test]
     fn help_tells_agents_to_try_every_route_and_to_stop_only_with_a_picture_and_a_next_step() {
         for advice in [
             "Finish the job. Before handing a step back, try the other routes",
             "hover first, press keys (Tab, Enter, Space, Escape,\narrows)",
-            "use desktop control\n(--aven-desktop) on the Aven window that shows this page",
-            "Aven's window titles name the tab\nin front, so the window holding your page may be titled with another project.",
+            "use desktop control (--aven-desktop)\ninside this page on the Aven window that shows it instead of handing it back;\nAven accepts desktop input there only inside the page.",
+            "Never operate file, open, save or folder dialogs, or Aven's\nown interface (settings, other chats, approval bars), through desktop control;\nuse upload for files.",
+            "When another site's frame handles sign-in or payment,\nhand that step to the user.",
+            "Files in hidden folders of the home folder",
+            "files that look like secrets (private keys, certificates,\n.env files) are refused: ask the user to upload those themselves.",
+            "Aven's window titles\nname the tab in front, so the window holding your page may be titled with\nanother project.",
             "Put real blockers you find (a paid plan, a missing permission, a\nsign-in) at the top of your reply",
             "take a screenshot\nlabelled \"stopped-here\" of the exact spot and show it, then give one precise\nnext step",
             "Never end with a bare \"you'll need to do this\".",
         ] {
             assert!(HELP.contains(advice), "{advice}");
         }
-        // Nothing tells agents to hand file pickers or menus to the user.
+        // Nothing tells agents to hand file pickers or menus to the user, or
+        // to drive dialogs through desktop control.
         assert!(!HELP.contains("need the user's interaction"));
+        assert!(!HELP.contains("native dialog"));
         assert!(!HELP.contains("manually"));
     }
 
