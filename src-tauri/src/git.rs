@@ -340,6 +340,13 @@ pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String
     {
         return Err("Race copies are removed through their race.".into());
     }
+    if copy
+        .branch
+        .as_deref()
+        .is_some_and(|branch| branch.starts_with("aven/bot/"))
+    {
+        return Err("A bot's copy is removed by turning the bot off.".into());
+    }
     if copy.branch.is_none() {
         return Err(
             "This copy has no branch. Create a branch in it before removing it so its commits stay reachable."
