@@ -134,7 +134,8 @@ export function resolveWorkspacePath(
   return joinPath(cwd, value);
 }
 
-function looksLikeFilePath(value: string): boolean {
+/** A path, or a bare name with a file extension (`llms.txt`). */
+export function looksLikeFilePath(value: string): boolean {
   if (value.startsWith("/") || /^[A-Za-z]:\//.test(value)) return true;
   if (value.includes("/")) return true;
   return /\.[A-Za-z][A-Za-z0-9+]{0,11}$/.test(value);
