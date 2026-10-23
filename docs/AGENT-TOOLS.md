@@ -169,11 +169,22 @@ chooser, for example to publish an `llms.txt` it wrote:
 or the button or menu item that opens a chooser, such as **Add** or **Upload
 file**. Before anything leaves the Mac, Aven checks the files: absolute paths
 to existing, readable regular files (no folders, devices or pipes), at most 10
-files, 256 MB each and 512 MB together. Files inside hidden folders of your
-home folder (such as `~/.ssh`, `~/.aws` or `~/.config`), in
-`~/Library/Keychains`, and files named like secrets (private keys such as
-`id_rsa`, `.pem` and `.key` certificates, key stores, hidden files and `.env`
-files) are refused outright, and the agent is told to ask you.
+files, 256 MB each and 512 MB together. Refused outright, with the agent told
+to ask you:
+
+- files in a hidden folder directly in your home folder (`~/.ssh`, `~/.aws`,
+  `~/.config`, `~/.gnupg`, `~/.docker`, `~/.kube`…);
+- files in a folder that holds credentials or repository internals anywhere:
+  `.ssh`, `.aws`, `.gnupg`, `.git`, `.kube`, `.docker`, `.azure`, `.gcloud`,
+  `.password-store`, and `~/Library/Keychains`;
+- files named like secrets: private keys such as `id_rsa` or `id_ed25519`,
+  `.pem`, `.key`, `.p12`, `.pfx` and `.ppk` files, keychains, and hidden files
+  such as `.env` or `.netrc`.
+
+Both the path the agent gives and the file a link points to are checked. Other
+dot-folders deeper in a project are ordinary content, for example
+`.well-known/llms.txt`, `.github/…` or a worktree under `.worktrees` or
+`.claude/worktrees`.
 
 Aven then copies the files into a private folder (readable only by you) and
 asks in its bar: **Claude wants to upload 2 files to framer.com**, with the

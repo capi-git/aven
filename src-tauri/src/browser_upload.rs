@@ -44,11 +44,26 @@ pub(crate) struct UploadFile {
 
 const SECRET_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "ppk", "keychain", "keychain-db"];
 const PRIVATE_KEYS: &[&str] = &["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"];
+/// Folders that hold credentials or repository internals wherever they are.
+/// Other dot-folders deeper in a tree (.well-known, .github, a worktree
+/// folder) are ordinary content.
+const SECRET_FOLDERS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".git",
+    ".kube",
+    ".docker",
+    ".azure",
+    ".gcloud",
+    ".password-store",
+];
 
 /// Why a file is never offered to a website, if it is not: inside a hidden
-/// folder of the home folder (~/.ssh, ~/.aws, ~/.config…), in the Keychains
-/// folder, or named like a secret (a private key, certificate, key store,
-/// hidden file or environment file).
+/// folder directly in the home folder (~/.ssh, ~/.aws, ~/.config…), inside a
+/// secret folder anywhere (.ssh, .git…), in the Keychains folder, or named
+/// like a secret (a private key, certificate, key store, hidden or
+/// environment file).
 fn refusal(path: &Path, home: Option<&Path>) -> Option<String> {
     let name = path
         .file_name()
@@ -59,14 +74,27 @@ fn refusal(path: &Path, home: Option<&Path>) -> Option<String> {
         if inside.starts_with("Library/Keychains") {
             return Some(format!("{name} is in the Keychains folder, so {ask}"));
         }
-        let parents: Vec<_> = inside.components().collect();
-        if parents
-            .iter()
-            .take(parents.len().saturating_sub(1))
-            .any(|part| matches!(part, Component::Normal(part) if part.to_string_lossy().starts_with('.')))
+        let first = inside.components().next();
+        if matches!(first, Some(Component::Normal(part)) if part.to_string_lossy().starts_with('.'))
+            && inside.components().count() > 1
         {
-            return Some(format!("{name} is in a hidden folder, so {ask}"));
+            return Some(format!(
+                "{name} is in a hidden folder of the home folder, so {ask}"
+            ));
         }
+    }
+    let folders: Vec<_> = path.components().collect();
+    if folders
+        .iter()
+        .take(folders.len().saturating_sub(1))
+        .any(|part| {
+            matches!(part, Component::Normal(part)
+                if SECRET_FOLDERS.contains(&part.to_string_lossy().to_lowercase().as_str()))
+        })
+    {
+        return Some(format!(
+            "{name} is in a folder that holds credentials or repository internals, so {ask}"
+        ));
     }
     let lower = name.to_lowercase();
     let extension = Path::new(&lower)
@@ -628,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_folders_keychains_and_secret_names_are_never_offered() {
+    fn secret_folders_keychains_and_secret_names_are_never_offered() {
         let home = folder("home");
         let path = |relative: &str| {
             let path = home.0.join(relative);
@@ -637,18 +665,65 @@ mod tests {
             text(&path)
         };
         for (relative, reason) in [
-            (".ssh/config", "hidden folder"),
-            (".aws/credentials", "hidden folder"),
-            (".config/gh/hosts.yml", "hidden folder"),
-            ("Developer/.worktrees/site/llms.txt", "hidden folder"),
+            // Hidden folders directly in the home folder.
+            (".ssh/config", "hidden folder of the home folder"),
+            (".aws/credentials", "hidden folder of the home folder"),
+            (".config/gh/hosts.yml", "hidden folder of the home folder"),
+            (".gnupg/pubring.kbx", "hidden folder of the home folder"),
+            (".docker/config.json", "hidden folder of the home folder"),
+            (".kube/config", "hidden folder of the home folder"),
+            (".netrc", "looks like a secret"),
+            // Secret folders anywhere.
+            (
+                "Developer/site/.git/config",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.ssh/known_hosts",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.aws/config",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.gnupg/key.txt",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.kube/config",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.docker/config.json",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.azure/profile.json",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.gcloud/token.json",
+                "credentials or repository internals",
+            ),
+            (
+                "Projects/app/.password-store/mail.gpg",
+                "credentials or repository internals",
+            ),
             ("Library/Keychains/login.keychain-db", "Keychains folder"),
+            // Secret names.
             ("Downloads/id_rsa", "looks like a secret"),
             ("Downloads/id_ed25519_work", "looks like a secret"),
+            ("Downloads/id_ecdsa", "looks like a secret"),
             ("Downloads/server.pem", "looks like a secret"),
             ("Downloads/TLS.KEY", "looks like a secret"),
+            ("Downloads/bundle.p12", "looks like a secret"),
+            ("Downloads/cert.pfx", "looks like a secret"),
+            ("Downloads/putty.ppk", "looks like a secret"),
+            ("Downloads/old.keychain", "looks like a secret"),
             ("Downloads/.env", "looks like a secret"),
             ("Downloads/.env.production", "looks like a secret"),
-            ("Downloads/.netrc", "looks like a secret"),
+            ("Developer/site/.netrc", "looks like a secret"),
         ] {
             let error = check_files_in(&[path(relative)], Some(&home.0)).unwrap_err();
             assert!(error.contains(reason), "{relative}: {error}");
@@ -657,7 +732,16 @@ mod tests {
                 "{error}"
             );
         }
-        // A link from a visible folder into a hidden one is refused by its target.
+        // Outside the home folder, secret folders and names still count.
+        let other = folder("outside");
+        std::fs::create_dir_all(other.0.join("repo/.git")).unwrap();
+        std::fs::write(other.0.join("repo/.git/config"), "x").unwrap();
+        assert!(
+            check_files_in(&[text(&other.0.join("repo/.git/config"))], Some(&home.0))
+                .unwrap_err()
+                .contains("repository internals")
+        );
+        // Links are judged by their target as well as by the path given.
         #[cfg(unix)]
         {
             let secret = path(".ssh/notes.txt");
@@ -665,21 +749,31 @@ mod tests {
             std::os::unix::fs::symlink(&secret, &link).unwrap();
             assert!(check_files_in(&[text(&link)], Some(&home.0))
                 .unwrap_err()
-                .contains("hidden folder"));
+                .contains("hidden folder of the home folder"));
+            let visible = path("Downloads/page.txt");
+            let through = home.0.join(".config/page-link.txt");
+            std::os::unix::fs::symlink(&visible, &through).unwrap();
+            assert!(check_files_in(&[text(&through)], Some(&home.0))
+                .unwrap_err()
+                .contains("hidden folder of the home folder"));
         }
-        // Ordinary files are fine, including public keys and names that only
-        // resemble a key.
+        // Other dot-folders deeper in the tree are ordinary content, as are
+        // public keys and names that only resemble a key.
         for relative in [
+            "Developer/.worktrees/Aven/browser-hands/llms.txt",
+            "Developer/site/.claude/worktrees/fix/public/llms.txt",
+            "Developer/site/.well-known/llms.txt",
+            "Developer/site/.github/workflows/ci.yml",
+            "Developer/site/.githooks/pre-commit",
             "Downloads/llms.txt",
             "Downloads/id_rsa.pub",
             "Downloads/identity.png",
             "Documents/keynote.pdf",
         ] {
-            let file = &check_files_in(&[path(relative)], Some(&home.0)).unwrap()[0];
+            let file = &check_files_in(&[path(relative)], Some(&home.0))
+                .unwrap_or_else(|error| panic!("{relative}: {error}"))[0];
             assert!(file.folder.starts_with("~/"), "{}", file.folder);
         }
-        // Outside the home folder only names count.
-        let other = folder("outside");
         std::fs::create_dir_all(other.0.join(".cache")).unwrap();
         std::fs::write(other.0.join(".cache/page.html"), "x").unwrap();
         assert!(check_files_in(&[text(&other.0.join(".cache/page.html"))], Some(&home.0)).is_ok());

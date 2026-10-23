@@ -1610,9 +1610,11 @@ answers only the chooser that click opens, with private copies of the files
 made when the user was asked. The result lists the uploaded names;
 otherwise the error says why (declined, no chooser opened, the page moved).
 Never retry a declined upload; ask in the chat. Up to 10 files, 256 MB each.
-Files in hidden folders of the home folder (~/.ssh, ~/.config...), in the
-Keychains folder, and files that look like secrets (private keys, certificates,
-.env files) are refused: ask the user to upload those themselves.
+Files in hidden folders directly in the home folder (~/.ssh, ~/.config...), in
+secret folders anywhere (.ssh, .aws, .git...), in the Keychains folder, and
+files that look like secrets (private keys, certificates, .env files) are
+refused: ask the user to upload those themselves. Other dot-folders deeper in
+a project (.well-known, .github, worktrees) are fine.
 Openfile displays Markdown, code, JSON, and other UTF-8 text in this chat's Aven
 editor. Use an absolute path; the file must exist and be no larger than 8 MB.
 Line and column are optional positive numbers; column requires line. File
@@ -2144,8 +2146,7 @@ mod tests {
             "use desktop control (--aven-desktop)\ninside this page on the Aven window that shows it instead of handing it back;\nAven accepts desktop input there only inside the page.",
             "Never operate file, open, save or folder dialogs, or Aven's\nown interface (settings, other chats, approval bars), through desktop control;\nuse upload for files.",
             "When another site's frame handles sign-in or payment,\nhand that step to the user.",
-            "Files in hidden folders of the home folder",
-            "files that look like secrets (private keys, certificates,\n.env files) are refused: ask the user to upload those themselves.",
+            "Files in hidden folders directly in the home folder (~/.ssh, ~/.config...), in\nsecret folders anywhere (.ssh, .aws, .git...), in the Keychains folder, and\nfiles that look like secrets (private keys, certificates, .env files) are\nrefused: ask the user to upload those themselves.",
             "Aven's window titles\nname the tab in front, so the window holding your page may be titled with\nanother project.",
             "Put real blockers you find (a paid plan, a missing permission, a\nsign-in) at the top of your reply",
             "take a screenshot\nlabelled \"stopped-here\" of the exact spot and show it, then give one precise\nnext step",
