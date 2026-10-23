@@ -1044,7 +1044,6 @@ impl Request {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
 fn global_point(x: f64, y: f64, window: Option<Region>) -> Result<(f64, f64), String> {
     validate_point(x, y)?;
     let (x, y) = if let Some(bounds) = window {
