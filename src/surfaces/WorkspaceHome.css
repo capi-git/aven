@@ -1080,3 +1080,47 @@ html.has-chat-background .workspace-home::before {
     max-width: 28%;
   }
 }
+
+/* The project's bot, when it has one on: its critter, name and latest
+   word. Above the tile's own link, so it opens the bot's chat. */
+.workspace-home-agent-bot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 7px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+}
+.workspace-home .workspace-home-agent-bot:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.workspace-home-agent-bot .bot-critter {
+  width: 11px;
+  height: 11px;
+}
+.workspace-home-agent-bot-name {
+  flex: none;
+  color: var(--color-content);
+  font-weight: 500;
+}
+.workspace-home-agent-bot-post {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-home-agent-bot[data-bot-status="fix-ready"]
+  .workspace-home-agent-bot-post {
+  color: var(--aven-review, var(--color-accent));
+}
+.workspace-home-agent-bot[data-bot-status="needs-you"]
+  .workspace-home-agent-bot-post {
+  color: var(--aven-needs-you);
+}

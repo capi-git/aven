@@ -1,0 +1,163 @@
+/* A project bot's chat. Theme tokens only; buttons and the card are the
+   team family's (TeamCard.css). */
+.bot-chat-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  max-width: 56rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--aven-line);
+  font-family: var(--font-sans);
+  color: var(--color-content);
+}
+.bot-chat-critter {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+.bot-chat-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.bot-chat-name {
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-chat-whose {
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+  color: var(--aven-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-chat-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.bot-chat-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: 18vh 24px 24px;
+  text-align: center;
+  color: var(--color-content);
+}
+.bot-chat-intro-critter {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+}
+.bot-chat-intro-title {
+  margin: 0;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+}
+.bot-chat-intro-text {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: var(--aven-muted);
+}
+
+/* A wake-up's tag: one small line where a message would be. */
+.bot-wake-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 16px 2px;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: var(--aven-muted);
+}
+.bot-wake-label {
+  overflow: hidden;
+  padding: 0 7px;
+  border: 1px solid var(--aven-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-checked {
+  flex: none;
+  white-space: nowrap;
+}
+.bot-wake-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-bot-checked] {
+  padding-bottom: 6px;
+}
+
+.bot-fix-row {
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}
+.bot-fix-card {
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+}
+.bot-fix-card[data-state="ready"] {
+  border-color: color-mix(
+    in srgb,
+    var(--aven-review, var(--color-accent)) 45%,
+    transparent
+  );
+}
+.bot-fix-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.bot-fix-title {
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+.bot-fix-card:not([data-state="ready"]) .bot-fix-title {
+  font-weight: 400;
+  color: var(--aven-muted);
+}
+.bot-fix-lines {
+  font-size: var(--text-ui-label);
+  font-variant-numeric: tabular-nums;
+}
+.bot-fix-actions {
+  margin-left: auto;
+}
+.bot-fix-problem,
+.bot-fix-note {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+}
+.bot-fix-problem {
+  color: var(--aven-needs-you);
+}
+.bot-fix-note {
+  color: var(--aven-muted);
+}
+.bot-fix-review {
+  max-height: 420px;
+  overflow: auto;
+}

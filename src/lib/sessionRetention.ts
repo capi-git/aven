@@ -18,15 +18,20 @@ const open = (run: OrchestrationRun) =>
  *   so closing the lead's tab would strand the results or end the run.
  * - The lead of a worker that is still working, its navigation target.
  * - The workers of a loaded lead, or of a run that is still open.
+ * - A project bot's chat while Aven works for it (syncing its copy, its
+ *   wake-up on the way, reading its fix): it has no tab of its own. Idle,
+ *   it is parked like any chat and loaded again on its next wake-up.
  */
 export function retainedSessionIds(
   sessions: readonly Session[],
   openIds: ReadonlySet<string>,
   runs: readonly OrchestrationRun[],
   discussionChats: Iterable<string> = [],
+  botChats: Iterable<string> = [],
 ): Set<string> {
   const ids = new Set(openIds);
   for (const id of discussionChats) if (id) ids.add(id);
+  for (const id of botChats) if (id) ids.add(id);
   for (const run of runs) if (open(run)) ids.add(run.leadId);
   for (const session of sessions) {
     if (session.inboxAsk) ids.add(session.id);

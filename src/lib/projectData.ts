@@ -5,6 +5,7 @@ import { clearProjectChatBackground } from "./chatBackground";
 import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
 import { clearProjectMemory } from "./projectMemory";
 import { clearFeatureCards } from "./featureCards";
+import { forgetBotForProject } from "./projectBotActions";
 import { normalizeProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
 import type { Session } from "./session";
@@ -35,7 +36,7 @@ export async function projectSessionCount(path: string): Promise<number> {
   return sessions.length;
 }
 
-/** Saved chats, rail appearance, project memory and board cards. The caller owns the live-session lifecycle. */
+/** Saved chats, rail appearance, project memory, board cards and its bot. The caller owns the live-session lifecycle. */
 export async function removeProjectData(
   path: string,
   options: {
@@ -66,6 +67,8 @@ export async function removeProjectData(
     await clearProjectChatBackground(key);
     await clearProjectMemory(normalized);
     await clearFeatureCards(normalized);
+    // Its bot's copy of the project goes, and so does the bot.
+    await forgetBotForProject(normalized);
     options.assertWorkspaceReady();
     clearProjectChatBackgroundSetting(key);
     clearTabGroupSettings(key);

@@ -204,6 +204,8 @@ type Props = {
   hideProjectPicker?: boolean;
   hideBranchPicker?: boolean;
   hideTopBar?: boolean;
+  /** What the empty message box says, in place of the usual hint. */
+  placeholder?: string;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -597,6 +599,7 @@ function ComposerComponent({
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
+  placeholder,
   context,
   compactSupported = false,
   quoteRequest,
@@ -2043,26 +2046,28 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               placeholder={
-                jumpInId
-                  ? "Add something for both of them…"
-                  : discussActive
-                    ? "What should they discuss?"
-                    : inboxCard
-                      ? "Add a note, or send to start…"
-                      : noteCard
-                        ? "Add a message, or send…"
-                        : handoffCard
-                          ? "Add context, or send to continue…"
-                          : noteHint
-                            ? `${noteHint}. Say what's next…`
-                            : composerHint(
-                                hasNativeCommands(harness),
-                                looksLikeProject(cwd)
-                                  ? "files"
-                                  : notesEnabled
-                                    ? "notes"
-                                    : null,
-                              )
+                placeholder && !jumpInId && !discussActive
+                  ? placeholder
+                  : jumpInId
+                    ? "Add something for both of them…"
+                    : discussActive
+                      ? "What should they discuss?"
+                      : inboxCard
+                        ? "Add a note, or send to start…"
+                        : noteCard
+                          ? "Add a message, or send…"
+                          : handoffCard
+                            ? "Add context, or send to continue…"
+                            : noteHint
+                              ? `${noteHint}. Say what's next…`
+                              : composerHint(
+                                  hasNativeCommands(harness),
+                                  looksLikeProject(cwd)
+                                    ? "files"
+                                    : notesEnabled
+                                      ? "notes"
+                                      : null,
+                                )
               }
               aria-label="Message"
               title="/ for commands, @ for references"

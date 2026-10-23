@@ -49,6 +49,10 @@ type Props = {
   onRemove?: (path: string, options: { purgeData: boolean }) => void;
   onPinnedChange?: () => void;
   visible?: boolean;
+  /** The project's bot is on: the menu offers its settings instead. */
+  botOn?: boolean;
+  /** Turn the project's bot on, or open its settings. */
+  onBotSettings?: () => void;
 };
 
 export function PersonalProjectRow({
@@ -66,6 +70,8 @@ export function PersonalProjectRow({
   onRemove,
   onPinnedChange,
   visible = true,
+  botOn = false,
+  onBotSettings,
 }: Props) {
   const labels = useProjectLabels();
   const [pinned, setPinned] = useState(loadPinnedProjects);
@@ -108,6 +114,15 @@ export function PersonalProjectRow({
     },
     { kind: "item", id: "customize", label: "Customize project…" },
     { kind: "item", id: "memory", label: "Project memory…" },
+    ...(onBotSettings
+      ? [
+          {
+            kind: "item" as const,
+            id: "bot",
+            label: botOn ? "Bot settings…" : "Turn on a bot…",
+          },
+        ]
+      : []),
     { kind: "item", id: "reveal", label: "Reveal in Finder" },
     ...(onMove
       ? profiles
@@ -258,6 +273,7 @@ export function PersonalProjectRow({
             else if (id === "board") onOpenBoard?.();
             else if (id === "customize") setCustomizing(true);
             else if (id === "memory") setEditingMemory(true);
+            else if (id === "bot") onBotSettings?.();
             else if (id === "reveal") void revealPath(path);
             else if (id === "archive") onRemove?.(path, { purgeData: false });
             else if (id === "delete") setRemoving(true);

@@ -1,0 +1,94 @@
+/* A project's bot settings: a short list of plain switches. Theme tokens
+   only; the buttons are the team family's (TeamCard.css). */
+.bot-sheet-critter {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-top: 2px;
+}
+.bot-sheet-critter-sprite {
+  width: 36px;
+  height: 36px;
+}
+.bot-sheet-on {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.bot-sheet-body {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 16px 14px;
+  font-size: var(--text-ui-body);
+  color: var(--color-content);
+}
+.bot-sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.bot-sheet-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.bot-sheet-row small {
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: var(--aven-muted);
+}
+.bot-sheet-name {
+  width: 180px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
+  background: transparent;
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+  outline: none;
+}
+.bot-sheet-name:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+.bot-sheet-note,
+.bot-sheet-question {
+  margin: 12px 0 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.bot-sheet-question {
+  margin-top: 4px;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+  color: var(--color-content);
+}
+.bot-sheet-small {
+  margin: 4px 0 0;
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: var(--aven-muted);
+}
+.bot-sheet-problem {
+  margin: 10px 0 0;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+  color: var(--aven-needs-you);
+}
+.bot-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}

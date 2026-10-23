@@ -66,6 +66,9 @@ import {
 } from "../lib/session";
 import { isUntitledChatTitle } from "../lib/untitledChat";
 import { AgentTranscript } from "./AgentTranscript";
+import { BotChatHeader, BotIntro } from "./BotChat";
+import { useBotChatProject } from "../lib/projectBots";
+import { useProjectBotName } from "../hooks/useProjectBotName";
 import { isBlockingQuestion } from "../lib/userQuestion";
 import { SessionRunStatus } from "./SessionRunStatus";
 import { EmptySession } from "./EmptySession";
@@ -267,12 +270,19 @@ export const SessionPane = memo(function SessionPane({
   // says what the team and this chat are doing, with the run's time.
   const teamRow = !session.inboxAsk && teamBarShows(team, session.id);
   const raceLane = raceLaneFor(session.id);
-  // Never in a lane, partner, worker or Inbox chat, nor during its own run.
-  const offersMemoryKeeper = chatMayOfferMemoryKeeper(session, {
-    lane: !!raceLane,
-    teamRole: team ? teamRole(team, session.id) : null,
-    teamOpen: !!team && teamIsOpen(team),
-  });
+  // A project's bot: its header, its tags and fix cards, its own name.
+  const botProject = useBotChatProject(
+    session.inboxAsk ? undefined : session.id,
+  );
+  const botLabel = useProjectBotName(botProject);
+  // Never in a lane, partner, worker, bot or Inbox chat, nor during its own run.
+  const offersMemoryKeeper =
+    !botProject &&
+    chatMayOfferMemoryKeeper(session, {
+      lane: !!raceLane,
+      teamRole: team ? teamRole(team, session.id) : null,
+      teamOpen: !!team && teamIsOpen(team),
+    });
   const runLocked = useOrchestrationSelector((runs) =>
     runs.some(
       (run) =>
@@ -432,7 +442,8 @@ export const SessionPane = memo(function SessionPane({
   const workCwd = sessionWorkCwd(session);
   const isEmpty = session.blocks.length === 0;
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
-  const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
+  const dockComposer =
+    !isEmpty || inSplit || !!session.inboxAsk || !!botProject;
   const draftRef = useRef<{
     sessionId: string;
     text: string | undefined;
@@ -626,7 +637,8 @@ export const SessionPane = memo(function SessionPane({
   const holdUps = holdUpsRef.current;
   const review = useMemo(
     () =>
-      inboxAsk ? null : (
+      // A bot's changes are its fix card's to review, not the chat's.
+      inboxAsk || botProject ? null : (
         <SessionReview
           sessionId={sessionId}
           cwd={workCwd}
@@ -638,6 +650,7 @@ export const SessionPane = memo(function SessionPane({
       ),
     [
       inboxAsk,
+      botProject,
       sessionId,
       workCwd,
       visible,
@@ -664,10 +677,14 @@ export const SessionPane = memo(function SessionPane({
       recents={recents}
       hideProjectPicker={
         !!session.inboxAsk ||
+        !!botProject ||
         (hideProjectPicker ? !showDeckProjectPicker : false)
       }
-      hideBranchPicker={!!session.inboxAsk || hideProjectPicker || managed}
+      hideBranchPicker={
+        !!session.inboxAsk || !!botProject || hideProjectPicker || managed
+      }
       hideTopBar={!!session.inboxAsk}
+      placeholder={botLabel ? `Message ${botLabel}…` : undefined}
       context={session.context}
       quoteRequest={quoteRequest}
       initialDraft={draftRef.current.text}
@@ -691,7 +708,7 @@ export const SessionPane = memo(function SessionPane({
       onModelSettingsChange={changeModelSettings}
       onRuntimeModeChange={changeRuntimeMode}
       onSubmit={submit}
-      onRace={onRace && !session.inboxAsk ? race : undefined}
+      onRace={onRace && !session.inboxAsk && !botProject ? race : undefined}
       onStop={stop}
       onCompactContext={compactContext}
       queuedMessages={session.queuedMessages}
@@ -703,7 +720,7 @@ export const SessionPane = memo(function SessionPane({
       onResumeQueue={resumeQueue}
       onOpenFile={onOpenFile}
       busy={busy}
-      discussion={session.inboxAsk ? undefined : discussion}
+      discussion={session.inboxAsk || botProject ? undefined : discussion}
       teamBar={teamBar}
       stopInBar={boxStopInBar}
     >
@@ -749,9 +766,14 @@ export const SessionPane = memo(function SessionPane({
           onDragStart={onPaneDragStart}
         />
       ) : null}
+      {botProject ? <BotChatHeader path={botProject} working={busy} /> : null}
       <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {isEmpty ? (
-          session.inboxAsk ? (
+          botProject ? (
+            <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
+              <BotIntro path={botProject} />
+            </div>
+          ) : session.inboxAsk ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
               <DiscussionEmpty message="Explore this item with your agent." />
             </div>
@@ -794,6 +816,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomChange={setShowJumpToBottom}
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
+                botProject={botProject}
               />
             </DiscussionActions>
             <PromptOutline
@@ -830,7 +853,7 @@ export const SessionPane = memo(function SessionPane({
             />
           ) : null}
           {/* One chat per tab offers the project's dev server: the focused one. */}
-          {visible && focused && !session.inboxAsk ? (
+          {visible && focused && !session.inboxAsk && !botProject ? (
             <DevPreviewChip
               project={session.cwd}
               placement="chat"

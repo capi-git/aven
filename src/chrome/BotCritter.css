@@ -1,0 +1,23 @@
+/* A bot's critter: a pixel sprite, crisp at any size. */
+.bot-critter {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* The bot's pinned row at the top of its project's group in the sidebar. */
+.personal-bot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.personal-bot-row .bot-critter {
+  width: 13px;
+  height: 13px;
+}
+.personal-bot-row .personal-task-title {
+  font-weight: 500;
+}

@@ -295,9 +295,16 @@ export type Block = {
   team?: TeamBlockMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
+  /**
+   * A project bot's wake-up: the chat shows this small tag ("Chat finished
+   * · Add sign-up flow") instead of the message the bot was sent.
+   */
+  botWake?: BotWakeMeta;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */
   statusKey?: string;
 };
+
+export type BotWakeMeta = { label: string };
 
 /** Provider-reported child activity for this live connection; never restored from history. */
 export type SessionAgent = {

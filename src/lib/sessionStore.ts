@@ -523,6 +523,12 @@ function sanitizeBlock(block: Block): Block | null {
   )
     next.orchestrationLeadId = block.orchestrationLeadId;
   if (block.role === "user" && block.internal) next.internal = true;
+  if (
+    block.role === "user" &&
+    typeof block.botWake?.label === "string" &&
+    block.botWake.label.trim()
+  )
+    next.botWake = { label: block.botWake.label.slice(0, 200) };
   if (block.tool) {
     // When a call started running only matters while it runs.
     const { startedAt, ...tool } = block.tool;

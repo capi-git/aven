@@ -99,6 +99,8 @@ import {
   type ScrollExtent,
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
+import { BotCheckedRow, BotFixCard, BotWakeTag } from "./BotChat";
+import { isNothingToReport } from "../lib/projectBotWake";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
@@ -185,6 +187,11 @@ type Props = {
   visible?: boolean;
   /** A worker's transcript: show the orchestrator's turns instead of hiding them. */
   managed?: boolean;
+  /**
+   * The project whose bot this chat is: wake-ups show as tags, a check with
+   * nothing to report folds to one line, and a turn's fix gets its card.
+   */
+  botProject?: string;
 };
 
 const NO_PROPOSAL_REPLIES: ReadonlySet<string> = new Set();
@@ -230,6 +237,7 @@ function AgentTranscriptComponent({
   onRevealReady,
   visible = true,
   managed = false,
+  botProject,
 }: Props) {
   const scrollerId = useId();
   const scroller = useRef<HTMLDivElement>(null);
@@ -770,6 +778,7 @@ function AgentTranscriptComponent({
               entering={entrances.current?.rises(turn[0].id) ?? false}
               fadeReplies={isLastTurn && fadeReplies}
               managed={managed}
+              botProject={botProject}
               busy={busy}
               visible={visible}
               preparingHandoff={preparingHandoff}
@@ -837,6 +846,7 @@ export const AgentTranscript = memo(
 
 type TranscriptTurnProps = Pick<
   Props,
+  | "botProject"
   | "cwd"
   | "harness"
   | "model"
@@ -910,6 +920,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   entering,
   fadeReplies,
   managed,
+  botProject,
   busy,
   visible,
   preparingHandoff,
@@ -1017,6 +1028,21 @@ const TranscriptTurn = memo(function TranscriptTurn({
   }
   const durationMs = userBlock?.durationMs;
   const settled = !(busy && isLastTurn);
+  // A bot's wake-up that found nothing folds into one quiet line.
+  if (
+    userBlock?.botWake &&
+    settled &&
+    !turn.some((block) => block.approval) &&
+    isNothingToReport(lastProseText(turn))
+  )
+    return (
+      <div className="transcript-turn flex min-w-0 flex-col">
+        <BotCheckedRow
+          label={userBlock.botWake.label}
+          at={userBlock.startedAt}
+        />
+      </div>
+    );
   // A plan's card waits for the turn that writes it to end. Once its run
   // starts, the run drives the lead's next turns inside this one (their
   // messages are the app's), so the card stays: hiding it while the lead
@@ -1255,6 +1281,9 @@ const TranscriptTurn = memo(function TranscriptTurn({
           : [card, ...rows]
         : rows}
       {footer}
+      {botProject && userBlock && settled ? (
+        <BotFixCard path={botProject} turnId={userBlock.id} />
+      ) : null}
       {asides.map((block) => (
         <div key={block.id} className="flow-root pb-1" data-discussion-aside>
           <TranscriptBlock
@@ -1553,6 +1582,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
     block.role === "user" ? undefined : motion,
   );
   if (block.role === "user") {
+    if (block.botWake)
+      return <BotWakeTag label={block.botWake.label} at={block.startedAt} />;
     return (
       <UserMessageBlock
         block={block}
@@ -2993,6 +3024,15 @@ function HandoffDivider({ block }: { block: Block }) {
 
 function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
   return turnUserBlock(blocks, managed)?.id;
+}
+
+/** The turn's last reply text, for telling a bot's "Nothing to report." */
+function lastProseText(turn: readonly Block[]): string {
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const block = turn[i];
+    if (block.role === "assistant" && block.text.trim()) return block.text;
+  }
+  return "";
 }
 
 function turnUserBlock(

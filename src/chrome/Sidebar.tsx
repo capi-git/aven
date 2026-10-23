@@ -155,6 +155,8 @@ import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
+import { BotCritter, BotStatusPill } from "./BotCritter";
+import type { BotStatus } from "../lib/projectBots";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -265,6 +267,15 @@ export type SidebarProps = {
   teams?: readonly SidebarTeam[];
   /** Show a discussion in the team panel; its connector opens it. */
   onOpenDiscussion?: (id: string) => void;
+  /**
+   * Projects' bots that are on: each is one row pinned at the top of its
+   * project's chats, and its chat is not listed with the others.
+   */
+  bots?: readonly SidebarBot[];
+  /** Open a project's bot chat. */
+  onOpenBot?: (path: string) => void;
+  /** Turn a project's bot on, or change its settings. */
+  onBotSettings?: (path: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -304,6 +315,17 @@ export type SidebarProps = {
   onDismissUpdate?: () => void;
 };
 
+/** A project's bot as its sidebar row shows it. */
+export type SidebarBot = {
+  path: string;
+  sessionId?: string;
+  name: string;
+  status: BotStatus;
+  /** Its latest one-line post, for the row's tooltip. */
+  headline: string;
+};
+
+const NO_BOTS: readonly SidebarBot[] = [];
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
@@ -403,6 +425,9 @@ function SidebarComponent({
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
+  bots = NO_BOTS,
+  onOpenBot,
+  onBotSettings,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
@@ -641,11 +666,19 @@ function SidebarComponent({
   // An open race is one row: its lanes fold into the chat it came from,
   // wherever that chat's row is listed. Several races can start from one.
   const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
+  // A bot's chat is its pinned row, never one of the project's chats.
+  const botChats = useMemo(
+    () =>
+      new Set(bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : []))),
+    [bots],
+  );
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
     openSessions,
     sessionFolders,
-  ).filter((session) => !session.orchestrationLeadId);
+  ).filter(
+    (session) => !session.orchestrationLeadId && !botChats.has(session.id),
+  );
   const visibleSessions = foldTeamRows(
     filterSessionsByQuery(
       filterSessionsByStatus(
@@ -1089,6 +1122,38 @@ function SidebarComponent({
       ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
+  /** The project's bot, pinned above its chats: critter, name and its word. */
+  const botRow = (path: string) => {
+    const bot = bots.find((item) => sameProjectPath(item.path, path));
+    if (!bot) return null;
+    return (
+      <button
+        key={`bot:${bot.path}`}
+        type="button"
+        className="personal-other-task personal-task-card personal-bot-row"
+        data-bot-row={bot.path}
+        title={`${bot.name}, ${basename(bot.path)}'s bot · ${bot.headline}`}
+        aria-current={
+          bot.sessionId && bot.sessionId === activeSessionId
+            ? "true"
+            : undefined
+        }
+        onClick={() => onOpenBot?.(bot.path)}
+        onContextMenu={(event) => {
+          if (!onBotSettings) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onBotSettings(bot.path);
+        }}
+      >
+        <BotCritter path={bot.path} active={bot.status === "working"} />
+        <span className="personal-task-title">{bot.name}</span>
+        <span className="personal-task-status">
+          <BotStatusPill status={bot.status} />
+        </span>
+      </button>
+    );
+  };
   const plainRowProps = (sessionId: string) =>
     onRenameSession
       ? {
@@ -1406,6 +1471,9 @@ function SidebarComponent({
       ) : null}
       {tasksExpanded ? (
         <>
+          {inProject && bots.length ? (
+            <div className="px-1.5 pt-1.5">{botRow(cwd)}</div>
+          ) : null}
           {!cwd || cwd === "~" ? (
             <p className="px-4 py-4 text-ui-label leading-relaxed text-content/60">
               Open a project to see its chats.
@@ -1980,7 +2048,9 @@ function SidebarComponent({
                       ? foldTeamRows(
                           (projectSessions[project.path] ?? []).filter(
                             (session) =>
-                              !session.archived && !session.orchestrationLeadId,
+                              !session.archived &&
+                              !session.orchestrationLeadId &&
+                              !botChats.has(session.id),
                           ),
                           teams,
                         ).sort(compareSessionSummaries)
@@ -2040,6 +2110,14 @@ function SidebarComponent({
                         }
                         onMove={onMoveProject}
                         onRemove={onRemoveProject}
+                        botOn={bots.some((bot) =>
+                          sameProjectPath(bot.path, project.path),
+                        )}
+                        onBotSettings={
+                          onBotSettings
+                            ? () => onBotSettings(project.path)
+                            : undefined
+                        }
                         onPinnedChange={() =>
                           refreshProjects((revision) => revision + 1)
                         }
@@ -2049,6 +2127,7 @@ function SidebarComponent({
                         currentProjectTasks
                       ) : expanded ? (
                         <div className="personal-project-tasks">
+                          {botRow(project.path)}
                           {!historyLoaded ? (
                             historyError ? (
                               <button
@@ -2312,6 +2391,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "projectStatus",
   "liveAgents",
   "discussions",
+  "bots",
   "teams",
   "workConflicts",
   "standaloneSessions",
