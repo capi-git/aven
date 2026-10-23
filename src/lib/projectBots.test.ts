@@ -161,9 +161,16 @@ describe("project bot settings", () => {
     expect(defaultBotName(PATH, "fox")).toBe("Fox");
     expect(botName({ path: PATH }, "owl")).toBe("Owl");
     expect(botName({ path: PATH, name: "Sam" }, "owl")).toBe("Sam");
-    expect(botBranch("Jelly")).toBe("aven/bot/jelly");
-    expect(botBranch("  Mr. Bot 2! ")).toBe("aven/bot/mr-bot-2");
-    expect(botBranch("🦊")).toBe("aven/bot/bot");
+    expect(botBranch("Jelly", PATH)).toMatch(/^aven\/bot\/jelly-[0-9a-f]{4}$/);
+    expect(botBranch("  Mr. Bot 2! ", PATH)).toMatch(
+      /^aven\/bot\/mr-bot-2-[0-9a-f]{4}$/,
+    );
+    expect(botBranch("🦊", PATH)).toMatch(/^aven\/bot\/bot-[0-9a-f]{4}$/);
+    // Two projects in one repository never share a branch.
+    expect(botBranch("Jelly", `${PATH}/web`)).not.toBe(
+      botBranch("Jelly", PATH),
+    );
+    expect(botBranch("Jelly", `${PATH}/`)).toBe(botBranch("Jelly", PATH));
   });
 });
 

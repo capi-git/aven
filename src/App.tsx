@@ -6506,6 +6506,8 @@ export default function App({
         botWake?: BotWakeMeta;
         /** Post no Activity entry for this turn; the sender posts its own. */
         quiet?: boolean;
+        /** The id the sent message gets, for a sender that follows its turn. */
+        userBlockId?: string;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -6766,7 +6768,9 @@ export default function App({
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
       raceLaneStarted(sessionId);
-      if (options?.managed || options?.quiet)
+      // A bot's turns post nothing of their own: it posts a fix, or what it
+      // said, once it has read the turn (see projectBotRunner.ts).
+      if (options?.managed || options?.quiet || isBotChat(sessionId))
         quietActivityTurns.current?.add(activityTurnId);
       const member: ActivityTeam | undefined = options?.discussion
         ? { id: `discuss:${options.discussion.id}`, kind: "discuss" }
@@ -6833,6 +6837,7 @@ export default function App({
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
         ...(options?.discussion ? { discussion: options.discussion } : {}),
         ...(options?.botWake ? { botWake: options.botWake } : {}),
+        ...(options?.userBlockId ? { id: options.userBlockId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -7434,11 +7439,23 @@ export default function App({
     async (bot: ProjectBot): Promise<Session | null> => {
       const copy = bot.copy?.path;
       if (!copy) return null;
-      const loaded = bot.sessionId
-        ? (sessionsRef.current.find(
-            (session) => session.id === bot.sessionId,
-          ) ?? (await ensureOpenSession(bot.sessionId)))
-        : null;
+      let loaded = bot.sessionId
+        ? sessionsRef.current.find((session) => session.id === bot.sessionId)
+        : undefined;
+      if (bot.sessionId && !loaded) {
+        // A read that failed is not a chat that is gone: never start over
+        // under its id and save an empty chat over its history.
+        let saved: Session | null;
+        try {
+          saved = await getSession(bot.sessionId);
+        } catch (error) {
+          logError("Bot chat", error);
+          return null;
+        }
+        if (saved)
+          loaded = (await ensureOpenSession(bot.sessionId)) ?? undefined;
+        if (saved && !loaded) return null;
+      }
       if (loaded) {
         const moved = loaded.worktreeCwd !== copy;
         const otherApp = loaded.harness !== "claude";
@@ -7494,25 +7511,38 @@ export default function App({
           displayText: string;
           botWake?: BotWakeMeta;
           attachments?: Attachment[];
+          blockId: string;
           onSettled: (outcome: ControlOutcome) => void;
         },
       ) =>
         onSubmit(sessionId, text, options.attachments ?? [], {
           displayText: options.displayText,
           ...(options.botWake ? { botWake: options.botWake } : {}),
+          userBlockId: options.blockId,
           // The bot posts its own entry: a fix, or what it said.
           quiet: true,
           onSettled: options.onSettled,
         }) !== false,
       announce: announceActivity,
       onWorking: setBotWorkingChats,
+      notice: (sessionId: string, text: string) => {
+        enqueueHarnessEvent(sessionId, { type: "status", text });
+        flushHarnessEvents();
+      },
     }),
-    [ensureBotChat, onSubmit, announceActivity],
+    [
+      ensureBotChat,
+      onSubmit,
+      announceActivity,
+      enqueueHarnessEvent,
+      flushHarnessEvents,
+    ],
   );
   // The main window alone drives bots, as it adopts races and discussions
   // whose window closed; every other window shows them.
   const messageBot = useProjectBots(
     sessions,
+    sessionsRef,
     botHost,
     !isDetachedWorkspace() && currentWindowLabel() === "main",
   );
@@ -7549,18 +7579,29 @@ export default function App({
     },
     [ensureBotChat, onSelectHistorySession, setHomeViewOpen],
   );
-  /** A bot turned off: its chat is an ordinary chat in the project again. */
+  /**
+   * A bot turned off: its chat is an ordinary chat in the project again,
+   * in your folder, with your usual mode and nothing sent on its own.
+   */
   const releaseBotChat = useCallback(
     (path: string) => {
-      const id = getProjectBot(path)?.sessionId;
-      const chat = id
-        ? sessionsRef.current.find((session) => session.id === id)
+      const bot = getProjectBot(path);
+      const chat = bot?.sessionId
+        ? sessionsRef.current.find((session) => session.id === bot.sessionId)
         : undefined;
-      if (!chat?.worktreeCwd) return;
+      if (!bot || bot.on || !chat?.worktreeCwd || isBotChat(chat.id)) return;
       void forgetHarnessSession(chat.harness, chat.id);
       const next = sessionsRef.current.map((session) =>
         session.id === chat.id
-          ? { ...session, worktreeCwd: undefined, providerSessionId: undefined }
+          ? {
+              ...session,
+              worktreeCwd: undefined,
+              providerSessionId: undefined,
+              runtimeMode: loadDefaultRuntimeMode(),
+              ...(session.queuedMessages?.length
+                ? { queueStatus: "paused" as const }
+                : {}),
+            }
           : session,
       );
       sessionsRef.current = next;
@@ -10250,6 +10291,11 @@ export default function App({
     },
     [closeUtilityViews, openBotChat],
   );
+  // A bot turned off in any window lets go of its chat in this one too.
+  useEffect(() => {
+    for (const bot of Object.values(botStore))
+      if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
+  }, [botStore, releaseBotChat]);
 
   const sidebarProps: Omit<
     SidebarProps,

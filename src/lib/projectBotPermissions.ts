@@ -20,10 +20,20 @@ import { botForChat, type ProjectBot } from "./projectBots";
 const GIT_AND_GITHUB = [
   "Bash(git push *)",
   "Bash(git * push *)",
+  "Bash(git * push)",
   "Bash(git commit *)",
   "Bash(git * commit *)",
+  "Bash(git * commit)",
   "Bash(git merge *)",
   "Bash(git * merge *)",
+  "Bash(git * merge)",
+  // Git aimed somewhere else, or at what the copy shares with your folder:
+  // the repository's settings and its other checkouts.
+  "Bash(git -C *)",
+  "Bash(git --git-dir*)",
+  "Bash(git --work-tree*)",
+  "Bash(git worktree *)",
+  "Bash(git config *)",
   "Bash(git clean *)",
   "Bash(git branch -d *)",
   "Bash(git branch -D *)",

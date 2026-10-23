@@ -471,6 +471,8 @@ type UserTurnExtra = {
   noteCard?: Block["noteCard"];
   botWake?: Block["botWake"];
   internal?: boolean;
+  /** The message's id, when the sender needs to know it (a project bot). */
+  id?: string;
 };
 
 function userTurnFields(extra?: UserTurnExtra) {
@@ -505,7 +507,7 @@ export function appendUser(
         : {}),
     },
     {
-      id: crypto.randomUUID(),
+      id: extra?.id ?? crypto.randomUUID(),
       role: "user",
       text,
       startedAt: Date.now(),

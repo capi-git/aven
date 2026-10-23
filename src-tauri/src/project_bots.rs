@@ -114,6 +114,30 @@ fn registered_worktree(root: &Path, path: &Path) -> bool {
         .any(|listed| same_path(Path::new(listed), path))
 }
 
+/// A bot's copy: a folder directly inside `bots`, and (when it exists) the
+/// top of its own git checkout, so git never acts on a repository above it.
+fn copy_path(bots: &Path, value: &str) -> Result<PathBuf, String> {
+    let path = race::lane_path(bots, value)?;
+    if path.parent() != Some(bots) {
+        return Err("Not one of Aven's copies".into());
+    }
+    Ok(path)
+}
+
+/// Refuse a copy that is not a git checkout of its own (its `.git` file was
+/// lost, say): git would otherwise act on a repository further up.
+fn checked_copy(bots: &Path, value: &str) -> Result<PathBuf, String> {
+    let path = copy_path(bots, value)?;
+    let top = race::text(
+        race::run(&path, &["rev-parse", "--show-toplevel"])
+            .map_err(|_| "The bot's copy is missing. Turn the bot off and on again.".to_string())?,
+    );
+    if !same_path(Path::new(&top), &path) {
+        return Err("The bot's copy is missing. Turn the bot off and on again.".into());
+    }
+    Ok(path)
+}
+
 fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
     let root = race::text(
         race::run(cwd, &["rev-parse", "--show-toplevel"])
@@ -166,7 +190,7 @@ pub fn sync(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<BotSync
     if !valid_branch(branch) {
         return Err("Invalid bot request".into());
     }
-    let copy = race::lane_path(bots, copy)?;
+    let copy = checked_copy(bots, copy)?;
     let base = race::prepare_for(cwd, WHO)?;
     reset_to(&copy, &base.base, branch)?;
     Ok(BotSync {
@@ -181,9 +205,20 @@ fn reset_to(copy: &Path, base: &str, branch: &str) -> Result<(), String> {
     if !race::is_sha(base) {
         return Err("Invalid bot base".into());
     }
+    // The project's own hooks (post-checkout and the like) are not run for
+    // Aven's bookkeeping in the copy.
     race::run(
         copy,
-        &["checkout", "--quiet", "--force", "-B", branch, base],
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "checkout",
+            "--quiet",
+            "--force",
+            "-B",
+            branch,
+            base,
+        ],
     )
     .map_err(|e| format!("Could not update the bot's copy: {e}"))?;
     race::run(copy, &["clean", "-f", "-d", "--quiet"])
@@ -196,16 +231,16 @@ pub fn discard(bots: &Path, copy: &str, base: &str, branch: &str) -> Result<(), 
     if !valid_branch(branch) {
         return Err("Invalid bot request".into());
     }
-    reset_to(&race::lane_path(bots, copy)?, base, branch)
+    reset_to(&checked_copy(bots, copy)?, base, branch)
 }
 
 /// What the bot changed in its copy since `base`.
 pub fn diff(bots: &Path, copy: &str, base: &str) -> Result<RaceDiff, String> {
-    race::diff(&race::lane_path(bots, copy)?, base)
+    race::diff(&checked_copy(bots, copy)?, base)
 }
 
 pub fn file_diff(bots: &Path, copy: &str, base: &str, path: &str) -> Result<RaceFileDiff, String> {
-    race::file_diff(&race::lane_path(bots, copy)?, base, path)
+    race::file_diff(&checked_copy(bots, copy)?, base, path)
 }
 
 /// Apply everything the bot changed onto the user's working tree. Every
@@ -213,7 +248,7 @@ pub fn file_diff(bots: &Path, copy: &str, base: &str, path: &str) -> Result<Race
 /// the copy.
 pub fn apply(cwd: &Path, bots: &Path, copy: &str, base: &str) -> Result<RaceDiff, String> {
     let root = repo_root(cwd)?;
-    let worktree = race::lane_path(bots, copy)?;
+    let worktree = checked_copy(bots, copy)?;
     let changes = race::diff(&worktree, base)?;
     if changes.files.is_empty() {
         return Err("The bot's copy has no changes to apply.".into());
@@ -235,8 +270,16 @@ pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), S
     if !valid_branch(branch) {
         return Err("Invalid bot request".into());
     }
-    // A deleted or moved project folder still has its copy removed.
-    let root = repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let path = copy_path(bots, copy)?;
+    // A deleted or moved project folder still has its copy removed, without
+    // git, which would otherwise act on whatever repository is above it.
+    let Ok(root) = repo_root(cwd) else {
+        if path.exists() {
+            std::fs::remove_dir_all(&path)
+                .map_err(|e| format!("Could not remove the bot's copy: {e}"))?;
+        }
+        return Ok(());
+    };
     race::remove_copies(
         &root,
         bots,
@@ -533,6 +576,14 @@ mod tests {
         assert!(diff(&bots, &bots.to_string_lossy(), &"a".repeat(40)).is_err());
         assert!(diff(&bots, &format!("{}/../x", bots.display()), &"a".repeat(40)).is_err());
         assert!(discard(&bots, "/tmp/elsewhere", &"a".repeat(40), BRANCH).is_err());
+        // Only a folder directly inside bots/, and only a checkout of its own.
+        let nested = bots.join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(diff(&bots, &nested.to_string_lossy(), &"a".repeat(40)).is_err());
+        let loose = bots.join("loose");
+        std::fs::create_dir_all(&loose).unwrap();
+        let error = sync(&plain, &bots, &loose.to_string_lossy(), BRANCH).unwrap_err();
+        assert!(error.contains("missing"), "{error}");
         let _ = std::fs::remove_dir_all(&plain);
         let _ = std::fs::remove_dir_all(&bots);
     }

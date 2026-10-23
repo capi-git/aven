@@ -41,7 +41,15 @@ const START = new Date(2026, 9, 23, 14, 0).getTime();
 
 type Sent = { sessionId: string; text: string; options: BotSendOptions };
 
-function harness(options: { realStops?: boolean } = {}) {
+function harness(
+  options: {
+    realStops?: boolean;
+    /** Sent messages reach the chat a render later, as in the app. */
+    lagged?: boolean;
+  } = {},
+) {
+  let ids = 0;
+  const lag: (() => void)[] = [];
   let now = START;
   let nextId = 1;
   const timers = new Map<number, { at: number; run: () => void }>();
@@ -96,26 +104,33 @@ function harness(options: { realStops?: boolean } = {}) {
       updateProjectBot(PATH, (bot) => ({ ...bot, sessionId: "bot-chat" }));
       return found;
     },
-    send: (sessionId, text, options) => {
-      sent.push({ sessionId, text, options });
-      sessions = sessions.map((session) =>
-        session.id === sessionId
-          ? {
-              ...session,
-              busy: true,
-              blocks: [
-                ...session.blocks,
-                {
-                  id: `turn-${sent.length}`,
-                  role: "user",
-                  text: options.displayText,
-                  startedAt: now,
-                  ...(options.botWake ? { botWake: options.botWake } : {}),
-                },
-              ],
-            }
-          : session,
-      );
+    newId: () => `turn-${++ids}`,
+    send: (sessionId, text, sendOptions) => {
+      sent.push({ sessionId, text, options: sendOptions });
+      const commit = () => {
+        sessions = sessions.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                busy: true,
+                blocks: [
+                  ...session.blocks,
+                  {
+                    id: sendOptions.blockId,
+                    role: "user",
+                    text: sendOptions.displayText,
+                    startedAt: now,
+                    ...(sendOptions.botWake
+                      ? { botWake: sendOptions.botWake }
+                      : {}),
+                  },
+                ],
+              }
+            : session,
+        );
+      };
+      if (options.lagged) lag.push(commit);
+      else commit();
       return true;
     },
     announce: (session, event) => announced.push({ session, event }),
@@ -160,6 +175,10 @@ function harness(options: { realStops?: boolean } = {}) {
     },
     set sessions(next: Session[]) {
       sessions = next;
+    },
+    /** Render what was sent. */
+    commit() {
+      for (const commit of lag.splice(0)) commit();
     },
     async advance(ms: number) {
       now += ms;
@@ -208,6 +227,7 @@ function harness(options: { realStops?: boolean } = {}) {
       }),
     /** The bot's turn ends with this reply. */
     async reply(text: string, status: ControlOutcome["status"] = "completed") {
+      for (const commit of lag.splice(0)) commit();
       const last = sent.at(-1)!;
       sessions = sessions.map((session) =>
         session.id === last.sessionId
@@ -605,5 +625,139 @@ describe("a project bot waking up", () => {
     h.runner.stop();
     expect(devServerStopsWatched()).toBe(false);
     resetDevPreviews();
+  });
+
+  it("knows its own message before the chat renders it", async () => {
+    const h = harness({ lagged: true });
+    h.runner.start();
+    h.sessions = [
+      {
+        id: "bot-chat",
+        harness: "claude",
+        model: "m",
+        modelSettings: {},
+        runtimeMode: "auto",
+        title: "Jelly",
+        cwd: PATH,
+        worktreeCwd: COPY,
+        providerSessionId: "sess",
+        blocks: [{ id: "old-message", role: "user", text: "earlier" }],
+      },
+    ];
+    updateProjectBot(PATH, (bot) => ({ ...bot, sessionId: "bot-chat" }));
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    expect(h.sent).toHaveLength(1);
+    // The chat has not rendered the wake-up yet; the turn ends with a fix.
+    h.copy.diff.mockResolvedValueOnce({
+      files: [
+        {
+          path: "a.ts",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+          binary: false,
+        },
+      ],
+      additions: 2,
+      deletions: 1,
+    });
+    await h.reply("Fixed it.");
+    expect(getProjectBot(PATH)!.fixes![0].turnId).toBe("turn-1");
+    // Its chat going idle reads nothing twice.
+    h.runner.observe(h.sessions);
+    await h.advance(1);
+    expect(h.announced).toHaveLength(1);
+    h.runner.stop();
+  });
+
+  it("stops a job when the bot is turned off between its steps", async () => {
+    const h = harness();
+    h.runner.start();
+    let release: (value: {
+      root: string;
+      base: string;
+      uncommitted: boolean;
+      untracked: boolean;
+    }) => void = () => {};
+    h.copy.sync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: false }));
+    release({
+      root: PATH,
+      base: "c".repeat(40),
+      uncommitted: false,
+      untracked: false,
+    });
+    await h.advance(1);
+    expect(h.sent).toHaveLength(0);
+    const bot = getProjectBot(PATH)!;
+    expect(bot.base).toBeUndefined();
+    expect(bot.job).toBeUndefined();
+    expect(bot.runs).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("never wipes changes no one has read: they become the waiting fix", async () => {
+    const h = harness();
+    h.runner.start();
+    updateProjectBot(PATH, (bot) => ({ ...bot, base: BASE }));
+    // Its copy holds edits from a turn whose end was never read.
+    h.copy.diff.mockResolvedValueOnce({
+      files: [
+        {
+          path: "b.ts",
+          status: "modified",
+          additions: 3,
+          deletions: 0,
+          binary: false,
+        },
+      ],
+      additions: 3,
+      deletions: 0,
+    });
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    expect(h.copy.sync).not.toHaveBeenCalled();
+    expect(getProjectBot(PATH)!.fixes![0]).toMatchObject({
+      state: "ready",
+      files: 1,
+      paths: ["b.ts"],
+    });
+    expect(h.sent[0].text).toContain("don't start another fix");
+    h.runner.stop();
+  });
+
+  it("counts only wake-ups that went toward the day's runs", async () => {
+    const h = harness();
+    h.runner.start();
+    updateProjectBot(PATH, (bot) => ({ ...bot, sessionId: "bot-chat" }));
+    h.sessions = [
+      {
+        id: "bot-chat",
+        harness: "claude",
+        model: "m",
+        modelSettings: {},
+        runtimeMode: "auto",
+        title: "Jelly",
+        cwd: PATH,
+        worktreeCwd: COPY,
+        queuedMessages: [{ id: "q", text: "later", attachments: [] }],
+        queueStatus: "paused",
+        blocks: [],
+      },
+    ];
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    expect(h.sent).toHaveLength(0);
+    expect(getProjectBot(PATH)?.runs).toBeUndefined();
+    expect(getProjectBot(PATH)?.job).toBeUndefined();
+    h.runner.stop();
   });
 });

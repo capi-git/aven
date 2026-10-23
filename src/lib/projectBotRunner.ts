@@ -26,7 +26,7 @@ import {
   updateProjectBot,
   withReadyFix,
   withRunCounted,
-  type BotFix,
+  fixMatches,
   type ProjectBot,
 } from "./projectBots";
 import {
@@ -73,6 +73,8 @@ export type BotSendOptions = {
   /** Set for a wake-up: the chat shows a small tag instead of a message. */
   botWake?: { label: string };
   attachments?: Attachment[];
+  /** The id the message gets, so its turn is known before it renders. */
+  blockId: string;
   onSettled: (outcome: ControlOutcome) => void;
 };
 
@@ -108,6 +110,10 @@ export type BotRunnerDeps = {
   name: (bot: ProjectBot) => string;
   /** The chats bots are working in now changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
+  /** Say something in a chat (a message that could not be sent). */
+  notice?: (sessionId: string, text: string) => void;
+  /** A new message id; random outside tests. */
+  newId?: () => string;
   subscribeActivity?: typeof subscribeActivity;
   activity?: () => readonly ActivityEntry[];
   subscribeStops?: typeof subscribeDevServerStops;
@@ -153,17 +159,6 @@ function chatAtWork(chat: Session): boolean {
     !!chat.queuedMessages?.length ||
     !!chat.pendingQuestion ||
     chat.blocks.some((block) => block.approval && !block.approval.decided)
-  );
-}
-
-function sameChanges(fix: BotFix, diff: RaceDiff): boolean {
-  return (
-    fix.files === diff.files.length &&
-    fix.additions === diff.additions &&
-    fix.deletions === diff.deletions &&
-    diff.files.every((file, index) =>
-      index >= fix.paths.length ? true : fix.paths.includes(file.path),
-    )
   );
 }
 
@@ -222,6 +217,16 @@ export class BotRunner {
     this.pending.clear();
     if (this.heartbeat != null) this.deps.clearTimer(this.heartbeat);
     this.heartbeat = undefined;
+    // Nothing carries over to the next start: jobs end and leases go.
+    for (const key of [...this.turns.keys()]) {
+      const bot = activeProjectBots().find(
+        (item) => projectKey(item.path) === key,
+      );
+      this.turns.delete(key);
+      if (bot) releaseBotJob(bot.path, this.deps.owner);
+    }
+    this.seenBusy.clear();
+    this.updateWorking();
   }
 
   /** Test seam: events waiting per project key. */
@@ -380,6 +385,11 @@ export class BotRunner {
     await this.wake(bot, events);
   }
 
+  /** The bot is still on; anything else stops a job between its steps. */
+  private stillOn(path: string): boolean {
+    return getProjectBot(path)?.on === true;
+  }
+
   private async wake(bot: ProjectBot, events: BotEvent[]) {
     const key = projectKey(bot.path);
     const now = this.deps.now();
@@ -388,25 +398,25 @@ export class BotRunner {
       return;
     }
     const label = wakeLabel(events);
-    this.beginTurn(key, { sessionId: bot.sessionId ?? "", wake: true });
+    const turn: Turn = { sessionId: bot.sessionId ?? "", wake: true };
+    this.beginTurn(key, turn);
     updateProjectBot(bot.path, (current) => ({
-      ...withRunCounted(current, now),
+      ...current,
       lastWake: { at: now, label },
       lastSkip: undefined,
     }));
     try {
-      const ready = await this.prepare(bot.path);
-      if (!ready) throw new Error("The bot's copy isn't ready.");
-      const chat = await this.deps.ensureChat(ready.bot);
+      const chat = await this.deps.ensureChat(bot);
       if (!chat) throw new Error("Couldn't open the bot's chat.");
-      this.turns.set(key, { sessionId: chat.id, wake: true });
+      if (!this.stillOn(bot.path)) return this.endTurn(bot.path, turn);
+      turn.sessionId = chat.id;
       this.updateWorking();
-      const latest = this.deps
-        .sessions()
-        .find((session) => session.id === chat.id);
-      if (latest?.busy || latest?.queuedMessages?.length) {
+      const ready = await this.prepare(bot.path, chat.id);
+      if (!ready || !this.stillOn(bot.path))
+        return this.endTurn(bot.path, turn);
+      if (this.chatAtWorkNow(chat.id)) {
         // You messaged it meanwhile: the events wait for that turn.
-        this.endTurn(bot.path);
+        this.endTurn(bot.path, turn);
         for (const event of events) this.queue(bot, event);
         return;
       }
@@ -414,37 +424,53 @@ export class BotRunner {
         events,
         sync: ready.sync,
         canFix: ready.bot.can.fix,
-        brief: this.briefFor(ready.bot, chat),
+        brief: this.briefFor(ready.bot, chat.id),
       });
+      turn.turnId = this.newId();
       const sent = this.deps.send(chat.id, text, {
         displayText: label,
         botWake: { label },
-        onSettled: (outcome) => void this.afterTurn(bot.path, outcome),
+        blockId: turn.turnId,
+        onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
       });
       if (!sent) throw new Error("Couldn't send the bot its wake-up.");
-      const turn = this.turns.get(key);
-      if (turn) {
-        turn.sentAt = this.deps.now();
-        turn.turnId = lastUserBlockId(
-          this.deps.sessions().find((session) => session.id === chat.id),
-        );
-      }
+      turn.sentAt = this.deps.now();
+      // Only a wake-up that went counts toward the day's runs.
+      updateProjectBot(bot.path, (current) =>
+        withRunCounted(current, this.deps.now()),
+      );
     } catch (error) {
       logError("Project bot", error);
       updateProjectBot(bot.path, (current) => ({
         ...current,
         lastError: { at: this.deps.now(), text: errorText(error) },
       }));
-      this.endTurn(bot.path);
+      this.endTurn(bot.path, turn);
     }
+  }
+
+  private newId(): string {
+    return this.deps.newId?.() ?? crypto.randomUUID();
+  }
+
+  private chatNow(sessionId: string): Session | undefined {
+    return this.deps.sessions().find((session) => session.id === sessionId);
+  }
+
+  private chatAtWorkNow(sessionId: string): boolean {
+    const chat = this.chatNow(sessionId);
+    return !!chat && chatAtWork(chat);
   }
 
   /**
    * Make sure the copy exists and, unless a fix waits there, match it to the
-   * user's files. Returns the bot as saved and what to tell it.
+   * user's files. Changes no one has read yet (a turn whose end was missed,
+   * or one sent from another window) become a fix first: a sync never wipes
+   * them. Returns the bot as saved and what to tell it.
    */
   private async prepare(
     path: string,
+    chatId: string,
   ): Promise<{ bot: ProjectBot; sync: BotSyncNote | null } | null> {
     let bot = getProjectBot(path);
     if (!bot?.on) return null;
@@ -452,6 +478,7 @@ export class BotRunner {
     if (!branch) return null;
     try {
       const copy = await this.deps.copy.prepare(path, projectKey(path), branch);
+      if (!this.stillOn(path)) return null;
       if (copy.path !== bot.copy?.path)
         bot = updateProjectBot(path, (current) => ({ ...current, copy }));
     } catch (error) {
@@ -463,12 +490,40 @@ export class BotRunner {
       return null;
     }
     if (pendingFix(bot)) return { bot, sync: { kind: "fix-waiting" } };
+    if (bot.base) {
+      const unread = await this.deps.copy
+        .diff(bot.copy!.path, bot.base)
+        .catch(() => null);
+      if (!this.stillOn(path)) return null;
+      const applied = bot.fixes?.at(-1);
+      if (
+        unread?.files.length &&
+        !(applied?.state === "applied" && fixMatches(applied, unread))
+      ) {
+        const base = bot.base;
+        bot = updateProjectBot(path, (current) =>
+          withReadyFix(current, {
+            base,
+            turnId:
+              lastUserBlockId(this.chatNow(chatId)) ??
+              `unread-${this.deps.now()}`,
+            files: unread.files.length,
+            additions: unread.additions,
+            deletions: unread.deletions,
+            paths: unread.files.map((file) => file.path),
+            at: this.deps.now(),
+          }),
+        );
+        return { bot, sync: { kind: "fix-waiting" } };
+      }
+    }
     try {
       const synced = await this.deps.copy.sync(
         path,
         bot.copy!.path,
         bot.copy!.branch,
       );
+      if (!this.stillOn(path)) return null;
       bot = updateProjectBot(path, (current) => ({
         ...current,
         base: synced.base,
@@ -489,8 +544,8 @@ export class BotRunner {
   }
 
   /** Its role, on the first message of a conversation with the provider. */
-  private briefFor(bot: ProjectBot, chat: Session): string | undefined {
-    if (chat.providerSessionId) return undefined;
+  private briefFor(bot: ProjectBot, chatId: string): string | undefined {
+    if (this.chatNow(chatId)?.providerSessionId) return undefined;
     return botBrief({
       name: this.deps.name(bot),
       project: bot.path,
@@ -510,51 +565,61 @@ export class BotRunner {
     if (this.chatBusy(bot)) return false;
     const key = projectKey(bot.path);
     const claimed = claimBotJob(bot.path, this.deps.owner, this.deps.now());
-    this.beginTurn(key, { sessionId, wake: false });
+    const turn: Turn = { sessionId, wake: false };
+    this.beginTurn(key, turn);
+    const lost = () =>
+      this.deps.notice?.(
+        sessionId,
+        `Your message didn't reach the bot: “${text.slice(0, 300)}”`,
+      );
     void (async () => {
-      const ready = claimed ? await this.prepare(bot.path) : null;
-      const chat = this.deps
-        .sessions()
-        .find((session) => session.id === sessionId);
+      const ready = claimed ? await this.prepare(bot.path, sessionId) : null;
+      const chat = this.chatNow(sessionId);
       if (!chat) {
-        this.endTurn(bot.path);
+        this.endTurn(bot.path, turn);
+        lost();
         return;
       }
-      const message = buildDirectMessage({
-        text,
-        sync: ready?.sync ?? null,
-        brief: this.briefFor(ready?.bot ?? bot, chat),
-      });
-      if (chat.busy || chat.queuedMessages?.length) {
-        // A turn started while the copy synced: this joins it as usual, and
-        // that turn is read when it ends (see `observe`).
-        this.endTurn(bot.path);
-        this.deps.send(sessionId, message, {
-          displayText: text,
-          attachments,
-          onSettled: () => undefined,
-        });
+      const message = this.stillOn(bot.path)
+        ? buildDirectMessage({
+            text,
+            sync: ready?.sync ?? null,
+            brief: this.briefFor(ready?.bot ?? bot, sessionId),
+          })
+        : text;
+      if (chatAtWork(chat) || !this.stillOn(bot.path)) {
+        // A turn started while the copy synced, or the bot was turned off:
+        // this goes as usual, and a bot's turn is read when it ends (see
+        // `observe`).
+        this.endTurn(bot.path, turn);
+        if (
+          !this.deps.send(sessionId, message, {
+            displayText: text,
+            attachments,
+            blockId: this.newId(),
+            onSettled: () => undefined,
+          })
+        )
+          lost();
         return;
       }
+      turn.turnId = this.newId();
       const sent = this.deps.send(sessionId, message, {
         displayText: text,
         attachments,
-        onSettled: (outcome) => void this.afterTurn(bot.path, outcome),
+        blockId: turn.turnId,
+        onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
       });
       if (!sent) {
-        this.endTurn(bot.path);
+        this.endTurn(bot.path, turn);
+        lost();
         return;
       }
-      const turn = this.turns.get(key);
-      if (turn) {
-        turn.sentAt = this.deps.now();
-        turn.turnId = lastUserBlockId(
-          this.deps.sessions().find((session) => session.id === sessionId),
-        );
-      }
+      turn.sentAt = this.deps.now();
     })().catch((error) => {
       logError("Project bot", error);
-      this.endTurn(bot.path);
+      this.endTurn(bot.path, turn);
+      lost();
     });
     return true;
   }
@@ -576,21 +641,21 @@ export class BotRunner {
       renewBotJob(bot.path, this.deps.owner, now);
       // A turn whose end never reported (it was cancelled, say) is read once
       // its chat has been idle a while, so the bot is never stuck working.
-      const chat = this.deps
-        .sessions()
-        .find((session) => session.id === turn.sessionId);
       if (
         turn.sentAt != null &&
         now - turn.sentAt > 2 * HEARTBEAT_MS &&
-        (!chat || !chatAtWork(chat))
+        !this.chatAtWorkNow(turn.sessionId)
       )
-        void this.afterTurn(bot.path);
+        void this.afterTurn(bot.path, turn);
     }
-    this.heartbeat = this.deps.setTimer(() => this.beat(), HEARTBEAT_MS);
+    if (this.turns.size)
+      this.heartbeat = this.deps.setTimer(() => this.beat(), HEARTBEAT_MS);
   }
 
-  private endTurn(path: string) {
+  /** End `turn` for the bot: never a newer one that has started since. */
+  private endTurn(path: string, turn: Turn) {
     const key = projectKey(path);
+    if (this.turns.get(key) !== turn) return;
     this.turns.delete(key);
     releaseBotJob(path, this.deps.owner);
     this.updateWorking();
@@ -620,18 +685,16 @@ export class BotRunner {
   /**
    * The bot's turn ended: read what it changed in its copy. Changes become
    * (or grow) the waiting fix, with one Activity entry; a wake-up with
-   * nothing to report posts nothing and counts as nothing unread.
+   * nothing to report posts nothing and counts as nothing unread. Each turn
+   * is read once, whichever of its end report, the chat going idle or the
+   * heartbeat comes first.
    */
-  async afterTurn(path: string, outcome?: ControlOutcome) {
-    const key = projectKey(path);
-    const turn = this.turns.get(key);
+  async afterTurn(path: string, turn: Turn, outcome?: ControlOutcome) {
     try {
       const bot = getProjectBot(path);
       if (!bot?.on) return;
-      const chat = this.deps
-        .sessions()
-        .find((session) => session.id === (turn?.sessionId || bot.sessionId));
-      const turnId = turn?.turnId ?? lastUserBlockId(chat);
+      const chat = this.chatNow(turn.sessionId || bot.sessionId || "");
+      const turnId = turn.turnId ?? lastUserBlockId(chat);
       if (!turnId || !this.markHandled(turnId)) return;
       // Its last message: earlier ones in the turn are its working notes.
       const reply = lastReply(chat) || outcome?.text.trim() || "";
@@ -644,6 +707,7 @@ export class BotRunner {
             logError("Project bot diff", error);
             return null;
           });
+      if (!this.stillOn(path)) return;
       const waiting = pendingFix(bot);
       // A fix you applied while it worked is still in its copy until the
       // next sync: those same changes are not a new fix.
@@ -652,10 +716,10 @@ export class BotRunner {
         !waiting &&
         applied?.state === "applied" &&
         !!diff &&
-        sameChanges(applied, diff);
+        fixMatches(applied, diff);
       const changed = !!diff?.files.length && !alreadyApplied;
       const wake =
-        turn?.wake ??
+        turn.wake ??
         !!chat?.blocks.find((block) => block.id === turnId)?.botWake;
       const quiet = wake && !changed && isNothingToReport(reply);
       const headline = replyHeadline(reply);
@@ -720,7 +784,7 @@ export class BotRunner {
     } catch (error) {
       logError("Project bot", error);
     } finally {
-      this.endTurn(path);
+      this.endTurn(path, turn);
     }
   }
 
@@ -760,8 +824,9 @@ export class BotRunner {
         turnId &&
         !this.handled.has(turnId)
       ) {
-        this.beginTurn(key, { sessionId: chat.id, turnId });
-        void this.afterTurn(bot.path);
+        const turn: Turn = { sessionId: chat.id, turnId };
+        this.beginTurn(key, turn);
+        void this.afterTurn(bot.path, turn);
       } else if (was && !busy && this.pending.has(key))
         this.later(bot.path, AFTER_TURN_MS);
     }

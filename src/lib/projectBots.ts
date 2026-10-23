@@ -538,17 +538,25 @@ export function botName(
   return bot.name?.trim() || defaultBotName(bot.path, mascot);
 }
 
-/** A git branch for the bot: `aven/bot/jelly`. */
-export function botBranch(name: string): string {
+/**
+ * A git branch for the bot, `aven/bot/jelly-1a2b`: its name and a short tag
+ * of its project, so two projects in one repository never share one.
+ */
+export function botBranch(name: string, path: string): string {
   const slug =
     name
       .toLowerCase()
       .normalize("NFKD")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 40)
+      .slice(0, 36)
       .replace(/-+$/g, "") || "bot";
-  return `aven/bot/${slug}`;
+  let hash = 0x811c9dc5;
+  for (const char of projectKey(normalizeProjectPath(path))) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `aven/bot/${slug}-${hash.toString(16).padStart(8, "0").slice(0, 4)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +574,25 @@ export function fixForTurn(
   turnId: string,
 ): BotFix | undefined {
   return bot?.fixes?.find((fix) => fix.turnId === turnId);
+}
+
+/** Whether a copy's changes now are the ones a fix recorded. */
+export function fixMatches(
+  fix: Pick<BotFix, "files" | "additions" | "deletions" | "paths">,
+  diff: {
+    files: readonly { path: string }[];
+    additions: number;
+    deletions: number;
+  },
+): boolean {
+  return (
+    fix.files === diff.files.length &&
+    fix.additions === diff.additions &&
+    fix.deletions === diff.deletions &&
+    diff.files.every(
+      (file) => fix.paths.length < fix.files || fix.paths.includes(file.path),
+    )
+  );
 }
 
 /** Record a fix the bot just made, or the waiting one grown, at its newest turn. */

@@ -40,6 +40,8 @@ export type ProjectBotsHost = {
   announce: (session: Session, event: SessionActivityEvent) => void;
   /** The chats bots work in now, which stay loaded without a tab. */
   onWorking: (ids: ReadonlySet<string>) => void;
+  /** Say something in a chat (a message that could not be sent). */
+  notice: (sessionId: string, text: string) => void;
 };
 
 /**
@@ -52,11 +54,11 @@ export type ProjectBotsHost = {
  */
 export function useProjectBots(
   sessions: readonly Session[],
+  /** The window's chats as they are now, ahead of the next render. */
+  sessionsRef: { readonly current: readonly Session[] },
   host: ProjectBotsHost,
   enabled: boolean,
 ): (sessionId: string, text: string, attachments: Attachment[]) => boolean {
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
   const hostRef = useRef(host);
   hostRef.current = host;
   const runnerRef = useRef<BotRunner | null>(null);
@@ -90,6 +92,7 @@ export function useProjectBots(
         ),
       name: (bot) => botName(bot, projectAppearance(bot.path).mascot),
       onWorking: (ids) => hostRef.current.onWorking(ids),
+      notice: (sessionId, text) => hostRef.current.notice(sessionId, text),
     };
     runnerRef.current = new BotRunner(deps);
   }

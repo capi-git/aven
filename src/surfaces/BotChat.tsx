@@ -11,7 +11,12 @@ import {
   useBotWorkspace,
 } from "../lib/projectBotActions";
 import { botCopyHost } from "../lib/projectBotCopy";
-import { fixForTurn, useProjectBot, type BotFix } from "../lib/projectBots";
+import {
+  fixForTurn,
+  jobIsLive,
+  useProjectBot,
+  type BotFix,
+} from "../lib/projectBots";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
@@ -208,6 +213,8 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
   const [problem, setProblem] = useState<string | null>(null);
   if (!fix) return null;
   const ready = fix.state === "ready";
+  // Not while it still works in its copy: the fix may still change.
+  const working = jobIsLive(bot?.job, Date.now());
   const act = async (kind: "apply" | "discard") => {
     setBusy(kind);
     setProblem(null);
@@ -245,7 +252,8 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
                 type="button"
                 className="team-card-button"
                 data-variant="primary"
-                disabled={!!busy}
+                disabled={!!busy || working}
+                title={working ? "Wait until it finishes" : undefined}
                 onClick={() => void act("apply")}
               >
                 {busy === "apply" ? "Applying…" : "Apply"}
@@ -254,7 +262,8 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
                 type="button"
                 className="team-card-button"
                 data-variant="ghost"
-                disabled={!!busy}
+                disabled={!!busy || working}
+                title={working ? "Wait until it finishes" : undefined}
                 onClick={() => void act("discard")}
               >
                 Throw away

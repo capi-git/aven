@@ -6,11 +6,13 @@ import { botCopyError, botCopyHost } from "./projectBotCopy";
 import {
   botBranch,
   forgetProjectBot,
+  fixMatches,
   getProjectBot,
   jobIsLive,
   noteFixError,
   resolveFix,
   updateProjectBot,
+  withReadyFix,
   type ProjectBot,
 } from "./projectBots";
 
@@ -33,7 +35,7 @@ export async function turnOnProjectBot(
   branchName: string,
 ): Promise<string | null> {
   const existing = getProjectBot(path);
-  const branch = existing?.copy?.branch ?? botBranch(branchName);
+  const branch = existing?.copy?.branch ?? botBranch(branchName, path);
   let copy: ProjectBot["copy"];
   try {
     copy = await botCopyHost.prepare(path, projectKey(path), branch);
@@ -72,6 +74,9 @@ export function setBotPaused(path: string, paused: boolean) {
 export async function turnOffProjectBot(path: string): Promise<string | null> {
   const bot = getProjectBot(path);
   if (!bot) return null;
+  // Its copy is in use while it works; removing it then could leave half a copy.
+  if (jobIsLive(bot.job, Date.now()))
+    return "It's working right now. Turn it off once it finishes, or Pause it.";
   let problem: string | null = null;
   if (bot.copy) {
     try {
@@ -122,6 +127,29 @@ export async function applyBotFix(
   const fix = bot?.fixes?.find((item) => item.id === fixId);
   if (!bot?.copy || !fix || fix.state !== "ready")
     return "This fix is no longer waiting.";
+  if (jobIsLive(bot.job, Date.now()))
+    return "It's still working on this. Apply it once it finishes.";
+  // What goes into your files is what the card showed: a copy that changed
+  // since is shown again first.
+  try {
+    const now = await botCopyHost.diff(bot.copy.path, fix.base);
+    if (!fixMatches(fix, now)) {
+      updateProjectBot(path, (current) =>
+        withReadyFix(current, {
+          ...fix,
+          files: now.files.length,
+          additions: now.additions,
+          deletions: now.deletions,
+          paths: now.files.map((file) => file.path),
+          at: Date.now(),
+        }),
+      );
+      return "The fix changed since you looked. Review it again, then apply.";
+    }
+  } catch (error) {
+    logError("Apply bot fix", error);
+    return botCopyError(error);
+  }
   try {
     await botCopyHost.apply(path, bot.copy.path, fix.base);
   } catch (error) {
@@ -154,6 +182,8 @@ export async function discardBotFix(
   const fix = bot?.fixes?.find((item) => item.id === fixId);
   if (!bot?.copy || !fix || fix.state !== "ready")
     return "This fix is no longer waiting.";
+  if (jobIsLive(bot.job, Date.now()))
+    return "It's still working on this. Throw it away once it finishes.";
   try {
     await botCopyHost.discard(bot.copy.path, fix.base, bot.copy.branch);
   } catch (error) {
