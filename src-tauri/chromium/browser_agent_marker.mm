@@ -382,6 +382,9 @@ NSString *CleanName(NSString *name) {
         flash = glow;
       }
       break;
+    case SMAgentMarkerActionHover:
+      // Resting on an element: the glide says it all.
+      break;
     case SMAgentMarkerActionKey:
     case SMAgentMarkerActionScroll:
       if (!reduce) ring = Keyframes(@"transform.scale", @[@1, @1.16, @1], @[@0, @.4, @1], .32);

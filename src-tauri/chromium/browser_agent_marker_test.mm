@@ -112,6 +112,11 @@ static void ShowFadeAndClear() {
   CHECK(!marker.active && marker.hidden);
   Spin(.6);
   CHECK(!marker.active && marker.hidden);
+  // A hover glides to the element and shows itself, with no press feedback.
+  CHECK([marker showAction:SMAgentMarkerActionHover at:NSMakePoint(60, 40)]);
+  CHECK(marker.active && !marker.hidden && marker.lastAction == SMAgentMarkerActionHover);
+  CHECK(NSEqualPoints(marker.point, NSMakePoint(60, 40)));
+  for (CALayer *layer in Anchor(marker).sublayers) CHECK([layer animationForKey:@"feedback"] == nil);
   // Leaving the window clears it too.
   CHECK([marker showAction:SMAgentMarkerActionClick at:NSMakePoint(30, 30)]);
   [marker removeFromSuperview];
