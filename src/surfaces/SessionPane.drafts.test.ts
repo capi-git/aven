@@ -12,7 +12,7 @@ import type { Composer } from "../chrome/Composer";
 import { SessionPane } from "./SessionPane";
 import type { Attachment, Session } from "../lib/session";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
-import { requestAddToChat } from "../lib/quoteDraft";
+import { requestAddFileToChat, requestAddToChat } from "../lib/quoteDraft";
 import { orchestrator } from "../lib/orchestration";
 
 const mock = vi.hoisted(() => ({
@@ -333,5 +333,48 @@ describe("session pane draft and header ownership", () => {
     expect(latestFor("two").quoteRequest?.attachments).toEqual([attachment]);
     expect(mock.update).not.toHaveBeenCalled();
     expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("sends a request naming a chat to that chat only, target or not", async () => {
+    mock.read.mockReturnValue(undefined);
+    const latestFor = (id: string) =>
+      mock.composer.mock.calls
+        .map(([value]) => value as ComponentProps<typeof Composer>)
+        .findLast((value) => value.sessionId === id)!;
+    await act(async () =>
+      root.render(
+        createElement(
+          Fragment,
+          null,
+          ...["one", "two"].map((id) =>
+            createElement(SessionPane, {
+              ...props,
+              key: id,
+              session: { ...props.session, id },
+              inSplit: true,
+              addToChatTarget: id === "one",
+            }),
+          ),
+        ),
+      ),
+    );
+
+    await act(async () =>
+      requestAddFileToChat("/Users/me/Documents/notes.md", "two"),
+    );
+    expect(latestFor("one").quoteRequest).toBeUndefined();
+    expect(latestFor("two").quoteRequest).toMatchObject({
+      text: "",
+      mention: "/Users/me/Documents/notes.md",
+    });
+
+    await act(async () => requestAddToChat("", "plain", [attachment], "two"));
+    expect(latestFor("one").quoteRequest).toBeUndefined();
+    expect(latestFor("two").quoteRequest?.attachments).toEqual([attachment]);
+
+    await act(async () =>
+      requestAddFileToChat("/Users/me/Documents/notes.md", "gone"),
+    );
+    expect(latestFor("one").quoteRequest).toBeUndefined();
   });
 });

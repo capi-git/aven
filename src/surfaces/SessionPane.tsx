@@ -398,12 +398,29 @@ export const SessionPane = memo(function SessionPane({
     [session.cwd, session.harness, session.id, session.title],
   );
 
+  // A request naming a chat goes to that chat; any other to the target.
+  const addToChatSessionId = session.id;
   useEffect(() => {
-    if (!addToChatTarget) return;
     const onAdd = (event: Event) => {
       const detail = (event as CustomEvent<AddToChatRequest>).detail;
       if (
-        typeof detail?.text !== "string" ||
+        !detail ||
+        (detail.sessionId
+          ? detail.sessionId !== addToChatSessionId
+          : !addToChatTarget)
+      )
+        return;
+      if (typeof detail.path === "string" && detail.path.trim()) {
+        quoteRequestId.current += 1;
+        setQuoteRequest({
+          id: quoteRequestId.current,
+          text: "",
+          mention: detail.path,
+        });
+        return;
+      }
+      if (
+        typeof detail.text !== "string" ||
         (!detail.text.trim() && !detail.attachments?.length)
       )
         return;
@@ -411,7 +428,7 @@ export const SessionPane = memo(function SessionPane({
     };
     window.addEventListener(ADD_TO_CHAT_EVENT, onAdd);
     return () => window.removeEventListener(ADD_TO_CHAT_EVENT, onAdd);
-  }, [addSelectionToChat, addToChatTarget]);
+  }, [addSelectionToChat, addToChatSessionId, addToChatTarget]);
   const workCwd = sessionWorkCwd(session);
   const isEmpty = session.blocks.length === 0;
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);

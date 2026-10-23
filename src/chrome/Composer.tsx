@@ -57,14 +57,26 @@ import {
 import {
   buildMentionIndex,
   fileMentionParts,
+  mentionFilesFor,
   mentionLabel,
   mentionTokenAt,
   rankMentionFiles,
+  rankOpenMentionFiles,
   replaceMentionToken,
+  withMentionExtras,
+  type MentionFile,
   type MentionIndex,
+  type MentionLookup,
   type MentionToken,
 } from "../lib/fileMentions";
 import type { ProjectFile } from "../lib/fs";
+import {
+  NO_OPEN_FILES,
+  openFilesSnapshot,
+  rememberMentionedFile,
+  subscribeOpenFiles,
+} from "../lib/openFiles";
+import { pathKey } from "../lib/paths";
 import {
   composeInboxMessage,
   type InboxComposerCard,
@@ -296,6 +308,37 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
 }
 
 const NO_FILES: ProjectFile[] = [];
+
+type MentionSources = {
+  projectMentionIndex: MentionIndex;
+  files: ProjectFile[];
+  cwd: string;
+};
+
+/**
+ * What a request to mention the file at `path` adds: its `@` label in this
+ * box, remembered so it still finds the file when sent, or the plain path
+ * when no label can name it.
+ */
+function mentionInsert(
+  request: QuoteRequest,
+  path: string,
+  { projectMentionIndex, files, cwd }: MentionSources,
+): QuoteRequest {
+  rememberMentionedFile(path);
+  const extras = mentionFilesFor(openFilesSnapshot(), files, cwd);
+  const key = pathKey(path);
+  const file = extras.find((entry) => pathKey(entry.path) === key);
+  if (file) {
+    const index = withMentionExtras(projectMentionIndex, extras);
+    const label = mentionLabel(file, index);
+    const named = index.labels.get(label);
+    if (named && pathKey(named.path) === key)
+      return { ...request, mode: "mention", text: label };
+  }
+  return { ...request, mode: "plain", text: path };
+}
+
 /** One shared empty value, so the agent pill's props stay the same. */
 const NO_MODEL_SETTINGS: Record<string, string> = {};
 
@@ -806,8 +849,18 @@ function ComposerComponent({
 
   attachmentsRef.current = attachments;
 
+  // Files open in tabs (and ones mentioned from them) are offered by `@` and
+  // highlighted in the text. Only a box with an `@` follows them, so opening
+  // a tab does not re-render every chat.
+  const followOpenFiles = mention !== null || draft.includes("@");
+  const knownFiles = useSyncExternalStore(
+    subscribeOpenFiles,
+    () => (followOpenFiles ? openFilesSnapshot() : NO_OPEN_FILES),
+    () => NO_OPEN_FILES,
+  );
   const mentionOpen =
-    mention !== null && (looksLikeProject(cwd) || notesEnabled);
+    mention !== null &&
+    (looksLikeProject(cwd) || notesEnabled || knownFiles.open.length > 0);
   const navigationEmpty =
     draft.length === 0 &&
     attachments.length === 0 &&
@@ -918,23 +971,47 @@ function ComposerComponent({
     () => (notesEnabled ? [...files, ...notesAsProjectFiles(notes)] : files),
     [files, notes, notesEnabled],
   );
-  const mentionIndex = useMemo(
+  const projectMentionIndex = useMemo(
     () => buildMentionIndex(mentionFiles),
     [mentionFiles],
   );
+  const mentionExtras = useMemo(
+    () => mentionFilesFor(knownFiles, files, cwd),
+    [cwd, files, knownFiles],
+  );
+  const mentionIndex = useMemo(
+    () => withMentionExtras(projectMentionIndex, mentionExtras),
+    [mentionExtras, projectMentionIndex],
+  );
   const mentionIndexRef = useRef<MentionIndex>(mentionIndex);
   mentionIndexRef.current = mentionIndex;
+  const mentionSourcesRef = useRef({ projectMentionIndex, files, cwd });
+  mentionSourcesRef.current = { projectMentionIndex, files, cwd };
   const rankedFiles = useMemo(() => {
     if (!mentionOpen) return [];
+    const query = mention?.query ?? "";
+    // Files open in tabs first, wherever they are, then notes and the project.
+    const openHits = rankOpenMentionFiles(mentionExtras, query);
     const fileHits = looksLikeProject(cwd)
-      ? rankMentionFiles(files, mention?.query ?? "", recentOpenedFiles(cwd))
+      ? rankMentionFiles(files, query, recentOpenedFiles(cwd))
       : [];
-    const noteHits = notesEnabled
-      ? rankNoteFiles(notes, mention?.query ?? "")
-      : [];
-    const seen = new Set(noteHits.map((file) => file.path));
-    return [...noteHits, ...fileHits.filter((file) => !seen.has(file.path))];
-  }, [cwd, files, mention?.query, mentionOpen, notes, notesEnabled]);
+    const noteHits = notesEnabled ? rankNoteFiles(notes, query) : [];
+    const seen = new Set(openHits.map((file) => file.path));
+    const rest = [...noteHits, ...fileHits].filter((file) => {
+      if (seen.has(file.path)) return false;
+      seen.add(file.path);
+      return true;
+    });
+    return [...openHits, ...rest];
+  }, [
+    cwd,
+    files,
+    mention?.query,
+    mentionExtras,
+    mentionOpen,
+    notes,
+    notesEnabled,
+  ]);
 
   const syncHasValue = useCallback(
     (text: string, files: Attachment[]) => {
@@ -1170,7 +1247,13 @@ function ComposerComponent({
     const result = consumeQuoteRequest(
       el.value,
       consumedQuoteId.current,
-      quoteRequest,
+      quoteRequest.mention === undefined
+        ? quoteRequest
+        : mentionInsert(
+            quoteRequest,
+            quoteRequest.mention,
+            mentionSourcesRef.current,
+          ),
     );
     consumedQuoteId.current = result.consumedId;
     if (result.changed) {
@@ -1287,13 +1370,15 @@ function ComposerComponent({
   }, []);
 
   const pickMention = useCallback(
-    (file: ProjectFile) => {
+    (file: MentionFile) => {
       const el = ref.current;
       const token = mentionRef.current;
       if (!el || !token) {
         setMention(null);
         return;
       }
+      // Its tab may close before sending; the label must still find it.
+      if (file.open || file.unlisted) rememberMentionedFile(file.path);
       const label = isNoteMentionPath(file.path)
         ? file.relative
         : mentionLabel(file, mentionIndexRef.current);
@@ -2384,7 +2469,7 @@ function ComposerHighlight({
   text: string;
   cwd?: string;
   names: ReadonlySet<string>;
-  mentions: ReadonlyMap<string, ProjectFile>;
+  mentions: MentionLookup<ProjectFile>;
 }) {
   const parts = skillTextParts(text, names);
   return (
@@ -2416,7 +2501,7 @@ function MentionRuns({
   cwd,
 }: {
   text: string;
-  mentions: ReadonlyMap<string, ProjectFile>;
+  mentions: MentionLookup<ProjectFile>;
   cwd?: string;
 }) {
   const parts = fileMentionParts(text, mentions);

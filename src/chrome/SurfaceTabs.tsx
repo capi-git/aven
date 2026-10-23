@@ -1,6 +1,8 @@
 import { GitCompare, GripVertical, Kanban, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { copyText } from "../lib/clipboard";
+import { logError } from "../lib/errors";
 import { basename } from "../lib/fs";
 import {
   BOARD_TAB_TITLE,
@@ -8,6 +10,7 @@ import {
   isBoardTab,
   isChangesTab,
   isCommitTab,
+  isDiskFileTab,
   isPlanTab,
   isReleaseNotesTab,
   isReviewTab,
@@ -15,10 +18,13 @@ import {
   isTerminalTab,
   type FilePaneTab,
 } from "../lib/layout";
+import { REVEAL_LABEL } from "../lib/platform";
 import { releaseNotesTitle } from "../lib/releaseNotes";
+import { revealFile } from "../lib/revealFile";
 import { terminalTabLabel } from "../lib/terminalTab";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useSortable } from "../hooks/useSortable";
+import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
 
@@ -31,11 +37,34 @@ type Props = {
   onCloseFile: (fileId: string) => void;
   onReorder: (ids: string[]) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
+  /**
+   * Puts a file tab's file in a chat. A file on disk always has a right-click
+   * menu (show in Finder, copy its path, close); this adds "Add to chat".
+   */
+  onAddToChat?: (fileId: string) => void;
   label?: string;
   trailing?: ReactNode;
   /** False dims the active tab's fill while another pane has focus. */
   paneFocused?: boolean;
 };
+
+type TabMenu = { fileId: string; x: number; y: number; anchor?: HTMLElement };
+
+/** A file tab's right-click menu. */
+export function fileTabMenuItems(canAddToChat: boolean): ExplorerMenuItem[] {
+  return [
+    ...(canAddToChat
+      ? [
+          { kind: "item", id: "add-to-chat", label: "Add to chat" } as const,
+          { kind: "sep" } as const,
+        ]
+      : []),
+    { kind: "item", id: "reveal", label: REVEAL_LABEL },
+    { kind: "item", id: "copy-path", label: "Copy path" },
+    { kind: "sep" },
+    { kind: "item", id: "close", label: "Close" },
+  ];
+}
 
 export type SurfaceTabPresentation = {
   name: string;
@@ -141,10 +170,26 @@ export function SurfaceTabs({
   onCloseFile,
   onReorder,
   onPaneDragStart,
+  onAddToChat,
   label = "Open files",
   trailing,
   paneFocused,
 }: Props) {
+  const [menu, setMenu] = useState<TabMenu | null>(null);
+  const menuFile = menu
+    ? files.find((file) => file.id === menu.fileId)
+    : undefined;
+  const pickMenu = (id: string) => {
+    setMenu(null);
+    if (!menuFile) return;
+    if (id === "add-to-chat") onAddToChat?.(menuFile.id);
+    else if (id === "reveal") revealFile(menuFile.path, "reveal file tab");
+    else if (id === "copy-path")
+      void copyText(menuFile.path).catch((error: unknown) =>
+        logError("copy file tab path", error),
+      );
+    else if (id === "close") onCloseFile(menuFile.id);
+  };
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const tabButtonsRef = useRef(new Map<string, HTMLButtonElement>());
@@ -265,6 +310,7 @@ export function SurfaceTabs({
           const agent = isAgentTab(file) ? file.agent : null;
           const board = isBoardTab(file);
           const { label, iconName, tooltip } = surfaceTabPresentation(file);
+          const onDisk = isDiskFileTab(file);
           const showStart =
             sortable.draggingId &&
             sortable.toIndex === index &&
@@ -288,6 +334,17 @@ export function SurfaceTabs({
                 focusedTabControlRef.current = event.target as HTMLElement;
               }}
               className="aven-surface-tab-slot aven-tab aven-tab-slot group relative flex h-full shrink touch-none items-center"
+              onContextMenu={(event) => {
+                if (!onDisk) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setMenu({
+                  fileId: file.id,
+                  x: event.clientX,
+                  y: event.clientY,
+                  anchor: tabButtonsRef.current.get(file.id),
+                });
+              }}
               onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 if (
@@ -322,9 +379,27 @@ export function SurfaceTabs({
                   tabIndex={file.id === tabStopId ? 0 : -1}
                   aria-selected={active}
                   title={appendProblems(tooltip, errors)}
+                  aria-haspopup={onDisk ? "menu" : undefined}
                   onClick={() => {
                     if (sortable.consumeClick()) return;
                     onSelectFile(file.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      !onDisk ||
+                      (event.key !== "ContextMenu" &&
+                        !(event.shiftKey && event.key === "F10"))
+                    )
+                      return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setMenu({
+                      fileId: file.id,
+                      x: rect.left,
+                      y: rect.bottom,
+                      anchor: event.currentTarget,
+                    });
                   }}
                   className="aven-surface-tab-button aven-tab-button flex min-w-0 flex-1 items-center text-left"
                 >
@@ -398,6 +473,20 @@ export function SurfaceTabs({
         ) : null}
       </div>
       {trailing}
+      {menu && menuFile ? (
+        <ExplorerMenu
+          x={menu.x}
+          y={menu.y}
+          anchor={menu.anchor}
+          align="start"
+          gap={menu.anchor ? 4 : 0}
+          width={220}
+          items={fileTabMenuItems(Boolean(onAddToChat))}
+          ariaLabel={`Actions for ${basename(menuFile.path)}`}
+          onPick={pickMenu}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

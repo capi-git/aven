@@ -466,6 +466,19 @@ export function isFilesystemTab(file: FilePaneTab): boolean {
   );
 }
 
+/**
+ * A tab showing one file on disk, alone or as its diff: something that can be
+ * added to a chat, shown in Finder or copied as a path.
+ */
+export function isDiskFileTab(file: FilePaneTab): boolean {
+  return (
+    isFilesystemTab(file) &&
+    !file.changes &&
+    !file.discussion &&
+    file.path.trim().length > 0
+  );
+}
+
 export function focusedFileTab(tab: WorkspaceTab): FilePaneTab | undefined {
   const pane =
     tab.editorPanes.find((entry) => entry.id === tab.focusedId) ??

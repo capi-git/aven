@@ -4,8 +4,11 @@ import {
   rankProjectFiles,
   type RankedFile,
 } from "./fileIndex";
-import type { ProjectFile } from "./fs";
+import { basename, type ProjectFile } from "./fs";
+import { openFilesSnapshot, type OpenFilesSnapshot } from "./openFiles";
+import { displayPath, isEqualOrInside, pathKey, prettyCwd } from "./paths";
 import { isMarkdownBlockquotePosition } from "./quoteDraft";
+import { looksLikeProject } from "./recents";
 
 export type MentionToken = {
   start: number;
@@ -13,24 +16,42 @@ export type MentionToken = {
   query: string;
 };
 
-/** `@label` → the project file it points at, plus the label to write. */
+/**
+ * A file `@` knows from an open tab or an earlier mention. One in the project
+ * listing keeps its project entry; one outside it (another folder, or an
+ * ignored or brand-new file) is `unlisted` and reaches the agent by its full
+ * path.
+ */
+export type MentionFile = ProjectFile & {
+  unlisted?: boolean;
+  /** Open in a tab now: the picker offers it first. */
+  open?: boolean;
+};
+
+/** What reading `@label`s needs: a map, or an index with open files on top. */
+export type MentionLookup<V> = {
+  get(key: string): V | undefined;
+  readonly size: number;
+};
+
+/** `@label` → the file it points at, plus the label to write. */
 export type MentionIndex = {
   /** Every writable label (basename when unique, always the relative path). */
-  labels: Map<string, ProjectFile>;
+  labels: MentionLookup<MentionFile>;
   /** Preferred label per file path — the shortest unambiguous one. */
-  labelOf: Map<string, string>;
+  labelOf: MentionLookup<string>;
 };
 
 export type MentionHit = {
   start: number;
   end: number;
   label: string;
-  file: ProjectFile;
+  file: MentionFile;
 };
 
 export type MentionTextPart = {
   text: string;
-  file?: ProjectFile;
+  file?: MentionFile;
 };
 
 const MENTION_TOKEN_RE = /(^|\s)@(\S+)/g;
@@ -104,7 +125,10 @@ function mentionable(files: ProjectFile[]): Mentionable {
   return entry;
 }
 
-export function buildMentionIndex(files: ProjectFile[]): MentionIndex {
+export function buildMentionIndex(files: ProjectFile[]): {
+  labels: Map<string, ProjectFile>;
+  labelOf: Map<string, string>;
+} {
   const entries = mentionable(files).usable;
   const counts = new Map<string, number>();
   for (const file of entries) {
@@ -185,10 +209,157 @@ export function rankMentionFiles(
   return out;
 }
 
+/**
+ * `@` labels given to files outside the project listing this run, per path,
+ * first one preferred. Each label belongs to one path for good, so a draft
+ * names the same file when it is sent, whatever opens or closes meanwhile.
+ */
+const stableLabels = new Map<string, string[]>();
+const stableOwners = new Set<string>();
+
+function mentionBase(path: string): string | null {
+  const name = basename(path);
+  return isTokenSafe(name) ? name : encodeMentionToken(name);
+}
+
+/**
+ * A label for `path` that `taken` (the project's labels) leaves free: one it
+ * already has, or else a new one (its name with spaces as dashes, then
+ * `name~2`…), never a label another path was given.
+ */
+export function stableMentionLabel(
+  path: string,
+  taken: (label: string) => boolean = () => false,
+): string | null {
+  const key = pathKey(path);
+  const owned = stableLabels.get(key) ?? [];
+  const free = owned.find((label) => !taken(label));
+  if (free) return free;
+  const base = mentionBase(path);
+  if (!base) return null;
+  for (let n = 1; n < 1000; n++) {
+    const label = n === 1 ? base : `${base}~${n}`;
+    if (stableOwners.has(label) || taken(label)) continue;
+    stableOwners.add(label);
+    stableLabels.set(key, [...owned, label]);
+    return label;
+  }
+  return null;
+}
+
+export function resetStableMentionLabels() {
+  stableLabels.clear();
+  stableOwners.clear();
+}
+
+const listedByKey = new WeakMap<ProjectFile[], Map<string, ProjectFile>>();
+
+function listedFile(
+  files: ProjectFile[],
+  path: string,
+): ProjectFile | undefined {
+  let byKey = listedByKey.get(files);
+  if (!byKey) {
+    byKey = new Map();
+    for (const file of files) {
+      if (!file.isDir) byKey.set(pathKey(file.path), file);
+    }
+    listedByKey.set(files, byKey);
+  }
+  return byKey.get(pathKey(path));
+}
+
+/**
+ * The files `@` knows from tabs, as mention entries for one project: its own
+ * listing entry when listed, else an `unlisted` entry shown by its folder.
+ */
+export function mentionFilesFor(
+  known: OpenFilesSnapshot,
+  files: ProjectFile[],
+  cwd: string,
+): MentionFile[] {
+  if (known.known.length === 0) return [];
+  const open = new Set(known.open.map(pathKey));
+  const project = looksLikeProject(cwd);
+  const out: MentionFile[] = [];
+  for (const path of known.known) {
+    const isOpen = open.has(pathKey(path));
+    const listed = listedFile(files, path);
+    if (listed) {
+      out.push(isOpen ? { ...listed, open: true } : listed);
+      continue;
+    }
+    if (!mentionBase(path)) continue;
+    out.push({
+      name: basename(path),
+      path,
+      // Shown and matched only; the agent is given `path`.
+      relative:
+        project && isEqualOrInside(path, cwd)
+          ? displayPath(path, cwd)
+          : prettyCwd(path),
+      unlisted: true,
+      ...(isOpen ? { open: true } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * `index` with the files `@` knows from tabs on top. A file outside the
+ * listing gets its stable label; a project file keeps its own, and answers
+ * to any label it was given while unlisted (a draft written before the
+ * listing loaded). Project labels always win.
+ */
+export function withMentionExtras(
+  index: MentionIndex,
+  extras: MentionFile[],
+): MentionIndex {
+  if (extras.length === 0) return index;
+  const labels = new Map<string, MentionFile>();
+  const labelOf = new Map<string, string>();
+  const taken = (label: string) => index.labels.get(label) !== undefined;
+  for (const file of extras) {
+    const preferred = file.unlisted
+      ? stableMentionLabel(file.path, taken)
+      : null;
+    for (const label of stableLabels.get(pathKey(file.path)) ?? []) {
+      if (!taken(label)) labels.set(label, file);
+    }
+    if (preferred && index.labelOf.get(file.path) === undefined)
+      labelOf.set(file.path, preferred);
+  }
+  return {
+    labels: {
+      get: (label) => index.labels.get(label) ?? labels.get(label),
+      size: index.labels.size + labels.size,
+    },
+    labelOf: {
+      get: (path) => index.labelOf.get(path) ?? labelOf.get(path),
+      size: index.labelOf.size + labelOf.size,
+    },
+  };
+}
+
+/** Open files the picker offers before the project's: all, or the matches. */
+export function rankOpenMentionFiles(
+  files: MentionFile[],
+  query: string,
+  limit = MAX_PICKER,
+): RankedFile[] {
+  const open = files.filter((file) => file.open);
+  const needle = query.replace(/\/+$/, "").trim();
+  if (!needle)
+    return open
+      .slice(0, limit)
+      .map((file) => ({ ...file, score: 0, positions: [] }));
+  return rankProjectFiles(open, needle, [], limit);
+}
+
 /** Split composer text so known `@file` tokens can be highlighted. */
 export function fileMentionParts(
   text: string,
-  labels: ReadonlyMap<string, ProjectFile>,
+  labels: MentionLookup<MentionFile>,
 ): MentionTextPart[] {
   if (!text) return [];
   const hits = scanMentions(text, labels);
@@ -207,7 +378,7 @@ export function fileMentionParts(
 
 export function fileMentionsInText(
   text: string,
-  labels: ReadonlyMap<string, ProjectFile>,
+  labels: MentionLookup<MentionFile>,
 ): MentionHit[] {
   const seen = new Set<string>();
   return scanMentions(text, labels).filter((hit) => {
@@ -220,20 +391,26 @@ export function fileMentionsInText(
 /**
  * Spell out where each `@name` lives, so the harness does not have to guess
  * which `App.tsx` the user meant. Tokens already written as a project-relative
- * path need no help.
+ * path need no help. A file outside the project listing, mentioned from its
+ * tab, is given by its full path.
  */
 export async function applyFileMentionsToTurn(
   text: string,
   cwd: string,
+  known: OpenFilesSnapshot = openFilesSnapshot(),
 ): Promise<string> {
   if (!looksMentioned(text)) return text;
   const files = await loadProjectFiles(cwd).catch(() => []);
-  if (files.length === 0) return text;
+  const extras = mentionFilesFor(known, files, cwd);
+  if (files.length === 0 && extras.length === 0) return text;
 
-  const index = buildMentionIndex(files);
+  const index = withMentionExtras(buildMentionIndex(files), extras);
   const lines = fileMentionsInText(text, index.labels)
-    .filter((hit) => hit.label !== hit.file.relative)
-    .map((hit) => `- @${hit.label} → ${hit.file.relative}`);
+    .filter((hit) => hit.file.unlisted || hit.label !== hit.file.relative)
+    .map(
+      (hit) =>
+        `- @${hit.label} → ${hit.file.unlisted ? hit.file.path : hit.file.relative}`,
+    );
   if (lines.length === 0) return text;
 
   return [text, "", "---", "Referenced with @ above:", ...lines].join("\n");
@@ -271,7 +448,7 @@ export function withMentionDirectories(files: ProjectFile[]): ProjectFile[] {
 
 function scanMentions(
   text: string,
-  labels: ReadonlyMap<string, ProjectFile>,
+  labels: MentionLookup<MentionFile>,
 ): MentionHit[] {
   if (labels.size === 0) return [];
   const hits: MentionHit[] = [];
@@ -297,8 +474,8 @@ function scanMentions(
 /** `@App.tsx,` still points at `App.tsx` — peel trailing punctuation. */
 function resolveLabel(
   raw: string,
-  labels: ReadonlyMap<string, ProjectFile>,
-): { label: string; file: ProjectFile } | null {
+  labels: MentionLookup<MentionFile>,
+): { label: string; file: MentionFile } | null {
   let value = raw;
   while (value) {
     const file = labels.get(value);
