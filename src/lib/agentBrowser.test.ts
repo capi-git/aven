@@ -109,6 +109,39 @@ describe("agent browser session connection", () => {
     expect(text).toContain(
       "instead of claiming you used the page or silently switching to an external browser",
     );
+    // Real pointer actions, hover, keys and uploads are offered by name.
+    expect(text).toContain('{"action":"hover","id":"PAGE_ID","ref":"REF"}');
+    expect(text).toContain(
+      '{"action":"upload","id":"PAGE_ID","ref":"REF","paths":["/absolute/path/file"]}',
+    );
+    expect(text).toContain(
+      "Aven asks the user to approve each upload, and a declined upload must not be retried",
+    );
+    expect(text).toContain("press Space, Enter, Escape or arrows");
+    // Persistence and judgement before handing anything back.
+    expect(text).toContain(
+      "Finish the job. Before handing a step back, try the other routes",
+    );
+    expect(text).toContain(
+      "move to Aven's desktop control (below) on the Aven window that shows the page instead of handing the step back",
+    );
+    expect(text).toContain(
+      "Aven's window titles name the tab in front, so the window holding your page may be titled with another project.",
+    );
+    expect(text).toContain(
+      "When desktop control's status is ready, just use it: Aven itself asks the user once to allow this chat.",
+    );
+    expect(text).toContain(
+      "ask the user once to turn it on in Settings → Skills & tools → Desktop control, saying which step it is for",
+    );
+    expect(text).toContain(
+      'Put real blockers you discover (for example "Framer\'s Files page needs a paid plan") at the top of your reply',
+    );
+    expect(text).toContain(
+      'take {"action":"screenshot","id":"PAGE_ID","label":"stopped-here"} of the exact spot, show it, and give one precise next step',
+    );
+    expect(text).toContain('Never end with a bare "you\'ll need to do this".');
+    expect(text).not.toContain("need the user's interaction");
     expect(text).toMatch(/Inspect the app$/);
     expect(text).not.toContain("unused.sock");
     expect(text).not.toContain("TOKEN=");

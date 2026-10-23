@@ -86,6 +86,56 @@ describe("desktop control permission guidance", () => {
     );
   });
 
+  it("makes desktop control the next route for Aven's own browser pages, never a reason to give up", () => {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
+      // The wording that kept agents off the window holding their own page.
+      expect(instructions).not.toContain("Do not substitute desktop control");
+      expect(instructions).not.toContain(
+        "never guess which instance is the task host",
+      );
+      expect(instructions).toContain(
+        "Aven's window titles name the tab in front",
+      );
+      expect(instructions).toContain("may be titled with another project");
+      expect(instructions).toContain("stopped-here");
+      expect(instructions).toMatch(
+        /never end with a bare "you'll need to do this"/i,
+      );
+      // The real safety rules stay.
+      expect(instructions).toMatch(/(Act|Stay) within the user's request/);
+      expect(instructions).toMatch(
+        /Other apps' windows, and Aven windows unrelated to the request, still need the user's request or consent/,
+      );
+    }
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "Desktop control is the next route for a web page in Aven",
+    );
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "use desktop control on the Aven window that shows the page instead of handing the step back",
+    );
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "ask the user once to turn it on, naming the step it is for",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "## Web pages that need more than the browser actions",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "Put real blockers you find (a paid plan, a missing permission, a sign-in) at the top of your reply",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "explain the limitation with a screenshot of the exact spot and one precise next step",
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "then desktop control of the Aven window that shows the page",
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      'with a "stopped-here" screenshot of the exact spot and one precise next step',
+    );
+  });
+
   it("pauses all desktop control while the Mac is locked", () => {
     for (const instructions of [
       COMPUTER_USE_TASK_GUIDANCE,

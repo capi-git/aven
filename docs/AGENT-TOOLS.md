@@ -21,6 +21,20 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+Agents are told to finish the job rather than hand steps back. When a page
+does not respond, they take a fresh snapshot and click by reference, hover
+first, use keys (Tab, Enter, Space, Escape, arrows), wait for a menu and look
+again, and use `upload` for file choosers. If the browser actions still cannot
+do a step, or it needs a native dialog or a canvas app, they move to desktop
+control of the Aven window that shows the page. Aven's window titles name the
+tab in front, so that window may be titled with another project; it is still
+the agent's own page. They lead with real blockers they find, such as a paid
+plan, and hand back only the step that needs you (payment, sign-in, two-factor
+codes, a plan upgrade, or an approval you declined): they get as far as they
+can, show a screenshot labelled `stopped-here` of the exact spot, and give one
+precise next step, such as "Click Add, choose llms.txt from Downloads, then
+Publish".
+
 When a development server starts in an Aven terminal or in an agent's shell
 command, Aven notices the local address it prints (loopback only: `localhost`,
 `127.0.0.1`, `[::1]` and `*.localhost`; a server bound to `0.0.0.0` opens on
@@ -71,8 +85,8 @@ receives; nothing polls or watches files.
 ## Working in the background
 
 Browser actions never move your pointer, take your keyboard focus or bring Aven
-forward. Snapshots, clicks and fills run in an isolated script world inside the
-page; key presses, typing and scrolling go to the page through Chromium's own
+forward. Snapshots run in an isolated script world inside the page; clicks,
+hovers, key presses, typing and scrolling go to the page through Chromium's own
 input channel, not the Mac's.
 
 - `fill` focuses the field inside the page, selects what it holds and types the
