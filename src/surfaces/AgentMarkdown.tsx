@@ -35,8 +35,14 @@ import {
   LOCAL_FILE_LINK,
   fileLinkHref,
   openInAppFile,
-  resolveFileLink,
+  parseFileLink,
 } from "../lib/inAppLinks";
+import {
+  openFileReference,
+  projectFileReferences,
+  revealFileReference,
+  type FileReferences,
+} from "../lib/fileReferences";
 import type { OpenFileFn } from "../lib/search";
 import { isAtxHeadingLine } from "../lib/markdownSource";
 import {
@@ -47,6 +53,7 @@ import {
 } from "../lib/streamingMarkdown";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
+import { useFileReferences } from "../hooks/useFileReferences";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
@@ -106,6 +113,11 @@ function localImagePaths({ cwd }: { cwd?: string }) {
   };
 }
 
+/**
+ * Mark local file links before URL hardening can rewrite them. A relative
+ * reference stays relative: the link resolves it when it renders, against
+ * the files the chat touched (see `fileReferences.ts`).
+ */
 function localFileLinks({ cwd }: { cwd?: string }) {
   return (tree: Root) => {
     const visit = (node: Root | RootContent) => {
@@ -114,9 +126,13 @@ function localFileLinks({ cwd }: { cwd?: string }) {
         node.tagName === "a" &&
         typeof node.properties.href === "string"
       ) {
-        const file = resolveFileLink(node.properties.href, cwd);
-        if (file) {
-          node.properties.href = fileLinkHref(file.path, file.navigation);
+        const link = parseFileLink(node.properties.href);
+        const path = link && resolveWorkspacePath(link.value, cwd);
+        if (link && path) {
+          node.properties.href = fileLinkHref(
+            resolveWorkspacePath(link.value) ? path : link.value,
+            link.navigation,
+          );
         }
       }
       if (node.type === "root" || node.type === "element")
@@ -232,9 +248,32 @@ export function markdownRehypePlugins(
 const FileOpenContext = createContext<{
   cwd?: string;
   onOpenFile?: OpenFileFn;
-}>({});
+  references: FileReferences;
+}>({ references: projectFileReferences() });
 
 const RemoteMediaContext = createContext(false);
+
+/**
+ * A local file reference in rendered Markdown: what it resolves to, and the
+ * click and right-click actions that check it is there first.
+ */
+function useFileReference(target: string | undefined) {
+  const { onOpenFile, references } = useContext(FileOpenContext);
+  const allowRemoteMedia = useContext(RemoteMediaContext);
+  const file =
+    !allowRemoteMedia && target ? references.resolve(target) : undefined;
+  const openFile = onOpenFile ?? openInAppFile;
+  const open = file
+    ? () => openFileReference(file, references, openFile)
+    : undefined;
+  const fileMenu = useFileLinkMenu(file, {
+    open: () => open?.(),
+    reveal: () => {
+      if (file) revealFileReference(file, references);
+    },
+  });
+  return { file, open, fileMenu };
+}
 
 const LANGUAGE_FROM_EXT: Record<string, string> = {
   sh: "bash",
@@ -303,11 +342,8 @@ function MarkdownLink({
   ...props
 }: MarkdownLinkProps) {
   const allowRemoteMedia = useContext(RemoteMediaContext);
-  const { cwd, onOpenFile } = useContext(FileOpenContext);
-  const file =
-    !allowRemoteMedia && href ? resolveFileLink(href, cwd) : undefined;
-  const openFile = onOpenFile ?? openInAppFile;
-  const fileMenu = useFileLinkMenu(file, openFile);
+  const { cwd } = useContext(FileOpenContext);
+  const { file, open: openReference, fileMenu } = useFileReference(href);
   const label = textContent(children);
   if (allowRemoteMedia && href && isInboxMediaUrl(href)) {
     return <InboxMedia src={href} alt={label} cwd={cwd} />;
@@ -315,9 +351,9 @@ function MarkdownLink({
 
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.defaultPrevented) return;
-    if (file) {
+    if (openReference) {
       event.preventDefault();
-      openFile(file.path, file.navigation);
+      openReference();
       return;
     }
     if (href?.startsWith("#") && !href.startsWith(LOCAL_FILE_LINK)) return;
@@ -330,9 +366,12 @@ function MarkdownLink({
         // Internal editor fragments must never be supplied by remote Inbox
         // content: the native Open Link menu bypasses the click guard below.
         href={
-          allowRemoteMedia && href?.startsWith(LOCAL_FILE_LINK)
-            ? undefined
-            : href
+          file
+            ? // The resolved path, so the native Open Link action agrees.
+              fileLinkHref(file.path, file.navigation)
+            : allowRemoteMedia && href?.startsWith(LOCAL_FILE_LINK)
+              ? undefined
+              : href
         }
         className={`chat-reference ${className ?? ""}`}
         {...props}
@@ -370,17 +409,11 @@ function MarkdownCode({
   ...props
 }: MarkdownCodeProps) {
   const incomplete = useIsCodeFenceIncomplete();
-  const { cwd, onOpenFile } = useContext(FileOpenContext);
-  const allowRemoteMedia = useContext(RemoteMediaContext);
   const block = Object.prototype.hasOwnProperty.call(props, "data-block");
   const text = block ? "" : textContent(children);
   const fileName = block ? undefined : inlineFileName(text);
-  const file =
-    fileName && !allowRemoteMedia ? resolveFileLink(text, cwd) : undefined;
-  const openFile = onOpenFile ?? openInAppFile;
-  const fileMenu = useFileLinkMenu(file, openFile);
+  const { open, fileMenu } = useFileReference(fileName ? text : undefined);
   if (!block) {
-    const open = file ? () => openFile(file.path, file.navigation) : undefined;
     return (
       <>
         <code
@@ -701,7 +734,11 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   /** Show a newline inside a block as a line break, as a document does. */
   hardBreaks?: boolean;
 }) {
-  const fileOpen = useMemo(() => ({ cwd, onOpenFile }), [cwd, onOpenFile]);
+  const references = useFileReferences(cwd);
+  const fileOpen = useMemo(
+    () => ({ cwd, onOpenFile, references }),
+    [cwd, onOpenFile, references],
+  );
   const remoteMedia = !!allowRemoteMedia;
   const rehypePlugins = useMemo(
     () => markdownRehypePlugins(remoteMedia, cwd, hardBreaks),
@@ -970,12 +1007,8 @@ function parseCodeFence(
 }
 
 function MarkdownCodePath({ path }: { path: string }) {
-  const { cwd, onOpenFile } = useContext(FileOpenContext);
-  const allowRemoteMedia = useContext(RemoteMediaContext);
-  const file = !allowRemoteMedia ? resolveFileLink(path, cwd) : undefined;
-  const openFile = onOpenFile ?? openInAppFile;
-  const fileMenu = useFileLinkMenu(file, openFile);
-  if (!file) {
+  const { file, open, fileMenu } = useFileReference(path);
+  if (!file || !open) {
     return <span className="markdown-code-path">{displayAppData(path)}</span>;
   }
   return (
@@ -984,7 +1017,7 @@ function MarkdownCodePath({ path }: { path: string }) {
         type="button"
         className="markdown-code-path markdown-code-path-link chat-reference"
         title={displayAppData(file.path)}
-        onClick={() => openFile(file.path, file.navigation)}
+        onClick={open}
         onContextMenu={fileMenu.onContextMenu}
         onKeyDown={fileMenu.onKeyDown}
       >
