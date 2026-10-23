@@ -236,7 +236,10 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
       return next;
     });
   const allSelected = listed.every((skill) => selected.has(skill.name));
-  const chosen = listed.filter((skill) => selected.has(skill.name)).length;
+  const chosenNames = listed
+    .filter((skill) => selected.has(skill.name))
+    .map((skill) => skill.name);
+  const chosen = chosenNames.length;
   const parsed = input.trim() ? parseSkillSource(input) : null;
   const hint = parsed && !parsed.ok && !error ? parsed.error : null;
   const status =
@@ -245,7 +248,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
       : phase === "listing"
         ? `Looking in ${repo?.label ?? "the source"}…`
         : phase === "installing"
-          ? `Adding ${chosen === 1 ? listed.find((skill) => selected.has(skill.name))?.name : `${chosen} skills`}…`
+          ? `Adding ${chosen === 1 ? chosenNames[0] : `${chosen} skills`}…`
           : null;
   const primary =
     phase === "done"
