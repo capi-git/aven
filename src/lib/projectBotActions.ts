@@ -7,6 +7,7 @@ import {
   botBranch,
   forgetProjectBot,
   getProjectBot,
+  jobIsLive,
   noteFixError,
   resolveFix,
   updateProjectBot,
@@ -131,6 +132,16 @@ export async function applyBotFix(
   }
   updateProjectBot(path, (current) => resolveFix(current, fixId, "applied"));
   notifyGitChanged(path);
+  // Its copy now matches your files, fix included, so the next look starts
+  // from there and never offers the same changes again. Not under a bot at
+  // work: its next job syncs instead.
+  if (jobIsLive(getProjectBot(path)?.job, Date.now())) return null;
+  try {
+    const synced = await botCopyHost.sync(path, bot.copy.path, bot.copy.branch);
+    updateProjectBot(path, (current) => ({ ...current, base: synced.base }));
+  } catch (error) {
+    logError("Bot copy sync", error);
+  }
   return null;
 }
 

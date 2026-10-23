@@ -250,6 +250,8 @@ describe("what the bot is told", () => {
       brief,
     });
     expect(wake.startsWith(brief)).toBe(true);
+    // Your own words go as written: a synced copy needs no note, and one
+    // that could not sync is mentioned after them, in your voice.
     expect(
       buildDirectMessage({
         text: "Push your branch",
@@ -260,8 +262,11 @@ describe("what the bot is told", () => {
           untracked: false,
         },
       }),
+    ).toBe("Push your branch");
+    expect(
+      buildDirectMessage({ text: "Why?", sync: { kind: "fix-waiting" } }),
     ).toBe(
-      "Note from Aven: Aven synced your copy to the user's current files (commit 1111111111).\n\nPush your branch",
+      "Why?\n\n(Your earlier fix is still waiting for me to apply or throw away, so your copy wasn't updated to my latest files.)",
     );
     expect(buildDirectMessage({ text: "Hi", sync: null })).toBe("Hi");
   });

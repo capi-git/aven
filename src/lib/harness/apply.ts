@@ -469,6 +469,7 @@ type UserTurnExtra = {
   secondOpinion?: Block["secondOpinion"];
   discussion?: Block["discussion"];
   noteCard?: Block["noteCard"];
+  botWake?: Block["botWake"];
   internal?: boolean;
 };
 
@@ -477,6 +478,7 @@ function userTurnFields(extra?: UserTurnExtra) {
     ...(extra?.secondOpinion ? { secondOpinion: extra.secondOpinion } : {}),
     ...(extra?.discussion ? { discussion: extra.discussion } : {}),
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
+    ...(extra?.botWake ? { botWake: extra.botWake } : {}),
     ...(extra?.internal ? { internal: true } : {}),
   };
 }

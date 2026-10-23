@@ -262,17 +262,27 @@ export function buildWakeMessage(input: {
   return lines.join("\n").trim();
 }
 
-/** What the bot is sent when you message it yourself: your words, with the copy's news. */
+/**
+ * What the bot is sent when you message it yourself: your words as you
+ * wrote them. Its copy was synced first; only a copy it could not sync (a
+ * fix waits there, or the sync failed) is mentioned, after your words and in
+ * them, so nothing reads as an instruction from someone else.
+ */
 export function buildDirectMessage(input: {
   text: string;
   sync: BotSyncNote | null;
   brief?: string;
 }): string {
-  const note = syncLines(input.sync);
+  const aside =
+    input.sync?.kind === "fix-waiting"
+      ? "(Your earlier fix is still waiting for me to apply or throw away, so your copy wasn't updated to my latest files.)"
+      : input.sync?.kind === "failed"
+        ? `(Your copy couldn't be updated to my latest files: ${input.sync.error})`
+        : "";
   return [
     ...(input.brief ? [input.brief, ""] : []),
-    ...(note.length ? [`Note from Aven: ${note.join(" ")}`, ""] : []),
     input.text,
+    ...(aside ? ["", aside] : []),
   ]
     .join("\n")
     .trim();

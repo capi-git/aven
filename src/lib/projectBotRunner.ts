@@ -26,6 +26,7 @@ import {
   updateProjectBot,
   withReadyFix,
   withRunCounted,
+  type BotFix,
   type ProjectBot,
 } from "./projectBots";
 import {
@@ -152,6 +153,17 @@ function chatAtWork(chat: Session): boolean {
     !!chat.queuedMessages?.length ||
     !!chat.pendingQuestion ||
     chat.blocks.some((block) => block.approval && !block.approval.decided)
+  );
+}
+
+function sameChanges(fix: BotFix, diff: RaceDiff): boolean {
+  return (
+    fix.files === diff.files.length &&
+    fix.additions === diff.additions &&
+    fix.deletions === diff.deletions &&
+    diff.files.every((file, index) =>
+      index >= fix.paths.length ? true : fix.paths.includes(file.path),
+    )
   );
 }
 
@@ -621,7 +633,8 @@ export class BotRunner {
         .find((session) => session.id === (turn?.sessionId || bot.sessionId));
       const turnId = turn?.turnId ?? lastUserBlockId(chat);
       if (!turnId || !this.markHandled(turnId)) return;
-      const reply = outcome?.text.trim() || lastReply(chat);
+      // Its last message: earlier ones in the turn are its working notes.
+      const reply = lastReply(chat) || outcome?.text.trim() || "";
       const now = this.deps.now();
       let diff: RaceDiff | null = null;
       if (bot.copy && bot.base)
@@ -632,7 +645,15 @@ export class BotRunner {
             return null;
           });
       const waiting = pendingFix(bot);
-      const changed = !!diff?.files.length;
+      // A fix you applied while it worked is still in its copy until the
+      // next sync: those same changes are not a new fix.
+      const applied = bot.fixes?.at(-1);
+      const alreadyApplied =
+        !waiting &&
+        applied?.state === "applied" &&
+        !!diff &&
+        sameChanges(applied, diff);
+      const changed = !!diff?.files.length && !alreadyApplied;
       const wake =
         turn?.wake ??
         !!chat?.blocks.find((block) => block.id === turnId)?.botWake;

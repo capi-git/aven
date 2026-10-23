@@ -2341,7 +2341,13 @@ export default function App({
     sidebarCwdKey != null &&
     !loadedProjects.has(sidebarCwdKey) &&
     !historyFailed;
-  const gitCwd = active ? sessionWorkCwd(active) : sidebarCwd;
+  // A bot works in its own copy; the panels show your project, and its
+  // changes reach you through its fix card.
+  const gitCwd = active
+    ? isBotChat(active.id)
+      ? active.cwd
+      : sessionWorkCwd(active)
+    : sidebarCwd;
   const gitCwdRef = useRef(gitCwd);
   gitCwdRef.current = gitCwd;
   const projectBranches = useProjectBranches(
@@ -3300,7 +3306,14 @@ export default function App({
         ...keptDiscussionKey.split("\n"),
         ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
       ],
-      botWorkingChats,
+      [
+        ...botWorkingChats,
+        // A bot's new chat has nothing to save until its first message, so
+        // parking it would lose it on its way to a tab.
+        ...sessions
+          .filter((session) => !session.blocks.length && isBotChat(session.id))
+          .map((session) => session.id),
+      ],
     );
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(

@@ -485,7 +485,7 @@ describe("a project bot waking up", () => {
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0].options.displayText).toBe("Push your branch");
     expect(h.sent[0].options.botWake).toBeUndefined();
-    expect(h.sent[0].text).toMatch(/^Note from Aven: .*\n\nPush your branch$/);
+    expect(h.sent[0].text).toBe("Push your branch");
     // Not its first message: no role this time.
     expect(h.sent[0].text).not.toContain("You are Jelly");
     // A chat that is not a bot's is not the runner's to send.
@@ -526,6 +526,47 @@ describe("a project bot waking up", () => {
     expect(getProjectBot(PATH)?.job).toBeUndefined();
     expect(getProjectBot(PATH)?.lastPost?.quiet).toBe(true);
     expect(h.announced).toHaveLength(0);
+    h.runner.stop();
+  });
+
+  it("never offers changes you already applied as a new fix", async () => {
+    const h = harness();
+    h.runner.start();
+    const change: RaceDiff = {
+      files: [
+        {
+          path: "a.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          binary: false,
+        },
+      ],
+      additions: 1,
+      deletions: 1,
+    };
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    h.copy.diff.mockResolvedValueOnce(change);
+    await h.reply("Fixed a.ts.");
+    const fix = getProjectBot(PATH)!.fixes![0];
+    updateProjectBot(PATH, (bot) => ({
+      ...bot,
+      fixes: bot.fixes!.map((item) => ({ ...item, state: "applied" as const })),
+    }));
+    // Another turn ends before the copy is synced again.
+    await h.finish("chat-b");
+    await h.advance(BOT_SETTLE_MS);
+    h.copy.sync.mockClear();
+    h.copy.diff.mockResolvedValueOnce(change);
+    await h.reply("All good now.");
+    const fixes = getProjectBot(PATH)!.fixes!;
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]).toMatchObject({ id: fix.id, state: "applied" });
+    expect(h.announced.map((item) => item.event.summary)).toEqual([
+      "Fix ready · 1 file · +1 −1 · Fixed a.ts.",
+      "All good now.",
+    ]);
     h.runner.stop();
   });
 });
