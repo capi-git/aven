@@ -142,7 +142,6 @@ export function parseSkillSource(raw: string): SkillSourceResult {
 
 // CSI (colors, cursor), OSC (titles, links), and lone two-byte escapes.
 const ANSI =
-  // eslint-disable-next-line no-control-regex
   /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 export function stripAnsi(text: string): string {
@@ -333,7 +332,7 @@ function lastReason(text: string): string {
         .replace(/^\s*(?:npm\s+(?:ERR!|error)\s*)/i, "")
         .trim(),
     )
-    .filter((line) => line && !/^\$ npx /.test(line));
+    .filter((line) => line && !line.startsWith("$ npx "));
   const reason =
     [...lines]
       .reverse()
