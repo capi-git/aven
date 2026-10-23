@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Frame</title>
+<!-- A same-site frame with a border and padding, below some content, whose
+     button only responds to a trusted pointer press. -->
+<style>
+  body { font: 14px system-ui; margin: 40px; height: 1600px; }
+  iframe { margin-top: 700px; margin-left: 50px; width: 360px; height: 200px; border: 7px solid #888; padding: 11px; }
+</style>
+<p>Settings</p>
+<iframe title="Site settings" src="iframe-child.html"></iframe>
+<script>window.agentLog = [];</script>

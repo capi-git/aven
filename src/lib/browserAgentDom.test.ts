@@ -252,28 +252,44 @@ describe("native agent browser fixed DOM actions", () => {
     expect(getSelection()!.toString()).toBe("Old text");
   });
 
-  it("asks for a pointer press only when the element itself is under its centre", () => {
+  it("aims a real pointer, then presses only where it lands on the element", () => {
     const button = document.querySelector("button")!;
     const clicked = vi.fn();
     button.addEventListener("click", clicked);
     const hit = vi.spyOn(document, "elementFromPoint").mockReturnValue(button);
-    const pointer = decode({
-      action: "click",
-      ref: ref("Save"),
-      pointer: true,
-    });
-    expect(pointer.method).toBe("pointer");
-    expect(pointer.point).toEqual({ x: 50, y: 10 });
+    const save = ref("Save");
+    const aimed = decode({ action: "click", ref: save, pointer: true });
+    expect(aimed.method).toBe("pointer");
+    expect(aimed.point).toEqual({ x: 50, y: 10 });
     expect(clicked).not.toHaveBeenCalled();
-    // Covered by an overlay: click the element directly instead.
+    const confirmed = decode({
+      action: "click",
+      ref: save,
+      pointer: true,
+      phase: "confirm",
+      point: aimed.point,
+    });
+    expect(confirmed.method).toBe("pointer");
+    expect(confirmed.point).toEqual({ x: 50, y: 10 });
+    expect(clicked).not.toHaveBeenCalled();
+    // Covered by an overlay after the hover: click the element directly and
+    // say what covers it.
     const banner = document.createElement("div");
+    banner.className = "cookie-banner";
     document.body.append(banner);
     hit.mockReturnValue(banner);
-    expect(
-      decode({ action: "click", ref: ref("Save"), pointer: true }).method,
-    ).toBe("element");
+    const covered = decode({
+      action: "click",
+      ref: save,
+      pointer: true,
+      phase: "confirm",
+      point: aimed.point,
+    });
+    expect(covered.method).toBe("element");
+    expect(covered.coveredBy).toBe("div.cookie-banner");
+    expect(covered.reason).toContain("could not reach");
     expect(clicked).toHaveBeenCalledOnce();
-    // Without the host's request (zoomed tab, WebKit), never a pointer press.
+    // Without the host's request (zoom changing, WebKit), never a pointer press.
     hit.mockReturnValue(button);
     expect(decode({ action: "click", ref: ref("Save") }).method).toBe(
       "element",
@@ -493,35 +509,41 @@ describe("native agent browser fixed DOM actions", () => {
     );
   });
 
-  it("maps pinch zoom for the pointer marker and never presses through it", () => {
+  it("maps pinch zoom for the pointer marker and aims in visual-viewport pixels", () => {
     const button = document.querySelector("button")!;
     vi.spyOn(document, "elementFromPoint").mockReturnValue(button);
-    vi.stubGlobal("visualViewport", { scale: 2, offsetLeft: 10, offsetTop: 5 });
+    vi.stubGlobal("visualViewport", {
+      scale: 2,
+      offsetLeft: 10,
+      offsetTop: 5,
+      width: 512,
+      height: 384,
+    });
     try {
       const result = decode({
         action: "click",
         ref: ref("Save"),
         pointer: true,
       });
-      expect(result.method).toBe("element");
+      // Chromium applies pinch zoom to pointer input itself: the point is
+      // relative to the visual viewport, in CSS pixels, at the centre of the
+      // part of the button that is visible (10..100 by 5..20).
+      expect(result.method).toBe("pointer");
+      expect(result.point).toEqual({ x: 45, y: 7.5 });
       // On screen: (layout - offset) * scale.
       expect(result.target).toEqual({ x: -20, y: -10, width: 200, height: 40 });
+      // Scrolled out of the visual viewport: nothing to aim at, so the
+      // element is clicked directly.
       vi.stubGlobal("visualViewport", {
-        scale: 1,
-        offsetLeft: 0,
-        offsetTop: 30,
+        scale: 2,
+        offsetLeft: 300,
+        offsetTop: 300,
+        width: 512,
+        height: 384,
       });
-      expect(
-        decode({ action: "click", ref: ref("Save"), pointer: true }).method,
-      ).toBe("element");
-      vi.stubGlobal("visualViewport", {
-        scale: 1,
-        offsetLeft: 0,
-        offsetTop: 0,
-      });
-      expect(
-        decode({ action: "click", ref: ref("Save"), pointer: true }).method,
-      ).toBe("pointer");
+      const away = decode({ action: "click", ref: ref("Save"), pointer: true });
+      expect(away.method).toBe("element");
+      expect(away.reason).toContain("not on screen");
     } finally {
       vi.unstubAllGlobals();
     }

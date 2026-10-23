@@ -86,12 +86,25 @@ input channel, not the Mac's.
   and clearing a field, Aven sets the value directly and reports `value`. Once
   you click or type in the page, a field the agent filled earlier counts as
   yours.
-- `click` presses the element like a pointer (`method: "pointer"`) when its
-  centre is really that element, in a pane on screen at 100% page zoom. If
-  something covers it, such as a cookie banner, or the pane is hidden, the tab
-  is zoomed or pinch-zoomed, or the control opens a native picker (selects,
-  colour and date inputs), Aven clicks the element directly instead
-  (`method: "element"`).
+- `click` works like a careful mouse (`method: "pointer"`): Aven scrolls the
+  element into view, moves the pointer onto a point that really lands on it,
+  lets hover settle (menus and row actions appear), checks the point again,
+  then presses, holds briefly and releases. This works in hidden panes, in
+  other windows and at any page or pinch zoom, so menus that open on press or
+  hover (Radix, Headless UI, Framer) respond. The result says whether the press
+  reached the element. Only when no pointer can reach it (something such as a
+  cookie banner covers every part of it, it is off screen, or it opens a
+  native picker such as a select or date input) does Aven click the element
+  directly (`method: "element"`, with `reason` and `coveredBy`); some apps
+  ignore that.
+- `hover` rests the pointer on an element so hover menus, tooltips and row
+  actions appear. Snapshots list controls hidden until hover with
+  `"hidden": true`; clicking one hovers it first.
+- Snapshots list buttons, links, fields, menu items, options, tabs, switches,
+  anything a site made clickable with a pointer cursor, controls inside open
+  shadow roots and same-site frames (`frame`), and hidden file inputs. Frames
+  from another site appear as one `crossOrigin` entry; their controls are not
+  listed.
 - If a click, fill or key press gets no reply in time, the error says it may
   have been applied. Take a snapshot before retrying, so a form is never
   submitted twice.

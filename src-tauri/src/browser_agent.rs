@@ -250,6 +250,13 @@ enum Request {
         #[serde(rename = "ref")]
         reference: String,
     },
+    /// Rest a real pointer on the element: menus and row actions that open
+    /// on hover appear, as for a person's mouse.
+    Hover {
+        id: String,
+        #[serde(rename = "ref")]
+        reference: String,
+    },
     Fill {
         id: String,
         #[serde(rename = "ref")]
@@ -288,6 +295,7 @@ impl Request {
             | Self::Snapshot { id }
             | Self::Screenshot { id, .. }
             | Self::Click { id, .. }
+            | Self::Hover { id, .. }
             | Self::Fill { id, .. }
             | Self::Back { id }
             | Self::Forward { id }
@@ -306,7 +314,9 @@ impl Request {
             Self::Open { url, .. } | Self::Navigate { url, .. } if url.len() > 4096 => {
                 Err("Address is too long".into())
             }
-            Self::Click { reference, .. } | Self::Fill { reference, .. }
+            Self::Click { reference, .. }
+            | Self::Hover { reference, .. }
+            | Self::Fill { reference, .. }
                 if reference.len() > 80 || reference.is_empty() =>
             {
                 Err("Invalid element reference".into())
@@ -321,6 +331,7 @@ impl Request {
                 if !matches!(
                     key.as_str(),
                     "Enter"
+                        | "Space"
                         | "Tab"
                         | "Escape"
                         | "Backspace"
@@ -1381,6 +1392,13 @@ fn dispatch(
                 )),
             )
         }
+        Request::Hover { id, reference } => {
+            let view = crate::browser::preview(&caller, &id)?;
+            tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
+                view,
+                json!({"action":"hover","ref":reference,"actor":marker_actor(grant)}),
+            ))
+        }
         Request::Fill {
             id,
             reference,
@@ -1446,6 +1464,7 @@ Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-browser '<JSON>'
   {"action":"snapshot","id":"TAB_ID"}
   {"action":"screenshot","id":"TAB_ID","label":"before"}
   {"action":"click","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT"}
+  {"action":"hover","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT"}
   {"action":"fill","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT","value":"text"}
   {"action":"press","id":"TAB_ID","key":"Enter"}
   {"action":"scroll","id":"TAB_ID","deltaY":600,"deltaX":0}
@@ -1482,10 +1501,14 @@ do not silently open them in an external application.
 Fill focuses the field inside the page (never the user's keyboard focus) and
 types the value, replacing what was there, so press Enter afterwards submits
 that field's form. Results report method "typed" or "value" (direct set, e.g.
-for selects and date fields). Click presses the element like a pointer when
-nothing covers it (method "pointer"), otherwise clicks the element directly.
-Press supports Enter, Tab, Escape, Backspace, Delete, arrows, Home, End, PageUp,
-and PageDown, sent to the focused element. Scroll accepts at most 2000 pixels in
+for selects and date fields). Click moves a real pointer onto the element, lets
+hover settle, then presses and releases it (method "pointer"), in hidden panes
+and at any zoom, so menus that open on press or hover respond. Only when no
+pointer can reach it (covered, off screen, a native picker) does it click the
+element directly (method "element", with reason and coveredBy). Hover rests the
+pointer on an element so hover menus and row actions appear; snapshot after it.
+Press supports Enter, Space, Tab, Escape, Backspace, Delete, arrows, Home, End,
+PageUp and PageDown, sent to the focused element. Scroll accepts at most 2000 pixels in
 either direction per call. A visible page shows Aven's pointer with your name
 at each action point; it is never in page screenshots.
 Actions keep working while the Mac is locked or the pane is hidden; results
@@ -1762,6 +1785,10 @@ mod tests {
                 id: "tab-b".into(),
                 reference: "ref".into(),
             },
+            Request::Hover {
+                id: "tab-b".into(),
+                reference: "ref".into(),
+            },
             Request::Fill {
                 id: "tab-b".into(),
                 reference: "ref".into(),
@@ -1870,6 +1897,35 @@ mod tests {
         .is_err());
     }
     #[test]
+    fn hover_is_a_scoped_ref_action_without_coordinates_or_selectors() {
+        let value =
+            cli_request_value(r#"{"action":"hover","id":"tab-a","ref":"g1:4"}"#, false).unwrap();
+        let request: Request = serde_json::from_value(value).unwrap();
+        assert!(
+            matches!(&request, Request::Hover { id, reference } if id == "tab-a" && reference == "g1:4")
+        );
+        assert!(authorize(&grants(), "secret", &request).is_ok());
+        assert!(authorize(&grants(), "wrong", &request).is_err());
+        for input in [
+            r#"{"action":"hover","id":"tab-a"}"#,
+            r#"{"action":"hover","id":"tab-a","ref":""}"#,
+            r#"{"action":"hover","id":"tab-a","x":10,"y":20}"#,
+            r#"{"action":"hover","id":"tab-a","ref":"g1:4","selector":"a"}"#,
+            r#"{"action":"hover","id":"../tab","ref":"g1:4"}"#,
+        ] {
+            assert!(cli_request_value(input, false).is_err(), "{input}");
+        }
+        let long = format!(
+            r#"{{"action":"hover","id":"tab-a","ref":"{}"}}"#,
+            "x".repeat(81)
+        );
+        assert!(cli_request_value(&long, false).is_err());
+        assert!(
+            HELP.contains(r#"{"action":"hover","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT"}"#)
+        );
+    }
+
+    #[test]
     fn screenshots_are_scoped_page_actions_with_an_optional_plain_label() {
         for (input, expected) in [
             (r#"{"action":"screenshot","id":"tab-a"}"#, None),
@@ -1928,13 +1984,16 @@ mod tests {
 
     #[test]
     fn bounds_native_keyboard_and_scroll_commands() {
-        assert!(Request::Press {
-            id: "tab-a".into(),
-            key: "Enter".into()
+        for key in ["Enter", "Space", "Tab", "Escape", "ArrowDown"] {
+            assert!(Request::Press {
+                id: "tab-a".into(),
+                key: key.into()
+            }
+            .validate()
+            .is_ok());
         }
-        .validate()
-        .is_ok());
-        for key in ["Meta+Q", "javascript:alert(1)", "", "a"] {
+        assert!(HELP.contains("Press supports Enter, Space, Tab, Escape"));
+        for key in ["Meta+Q", "javascript:alert(1)", "", "a", " ", "space"] {
             assert!(Request::Press {
                 id: "tab-a".into(),
                 key: key.into()

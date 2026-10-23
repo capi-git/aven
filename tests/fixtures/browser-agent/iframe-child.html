@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Frame child</title>
+<style>body { font: 14px system-ui; margin: 23px; } #save { margin-left: 90px; }</style>
+<input aria-label="Site name" value="Old">
+<button id="save">Save settings</button>
+<script>
+  const log = (entry) => parent.agentLog.push(entry);
+  const save = document.querySelector("#save");
+  save.addEventListener("pointerdown", (event) => { if (event.isTrusted) log("frame:pointerdown"); });
+  save.addEventListener("click", (event) => log("frame:click:" + (event.isTrusted ? "trusted" : "direct")));
+</script>
