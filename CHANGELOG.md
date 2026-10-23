@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.150] - 2026-10-22
+
+### Changed
+
+- Agents check pages by reading them and take pictures only to judge how something looks, usually one Before and one After, so checks are quicker and use less of your usage. Pictures are saved as compressed JPEGs at the page's on-screen size (about 6× smaller), unlabelled pictures no message shows are cleared when the reply ends, and a chat with 300 pictures makes room from its oldest unshown ones instead of stopping the agent.
+
+### Added
+
+- **@** in the message box lists the files open in tabs first, including files outside the project and files an agent just made, and the agent gets a file outside the project by its full path.
+- Right-click a file tab (or press Shift+F10) for **Add to chat**, **Reveal in Finder**, **Copy path** and **Close**. Add to chat puts the file in the message box of the chat beside it, and attaches a picture.
+
 ## [0.1.149] - 2026-10-19
 
 ### Changed
