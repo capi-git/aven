@@ -7509,7 +7509,13 @@ export default function App({
     }),
     [ensureBotChat, onSubmit, announceActivity],
   );
-  const messageBot = useProjectBots(sessions, botHost, !isDetachedWorkspace());
+  // The main window alone drives bots, as it adopts races and discussions
+  // whose window closed; every other window shows them.
+  const messageBot = useProjectBots(
+    sessions,
+    botHost,
+    !isDetachedWorkspace() && currentWindowLabel() === "main",
+  );
   /** What you type to a bot goes through its copy first. */
   const onChatSubmit = useCallback(
     (

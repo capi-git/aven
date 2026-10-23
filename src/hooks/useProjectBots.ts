@@ -44,7 +44,9 @@ export type ProjectBotsHost = {
 
 /**
  * Drives this window's project bots (see `BotRunner`). Only the main
- * window passes `enabled`; with no bot on, nothing listens and nothing runs.
+ * window passes `enabled`, and a lease in the store keeps any other from
+ * running the same bot at once; with no bot on, nothing listens and nothing
+ * runs.
  * Returns `message`, which sends what you type to a bot through its copy;
  * false when the message is not the bot's to handle.
  */
