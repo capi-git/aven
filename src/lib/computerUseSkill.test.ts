@@ -107,14 +107,31 @@ describe("desktop control permission guidance", () => {
       // The real safety rules stay.
       expect(instructions).toMatch(/(Act|Stay) within the user's request/);
       expect(instructions).toMatch(
-        /Other apps' windows, and Aven windows unrelated to the request, still need the user's request or consent/,
+        /Other apps' windows still need the user's request or consent/,
+      );
+      // Never a way around the upload approval, Aven's own controls, or
+      // another site's sign-in and payment.
+      expect(instructions).not.toContain("native dialog");
+      expect(instructions).toMatch(/file, open, save (and|or) folder dialogs/i);
+      expect(instructions).toContain("upload");
+      expect(instructions).toMatch(
+        /Aven's own interface(: |\s\()settings, other chats,? (and )?approval/,
+      );
+      expect(instructions).toMatch(
+        /sign-in or payment\. Hand that step to the user|sign-in or payment, hand that step to the user/,
       );
     }
     expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
       "Desktop control is the next route for a web page in Aven",
     );
     expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
-      "use desktop control on the Aven window that shows the page instead of handing the step back",
+      "use desktop control inside that page on the Aven window that shows it instead of handing the step back",
+    );
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "Aven accepts desktop input there only inside the page.",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "Some steps are never done through desktop control:",
     );
     expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
       "ask the user once to turn it on, naming the step it is for",
@@ -129,7 +146,10 @@ describe("desktop control permission guidance", () => {
       "explain the limitation with a screenshot of the exact spot and one precise next step",
     );
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "then desktop control of the Aven window that shows the page",
+      "then desktop control inside the page on the Aven window that shows it",
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "Never operate file, open, save or folder dialogs, or Aven's own interface (settings, other chats, approval bars), through desktop control",
     );
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
       'with a "stopped-here" screenshot of the exact spot and one precise next step',

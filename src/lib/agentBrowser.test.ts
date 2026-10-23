@@ -123,8 +123,18 @@ describe("agent browser session connection", () => {
       "Finish the job. Before handing a step back, try the other routes",
     );
     expect(text).toContain(
-      "move to Aven's desktop control (below) on the Aven window that shows the page instead of handing the step back",
+      "move to Aven's desktop control (below) inside the page on the Aven window that shows it instead of handing the step back",
     );
+    expect(text).toContain(
+      "Never operate file, open, save or folder dialogs, or Aven's own interface (settings, other chats, approval bars), through desktop control; use upload for files.",
+    );
+    expect(text).toContain(
+      "When another site's frame handles sign-in or payment, hand that step to the user.",
+    );
+    expect(text).toContain(
+      "files that look like secrets (private keys, certificates, .env files) are refused",
+    );
+    expect(text).not.toContain("native dialog");
     expect(text).toContain(
       "Aven's window titles name the tab in front, so the window holding your page may be titled with another project.",
     );

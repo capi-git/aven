@@ -233,6 +233,7 @@ pub(super) fn target(
     let bounds = window.as_ref().map(DesktopWindow::bounds);
     let centre = bounds.map(|b| (b.x + b.width / 2.0, b.y + b.height / 2.0));
     let mut label = None;
+    let mut element_point = None;
     let anchor = if let (Some((index, state_id)), Some(id), Some(bounds)) =
         (request.element(), id, bounds)
     {
@@ -240,6 +241,7 @@ pub(super) fn target(
         // prompt, so a stale index never asks the user for consent.
         let element = ax::anchor(scope, id, state_id, index, bounds)?;
         label = element.label;
+        element_point = element.point;
         element.point.or(centre)
     } else {
         match request {
@@ -276,6 +278,9 @@ pub(super) fn target(
     } else {
         presence::AppIdentity::new(&key, &name)
     };
+    if pid == std::process::id() as i32 {
+        own_window_check(app, scope, request, bounds, element_point)?;
+    }
     Ok(PresenceTarget {
         app: Some(identity),
         anchor,
@@ -284,6 +289,59 @@ pub(super) fn target(
         bounds,
         shared_input,
         label,
+    })
+}
+
+/// Aven's own windows take desktop input only on the browser pages this
+/// chat uses: never on Aven's interface (chats, settings, approval bars) and
+/// never while one of Aven's file dialogs is open.
+fn own_window_check(
+    app: &AppHandle,
+    scope: &str,
+    request: &Request,
+    bounds: Option<Region>,
+    element_point: Option<(f64, f64)>,
+) -> Result<(), String> {
+    let input = crate::desktop_control::own_window_input(request, bounds, element_point)?;
+    let ids = crate::browser_agent::scope_pages(scope)
+        .map(|(owner, ids)| crate::browser::agent_native_ids(app, &owner, &ids))
+        .unwrap_or_default();
+    let points = match &input {
+        crate::desktop_control::OwnWindowInput::Points(points) => points.clone(),
+        _ => Vec::new(),
+    };
+    let (dialog, on_page, focused) =
+        activation_on_main(app, Instant::now() + Duration::from_secs(2), move || {
+            Ok((
+                unsafe { aven_file_dialog_open() },
+                crate::browser::pages_accept_points(&ids, &points),
+                crate::browser::pages_have_focus(&ids),
+            ))
+        })?;
+    crate::desktop_control::own_window_refusal(dialog, &input, on_page, focused)
+        .map_or(Ok(()), |refusal| Err(refusal.into()))
+}
+
+/// Main thread only: whether one of Aven's open or save panels is showing,
+/// including a panel attached to a window as a sheet.
+unsafe fn aven_file_dialog_open() -> bool {
+    let (Some(panel), Some(application)) = (
+        AnyClass::get(c"NSSavePanel"),
+        AnyClass::get(c"NSApplication"),
+    ) else {
+        return false;
+    };
+    let app: Option<Retained<AnyObject>> = msg_send![application, sharedApplication];
+    let Some(app) = app else {
+        return false;
+    };
+    let windows: Retained<AnyObject> = msg_send![&*app, windows];
+    let count: usize = msg_send![&*windows, count];
+    (0..count).any(|index| {
+        let window: Retained<AnyObject> = msg_send![&*windows, objectAtIndex: index];
+        let is_panel: bool = msg_send![&*window, isKindOfClass: panel];
+        let visible: bool = msg_send![&*window, isVisible];
+        is_panel && visible
     })
 }
 

@@ -25,10 +25,15 @@ Agents are told to finish the job rather than hand steps back. When a page
 does not respond, they take a fresh snapshot and click by reference, hover
 first, use keys (Tab, Enter, Space, Escape, arrows), wait for a menu and look
 again, and use `upload` for file choosers. If the browser actions still cannot
-do a step, or it needs a native dialog or a canvas app, they move to desktop
-control of the Aven window that shows the page. Aven's window titles name the
-tab in front, so that window may be titled with another project; it is still
-the agent's own page. They lead with real blockers they find, such as a paid
+do a step (a canvas app, for example), they move to desktop control inside the
+page, on the Aven window that shows it. Aven's window titles name the tab in
+front, so that window may be titled with another project; it is still the
+agent's own page. Agents never operate file, open, save or folder dialogs or
+Aven's own interface (settings, other chats, approval bars) through desktop
+control, and hand another site's sign-in or payment frames to you. Aven
+enforces the first two: in its own windows, desktop input is accepted only
+inside the browser pages that chat uses, keys only while such a page has the
+keyboard focus, and nothing while one of Aven's file dialogs is open. They lead with real blockers they find, such as a paid
 plan, and hand back only the step that needs you (payment, sign-in, two-factor
 codes, a plan upgrade, or an approval you declined): they get as far as they
 can, show a screenshot labelled `stopped-here` of the exact spot, and give one
@@ -106,7 +111,9 @@ input channel, not the Mac's.
   then presses, holds briefly and releases. This works in hidden panes, in
   other windows and at any page or pinch zoom, so menus that open on press or
   hover (Radix, Headless UI, Framer) respond. The result says whether the press
-  reached the element. Only when no pointer can reach it (something such as a
+  reached the element; a press the page took without a click event (menu items
+  that act on pointerup and close first) is reported as pressed, with a note to
+  take a snapshot rather than click again. Only when no pointer can reach it (something such as a
   cookie banner covers every part of it, it is off screen, or it opens a
   native picker such as a select or date input) does Aven click the element
   directly (`method: "element"`, with `reason` and `coveredBy`); some apps
@@ -160,25 +167,42 @@ chooser, for example to publish an `llms.txt` it wrote:
 
 `ref` is a file input from a snapshot (snapshots list hidden file inputs too),
 or the button or menu item that opens a chooser, such as **Add** or **Upload
-file**. Before anything leaves the Mac, Aven checks the files (absolute paths
-to existing, readable regular files; no folders, devices or pipes; at most 10
-files, 256 MB each and 512 MB together) and asks you in its bar: **Claude wants
-to upload llms.txt to framer.com**, with the folder and size, and **Don’t
-Allow** or **Allow**. Every upload asks; an approval covers only that upload,
-and a decline holds for the same files and site until your next message. The
-bar works whether or not desktop control is on, and Aven never asks while the
-Mac is locked.
+file**. Before anything leaves the Mac, Aven checks the files: absolute paths
+to existing, readable regular files (no folders, devices or pipes), at most 10
+files, 256 MB each and 512 MB together. Files inside hidden folders of your
+home folder (such as `~/.ssh`, `~/.aws` or `~/.config`), in
+`~/Library/Keychains`, and files named like secrets (private keys such as
+`id_rsa`, `.pem` and `.key` certificates, key stores, hidden files and `.env`
+files) are refused outright, and the agent is told to ask you.
 
-After you allow it, Aven arms that page's next file chooser, clicks the
-control like a pointer, and answers only the chooser that click opens, within
-five seconds, with the approved files. Choosers you open yourself, folder and
-save dialogs, and choosers in popup windows are never answered for you. If you
-click or type in that page while the upload waits, or the page navigates to
-another address or site, Aven stops and uploads nothing. The result lists the
-uploaded names, or says why nothing was sent: declined, no answer, no chooser
-opened (the control may open a menu first), a single-file chooser offered
-several files, or the page changed. A chooser that asks for other file types
-gets a note, since the site may reject the file.
+Aven then copies the files into a private folder (readable only by you) and
+asks in its bar: **Claude wants to upload 2 files to framer.com**, with the
+total size, the page's full address when it differs from the site, and one
+line per file with its folder, then **Don’t Allow** or **Allow**. The site is
+the address's registrable domain (`framer.com` for `app.framer.com`); a long
+address is shortened from the left so its real domain stays visible. Every
+upload asks; an approval covers only that upload, and a decline holds for the
+same files and site until your next message. The bar works whether or not
+desktop control is on, ignores clicks Aven itself posts, and Aven never asks
+while the Mac is locked.
+
+The page receives the copies you approved, never the originals, so a file
+changed after you allowed it is not sent. After you allow it, Aven clicks the
+control like a pointer. It answers a file chooser only around that click: while
+the click is being made and for five seconds after it, and only the chooser in
+that page's own tab, with the approved copies. Choosers you open yourself,
+folder and save dialogs, and choosers in popup windows are never answered for
+you. If you click or type in that page while the upload waits, or the page
+navigates to another address or site, Aven stops and uploads nothing. The page
+side always ends within 30 seconds, and if the agent's request gives up first,
+Aven cancels it too. Copies are deleted at once when nothing was uploaded;
+copies a page received are kept for an hour (a site may read the file only
+when it sends a form), until that chat ends, or until Aven quits.
+
+The result lists the uploaded names, or says why nothing was sent: declined,
+no answer, no chooser opened (the control may open a menu first), a
+single-file chooser offered several files, or the page changed. A chooser that
+asks for other file types gets a note, since the site may reject the file.
 
 ## Before and after screenshots
 

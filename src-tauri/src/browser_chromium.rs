@@ -93,6 +93,7 @@ extern "C" {
     ) -> c_int;
     fn sm_chromium_close(id: *const c_char) -> c_int;
     fn sm_chromium_is_focused(id: *const c_char) -> c_int;
+    fn sm_chromium_page_accepts_point(id: *const c_char, x: f64, y: f64) -> c_int;
     fn sm_chromium_live_browser_count() -> c_int;
     fn sm_chromium_cancel_update() -> c_int;
     fn sm_chromium_shutdown();
@@ -773,6 +774,39 @@ pub(crate) fn preview(caller: &Webview, id: &str) -> Result<ChromiumPage, String
     }
     Ok(ChromiumPage(context))
 }
+/// Native ids of the pages `owner`'s window granted an agent (`ids`).
+pub(crate) fn agent_native_ids(app: &AppHandle, owner: &str, ids: &[String]) -> Vec<String> {
+    let Some(caller) = app.get_webview(owner) else {
+        return Vec::new();
+    };
+    ids.iter()
+        .filter_map(|id| {
+            preview(&caller, id)
+                .ok()
+                .map(|page| page.0.native_id.clone())
+        })
+        .collect()
+}
+
+/// Main thread only. Whether every global point (CoreGraphics, top-left
+/// origin) lands on the visible area of one of these pages.
+pub(crate) fn pages_accept_points(native_ids: &[String], points: &[(f64, f64)]) -> bool {
+    let ids: Vec<_> = native_ids.iter().filter_map(|id| string(id).ok()).collect();
+    !points.is_empty()
+        && points.iter().all(|(x, y)| {
+            ids.iter()
+                .any(|id| unsafe { sm_chromium_page_accepts_point(id.as_ptr(), *x, *y) != 0 })
+        })
+}
+
+/// Main thread only. Whether one of these pages has the keyboard focus.
+pub(crate) fn pages_have_focus(native_ids: &[String]) -> bool {
+    native_ids
+        .iter()
+        .filter_map(|id| string(id).ok())
+        .any(|id| unsafe { sm_chromium_is_focused(id.as_ptr()) != 0 })
+}
+
 pub(crate) fn agent_tab_states(caller: &Webview, ids: &[String]) -> Vec<Value> {
     ids.iter()
         .filter_map(|id| {
