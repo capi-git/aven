@@ -152,10 +152,11 @@ inline std::string AgentLower(std::string value) {
 }
 
 // The page's host must still be the one the user approved (compared without
-// case and a trailing dot).
+// case, a trailing dot or IPv6 brackets).
 inline bool AgentUploadSameSite(const std::string& approved, const std::string& current) {
   const auto clean = [](std::string host) {
     host = AgentLower(host);
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
     if (!host.empty() && host.back() == '.') host.pop_back();
     return host;
   };

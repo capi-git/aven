@@ -107,6 +107,8 @@ int main() {
   CHECK(!AgentUploadSameSite("framer.com", "evil.example"));
   CHECK(!AgentUploadSameSite("framer.com", "sub.framer.com"));
   CHECK(!AgentUploadSameSite("", ""));
+  CHECK(AgentUploadSameSite("[::1]", "::1"));  // Rust keeps IPv6 brackets; NSURL drops them
+  CHECK(!AgentUploadSameSite("[::1]", "::2"));
 
   // Accept lists inform, never refuse: unknown expansions skip the check.
   {

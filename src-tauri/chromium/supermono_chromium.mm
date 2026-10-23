@@ -1792,7 +1792,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       const double x=Number(point,"x",-1),y=Number(point,"y",-1);
       self->MovePointer(x,y,[self,operation,done,action,x,y](bool ok,Dict error) {
         if (!ok) { self->PointerFailed(operation,error,done); return; }
-        self->After(supermono::kAgentHoverSettleMs,[self,operation,done,action,x,y]() {
+        self->After(supermono::kAgentHoverSettleMs,done,[self,operation,done,action,x,y]() {
           auto confirm=operation->Copy(false);
           confirm->SetBool("pointer",true); confirm->SetString("phase","confirm");
           auto at=Object(); at->SetDouble("x",x); at->SetDouble("y",y); confirm->SetDictionary("point",at);
@@ -1806,7 +1806,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
             self->MovePointer(x,y,[self,operation,done,action,confirmed,x,y](bool ok,Dict error) {
               if (!ok) { self->PointerFailed(operation,error,done); return; }
               if (action=="hover") { done(true,confirmed); return; }
-              self->After(supermono::kAgentPressDelayMs,[self,operation,done,confirmed,x,y]() {
+              self->After(supermono::kAgentPressDelayMs,done,[self,operation,done,confirmed,x,y]() {
                 self->PressPointer(x,y,[self,operation,done,confirmed](bool ok,Dict error) {
                   self->GuardAgentFocus();
                   switch (supermono::AgentAfterInput(ok,IsTimedOut(error))) {
@@ -1855,10 +1855,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       done(ok,result);
     });
   }
-  void After(int milliseconds,std::function<void()> next) {
+  // Continues after a pause, or reports a page that closed meanwhile.
+  void After(int milliseconds,Completion done,std::function<void()> next) {
     CefRefPtr<Page> self=this;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)milliseconds*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
-      if (self->closing_ || !self->browser_) return;
+      if (self->closing_ || !self->browser_) { done(false,Error("Browser closed")); return; }
       next();
     });
   }
