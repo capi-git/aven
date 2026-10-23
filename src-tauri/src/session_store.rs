@@ -93,6 +93,74 @@ impl SessionStore {
             .lock()
             .map_err(|_| "Session store is locked".into())
     }
+
+    /// Which of `names` (lowercase file names) a chat's saved messages show
+    /// or mention, attachments included. Tool calls and their output,
+    /// approvals and reasoning are not messages. `None` when the chat has no
+    /// saved transcript.
+    pub(crate) fn chat_mentions(
+        &self,
+        session_id: &str,
+        names: &[String],
+    ) -> Result<Option<std::collections::HashSet<String>>, String> {
+        validate_id(session_id, "session")?;
+        let conn = self.lock_conn()?;
+        chat_mentions(&conn, session_id, names).map_err(|error| error.to_string())
+    }
+}
+
+/// Block roles that are not the chat's messages; `src/lib/turnShots.ts`
+/// skips the same ones.
+const NOT_MESSAGES: [&str; 3] = ["tool", "approval", "reasoning"];
+
+fn chat_mentions(
+    conn: &Connection,
+    session_id: &str,
+    names: &[String],
+) -> rusqlite::Result<Option<std::collections::HashSet<String>>> {
+    let storage: Option<i64> = conn
+        .query_row(
+            "SELECT blocks_storage FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(storage) = storage else {
+        return Ok(None);
+    };
+    let mut found = std::collections::HashSet::new();
+    let mut check = |json: &str| {
+        let json = json.to_ascii_lowercase();
+        for name in names {
+            if json.contains(name.as_str()) {
+                found.insert(name.clone());
+            }
+        }
+    };
+    if storage == 1 {
+        let mut statement = conn.prepare(
+            "SELECT block_json FROM session_blocks
+             WHERE session_id = ?1 AND (role IS NULL OR role NOT IN (?2, ?3, ?4))",
+        )?;
+        let mut rows = statement.query(params![
+            session_id,
+            NOT_MESSAGES[0],
+            NOT_MESSAGES[1],
+            NOT_MESSAGES[2]
+        ])?;
+        while let Some(row) = rows.next()? {
+            check(&row.get::<_, String>(0)?);
+        }
+    } else {
+        let blocks = transcript::read(conn, session_id)?;
+        for block in blocks.as_array().into_iter().flatten() {
+            let role = block.get("role").and_then(Value::as_str);
+            if !role.is_some_and(|role| NOT_MESSAGES.contains(&role)) {
+                check(&block.to_string());
+            }
+        }
+    }
+    Ok(Some(found))
 }
 
 /// VACUUM INTO is a consistent SQLite snapshot including committed WAL pages.
@@ -2485,8 +2553,63 @@ mod tests {
     }
 
     #[test]
+    fn screenshot_mentions_come_from_messages_not_tool_output() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let names: Vec<String> = [
+            "1-page.jpg",
+            "2-page.jpg",
+            "3-page.jpg",
+            "4-page.jpg",
+            "5-page.jpg",
+            "6-page.png",
+        ]
+        .map(String::from)
+        .to_vec();
+        let blocks = json!([
+            {"id": "u", "role": "user", "text": "Fix it",
+             "attachments": [{"id": "a", "name": "shot", "mimeType": "image/jpeg",
+                              "kind": "image", "size": 1,
+                              "path": "/Data/turn-shots/s1/5-PAGE.jpg"}]},
+            {"id": "t", "role": "tool", "text": "Ran screenshot",
+             "tool": {"detail": "{\"path\":\"/Data/turn-shots/s1/2-page.jpg\"}"}},
+            {"id": "r", "role": "reasoning", "text": "Maybe show 3-page.jpg"},
+            {"id": "p", "role": "approval", "text": "Allow 4-page.jpg?"},
+            {"id": "a", "role": "assistant",
+             "text": "Done.\n\n![Screenshot](</Data/turn-shots/s1/1-page.jpg>)"},
+            {"id": "s", "role": "system", "text": "Earlier: 6-page.png"}
+        ]);
+        {
+            let conn = store.lock_conn().unwrap();
+            let mut chat = sample("s1", "/tmp/a", "Shots");
+            chat.blocks = blocks.clone();
+            upsert_session(&conn, &chat).unwrap();
+            // A chat still in the old single-column storage reads the same.
+            conn.execute(
+                "INSERT INTO sessions(id, cwd, harness, model, runtime_mode, title, blocks_json,
+                   created_at, updated_at) VALUES('old', '/tmp/a', 'codex', 'm', 'local', 'Old',
+                   ?1, 1, 1)",
+                [blocks.to_string()],
+            )
+            .unwrap();
+        }
+        let expected: std::collections::HashSet<String> =
+            ["1-page.jpg", "5-page.jpg", "6-page.png"]
+                .map(String::from)
+                .into();
+        for id in ["s1", "old"] {
+            assert_eq!(
+                store.chat_mentions(id, &names).unwrap(),
+                Some(expected.clone()),
+                "{id}"
+            );
+        }
+        assert_eq!(store.chat_mentions("missing", &names).unwrap(), None);
+        assert!(store.chat_mentions("../s1", &names).is_err());
+    }
+
+    #[test]
     fn delete_removes_the_sessions_page_screenshots() {
-        use crate::turn_shots::tests::{png, TemporaryDirectory};
+        use crate::turn_shots::tests::{jpeg, TemporaryDirectory};
         let root = TemporaryDirectory::new();
         let store = SessionStore::open_in_memory().unwrap();
         {
@@ -2495,15 +2618,16 @@ mod tests {
             upsert_session(&conn, &sample("s2", "/tmp/a", "Second")).unwrap();
         }
         for id in ["s1", "s2"] {
-            crate::turn_shots::store(&root.0, id, Some("before"), &png(1, 1), 1).unwrap();
+            crate::turn_shots::store(&root.0, id, Some("before"), &jpeg(1, 1), 1, |_| Ok(None))
+                .unwrap();
         }
         delete_session_and_assets(&store, Some(&root.0), "s1").unwrap();
         assert!(get_session(&store.conn.lock().unwrap(), "s1")
             .unwrap()
             .is_none());
         assert!(!root.0.join("turn-shots/s1").exists());
-        assert!(root.0.join("turn-shots/s2/1-before.png").is_file());
-        // A task without screenshots, or without a resolvable app data folder,
+        assert!(root.0.join("turn-shots/s2/1-before.jpg").is_file());
+        // A chat without screenshots, or without a resolvable app data folder,
         // still deletes normally.
         delete_session_and_assets(&store, Some(&root.0), "s2").unwrap();
         delete_session_and_assets(&store, None, "missing").unwrap();

@@ -74,6 +74,7 @@ mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
 mod team_watch;
+mod turn_shot_image;
 mod turn_shots;
 mod update_restart;
 mod usage_panel;
@@ -536,6 +537,7 @@ pub fn run() {
             session_store::session_search,
             session_store::session_get,
             session_store::session_delete,
+            turn_shots::turn_shots_tidy,
             session_store::session_set_archived,
             session_store::session_set_pinned,
             session_store::session_set_in_flight,

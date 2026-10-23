@@ -137,9 +137,30 @@ reference; the label is optional. A pair of images labelled **Before** and
 **After** appears side by side with captions, stacked when the conversation is
 narrow. Click either image to open it larger.
 
+Agents check pages by reading, not pictures: a snapshot shows a page's text,
+structure, state and behaviour. They take a screenshot only to judge how
+something looks, typically one before and one after each visual change, and
+never just to confirm text a snapshot already shows.
+
 A page on screen is captured as you see it, without changing its size or zoom.
-A background tab is captured at its current size. Screenshots are kept in Aven's
-app data folder under `turn-shots` and deleted with their task.
+A background tab is captured at its current size. Screenshots are saved as
+compressed JPEG files at the page's on-screen size: a Retina capture is scaled
+to 1x and the long edge is at most 2,000 pixels, so small text stays readable
+at a fraction of a PNG's size. Screenshots are kept in Aven's app data folder
+under `turn-shots` and deleted with their chat. PNG files saved by earlier
+versions stay as they are.
+
+When a chat's turn ends, Aven deletes the screenshots taken during that turn
+that are neither labelled nor shown in the chat's messages, such as one taken
+only to look at a page. A screenshot counts as shown when its file name
+appears in a message or an attachment; tool output and reasoning do not count.
+Nothing is deleted while the turn is still running, and if Aven cannot tell
+whether a screenshot is shown, it keeps it.
+
+A chat keeps at most 300 screenshots. When it is full, a new screenshot makes
+room by deleting the chat's oldest screenshots that are neither labelled nor
+shown in its saved messages. Only when none can go is the screenshot refused,
+with "This chat already has 300 screenshots…".
 
 ## Markdown and code
 
