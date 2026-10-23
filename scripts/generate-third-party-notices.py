@@ -158,11 +158,19 @@ def main():
     if args.cargo_metadata:
         metadata = read_json(args.cargo_metadata)
     else:
+        command = ['cargo', 'metadata', '--offline', '--locked', '--format-version', '1',
+                   '--filter-platform', args.target]
         try:
-            result = subprocess.run(['cargo', 'metadata', '--offline', '--locked', '--format-version', '1',
-                                     '--filter-platform', args.target], cwd=ROOT, capture_output=True, encoding='utf-8', check=True)
+            result = subprocess.run(command, cwd=ROOT, capture_output=True, encoding='utf-8', check=True)
         except (OSError, subprocess.CalledProcessError):
-            raise SystemExit('Could not resolve offline Cargo metadata. Install Rust and run cargo fetch --locked, then retry.')
+            # A build downloads only what it compiles; metadata also needs
+            # test-only crates. Fetch the locked set once, then retry offline.
+            try:
+                subprocess.run(['cargo', 'fetch', '--locked', '--target', args.target], cwd=ROOT,
+                               capture_output=True, encoding='utf-8', check=True)
+                result = subprocess.run(command, cwd=ROOT, capture_output=True, encoding='utf-8', check=True)
+            except (OSError, subprocess.CalledProcessError):
+                raise SystemExit('Could not resolve offline Cargo metadata. Install Rust and run cargo fetch --locked, then retry.')
         metadata = json.loads(result.stdout)
     if Path(metadata['workspace_root']).resolve() != ROOT.resolve():
         raise SystemExit('Cargo metadata belongs to another checkout; regenerate it here.')
