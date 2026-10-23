@@ -307,6 +307,13 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())?
 }
 
+/// Whether a folder can have a bot: a git repository with a commit. Says
+/// why not, in the same words turning a bot on would.
+#[tauri::command]
+pub async fn bot_project_ready(cwd: String) -> Result<(), String> {
+    blocking(move || repo_root(&crate::fs::expand_home(&cwd)).map(|_| ())).await
+}
+
 #[tauri::command]
 pub async fn bot_copy_prepare(
     app: AppHandle,

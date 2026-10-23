@@ -99,11 +99,23 @@ it("shows a wake-up as a tag, folds a check with nothing to report, and puts a f
   expect(cards).toHaveLength(1);
   expect(cards[0].getAttribute("data-bot-fix")).toBe("ready");
   expect(cards[0].textContent).toContain("Fix ready · 2 files");
+  // One plain line: no line counts to explain.
+  expect(cards[0].textContent).not.toContain("+14");
   expect(
     [...cards[0].querySelectorAll("button")].map(
       (button) => button.textContent,
     ),
-  ).toEqual(["Review", "Apply", "Throw away"]);
+  ).toEqual(["Review", "Apply"]);
+  // Throw away waits with the changes, once you look at them.
+  const review = [...cards[0].querySelectorAll("button")].find(
+    (button) => button.textContent === "Review",
+  )!;
+  await act(async () => review.click());
+  expect(
+    [...cards[0].querySelectorAll("button")]
+      .map((button) => button.textContent)
+      .filter((label) => label === "Throw away" || label === "Hide"),
+  ).toEqual(["Hide", "Throw away"]);
   // Your own message is an ordinary one.
   expect(
     container.querySelector(".personal-user-message")?.textContent,
@@ -118,4 +130,61 @@ it("keeps a wake-up's tag when it is saved", () => {
   expect(sanitizeSessionForPersist(session).blocks[0].botWake).toEqual({
     label: "Dev server crashed",
   });
+});
+
+it("while a bot works, shows one line of what it is doing, and asks to be allowed once", async () => {
+  updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
+  const step = (id: string, title: string, status: string): Block => ({
+    id,
+    role: "tool",
+    text: title,
+    tool: { kind: "execute", title, status },
+  });
+  const blocks: Block[] = [
+    {
+      ...wake("w1", "Chat finished · Add sign-up flow"),
+      durationMs: undefined,
+    },
+    step("t1", "git status --short", "completed"),
+    step("t2", "npm test -- auth", "in_progress"),
+  ];
+  await act(async () =>
+    root.render(
+      createElement(AgentTranscript, { blocks, busy: true, botProject: PATH }),
+    ),
+  );
+  expect(container.textContent).toContain("Running the tests…");
+  // Its steps wait behind that line.
+  expect(container.textContent).not.toContain("git status --short");
+  expect(container.textContent).not.toContain("npm test -- auth");
+
+  const onApproval = vi.fn();
+  const asking: Block[] = [
+    ...blocks.slice(0, 2),
+    {
+      ...step("t2", "git push origin main", "pending"),
+      approval: { requestId: 7 },
+    },
+  ];
+  await act(async () =>
+    root.render(
+      createElement(AgentTranscript, {
+        blocks: asking,
+        busy: true,
+        botProject: PATH,
+        onApproval,
+      }),
+    ),
+  );
+  const buttons = [
+    ...container.querySelectorAll<HTMLButtonElement>(
+      "[data-approval-pending] button",
+    ),
+  ];
+  expect(buttons.map((button) => button.textContent)).toEqual([
+    "Allow once",
+    "Don't allow",
+  ]);
+  await act(async () => buttons[1]!.click());
+  expect(onApproval).toHaveBeenCalledWith(7, "deny");
 });

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry } from "./activity";
+import { botJobLine } from "./projectBots";
+import type { Block } from "./session";
 import {
   BOT_FRESH_MS,
   botBrief,
+  botIntroLine,
+  botProgressLine,
   buildDirectMessage,
   buildWakeMessage,
   coalesceEvents,
@@ -289,5 +293,98 @@ describe("what the bot is told", () => {
     ).toBe("Fixed the test.");
     expect(replyHeadline("a".repeat(200), 20)).toHaveLength(20);
     expect(lastLines("1\n2\n3\n\n", 2)).toBe("2\n3");
+  });
+
+  it("introduces itself in one short line that matches how it is set up", () => {
+    expect(
+      botIntroLine({
+        wakes: { chatFinished: true, devServer: false },
+        can: { fix: true },
+      }),
+    ).toBe(
+      "I'll look over each chat when it finishes, and fix anything that breaks, in my own copy. I'll ask before anything leaves your Mac.",
+    );
+    expect(
+      botIntroLine({
+        wakes: { chatFinished: true, devServer: true },
+        can: { fix: false },
+      }),
+    ).toBe(
+      "I'll look over each chat when it finishes and check the dev server if it crashes, and tell you what I find. I'll ask before anything leaves your Mac.",
+    );
+    expect(
+      botIntroLine({
+        wakes: { chatFinished: false, devServer: false },
+        can: { fix: true },
+      }),
+    ).toMatch(/^Message me and I'll look into it/);
+  });
+
+  it("sums up what it is doing now in one short line", () => {
+    const user: Block = { id: "u", role: "user", text: "go" };
+    const tool = (
+      title: string,
+      kind: string,
+      preview?: NonNullable<Block["tool"]>["preview"],
+    ): Block => ({
+      id: title,
+      role: "tool",
+      text: title,
+      tool: { title, kind, status: "in_progress", preview },
+    });
+    expect(botProgressLine([user])).toBe("Looking into it…");
+    expect(botProgressLine([user, tool("npm test", "execute")])).toBe(
+      "Running the tests…",
+    );
+    expect(botProgressLine([user, tool("git diff HEAD", "execute")])).toBe(
+      "Checking what changed…",
+    );
+    expect(botProgressLine([user, tool("npm run build", "execute")])).toBe(
+      "Building…",
+    );
+    expect(
+      botProgressLine([
+        user,
+        tool("Edit", "edit", { kind: "write", path: "/copy/src/auth.ts" }),
+      ]),
+    ).toBe("Editing auth.ts…");
+    expect(
+      botProgressLine([
+        user,
+        tool("Read", "read", { kind: "read", path: "/copy/tip.js" }),
+      ]),
+    ).toBe("Reading tip.js…");
+    expect(
+      botProgressLine([
+        user,
+        tool("npm test", "execute"),
+        { id: "a", role: "assistant", text: "Two tests", streaming: true },
+      ]),
+    ).toBe("Writing it up…");
+    // Only the current turn counts.
+    expect(botProgressLine([tool("npm test", "execute"), user])).toBe(
+      "Looking into it…",
+    );
+  });
+
+  it("names its job in a few words that follow its switches", () => {
+    expect(
+      botJobLine({
+        wakes: { chatFinished: true, devServer: false },
+        can: { fix: true },
+      }),
+    ).toBe("checks each chat and fixes what breaks");
+    expect(
+      botJobLine({
+        wakes: { chatFinished: true, devServer: true },
+        can: { fix: false },
+      }),
+    ).toBe("checks each chat and the dev server, and tells you what breaks");
+    expect(
+      botJobLine({
+        wakes: { chatFinished: false, devServer: true },
+        can: { fix: true },
+      }),
+    ).toBe("watches the dev server and fixes what breaks");
   });
 });

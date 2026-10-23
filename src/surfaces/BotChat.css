@@ -46,32 +46,36 @@
   gap: 6px;
 }
 
+/* The bot's first line, as it would say it in its chat. */
 .bot-chat-intro {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  max-width: 26rem;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 56rem;
   margin: 0 auto;
-  padding: 18vh 24px 24px;
-  text-align: center;
+  padding: 18px 16px 8px;
   color: var(--color-content);
 }
 .bot-chat-intro-critter {
-  width: 44px;
-  height: 44px;
-  margin-bottom: 6px;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
 }
-.bot-chat-intro-title {
-  margin: 0;
-  font-size: var(--text-ui-body);
+.bot-chat-intro-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bot-chat-intro-name {
+  font-size: var(--text-ui-label);
   font-weight: 600;
 }
 .bot-chat-intro-text {
   margin: 0;
-  font-size: var(--text-ui-label);
-  line-height: 18px;
-  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+  line-height: 20px;
 }
 
 /* A wake-up's tag: one small line where a message would be. */
@@ -138,10 +142,6 @@
   font-weight: 400;
   color: var(--aven-muted);
 }
-.bot-fix-lines {
-  font-size: var(--text-ui-label);
-  font-variant-numeric: tabular-nums;
-}
 .bot-fix-actions {
   margin-left: auto;
 }
@@ -160,4 +160,8 @@
 .bot-fix-review {
   max-height: 420px;
   overflow: auto;
+}
+.bot-fix-more {
+  display: flex;
+  justify-content: flex-end;
 }

@@ -809,7 +809,10 @@ import {
 import { addChatsToBoard } from "./lib/featureCards";
 import { useProjectBots } from "./hooks/useProjectBots";
 import { installBotPermissions } from "./lib/projectBotPermissions";
-import { installBotWorkspace } from "./lib/projectBotActions";
+import {
+  installBotWorkspace,
+  turnOnBotWithDefaults,
+} from "./lib/projectBotActions";
 import { BotSettingsSheet } from "./chrome/BotSettingsSheet";
 import type { SidebarBot } from "./chrome/Sidebar";
 import {
@@ -6508,6 +6511,11 @@ export default function App({
         quiet?: boolean;
         /** The id the sent message gets, for a sender that follows its turn. */
         userBlockId?: string;
+        /**
+         * Work to do before the agent is sent the message, once it shows in
+         * the chat (a bot syncing its copy). Returns what the agent is sent.
+         */
+        prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -7130,6 +7138,15 @@ export default function App({
           return event;
         };
 
+        let turnText = harnessText;
+        if (options?.prepareText) {
+          try {
+            turnText = await options.prepareText(harnessText);
+          } catch (error) {
+            logError("Prepare message", error);
+          }
+          if (turnGen.current.get(sessionId) !== gen) return;
+        }
         if (!current.inboxAsk && changeOwner) {
           await beginSessionTurn(changeOwner.sessionId, changeOwner.cwd).catch(
             () => undefined,
@@ -7144,8 +7161,8 @@ export default function App({
             intent === "build" && approvedPlan
               ? buildPlanPrompt(approvedPlan.text)
               : options?.verbatim
-                ? harnessText
-                : await preparePrompt(harnessText, {
+                ? turnText
+                : await preparePrompt(turnText, {
                     harness: current.harness,
                     sessionId,
                     cwd: workCwd,
@@ -7512,12 +7529,14 @@ export default function App({
           botWake?: BotWakeMeta;
           attachments?: Attachment[];
           blockId: string;
+          prepareText?: (text: string) => Promise<string>;
           onSettled: (outcome: ControlOutcome) => void;
         },
       ) =>
         onSubmit(sessionId, text, options.attachments ?? [], {
           displayText: options.displayText,
           ...(options.botWake ? { botWake: options.botWake } : {}),
+          ...(options.prepareText ? { prepareText: options.prepareText } : {}),
           userBlockId: options.blockId,
           // The bot posts its own entry: a fix, or what it said.
           quiet: true,
@@ -7525,18 +7544,8 @@ export default function App({
         }) !== false,
       announce: announceActivity,
       onWorking: setBotWorkingChats,
-      notice: (sessionId: string, text: string) => {
-        enqueueHarnessEvent(sessionId, { type: "status", text });
-        flushHarnessEvents();
-      },
     }),
-    [
-      ensureBotChat,
-      onSubmit,
-      announceActivity,
-      enqueueHarnessEvent,
-      flushHarnessEvents,
-    ],
+    [ensureBotChat, onSubmit, announceActivity],
   );
   // The main window alone drives bots, as it adopts races and discussions
   // whose window closed; every other window shows them.
@@ -7568,10 +7577,7 @@ export default function App({
   const openBotChat = useCallback(
     async (path: string) => {
       const bot = getProjectBot(path);
-      if (!bot?.on) {
-        setBotSheet(path);
-        return;
-      }
+      if (!bot?.on) return;
       const chat = await ensureBotChat(bot);
       if (!chat) return;
       setHomeViewOpen(false);
@@ -7608,15 +7614,6 @@ export default function App({
       setSessions(next);
     },
     [sessionsRef, setSessions],
-  );
-  useEffect(
-    () =>
-      installBotWorkspace({
-        openChat: (path) => void openBotChat(path),
-        openSettings: setBotSheet,
-        release: releaseBotChat,
-      }),
-    [openBotChat, releaseBotChat],
   );
 
   const onUpdatePlan = useCallback(
@@ -8306,6 +8303,30 @@ export default function App({
       }
     },
     [flushHarnessEvents, announceActivity],
+  );
+
+  /** Stop a bot's chat and wait, a few seconds at most, until it has. */
+  const stopBotChat = useCallback(
+    async (path: string) => {
+      const id = getProjectBot(path)?.sessionId;
+      const busy = () =>
+        !!sessionsRef.current.find((session) => session.id === id)?.busy;
+      if (!id || !busy()) return;
+      onStop(id);
+      for (let waited = 0; waited < 10_000 && busy(); waited += 100)
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+    },
+    [onStop, sessionsRef],
+  );
+  useEffect(
+    () =>
+      installBotWorkspace({
+        openChat: (path) => void openBotChat(path),
+        openSettings: setBotSheet,
+        release: releaseBotChat,
+        stop: stopBotChat,
+      }),
+    [openBotChat, releaseBotChat, stopBotChat],
   );
   stopSessionRef.current = onStop;
 
@@ -10275,10 +10296,12 @@ export default function App({
           : undefined,
         now,
       );
+      const appearance = projectAppearance(bot.path);
       return {
         path: bot.path,
         ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
-        name: botName(bot, projectAppearance(bot.path).mascot),
+        name: botName(bot, appearance.mascot),
+        project: appearance.label,
         status,
         headline: botHeadline(bot, status),
       };
@@ -10290,6 +10313,33 @@ export default function App({
       void openBotChat(path);
     },
     [closeUtilityViews, openBotChat],
+  );
+  /** Add a bot: it turns on at once, with its defaults, and shows its chat. */
+  const onAddBot = useCallback(
+    (path: string) => {
+      if (getProjectBot(path)?.on) {
+        closeUtilityViews();
+        void openBotChat(path);
+        return;
+      }
+      void turnOnBotWithDefaults(path).then((problem) => {
+        if (problem) {
+          void message(problem, { title: "Can't add a bot", kind: "info" });
+          return;
+        }
+        closeUtilityViews();
+        void openBotChat(path);
+      });
+    },
+    [closeUtilityViews, openBotChat],
+  );
+  /** The project's menu and Home tile: add a bot, or open its settings. */
+  const onBotAction = useCallback(
+    (path: string) => {
+      if (getProjectBot(path)?.on) setBotSheet(path);
+      else onAddBot(path);
+    },
+    [onAddBot],
   );
   // A bot turned off in any window lets go of its chat in this one too.
   useEffect(() => {
@@ -10381,7 +10431,8 @@ export default function App({
     discussions: discussions.sidebar,
     bots: sidebarBots,
     onOpenBot,
-    onBotSettings: setBotSheet,
+    onBotSettings: onBotAction,
+    onAddBot,
     teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
@@ -10620,7 +10671,7 @@ export default function App({
                         onOpenBoard={onOpenBoard}
                         bots={sidebarBots}
                         onOpenBot={onOpenBot}
-                        onBotSettings={setBotSheet}
+                        onBotSettings={onBotAction}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
                         onLoadProjects={(paths) => {
@@ -11235,7 +11286,6 @@ export default function App({
               <BotSettingsSheet
                 path={botSheet}
                 onClose={() => setBotSheet(null)}
-                onTurnedOn={(path) => void openBotChat(path)}
               />
             ) : null}
             {addProjectAnchor ? (

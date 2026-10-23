@@ -19,8 +19,17 @@ vi.mock("./PersonalWorkspaceSwitcher", () => ({
 vi.mock("./PersonalProjectRow", () => ({ PersonalProjectRow: () => null }));
 vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock("./SettingsRail", () => ({ SettingsNav: () => null }));
+// Only Git projects can have a bot; "/tmp/notes" is a plain folder.
+const copy = vi.hoisted(() => ({
+  botReadyPaths: vi.fn(async (paths: readonly string[]) =>
+    paths.filter((path) => path !== "/tmp/notes"),
+  ),
+}));
+vi.mock("../lib/projectBotCopy", () => copy);
 
 const cwd = "/tmp/sidebar-bots";
+const docs = "/tmp/docs-site";
+const notes = "/tmp/notes";
 function summary(id: string, title: string, updatedAt: number): SessionSummary {
   return {
     id,
@@ -40,6 +49,7 @@ const jelly: SidebarBot = {
   path: cwd,
   sessionId: "bot-chat",
   name: "Jelly",
+  project: "sidebar-bots",
   status: "fix-ready",
   headline: "Fix ready: 2 files",
 };
@@ -57,9 +67,15 @@ beforeEach(() => {
     clear: () => stored.clear(),
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  copy.botReadyPaths.mockClear();
   props = {
     cwd,
     open: true,
+    recents: [
+      { path: cwd, openedAt: 3 },
+      { path: docs, openedAt: 2 },
+      { path: notes, openedAt: 1 },
+    ],
     sessions: [
       // The bot's chat is the newest, yet never listed with the others.
       summary("bot-chat", "Jelly", 9),
@@ -88,18 +104,21 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const rows = () =>
+const chatRows = () =>
   [
     ...container.querySelectorAll(
-      "[data-bot-row], [data-session-card] .personal-task-title",
+      ".personal-project-group [data-session-card] .personal-task-title",
     ),
-  ].map((row) =>
-    row.hasAttribute("data-bot-row")
-      ? `bot:${row.querySelector(".personal-task-title")?.textContent}`
-      : row.textContent,
+  ].map((row) => row.textContent);
+const botsSection = () =>
+  container.querySelector<HTMLElement>("[data-sidebar-bots]");
+const button = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (item) =>
+      item.textContent === label || item.getAttribute("aria-label") === label,
   );
 
-it("pins a project's bot above its chats and leaves its chat out of the list", async () => {
+it("lists bots in their own section below the projects, not with their project's chats", async () => {
   const onOpenBot = vi.fn();
   const onBotSettings = vi.fn();
   await act(async () =>
@@ -112,15 +131,28 @@ it("pins a project's bot above its chats and leaves its chat out of the list", a
       }),
     ),
   );
-  expect(rows()).toEqual([
-    "bot:Jelly",
-    "Claude Code · Login bug",
-    "Claude Code · Docs",
-  ]);
-  const row = container.querySelector<HTMLButtonElement>("[data-bot-row]")!;
+  expect(chatRows()).toEqual(["Claude Code · Login bug", "Claude Code · Docs"]);
+  const section = botsSection()!;
+  expect(section.querySelector(".personal-projects-heading")?.textContent).toBe(
+    "Bots",
+  );
+  // Below every project group.
+  const groups = container.querySelectorAll(".personal-project-group");
+  expect(
+    groups[groups.length - 1]!.compareDocumentPosition(section) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    container.querySelectorAll(".personal-project-group [data-bot-row]"),
+  ).toHaveLength(0);
+  const row = section.querySelector<HTMLButtonElement>("[data-bot-row]")!;
+  // Critter, name and its word; the project shows on hover.
+  expect(row.querySelector(".personal-task-title")?.textContent).toBe("Jelly");
+  expect(row.querySelector(".personal-bot-project")?.textContent).toBe(
+    "sidebar-bots",
+  );
   expect(row.querySelector("[data-bot-status]")?.textContent).toBe("Fix ready");
-  // No extra "bot" label: the critter, the name and its word.
-  expect(row.textContent).toBe("JellyFix ready");
+  expect(row.title).toContain("sidebar-bots's teammate");
   await act(async () => row.click());
   expect(onOpenBot).toHaveBeenCalledWith(cwd);
   await act(async () => {
@@ -129,12 +161,45 @@ it("pins a project's bot above its chats and leaves its chat out of the list", a
   expect(onBotSettings).toHaveBeenCalledWith(cwd);
 });
 
+it("New bot lists the Git projects without a bot, and picking one adds it", async () => {
+  const onAddBot = vi.fn();
+  await act(async () =>
+    root.render(createElement(Sidebar, { ...props, bots: [jelly], onAddBot })),
+  );
+  await act(async () => button("New bot")!.click());
+  // Jelly's project already has a bot; the plain folder can't have one.
+  expect(copy.botReadyPaths).toHaveBeenCalledWith([docs, notes]);
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  expect(
+    [...menu.querySelectorAll("button")].map((item) => item.textContent),
+  ).toEqual(["docs-site"]);
+  await act(async () => button("docs-site")!.click());
+  expect(onAddBot).toHaveBeenCalledWith(docs);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+});
+
+it("offers one quiet Add a bot when there are none yet", async () => {
+  const onAddBot = vi.fn();
+  await act(async () =>
+    root.render(createElement(Sidebar, { ...props, onAddBot })),
+  );
+  const section = botsSection()!;
+  expect(section.querySelectorAll("[data-bot-row]")).toHaveLength(0);
+  await act(async () => button("Add a bot")!.click());
+  expect(
+    [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].map(
+      (item) => item.textContent,
+    ),
+  ).toEqual(["sidebar-bots", "docs-site"]);
+});
+
 it("lists the chat as usual once the bot is off", async () => {
   await act(async () => root.render(createElement(Sidebar, props)));
-  expect(rows()).toEqual([
+  expect(chatRows()).toEqual([
     "Jelly",
     "Claude Code · Login bug",
     "Claude Code · Docs",
   ]);
   expect(container.querySelector("[data-bot-row]")).toBeNull();
+  expect(botsSection()).toBeNull();
 });

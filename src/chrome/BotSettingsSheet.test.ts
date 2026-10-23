@@ -4,15 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const actions = vi.hoisted(() => ({
-  turnOnProjectBot: vi.fn(async () => null as string | null),
   turnOffProjectBot: vi.fn(async () => null as string | null),
   saveBotSettings: vi.fn(),
 }));
 vi.mock("../lib/projectBotActions", () => actions);
-vi.mock("../lib/harness/availability", () => ({
-  isHarnessAvailable: () => true,
-  probeHarnessAvailability: async () => undefined,
-}));
 
 import { resetProjectBotsCache, updateProjectBot } from "../lib/projectBots";
 import { BotSettingsSheet } from "./BotSettingsSheet";
@@ -53,70 +48,41 @@ const button = (label: string) =>
     (item) => item.textContent === label,
   );
 
-it("turns a bot on with three plain switches and nothing else to set", async () => {
+it("shows three plain switches that apply as you flip them, and nothing else to set", async () => {
+  updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
   const onClose = vi.fn();
-  const onTurnedOn = vi.fn();
   await act(async () =>
-    root.render(
-      createElement(BotSettingsSheet, { path: PATH, onClose, onTurnedOn }),
-    ),
+    root.render(createElement(BotSettingsSheet, { path: PATH, onClose })),
   );
   expect(switches()).toEqual([
-    expect.stringMatching(/ is on$/),
     "Look when a chat finishes",
     "Look when the dev server crashes",
     "Start fixes on its own",
   ]);
   const text = dialog().textContent ?? "";
-  expect(text).toContain("orbit's bot");
+  expect(text).toContain("orbit's teammate");
   expect(text).toContain(
     "Always asks before pushing, publishing, merging, sending or deleting.",
   );
   expect(text).toContain("Up to 15 runs a day, quiet 11 pm–8 am");
-  // No model pickers, limits section, browser or desktop switches.
+  // No On switch, model pickers, limits section, browser or desktop switches.
   expect(dialog().querySelectorAll("select, [role='combobox']")).toHaveLength(
     0,
   );
   expect(text).not.toMatch(/Sonnet|Opus|browser|other apps|Coming soon/i);
-  // A bot that was never on has nothing to turn off.
-  expect(button("Turn off")).toBeUndefined();
-
   const fix = dialog().querySelector<HTMLButtonElement>(
     '[aria-label="Start fixes on its own"]',
   )!;
   await act(async () => fix.click());
-  expect(text).not.toContain("It only tells you what it found.");
-  expect(dialog().textContent).toContain("It only tells you what it found.");
+  expect(actions.saveBotSettings).toHaveBeenCalledWith(PATH, {
+    can: { fix: false },
+  });
   await act(async () => button("Done")!.click());
-  expect(actions.turnOnProjectBot).toHaveBeenCalledWith(
-    PATH,
-    {
-      name: undefined,
-      wakes: { chatFinished: true, devServer: true },
-      can: { fix: false },
-    },
-    expect.any(String),
-  );
   expect(onClose).toHaveBeenCalled();
-  expect(onTurnedOn).toHaveBeenCalledWith(PATH);
+  expect(actions.turnOffProjectBot).not.toHaveBeenCalled();
 });
 
-it("says plainly why a bot can't be turned on", async () => {
-  actions.turnOnProjectBot.mockResolvedValueOnce(
-    "Bots need a Git project. This folder isn't a Git repository yet.",
-  );
-  const onClose = vi.fn();
-  await act(async () =>
-    root.render(createElement(BotSettingsSheet, { path: PATH, onClose })),
-  );
-  await act(async () => button("Done")!.click());
-  expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(
-    "Bots need a Git project. This folder isn't a Git repository yet.",
-  );
-  expect(onClose).not.toHaveBeenCalled();
-});
-
-it("asks before turning a bot off, then removes its copy", async () => {
+it("asks before turning a bot off, saying its copy goes, then turns it off", async () => {
   updateProjectBot(PATH, (bot) => ({ ...bot, on: true, name: "Jelly" }));
   const onClose = vi.fn();
   await act(async () =>
@@ -124,6 +90,7 @@ it("asks before turning a bot off, then removes its copy", async () => {
   );
   await act(async () => button("Turn off")!.click());
   expect(dialog().textContent).toContain("Turn off Jelly?");
+  expect(dialog().textContent).toContain("its copy of orbit is removed");
   expect(actions.turnOffProjectBot).not.toHaveBeenCalled();
   await act(async () => button("Turn off")!.click());
   expect(actions.turnOffProjectBot).toHaveBeenCalledWith(PATH);

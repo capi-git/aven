@@ -119,7 +119,7 @@ export function PersonalProjectRow({
           {
             kind: "item" as const,
             id: "bot",
-            label: botOn ? "Bot settings…" : "Turn on a bot…",
+            label: botOn ? "Bot settings…" : "Add a bot",
           },
         ]
       : []),

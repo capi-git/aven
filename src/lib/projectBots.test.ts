@@ -134,6 +134,26 @@ describe("project bot settings", () => {
     stop();
   });
 
+  it("keeps a bot of another scope, like a later all-projects bot, as it was", () => {
+    const overview = {
+      scope: "all",
+      on: true,
+      name: "Scout",
+      projects: ["/work/a", "/work/b"],
+    };
+    localStorage.setItem(
+      PROJECT_BOTS_KEY,
+      JSON.stringify({ version: 1, bots: { "all-projects": overview } }),
+    );
+    resetProjectBotsCache();
+    // It is not a project's bot, so nothing here runs or shows it.
+    expect(getProjectBot("all-projects")).toBeUndefined();
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
+    const raw = JSON.parse(localStorage.getItem(PROJECT_BOTS_KEY)!);
+    expect(raw.bots["all-projects"]).toEqual(overview);
+    expect(raw.bots[PATH]).toMatchObject({ scope: "project", on: true });
+  });
+
   it("finds a bot by its chat and its copy, only while it is on", () => {
     updateProjectBot(PATH, (bot) => ({
       ...bot,

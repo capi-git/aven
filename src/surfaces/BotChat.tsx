@@ -12,11 +12,13 @@ import {
 } from "../lib/projectBotActions";
 import { botCopyHost } from "../lib/projectBotCopy";
 import {
+  botJobLine,
   fixForTurn,
   jobIsLive,
   useProjectBot,
   type BotFix,
 } from "../lib/projectBots";
+import { botIntroLine } from "../lib/projectBotWake";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
@@ -36,7 +38,7 @@ function useBotName(path: string): { name: string; project: string } {
   };
 }
 
-/** Critter, name, whose bot it is, Pause and Settings. */
+/** Critter, name, whose teammate it is and its job, Pause and Settings. */
 export const BotChatHeader = memo(function BotChatHeader({
   path,
   working,
@@ -54,7 +56,9 @@ export const BotChatHeader = memo(function BotChatHeader({
       <div className="bot-chat-heading">
         <span className="bot-chat-name">{name}</span>
         <span className="bot-chat-whose">
-          {project}'s bot{paused ? " · Paused" : ""}
+          {paused
+            ? `${project}'s teammate · Paused`
+            : `${project}'s teammate · ${bot ? botJobLine(bot) : ""}`}
         </span>
       </div>
       <div className="bot-chat-actions">
@@ -79,19 +83,18 @@ export const BotChatHeader = memo(function BotChatHeader({
   );
 });
 
-/** What an empty bot chat says: who it is and when it posts. */
+/** The first thing the bot says: one short line on what it will do. */
 export function BotIntro({ path }: { path: string }) {
-  const { name, project } = useBotName(path);
+  const bot = useProjectBot(path);
+  const { name } = useBotName(path);
+  if (!bot) return null;
   return (
-    <div className="bot-chat-intro">
+    <div className="bot-chat-intro" data-bot-intro>
       <BotCritter path={path} className="bot-chat-intro-critter" />
-      <p className="bot-chat-intro-title">
-        {name} is watching {project}
-      </p>
-      <p className="bot-chat-intro-text">
-        When a chat finishes or the dev server crashes, it checks what changed
-        in its own copy and posts here. You can message it too.
-      </p>
+      <div className="bot-chat-intro-body">
+        <span className="bot-chat-intro-name">{name}</span>
+        <p className="bot-chat-intro-text">{botIntroLine(bot)}</p>
+      </div>
     </div>
   );
 }
@@ -204,7 +207,10 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
   );
 }
 
-/** The fix a bot turn made: Review, Apply and Throw away, one line. */
+/**
+ * The fix a bot turn made, as one line: Review and Apply. Throw away sits
+ * with the changes, once you are looking at them.
+ */
 export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
   const bot = useProjectBot(path);
   const fix = fixForTurn(bot, turnId);
@@ -233,12 +239,6 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
         <div className="bot-fix-line">
           <span className="bot-fix-title">{fixLine(fix)}</span>
           {ready ? (
-            <span className="team-card-lines bot-fix-lines">
-              <span data-sign="add">+{fix.additions}</span>{" "}
-              <span data-sign="del">−{fix.deletions}</span>
-            </span>
-          ) : null}
-          {ready ? (
             <span className="team-card-actions bot-fix-actions">
               <button
                 type="button"
@@ -258,16 +258,6 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
               >
                 {busy === "apply" ? "Applying…" : "Apply"}
               </button>
-              <button
-                type="button"
-                className="team-card-button"
-                data-variant="ghost"
-                disabled={!!busy || working}
-                title={working ? "Wait until it finishes" : undefined}
-                onClick={() => void act("discard")}
-              >
-                Throw away
-              </button>
             </span>
           ) : null}
         </div>
@@ -276,7 +266,22 @@ export function BotFixCard({ path, turnId }: { path: string; turnId: string }) {
             {shownProblem}
           </p>
         ) : null}
-        {ready && reviewing ? <FixReview path={path} fix={fix} /> : null}
+        {ready && reviewing ? (
+          <>
+            <FixReview path={path} fix={fix} />
+            <div className="bot-fix-more">
+              <button
+                type="button"
+                className="team-card-button"
+                data-variant="ghost"
+                disabled={!!busy || working}
+                onClick={() => void act("discard")}
+              >
+                {busy === "discard" ? "Throwing away…" : "Throw away"}
+              </button>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );

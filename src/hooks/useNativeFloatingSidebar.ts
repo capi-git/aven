@@ -91,6 +91,7 @@ const WORKSPACE_ACTIONS = new Set([
   "openWorkerDetails",
   "onOpenBot",
   "onBotSettings",
+  "onAddBot",
 ]);
 
 /**

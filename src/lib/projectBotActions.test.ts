@@ -15,12 +15,19 @@ vi.mock("./projectBotCopy", async (actual) => ({
   botCopyHost: host,
 }));
 vi.mock("./fs", () => ({ notifyGitChanged: vi.fn() }));
+const claude = vi.hoisted(() => ({ available: true }));
+vi.mock("./harness/availability", () => ({
+  probeHarnessAvailability: async () => undefined,
+  isHarnessAvailable: () => claude.available,
+}));
 
 import {
   applyBotFix,
   discardBotFix,
   forgetBotForProject,
+  installBotWorkspace,
   turnOffProjectBot,
+  turnOnBotWithDefaults,
   turnOnProjectBot,
 } from "./projectBotActions";
 import {
@@ -141,10 +148,28 @@ describe("acting on a bot's fix", () => {
     }));
     expect(await applyBotFix(PATH, id)).toMatch(/still working/);
     expect(await discardBotFix(PATH, id)).toMatch(/still working/);
-    expect(await turnOffProjectBot(PATH)).toMatch(/working right now/);
     expect(host.apply).not.toHaveBeenCalled();
     expect(host.discard).not.toHaveBeenCalled();
-    expect(host.remove).not.toHaveBeenCalled();
+  });
+
+  it("turning off stops a bot at work first, then tidies up", async () => {
+    botWithFix();
+    const order: string[] = [];
+    const stop = installBotWorkspace({
+      openChat: () => undefined,
+      openSettings: () => undefined,
+      release: () => order.push("release"),
+      stop: async () => {
+        // Already off, so nothing new starts while it stops.
+        order.push(`stop:${getProjectBot(PATH)?.on}`);
+      },
+    });
+    host.remove.mockImplementation(async () => {
+      order.push("remove");
+    });
+    expect(await turnOffProjectBot(PATH)).toBeNull();
+    expect(order).toEqual(["stop:false", "remove", "release"]);
+    stop();
   });
 
   it("throws a fix away by resetting the copy", async () => {
@@ -206,5 +231,24 @@ describe("turning a bot on and off", () => {
     botWithFix();
     await forgetBotForProject(PATH);
     expect(getProjectBot(PATH)).toBeUndefined();
+  });
+
+  it("turns on in one step with its defaults, once Claude Code is there", async () => {
+    claude.available = false;
+    expect(await turnOnBotWithDefaults(PATH)).toMatch(/Bots use Claude Code/);
+    expect(host.prepare).not.toHaveBeenCalled();
+    claude.available = true;
+    host.prepare.mockResolvedValueOnce({
+      path: COPY,
+      branch: "aven/bot/x-1a2b",
+      root: PATH,
+    });
+    expect(await turnOnBotWithDefaults(PATH)).toBeNull();
+    expect(getProjectBot(PATH)).toMatchObject({
+      on: true,
+      wakes: { chatFinished: true, devServer: true },
+      can: { fix: true },
+    });
+    expect(getProjectBot(PATH)?.name).toBeUndefined();
   });
 });

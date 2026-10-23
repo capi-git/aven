@@ -1157,8 +1157,8 @@ const AgentTile = memo(
           {onBotSettings && !bot ? (
             <button
               type="button"
-              aria-label={`Turn on a bot for ${name}`}
-              title={`Turn on a bot for ${name}`}
+              aria-label={`Add a bot for ${name}`}
+              title={`Add a bot for ${name}`}
               onClick={() => onBotSettings(project.path)}
             >
               <Bot size={13} />

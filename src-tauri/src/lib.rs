@@ -383,6 +383,7 @@ pub fn run() {
             race::race_file_diff,
             race::race_apply,
             race::race_cleanup,
+            project_bots::bot_project_ready,
             project_bots::bot_copy_prepare,
             project_bots::bot_copy_sync,
             project_bots::bot_copy_diff,

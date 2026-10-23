@@ -40,8 +40,6 @@ export type ProjectBotsHost = {
   announce: (session: Session, event: SessionActivityEvent) => void;
   /** The chats bots work in now, which stay loaded without a tab. */
   onWorking: (ids: ReadonlySet<string>) => void;
-  /** Say something in a chat (a message that could not be sent). */
-  notice: (sessionId: string, text: string) => void;
 };
 
 /**
@@ -92,7 +90,6 @@ export function useProjectBots(
         ),
       name: (bot) => botName(bot, projectAppearance(bot.path).mascot),
       onWorking: (ids) => hostRef.current.onWorking(ids),
-      notice: (sessionId, text) => hostRef.current.notice(sessionId, text),
     };
     runnerRef.current = new BotRunner(deps);
   }

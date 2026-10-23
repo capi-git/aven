@@ -12,15 +12,6 @@
   width: 36px;
   height: 36px;
 }
-.bot-sheet-on {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  padding-top: 4px;
-  font-size: var(--text-ui-label);
-  color: color-mix(in srgb, var(--color-content) 62%, transparent);
-}
 .bot-sheet-body {
   display: flex;
   flex-direction: column;

@@ -17,6 +17,8 @@ export type BotSyncResult = {
 };
 
 export const botCopyHost = {
+  /** Resolves when the folder can have a bot (a git repository with a commit). */
+  ready: (cwd: string) => invoke<void>("bot_project_ready", { cwd }),
   /** Make the copy when missing; an existing copy is left as it is. */
   prepare: (cwd: string, key: string, branch: string) =>
     invoke<BotCopyInfo>("bot_copy_prepare", { cwd, key, branch }),
@@ -35,6 +37,21 @@ export const botCopyHost = {
   remove: (cwd: string, copy: string, branch: string) =>
     invoke<void>("bot_copy_remove", { cwd, copy, branch }),
 };
+
+/** The folders among `paths` that can have a bot, in the same order. */
+export async function botReadyPaths(
+  paths: readonly string[],
+): Promise<string[]> {
+  const ready = await Promise.all(
+    paths.map((path) =>
+      botCopyHost.ready(path).then(
+        () => true,
+        () => false,
+      ),
+    ),
+  );
+  return paths.filter((_, index) => ready[index]);
+}
 
 /** A host error as one plain sentence, without git's own prefix. */
 export function botCopyError(error: unknown): string {

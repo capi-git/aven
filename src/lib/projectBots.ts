@@ -99,7 +99,15 @@ export type BotSkip =
   | "busy"
   | "leased";
 
+/**
+ * Where a bot works. Bots belong to one project for now; an overview bot for
+ * all projects will join the same list later as "all", and entries this
+ * build does not know are kept as they are.
+ */
+export type BotScope = "project" | "all";
+
 export type ProjectBot = {
+  scope: "project";
   /** The project's folder. */
   path: string;
   on: boolean;
@@ -128,7 +136,12 @@ export type ProjectBot = {
   lastError?: { at: number; text: string };
 };
 
-type Store = { version: 1; bots: Record<string, ProjectBot> };
+type Store = {
+  version: 1;
+  bots: Record<string, ProjectBot>;
+  /** Bots of another scope, from a later build: written back untouched. */
+  others: Record<string, unknown>;
+};
 
 export const BOT_DEFAULT_RUNS_PER_DAY = 15;
 export const BOT_DEFAULT_PAUSE_PERCENT = 80;
@@ -143,7 +156,7 @@ export const BOT_JOB_STALE_MS = 3 * MINUTE;
 const FIXES_KEPT = 12;
 const PATHS_KEPT = 12;
 
-const EMPTY_STORE: Store = { version: 1, bots: {} };
+const EMPTY_STORE: Store = { version: 1, bots: {}, others: {} };
 
 export function defaultWakes(): Record<BotWakeKind, boolean> {
   return { chatFinished: true, devServer: true };
@@ -152,6 +165,7 @@ export function defaultWakes(): Record<BotWakeKind, boolean> {
 /** A new bot's settings: off until turned on, watching chats and the dev server. */
 export function newProjectBot(path: string, now = Date.now()): ProjectBot {
   return {
+    scope: "project",
     path: normalizeProjectPath(path),
     on: false,
     createdAt: now,
@@ -234,6 +248,7 @@ function readFix(value: unknown): BotFix | null {
 export function readProjectBot(value: unknown): ProjectBot | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<ProjectBot> & Record<string, unknown>;
+  if (raw.scope !== undefined && raw.scope !== "project") return null;
   if (typeof raw.path !== "string" || !raw.path.trim()) return null;
   const base = newProjectBot(raw.path, finite(raw.createdAt, 0, 8.64e15, 0));
   const wakes = { ...base.wakes };
@@ -342,11 +357,19 @@ function parse(raw: string | null): Store {
     )
       return EMPTY_STORE;
     const bots: Record<string, ProjectBot> = {};
-    for (const value of Object.values(parsed.bots)) {
+    const others: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.bots)) {
       const bot = readProjectBot(value);
       if (bot) bots[projectKey(bot.path)] = bot;
+      else if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as { scope?: unknown }).scope === "string" &&
+        (value as { scope: string }).scope !== "project"
+      )
+        others[key] = value;
     }
-    return { version: 1, bots };
+    return { version: 1, bots, others };
   } catch {
     return EMPTY_STORE;
   }
@@ -378,7 +401,10 @@ function emit() {
 }
 
 function write(store: Store) {
-  const raw = JSON.stringify(store);
+  const raw = JSON.stringify({
+    version: 1,
+    bots: { ...store.others, ...store.bots },
+  });
   cache = store;
   chatIndex = null;
   try {
@@ -440,7 +466,7 @@ export function updateProjectBot(
   const current = store.bots[key] ?? newProjectBot(path);
   const next = update(current);
   if (next === current) return current;
-  write({ version: 1, bots: { ...store.bots, [key]: next } });
+  write({ ...store, bots: { ...store.bots, [key]: next } });
   return next;
 }
 
@@ -451,7 +477,7 @@ export function forgetProjectBot(path: string) {
   if (!store.bots[key]) return;
   const bots = { ...store.bots };
   delete bots[key];
-  write({ version: 1, bots });
+  write({ ...store, bots });
 }
 
 /** Test seam. */
@@ -536,6 +562,25 @@ export function botName(
   mascot?: string | null,
 ): string {
   return bot.name?.trim() || defaultBotName(bot.path, mascot);
+}
+
+/**
+ * What the bot does, in a few words, for under its name: "checks each chat
+ * and fixes what breaks". It follows its switches.
+ */
+export function botJobLine(bot: Pick<ProjectBot, "wakes" | "can">): string {
+  const { chatFinished, devServer } = bot.wakes;
+  if (!chatFinished && !devServer)
+    return bot.can.fix
+      ? "looks into what you ask and fixes it"
+      : "looks into what you ask";
+  const watches =
+    chatFinished && devServer
+      ? "checks each chat and the dev server,"
+      : chatFinished
+        ? "checks each chat"
+        : "watches the dev server";
+  return `${watches} and ${bot.can.fix ? "fixes what breaks" : "tells you what breaks"}`;
 }
 
 /**

@@ -1,7 +1,14 @@
 import { isTurnActivity, type ActivityEntry } from "./activity";
+import {
+  isEditTool,
+  isExecuteTool,
+  isReadTool,
+  isSearchTool,
+} from "./harness/preview";
 import { isEqualOrInside, projectName } from "./paths";
 import type { BotWakeKind, ProjectBot } from "./projectBots";
-import type { TestRun } from "./turnTests";
+import type { Block } from "./session";
+import { isTestCommand, type TestRun } from "./turnTests";
 
 /**
  * What wakes a project's bot and what it is told. Each event is one thing
@@ -215,6 +222,24 @@ function syncLines(sync: BotSyncNote | null): string[] {
   ];
 }
 
+/**
+ * The first thing a bot says: what it will do, in one short line, as it is
+ * set up now.
+ */
+export function botIntroLine(bot: Pick<ProjectBot, "wakes" | "can">): string {
+  const looks = [
+    bot.wakes.chatFinished ? "look over each chat when it finishes" : "",
+    bot.wakes.devServer ? "check the dev server if it crashes" : "",
+  ].filter(Boolean);
+  const after = bot.can.fix
+    ? "fix anything that breaks, in my own copy"
+    : "tell you what I find";
+  const first = looks.length
+    ? `I'll ${looks.join(" and ")}, and ${after}.`
+    : `Message me and I'll look into it, and ${after}.`;
+  return `${first} I'll ask before anything leaves your Mac.`;
+}
+
 export type BotBriefInput = {
   name: string;
   project: string;
@@ -311,4 +336,42 @@ export function replyHeadline(text: string, max = 140): string {
       )
       .find(Boolean) ?? "";
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
+function shortName(path: string | undefined): string | undefined {
+  const name = path?.split(/[\\/]/).filter(Boolean).pop();
+  return name && name.length <= 40 ? name : undefined;
+}
+
+/**
+ * The one line a bot's chat shows while it works, in place of its steps:
+ * "Running the tests…", "Editing auth.ts…". Read from its latest step.
+ */
+export function botProgressLine(turn: readonly Block[]): string {
+  for (let index = turn.length - 1; index >= 0; index -= 1) {
+    const block = turn[index];
+    if (block.role === "user") break;
+    if (block.role === "assistant" && block.text.trim())
+      return block.streaming ? "Writing it up…" : "Looking into it…";
+    if (block.role !== "tool" || !block.tool) continue;
+    const { kind, title, preview } = block.tool;
+    const name = title || block.text;
+    const file = shortName(preview?.fileName ?? preview?.path);
+    if (isEditTool(kind, name, preview))
+      return file ? `Editing ${file}…` : "Making a change…";
+    if (isReadTool(kind, name, preview))
+      return file ? `Reading ${file}…` : "Reading the code…";
+    if (isSearchTool(kind, name, preview)) return "Searching the code…";
+    if (isExecuteTool(kind, name) || preview?.kind === "shell") {
+      const command = (title || block.text).trim();
+      if (isTestCommand(command)) return "Running the tests…";
+      if (/\b(build|tsc|compile)\b/i.test(command)) return "Building…";
+      if (/^git\b|&& git\b/.test(command)) return "Checking what changed…";
+      if (/\b(npm|pnpm|yarn|bun) (ci|install|i)\b/.test(command))
+        return "Installing what it needs…";
+      return "Running a command…";
+    }
+    return "Working…";
+  }
+  return "Looking into it…";
 }

@@ -39,7 +39,13 @@ const NO_DIFF: RaceDiff = { files: [], additions: 0, deletions: 0 };
 /** Local 2 pm, outside the default quiet hours. */
 const START = new Date(2026, 9, 23, 14, 0).getTime();
 
-type Sent = { sessionId: string; text: string; options: BotSendOptions };
+type Sent = {
+  sessionId: string;
+  text: string;
+  options: BotSendOptions;
+  /** What the agent was sent, once the message's preparation ran. */
+  agentText?: string;
+};
 
 function harness(
   options: {
@@ -106,7 +112,14 @@ function harness(
     },
     newId: () => `turn-${++ids}`,
     send: (sessionId, text, sendOptions) => {
-      sent.push({ sessionId, text, options: sendOptions });
+      const entry: Sent = { sessionId, text, options: sendOptions };
+      sent.push(entry);
+      // As onSubmit does: the message shows, then its preparation runs.
+      if (sendOptions.prepareText)
+        void sendOptions.prepareText(text).then((agentText) => {
+          entry.agentText = agentText;
+        });
+      else entry.agentText = text;
       const commit = () => {
         sessions = sessions.map((session) =>
           session.id === sessionId
@@ -506,14 +519,16 @@ describe("a project bot waking up", () => {
       },
     ];
     expect(h.runner.message("bot-chat", "Push your branch", [])).toBe(true);
+    // Your message goes at once, before the copy syncs.
+    expect(h.sent).toHaveLength(1);
+    expect(h.copy.sync).not.toHaveBeenCalled();
     await h.advance(1);
     expect(h.copy.sync).toHaveBeenCalled();
-    expect(h.sent).toHaveLength(1);
     expect(h.sent[0].options.displayText).toBe("Push your branch");
     expect(h.sent[0].options.botWake).toBeUndefined();
-    expect(h.sent[0].text).toBe("Push your branch");
+    expect(h.sent[0].agentText).toBe("Push your branch");
     // Not its first message: no role this time.
-    expect(h.sent[0].text).not.toContain("You are Jelly");
+    expect(h.sent[0].agentText).not.toContain("You are Jelly");
     // A chat that is not a bot's is not the runner's to send.
     expect(h.runner.message("other", "hi", [])).toBe(false);
     h.runner.stop();

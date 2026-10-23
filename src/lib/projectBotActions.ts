@@ -1,14 +1,21 @@
 import { useSyncExternalStore } from "react";
 import { logError } from "./errors";
 import { notifyGitChanged } from "./fs";
+import {
+  isHarnessAvailable,
+  probeHarnessAvailability,
+} from "./harness/availability";
 import { projectKey } from "./paths";
+import { projectAppearance } from "./projectAppearance";
 import { botCopyError, botCopyHost } from "./projectBotCopy";
 import {
   botBranch,
+  defaultBotName,
   forgetProjectBot,
   fixMatches,
   getProjectBot,
   jobIsLive,
+  newProjectBot,
   noteFixError,
   resolveFix,
   updateProjectBot,
@@ -55,6 +62,26 @@ export async function turnOnProjectBot(
   return null;
 }
 
+/**
+ * Turn the bot on as it comes: named after its critter, looking when a chat
+ * finishes or the dev server crashes, and fixing in its own copy. Resolves
+ * with why it could not, in plain words, or null once on.
+ */
+export async function turnOnBotWithDefaults(
+  path: string,
+): Promise<string | null> {
+  await probeHarnessAvailability();
+  if (!isHarnessAvailable("claude"))
+    return "Bots use Claude Code. Install it and sign in, then turn the bot on.";
+  const bot = getProjectBot(path) ?? newProjectBot(path);
+  const name = bot.name ?? defaultBotName(path, projectAppearance(path).mascot);
+  return turnOnProjectBot(
+    path,
+    { name: bot.name, wakes: bot.wakes, can: bot.can },
+    name,
+  );
+}
+
 /** Change a bot's settings; turning it on or off goes through its own calls. */
 export function saveBotSettings(path: string, settings: Partial<BotSettings>) {
   updateProjectBot(path, (bot) => ({ ...bot, ...settings }));
@@ -74,9 +101,10 @@ export function setBotPaused(path: string, paused: boolean) {
 export async function turnOffProjectBot(path: string): Promise<string | null> {
   const bot = getProjectBot(path);
   if (!bot) return null;
-  // Its copy is in use while it works; removing it then could leave half a copy.
-  if (jobIsLive(bot.job, Date.now()))
-    return "It's working right now. Turn it off once it finishes, or Pause it.";
+  // Off first, so nothing new starts; then whatever it is doing stops before
+  // its copy goes.
+  updateProjectBot(path, (current) => ({ ...current, on: false }));
+  await workspace?.stop(path).catch((error) => logError("Stop bot", error));
   let problem: string | null = null;
   if (bot.copy) {
     try {
@@ -204,6 +232,8 @@ export type BotWorkspace = {
   openSettings: (path: string) => void;
   /** The bot was turned off: its chat stops working in the copy. */
   release: (path: string) => void;
+  /** Stop whatever the bot's chat is doing, and wait until it has. */
+  stop: (path: string) => Promise<void>;
 };
 
 let workspace: BotWorkspace | null = null;

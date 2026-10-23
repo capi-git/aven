@@ -75,6 +75,8 @@ export type BotSendOptions = {
   attachments?: Attachment[];
   /** The id the message gets, so its turn is known before it renders. */
   blockId: string;
+  /** Work done after the message shows, before the agent reads it. */
+  prepareText?: (text: string) => Promise<string>;
   onSettled: (outcome: ControlOutcome) => void;
 };
 
@@ -110,8 +112,6 @@ export type BotRunnerDeps = {
   name: (bot: ProjectBot) => string;
   /** The chats bots are working in now changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
-  /** Say something in a chat (a message that could not be sent). */
-  notice?: (sessionId: string, text: string) => void;
   /** A new message id; random outside tests. */
   newId?: () => string;
   subscribeActivity?: typeof subscribeActivity;
@@ -565,62 +565,29 @@ export class BotRunner {
     if (this.chatBusy(bot)) return false;
     const key = projectKey(bot.path);
     const claimed = claimBotJob(bot.path, this.deps.owner, this.deps.now());
-    const turn: Turn = { sessionId, wake: false };
+    const turn: Turn = { sessionId, wake: false, turnId: this.newId() };
     this.beginTurn(key, turn);
-    const lost = () =>
-      this.deps.notice?.(
-        sessionId,
-        `Your message didn't reach the bot: “${text.slice(0, 300)}”`,
-      );
-    void (async () => {
-      const ready = claimed ? await this.prepare(bot.path, sessionId) : null;
-      const chat = this.chatNow(sessionId);
-      if (!chat) {
-        this.endTurn(bot.path, turn);
-        lost();
-        return;
-      }
-      const message = this.stillOn(bot.path)
-        ? buildDirectMessage({
-            text,
-            sync: ready?.sync ?? null,
-            brief: this.briefFor(ready?.bot ?? bot, sessionId),
-          })
-        : text;
-      if (chatAtWork(chat) || !this.stillOn(bot.path)) {
-        // A turn started while the copy synced, or the bot was turned off:
-        // this goes as usual, and a bot's turn is read when it ends (see
-        // `observe`).
-        this.endTurn(bot.path, turn);
-        if (
-          !this.deps.send(sessionId, message, {
-            displayText: text,
-            attachments,
-            blockId: this.newId(),
-            onSettled: () => undefined,
-          })
-        )
-          lost();
-        return;
-      }
-      turn.turnId = this.newId();
-      const sent = this.deps.send(sessionId, message, {
-        displayText: text,
-        attachments,
-        blockId: turn.turnId,
-        onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
-      });
-      if (!sent) {
-        this.endTurn(bot.path, turn);
-        lost();
-        return;
-      }
-      turn.sentAt = this.deps.now();
-    })().catch((error) => {
-      logError("Project bot", error);
-      this.endTurn(bot.path, turn);
-      lost();
+    // Your message shows at once; its copy is synced before the bot reads it.
+    const sent = this.deps.send(sessionId, text, {
+      displayText: text,
+      attachments,
+      blockId: turn.turnId!,
+      prepareText: async () => {
+        const ready = claimed ? await this.prepare(bot.path, sessionId) : null;
+        if (!this.stillOn(bot.path)) return text;
+        return buildDirectMessage({
+          text,
+          sync: ready?.sync ?? null,
+          brief: this.briefFor(ready?.bot ?? bot, sessionId),
+        });
+      },
+      onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
     });
+    if (!sent) {
+      this.endTurn(bot.path, turn);
+      return false;
+    }
+    turn.sentAt = this.deps.now();
     return true;
   }
 
