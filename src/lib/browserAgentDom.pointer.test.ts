@@ -97,6 +97,25 @@ describe("agent pointer actions and what snapshots list", () => {
     expect(by("Plain text")).toHaveLength(0);
   });
 
+  it("keeps an open menu in the snapshot of a long page and says it was cut", () => {
+    document.body.innerHTML =
+      "<button>Layer</button>".repeat(450) +
+      '<div role="menu"><div role="menuitem">Upload file</div></div>';
+    const result = decode({ action: "snapshot", generation: "long" });
+    expect(result.truncated).toBe(true);
+    expect(result.note).toContain("open menus and dialogs come first");
+    expect(
+      result.elements.filter((item: Entry) => item.label === "Layer"),
+    ).toHaveLength(400);
+    expect(
+      result.elements.find((item: Entry) => item.label === "Upload file"),
+    ).toMatchObject({ role: "menuitem" });
+    document.body.innerHTML = "<button>Only</button>";
+    expect(
+      decode({ action: "snapshot", generation: "short" }).truncated,
+    ).toBeUndefined();
+  });
+
   it("lists controls inside open shadow roots", () => {
     document.body.innerHTML = '<div id="host"></div>';
     const root = document
