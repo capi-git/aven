@@ -63,6 +63,7 @@ import {
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
+import { permissionRulesKey, sessionPermissions } from "./sessionPermissions";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import {
   questionPromptTitle,
@@ -1774,14 +1775,16 @@ function projectMemoryFor(
 function settingsKeyFor(input: HarnessSessionInput): string {
   // Remember this turn's memory for a later compaction, which carries none.
   projectMemoryFor(input);
+  const permissions = sessionPermissions(input.sessionId);
   return claudeSettingsKey({
     model: nativeModelId(input.model),
     effort: input.modelSettings?.effort,
     fast: input.modelSettings?.fast,
     thinking: input.modelSettings?.thinking,
     context: input.modelSettings?.context,
-    runtimeMode: input.runtimeMode,
+    runtimeMode: permissions?.mode ?? input.runtimeMode,
     hooks: loadClaudeHooks(),
+    permissions: permissionRulesKey(permissions),
   });
 }
 
@@ -1826,13 +1829,17 @@ function launchOptions(
   if (!loadClaudeHooks()) {
     settings.disableAllHooks = true;
   }
+  // A chat with its own rules (a project's bot) always launches with them,
+  // in the mode they were written for, whatever its picker says.
+  const permissions = sessionPermissions(input.sessionId);
+  if (permissions) settings.permissions = permissions.rules;
   return {
     model: resolveClaudeApiModelId(native, context),
     effort: normalizeClaudeCliEffort(effortRaw, native),
     permissionMode:
       input.intent === "plan"
         ? "plan"
-        : runtimeModeToPermission(input.runtimeMode),
+        : runtimeModeToPermission(permissions?.mode ?? input.runtimeMode),
     resume,
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
