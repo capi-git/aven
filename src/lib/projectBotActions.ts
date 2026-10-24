@@ -53,6 +53,7 @@ export async function turnOnProjectBot(
     ...bot,
     ...settings,
     on: true,
+    onAt: Date.now(),
     paused: undefined,
     copy,
     lastError: undefined,
@@ -116,6 +117,7 @@ export async function turnOffProjectBot(path: string): Promise<string | null> {
   updateProjectBot(path, (current) => ({
     ...current,
     on: false,
+    onAt: undefined,
     paused: undefined,
     copy: undefined,
     base: undefined,

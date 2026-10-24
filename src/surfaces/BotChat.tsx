@@ -14,6 +14,7 @@ import {
 import { botCopyHost } from "../lib/projectBotCopy";
 import {
   botJobLine,
+  botPauseReason,
   fixForTurn,
   jobIsLive,
   useProjectBot,
@@ -51,15 +52,15 @@ export const BotChatHeader = memo(function BotChatHeader({
   const { name, project } = useBotName(path);
   const workspace = useBotWorkspace();
   const paused = !!bot?.paused;
+  // Why it isn't watching, when it isn't: in place of its job.
+  const reason = bot ? botPauseReason(bot, Date.now()) : null;
   return (
     <header className="bot-chat-header" data-bot-header={path}>
       <BotCritter path={path} active={working} className="bot-chat-critter" />
       <div className="bot-chat-heading">
         <span className="bot-chat-name">{name}</span>
-        <span className="bot-chat-whose">
-          {paused
-            ? `${project}'s teammate · Paused`
-            : `${project}'s teammate · ${bot ? botJobLine(bot) : ""}`}
+        <span className="bot-chat-whose" title={reason ?? undefined}>
+          {`${project}'s teammate · ${reason ?? (bot ? botJobLine(bot) : "")}`}
         </span>
       </div>
       <div className="bot-chat-actions">

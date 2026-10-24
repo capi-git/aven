@@ -8,6 +8,7 @@ import {
   botForChat,
   botHeadline,
   botName,
+  botPauseReason,
   botStatus,
   botWakeDecision,
   claimBotJob,
@@ -435,6 +436,41 @@ describe("fixes and the bot's word", () => {
         "watching",
       ),
     ).toBe("Watching");
+  });
+
+  it("never reads Watching while something keeps it from looking, and says why", () => {
+    const idle = { busy: false, needsInput: false };
+    const now = new Date(2026, 9, 23, 15, 0).getTime();
+    const capped = onBot({
+      lastSkip: { at: now - 60_000, reason: "daily-cap" },
+    });
+    expect(botStatus(capped, idle, now)).toBe("paused");
+    expect(botPauseReason(capped, now)).toBe(
+      "Resting until tomorrow: 15 checks today",
+    );
+    // A new day: it looks again.
+    expect(botStatus(capped, idle, now + 24 * 3600_000)).toBe("watching");
+    const resting = onBot({ lastSkip: { at: now, reason: "usage" } });
+    expect(botHeadline(resting, botStatus(resting, idle, now), now)).toBe(
+      "Paused while Claude is over 80% for the week",
+    );
+    const broken = onBot({
+      lastError: {
+        at: now,
+        text: "Couldn't make its copy: Bots need a Git project with at least one commit.",
+      },
+    });
+    expect(botStatus(broken, idle, now)).toBe("paused");
+    expect(botPauseReason(broken, now)).toMatch(/^Couldn't make its copy/);
+    // Quiet hours are expected, not a pause.
+    expect(
+      botStatus(
+        onBot({ lastSkip: { at: now, reason: "quiet-hours" } }),
+        idle,
+        now,
+      ),
+    ).toBe("watching");
+    expect(botPauseReason(onBot({ paused: true }), now)).toBe("Paused");
   });
 
   it("writes clock times plainly", () => {

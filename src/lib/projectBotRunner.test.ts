@@ -70,6 +70,8 @@ function harness(
   let onStop: ((stop: DevServerStop) => void) | undefined;
   let sessions: Session[] = [];
   const sent: Sent[] = [];
+  /** Messages sent the plain way, as any chat sends them. */
+  const plain: { sessionId: string; text: string }[] = [];
   const announced: { session: Session; event: SessionActivityEvent }[] = [];
   const working: ReadonlySet<string>[] = [];
   const copy = {
@@ -85,6 +87,7 @@ function harness(
       untracked: false,
     })),
     diff: vi.fn(async (): Promise<BotDiff> => NO_DIFF),
+    remove: vi.fn(async () => undefined),
   };
   const chat = (): Session => ({
     id: "bot-chat",
@@ -117,6 +120,7 @@ function harness(
       return found;
     },
     newId: () => `turn-${++ids}`,
+    sendAsUsual: (sessionId, text) => void plain.push({ sessionId, text }),
     send: (sessionId, text, sendOptions) => {
       const entry: Sent = { sessionId, text, options: sendOptions };
       sent.push(entry);
@@ -187,6 +191,7 @@ function harness(
     runner,
     copy,
     sent,
+    plain,
     announced,
     working,
     get sessions() {
@@ -811,6 +816,99 @@ describe("a project bot waking up", () => {
     expect(bot.base).toBeUndefined();
     expect(bot.job).toBeUndefined();
     expect(bot.runs).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("removes a copy made while the bot was being turned off, and keeps one a new turn-on owns", async () => {
+    const h = harness();
+    h.runner.start();
+    updateProjectBot(PATH, (bot) => ({ ...bot, onAt: 1 }));
+    let made: () => void = () => {};
+    h.copy.prepare.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          made = () =>
+            resolve({ path: COPY, branch: "aven/bot/jelly", root: PATH });
+        }),
+    );
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    // Turned off while its copy is being made.
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: false, onAt: undefined }));
+    made();
+    await h.advance(1);
+    expect(h.copy.remove).toHaveBeenCalledWith(PATH, COPY, "aven/bot/jelly");
+    expect(h.copy.sync).not.toHaveBeenCalled();
+    expect(h.sent).toHaveLength(0);
+
+    // Off and on again meanwhile: the new bot keeps its copy.
+    h.copy.remove.mockClear();
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true, onAt: 2 }));
+    h.copy.prepare.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          made = () =>
+            resolve({ path: COPY, branch: "aven/bot/jelly", root: PATH });
+        }),
+    );
+    await h.finish("chat-b");
+    await h.advance(BOT_SETTLE_MS);
+    updateProjectBot(PATH, (bot) => ({ ...bot, onAt: 3 }));
+    made();
+    await h.advance(1);
+    expect(h.copy.remove).not.toHaveBeenCalled();
+    expect(h.sent).toHaveLength(0);
+    h.runner.stop();
+  });
+
+  it("holds what you type while a wake-up readies the copy, then sends it after", async () => {
+    const h = harness();
+    h.runner.start();
+    updateProjectBot(PATH, (bot) => ({ ...bot, sessionId: "bot-chat" }));
+    h.sessions = [
+      {
+        id: "bot-chat",
+        harness: "claude",
+        model: "m",
+        modelSettings: {},
+        runtimeMode: "auto",
+        title: "Jelly",
+        cwd: PATH,
+        worktreeCwd: COPY,
+        providerSessionId: "sess",
+        blocks: [],
+      },
+    ];
+    let synced: () => void = () => {};
+    h.copy.sync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          synced = () =>
+            resolve({
+              root: PATH,
+              base: BASE,
+              uncommitted: false,
+              untracked: false,
+            });
+        }),
+    );
+    await h.finish("chat-a");
+    await h.advance(BOT_SETTLE_MS);
+    // The copy is being reset: your message waits, nothing runs.
+    expect(h.runner.message("bot-chat", "Also check the footer", [])).toBe(
+      true,
+    );
+    expect(h.sent).toHaveLength(0);
+    expect(h.plain).toHaveLength(0);
+    synced();
+    await h.advance(1);
+    // The wake-up went first; yours follows it as in any chat.
+    expect(h.sent.map((item) => item.options.displayText)).toEqual([
+      "Chat finished · Add sign-up flow",
+    ]);
+    expect(h.plain).toEqual([
+      { sessionId: "bot-chat", text: "Also check the footer" },
+    ]);
     h.runner.stop();
   });
 

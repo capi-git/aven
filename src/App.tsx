@@ -7569,6 +7569,11 @@ export default function App({
           quiet: true,
           onSettled: options.onSettled,
         }) !== false,
+      sendAsUsual: (
+        sessionId: string,
+        text: string,
+        attachments: Attachment[],
+      ) => void onSubmit(sessionId, text, attachments),
       announce: announceActivity,
       onWorking: setBotWorkingChats,
     }),
@@ -10333,7 +10338,7 @@ export default function App({
         name: botName(bot, appearance.mascot),
         project: appearance.label,
         status,
-        headline: botHeadline(bot, status),
+        headline: botHeadline(bot, status, now),
       };
     });
   }, [botStore, sessionById]);

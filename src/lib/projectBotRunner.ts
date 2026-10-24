@@ -92,11 +92,21 @@ export type BotRunnerDeps = {
   ensureChat: (bot: ProjectBot) => Promise<Session | null>;
   /** Send a message into a chat; false when it could not go. */
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
+  /**
+   * Send your message the way any chat does: it queues behind, or steers,
+   * a turn under way.
+   */
+  sendAsUsual: (
+    sessionId: string,
+    text: string,
+    attachments: Attachment[],
+  ) => void;
   announce: (session: Session, event: SessionActivityEvent) => void;
   copy: {
     prepare: (cwd: string, key: string, branch: string) => Promise<BotCopyInfo>;
     sync: (cwd: string, copy: string, branch: string) => Promise<BotSyncResult>;
     diff: (copy: string, base: string) => Promise<BotDiff>;
+    remove: (cwd: string, copy: string, branch: string) => Promise<void>;
   };
   /** True for the first window to ask about this event (see `scheduled_agent_claim`). */
   claimEvent: (id: string) => Promise<boolean>;
@@ -180,6 +190,8 @@ export class BotRunner {
   private seenBusy = new Map<string, boolean>();
   /** Turns already read, by their message's id: each is read once. */
   private handled = new Set<string>();
+  /** Your messages held while a wake-up readies the copy, by project key. */
+  private held = new Map<string, (() => void)[]>();
   private working: ReadonlySet<string> = new Set();
 
   constructor(deps: BotRunnerDeps) {
@@ -385,14 +397,19 @@ export class BotRunner {
     await this.wake(bot, events);
   }
 
-  /** The bot is still on; anything else stops a job between its steps. */
-  private stillOn(path: string): boolean {
-    return getProjectBot(path)?.on === true;
+  /**
+   * The bot is still on, and (given `onAt`) still the one that started this
+   * job: turned off, or off and on again meanwhile, stops it between steps.
+   */
+  private stillOn(path: string, onAt?: number): boolean {
+    const bot = getProjectBot(path);
+    return bot?.on === true && (onAt === undefined || bot.onAt === onAt);
   }
 
   private async wake(bot: ProjectBot, events: BotEvent[]) {
     const key = projectKey(bot.path);
     const now = this.deps.now();
+    const onAt = bot.onAt;
     if (!claimBotJob(bot.path, this.deps.owner, now)) {
       for (const event of events) this.queue(bot, event);
       return;
@@ -408,11 +425,11 @@ export class BotRunner {
     try {
       const chat = await this.deps.ensureChat(bot);
       if (!chat) throw new Error("Couldn't open the bot's chat.");
-      if (!this.stillOn(bot.path)) return this.endTurn(bot.path, turn);
+      if (!this.stillOn(bot.path, onAt)) return this.endTurn(bot.path, turn);
       turn.sessionId = chat.id;
       this.updateWorking();
-      const ready = await this.prepare(bot.path, chat.id);
-      if (!ready || !this.stillOn(bot.path))
+      const ready = await this.prepare(bot.path, chat.id, onAt);
+      if (!ready || !this.stillOn(bot.path, onAt))
         return this.endTurn(bot.path, turn);
       if (ready.sync?.kind === "fix-waiting" || this.chatAtWorkNow(chat.id)) {
         // A fix waits for you (changes no one had read became one), or you
@@ -436,6 +453,8 @@ export class BotRunner {
       });
       if (!sent) throw new Error("Couldn't send the bot its wake-up.");
       turn.sentAt = this.deps.now();
+      // What you typed meanwhile follows it, as in any chat.
+      this.releaseHeld(key);
       // Only a wake-up that went counts toward the day's runs.
       updateProjectBot(bot.path, (current) =>
         withRunCounted(current, this.deps.now()),
@@ -472,6 +491,7 @@ export class BotRunner {
   private async prepare(
     path: string,
     chatId: string,
+    onAt: number | undefined,
   ): Promise<{ bot: ProjectBot; sync: BotSyncNote | null } | null> {
     let bot = getProjectBot(path);
     if (!bot?.on) return null;
@@ -479,11 +499,21 @@ export class BotRunner {
     if (!branch) return null;
     try {
       const copy = await this.deps.copy.prepare(path, projectKey(path), branch);
-      if (!this.stillOn(path)) return null;
-      if (copy.path !== bot.copy?.path)
-        bot = updateProjectBot(path, (current) => ({ ...current, copy }));
+      if (!this.stillOn(path, onAt)) {
+        // Turned off while its copy was being made: that copy goes too.
+        if (!getProjectBot(path)?.on)
+          await this.deps.copy
+            .remove(path, copy.path, copy.branch)
+            .catch((error) => logError("Bot copy", error));
+        return null;
+      }
+      bot = updateProjectBot(path, (current) => ({
+        ...current,
+        ...(copy.path !== current.copy?.path ? { copy } : {}),
+        lastError: undefined,
+      }));
     } catch (error) {
-      const text = botCopyError(error);
+      const text = `Couldn't make its copy: ${botCopyError(error)}`;
       updateProjectBot(path, (current) => ({
         ...current,
         lastError: { at: this.deps.now(), text },
@@ -495,7 +525,7 @@ export class BotRunner {
       const unread = await this.deps.copy
         .diff(bot.copy!.path, bot.base)
         .catch(() => null);
-      if (!this.stillOn(path)) return null;
+      if (!this.stillOn(path, onAt)) return null;
       const applied = bot.fixes?.at(-1);
       if (
         unread?.files.length &&
@@ -525,7 +555,7 @@ export class BotRunner {
         bot.copy!.path,
         bot.copy!.branch,
       );
-      if (!this.stillOn(path)) return null;
+      if (!this.stillOn(path, onAt)) return null;
       bot = updateProjectBot(path, (current) => ({
         ...current,
         base: synced.base,
@@ -564,8 +594,20 @@ export class BotRunner {
   message(sessionId: string, text: string, attachments: Attachment[]): boolean {
     const bot = botForChat(sessionId);
     if (!bot?.copy || !this.running) return false;
-    if (this.chatBusy(bot)) return false;
     const key = projectKey(bot.path);
+    const preparing = this.turns.get(key);
+    if (preparing?.wake && preparing.sentAt == null) {
+      // A wake-up is readying the copy: yours follows once it has started,
+      // never while the copy is being reset.
+      const held = this.held.get(key) ?? [];
+      held.push(() => {
+        if (!this.message(sessionId, text, attachments))
+          this.deps.sendAsUsual(sessionId, text, attachments);
+      });
+      this.held.set(key, held);
+      return true;
+    }
+    if (this.chatBusy(bot)) return false;
     const claimed = claimBotJob(bot.path, this.deps.owner, this.deps.now());
     const turn: Turn = { sessionId, wake: false, turnId: this.newId() };
     this.beginTurn(key, turn);
@@ -575,7 +617,9 @@ export class BotRunner {
       attachments,
       blockId: turn.turnId!,
       prepareText: async () => {
-        const ready = claimed ? await this.prepare(bot.path, sessionId) : null;
+        const ready = claimed
+          ? await this.prepare(bot.path, sessionId, bot.onAt)
+          : null;
         if (!this.stillOn(bot.path)) return text;
         return buildDirectMessage({
           text,
@@ -621,11 +665,21 @@ export class BotRunner {
       this.heartbeat = this.deps.setTimer(() => this.beat(), HEARTBEAT_MS);
   }
 
+  /** Send the messages you typed while a wake-up readied the copy. */
+  private releaseHeld(key: string) {
+    const held = this.held.get(key);
+    if (!held) return;
+    this.held.delete(key);
+    for (const send of held) send();
+  }
+
   /** End `turn` for the bot: never a newer one that has started since. */
   private endTurn(path: string, turn: Turn) {
     const key = projectKey(path);
     if (this.turns.get(key) !== turn) return;
     this.turns.delete(key);
+    // A wake-up that never went: what you typed goes now.
+    this.releaseHeld(key);
     releaseBotJob(path, this.deps.owner);
     this.updateWorking();
     if (!this.turns.size && this.heartbeat != null) {

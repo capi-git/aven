@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { sessionCheckpointStatus } from "../lib/checkpoint";
+import {
+  reportDevServerStop,
+  subscribeDevServerStops,
+  type DevServerStop,
+} from "../lib/devServerStops";
+import { logError } from "../lib/errors";
 import type { SessionActivityEvent } from "../lib/notifications";
 import { botCopyHost } from "../lib/projectBotCopy";
 import {
@@ -19,6 +28,9 @@ import type { Attachment, Session } from "../lib/session";
 import { getUsageForecasts } from "../lib/usageHistory";
 import { loadSavedRateLimits } from "../lib/rateLimits";
 
+/** A dev server that stopped in another window's terminal, for the main one. */
+const DEV_SERVER_STOP_EVENT = "aven://bot-dev-server-stop";
+
 /** This window, so two windows never drive the same bot. */
 const OWNER = `window-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -37,6 +49,12 @@ export type ProjectBotsHost = {
   /** Load the bot's chat, or make it, without a tab. */
   ensureChat: (bot: ProjectBot) => Promise<Session | null>;
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
+  /** Your message, sent as any chat sends it (queued behind a turn, say). */
+  sendAsUsual: (
+    sessionId: string,
+    text: string,
+    attachments: Attachment[],
+  ) => void;
   announce: (session: Session, event: SessionActivityEvent) => void;
   /** The chats bots work in now, which stay loaded without a tab. */
   onWorking: (ids: ReadonlySet<string>) => void;
@@ -70,6 +88,8 @@ export function useProjectBots(
       ensureChat: (bot) => hostRef.current.ensureChat(bot),
       send: (sessionId, text, options) =>
         hostRef.current.send(sessionId, text, options),
+      sendAsUsual: (sessionId, text, attachments) =>
+        hostRef.current.sendAsUsual(sessionId, text, attachments),
       announce: (session, event) => hostRef.current.announce(session, event),
       copy: botCopyHost,
       claimEvent: claimScheduledSlot,
@@ -111,6 +131,32 @@ export function useProjectBots(
   useEffect(() => {
     if (enabled && anyOn) runner.observe(sessions);
   }, [anyOn, enabled, runner, sessions]);
+
+  // Bots are driven by the main window; a dev server that crashes in another
+  // window's terminal is passed to it.
+  useEffect(() => {
+    if (!anyOn || !isTauri()) return;
+    if (!enabled)
+      return subscribeDevServerStops((stop) => {
+        emitTo("main", DEV_SERVER_STOP_EVENT, stop).catch((error) =>
+          logError("Bot dev server stop", error),
+        );
+      });
+    let stop: (() => void) | undefined;
+    let gone = false;
+    void getCurrentWebview()
+      .listen<DevServerStop>(DEV_SERVER_STOP_EVENT, ({ payload }) =>
+        reportDevServerStop(payload),
+      )
+      .then((unlisten) => {
+        if (gone) unlisten();
+        else stop = unlisten;
+      });
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [anyOn, enabled]);
 
   const live = enabled && anyOn;
   return useCallback(

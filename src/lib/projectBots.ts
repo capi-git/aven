@@ -117,6 +117,11 @@ export type ProjectBot = {
   /** The project's folder. */
   path: string;
   on: boolean;
+  /**
+   * When it was last turned on: work started before (in any window) stops
+   * between its steps once this changes or the bot is off.
+   */
+  onAt?: number;
   createdAt: number;
   /** A name the user gave it; the critter's name otherwise. */
   name?: string;
@@ -285,6 +290,9 @@ export function readProjectBot(value: unknown): ProjectBot | null {
   return {
     ...base,
     on: raw.on === true,
+    ...(typeof raw.onAt === "number" && Number.isFinite(raw.onAt)
+      ? { onAt: raw.onAt }
+      : {}),
     ...(text(raw.name, 40) ? { name: text(raw.name, 40)!.trim() } : {}),
     ...(text(raw.sessionId, 256)
       ? { sessionId: text(raw.sessionId, 256) }
@@ -908,15 +916,36 @@ export function botStatus(
   if (chat?.needsInput) return "needs-you";
   if (chat?.busy || jobIsLive(bot.job, now)) return "working";
   if (pendingFix(bot)) return "fix-ready";
-  if (bot.paused) return "paused";
+  if (botPauseReason(bot, now)) return "paused";
   return "watching";
 }
 
+/**
+ * Why the bot is not watching, in one plain line, or null while it is: you
+ * paused it, it reached today's runs, it rests for your weekly usage, or
+ * something went wrong. A broken bot never reads "Watching".
+ */
+export function botPauseReason(bot: ProjectBot, now: number): string | null {
+  if (bot.paused) return "Paused";
+  if (bot.lastError) return bot.lastError.text;
+  const skip = bot.lastSkip;
+  if (skip?.reason === "daily-cap" && localDay(skip.at) === localDay(now))
+    return `Resting until tomorrow: ${bot.limits.runsPerDay} checks today`;
+  if (skip?.reason === "usage")
+    return `Paused while Claude is over ${bot.limits.pauseAtPercent}% for the week`;
+  return null;
+}
+
 /** "Fix ready: 2 files" or its latest post, for Home's tile. */
-export function botHeadline(bot: ProjectBot, status: BotStatus): string {
+export function botHeadline(
+  bot: ProjectBot,
+  status: BotStatus,
+  now = Date.now(),
+): string {
   const fix = pendingFix(bot);
   if (status === "fix-ready" && fix)
     return `Fix ready: ${fix.files} ${fix.files === 1 ? "file" : "files"}`;
+  if (status === "paused") return botPauseReason(bot, now) ?? "Paused";
   if (status === "watching" && bot.lastPost && !bot.lastPost.quiet)
     return bot.lastPost.text;
   return BOT_STATUS_LABEL[status];
