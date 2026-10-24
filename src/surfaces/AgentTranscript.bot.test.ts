@@ -188,3 +188,32 @@ it("while a bot works, shows one line of what it is doing, and asks to be allowe
   await act(async () => buttons[1]!.click());
   expect(onApproval).toHaveBeenCalledWith(7, "deny");
 });
+
+it("never folds away a check that owns the waiting fix: its card stays", async () => {
+  updateProjectBot(PATH, (bot) =>
+    withReadyFix(
+      { ...bot, on: true, base: "b".repeat(40) },
+      {
+        base: "b".repeat(40),
+        turnId: "w1",
+        files: 1,
+        additions: 1,
+        deletions: 1,
+        paths: ["a.ts"],
+        hash: "h",
+        at: 1,
+      },
+    ),
+  );
+  const blocks: Block[] = [
+    wake("w1", "Chat finished · Tidy styles"),
+    { id: "r1", role: "assistant", text: "Nothing to report." },
+  ];
+  await act(async () =>
+    root.render(createElement(AgentTranscript, { blocks, botProject: PATH })),
+  );
+  expect(container.querySelector("[data-bot-checked]")).toBeNull();
+  expect(
+    container.querySelector("[data-bot-fix]")?.getAttribute("data-bot-fix"),
+  ).toBe("ready");
+});

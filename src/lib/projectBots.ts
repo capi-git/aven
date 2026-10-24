@@ -74,6 +74,11 @@ export type BotFix = {
   at: number;
   /** One line from the bot's reply. */
   summary?: string;
+  /**
+   * A fingerprint of exactly these changes, from the host: Apply applies
+   * only a patch with this fingerprint, so what you review is what lands.
+   */
+  hash?: string;
   state: BotFixState;
   resolvedAt?: number;
   /** Why the last Apply did not go through, in plain words. */
@@ -97,7 +102,8 @@ export type BotSkip =
   | "daily-cap"
   | "usage"
   | "busy"
-  | "leased";
+  | "leased"
+  | "fix-waiting";
 
 /**
  * Where a bot works. Bots belong to one project for now; an overview bot for
@@ -206,6 +212,7 @@ const SKIPS = new Set<BotSkip>([
   "usage",
   "busy",
   "leased",
+  "fix-waiting",
 ]);
 
 function readFix(value: unknown): BotFix | null {
@@ -232,6 +239,7 @@ function readFix(value: unknown): BotFix | null {
       : [],
     at: finite(fix.at, 0, 8.64e15, 0),
     ...(text(fix.summary, 300) ? { summary: text(fix.summary, 300) } : {}),
+    ...(text(fix.hash, 100) ? { hash: text(fix.hash, 100) } : {}),
     state: fix.state as BotFixState,
     ...(typeof fix.resolvedAt === "number"
       ? { resolvedAt: fix.resolvedAt }
@@ -571,6 +579,16 @@ export function useProjectBot(
   return useSyncExternalStore(subscribeProjectBots, getSnapshot, getSnapshot);
 }
 
+/** Whether a fix belongs to this turn of the bot's chat (its card follows it). */
+export function useBotTurnOwnsFix(
+  path: string | undefined,
+  turnId: string | undefined,
+): boolean {
+  const getSnapshot = () =>
+    !!path && !!turnId && !!fixForTurn(getProjectBot(path), turnId);
+  return useSyncExternalStore(subscribeProjectBots, getSnapshot, getSnapshot);
+}
+
 /** The project whose bot this chat is, while that bot is on. */
 export function useBotChatProject(
   sessionId: string | undefined,
@@ -663,23 +681,12 @@ export function fixForTurn(
   return bot?.fixes?.find((fix) => fix.turnId === turnId);
 }
 
-/** Whether a copy's changes now are the ones a fix recorded. */
+/** Whether a copy's changes now are exactly the ones a fix recorded. */
 export function fixMatches(
-  fix: Pick<BotFix, "files" | "additions" | "deletions" | "paths">,
-  diff: {
-    files: readonly { path: string }[];
-    additions: number;
-    deletions: number;
-  },
+  fix: Pick<BotFix, "hash">,
+  diff: { hash?: string },
 ): boolean {
-  return (
-    fix.files === diff.files.length &&
-    fix.additions === diff.additions &&
-    fix.deletions === diff.deletions &&
-    diff.files.every(
-      (file) => fix.paths.length < fix.files || fix.paths.includes(file.path),
-    )
-  );
+  return !!fix.hash && fix.hash === diff.hash;
 }
 
 /** Record a fix the bot just made, or the waiting one grown, at its newest turn. */
@@ -791,6 +798,9 @@ export function botWakeDecision(input: {
   if (bot.paused) return { skip: "paused" };
   const kinds = [...new Set(input.kinds)].filter((kind) => bot.wakes[kind]);
   if (!kinds.length) return { skip: "kind-off" };
+  // One fix at a time: what happens meanwhile waits until you apply it or
+  // throw it away, then wakes the bot once.
+  if (pendingFix(bot)) return { skip: "fix-waiting" };
   if (inQuietHours(bot.limits.quiet, now)) return { skip: "quiet-hours" };
   if (runsToday(bot, now) >= bot.limits.runsPerDay)
     return { skip: "daily-cap" };
@@ -804,7 +814,7 @@ export function botWakeDecision(input: {
 
 /** Skips that keep the event for later rather than dropping it. */
 export function skipKeepsEvents(skip: BotSkip): boolean {
-  return skip === "busy" || skip === "leased";
+  return skip === "busy" || skip === "leased" || skip === "fix-waiting";
 }
 
 /** Why the bot did not wake, in plain words, for its header. */

@@ -7,6 +7,7 @@ import { projectName } from "../lib/paths";
 import {
   applyBotFix,
   discardBotFix,
+  refreshBotFix,
   setBotPaused,
   useBotWorkspace,
 } from "../lib/projectBotActions";
@@ -156,6 +157,13 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
     let live = true;
     void (async () => {
       const diff = await botCopyHost.diff(copy, fix.base);
+      // Its copy changed since the card was made: record what is there now,
+      // so Apply applies exactly what this shows (this reads it again).
+      if (diff.hash !== fix.hash) {
+        const problem = await refreshBotFix(path, fix.id);
+        if (problem && live) setFiles([]);
+        return;
+      }
       const models = await Promise.all(
         diff.files.slice(0, 30).map(async (file) => {
           const texts = await botCopyHost
@@ -191,7 +199,7 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
     return () => {
       live = false;
     };
-  }, [copy, fix.base, fix.files, fix.additions, fix.deletions]);
+  }, [path, copy, fix.id, fix.base, fix.hash]);
   if (!files) return <p className="bot-fix-note">Reading its changes…</p>;
   if (!files.length)
     return <p className="bot-fix-note">Couldn't read its changes.</p>;

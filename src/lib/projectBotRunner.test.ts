@@ -11,10 +11,11 @@ import { BOT_SETTLE_MS } from "./projectBotWake";
 import {
   getProjectBot,
   resetProjectBotsCache,
+  resolveFix,
   updateProjectBot,
   withReadyFix,
 } from "./projectBots";
-import type { RaceDiff } from "./race";
+import type { BotDiff } from "./projectBotCopy";
 import type { Session } from "./session";
 
 function memoryStorage(): Storage {
@@ -34,7 +35,12 @@ function memoryStorage(): Storage {
 const PATH = "/Users/me/Orbit";
 const COPY = "/data/bots/orbit-1";
 const BASE = "b".repeat(40);
-const NO_DIFF: RaceDiff = { files: [], additions: 0, deletions: 0 };
+const NO_DIFF: BotDiff = {
+  files: [],
+  additions: 0,
+  deletions: 0,
+  hash: "none",
+};
 
 /** Local 2 pm, outside the default quiet hours. */
 const START = new Date(2026, 9, 23, 14, 0).getTime();
@@ -78,7 +84,7 @@ function harness(
       uncommitted: false,
       untracked: false,
     })),
-    diff: vi.fn(async (): Promise<RaceDiff> => NO_DIFF),
+    diff: vi.fn(async (): Promise<BotDiff> => NO_DIFF),
   };
   const chat = (): Session => ({
     id: "bot-chat",
@@ -356,6 +362,7 @@ describe("a project bot waking up", () => {
       ],
       additions: 14,
       deletions: 6,
+      hash: "h1",
     });
     await h.reply("Two auth tests broke; I fixed them in my copy.");
     expect(h.copy.diff).toHaveBeenCalledWith(COPY, BASE);
@@ -462,7 +469,7 @@ describe("a project bot waking up", () => {
     h.runner.stop();
   });
 
-  it("does not sync over a waiting fix, and tells the bot not to start another", async () => {
+  it("holds what happens while a fix waits, and wakes once after you apply it", async () => {
     const h = harness();
     h.runner.start();
     updateProjectBot(PATH, (bot) =>
@@ -475,14 +482,100 @@ describe("a project bot waking up", () => {
           additions: 1,
           deletions: 0,
           paths: ["a.ts"],
+          hash: "waiting",
           at: 1,
         },
       ),
     );
     await h.finish("chat-a");
     await h.advance(BOT_SETTLE_MS);
+    await h.finish("chat-b");
+    await h.advance(5 * 60_000);
+    // Nothing woke it, and its copy (holding the fix) was left alone.
+    expect(h.sent).toHaveLength(0);
     expect(h.copy.sync).not.toHaveBeenCalled();
-    expect(h.sent[0].text).toContain("don't start another fix");
+    expect(h.runner.pendingEvents(PATH)).toHaveLength(2);
+    const fix = getProjectBot(PATH)!.fixes![0];
+    updateProjectBot(PATH, (bot) => resolveFix(bot, fix.id, "applied"));
+    await h.advance(60_000);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0].options.displayText).toBe("2 chats finished");
+    expect(h.copy.sync).toHaveBeenCalledTimes(1);
+    h.runner.stop();
+  });
+
+  it("moves a waiting fix to a later turn only when its changes changed", async () => {
+    const h = harness();
+    h.runner.start();
+    updateProjectBot(PATH, (bot) => ({ ...bot, sessionId: "bot-chat" }));
+    h.sessions = [
+      {
+        id: "bot-chat",
+        harness: "claude",
+        model: "m",
+        modelSettings: {},
+        runtimeMode: "auto",
+        title: "Jelly",
+        cwd: PATH,
+        worktreeCwd: COPY,
+        providerSessionId: "sess",
+        blocks: [],
+      },
+    ];
+    updateProjectBot(PATH, (bot) =>
+      withReadyFix(
+        { ...bot, base: BASE },
+        {
+          base: BASE,
+          turnId: "made-it",
+          files: 1,
+          additions: 1,
+          deletions: 0,
+          paths: ["a.ts"],
+          hash: "first",
+          at: 1,
+        },
+      ),
+    );
+    const same: BotDiff = {
+      files: [
+        {
+          path: "a.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          binary: false,
+        },
+      ],
+      additions: 1,
+      deletions: 0,
+      hash: "first",
+    };
+    // You ask about it; it changes nothing: the card stays on its turn.
+    expect(h.runner.message("bot-chat", "Why this change?", [])).toBe(true);
+    await h.advance(1);
+    h.copy.diff.mockResolvedValueOnce(same);
+    await h.reply("Because a.ts rounded up.");
+    expect(getProjectBot(PATH)!.fixes![0]).toMatchObject({
+      turnId: "made-it",
+      hash: "first",
+      state: "ready",
+    });
+    expect(h.announced.map((item) => item.event.summary)).toEqual([
+      "Because a.ts rounded up.",
+    ]);
+    // Same files and line counts, different changes: a new card, here.
+    expect(h.runner.message("bot-chat", "Round down instead", [])).toBe(true);
+    await h.advance(1);
+    h.copy.diff.mockResolvedValueOnce({ ...same, hash: "second" });
+    await h.reply("Done, it rounds down now.");
+    const fixes = getProjectBot(PATH)!.fixes!;
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]).toMatchObject({ hash: "second", state: "ready" });
+    expect(fixes[0].turnId).not.toBe("made-it");
+    expect(h.announced.at(-1)!.event.summary).toBe(
+      "Fix ready · 1 file · +1 −0 · Done, it rounds down now.",
+    );
     h.runner.stop();
   });
 
@@ -573,7 +666,7 @@ describe("a project bot waking up", () => {
   it("never offers changes you already applied as a new fix", async () => {
     const h = harness();
     h.runner.start();
-    const change: RaceDiff = {
+    const change: BotDiff = {
       files: [
         {
           path: "a.ts",
@@ -585,6 +678,7 @@ describe("a project bot waking up", () => {
       ],
       additions: 1,
       deletions: 1,
+      hash: "h2",
     };
     await h.finish("chat-a");
     await h.advance(BOT_SETTLE_MS);
@@ -676,6 +770,7 @@ describe("a project bot waking up", () => {
       ],
       additions: 2,
       deletions: 1,
+      hash: "h3",
     });
     await h.reply("Fixed it.");
     expect(getProjectBot(PATH)!.fixes![0].turnId).toBe("turn-1");
@@ -736,6 +831,7 @@ describe("a project bot waking up", () => {
       ],
       additions: 3,
       deletions: 0,
+      hash: "h4",
     });
     await h.finish("chat-a");
     await h.advance(BOT_SETTLE_MS);
@@ -744,8 +840,11 @@ describe("a project bot waking up", () => {
       state: "ready",
       files: 1,
       paths: ["b.ts"],
+      hash: "h4",
     });
-    expect(h.sent[0].text).toContain("don't start another fix");
+    // It waits for you, with the event, rather than working over it.
+    expect(h.sent).toHaveLength(0);
+    expect(h.runner.pendingEvents(PATH)).toHaveLength(1);
     h.runner.stop();
   });
 

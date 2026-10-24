@@ -8,7 +8,7 @@ import { errorText, logError } from "./errors";
 import type { SessionActivityEvent } from "./notifications";
 import type { ControlOutcome } from "./orchestration";
 import { isEqualOrInside, projectKey } from "./paths";
-import type { BotCopyInfo, BotSyncResult } from "./projectBotCopy";
+import type { BotCopyInfo, BotDiff, BotSyncResult } from "./projectBotCopy";
 import { botCopyError } from "./projectBotCopy";
 import {
   activeProjectBots,
@@ -96,7 +96,7 @@ export type BotRunnerDeps = {
   copy: {
     prepare: (cwd: string, key: string, branch: string) => Promise<BotCopyInfo>;
     sync: (cwd: string, copy: string, branch: string) => Promise<BotSyncResult>;
-    diff: (copy: string, base: string) => Promise<RaceDiff>;
+    diff: (copy: string, base: string) => Promise<BotDiff>;
   };
   /** True for the first window to ask about this event (see `scheduled_agent_claim`). */
   claimEvent: (id: string) => Promise<boolean>;
@@ -414,8 +414,9 @@ export class BotRunner {
       const ready = await this.prepare(bot.path, chat.id);
       if (!ready || !this.stillOn(bot.path))
         return this.endTurn(bot.path, turn);
-      if (this.chatAtWorkNow(chat.id)) {
-        // You messaged it meanwhile: the events wait for that turn.
+      if (ready.sync?.kind === "fix-waiting" || this.chatAtWorkNow(chat.id)) {
+        // A fix waits for you (changes no one had read became one), or you
+        // messaged it meanwhile: the events wait for that.
         this.endTurn(bot.path, turn);
         for (const event of events) this.queue(bot, event);
         return;
@@ -511,6 +512,7 @@ export class BotRunner {
             additions: unread.additions,
             deletions: unread.deletions,
             paths: unread.files.map((file) => file.path),
+            hash: unread.hash,
             at: this.deps.now(),
           }),
         );
@@ -666,7 +668,7 @@ export class BotRunner {
       // Its last message: earlier ones in the turn are its working notes.
       const reply = lastReply(chat) || outcome?.text.trim() || "";
       const now = this.deps.now();
-      let diff: RaceDiff | null = null;
+      let diff: BotDiff | null = null;
       if (bot.copy && bot.base)
         diff = await this.deps.copy
           .diff(bot.copy.path, bot.base)
@@ -676,6 +678,7 @@ export class BotRunner {
           });
       if (!this.stillOn(path)) return;
       const waiting = pendingFix(bot);
+      const hasChanges = !!diff?.files.length;
       // A fix you applied while it worked is still in its copy until the
       // next sync: those same changes are not a new fix.
       const applied = bot.fixes?.at(-1);
@@ -684,23 +687,22 @@ export class BotRunner {
         applied?.state === "applied" &&
         !!diff &&
         fixMatches(applied, diff);
-      const changed = !!diff?.files.length && !alreadyApplied;
+      // A fix appears, or moves to this turn, only when the copy's changes
+      // differ from the one already waiting.
+      const fixed =
+        !!diff &&
+        hasChanges &&
+        !alreadyApplied &&
+        !(waiting && fixMatches(waiting, diff));
       const wake =
         turn.wake ??
         !!chat?.blocks.find((block) => block.id === turnId)?.botWake;
-      const quiet = wake && !changed && isNothingToReport(reply);
+      const quiet = wake && !fixed && isNothingToReport(reply);
       const headline = replyHeadline(reply);
       const failed = outcome?.status === "failed";
-      let fixed = false;
       updateProjectBot(path, (current) => {
         let next = current;
-        if (diff && changed && current.base) {
-          const grew =
-            !waiting ||
-            waiting.files !== diff.files.length ||
-            waiting.additions !== diff.additions ||
-            waiting.deletions !== diff.deletions;
-          fixed = grew;
+        if (diff && fixed && current.base) {
           next = withReadyFix(next, {
             base: current.base,
             turnId,
@@ -708,10 +710,11 @@ export class BotRunner {
             additions: diff.additions,
             deletions: diff.deletions,
             paths: diff.files.map((file) => file.path),
+            hash: diff.hash,
             at: now,
             ...(headline ? { summary: headline } : {}),
           });
-        } else if (diff && !changed && waiting)
+        } else if (diff && !hasChanges && waiting)
           // The bot undid its own fix: nothing waits any more.
           next = resolveFix(next, waiting.id, "gone", now);
         const post = fixed

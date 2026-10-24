@@ -103,6 +103,7 @@ import {
 import type { TranscriptLayout } from "../lib/appearance";
 import { BotCheckedRow, BotFixCard, BotWakeTag } from "./BotChat";
 import { botProgressLine, isNothingToReport } from "../lib/projectBotWake";
+import { useBotTurnOwnsFix } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
@@ -971,6 +972,11 @@ const TranscriptTurn = memo(function TranscriptTurn({
   onSecondOpinion,
   onHandoff,
 }: TranscriptTurnProps) {
+  // A bot's turn that owns its fix is never folded away: its card shows.
+  const ownsBotFix = useBotTurnOwnsFix(
+    botProject,
+    botProject ? turnUserBlock(turn, managed)?.id : undefined,
+  );
   // Your message that started a team here: it stays as you sent it.
   const teamStart = turn.length === 1 ? turn[0] : undefined;
   if (teamStart?.team)
@@ -1046,6 +1052,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   if (
     userBlock?.botWake &&
     settled &&
+    !ownsBotFix &&
     !turn.some((block) => block.approval) &&
     isNothingToReport(lastProseText(turn))
   )

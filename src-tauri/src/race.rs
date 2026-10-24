@@ -231,7 +231,10 @@ pub(crate) fn prepare_for(cwd: &Path, who: &str) -> Result<RaceBase, String> {
         run(&root_path, &["rev-parse", "--verify", "HEAD"])
             .map_err(|_| format!("{who} needs at least one commit in this repository."))?,
     );
-    let stash = text(run(&root_path, &["stash", "create"])?);
+    // `git stash create` refreshes and writes the index it reads, taking its
+    // lock: it reads a copy, so the user's own git never finds it locked.
+    let index = ScratchIndex::seeded_from(&root_path)?;
+    let stash = text(run_staged(&root_path, &index, &["stash", "create"])?);
     let untracked = !run(
         &root_path,
         &[
@@ -361,6 +364,34 @@ fn readable(bytes: Vec<u8>) -> Option<String> {
         return None;
     }
     String::from_utf8(bytes).ok()
+}
+
+/// Everything changed in `worktree` since `base`, new files included, as
+/// one binary patch. The checkout's own index is not touched.
+pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
+    if !is_sha(base) {
+        return Err("Invalid race base".into());
+    }
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    run_staged(
+        worktree,
+        &index,
+        &["diff", "--cached", "--binary", "--no-renames", base],
+    )
+}
+
+/// Apply `patch` to the checkout at `root`, checking it first so a conflict
+/// changes nothing.
+pub(crate) fn apply_patch(root: &Path, patch: &[u8]) -> Result<(), String> {
+    run_with_input(
+        root,
+        &["apply", "--check", "--whitespace=nowarn"],
+        Some(patch),
+    )
+    .map_err(|error| format!("These changes conflict with edits in your project: {error}"))?;
+    run_with_input(root, &["apply", "--whitespace=nowarn"], Some(patch))?;
+    Ok(())
 }
 
 pub fn file_diff(worktree: &Path, base: &str, path: &str) -> Result<RaceFileDiff, String> {

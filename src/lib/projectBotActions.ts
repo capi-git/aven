@@ -7,12 +7,11 @@ import {
 } from "./harness/availability";
 import { projectKey } from "./paths";
 import { projectAppearance } from "./projectAppearance";
-import { botCopyError, botCopyHost } from "./projectBotCopy";
+import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
 import {
   botBranch,
   defaultBotName,
   forgetProjectBot,
-  fixMatches,
   getProjectBot,
   jobIsLive,
   newProjectBot,
@@ -143,6 +142,44 @@ export async function forgetBotForProject(path: string): Promise<void> {
   forgetProjectBot(path);
 }
 
+const FIX_CHANGED_TEXT =
+  "The fix changed since you looked. Review it again, then apply.";
+
+/**
+ * Read the waiting fix again from the bot's copy, on the same turn, with its
+ * new fingerprint: what Review shows next is what Apply applies. Resolves
+ * with why it couldn't, or null.
+ */
+export async function refreshBotFix(
+  path: string,
+  fixId: string,
+): Promise<string | null> {
+  const bot = getProjectBot(path);
+  const fix = bot?.fixes?.find((item) => item.id === fixId);
+  if (!bot?.copy || !fix || fix.state !== "ready")
+    return "This fix is no longer waiting.";
+  try {
+    const now = await botCopyHost.diff(bot.copy.path, fix.base);
+    updateProjectBot(path, (current) =>
+      now.files.length
+        ? withReadyFix(current, {
+            ...fix,
+            files: now.files.length,
+            additions: now.additions,
+            deletions: now.deletions,
+            paths: now.files.map((file) => file.path),
+            hash: now.hash,
+            at: Date.now(),
+          })
+        : resolveFix(current, fixId, "gone"),
+    );
+    return now.files.length ? null : "This fix is no longer waiting.";
+  } catch (error) {
+    logError("Bot fix", error);
+    return botCopyError(error);
+  }
+}
+
 /**
  * Bring the waiting fix into the user's files. A conflict changes nothing
  * and keeps the fix; resolves with why, in plain words, or null once applied.
@@ -157,30 +194,15 @@ export async function applyBotFix(
     return "This fix is no longer waiting.";
   if (jobIsLive(bot.job, Date.now()))
     return "It's still working on this. Apply it once it finishes.";
-  // What goes into your files is what the card showed: a copy that changed
-  // since is shown again first.
+  // What goes into your files is exactly the fix you reviewed: the host
+  // applies only a patch with its fingerprint. One that changed since (or
+  // one recorded before fingerprints) is shown again first.
+  if (!fix.hash) return (await refreshBotFix(path, fixId)) ?? FIX_CHANGED_TEXT;
   try {
-    const now = await botCopyHost.diff(bot.copy.path, fix.base);
-    if (!fixMatches(fix, now)) {
-      updateProjectBot(path, (current) =>
-        withReadyFix(current, {
-          ...fix,
-          files: now.files.length,
-          additions: now.additions,
-          deletions: now.deletions,
-          paths: now.files.map((file) => file.path),
-          at: Date.now(),
-        }),
-      );
-      return "The fix changed since you looked. Review it again, then apply.";
-    }
+    await botCopyHost.apply(path, bot.copy.path, fix.base, fix.hash);
   } catch (error) {
-    logError("Apply bot fix", error);
-    return botCopyError(error);
-  }
-  try {
-    await botCopyHost.apply(path, bot.copy.path, fix.base);
-  } catch (error) {
+    if (isFixChanged(error))
+      return (await refreshBotFix(path, fixId)) ?? FIX_CHANGED_TEXT;
     logError("Apply bot fix", error);
     const text = botCopyError(error);
     updateProjectBot(path, (current) => noteFixError(current, fixId, text));

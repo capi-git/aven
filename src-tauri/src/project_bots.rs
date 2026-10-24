@@ -43,6 +43,16 @@ pub struct BotSync {
     pub untracked: bool,
 }
 
+/// What the bot changed, and a fingerprint of exactly those changes: the
+/// fix the user reviews is the fix that is applied (see `apply`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BotDiff {
+    #[serde(flatten)]
+    pub changes: RaceDiff,
+    pub hash: String,
+}
+
 /// A branch Aven made for a bot: `aven/bot/` and a short lowercase slug.
 fn valid_branch(branch: &str) -> bool {
     branch.strip_prefix(BRANCH_PREFIX).is_some_and(|slug| {
@@ -234,36 +244,54 @@ pub fn discard(bots: &Path, copy: &str, base: &str, branch: &str) -> Result<(), 
     reset_to(&checked_copy(bots, copy)?, base, branch)
 }
 
+fn patch_hash(patch: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in patch {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}-{}", patch.len())
+}
+
 /// What the bot changed in its copy since `base`.
-pub fn diff(bots: &Path, copy: &str, base: &str) -> Result<RaceDiff, String> {
-    race::diff(&checked_copy(bots, copy)?, base)
+pub fn diff(bots: &Path, copy: &str, base: &str) -> Result<BotDiff, String> {
+    let worktree = checked_copy(bots, copy)?;
+    let changes = race::diff(&worktree, base)?;
+    let hash = patch_hash(&race::patch(&worktree, base)?);
+    Ok(BotDiff { changes, hash })
 }
 
 pub fn file_diff(bots: &Path, copy: &str, base: &str, path: &str) -> Result<RaceFileDiff, String> {
     race::file_diff(&checked_copy(bots, copy)?, base, path)
 }
 
-/// Apply everything the bot changed onto the user's working tree. Every
-/// file is checked first, so a conflict changes nothing and the fix stays in
-/// the copy.
-pub fn apply(cwd: &Path, bots: &Path, copy: &str, base: &str) -> Result<RaceDiff, String> {
+/// Apply what the bot changed onto the user's working tree, only when it is
+/// exactly the fix the user reviewed (`hash`, from `diff`). The patch is
+/// checked first, so a conflict changes nothing and the fix stays in the
+/// copy.
+pub fn apply(
+    cwd: &Path,
+    bots: &Path,
+    copy: &str,
+    base: &str,
+    hash: &str,
+) -> Result<RaceDiff, String> {
     let root = repo_root(cwd)?;
     let worktree = checked_copy(bots, copy)?;
     let changes = race::diff(&worktree, base)?;
     if changes.files.is_empty() {
         return Err("The bot's copy has no changes to apply.".into());
     }
-    race::apply(
-        &root,
-        bots,
-        base,
-        &[race::RaceChoice {
-            worktree: copy.to_string(),
-            paths: changes.files.iter().map(|file| file.path.clone()).collect(),
-        }],
-    )?;
+    let patch = race::patch(&worktree, base)?;
+    if patch_hash(&patch) != hash {
+        return Err(FIX_CHANGED.into());
+    }
+    race::apply_patch(&root, &patch)?;
     Ok(changes)
 }
+
+/// Said when the copy no longer holds the fix the user reviewed.
+const FIX_CHANGED: &str = "The fix changed since you looked.";
 
 /// Remove the copy and its branch.
 pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), String> {
@@ -337,7 +365,7 @@ pub async fn bot_copy_sync(
 }
 
 #[tauri::command]
-pub async fn bot_copy_diff(app: AppHandle, copy: String, base: String) -> Result<RaceDiff, String> {
+pub async fn bot_copy_diff(app: AppHandle, copy: String, base: String) -> Result<BotDiff, String> {
     let bots = bots_dir(&app)?;
     blocking(move || diff(&bots, &copy, &base)).await
 }
@@ -359,9 +387,10 @@ pub async fn bot_copy_apply(
     cwd: String,
     copy: String,
     base: String,
+    hash: String,
 ) -> Result<RaceDiff, String> {
     let bots = bots_dir(&app)?;
-    blocking(move || apply(&crate::fs::expand_home(&cwd), &bots, &copy, &base)).await
+    blocking(move || apply(&crate::fs::expand_home(&cwd), &bots, &copy, &base, &hash)).await
 }
 
 #[tauri::command]
@@ -443,9 +472,15 @@ mod tests {
         assert_eq!(ensure_copy(&root, &bots, &key, BRANCH).unwrap(), copy);
         assert_eq!(read(&copy_path.join("b.txt")), "bot edit\n");
 
-        // The user has uncommitted work; the copy starts from it.
+        // The user has uncommitted work; the copy starts from it. Their own
+        // git is busy meanwhile (its index is locked): the sync never needs
+        // that lock, and leaves it alone.
         std::fs::write(root.join("a.txt"), "one\ntwo\nmine\n").unwrap();
+        let lock = root.join(".git/index.lock");
+        std::fs::write(&lock, "").unwrap();
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
+        assert!(lock.is_file());
+        std::fs::remove_file(&lock).unwrap();
         assert!(synced.uncommitted);
         assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\nmine\n");
         assert_eq!(read(&copy_path.join("b.txt")), "keep\n");
@@ -454,6 +489,7 @@ mod tests {
         assert!(copy_path.join("node_modules/pkg/index.js").is_file());
         assert!(diff(&bots, &copy.path, &synced.base)
             .unwrap()
+            .changes
             .files
             .is_empty());
         // The user's folder never changed.
@@ -480,7 +516,8 @@ mod tests {
 
         std::fs::write(copy_path.join("a.txt"), "one\ntwo\nfixed\n").unwrap();
         std::fs::write(copy_path.join("new.txt"), "fresh\n").unwrap();
-        let changes = diff(&bots, &copy.path, &synced.base).unwrap();
+        let reviewed = diff(&bots, &copy.path, &synced.base).unwrap();
+        let changes = &reviewed.changes;
         let mut files: Vec<_> = changes
             .files
             .iter()
@@ -496,7 +533,18 @@ mod tests {
         assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
         assert!(!root.join("new.txt").exists());
 
-        let applied = apply(&root, &bots, &copy.path, &synced.base).unwrap();
+        // A change after the user looked is never applied unseen, even one
+        // with the same files and line counts.
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nFIXED\n").unwrap();
+        let later = diff(&bots, &copy.path, &synced.base).unwrap();
+        assert_eq!(later.changes.additions, reviewed.changes.additions);
+        assert_ne!(later.hash, reviewed.hash);
+        let error = apply(&root, &bots, &copy.path, &synced.base, &reviewed.hash).unwrap_err();
+        assert_eq!(error, FIX_CHANGED);
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nfixed\n").unwrap();
+
+        let applied = apply(&root, &bots, &copy.path, &synced.base, &reviewed.hash).unwrap();
         assert_eq!(applied.files.len(), 2);
         assert_eq!(read(&root.join("a.txt")), "one\ntwo\nfixed\n");
         assert_eq!(read(&root.join("new.txt")), "fresh\n");
@@ -507,6 +555,7 @@ mod tests {
         assert!(!copy_path.join("new.txt").exists());
         assert!(diff(&bots, &copy.path, &synced.base)
             .unwrap()
+            .changes
             .files
             .is_empty());
 
@@ -527,13 +576,18 @@ mod tests {
         std::fs::write(copy_path.join("b.txt"), "bot b\n").unwrap();
         // The user edited a.txt after the bot's copy was synced.
         std::fs::write(root.join("a.txt"), "user\n").unwrap();
-        let error = apply(&root, &bots, &copy.path, &synced.base).unwrap_err();
+        let hash = diff(&bots, &copy.path, &synced.base).unwrap().hash;
+        let error = apply(&root, &bots, &copy.path, &synced.base, &hash).unwrap_err();
         assert!(error.contains("conflict"), "{error}");
         assert_eq!(read(&root.join("a.txt")), "user\n");
         assert_eq!(read(&root.join("b.txt")), "keep\n");
         // The fix is still there to try again.
         assert_eq!(
-            diff(&bots, &copy.path, &synced.base).unwrap().files.len(),
+            diff(&bots, &copy.path, &synced.base)
+                .unwrap()
+                .changes
+                .files
+                .len(),
             2
         );
         remove(&root, &bots, &copy.path, BRANCH).unwrap();

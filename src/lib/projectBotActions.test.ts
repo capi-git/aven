@@ -67,6 +67,7 @@ const change = (additions: number) => ({
   ],
   additions,
   deletions: 1,
+  hash: `patch-${additions}`,
 });
 
 function botWithFix() {
@@ -85,6 +86,7 @@ function botWithFix() {
         additions: 2,
         deletions: 1,
         paths: ["a.ts"],
+        hash: "patch-2",
         at: 1,
       },
     ),
@@ -114,7 +116,8 @@ describe("acting on a bot's fix", () => {
       untracked: false,
     });
     expect(await applyBotFix(PATH, id)).toBeNull();
-    expect(host.apply).toHaveBeenCalledWith(PATH, COPY, BASE);
+    // Only the patch you reviewed: the host checks its fingerprint.
+    expect(host.apply).toHaveBeenCalledWith(PATH, COPY, BASE, "patch-2");
     const bot = getProjectBot(PATH)!;
     expect(bot.fixes![0].state).toBe("applied");
     expect(bot.base).toBe("c".repeat(40));
@@ -122,10 +125,16 @@ describe("acting on a bot's fix", () => {
 
   it("shows a fix again when its copy changed since you looked", async () => {
     const id = botWithFix();
+    host.apply.mockRejectedValue("The fix changed since you looked.");
     host.diff.mockResolvedValue(change(5));
     expect(await applyBotFix(PATH, id)).toMatch(/changed since you looked/);
-    expect(host.apply).not.toHaveBeenCalled();
-    expect(pendingFix(getProjectBot(PATH))).toMatchObject({ additions: 5 });
+    // Refreshed for review, on the same turn, with its new fingerprint.
+    expect(pendingFix(getProjectBot(PATH))).toMatchObject({
+      additions: 5,
+      hash: "patch-5",
+      turnId: "t1",
+    });
+    expect(getProjectBot(PATH)!.fixes![0].state).toBe("ready");
   });
 
   it("keeps the fix when applying conflicts, and says so plainly", async () => {
