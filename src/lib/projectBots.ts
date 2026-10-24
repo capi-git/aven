@@ -509,6 +509,48 @@ export function isBotChat(sessionId: string | undefined): boolean {
   return !!sessionId && chats().has(sessionId);
 }
 
+/** What a bot's chat must be to run a turn: in its copy, on Claude, in auto. */
+export type BotChatShape = {
+  harness: string;
+  model: string;
+  modelSettings?: Record<string, string>;
+  runtimeMode: string;
+  worktreeCwd?: string;
+  providerSessionId?: string;
+  pendingSwitch?: unknown;
+};
+
+/**
+ * The chat as its bot needs it, or null when it already is. `restart` says
+ * its agent must start a new conversation (it moved into the copy or onto
+ * Claude), which a busy chat cannot do until its turn ends.
+ */
+export function botChatInCopy<T extends BotChatShape>(
+  chat: T,
+  copy: string,
+  claudeModel: () => string,
+): { chat: T; restart: boolean } | null {
+  const moved = chat.worktreeCwd !== copy;
+  const otherApp = chat.harness !== "claude";
+  if (!moved && !otherApp)
+    return chat.runtimeMode === "auto"
+      ? null
+      : { chat: { ...chat, runtimeMode: "auto" }, restart: false };
+  return {
+    restart: true,
+    chat: {
+      ...chat,
+      runtimeMode: "auto",
+      worktreeCwd: copy,
+      providerSessionId: undefined,
+      pendingSwitch: undefined,
+      ...(otherApp
+        ? { harness: "claude", model: claudeModel(), modelSettings: {} }
+        : {}),
+    },
+  };
+}
+
 /** Chats that belong to a bot that is on. */
 export function botChatIds(): ReadonlySet<string> {
   return new Set(chats().keys());

@@ -206,6 +206,11 @@ type Props = {
   hideTopBar?: boolean;
   /** What the empty message box says, in place of the usual hint. */
   placeholder?: string;
+  /**
+   * Leave out the agent pill (its agent, model and access choices): a
+   * project's bot always runs Claude, in its own mode.
+   */
+  hideAgentPill?: boolean;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -600,6 +605,7 @@ function ComposerComponent({
   hideBranchPicker = false,
   hideTopBar = false,
   placeholder,
+  hideAgentPill = false,
   context,
   compactSupported = false,
   quoteRequest,
@@ -2388,22 +2394,24 @@ function ComposerComponent({
                 />
               )}
             </div>
-            <div className="personal-composer-agent">
-              <AgentPill
-                fit={fit}
-                harness={harness}
-                model={model}
-                modelSettings={modelSettings}
-                runtimeMode={runtimeMode}
-                showAccess={harnessDescriptor(harness).supportsAccessMode}
-                busy={busy}
-                hotkeys={hotkeys && enabled}
-                onModelChange={onModelChange}
-                onModelSettingsChange={onModelSettingsChange}
-                onRuntimeModeChange={onRuntimeModeChange}
-                onClose={focusField}
-              />
-            </div>
+            {hideAgentPill ? null : (
+              <div className="personal-composer-agent">
+                <AgentPill
+                  fit={fit}
+                  harness={harness}
+                  model={model}
+                  modelSettings={modelSettings}
+                  runtimeMode={runtimeMode}
+                  showAccess={harnessDescriptor(harness).supportsAccessMode}
+                  busy={busy}
+                  hotkeys={hotkeys && enabled}
+                  onModelChange={onModelChange}
+                  onModelSettingsChange={onModelSettingsChange}
+                  onRuntimeModeChange={onRuntimeModeChange}
+                  onClose={focusField}
+                />
+              </div>
+            )}
 
             {hideTopBar ? null : (
               <div className="personal-composer-context">

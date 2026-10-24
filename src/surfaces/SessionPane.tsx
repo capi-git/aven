@@ -685,6 +685,7 @@ export const SessionPane = memo(function SessionPane({
       }
       hideTopBar={!!session.inboxAsk}
       placeholder={botLabel ? `Message ${botLabel}…` : undefined}
+      hideAgentPill={!!botProject}
       context={session.context}
       quoteRequest={quoteRequest}
       initialDraft={draftRef.current.text}

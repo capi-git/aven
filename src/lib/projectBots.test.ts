@@ -4,6 +4,7 @@ import {
   BOT_JOB_STALE_MS,
   PROJECT_BOTS_KEY,
   botBranch,
+  botChatInCopy,
   botForChat,
   botHeadline,
   botName,
@@ -191,6 +192,62 @@ describe("project bot settings", () => {
       botBranch("Jelly", PATH),
     );
     expect(botBranch("Jelly", `${PATH}/`)).toBe(botBranch("Jelly", PATH));
+  });
+});
+
+describe("a bot's chat works only in its copy", () => {
+  const copy = "/data/bots/orbit-1a2b";
+  const chat = {
+    id: "bot-chat",
+    harness: "claude",
+    model: "claude:claude-sonnet-5",
+    modelSettings: { effort: "high" },
+    runtimeMode: "auto",
+    worktreeCwd: copy,
+    providerSessionId: "sess_1",
+  };
+  const claude = () => "claude:claude-opus-5";
+
+  it("leaves a chat that is already right alone", () => {
+    expect(botChatInCopy(chat, copy, claude)).toBeNull();
+  });
+
+  it("puts a chat that would run in your folder into the copy, as a new conversation", () => {
+    // Turned on while it was an ordinary chat in the project folder.
+    const fix = botChatInCopy(
+      { ...chat, worktreeCwd: undefined, runtimeMode: "full-access" },
+      copy,
+      claude,
+    )!;
+    expect(fix.restart).toBe(true);
+    expect(fix.chat).toMatchObject({
+      worktreeCwd: copy,
+      runtimeMode: "auto",
+      providerSessionId: undefined,
+      model: "claude:claude-sonnet-5",
+    });
+  });
+
+  it("moves a chat on another agent to Claude, and a Full access chat back to auto", () => {
+    const codex = botChatInCopy(
+      { ...chat, harness: "codex", model: "codex:gpt-6" },
+      copy,
+      claude,
+    )!;
+    expect(codex.chat).toMatchObject({
+      harness: "claude",
+      model: "claude:claude-opus-5",
+      modelSettings: {},
+    });
+    const full = botChatInCopy(
+      { ...chat, runtimeMode: "full-access" },
+      copy,
+      claude,
+    )!;
+    expect(full).toEqual({
+      chat: { ...chat, runtimeMode: "auto" },
+      restart: false,
+    });
   });
 });
 

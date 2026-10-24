@@ -176,6 +176,66 @@ describe("Claude Code launched with a chat's own permission rules", () => {
     expect(spawned[1][spawned[1].indexOf("--resume") + 1]).toBe("sess_bot");
   });
 
+  it("asks for a tool in a bot's chat even when its stored mode is Full access", async () => {
+    rules.bot = { mode: "auto", rules: { ask: ["Bash(git push *)"] } };
+    // Each chat's CLI is launched by a first turn, then a second turn asks
+    // for a tool (one chat at a time: the stand-in CLI has one output).
+    const ask = async (sessionId: string, requestId: string) => {
+      const events: { type: string }[] = [];
+      const users = parse().filter((m) => m.type === "user").length;
+      const running = sendClaudeTurn({
+        sessionId,
+        cwd: "/data/bots/orbit-1",
+        model: "claude:claude-sonnet-5",
+        modelSettings: {},
+        runtimeMode: "full-access",
+        text: "push it",
+        onEvent: (event) => void events.push(event),
+      });
+      await waitFor(
+        () => parse().filter((m) => m.type === "user").length > users,
+        "prompt",
+      );
+      emit({
+        type: "control_request",
+        request_id: requestId,
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "Bash",
+          input: { command: "git push origin main" },
+        },
+      });
+      return { events, running };
+    };
+    const answered = (requestId: string) =>
+      parse().find(
+        (m) =>
+          (m.response as Record<string, unknown> | undefined)?.request_id ===
+          requestId,
+      );
+
+    await turn("bot", "full-access");
+    const bot = await ask("bot", "bot_push");
+    await waitFor(
+      () => bot.events.some((event) => event.type === "approval.requested"),
+      "the bot's approval",
+    );
+    // Nothing was allowed on the bot's behalf.
+    expect(answered("bot_push")).toBeUndefined();
+    emit({ type: "result", subtype: "success", session_id: "sess_bot" });
+    await bot.running.catch(() => undefined);
+    await stopClaudeSession("bot");
+
+    await turn("plain", "full-access");
+    const plain = await ask("plain", "plain_push");
+    await waitFor(() => !!answered("plain_push"), "Full access allows");
+    expect(
+      plain.events.some((event) => event.type === "approval.requested"),
+    ).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_plain" });
+    await plain.running;
+  });
+
   it("adds nothing for an ordinary chat", async () => {
     await turn("plain", "supervised");
     const args = spawned[0];

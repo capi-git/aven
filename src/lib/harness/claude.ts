@@ -211,7 +211,7 @@ export async function sendClaudeTurn(input: SendTurnInput): Promise<void> {
   if (cancelledThreads.delete(input.sessionId)) return;
 
   live.onEvent = input.onEvent;
-  live.runtimeMode = input.runtimeMode;
+  live.runtimeMode = effectiveRuntimeMode(input);
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
@@ -247,7 +247,7 @@ export async function compactClaudeContext(
   if (cancelledThreads.delete(input.sessionId)) return;
 
   live.onEvent = input.onEvent;
-  live.runtimeMode = input.runtimeMode;
+  live.runtimeMode = effectiveRuntimeMode(input);
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
@@ -446,7 +446,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.planning === planning
   ) {
     existing.onEvent = input.onEvent;
-    existing.runtimeMode = input.runtimeMode;
+    existing.runtimeMode = effectiveRuntimeMode(input);
     return existing;
   }
   // A new process takes a moment before it answers; the chat says so.
@@ -490,7 +490,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const live: Live = {
     cwd: input.cwd,
     claudeSessionId,
-    runtimeMode: input.runtimeMode,
+    runtimeMode: effectiveRuntimeMode(input),
     planning,
     settingsKey,
     onEvent: input.onEvent,
@@ -1170,7 +1170,8 @@ async function handleControlRequest(
     return;
   }
 
-  if (live.runtimeMode === "full-access") {
+  // A chat with its own rules (a bot) asks whatever its stored mode says.
+  if (live.runtimeMode === "full-access" && !sessionPermissions(sessionId)) {
     await writeJson(
       sessionId,
       buildControlResponse(
@@ -1772,6 +1773,14 @@ function projectMemoryFor(
  * next message (`projectMemoryDelivery.ts`). So editing the memory no longer
  * restarts every Claude chat in the project on its next message.
  */
+/**
+ * The access mode Aven's own approvals follow: a chat with its own rules (a
+ * project's bot) runs in their mode, never in what its stored picker says.
+ */
+function effectiveRuntimeMode(input: HarnessSessionInput): RuntimeMode {
+  return sessionPermissions(input.sessionId)?.mode ?? input.runtimeMode;
+}
+
 function settingsKeyFor(input: HarnessSessionInput): string {
   // Remember this turn's memory for a later compaction, which carries none.
   projectMemoryFor(input);

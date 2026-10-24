@@ -816,6 +816,8 @@ import {
 import { BotSettingsSheet } from "./chrome/BotSettingsSheet";
 import type { SidebarBot } from "./chrome/Sidebar";
 import {
+  botChatInCopy,
+  botForChat,
   botHeadline,
   botName,
   botStatus,
@@ -6477,6 +6479,35 @@ export default function App({
   const { onModelChange, onModelSettingsChange, onRuntimeModeChange } =
     useSessionModelControls({ sessionsRef, setSessions });
 
+  /**
+   * A chat ready for a turn: a bot's chat is put in the bot's copy, on
+   * Claude and in auto mode first (it may have been turned on while it ran
+   * elsewhere, or in another window). Says why when it can't be yet.
+   */
+  const botChatForTurn = useCallback(
+    (session: Session): Session | string => {
+      const bot = botForChat(session.id);
+      if (!bot) return session;
+      const copy = bot.copy?.path;
+      if (!copy)
+        return "The bot's copy isn't ready yet. Try again in a moment.";
+      const fix = botChatInCopy(session, copy, () =>
+        preferredModelId("claude"),
+      );
+      if (!fix) return session;
+      if (fix.restart && session.busy)
+        return "The bot is finishing something outside its copy. Send again once it's done.";
+      if (fix.restart) void forgetHarnessSession(session.harness, session.id);
+      const next = sessionsRef.current.map((item) =>
+        item.id === fix.chat.id ? fix.chat : item,
+      );
+      sessionsRef.current = next;
+      setSessions(next);
+      return fix.chat;
+    },
+    [sessionsRef, setSessions],
+  );
+
   const onSubmit = useCallback(
     (
       sessionId: string,
@@ -6548,8 +6579,15 @@ export default function App({
       }
       if (removingSessionIds.current.has(sessionId)) return false;
       flushHarnessEvents();
-      const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!storedCurrent) return false;
+      const found = sessionsRef.current.find((s) => s.id === sessionId);
+      if (!found) return false;
+      // A bot's chat only ever works in the bot's copy, never your folder.
+      const storedCurrent = botChatForTurn(found);
+      if (typeof storedCurrent === "string") {
+        enqueueHarnessEvent(sessionId, { type: "status", text: storedCurrent });
+        flushHarnessEvents();
+        return false;
+      }
       if (isFinishingRaceCheckout(sessionWorkCwd(storedCurrent))) {
         enqueueHarnessEvent(sessionId, {
           type: "status",
@@ -7445,7 +7483,7 @@ export default function App({
         });
       return undefined;
     },
-    [enqueueHarnessEvent, flushHarnessEvents, announceActivity],
+    [enqueueHarnessEvent, flushHarnessEvents, announceActivity, botChatForTurn],
   );
 
   // Project bots. Every window launches a bot's chat with what it must ask
@@ -7474,30 +7512,19 @@ export default function App({
         if (saved && !loaded) return null;
       }
       if (loaded) {
-        const moved = loaded.worktreeCwd !== copy;
-        const otherApp = loaded.harness !== "claude";
-        if ((!moved && !otherApp) || loaded.busy) return loaded;
-        // It always works in its copy, with Claude: a new conversation there.
-        void forgetHarnessSession(loaded.harness, loaded.id);
-        const fixed: Session = {
-          ...loaded,
-          worktreeCwd: copy,
-          providerSessionId: undefined,
-          pendingSwitch: undefined,
-          ...(otherApp
-            ? {
-                harness: "claude" as const,
-                model: preferredModelId("claude"),
-                modelSettings: {},
-              }
-            : {}),
-        };
+        // It always works in its copy, with Claude, in auto mode with its
+        // asks: a new conversation there if it moved.
+        const fix = botChatInCopy(loaded, copy, () =>
+          preferredModelId("claude"),
+        );
+        if (!fix || (fix.restart && loaded.busy)) return loaded;
+        if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
         const next = sessionsRef.current.map((session) =>
-          session.id === fixed.id ? fixed : session,
+          session.id === fix.chat.id ? fix.chat : session,
         );
         sessionsRef.current = next;
         setSessions(next);
-        return fixed;
+        return fix.chat;
       }
       const session: Session = {
         // The user's default Claude model, in auto mode with its asks.
@@ -8069,6 +8096,9 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (!current || current.busy) return false;
+      // A bot's chat compacts only where it works: in its copy.
+      const bot = botForChat(sessionId);
+      if (bot && current.worktreeCwd !== bot.copy?.path) return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
