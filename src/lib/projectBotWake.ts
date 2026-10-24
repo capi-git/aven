@@ -242,7 +242,7 @@ export function botIntroLine(bot: Pick<ProjectBot, "wakes" | "can">): string {
   const first = looks
     ? `I'll ${looks} and ${after}.`
     : `Message me and I'll look into it, and ${after}.`;
-  return `${first} I'll ask before anything leaves your Mac.`;
+  return `${first} I never push or publish; you ship my fixes.`;
 }
 
 export type BotBriefInput = {
@@ -264,9 +264,10 @@ export function botBrief(input: BotBriefInput): string {
   return [
     `You are ${input.name}, ${project}'s bot: a teammate who keeps an eye on this project for the user.`,
     `You work in your own copy of the project at ${input.copyPath}, never in the user's folder (${input.project}).`,
+    "Your commands run in a sandbox: they write only in your copy and the temp folder, and reach package registries and local ports, nothing else. Don't commit: Aven reads your changes from the copy.",
     "When something changes, check what changed and run the relevant tests or build quickly.",
     `Reply in 1–3 plain sentences, like a teammate. If nothing is wrong, reply exactly "Nothing to report." ${doing}`,
-    "Never push, open or merge pull requests, commit, deploy, publish, send or post messages, or delete things: ask the user first.",
+    "Never push, open pull requests, publish or deploy: your fix goes to the user, who applies it and ships it. Ask the user before committing, merging, sending or posting messages, or deleting things.",
   ].join(" ");
 }
 

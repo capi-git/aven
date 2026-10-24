@@ -16,10 +16,28 @@ export type ClaudePermissionRules = {
   deny?: string[];
 };
 
+/**
+ * Claude Code's Bash sandbox, as `--settings` takes it (`sandbox.*`; see
+ * code.claude.com/docs/en/sandboxing). Sandboxed commands write only in the
+ * working folder and the temp folder, and reach only the listed hosts.
+ */
+export type ClaudeSandboxSettings = {
+  enabled: true;
+  /** Stop rather than run commands unsandboxed where it cannot start. */
+  failIfUnavailable: boolean;
+  /** Never retry a command outside the sandbox. */
+  allowUnsandboxedCommands: boolean;
+  /** Sandboxed commands run without a prompt; deny and ask rules still apply. */
+  autoAllowBashIfSandboxed: boolean;
+  network?: { allowedDomains?: string[]; allowLocalBinding?: boolean };
+  filesystem?: { denyWrite?: string[] };
+};
+
 export type SessionPermissions = {
   /** The permission mode the chat must run in, whatever its picker says. */
   mode: "auto";
   rules: ClaudePermissionRules;
+  sandbox?: ClaudeSandboxSettings;
 };
 
 type Resolver = (sessionId: string) => SessionPermissions | undefined;
@@ -49,6 +67,7 @@ export function permissionRulesKey(
         permissions.rules.allow ?? [],
         permissions.rules.ask ?? [],
         permissions.rules.deny ?? [],
+        permissions.sandbox ?? null,
       ])
     : "";
 }

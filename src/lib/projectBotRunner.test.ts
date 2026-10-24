@@ -79,6 +79,7 @@ function harness(
       path: COPY,
       branch: "aven/bot/jelly",
       root: PATH,
+      gitDir: `${PATH}/.git`,
     })),
     sync: vi.fn(async () => ({
       root: PATH,
@@ -828,7 +829,12 @@ describe("a project bot waking up", () => {
       () =>
         new Promise((resolve) => {
           made = () =>
-            resolve({ path: COPY, branch: "aven/bot/jelly", root: PATH });
+            resolve({
+              path: COPY,
+              branch: "aven/bot/jelly",
+              root: PATH,
+              gitDir: `${PATH}/.git`,
+            });
         }),
     );
     await h.finish("chat-a");
@@ -848,7 +854,12 @@ describe("a project bot waking up", () => {
       () =>
         new Promise((resolve) => {
           made = () =>
-            resolve({ path: COPY, branch: "aven/bot/jelly", root: PATH });
+            resolve({
+              path: COPY,
+              branch: "aven/bot/jelly",
+              root: PATH,
+              gitDir: `${PATH}/.git`,
+            });
         }),
     );
     await h.finish("chat-b");

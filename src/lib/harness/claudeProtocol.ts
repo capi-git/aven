@@ -27,7 +27,10 @@ import { streamTextDelta } from "./streamText";
 import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import type { McpElicitation } from "../mcpElicitation";
-import type { ClaudePermissionRules } from "./sessionPermissions";
+import type {
+  ClaudePermissionRules,
+  ClaudeSandboxSettings,
+} from "./sessionPermissions";
 
 /** Claude Code versions that first ship each supported model generation. */
 export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
@@ -80,6 +83,7 @@ export type ClaudeCliSettings = {
    * allow decide, so an `ask` here prompts even where the user allowed it.
    */
   permissions?: ClaudePermissionRules;
+  sandbox?: ClaudeSandboxSettings;
 };
 
 export function asRecord(value: unknown): Record<string, unknown> | null {

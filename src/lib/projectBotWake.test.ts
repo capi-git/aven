@@ -236,9 +236,7 @@ describe("what the bot is told", () => {
     expect(brief).toContain("own copy of the project at /data/bots/orbit-1");
     expect(brief).toContain(`never in the user's folder (${PATH})`);
     expect(brief).toContain('"Nothing to report."');
-    expect(brief).toMatch(
-      /Never push, open or merge pull requests, commit, deploy, publish/,
-    );
+    expect(brief).toMatch(/Never push, open pull requests, publish or deploy/);
     expect(
       botBrief({
         name: "J",
@@ -302,7 +300,7 @@ describe("what the bot is told", () => {
         can: { fix: true },
       }),
     ).toBe(
-      "I'll look over each chat when it finishes and fix anything that breaks, in my own copy. I'll ask before anything leaves your Mac.",
+      "I'll look over each chat when it finishes and fix anything that breaks, in my own copy. I never push or publish; you ship my fixes.",
     );
     expect(
       botIntroLine({
@@ -310,7 +308,7 @@ describe("what the bot is told", () => {
         can: { fix: false },
       }),
     ).toBe(
-      "I'll look over each chat when it finishes, or the dev server if it crashes, and tell you what I find. I'll ask before anything leaves your Mac.",
+      "I'll look over each chat when it finishes, or the dev server if it crashes, and tell you what I find. I never push or publish; you ship my fixes.",
     );
     expect(
       botIntroLine({

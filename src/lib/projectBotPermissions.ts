@@ -5,22 +5,39 @@ import {
 import { slash } from "./paths";
 import { botForChat, type ProjectBot } from "./projectBots";
 
+import type { ClaudeSandboxSettings } from "./harness/sessionPermissions";
+
 /**
- * What a bot always asks before doing, enforced as Claude Code `ask` rules
- * on its chat (see `sessionPermissions`), not only asked of it in words. The
- * bot runs in auto mode: everything else in its own copy goes ahead, and
- * these reach the user as approvals ("Needs you").
+ * What a bot never does, and what it asks before doing, enforced on its chat
+ * (see `sessionPermissions`), not only asked of it in words. The bot runs in
+ * auto mode: everything else in its own copy goes ahead.
  *
- * Bash rules match a command anywhere in a chain (`cd x && git push`) and
- * past leading `VAR=value`s, but they are patterns, not a sandbox: the
- * wrapped forms Claude Code documents (`git -C . push`) are listed too.
+ * Two layers. Claude Code's sandbox (see `botSandbox`) lets its commands
+ * write only in its copy and the temp folder and reach only package
+ * registries: however a command is spelled (`/usr/bin/git push`,
+ * `sh -c "..."`, an alias), it can't push, publish or change your folder.
+ * On top, rules: `deny` for what a bot never does (push, open pull
+ * requests, publish, deploy; you ship its fixes), `ask` for what reaches you
+ * as an approval ("Needs you"). Rules match a command anywhere in a chain
+ * (`cd x && git push`) and past leading `VAR=value`s, but they are
+ * patterns, so the sandbox is what holds.
  */
 
-/** Pushing, committing, merging, and pull requests or issues on GitHub. */
-const GIT_AND_GITHUB = [
+/** Pushing, pull requests, releases and running workflows: never. */
+const NEVER_GIT = [
+  "Bash(git push)",
   "Bash(git push *)",
   "Bash(git * push *)",
   "Bash(git * push)",
+  "Bash(gh pr create *)",
+  "Bash(gh pr merge *)",
+  "Bash(gh release *)",
+  "Bash(gh repo delete *)",
+  "Bash(gh workflow run *)",
+];
+
+/** Committing, merging, and pull requests or issues on GitHub: asks. */
+const GIT_AND_GITHUB = [
   "Bash(git commit *)",
   "Bash(git * commit *)",
   "Bash(git * commit)",
@@ -41,8 +58,6 @@ const GIT_AND_GITHUB = [
   "Bash(git tag -d *)",
   "Bash(git stash drop *)",
   "Bash(git stash clear *)",
-  "Bash(gh pr create *)",
-  "Bash(gh pr merge *)",
   "Bash(gh pr close *)",
   "Bash(gh pr comment *)",
   "Bash(gh pr review *)",
@@ -52,13 +67,10 @@ const GIT_AND_GITHUB = [
   "Bash(gh issue close *)",
   "Bash(gh issue edit *)",
   "Bash(gh issue delete *)",
-  "Bash(gh release *)",
-  "Bash(gh repo delete *)",
-  "Bash(gh workflow run *)",
   "Bash(gh api *)",
 ];
 
-/** Deploying and publishing. */
+/** Deploying and publishing: never. */
 const DEPLOY_AND_PUBLISH = [
   "Bash(npm publish *)",
   "Bash(pnpm publish *)",
@@ -124,9 +136,9 @@ export function absolutePathRule(folder: string): string {
   return `${absolute}/**`;
 }
 
-/** The one line the settings sheet shows for what always asks. */
+/** The one line the settings sheet shows for what a bot never does. */
 export const ALWAYS_ASKS_LINE =
-  "Always asks before pushing, publishing, merging, sending or deleting.";
+  "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
 
 /**
  * The rules a bot's chat launches with. Aven's browser follows the user's
@@ -136,13 +148,13 @@ export function botPermissionRules(
   bot: Pick<ProjectBot, "path">,
 ): ClaudePermissionRules {
   return {
+    deny: [...NEVER_GIT, ...DEPLOY_AND_PUBLISH],
     ask: [
       // Changing the user's own files, rather than its copy. Elsewhere,
       // edits outside its working folder go to auto mode's checks, which
       // Claude Code also applies to protected paths (.git, .claude).
       `Edit(${absolutePathRule(bot.path)})`,
       ...GIT_AND_GITHUB,
-      ...DEPLOY_AND_PUBLISH,
       ...DELETING,
       ...SENDING,
     ],
@@ -150,12 +162,75 @@ export function botPermissionRules(
 }
 
 /**
- * Every window launches bot chats with their rules and in auto mode, from
- * any spawn path (a message, a resume, a compaction).
+ * Hosts a bot's commands may reach: package registries, so installs work.
+ * Not GitHub or any other place a push or deploy could go.
+ */
+export const BOT_ALLOWED_HOSTS = [
+  "registry.npmjs.org",
+  "registry.yarnpkg.com",
+  "repo.yarnpkg.com",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "crates.io",
+  "index.crates.io",
+  "static.crates.io",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "rubygems.org",
+  "index.rubygems.org",
+];
+
+/**
+ * Claude Code's sandbox for a bot's commands. They run in its copy (the
+ * chat's working folder), so they can write there and in the temp folder
+ * only, never in your folder; and not to the repository's refs, which the
+ * copy shares with your checkout (your branches, HEAD and index). They
+ * reach package registries and local ports (to run and test the app), and
+ * nothing runs outside the sandbox: where it can't start, the bot stops.
+ */
+export function botSandbox(
+  bot: Pick<ProjectBot, "copy">,
+): ClaudeSandboxSettings {
+  const gitDir = bot.copy
+    ? slash(
+        bot.copy.gitDir ?? `${slash(bot.copy.root).replace(/\/+$/, "")}/.git`,
+      ).replace(/\/+$/, "")
+    : null;
+  return {
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    autoAllowBashIfSandboxed: true,
+    network: { allowedDomains: BOT_ALLOWED_HOSTS, allowLocalBinding: true },
+    ...(gitDir
+      ? {
+          filesystem: {
+            denyWrite: [
+              `${gitDir}/refs`,
+              `${gitDir}/packed-refs`,
+              `${gitDir}/logs`,
+              `${gitDir}/HEAD`,
+              `${gitDir}/index`,
+            ],
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Every window launches bot chats with their rules, sandbox and auto mode,
+ * from any spawn path (a message, a resume, a compaction).
  */
 export function installBotPermissions(): () => void {
   return installSessionPermissions((sessionId) => {
     const bot = botForChat(sessionId);
-    return bot ? { mode: "auto", rules: botPermissionRules(bot) } : undefined;
+    return bot
+      ? {
+          mode: "auto",
+          rules: botPermissionRules(bot),
+          sandbox: botSandbox(bot),
+        }
+      : undefined;
   });
 }

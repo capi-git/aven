@@ -153,10 +153,38 @@ describe("Claude Code launched with a chat's own permission rules", () => {
       ask: ["Bash(git push *)", "Edit(//Users/me/Orbit/**)"],
     });
     expect(modeOf(args)).toBe("auto");
+    // No sandbox unless the chat's permissions carry one.
+    expect(settingsOf(args).sandbox).toBeUndefined();
     expect(args).not.toContain("--allow-dangerously-skip-permissions");
     // The user's own settings still load beside them.
     expect(args).toContain("--setting-sources=user,project,local");
     expect(args).toContain("--permission-prompt-tool");
+  });
+
+  it("launches with the chat's sandbox in --settings, and relaunches when it changes", async () => {
+    const sandbox = {
+      enabled: true as const,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      autoAllowBashIfSandboxed: true,
+      network: { allowedDomains: ["registry.npmjs.org"] },
+    };
+    rules.bot = {
+      mode: "auto",
+      rules: { deny: ["Bash(git push *)"] },
+      sandbox,
+    };
+    await turn("bot", "auto");
+    expect(settingsOf(spawned[0]).sandbox).toEqual(sandbox);
+    expect(settingsOf(spawned[0]).permissions).toEqual({
+      deny: ["Bash(git push *)"],
+    });
+    rules.bot = {
+      ...rules.bot,
+      sandbox: { ...sandbox, network: { allowedDomains: [] } },
+    };
+    await turn("bot", "auto");
+    expect(spawned).toHaveLength(2);
   });
 
   it("relaunches with new rules when they change, and keeps the CLI while they don't", async () => {

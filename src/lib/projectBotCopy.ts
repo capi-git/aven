@@ -7,7 +7,13 @@ import type { RaceDiff, RaceFileDiff } from "./race";
  * in Aven's app data and is kept between jobs.
  */
 
-export type BotCopyInfo = { path: string; branch: string; root: string };
+export type BotCopyInfo = {
+  path: string;
+  branch: string;
+  root: string;
+  /** The repository's shared git folder. */
+  gitDir: string;
+};
 
 /** What the bot changed, with a fingerprint of exactly those changes. */
 export type BotDiff = RaceDiff & { hash: string };

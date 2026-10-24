@@ -29,6 +29,9 @@ pub struct BotCopy {
     pub branch: String,
     /// The project's repository root.
     pub root: String,
+    /// The repository's shared git folder (usually `<root>/.git`): the copy
+    /// shares its branches and other refs with the user's checkout.
+    pub git_dir: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -168,10 +171,20 @@ pub fn ensure_copy(cwd: &Path, bots: &Path, key: &str, branch: &str) -> Result<B
     let root = repo_root(cwd)?;
     let path = bots.join(copy_dir_name(key));
     let path_text = path.to_string_lossy().to_string();
+    let common = PathBuf::from(race::text(race::run(
+        &root,
+        &["rev-parse", "--git-common-dir"],
+    )?));
+    let git_dir = if common.is_absolute() {
+        common
+    } else {
+        root.join(common)
+    };
     let copy = BotCopy {
         path: path_text.clone(),
         branch: branch.to_string(),
         root: root.to_string_lossy().to_string(),
+        git_dir: git_dir.to_string_lossy().to_string(),
     };
     if path.is_dir() && registered_worktree(&root, &path) {
         return Ok(copy);
@@ -461,6 +474,7 @@ mod tests {
         let copy_path = PathBuf::from(&copy.path);
         assert!(copy_path.starts_with(&bots));
         assert_eq!(copy.branch, BRANCH);
+        assert_eq!(PathBuf::from(&copy.git_dir), root.join(".git"));
         assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\n");
 
         // The bot installed dependencies and left a stray file and an edit.

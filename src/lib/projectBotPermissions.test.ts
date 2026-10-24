@@ -4,6 +4,7 @@ import { sessionPermissions } from "./harness/sessionPermissions";
 import {
   absolutePathRule,
   botPermissionRules,
+  botSandbox,
   installBotPermissions,
 } from "./projectBotPermissions";
 import { resetProjectBotsCache, updateProjectBot } from "./projectBots";
@@ -31,21 +32,15 @@ afterEach(() => {
   resetProjectBotsCache();
 });
 
-it("asks before pushing, committing, merging, publishing, sending, deleting and changing your files", () => {
+it("never pushes, opens pull requests, publishes or deploys, and asks before the rest", () => {
   const { ask, allow, deny } = botPermissionRules({ path: "/Users/me/Orbit" });
   expect(allow).toBeUndefined();
-  expect(deny).toBeUndefined();
   for (const rule of [
-    "Edit(//Users/me/Orbit/**)",
+    "Bash(git push)",
     "Bash(git push *)",
     "Bash(git * push *)",
-    "Bash(git commit *)",
-    "Bash(git merge *)",
     "Bash(gh pr create *)",
     "Bash(gh pr merge *)",
-    "Bash(gh pr close *)",
-    "Bash(gh issue comment *)",
-    "Bash(gh issue close *)",
     "Bash(gh release *)",
     "Bash(npm publish *)",
     "Bash(pnpm publish *)",
@@ -55,12 +50,57 @@ it("asks before pushing, committing, merging, publishing, sending, deleting and 
     "Bash(netlify *)",
     "Bash(fly deploy *)",
     "Bash(docker push *)",
+  ]) {
+    expect(deny).toContain(rule);
+    expect(ask).not.toContain(rule);
+  }
+  for (const rule of [
+    "Edit(//Users/me/Orbit/**)",
+    "Bash(git commit *)",
+    "Bash(git merge *)",
+    "Bash(gh pr close *)",
+    "Bash(gh issue comment *)",
+    "Bash(gh issue close *)",
     "Bash(rm *)",
     "Bash(curl * -X *)",
   ])
     expect(ask).toContain(rule);
   // Only Claude Code's two Bash pattern forms, never a bare tool name.
-  for (const rule of ask!) expect(rule).toMatch(/^(Bash|Edit)\(.+\)$/);
+  for (const rule of [...ask!, ...deny!])
+    expect(rule).toMatch(/^(Bash|Edit)\(.+\)$/);
+});
+
+it("sandboxes a bot's commands: its copy and temp only, never the shared refs, registries only", () => {
+  const sandbox = botSandbox({
+    copy: {
+      path: "/data/bots/orbit-1a2b",
+      branch: "aven/bot/jelly-1a2b",
+      root: "/Users/me/Orbit",
+      gitDir: "/Users/me/Orbit/.git",
+    },
+  });
+  expect(sandbox).toMatchObject({
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    autoAllowBashIfSandboxed: true,
+    network: { allowLocalBinding: true },
+  });
+  expect(sandbox.network?.allowedDomains).toContain("registry.npmjs.org");
+  expect(sandbox.network?.allowedDomains).not.toContain("github.com");
+  expect(sandbox.filesystem?.denyWrite).toEqual([
+    "/Users/me/Orbit/.git/refs",
+    "/Users/me/Orbit/.git/packed-refs",
+    "/Users/me/Orbit/.git/logs",
+    "/Users/me/Orbit/.git/HEAD",
+    "/Users/me/Orbit/.git/index",
+  ]);
+  // A copy stored before its git folder was known: the root's .git.
+  expect(
+    botSandbox({
+      copy: { path: "/data/bots/x", branch: "aven/bot/x", root: "/w/x/" },
+    }).filesystem?.denyWrite?.[0],
+  ).toBe("/w/x/.git/refs");
 });
 
 it("writes absolute folders as Claude Code path rules", () => {
@@ -77,7 +117,8 @@ it("gives a bot's chat its rules in auto mode, and other chats none", () => {
   }));
   const permissions = sessionPermissions("bot-chat");
   expect(permissions?.mode).toBe("auto");
-  expect(permissions?.rules.ask).toContain("Bash(git push *)");
+  expect(permissions?.rules.deny).toContain("Bash(git push *)");
+  expect(permissions?.sandbox?.enabled).toBe(true);
   expect(sessionPermissions("chat")).toBeUndefined();
   updateProjectBot("/Users/me/Orbit", (bot) => ({ ...bot, on: false }));
   expect(sessionPermissions("bot-chat")).toBeUndefined();

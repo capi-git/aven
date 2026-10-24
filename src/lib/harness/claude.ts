@@ -1842,6 +1842,7 @@ function launchOptions(
   // in the mode they were written for, whatever its picker says.
   const permissions = sessionPermissions(input.sessionId);
   if (permissions) settings.permissions = permissions.rules;
+  if (permissions?.sandbox) settings.sandbox = permissions.sandbox;
   return {
     model: resolveClaudeApiModelId(native, context),
     effort: normalizeClaudeCliEffort(effortRaw, native),

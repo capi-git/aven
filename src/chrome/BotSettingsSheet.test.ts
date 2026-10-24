@@ -62,7 +62,7 @@ it("shows three plain switches that apply as you flip them, and nothing else to 
   const text = dialog().textContent ?? "";
   expect(text).toContain("orbit's teammate");
   expect(text).toContain(
-    "Always asks before pushing, publishing, merging, sending or deleting.",
+    "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.",
   );
   expect(text).toContain("Up to 15 runs a day, quiet 11 pm–8 am");
   // No On switch, model pickers, limits section, browser or desktop switches.

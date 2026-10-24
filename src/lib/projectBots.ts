@@ -132,8 +132,11 @@ export type ProjectBot = {
   /** Fixed defaults for now; kept per bot so they can be offered later. */
   limits: BotLimits;
   paused?: boolean;
-  /** Its copy of the project. */
-  copy?: { path: string; branch: string; root: string };
+  /**
+   * Its copy of the project, and the repository's shared git folder (the
+   * copy's branches and refs live there, beside the user's).
+   */
+  copy?: { path: string; branch: string; root: string; gitDir?: string };
   /** The commit its copy was last synced to. */
   base?: string;
   fixes?: BotFix[];
@@ -318,7 +321,14 @@ export function readProjectBot(value: unknown): ProjectBot | null {
     typeof copy.path === "string" &&
     typeof copy.branch === "string" &&
     typeof copy.root === "string"
-      ? { copy: { path: copy.path, branch: copy.branch, root: copy.root } }
+      ? {
+          copy: {
+            path: copy.path,
+            branch: copy.branch,
+            root: copy.root,
+            ...(typeof copy.gitDir === "string" ? { gitDir: copy.gitDir } : {}),
+          },
+        }
       : {}),
     ...(text(raw.base, 64) ? { base: text(raw.base, 64) } : {}),
     ...(fixes.length ? { fixes } : {}),
