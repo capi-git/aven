@@ -868,7 +868,9 @@ export const SessionPane = memo(function SessionPane({
             session={statusSession}
             visible={visible}
             stopElsewhere={barStops}
-            placement={teamRow ? "attention" : "row"}
+            // A bot's turn says what it is doing in its transcript; this row
+            // shows only what needs you (a failure, signing in, a queue).
+            placement={teamRow || botProject ? "attention" : "row"}
             onStop={onStop}
             onOpenTerminal={onNewTerminal}
           />
