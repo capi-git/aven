@@ -72,7 +72,7 @@ export async function turnOnBotWithDefaults(
 ): Promise<string | null> {
   await probeHarnessAvailability();
   if (!isHarnessAvailable("claude"))
-    return "Bots use Claude Code. Install it and sign in, then turn the bot on.";
+    return "Bots use Claude Code. Install it and sign in, then add the bot again.";
   const bot = getProjectBot(path) ?? newProjectBot(path);
   const name = bot.name ?? defaultBotName(path, projectAppearance(path).mascot);
   return turnOnProjectBot(

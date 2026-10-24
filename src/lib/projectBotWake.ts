@@ -227,15 +227,20 @@ function syncLines(sync: BotSyncNote | null): string[] {
  * set up now.
  */
 export function botIntroLine(bot: Pick<ProjectBot, "wakes" | "can">): string {
-  const looks = [
-    bot.wakes.chatFinished ? "look over each chat when it finishes" : "",
-    bot.wakes.devServer ? "check the dev server if it crashes" : "",
-  ].filter(Boolean);
+  const { chatFinished, devServer } = bot.wakes;
+  const looks =
+    chatFinished && devServer
+      ? "look over each chat when it finishes, or the dev server if it crashes,"
+      : chatFinished
+        ? "look over each chat when it finishes"
+        : devServer
+          ? "look at the dev server if it crashes"
+          : "";
   const after = bot.can.fix
     ? "fix anything that breaks, in my own copy"
     : "tell you what I find";
-  const first = looks.length
-    ? `I'll ${looks.join(" and ")}, and ${after}.`
+  const first = looks
+    ? `I'll ${looks} and ${after}.`
     : `Message me and I'll look into it, and ${after}.`;
   return `${first} I'll ask before anything leaves your Mac.`;
 }

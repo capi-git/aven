@@ -302,7 +302,7 @@ describe("what the bot is told", () => {
         can: { fix: true },
       }),
     ).toBe(
-      "I'll look over each chat when it finishes, and fix anything that breaks, in my own copy. I'll ask before anything leaves your Mac.",
+      "I'll look over each chat when it finishes and fix anything that breaks, in my own copy. I'll ask before anything leaves your Mac.",
     );
     expect(
       botIntroLine({
@@ -310,7 +310,7 @@ describe("what the bot is told", () => {
         can: { fix: false },
       }),
     ).toBe(
-      "I'll look over each chat when it finishes and check the dev server if it crashes, and tell you what I find. I'll ask before anything leaves your Mac.",
+      "I'll look over each chat when it finishes, or the dev server if it crashes, and tell you what I find. I'll ask before anything leaves your Mac.",
     );
     expect(
       botIntroLine({
