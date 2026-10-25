@@ -600,3 +600,14 @@
   margin-left: 6px;
   font-size: var(--text-ui-caption);
 }
+
+/* Light mode: iOS's grouped background behind the white group cards. */
+html.theme-light .settings-scroll {
+  margin-bottom: 5px;
+  border-radius: var(--aven-radius-card);
+  background: color-mix(
+    in srgb,
+    var(--color-content) 3.5%,
+    var(--color-background-base)
+  );
+}

@@ -967,7 +967,7 @@ function GitSyncActions({
     ? `View PR #${pr.number}: ${pr.title}`
     : "View pull request";
   const btn =
-    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
+    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
   const showPublish = canPublish;
   const showSync = canSync;

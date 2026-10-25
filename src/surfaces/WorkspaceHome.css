@@ -1136,3 +1136,13 @@ html.has-chat-background .workspace-home::before {
   .workspace-home-agent-bot-post {
   color: var(--aven-needs-you);
 }
+
+/* Light mode: iOS's grouped background, so the white cards stand off it. A
+   chosen background image keeps the page clear. */
+html.theme-light:not(.has-chat-background) .workspace-home {
+  background: color-mix(
+    in srgb,
+    var(--color-content) 3.5%,
+    var(--color-background-base)
+  );
+}
