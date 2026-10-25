@@ -62,9 +62,9 @@
   gap: 4px;
   height: 22px;
   min-height: 22px;
-  padding: 0 6px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   background: transparent;
   font: inherit;
@@ -124,7 +124,7 @@
   width: 100%;
   padding: 9px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   color: inherit;
   background: transparent;
   text-align: left;
@@ -176,8 +176,8 @@
 }
 .workspace-status-usage-refresh {
   margin-top: 10px;
-  padding: 7px 9px;
-  border-radius: 6px;
+  padding: 7px 12px;
+  border-radius: var(--aven-radius-capsule);
   border: 0;
   background: var(
     --aven-control-bg,
@@ -216,9 +216,9 @@
 }
 .workspace-status-task {
   height: 30px;
-  padding: 3px 6px;
+  padding: 3px 8px;
   gap: 8px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   max-width: min(44vw, 540px);
 }
 .workspace-status-task:hover,
@@ -281,9 +281,15 @@
   height: 30px;
   padding: 2px 3px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   cursor: default;
+}
+/* Related toolbar buttons share one capsule platter, as in macOS 26. */
+.workspace-status-nav-group:has(button) {
+  padding-inline: 2px;
+  background: var(--aven-fill-quaternary);
+  box-shadow: var(--aven-specular);
 }
 .workspace-status-nav-group {
   display: inline-flex;
@@ -328,7 +334,7 @@
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   color: var(--personal-muted, var(--color-content));
   cursor: pointer;
@@ -402,7 +408,7 @@
 .personal-shell .workspace-status-bar .workspace-status-navigation button,
 .personal-shell .workspace-status-bar .workspace-status-history button,
 .personal-shell .workspace-status-bar .workspace-status-layout button {
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
 }
 .workspace-status-pill[aria-expanded="true"],
 .workspace-status-access > div > button[aria-expanded="true"],
@@ -458,7 +464,7 @@
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   color: var(--personal-muted, var(--color-content));
   cursor: pointer;
@@ -483,7 +489,7 @@
   min-height: 32px;
   padding: 6px 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   background: transparent;
   color: var(--color-content);
   font-size: var(--text-ui-label);

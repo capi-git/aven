@@ -170,7 +170,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   margin: 0 8px;
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-card);
   box-shadow: none;
   overflow: hidden;
   background: var(--personal-main-surface);
@@ -470,7 +470,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   width: var(--nav-width, 216px);
   /* The glass panel inherits its radius from this slot. Keep the material
      and outer outline on the same curve without clipping the resize handle. */
-  border-radius: 12px;
+  border-radius: var(--aven-radius-card);
 }
 .personal-shell .personal-inspector-slot[data-floating="true"] {
   width: var(--inspector-width, 280px);
@@ -491,7 +491,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   z-index: 45;
   background: var(--personal-sidebar-surface);
   border: 1px solid var(--personal-line);
-  border-radius: 12px;
+  border-radius: var(--aven-radius-card);
 }
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
@@ -499,7 +499,9 @@ html.has-native-glass.glass-body:not(.theme-light)
   inset: 5px auto 5px 5px;
   height: calc(100% - 10px);
   background: var(--personal-navigation-surface);
-  box-shadow: none;
+  /* Light catching the floating glass's edge; its outer shadow is left
+     off, since the overlay window that draws it ends at its edge. */
+  box-shadow: var(--aven-specular);
   z-index: 50;
 }
 .personal-shell
@@ -507,7 +509,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   > .personal-inspector-dock {
   inset: 0 5px 0 auto;
   padding: 0;
-  box-shadow: var(--aven-shadow);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
 }
 /* Slide fully past the window edge. Including the 5px inset makes the travel
    equal the panel's right edge, so the workspace crop can follow it exactly. */
@@ -609,9 +611,9 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   gap: 7px;
   height: 30px;
   margin-top: 20px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid var(--aven-control-border);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
   font-size: var(--text-ui-label);
@@ -647,7 +649,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   gap: 8px;
   width: 100%;
   padding: 8px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-sm);
   text-align: left;
   font-size: var(--text-ui-caption);
   color: var(--color-content);
@@ -667,7 +669,7 @@ html.theme-light .personal-shell .personal-main.body-glass {
     var(--personal-main-surface) 70%,
     transparent
   );
-  border-radius: 10px;
+  border-radius: var(--aven-radius-card);
   box-shadow: none;
 }
 html.theme-light .personal-shell .workspace-status-bar {
@@ -763,7 +765,7 @@ html.theme-light.is-mac
 .personal-shell .workspace-status-access > div > button {
   height: 26px;
   min-height: 26px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
@@ -936,7 +938,7 @@ html
   background: transparent;
 }
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
-  border-radius: 18px;
+  border-radius: var(--composer-radius, 22px);
 }
 @media (prefers-contrast: more) {
   .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
