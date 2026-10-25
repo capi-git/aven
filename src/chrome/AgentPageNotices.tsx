@@ -44,7 +44,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
         <article
           key={notice.id}
           role="status"
-          className="pointer-events-auto flex items-center gap-2.5 aven-glass-overlay [--aven-radius-overlay:12px] py-2 pr-2 pl-3"
+          className="pointer-events-auto flex items-center gap-2.5 aven-glass-overlay [--aven-radius-overlay:20px] py-2 pr-2 pl-3.5"
         >
           <HarnessIcon harness={notice.harness} className="size-4 shrink-0" />
           <p className="min-w-0 flex-1 text-ui-label leading-4 text-content/75">
@@ -58,7 +58,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
           <button
             type="button"
             onClick={() => onShow(notice)}
-            className="shrink-0 rounded-md border border-content/20 px-2 py-0.5 text-ui-label text-content hover:bg-content/10"
+            className="shrink-0 rounded-full bg-content/10 px-3 py-0.5 text-ui-label font-medium text-content hover:bg-content/15"
           >
             Show
           </button>
@@ -66,7 +66,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
             type="button"
             aria-label="Dismiss"
             onClick={() => onDismiss(notice.id)}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content"
+            className="grid size-6 shrink-0 place-items-center rounded-full text-content/50 hover:bg-content/10 hover:text-content"
           >
             <X className="size-3.5" />
           </button>
