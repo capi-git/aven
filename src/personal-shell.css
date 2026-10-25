@@ -945,3 +945,56 @@ html
     border-color: var(--personal-muted);
   }
 }
+
+/* The iOS look: the pinned sidebar and side panel float as glass panels
+   inset from the window's edge, as macOS 26's sidebars do, on the same
+   gutter as the pane cards. Each is a tint over the frame (no blur of its
+   own) with light along its edge, so the Glass slider, Solid and the
+   sidebar colour show through unchanged. */
+.personal-shell[data-unified-toolbar] {
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+html.theme-light .personal-shell[data-unified-toolbar] {
+  --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation {
+  padding: 5px 6px 10px 9px;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation::before {
+  content: "";
+  position: absolute;
+  inset: 5px 0 5px 5px;
+  z-index: -1;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-panel-card);
+  box-shadow: var(--aven-specular), var(--aven-rim);
+  pointer-events: none;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation {
+  isolation: isolate;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-inspector-slot:not([data-floating="true"])
+  .workspace-inspector {
+  height: calc(100% - 10px);
+  margin-block: 5px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-panel-card);
+  box-shadow: var(--aven-specular), var(--aven-rim);
+}
+.personal-shell[data-unified-toolbar]
+  .personal-inspector-slot:not([data-floating="true"])
+  .workspace-inspector-header {
+  background: transparent;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .personal-shell[data-unified-toolbar] {
+    --aven-panel-card: var(--aven-elevated-1);
+  }
+}

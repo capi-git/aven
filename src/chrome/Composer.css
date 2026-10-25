@@ -3,14 +3,16 @@
 .personal-shell .personal-composer {
   /* Keep the theme tint quiet so the frost carries the surface; foreground
      text stays fully opaque, including custom palettes. */
+  /* iOS's regular material over the transcript: a lifted grey tint, so the
+     box reads as glass floating on the chat rather than a hole in it. */
   --composer-surface: color-mix(
     in srgb,
-    var(--personal-main-surface) 95%,
+    var(--personal-main-surface) 88%,
     var(--color-content)
   );
   --composer-control: var(--aven-fill-tertiary);
-  --composer-glass-opacity: 48%;
-  --composer-edge: var(--aven-control-border, var(--aven-line));
+  --composer-glass-opacity: 78%;
+  --composer-edge: color-mix(in srgb, var(--color-content) 9%, transparent);
   --composer-shadow: 0 12px 32px -10px #00000066, 0 1px 3px #00000026;
   /* Concentric with the 32px capsule buttons inset 6px from its corner. */
   --composer-radius: 22px;
@@ -38,11 +40,8 @@
     box-shadow 180ms ease-out;
 }
 .personal-shell .personal-composer [data-composer-box]:focus-within {
-  border-color: color-mix(in srgb, var(--personal-accent) 50%, transparent);
-  box-shadow:
-    var(--composer-shadow),
-    var(--aven-specular),
-    0 0 0 3px color-mix(in srgb, var(--personal-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--personal-accent) 38%, transparent);
+  box-shadow: var(--composer-shadow), var(--aven-specular);
 }
 .personal-shell .personal-composer [data-composer-box][data-file-drag="true"] {
   outline: 2px dashed var(--personal-accent);
@@ -233,6 +232,13 @@ html.theme-light .personal-shell .personal-composer {
 }
 html.theme-light .personal-shell .personal-composer {
   --composer-glass-opacity: 94%;
+  --composer-edge: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+html.theme-light
+  .personal-shell
+  .personal-composer
+  [data-composer-box]:focus-within {
+  border-color: color-mix(in srgb, var(--personal-accent) 22%, transparent);
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
