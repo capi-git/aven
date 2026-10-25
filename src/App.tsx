@@ -11657,6 +11657,7 @@ function toTitleTab(
       .map((session) => holdUpHint(sessionHoldUps(session)))
       .find(Boolean),
     race: Boolean(race),
+    botPath: focused ? botForChat(focused.id)?.path : undefined,
     board,
   };
 }

@@ -84,6 +84,7 @@ import {
   ungroupSurfaceGroup,
   type SurfaceGroup,
 } from "../lib/surfaceGroups";
+import { BotCritter } from "./BotCritter";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -118,6 +119,8 @@ export type Tab = {
   waitingOn?: string;
   /** The tab holds one race's agents; `title` is the race prompt. */
   race?: boolean;
+  /** The focused chat is this project's bot: the tab shows its critter. */
+  botPath?: string;
   /** The chats in this tab, whose finished turns flash it. */
   sessionIds?: string[];
   /** The tab is a project's board. */
@@ -467,7 +470,13 @@ function TitleTabItem({
                 aria-hidden
               />
             ) : null}
-            {tab.harnesses.length > 0 ? (
+            {tab.botPath ? (
+              <BotCritter
+                path={tab.botPath}
+                active={tab.busyHarnesses.length > 0}
+                className="personal-title-tab-bot"
+              />
+            ) : tab.harnesses.length > 0 ? (
               <ProviderMarks
                 harnesses={tab.harnesses}
                 busyHarnesses={tab.busyHarnesses}
