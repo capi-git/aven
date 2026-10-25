@@ -17,36 +17,47 @@
   gap: 8px;
   min-height: 40px;
   padding: 5px 8px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-content) 8%, transparent);
+  border-bottom: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
   background: var(--aven-toolbar-surface, transparent);
 }
 
+/* Files and Changes: an iOS segmented control, a capsule track with a
+   lifted capsule thumb. */
 .workspace-inspector-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  padding: 2px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
 }
 
 .workspace-inspector-tab {
-  min-height: 28px;
-  padding: 3px 10px;
-  border-radius: 6px;
+  min-height: 26px;
+  padding: 3px 12px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 500;
-  color: color-mix(in srgb, var(--color-content) 66%, transparent);
+  color: var(--aven-label-secondary);
 }
 
 .workspace-inspector-tab[aria-selected="true"] {
   color: var(--color-content);
-  background: var(
-    --aven-control-bg,
-    color-mix(in srgb, var(--color-content) 9%, transparent)
-  );
-  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
+  font-weight: 600;
+  background: var(--aven-elevated-3, var(--aven-control-bg));
+  box-shadow:
+    var(--aven-specular),
+    0 1px 3px #00000033;
+}
+
+html.theme-light .workspace-inspector-tab[aria-selected="true"] {
+  background: var(--color-background-base);
+  box-shadow:
+    0 0 0 var(--aven-hairline, 1px)
+      color-mix(in srgb, var(--color-content) 6%, transparent),
+    0 1px 3px #0000001f;
 }
 
 .workspace-inspector-close {
@@ -54,14 +65,14 @@
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-label-secondary);
 }
 
 .workspace-inspector-tab:hover:not([aria-selected="true"]),
 .workspace-inspector-close:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-fill-quaternary);
 }
 
 .workspace-inspector-tab:focus-visible,

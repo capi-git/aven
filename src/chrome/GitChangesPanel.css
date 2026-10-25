@@ -4,10 +4,10 @@
 .git-changes {
   --git-add: var(--aven-git-add);
   --git-del: var(--aven-git-del);
-  --git-ok: #4ade80;
+  --git-ok: var(--aven-system-green, #30d158);
 }
 html.theme-light .git-changes {
-  --git-ok: #1a7f37;
+  --git-ok: #248a3d;
 }
 
 /* Header card ----------------------------------------------------------- */
@@ -18,9 +18,10 @@ html.theme-light .git-changes {
   flex-direction: column;
   gap: 5px;
   margin: 8px 8px 0;
-  padding: 8px 10px 8px;
+  padding: 9px 11px 9px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 10px;
+  border-radius: 14px;
+  box-shadow: var(--aven-specular);
   background:
     radial-gradient(
       120% 90% at 0% 0%,
@@ -72,8 +73,8 @@ html.theme-light .git-changes {
   gap: 4px;
   height: 22px;
   margin-left: -5px;
-  padding: 0 5px;
-  border-radius: 6px;
+  padding: 0 6px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
 }
@@ -115,8 +116,8 @@ html.theme-light .git-changes {
   gap: 6px;
   height: 20px;
   margin: 0 -5px;
-  padding: 0 5px;
-  border-radius: 6px;
+  padding: 0 6px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   text-align: left;
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
@@ -174,12 +175,13 @@ html.theme-light .git-changes {
   align-items: center;
   gap: 5px;
   height: 28px;
-  padding: 0 11px;
-  border-radius: 7px;
+  padding: 0 13px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 600;
   color: var(--color-background-base);
   background: var(--color-content);
+  box-shadow: 0 1px 2px #00000033;
 }
 .git-ship-button:hover:enabled {
   background: color-mix(in srgb, var(--color-content) 88%, transparent);
@@ -194,10 +196,10 @@ html.theme-light .git-changes {
 /* Proportion of added to deleted lines across every changed file. */
 .git-ship-meter {
   display: flex;
-  height: 3px;
+  height: 4px;
   overflow: hidden;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
 }
 .git-ship-meter > span {
   flex-basis: 0;
@@ -316,8 +318,8 @@ html.theme-light .git-changes {
   align-items: baseline;
   gap: 5px;
   margin: 10px 0 0;
-  padding: 4px 8px;
-  border-radius: 7px;
+  padding: 4px 10px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 48%, transparent);
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
@@ -347,16 +349,16 @@ html.theme-light .git-changes {
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 9px;
-  border-radius: 6px;
+  padding: 0 11px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-fill-tertiary);
 }
 .git-clean-action:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 13%, transparent);
+  background: var(--aven-fill-secondary);
 }
 .git-clean-action:focus-visible {
   outline: 2px solid var(--aven-focus-ring);
