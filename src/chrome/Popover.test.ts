@@ -297,8 +297,16 @@ describe("popover stylesheet", () => {
     );
     const pop = motion.slice(motion.indexOf("@keyframes aven-pop"));
     const from = pop.slice(0, pop.indexOf("}"));
-    expect(Number(/scale\(([\d.]+)\)/.exec(from)?.[1])).toBeGreaterThanOrEqual(
-      0.97,
+    // It grows out of its control from a scale set once in :root, small
+    // enough to read as growing and large enough to stay gentle.
+    expect(from).toContain("transform: scale(var(--aven-pop-scale));");
+    const scale = Number(
+      /--aven-pop-scale: ([\d.]+);/.exec(rule(motion, ":root"))?.[1],
+    );
+    expect(scale).toBeGreaterThanOrEqual(0.92);
+    expect(scale).toBeLessThan(1);
+    expect(rule(motion, ':root[data-motion="reduce"]')).toContain(
+      "--aven-pop-scale: 1;",
     );
     expect(from).not.toContain("opacity");
   });

@@ -14,6 +14,42 @@
   --text-ui-body: 13px;
   --text-ui-reading: 14px;
   --text-ui-heading: 20px;
+  /* The iOS look's large title: Home, Settings and other top-level pages. */
+  --text-ui-title: 26px;
+
+  /* Corners for utility classes follow the iOS look's larger, continuous
+     curves (rounded, rounded-md, …). Full rounding is unchanged. */
+  --radius: 6px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 24px;
+
+  /* Tailwind's status colours map onto iOS's system colours (dark here;
+     light mode below). */
+  --color-red-300: #ff6961;
+  --color-red-400: #ff453a;
+  --color-red-500: #ff453a;
+  --color-red-600: #e5372c;
+  --color-rose-300: #ff6482;
+  --color-rose-400: #ff375f;
+  --color-rose-500: #ff375f;
+  --color-amber-200: #ffd27a;
+  --color-amber-300: #ffb340;
+  --color-amber-400: #ff9f0a;
+  --color-amber-500: #ff9f0a;
+  --color-emerald-300: #63e6a0;
+  --color-emerald-400: #30d158;
+  --color-emerald-500: #30d158;
+  --color-yellow-200: #ffe66d;
+  --color-yellow-300: #ffd60a;
+  --color-sky-300: #70d7ff;
+  --color-sky-400: #64d2ff;
+  --color-teal-300: #5fd6e8;
+  --color-teal-400: #40c8e0;
+  --color-violet-400: #bf5af2;
 
   --color-background-base: var(
     --theme-background-color,
@@ -46,44 +82,45 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --color-markdown-heading: #f9a8c9;
-  --aven-muted: color-mix(in srgb, var(--color-content) 66%, transparent);
+  --aven-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
-  --aven-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
-  --aven-selected: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-selected: color-mix(in srgb, var(--color-accent) 14%, transparent);
   --aven-raised: color-mix(
-    in srgb,
-    var(--color-background-base) 96%,
-    var(--color-content)
-  );
-  --aven-popup: color-mix(
     in srgb,
     var(--color-background-base) 94%,
     var(--color-content)
   );
+  /* Menus and popovers: iOS's elevated grey, solid. */
+  --aven-popup: color-mix(
+    in srgb,
+    var(--color-background-base) 87%,
+    var(--color-content)
+  );
   --aven-shadow: 0 14px 42px #0003;
   /* "Needs you": its text, the border around what needs you, and the wash
-     behind it (stronger on hover). The one amber every surface uses. */
-  --aven-needs-you: var(--color-amber-400, #e2a03f);
+     behind it (stronger on hover). The one orange every surface uses. */
+  --aven-needs-you: var(--color-amber-400, #ff9f0a);
   --aven-needs-you-edge: color-mix(
     in srgb,
-    var(--color-amber-400, #e2a03f) 45%,
+    var(--color-amber-400, #ff9f0a) 45%,
     transparent
   );
   --aven-needs-you-wash: color-mix(
     in srgb,
-    var(--color-amber-400, #e2a03f) 8%,
+    var(--color-amber-400, #ff9f0a) 10%,
     transparent
   );
   --aven-needs-you-wash-hover: color-mix(
     in srgb,
-    var(--color-amber-400, #e2a03f) 16%,
+    var(--color-amber-400, #ff9f0a) 18%,
     transparent
   );
-  /* Lines added and removed, in Git's green and red. */
-  --aven-git-add: #61bd85;
-  --aven-git-del: #d77880;
+  /* Lines added and removed, in iOS's green and red. */
+  --aven-git-add: #30d158;
+  --aven-git-del: #ff453a;
   /* Text that says a chat's changes wait for review. */
-  --aven-review: var(--color-emerald-400, #34d399);
+  --aven-review: var(--color-emerald-400, #30d158);
 }
 
 html {
@@ -95,17 +132,40 @@ html {
 }
 
 html.theme-light {
+  /* iOS's system colours, light. */
+  --color-red-300: #ff3b30;
+  --color-red-400: #ff3b30;
+  --color-red-500: #ff3b30;
+  --color-red-600: #d70015;
+  --color-rose-300: #ff2d55;
+  --color-rose-400: #ff2d55;
+  --color-rose-500: #ff2d55;
+  --color-amber-200: #ffcc00;
+  --color-amber-300: #ff9500;
+  --color-amber-400: #ff9500;
+  --color-amber-500: #ff9500;
+  --color-emerald-300: #34c759;
+  --color-emerald-400: #34c759;
+  --color-emerald-500: #248a3d;
+  --color-yellow-200: #ffcc00;
+  --color-yellow-300: #ffcc00;
+  --color-sky-300: #32ade6;
+  --color-sky-400: #32ade6;
+  --color-teal-300: #30b0c7;
+  --color-teal-400: #30b0c7;
+  --color-violet-400: #af52de;
   --background-lightness: 97%;
   --content-lightness: 18%;
+  --aven-popup: var(--color-background-base);
   --link-color: hsl(211 92% 40%);
   --color-skill: #a07c10;
   --color-mention: #0284c7;
   --color-markdown-heading: #be185d;
-  /* Plain amber is too pale to read on a light background. */
+  /* Plain orange is too pale to read on a light background. */
   --aven-needs-you: color-mix(
     in srgb,
-    var(--color-content) 45%,
-    var(--color-amber-400, #e2a03f)
+    var(--color-content) 30%,
+    var(--color-amber-400, #ff9500)
   );
   --aven-needs-you-edge: color-mix(
     in srgb,
@@ -122,12 +182,12 @@ html.theme-light {
     var(--color-amber-400, #e2a03f) 22%,
     transparent
   );
-  --aven-git-add: #1a7f37;
-  --aven-git-del: #c2303a;
+  --aven-git-add: #248a3d;
+  --aven-git-del: #d70015;
   --aven-review: color-mix(
     in srgb,
-    var(--color-content) 40%,
-    var(--color-emerald-500, #10b981)
+    var(--color-content) 15%,
+    var(--color-emerald-500, #248a3d)
   );
   color-scheme: light;
 }

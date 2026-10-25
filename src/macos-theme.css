@@ -2,17 +2,115 @@
    workspace's custom palette remains the source of every control color. */
 :root,
 .personal-shell {
+  /* The iOS look. Every value is a mix of the workspace's own background,
+     text and accent, so a custom palette, the Glass slider and Solid keep
+     working; only the proportions follow iOS.
+
+     Labels: primary, secondary, tertiary and quaternary text, as iOS's
+     label colours (60%, 30% and 18% of the label). */
+  --aven-label: var(--color-content);
+  --aven-label-secondary: color-mix(
+    in srgb,
+    var(--color-content) 60%,
+    transparent
+  );
+  --aven-label-tertiary: color-mix(
+    in srgb,
+    var(--color-content) 32%,
+    transparent
+  );
+  --aven-label-quaternary: color-mix(
+    in srgb,
+    var(--color-content) 18%,
+    transparent
+  );
+  /* Fills: iOS's system fills (grey at 36/32/24/18%), for switch tracks,
+     grey buttons, fields and large quiet shapes, in that order. */
+  --aven-fill: color-mix(in srgb, var(--color-content) 17%, transparent);
+  --aven-fill-secondary: color-mix(
+    in srgb,
+    var(--color-content) 13%,
+    transparent
+  );
+  --aven-fill-tertiary: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    transparent
+  );
+  --aven-fill-quaternary: color-mix(
+    in srgb,
+    var(--color-content) 7%,
+    transparent
+  );
+  /* Elevated greys, solid: #1C1C1E, #2C2C2E and #3A3A3C over black. For
+     small controls that sit over moving content, instead of a blur. */
+  --aven-elevated-1: color-mix(
+    in srgb,
+    var(--color-content) 11%,
+    var(--color-background-base)
+  );
+  --aven-elevated-2: color-mix(
+    in srgb,
+    var(--color-content) 17%,
+    var(--color-background-base)
+  );
+  --aven-elevated-3: color-mix(
+    in srgb,
+    var(--color-content) 23%,
+    var(--color-background-base)
+  );
+  /* A hairline: one device pixel. iOS separators are hairlines. */
+  --aven-hairline: 1px;
+  --aven-separator: color-mix(in srgb, var(--color-content) 12%, transparent);
+  /* Light catching the top edge of the material, and its rim. */
+  --aven-specular: inset 0 var(--aven-hairline) 0
+    color-mix(in srgb, #fff 13%, transparent);
+  --aven-rim: inset 0 0 0 var(--aven-hairline)
+    color-mix(in srgb, #fff 7%, transparent);
+  /* Chrome that floats over content: a pre-tinted material (no blur of its
+     own), lighter for controls, heavier for structure. */
+  --aven-material-regular: color-mix(
+    in srgb,
+    var(--aven-elevated-1) 82%,
+    transparent
+  );
+  --aven-material-thin: color-mix(
+    in srgb,
+    var(--aven-elevated-2) 70%,
+    transparent
+  );
+  --aven-float-shadow: 0 10px 30px -8px #00000073, 0 1px 3px #00000040;
+  /* Shape: continuous corners on one scale, nested concentrically (an inner
+     corner is its frame's corner less the padding between them). */
+  --aven-radius-xs: 6px;
+  --aven-radius-sm: 8px;
+  --aven-radius-row: 10px;
+  --aven-radius-capsule: 999px;
+  --aven-radius-sheet: 24px;
+  /* iOS's system colours, dark. Status reads in these: orange for Needs
+     you, green for Review and lines added, red for errors and lines
+     removed. Working keeps the workspace's accent. */
+  --aven-system-blue: #0a84ff;
+  --aven-system-green: #30d158;
+  --aven-system-orange: #ff9f0a;
+  --aven-system-red: #ff453a;
+  --aven-system-yellow: #ffd60a;
+  --aven-system-purple: #bf5af2;
+  --aven-system-pink: #ff375f;
+  --aven-system-teal: #40c8e0;
+  --aven-system-cyan: #64d2ff;
+
   --aven-control-solid: color-mix(
     in srgb,
-    var(--color-background-base) 90%,
+    var(--color-background-base) 88%,
     var(--color-content)
   );
   --aven-control-border: color-mix(
     in srgb,
-    var(--color-content) 12%,
+    var(--color-content) 7%,
     transparent
   );
-  --aven-control-shadow: 0 1px 2px #0002, inset 0 1px 0 #ffffff08;
+  --aven-control-shadow: 0 1px 2px #00000033, var(--aven-specular);
   --aven-toolbar-solid: color-mix(
     in srgb,
     var(--color-background-base) 95%,
@@ -52,19 +150,21 @@
     var(--aven-grouped-solid) calc(var(--personal-window-opacity, 1) * 36%),
     transparent
   );
+  /* Grouped cards: iOS's #1C1C1E card over black, lifted from the scene
+     with only as much body as the window's glass leaves. */
   --aven-glass-card: color-mix(
     in srgb,
-    var(--color-content) 4.5%,
+    var(--color-content) 8.5%,
     var(--aven-glass-card-base)
   );
   --aven-glass-card-hover: color-mix(
     in srgb,
-    var(--color-content) 8%,
+    var(--color-content) 12%,
     var(--aven-glass-card-base)
   );
   --aven-glass-card-edge: color-mix(
     in srgb,
-    var(--color-content) 11%,
+    var(--color-content) 8%,
     transparent
   );
   --aven-glass-overlay-edge: color-mix(
@@ -73,46 +173,96 @@
     transparent
   );
   /* Light catching the top edge of a glass pane. */
-  --aven-glass-sheen: inset 0 1px 0
-    color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-glass-sheen: var(--aven-specular);
   --aven-glass-card-shadow: 0 1px 2px #0000001a, 0 18px 40px -28px #000000a0;
   /* Cards inside a panel that already owns the glass (composer, inspector). */
-  --aven-inset-card: color-mix(in srgb, var(--color-content) 5%, transparent);
-  --aven-radius-card: 12px;
-  --aven-radius-overlay: 14px;
-  --aven-radius-control: 8px;
-  --aven-control-bg: color-mix(in srgb, var(--color-content) 7%, transparent);
-  --aven-control-hover: color-mix(
-    in srgb,
-    var(--color-content) 11%,
-    transparent
-  );
+  --aven-inset-card: var(--aven-fill-quaternary);
+  --aven-radius-card: 16px;
+  --aven-radius-overlay: 16px;
+  --aven-radius-control: 10px;
+  /* Grey buttons: iOS's tertiary fill. */
+  --aven-control-bg: var(--aven-fill-tertiary);
+  --aven-control-hover: var(--aven-fill-secondary);
   --aven-toolbar-surface: color-mix(
     in srgb,
     var(--aven-toolbar-solid) 36%,
     transparent
   );
   --aven-grouped-surface: var(--aven-glass-surface);
-  /* Fields sit slightly recessed into the glass rather than as black wells. */
-  --aven-field-bg: color-mix(in srgb, var(--aven-field-solid) 28%, transparent);
+  /* Fields are filled, as iOS's search and text fields are, rather than
+     recessed wells. */
+  --aven-field-bg: var(--aven-fill-tertiary);
   --aven-focus-ring: color-mix(
     in srgb,
     var(--color-accent) 85%,
     var(--color-content)
   );
-  --aven-shadow: 0 16px 48px #0004, 0 2px 8px #0002;
+  --aven-shadow: 0 22px 60px -12px #0009, 0 2px 8px #0003;
+}
+
+/* A hairline is one device pixel on a Retina screen. */
+@media (min-resolution: 2dppx) {
+  :root,
+  .personal-shell {
+    --aven-hairline: 0.5px;
+    --aven-separator: color-mix(in srgb, var(--color-content) 20%, transparent);
+  }
 }
 
 html.theme-light,
 html.theme-light .personal-shell {
-  --aven-control-solid: var(--color-background-base);
-  --aven-control-bg: var(--aven-control-solid);
-  --aven-control-border: color-mix(
+  /* iOS light: secondary text at 60% of a blue-grey, fills of a lighter
+     grey, and white cards on a pale grouped background. */
+  --aven-fill: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --aven-fill-secondary: color-mix(
     in srgb,
-    var(--color-content) 14%,
+    var(--color-content) 8%,
     transparent
   );
-  --aven-control-shadow: 0 1px 2px #00000012, inset 0 1px 0 #ffffff70;
+  --aven-fill-tertiary: color-mix(
+    in srgb,
+    var(--color-content) 6%,
+    transparent
+  );
+  --aven-fill-quaternary: color-mix(
+    in srgb,
+    var(--color-content) 4%,
+    transparent
+  );
+  --aven-elevated-1: var(--color-background-base);
+  --aven-elevated-2: color-mix(
+    in srgb,
+    var(--color-content) 4%,
+    var(--color-background-base)
+  );
+  --aven-elevated-3: color-mix(
+    in srgb,
+    var(--color-content) 8%,
+    var(--color-background-base)
+  );
+  --aven-separator: color-mix(in srgb, var(--color-content) 13%, transparent);
+  --aven-specular: inset 0 var(--aven-hairline) 0 #ffffff;
+  --aven-rim: inset 0 0 0 var(--aven-hairline)
+    color-mix(in srgb, var(--color-content) 8%, transparent);
+  --aven-float-shadow: 0 10px 30px -10px #0000002e, 0 1px 3px #0000001a;
+  --aven-system-blue: #007aff;
+  --aven-system-green: #34c759;
+  --aven-system-orange: #ff9500;
+  --aven-system-red: #ff3b30;
+  --aven-system-yellow: #ffcc00;
+  --aven-system-purple: #af52de;
+  --aven-system-pink: #ff2d55;
+  --aven-system-teal: #30b0c7;
+  --aven-system-cyan: #32ade6;
+
+  --aven-control-solid: var(--color-background-base);
+  --aven-control-bg: var(--aven-fill-tertiary);
+  --aven-control-border: color-mix(
+    in srgb,
+    var(--color-content) 8%,
+    transparent
+  );
+  --aven-control-shadow: 0 1px 2px #00000012, var(--aven-specular);
   --aven-toolbar-solid: color-mix(
     in srgb,
     var(--color-background-base) 97%,
@@ -126,7 +276,6 @@ html.theme-light .personal-shell {
   );
   --aven-grouped-surface: var(--aven-grouped-solid);
   --aven-field-solid: var(--color-background-base);
-  --aven-field-bg: var(--aven-field-solid);
   --aven-glass-surface: var(--aven-grouped-solid);
   --aven-glass-overlay: var(--aven-popup);
   --aven-glass-overlay-opacity: 100%;
@@ -143,14 +292,18 @@ html.theme-light .personal-shell {
     var(--color-content) 10%,
     transparent
   );
-  --aven-glass-sheen: inset 0 1px 0 #ffffff;
+  --aven-glass-sheen: var(--aven-specular);
   --aven-glass-card-shadow: 0 1px 2px #0000000d, 0 12px 28px -22px #0000002e;
-  --aven-control-hover: color-mix(
-    in srgb,
-    var(--color-content) 5%,
-    var(--aven-control-solid)
-  );
-  --aven-shadow: 0 16px 48px #0000001a, 0 2px 8px #00000012;
+  --aven-control-hover: var(--aven-fill-secondary);
+  --aven-field-bg: var(--aven-fill-tertiary);
+  --aven-shadow: 0 22px 60px -14px #00000033, 0 2px 8px #00000014;
+}
+
+@media (min-resolution: 2dppx) {
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-separator: color-mix(in srgb, var(--color-content) 20%, transparent);
+  }
 }
 
 html,
@@ -187,7 +340,7 @@ textarea {
 
 .aven-inset-card {
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-row);
   background: var(--aven-inset-card);
 }
 
@@ -199,7 +352,7 @@ textarea {
   border: 1px solid var(--aven-glass-overlay-edge);
   border-radius: var(--aven-radius-overlay);
   background: var(--aven-popup);
-  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
 }
 
 /* Frost whole surfaces, rather than adding a compositor layer for every

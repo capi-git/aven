@@ -31,9 +31,9 @@
     hsl(var(--theme-hue, 218) 38% 66%)
   );
   --personal-highlight: var(--theme-highlight-color, var(--personal-accent));
-  --personal-muted: color-mix(in srgb, var(--color-content) 64%, transparent);
+  --personal-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 9%, transparent);
-  --personal-hover: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --personal-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
   --personal-selected: color-mix(
     in srgb,
     var(--personal-highlight) 11%,
@@ -48,9 +48,10 @@
     var(--personal-main-surface) 96%,
     var(--color-content)
   );
+  /* Menus and popovers: iOS's elevated grey, solid. */
   --aven-popup: color-mix(
     in srgb,
-    var(--personal-main-surface) 94%,
+    var(--personal-main-surface) 87%,
     var(--color-content)
   );
   --personal-panel-duration: 200ms;
@@ -90,7 +91,8 @@ html.theme-light .personal-shell {
     color-mix(in srgb, var(--personal-frame) 32%, #ffffff)
   );
   --personal-accent: var(--theme-accent-color, #64718d);
-  --personal-muted: color-mix(in srgb, var(--color-content) 62%, transparent);
+  --aven-popup: var(--personal-main-surface);
+  --personal-muted: color-mix(in srgb, var(--color-content) 58%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 8%, transparent);
   --personal-hover: color-mix(in srgb, var(--color-content) 4%, transparent);
   --personal-selected: color-mix(in srgb, var(--color-content) 5%, transparent);
