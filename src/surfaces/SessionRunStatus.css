@@ -6,10 +6,11 @@
   gap: 9px;
   min-height: 38px;
   margin: 0 4px 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 6px 8px 6px 7px;
+  border-radius: 19px;
   color: var(--color-content);
   background: var(--aven-glass-surface, var(--aven-hover));
+  box-shadow: var(--aven-specular);
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
   font-family: var(--font-sans);
@@ -32,7 +33,11 @@
   );
 }
 .session-run-status[data-run-state="failed"] {
-  background: color-mix(in srgb, #e58686 7%, var(--aven-glass-surface));
+  background: color-mix(
+    in srgb,
+    var(--color-red-400, #ff453a) 8%,
+    var(--aven-glass-surface)
+  );
 }
 /* A finished turn: one quiet line between hairlines, like a turn's work
    line in the transcript. No surface, so no extra glass layer. */
@@ -72,9 +77,9 @@
   flex: 0 0 26px;
   height: 26px;
   place-items: center;
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-label-secondary);
+  background: var(--aven-fill-tertiary);
 }
 .session-run-status[data-run-state="working"] .session-run-mark {
   color: var(--color-accent);
@@ -85,13 +90,17 @@
   background: color-mix(in srgb, var(--color-skill) 12%, transparent);
 }
 .session-run-status[data-run-state="failed"] .session-run-mark {
-  color: #e58686;
-  background: color-mix(in srgb, #e58686 12%, transparent);
+  color: var(--color-red-400, #ff453a);
+  background: color-mix(
+    in srgb,
+    var(--color-red-400, #ff453a) 14%,
+    transparent
+  );
 }
 html.theme-light
   .session-run-status[data-run-state="failed"]
   .session-run-mark {
-  color: #b43d48;
+  color: var(--color-red-600, #d70015);
 }
 .session-run-copy {
   display: flex;
@@ -156,9 +165,9 @@ html.theme-light
   border-radius: 4px;
 }
 .session-run-queued {
-  border-radius: 5px;
-  padding: 2px 6px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  padding: 2px 7px;
+  background: var(--aven-fill-quaternary);
 }
 .session-run-stop {
   display: inline-flex;
@@ -167,18 +176,18 @@ html.theme-light
   gap: 5px;
   flex-shrink: 0;
   min-height: 28px;
-  padding: 4px 8px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 6px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg, var(--aven-hover));
-  box-shadow: var(--aven-control-shadow, none);
+  box-shadow: none;
   color: var(--color-content);
   font: inherit;
   font-size: var(--text-ui-caption);
   cursor: pointer;
 }
 .session-run-stop:hover {
-  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+  background: var(--aven-control-hover);
 }
 .session-run-stop:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));

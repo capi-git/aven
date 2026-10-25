@@ -9,7 +9,7 @@
   width: 100%;
   margin: 0 auto;
   padding: 10px 16px 8px;
-  border-bottom: 1px solid var(--aven-line);
+  border-bottom: var(--aven-hairline) solid var(--aven-separator);
   font-family: var(--font-sans);
   color: var(--color-content);
 }
@@ -27,7 +27,8 @@
 .bot-chat-name {
   overflow: hidden;
   font-size: var(--text-ui-body);
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,10 +92,10 @@
 }
 .bot-wake-label {
   overflow: hidden;
-  padding: 0 7px;
-  border: 1px solid var(--aven-line);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-quaternary);
   color: color-mix(in srgb, var(--color-content) 70%, transparent);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -118,7 +119,8 @@
 }
 .bot-fix-card {
   gap: 8px;
-  padding: 8px 10px 8px 14px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 22px;
 }
 .bot-fix-card[data-state="ready"] {
   border-color: color-mix(
@@ -136,7 +138,8 @@
 }
 .bot-fix-title {
   font-size: var(--text-ui-body);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 .bot-fix-card:not([data-state="ready"]) .bot-fix-title {
   font-weight: 400;

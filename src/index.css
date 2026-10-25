@@ -423,8 +423,8 @@ body[data-personal-resizing] *::before,
 html.theme-light [data-composer-box] {
   background: var(--color-background-base);
   box-shadow:
-    0 6px 24px color-mix(in srgb, var(--color-content) 9%, transparent),
-    0 2px 6px color-mix(in srgb, var(--color-content) 6%, transparent);
+    0 10px 30px -10px color-mix(in srgb, var(--color-content) 18%, transparent),
+    0 1px 3px color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 
 html.theme-light .composer-send:not(:disabled) {

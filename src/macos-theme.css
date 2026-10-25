@@ -403,13 +403,11 @@ html:not(.theme-light)
   backdrop-filter: var(--aven-glass-blur);
 }
 
+/* Your messages scroll, so they keep their pre-tinted bubble without a
+   blur of their own. */
 html:not(.theme-light)
   .detached-workspace
-  :is(
-    .personal-user-bubble,
-    .personal-transcript-notice,
-    .personal-composer [data-composer-box]
-  ) {
+  :is(.personal-transcript-notice, .personal-composer [data-composer-box]) {
   background: var(--aven-glass-surface);
   border-color: var(--aven-glass-edge);
   -webkit-backdrop-filter: var(--aven-glass-blur);
