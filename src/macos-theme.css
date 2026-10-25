@@ -585,6 +585,15 @@ html:not(.theme-light)
     --personal-sidebar-edge: var(--aven-line);
     --personal-muted: var(--aven-muted);
     --aven-glass-edge: var(--aven-line);
+    /* Separators become full lines, and labels stay legible. */
+    --aven-hairline: 1px;
+    --aven-separator: var(--aven-line);
+    --aven-label-secondary: var(--aven-muted);
+    --aven-label-tertiary: color-mix(
+      in srgb,
+      var(--color-content) 60%,
+      transparent
+    );
   }
 }
 
