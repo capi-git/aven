@@ -223,6 +223,21 @@
 .footer-usage-refresh:active:not(:disabled),
 .personal-new-session:active:not(:disabled),
 .personal-view-project-tasks:active:not(:disabled),
-.workspace-home-actions button:active:not(:disabled) {
+.workspace-home-actions button:active:not(:disabled),
+.personal-library-nav > button:active,
+.personal-workspace-tool:active:not(:disabled),
+.personal-composer-add > button:active:not(:disabled),
+.personal-composer-actions > button:active:not(:disabled),
+.session-run-stop:active:not(:disabled),
+.workspace-status-pill:active:not(:disabled),
+.workspace-status-navigation button:active:not(:disabled),
+.workspace-status-history button:active:not(:disabled),
+.workspace-status-layout button:active:not(:disabled),
+.workspace-inspector-tab:active,
+.workspace-inspector-close:active,
+.settings-segmented button:active:not(:disabled),
+.ship-flow-primary:active:not(:disabled),
+.ship-flow-secondary:active:not(:disabled),
+.activity-actions button:active:not(:disabled) {
   scale: var(--aven-press-scale);
 }
