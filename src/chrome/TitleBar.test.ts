@@ -2166,7 +2166,7 @@ describe("shared tab style", () => {
 
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(
-      /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: 6px;/,
+      /height: 26px;[\s\S]*padding-inline: 9px 11px;[\s\S]*border-radius: var\(--aven-radius-capsule\);/,
     );
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
       "background: var(--aven-tab-selected);",

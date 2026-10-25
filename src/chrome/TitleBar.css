@@ -5,15 +5,18 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
-  --aven-tab-selected: color-mix(
-    in srgb,
-    var(--color-content) 10%,
-    transparent
-  );
+  /* The tab in front is a capsule thumb, as in an iOS segmented control:
+     a lifted grey with light along its top edge. */
+  --aven-tab-selected: var(--aven-fill-secondary);
+  --aven-tab-selected-edge: var(--aven-specular), 0 1px 2px #00000033;
 }
 html.theme-light,
 html.theme-light .personal-shell {
-  --aven-tab-selected: color-mix(in srgb, var(--color-content) 6%, transparent);
+  --aven-tab-selected: var(--color-background-base);
+  --aven-tab-selected-edge:
+    0 0 0 var(--aven-hairline)
+      color-mix(in srgb, var(--color-content) 10%, transparent),
+    0 1px 3px #0000001a;
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
@@ -58,13 +61,13 @@ html.theme-light .personal-shell {
   height: 26px;
   min-height: 26px;
   gap: 6px;
-  padding-inline: 8px 10px;
+  padding-inline: 9px 11px;
   border: 0;
   outline: none;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   box-shadow: none;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  color: var(--aven-label-secondary);
   transition:
     background-color 120ms var(--aven-tab-ease),
     color 120ms var(--aven-tab-ease);
@@ -73,17 +76,18 @@ html.theme-light .personal-shell {
   padding-right: 28px;
 }
 .aven-tab-button:hover {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-fill-quaternary);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-button {
   background: var(--aven-tab-selected);
-  box-shadow: none;
+  box-shadow: var(--aven-tab-selected-edge);
   color: var(--color-content);
 }
 /* The active tab of a pane that does not have focus keeps a quieter fill. */
 [data-pane-focused="false"] .aven-tab[data-active="true"] .aven-tab-button {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-fill-quaternary);
+  box-shadow: none;
 }
 .aven-tab[data-draggable="true"],
 .aven-tab[data-draggable="true"] .aven-tab-button {
@@ -101,6 +105,9 @@ html.theme-light .personal-shell {
   font-weight: 400;
   line-height: 1.25;
 }
+.aven-tab[data-active="true"] .aven-tab-label {
+  font-weight: 500;
+}
 .aven-tab-close {
   position: absolute;
   top: 50%;
@@ -109,13 +116,13 @@ html.theme-light .personal-shell {
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: 4px;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-label-secondary);
   opacity: 0;
   transform: translateY(-50%);
 }
 .aven-tab-close:hover {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-fill-secondary);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-close {
@@ -138,13 +145,13 @@ html.theme-light .personal-shell {
   .personal-title-tab-button::after {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 0;
+  left: 14px;
+  right: 14px;
+  bottom: 1px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--tab-project-color);
-  opacity: 0.8;
+  opacity: 0.85;
   pointer-events: none;
 }
 /* A tab shown in a split beside the active one reads a little brighter. */
@@ -197,7 +204,7 @@ html.theme-light .personal-shell {
   flex-shrink: 0;
 }
 .personal-shell .personal-title-browser-menu {
-  border-radius: 4px;
+  border-radius: var(--aven-radius-capsule);
 }
 .personal-shell .personal-title-browser-menu:focus-visible,
 .personal-shell .personal-title-browser-new:focus-visible,
@@ -227,12 +234,12 @@ html.theme-light .personal-shell {
 .personal-shell .personal-titlebar .personal-titlebar-tool {
   width: 26px;
   height: 26px;
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--color-content) 68%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-label-secondary);
 }
 .personal-shell .personal-titlebar .personal-titlebar-tool:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  background: var(--aven-fill-tertiary);
 }
 .personal-shell .personal-titlebar[data-pane-local="true"] {
   height: 32px;
@@ -348,9 +355,9 @@ html.theme-light .personal-shell {
   justify-content: center;
   gap: 4px;
   height: 24px;
-  padding: 0 6px;
-  border-radius: 5px;
-  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  padding: 0 8px;
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-label-secondary);
   font-size: var(--text-ui-micro);
   white-space: nowrap;
   cursor: default;
@@ -358,7 +365,7 @@ html.theme-light .personal-shell {
 .personal-tab-preview-action:hover,
 .personal-tab-preview-action[aria-expanded="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-tertiary);
 }
 .personal-tab-preview-action:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -380,9 +387,9 @@ html.theme-light .personal-shell {
   gap: 5px;
   height: 20px;
   max-width: 140px;
-  padding: 0 8px;
+  padding: 0 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--tab-group-color);
   color: #0d0d0e;
   font-size: 11.5px;
@@ -424,9 +431,9 @@ html.theme-light .personal-shell {
   height: 22px;
   min-width: 64px;
   max-width: 160px;
-  padding: 0 7px;
+  padding: 0 9px;
   border: 1px solid var(--tab-group-color);
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   outline: 0;
   background: color-mix(in srgb, var(--tab-group-color) 14%, transparent);
   color: var(--color-content);
