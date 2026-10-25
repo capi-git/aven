@@ -1146,3 +1146,26 @@ html.theme-light:not(.has-chat-background) .workspace-home {
     var(--color-background-base)
   );
 }
+
+/* Rows in a panel are divided as an iOS grouped list is: a hairline from
+   the text's leading edge to the panel's trailing edge, hidden beside the
+   row you point at. */
+.workspace-home-list > li {
+  position: relative;
+}
+.workspace-home-list > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 38px;
+  right: -4px;
+  border-top: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+  pointer-events: none;
+}
+.workspace-home-list > li:hover::before,
+.workspace-home-list > li:hover + li::before,
+.workspace-home-list > li:focus-within::before,
+.workspace-home-list > li:focus-within + li::before {
+  opacity: 0;
+}
