@@ -22,7 +22,7 @@
 [data-app-search] input[aria-label="Search"] {
   min-height: 28px;
   border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   background: var(--aven-field-bg, var(--aven-hover));
 }
 [data-app-search] input[aria-label="Search"] {
@@ -41,7 +41,7 @@
 [data-app-inbox] [data-utility-card],
 [data-app-automations] [data-utility-card] {
   border-color: transparent;
-  border-radius: 7px;
+  border-radius: 14px;
   padding: 10px 12px;
 }
 .utility-list-card[aria-current="true"],
@@ -55,11 +55,11 @@
 }
 [data-app-search] [role="option"] {
   min-height: 36px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   padding-inline: 10px;
 }
 [data-app-search] button[aria-pressed] {
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   padding-inline: 10px;
   color: var(--aven-muted);
 }
@@ -78,7 +78,7 @@
 }
 .note-detail-content header button {
   height: 30px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
 }
 .file-editor-status {
   border-color: var(--aven-line);

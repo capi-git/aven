@@ -3,7 +3,7 @@
   color: var(--color-content);
   background: var(--color-background-base);
   border: 1px solid var(--aven-glass-overlay-edge);
-  border-radius: 12px;
+  border-radius: var(--aven-radius-overlay);
   box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
   overflow-y: auto;
 }
@@ -41,7 +41,7 @@
   height: 24px;
   flex-shrink: 0;
   margin: -4px -4px -4px 0;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 .workspace-theme-close:hover {
@@ -53,12 +53,12 @@
   gap: 2px;
   border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
   padding: 2px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
 }
 .workspace-theme-schemes > button {
   flex: 1;
   height: 24px;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
@@ -174,7 +174,7 @@
   flex: 1;
   min-width: 0;
   padding: 6px 2px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   font-size: var(--text-ui-micro);
 }
@@ -191,7 +191,7 @@
 .workspace-color-spectrum {
   position: relative;
   height: 110px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   touch-action: none;
   cursor: crosshair;
   overflow: hidden;
@@ -221,7 +221,7 @@
   padding: 5px 7px;
   margin-top: 8px;
   border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
 }
 .workspace-color-entry input[type="color"] {
   appearance: none;

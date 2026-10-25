@@ -156,7 +156,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   padding: 8px 11px;
   font-weight: 500;
   font-size: var(--text-ui-label);
@@ -245,7 +245,7 @@
 .provider-setup-plan {
   margin-top: 16px;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 16px;
   background: color-mix(in srgb, var(--color-accent) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
@@ -276,7 +276,7 @@
 .provider-setup-terminal {
   height: 260px;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--aven-field-bg);
   border: 1px solid var(--aven-glass-card-edge);
 }

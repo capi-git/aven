@@ -87,7 +87,7 @@ html.workspace-menu-panel-window #root {
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
 .workspace-menu-panel-compact {
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: var(--text-ui-label);
 }
 .workspace-menu-panel-compact .workspace-menu-panel-items {
@@ -96,7 +96,7 @@ html.workspace-menu-panel-window #root {
 .workspace-menu-panel-compact .workspace-menu-panel-item {
   min-height: 30px;
   padding: 6px 9px;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-sm);
   line-height: 18px;
 }
 .workspace-menu-panel-compact .workspace-menu-panel-item[aria-checked="true"] {
@@ -147,7 +147,7 @@ html.workspace-menu-panel-window #root {
   height: 32px;
   padding: 0 9px;
   border: 1px solid var(--toolbar-panel-line);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-row);
   color: var(--toolbar-panel-muted);
   background: var(--toolbar-panel-hover);
 }
