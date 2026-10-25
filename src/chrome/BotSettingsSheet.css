@@ -24,8 +24,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 40px;
-  border-bottom: 1px solid var(--aven-line);
+  min-height: 44px;
+  border-bottom: var(--aven-hairline) solid var(--aven-separator);
 }
 .bot-sheet-row > span {
   display: flex;
@@ -40,17 +40,18 @@
 }
 .bot-sheet-name {
   width: 180px;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: var(--aven-radius-control, 8px);
-  background: transparent;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--aven-radius-sm, 8px);
+  background: var(--aven-field-bg);
   font-size: var(--text-ui-label);
   color: var(--color-content);
   outline: none;
 }
 .bot-sheet-name:focus-visible {
   border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 .bot-sheet-note,
 .bot-sheet-question {
