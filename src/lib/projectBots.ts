@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { isEqualOrInside, projectKey } from "./paths";
 import { projectMascot } from "./projectMascots";
-import { IS_WIN } from "./platform";
 import { normalizeProjectPath } from "./recents";
 
 /**
@@ -477,7 +476,11 @@ export function getProjectBot(path: string): ProjectBot | undefined {
  * stored as on never runs (its chat is an ordinary chat).
  */
 export function botsAvailable(): boolean {
-  return !IS_WIN;
+  // Windows reports "Win32" or "Win64". Not `IS_WIN`, whose /Win/i also
+  // matches a test browser's "X11; Darwin arm64" on a Mac.
+  return !(
+    typeof navigator !== "undefined" && navigator.platform.startsWith("Win")
+  );
 }
 
 export function activeProjectBots(): ProjectBot[] {

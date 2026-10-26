@@ -50,13 +50,16 @@ afterAll(() => {
 });
 
 // Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
-const platform = vi.hoisted(() => ({ windows: false }));
-vi.mock("../lib/platform", async (original) => ({
-  ...(await original<typeof import("../lib/platform")>()),
-  get IS_WIN() {
-    return platform.windows;
+const platform = {
+  set windows(on: boolean) {
+    if (on)
+      Object.defineProperty(navigator, "platform", {
+        value: "Win32",
+        configurable: true,
+      });
+    else delete (navigator as { platform?: string }).platform;
   },
-}));
+};
 
 // Each project mark reports its renders through a Profiler of its own. The
 // home's marks render only when the home itself does, so zero commits here
