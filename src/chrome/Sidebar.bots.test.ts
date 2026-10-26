@@ -16,7 +16,22 @@ vi.mock("./PersonalWorkspaceSwitcher", () => ({
   PersonalWorkspaceSwitcher: () => null,
   WorkspaceProfileIcon: () => null,
 }));
-vi.mock("./PersonalProjectRow", () => ({ PersonalProjectRow: () => null }));
+// The project rows' props, to see what their menus offer.
+const rows = vi.hoisted(() => ({ props: [] as Record<string, unknown>[] }));
+vi.mock("./PersonalProjectRow", () => ({
+  PersonalProjectRow: (props: Record<string, unknown>) => {
+    rows.props.push(props);
+    return null;
+  },
+}));
+// Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
+const platform = vi.hoisted(() => ({ windows: false }));
+vi.mock("../lib/platform", async (original) => ({
+  ...(await original<typeof import("../lib/platform")>()),
+  get IS_WIN() {
+    return platform.windows;
+  },
+}));
 vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock("./SettingsRail", () => ({ SettingsNav: () => null }));
 // Only Git projects can have a bot; "/tmp/notes" is a plain folder.
@@ -68,6 +83,8 @@ beforeEach(() => {
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   copy.botReadyPaths.mockClear();
+  rows.props = [];
+  platform.windows = false;
   props = {
     cwd,
     open: true,
@@ -202,4 +219,23 @@ it("lists the chat as usual once the bot is off", async () => {
   ]);
   expect(container.querySelector("[data-bot-row]")).toBeNull();
   expect(botsSection()).toBeNull();
+});
+
+it("offers no bot on Windows, where Claude Code's sandbox doesn't run", async () => {
+  platform.windows = true;
+  await act(async () =>
+    root.render(
+      createElement(Sidebar, {
+        ...props,
+        onAddBot: vi.fn(),
+        onBotSettings: vi.fn(),
+      }),
+    ),
+  );
+  expect(botsSection()).toBeNull();
+  expect(button("New bot")).toBeUndefined();
+  expect(button("Add a bot")).toBeUndefined();
+  // The project menus get no "Add a bot" either.
+  expect(rows.props.length).toBeGreaterThan(0);
+  expect(rows.props.every((row) => row.onBotSettings === undefined)).toBe(true);
 });

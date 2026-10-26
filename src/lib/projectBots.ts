@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { isEqualOrInside, projectKey } from "./paths";
 import { projectMascot } from "./projectMascots";
+import { IS_WIN } from "./platform";
 import { normalizeProjectPath } from "./recents";
 
 /**
@@ -470,11 +471,22 @@ export function getProjectBot(path: string): ProjectBot | undefined {
 }
 
 /** Bots that are on. */
+/**
+ * Whether bots can run on this computer. They need Claude Code's sandbox,
+ * which doesn't run on Windows: there, nothing offers a bot, and a bot
+ * stored as on never runs (its chat is an ordinary chat).
+ */
+export function botsAvailable(): boolean {
+  return !IS_WIN;
+}
+
 export function activeProjectBots(): ProjectBot[] {
+  if (!botsAvailable()) return [];
   return Object.values(read().bots).filter((bot) => bot.on);
 }
 
 export function anyProjectBotOn(): boolean {
+  if (!botsAvailable()) return false;
   return Object.values(read().bots).some((bot) => bot.on);
 }
 
@@ -517,6 +529,7 @@ function chats(): Map<string, string> {
   read();
   if (chatIndex) return chatIndex;
   chatIndex = new Map();
+  if (!botsAvailable()) return chatIndex;
   for (const [key, bot] of Object.entries(cache.bots))
     if (bot.on && bot.sessionId) chatIndex.set(bot.sessionId, key);
   return chatIndex;

@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BOT_JOB_STALE_MS,
   PROJECT_BOTS_KEY,
+  activeProjectBots,
+  anyProjectBotOn,
+  botsAvailable,
   botBranch,
   botChatInCopy,
   botForChat,
@@ -34,6 +37,15 @@ import {
   withRunCounted,
   type ProjectBot,
 } from "./projectBots";
+
+// Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
+const platform = vi.hoisted(() => ({ windows: false }));
+vi.mock("./platform", async (original) => ({
+  ...(await original<typeof import("./platform")>()),
+  get IS_WIN() {
+    return platform.windows;
+  },
+}));
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -154,6 +166,30 @@ describe("project bot settings", () => {
     const raw = JSON.parse(localStorage.getItem(PROJECT_BOTS_KEY)!);
     expect(raw.bots["all-projects"]).toEqual(overview);
     expect(raw.bots[PATH]).toMatchObject({ scope: "project", on: true });
+  });
+
+  it("never runs a bot on Windows: one stored as on is inert there", () => {
+    updateProjectBot(PATH, (bot) => ({
+      ...bot,
+      on: true,
+      sessionId: "bot-chat",
+    }));
+    platform.windows = true;
+    resetProjectBotsCache();
+    try {
+      expect(botsAvailable()).toBe(false);
+      expect(activeProjectBots()).toEqual([]);
+      expect(anyProjectBotOn()).toBe(false);
+      // Its chat is an ordinary chat.
+      expect(botForChat("bot-chat")).toBeUndefined();
+      expect(isBotChat("bot-chat")).toBe(false);
+      // Nothing is lost: elsewhere it is still on.
+      expect(getProjectBot(PATH)?.on).toBe(true);
+    } finally {
+      platform.windows = false;
+      resetProjectBotsCache();
+    }
+    expect(isBotChat("bot-chat")).toBe(true);
   });
 
   it("finds a bot by its chat and its copy, only while it is on", () => {
