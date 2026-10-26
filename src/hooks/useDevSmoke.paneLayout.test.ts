@@ -149,6 +149,8 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
       "the pane's corners are 0px",
     );
+    // Older macOS windows round to 10pt, so panes there have 5px corners.
+    expect(paneLayoutProblem(layout({ radius: "5px" })).problem).toBeNull();
     expect(paneLayoutProblem(layout({ inset: 0 })).problem).toBe(
       "the card is 0px from the workspace edge",
     );

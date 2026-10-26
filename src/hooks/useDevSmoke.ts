@@ -1986,7 +1986,9 @@ export function paneLayoutProblem(file: HTMLElement): {
   // A card: rounded, with a hairline edge, clear of the workspace's edges.
   const style = getComputedStyle(card);
   const radius = parseFloat(style.borderTopLeftRadius);
-  if (!(radius >= 6)) return fail(`the pane's corners are ${radius}px`);
+  // Panes nest in the window's corner less the gutter: 11px on macOS 26 and
+  // 5px in macOS 13 to 15's 10pt windows (the release check runs on 15).
+  if (!(radius >= 4)) return fail(`the pane's corners are ${radius}px`);
   if (parseFloat(style.borderTopWidth) !== 1)
     return fail(`the pane's edge is ${style.borderTopWidth}`);
   const cardRect = card.getBoundingClientRect();
