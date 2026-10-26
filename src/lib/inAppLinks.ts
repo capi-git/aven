@@ -23,6 +23,24 @@ export function resolveFileLink(
   href: string,
   cwd?: string,
 ): { path: string; navigation?: EditorNavigation } | undefined {
+  const link = parseFileLink(href);
+  if (!link) return;
+  const path = resolveWorkspacePath(link.value, cwd);
+  if (!path) return;
+  return {
+    path,
+    ...(link.navigation ? { navigation: link.navigation } : {}),
+  };
+}
+
+/**
+ * The local path a link names, as written (a relative path stays relative),
+ * and the line it points at. Undefined for web links, anchors and anything
+ * that must never be read as a local path.
+ */
+export function parseFileLink(
+  href: string,
+): { value: string; navigation?: EditorNavigation } | undefined {
   let value = href.trim();
   if (value.startsWith(LOCAL_FILE_LINK)) {
     try {
@@ -68,11 +86,10 @@ export function resolveFileLink(
     (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value))
   )
     return;
-  const path = resolveWorkspacePath(value, cwd);
-  if (!path) return;
+  if (!value) return;
   const line = location ? Number(location[1] ?? location[3]) : 0;
   return {
-    path,
+    value,
     ...(line > 0
       ? {
           navigation: {

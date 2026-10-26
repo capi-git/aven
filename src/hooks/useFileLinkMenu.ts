@@ -4,10 +4,12 @@ import { copyText } from "../lib/clipboard";
 import { logError } from "../lib/errors";
 import { basename } from "../lib/fs";
 import { REVEAL_LABEL } from "../lib/platform";
-import { revealFile } from "../lib/revealFile";
-import type { EditorNavigation, OpenFileFn } from "../lib/search";
+import type { EditorNavigation } from "../lib/search";
 
 type FileLink = { path: string; navigation?: EditorNavigation };
+
+/** What Open and Reveal do; Copy Path copies `file.path` itself. */
+type FileLinkActions = { open: () => void; reveal: () => void };
 
 const ITEMS: ExplorerMenuItem[] = [
   { kind: "item", id: "open", label: "Open" },
@@ -20,7 +22,10 @@ const ITEMS: ExplorerMenuItem[] = [
  * Right-click actions for a chat reference that resolves to a local file.
  * Without a file, the handlers do nothing, so web links keep the system menu.
  */
-export function useFileLinkMenu(file: FileLink | undefined, open: OpenFileFn) {
+export function useFileLinkMenu(
+  file: FileLink | undefined,
+  actions: FileLinkActions,
+) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
 
   const onContextMenu = (event: MouseEvent<HTMLElement>) => {
@@ -50,8 +55,8 @@ export function useFileLinkMenu(file: FileLink | undefined, open: OpenFileFn) {
           onClose: () => setPoint(null),
           onPick: (id: string) => {
             setPoint(null);
-            if (id === "open") open(file.path, file.navigation);
-            else if (id === "reveal") revealFile(file.path, "reveal file link");
+            if (id === "open") actions.open();
+            else if (id === "reveal") actions.reveal();
             else if (id === "copy-path")
               void copyText(file.path).catch((error: unknown) =>
                 logError("copy file link path", error),

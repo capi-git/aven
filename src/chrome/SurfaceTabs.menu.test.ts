@@ -13,7 +13,9 @@ import { SurfaceTabs, fileTabMenuItems } from "./SurfaceTabs";
 
 const mocks = vi.hoisted(() => ({
   reveal: vi.fn(async (_path: string) => {}),
+  inspect: vi.fn(async (_paths: string[]): Promise<unknown[]> => []),
   copy: vi.fn(async (_text: string) => {}),
+  message: vi.fn(async (_text: string, _options?: unknown) => {}),
 }));
 vi.mock("../hooks/useSortable", () => ({
   useSortable: () => ({
@@ -29,8 +31,10 @@ vi.mock("../hooks/useSortable", () => ({
 vi.mock("../lib/fs", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/fs")>()),
   revealPath: mocks.reveal,
+  inspectPaths: mocks.inspect,
 }));
 vi.mock("../lib/clipboard", () => ({ copyText: mocks.copy }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ message: mocks.message }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => false }));
 
 type Props = ComponentProps<typeof SurfaceTabs>;
@@ -94,8 +98,10 @@ beforeEach(() => {
     setItem: (key: string, value: string) => storage.set(key, value),
     removeItem: (key: string) => storage.delete(key),
   });
-  mocks.reveal.mockClear();
+  mocks.reveal.mockReset().mockResolvedValue(undefined);
+  mocks.inspect.mockReset().mockResolvedValue([]);
   mocks.copy.mockClear();
+  mocks.message.mockClear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -160,6 +166,26 @@ describe("file tab menu", () => {
     await rightClick(tab("Stanislaus impressions.md"));
     await pick(REVEAL_LABEL);
     expect(mocks.reveal).toHaveBeenCalledExactlyOnceWith(notes.path);
+  });
+
+  it("says plainly when a tab's file is no longer there, and still copies its path", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.reveal.mockRejectedValue(`${notes.path}: No such file or directory`);
+    await render();
+    await rightClick(tab("Stanislaus impressions.md"));
+    await pick(REVEAL_LABEL);
+    await vi.waitFor(() =>
+      expect(mocks.message).toHaveBeenCalledExactlyOnceWith(
+        "Stanislaus impressions.md isn't at that location anymore.",
+        expect.objectContaining({ kind: "info" }),
+      ),
+    );
+    expect(mocks.inspect).toHaveBeenCalledWith([notes.path]);
+    expect(error).not.toHaveBeenCalled();
+
+    await rightClick(tab("Stanislaus impressions.md"));
+    await pick("Copy path");
+    expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(notes.path);
   });
 
   it("copies the file's full path", async () => {
