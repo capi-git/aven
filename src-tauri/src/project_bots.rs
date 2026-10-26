@@ -440,14 +440,17 @@ mod tests {
         std::fs::canonicalize(&dir).unwrap()
     }
 
+    #[cfg_attr(windows, allow(dead_code))]
     fn git_ok(dir: &Path, args: &[&str]) {
         race::run(dir, args).unwrap_or_else(|e| panic!("git {args:?}: {e}"));
     }
 
+    #[cfg_attr(windows, allow(dead_code))]
     fn read(path: &Path) -> String {
         std::fs::read_to_string(path).unwrap()
     }
 
+    #[cfg_attr(windows, allow(dead_code))]
     fn repo() -> PathBuf {
         let root = temp_dir("repo");
         git_ok(&root, &["init", "-q", "-b", "main"]);
@@ -465,6 +468,9 @@ mod tests {
 
     const BRANCH: &str = "aven/bot/jelly";
 
+    // Bots are not offered on Windows (Claude Code's sandbox does not run
+    // there), and these drive real worktrees through canonical macOS paths.
+    #[cfg(not(windows))]
     #[test]
     fn keeps_one_copy_synced_to_what_the_user_sees() {
         let root = repo();
@@ -518,6 +524,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bots);
     }
 
+    // Bots are not offered on Windows (Claude Code's sandbox does not run
+    // there), and these drive real worktrees through canonical macOS paths.
+    #[cfg(not(windows))]
     #[test]
     fn reads_applies_and_throws_away_a_fix() {
         let root = repo();
@@ -578,6 +587,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bots);
     }
 
+    // Bots are not offered on Windows (Claude Code's sandbox does not run
+    // there), and these drive real worktrees through canonical macOS paths.
+    #[cfg(not(windows))]
     #[test]
     fn a_conflicting_apply_changes_nothing_and_keeps_the_fix() {
         let root = repo();
@@ -609,6 +621,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bots);
     }
 
+    // Bots are not offered on Windows (Claude Code's sandbox does not run
+    // there), and these drive real worktrees through canonical macOS paths.
+    #[cfg(not(windows))]
     #[test]
     fn makes_a_forgotten_copy_again() {
         let root = repo();
