@@ -192,6 +192,18 @@ export function waitForPage(surfaceId: string): Promise<string> {
   });
 }
 
+/** Aven's browser connection for agents, once a chat has used it. */
+let browserSocket: string | undefined;
+
+/**
+ * The Unix socket agents' browser and desktop commands reach Aven through
+ * (one per app launch), once known: sandboxed agents (a project's bot) are
+ * allowed this one socket.
+ */
+export function agentBrowserSocket(): string | undefined {
+  return browserSocket;
+}
+
 function bind(
   context: AgentBrowserContext,
   userTurn = false,
@@ -218,6 +230,9 @@ function bind(
     });
   bindingTails.set(context.sessionId, operation);
   void operation
+    .then((binding) => {
+      browserSocket = binding.socketPath;
+    })
     .finally(() => {
       if (bindingTails.get(context.sessionId) === operation)
         bindingTails.delete(context.sessionId);

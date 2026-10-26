@@ -29,7 +29,12 @@ export type ClaudeSandboxSettings = {
   allowUnsandboxedCommands: boolean;
   /** Sandboxed commands run without a prompt; deny and ask rules still apply. */
   autoAllowBashIfSandboxed: boolean;
-  network?: { allowedDomains?: string[]; allowLocalBinding?: boolean };
+  network?: {
+    allowedDomains?: string[];
+    allowLocalBinding?: boolean;
+    /** Unix socket paths commands may connect to. */
+    allowUnixSockets?: string[];
+  };
   filesystem?: { denyWrite?: string[] };
 };
 

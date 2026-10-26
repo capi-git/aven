@@ -71,14 +71,17 @@ it("never pushes, opens pull requests, publishes or deploys, and asks before the
 });
 
 it("sandboxes a bot's commands: its copy and temp only, never the shared refs, registries only", () => {
-  const sandbox = botSandbox({
-    copy: {
-      path: "/data/bots/orbit-1a2b",
-      branch: "aven/bot/jelly-1a2b",
-      root: "/Users/me/Orbit",
-      gitDir: "/Users/me/Orbit/.git",
+  const sandbox = botSandbox(
+    {
+      copy: {
+        path: "/data/bots/orbit-1a2b",
+        branch: "aven/bot/jelly-1a2b",
+        root: "/Users/me/Orbit",
+        gitDir: "/Users/me/Orbit/.git",
+      },
     },
-  });
+    undefined,
+  );
   expect(sandbox).toMatchObject({
     enabled: true,
     failIfUnavailable: true,
@@ -95,6 +98,11 @@ it("sandboxes a bot's commands: its copy and temp only, never the shared refs, r
     "/Users/me/Orbit/.git/HEAD",
     "/Users/me/Orbit/.git/index",
   ]);
+  // Aven's own browser and desktop commands: that one socket, once known.
+  expect(sandbox.network?.allowUnixSockets).toBeUndefined();
+  expect(
+    botSandbox({}, "/tmp/sm-browser-1/agent.sock").network?.allowUnixSockets,
+  ).toEqual(["/tmp/sm-browser-1/agent.sock"]);
   // A copy stored before its git folder was known: the root's .git.
   expect(
     botSandbox({
