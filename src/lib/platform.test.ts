@@ -1,21 +1,23 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-async function platformFor(platform: string) {
-  vi.resetModules();
-  vi.stubGlobal("navigator", { platform });
-  return import("./platform");
-}
+import { afterEach, expect, it, vi } from "vitest";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.resetModules();
 });
 
-describe("platform", () => {
-  it("reads Windows only from a platform that starts with Win", async () => {
-    expect((await platformFor("Win32")).IS_WIN).toBe(true);
-    // "Darwin" contains "win"; a Mac or a test DOM reporting it is not Windows.
-    expect((await platformFor("X11; Darwin arm64")).IS_WIN).toBe(false);
-    expect((await platformFor("MacIntel")).IS_WIN).toBe(false);
-    expect((await platformFor("MacIntel")).IS_MAC).toBe(true);
-  });
+async function platformFor(name: string) {
+  vi.stubGlobal("navigator", { platform: name });
+  vi.resetModules();
+  return import("./platform");
+}
+
+it.each([
+  ["MacIntel", { mac: true, win: false }],
+  // A test browser on a Mac: "Darwin" must not read as Windows.
+  ["X11; Darwin arm64", { mac: false, win: false }],
+  ["Win32", { mac: false, win: true }],
+  ["Linux x86_64", { mac: false, win: false }],
+])("tells %s apart", async (name, expected) => {
+  const platform = await platformFor(name);
+  expect({ mac: platform.IS_MAC, win: platform.IS_WIN }).toEqual(expected);
 });
