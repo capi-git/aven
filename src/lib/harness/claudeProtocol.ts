@@ -27,6 +27,10 @@ import { streamTextDelta } from "./streamText";
 import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import type { McpElicitation } from "../mcpElicitation";
+import type {
+  ClaudePermissionRules,
+  ClaudeSandboxSettings,
+} from "./sessionPermissions";
 
 /** Claude Code versions that first ship each supported model generation. */
 export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
@@ -73,6 +77,13 @@ export type ClaudeCliSettings = {
   fastMode?: boolean;
   ultracode?: boolean;
   disableAllHooks?: boolean;
+  /**
+   * Permission rules on top of the user's own (see `sessionPermissions`).
+   * Lists from every settings source are combined; deny, then ask, then
+   * allow decide, so an `ask` here prompts even where the user allowed it.
+   */
+  permissions?: ClaudePermissionRules;
+  sandbox?: ClaudeSandboxSettings;
 };
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1189,6 +1200,8 @@ export function claudeSettingsKey(input: {
   hooks?: boolean;
   /** Project memory revision: a change relaunches with the new memory. */
   memory?: string;
+  /** Permission rules the chat launches with (`permissionRulesKey`). */
+  permissions?: string;
 }): string {
   return [
     input.model,
@@ -1199,6 +1212,7 @@ export function claudeSettingsKey(input: {
     input.runtimeMode,
     input.hooks === false ? "nohooks" : "hooks",
     input.memory ?? "",
+    input.permissions ?? "",
   ].join("|");
 }
 

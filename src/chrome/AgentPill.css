@@ -226,7 +226,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   gap: 8px;
   width: 100%;
   padding: 5px 8px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
   font-size: var(--text-ui-label);
   text-align: left;
@@ -262,14 +262,15 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   gap: 2px;
   margin: 0 4px;
   padding: 2px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
+  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 .agent-segment {
   flex: 1 1 auto;
   min-width: 0;
   padding: 5px 8px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
   font-size: var(--text-ui-caption);
   white-space: nowrap;
@@ -278,9 +279,10 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   color: var(--color-content);
 }
 .agent-segment[aria-checked="true"] {
-  background: color-mix(in srgb, var(--color-content) 13%, transparent);
-  box-shadow: 0 1px 2px #00000026;
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
   color: var(--color-content);
+  font-weight: 600;
 }
 
 .agent-switch-row {
@@ -289,7 +291,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   gap: 8px;
   width: 100%;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
   font-size: var(--text-ui-label);
   text-align: left;
@@ -338,7 +340,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
 }
 .agent-panel .access-panel-options[data-compact] .access-panel-icon,
 .agent-panel .access-panel-options[data-compact] .access-panel-check {

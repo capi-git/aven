@@ -92,4 +92,16 @@ describe("chats kept loaded without a tab", () => {
     );
     expect([...kept].sort()).toEqual(["inbox", "lead", "other", "worker"]);
   });
+
+  it("keeps a bot's chat while Aven works for it, and parks it when idle", () => {
+    const sessions = [chat("bot-chat"), chat("parked")];
+    expect(
+      retainedSessionIds(sessions, new Set(), [], [], ["bot-chat"]).has(
+        "bot-chat",
+      ),
+    ).toBe(true);
+    expect(
+      retainedSessionIds(sessions, new Set(), [], [], []).has("bot-chat"),
+    ).toBe(false);
+  });
 });

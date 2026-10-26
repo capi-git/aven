@@ -84,7 +84,7 @@ html.usage-panel-window .usage-panel {
   position: relative;
   height: 6px;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--toolbar-panel-track);
 }
 

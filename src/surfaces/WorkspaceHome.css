@@ -44,12 +44,13 @@ html.has-chat-background .workspace-home::before {
   min-width: 0;
 }
 
+/* iOS's large title: bold, its tracking tightened for its size. */
 .workspace-home-title h1 {
   margin: 0;
-  font-size: var(--text-ui-heading);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  font-size: var(--text-ui-title, 26px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.022em;
   overflow-wrap: anywhere;
 }
 
@@ -71,11 +72,11 @@ html.has-chat-background .workspace-home::before {
   align-items: center;
   gap: 6px;
   min-height: 30px;
-  padding: 5px 12px 5px 10px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  padding: 5px 14px 5px 11px;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: 999px;
   background: var(--aven-control-bg);
-  box-shadow: var(--aven-glass-sheen, none);
+  box-shadow: none;
   color: var(--color-content);
   font-size: var(--text-ui-label);
   font-weight: 500;
@@ -89,15 +90,22 @@ html.has-chat-background .workspace-home::before {
   background: var(--aven-control-hover, var(--aven-hover));
 }
 
+/* The one prominent start: a filled accent capsule, as the send button. */
 .workspace-home-actions .workspace-home-new {
-  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
+  background: var(--color-accent);
+  border-color: transparent;
+  box-shadow:
+    inset 0 var(--aven-hairline, 1px) 0
+      color-mix(in srgb, #fff 30%, transparent),
+    0 1px 3px #00000033;
+  color: var(--aven-on-accent, var(--color-background-base));
+  font-weight: 600;
 }
 
 .workspace-home
   .workspace-home-actions
   .workspace-home-new:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-accent) 32%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 88%, var(--color-content));
 }
 
 /* Sections */
@@ -105,11 +113,13 @@ html.has-chat-background .workspace-home::before {
   margin-bottom: 22px;
 }
 
+/* Section titles lead by weight, as iOS's do. */
 .workspace-home h2 {
   margin: 0 0 8px 4px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  font-weight: 600;
+  color: var(--color-content);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
 }
 
 .workspace-home h2:focus {
@@ -120,8 +130,9 @@ html.has-chat-background .workspace-home::before {
    macos-theme.css); tiles are tints, so a full grid adds no compositor
    layers. */
 .workspace-home-panel {
+  --home-panel-pad: 4px;
   min-width: 0;
-  padding: 4px;
+  padding: var(--home-panel-pad);
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: var(--aven-radius-card, 12px);
   background: var(--aven-glass-card, var(--aven-hover));
@@ -248,7 +259,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home .workspace-home-today {
   margin: -2px -6px;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: inherit;
   font: inherit;
   white-space: nowrap;
@@ -312,8 +323,9 @@ html.has-chat-background .workspace-home::before {
   width: 24px;
   height: 24px;
   margin-left: auto;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   color: var(--aven-muted);
+  background: var(--aven-fill-tertiary);
 }
 
 .workspace-home .workspace-home-briefing-dismiss:hover:not(:disabled) {
@@ -383,7 +395,7 @@ html.has-chat-background .workspace-home::before {
   width: 100%;
   min-height: 26px;
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   color: var(--color-content);
   text-align: left;
 }
@@ -415,7 +427,7 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home .workspace-home-briefing-link {
   padding: 0;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-xs);
   color: color-mix(in srgb, var(--color-content) 35%, var(--color-amber-400));
   font-weight: 600;
 }
@@ -443,7 +455,7 @@ html.has-chat-background .workspace-home::before {
   gap: 3px;
   min-width: 0;
   padding: 8px 10px 12px;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-card, 16px);
   text-align: center;
   transition:
     background-color 120ms ease,
@@ -592,9 +604,9 @@ html.has-chat-background .workspace-home::before {
   position: relative;
   max-width: 100%;
   min-width: 0;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 8px;
+  border-radius: var(--aven-radius-md);
   background: var(--aven-popup, var(--aven-control-bg));
   color: var(--color-content);
   font-size: var(--text-ui-caption);
@@ -677,7 +689,7 @@ html.has-chat-background .workspace-home::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-card, 16px);
 }
 
 .workspace-home .workspace-home-agent-open:hover:not(:disabled) {
@@ -745,7 +757,7 @@ html.has-chat-background .workspace-home::before {
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   color: var(--aven-muted);
 }
 
@@ -768,7 +780,7 @@ html.has-chat-background .workspace-home::before {
   min-height: 150px;
   padding: 12px;
   border: 1px dashed var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 14px;
+  border-radius: var(--aven-radius-card, 16px);
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   font-weight: 500;
@@ -791,6 +803,10 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-list {
+  /* A row's geometry, shared with the dividers between rows. */
+  --home-row-inline: 10px;
+  --home-row-gap: 10px;
+  --home-row-mark: 18px;
   margin: 0;
   list-style: none;
 }
@@ -800,10 +816,13 @@ html.has-chat-background .workspace-home::before {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 10px;
+  gap: var(--home-row-gap, 10px);
   min-height: 42px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 6px var(--home-row-inline, 10px);
+  /* Concentric with its panel: the panel's corner less its padding. */
+  border-radius: calc(
+    var(--aven-radius-card, 16px) - var(--home-panel-pad, 4px)
+  );
   text-align: left;
   font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
@@ -814,8 +833,8 @@ html.has-chat-background .workspace-home::before {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: var(--home-row-mark, 18px);
+  height: var(--home-row-mark, 18px);
 }
 /* A team's mascots take the width they need, never the row's text. */
 .workspace-home-row-mark:has(.team-mini-faces) {
@@ -936,8 +955,8 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-more {
   margin: 6px 0 0 6px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: var(--aven-radius-capsule);
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
 }
@@ -980,8 +999,8 @@ html.has-chat-background .workspace-home::before {
   grid-area: meter;
   height: 5px;
   overflow: hidden;
-  border-radius: 3px;
-  background: var(--aven-hover);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
 }
 
 .workspace-home-usage-meter > span {
@@ -1049,11 +1068,11 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-window button {
-  padding: 6px 10px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-control, 8px);
+  padding: 6px 13px;
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg, var(--aven-hover));
-  box-shadow: var(--aven-control-shadow, none);
+  box-shadow: none;
   font-size: var(--text-ui-label);
 }
 
@@ -1079,4 +1098,80 @@ html.has-chat-background .workspace-home::before {
   .workspace-home-row-aside {
     max-width: 28%;
   }
+}
+
+/* The project's bot, when it has one on: its critter, name and latest
+   word. Above the tile's own link, so it opens the bot's chat. */
+.workspace-home-agent-bot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+}
+.workspace-home .workspace-home-agent-bot:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.workspace-home-agent-bot .bot-critter {
+  width: 11px;
+  height: 11px;
+}
+.workspace-home-agent-bot-name {
+  flex: none;
+  color: var(--color-content);
+  font-weight: 500;
+}
+.workspace-home-agent-bot-post {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-home-agent-bot[data-bot-status="fix-ready"]
+  .workspace-home-agent-bot-post {
+  color: var(--aven-review, var(--color-accent));
+}
+.workspace-home-agent-bot[data-bot-status="needs-you"]
+  .workspace-home-agent-bot-post {
+  color: var(--aven-needs-you);
+}
+
+/* Light mode: iOS's grouped background, so the white cards stand off it. A
+   chosen background image keeps the page clear. */
+html.theme-light:not(.has-chat-background) .workspace-home {
+  background: var(--aven-grouped-background);
+}
+
+/* Rows in a panel are divided as an iOS grouped list is: a hairline from
+   the text's leading edge to the panel's trailing edge, hidden beside the
+   row you point at. */
+.workspace-home-list > li {
+  position: relative;
+}
+.workspace-home-list > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  /* From the row's text to the panel's trailing edge. */
+  left: calc(
+    var(--home-row-inline) + var(--home-row-mark) + var(--home-row-gap)
+  );
+  right: calc(var(--home-panel-pad, 4px) * -1);
+  border-top: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+  pointer-events: none;
+}
+.workspace-home-list > li:hover::before,
+.workspace-home-list > li:hover + li::before,
+.workspace-home-list > li:focus-within::before,
+.workspace-home-list > li:focus-within + li::before {
+  opacity: 0;
 }

@@ -2,23 +2,21 @@
    one primary action, and plain-language status lines. No animation besides
    the step spinner while a native command runs. */
 .ship-flow {
-  --ship-add: #61bd85;
-  --ship-del: #d77880;
-  --ship-ok: #4ade80;
+  --ship-add: var(--aven-git-add);
+  --ship-del: var(--aven-git-del);
+  /* Passing reads in the same green as lines added. */
+  --ship-ok: var(--aven-git-add);
   --ship-warn: var(--color-warning, #d99c45);
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 9px 10px 10px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-card, var(--aven-inset-card));
   box-shadow: var(--aven-glass-sheen, none);
 }
 html.theme-light .ship-flow {
-  --ship-add: #1a7f37;
-  --ship-del: #c2303a;
-  --ship-ok: #1a7f37;
   --ship-warn: #a8620c;
 }
 
@@ -56,7 +54,7 @@ html.theme-light .ship-flow {
   height: 20px;
   flex-shrink: 0;
   place-items: center;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
 .ship-flow[data-phase="done"] .ship-flow-close,
@@ -74,8 +72,9 @@ html.theme-light .ship-flow {
   display: flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
+  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 .ship-flow-scope > button,
 .ship-flow-modes > button {
@@ -84,7 +83,7 @@ html.theme-light .ship-flow {
   height: 22px;
   padding: 0 6px;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   font-weight: 500;
   text-overflow: ellipsis;
@@ -94,8 +93,9 @@ html.theme-light .ship-flow {
 .ship-flow-scope > button[aria-checked="true"],
 .ship-flow-modes > button[aria-checked="true"] {
   color: var(--color-content);
-  background: var(--aven-control-bg);
-  box-shadow: var(--aven-control-shadow, none);
+  font-weight: 600;
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
 }
 .ship-flow-scope > button:hover:not([aria-checked="true"]),
 .ship-flow-modes > button:hover:enabled:not([aria-checked="true"]) {
@@ -119,7 +119,7 @@ html.theme-light .ship-flow {
   align-items: flex-start;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-row);
   background: color-mix(in srgb, var(--ship-tone) 9%, transparent);
 }
 .ship-flow-tests[data-tone="ok"] {
@@ -175,7 +175,7 @@ html.theme-light .ship-flow {
   overflow-y: auto;
   resize: none;
   border: 1px solid var(--aven-control-border, transparent);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-row);
   outline: none;
   font-size: var(--text-ui-body);
   line-height: 1.4;
@@ -197,7 +197,7 @@ html.theme-light .ship-flow {
   gap: 4px;
   height: 20px;
   padding: 0 7px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
@@ -231,7 +231,7 @@ html.theme-light .ship-flow {
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 600;
 }
@@ -257,7 +257,7 @@ html.theme-light .ship-flow {
 .ship-flow-link {
   height: 28px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
 }
@@ -346,7 +346,7 @@ html.theme-light .ship-flow {
   flex-direction: column;
   gap: 4px;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .ship-flow-pr-link {
@@ -356,7 +356,7 @@ html.theme-light .ship-flow {
   gap: 6px;
   height: 24px;
   padding: 0 4px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--color-content);
@@ -388,7 +388,7 @@ html.theme-light .ship-flow {
   gap: 7px;
   height: 22px;
   padding: 0 4px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
   text-align: left;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
@@ -409,7 +409,7 @@ html.theme-light .ship-flow {
   height: 22px;
   flex-shrink: 0;
   place-items: center;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
 .ship-flow-checks-refresh:hover:enabled {

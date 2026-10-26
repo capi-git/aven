@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  Bot,
   CheckCircle,
   CircleAlert,
   CircleX,
@@ -30,6 +31,9 @@ import { TeamMiniFaces } from "../chrome/TeamCard";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
+import { BotCritter } from "../chrome/BotCritter";
+import { botsAvailable } from "../lib/projectBots";
+import type { SidebarBot } from "../chrome/Sidebar";
 import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
 import { useHomeBriefing } from "../hooks/useHomeBriefing";
 import { useMinuteClock } from "../hooks/useMinuteClock";
@@ -53,6 +57,7 @@ import {
 } from "../lib/homeBriefing";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
+import { sameProjectPath } from "../lib/recents";
 import {
   describeProjectStatus,
   projectStatusFor,
@@ -133,6 +138,12 @@ export type WorkspaceHomeProps = {
   onNewProjectTask?: (path: string) => void;
   /** Open a project's board. */
   onOpenBoard?: (path: string) => void;
+  /** Projects' bots that are on, as the sidebar shows them. */
+  bots?: readonly SidebarBot[];
+  /** Open a project's bot chat. */
+  onOpenBot?: (path: string) => void;
+  /** Turn a project's bot on, or change its settings. */
+  onBotSettings?: (path: string) => void;
   onAddProject: () => void;
   /** Asks for the projects' saved sessions, for Resume and last activity. */
   onLoadProjects?: (paths: readonly string[]) => void;
@@ -160,9 +171,11 @@ const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
   "usageProviders",
   "windows",
   "gettingStarted",
+  "bots",
 ];
 
 const NO_FINISHED: readonly HomeFinished[] = [];
+const NO_BOTS: readonly SidebarBot[] = [];
 const NO_DAYS: readonly string[] = [];
 /** Rows each part of the briefing lists before summing up the rest. */
 const BRIEFING_ROWS = 3;
@@ -227,6 +240,9 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onSession,
   onNewProjectTask,
   onOpenBoard,
+  bots = NO_BOTS,
+  onOpenBot,
+  onBotSettings,
   onAddProject,
   onLoadProjects,
   gettingStarted,
@@ -365,6 +381,11 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                 onProject={onProject}
                 onNewProjectTask={onNewProjectTask}
                 onOpenBoard={onOpenBoard}
+                bot={bots.find((bot) =>
+                  sameProjectPath(bot.path, project.path),
+                )}
+                onOpenBot={onOpenBot}
+                onBotSettings={onBotSettings}
               />
             ))}
             <li className="workspace-home-agent-add">
@@ -971,6 +992,10 @@ type AgentTileProps = {
   onProject: (path: string) => void;
   onNewProjectTask?: (path: string) => void;
   onOpenBoard?: (path: string) => void;
+  /** The project's bot, when it is on. */
+  bot?: SidebarBot;
+  onOpenBot?: (path: string) => void;
+  onBotSettings?: (path: string) => void;
 };
 
 /**
@@ -987,6 +1012,9 @@ const AgentTile = memo(
     onProject,
     onNewProjectTask,
     onOpenBoard,
+    bot,
+    onOpenBot,
+    onBotSettings,
   }: AgentTileProps) {
     const appearance = useProjectAppearance(project.path);
     const now = useMinuteClock();
@@ -1101,6 +1129,21 @@ const AgentTile = memo(
           )}
           {described ? <span className="sr-only">. {described}</span> : null}
         </p>
+        {bot && onOpenBot ? (
+          <button
+            type="button"
+            className="workspace-home-agent-bot"
+            data-bot-status={bot.status}
+            title={`${bot.name}, ${name}'s bot`}
+            onClick={() => onOpenBot(project.path)}
+          >
+            <BotCritter path={project.path} active={bot.status === "working"} />
+            <span className="workspace-home-agent-bot-name">{bot.name}</span>
+            <span className="workspace-home-agent-bot-post">
+              {bot.headline}
+            </span>
+          </button>
+        ) : null}
         <div className="workspace-home-agent-tools">
           {onNewProjectTask ? (
             <button
@@ -1110,6 +1153,16 @@ const AgentTile = memo(
               onClick={() => onNewProjectTask(project.path)}
             >
               <Plus size={13} />
+            </button>
+          ) : null}
+          {onBotSettings && !bot && botsAvailable() ? (
+            <button
+              type="button"
+              aria-label={`Add a bot for ${name}`}
+              title={`Add a bot for ${name}`}
+              onClick={() => onBotSettings(project.path)}
+            >
+              <Bot size={13} />
             </button>
           ) : null}
           {onOpenBoard ? (
@@ -1153,6 +1206,9 @@ const AgentTile = memo(
     a.onProject === b.onProject &&
     a.onNewProjectTask === b.onNewProjectTask &&
     a.onOpenBoard === b.onOpenBoard &&
+    a.onOpenBot === b.onOpenBot &&
+    a.onBotSettings === b.onBotSettings &&
+    equalChromeData(a.bot, b.bot) &&
     equalChromeData(a.project, b.project) &&
     equalChromeData(a.status, b.status),
 );

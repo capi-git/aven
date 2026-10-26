@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isEqualOrInside, slash } from "./paths";
+import { isBotCopyPath } from "./projectBots";
 import { isLiveRaceWorktree, raceLaneProject } from "./race";
 
 export type FsEntry = {
@@ -351,8 +352,12 @@ export function restoreSessionCheckout<
     };
   }
   if (!session.branch && !session.worktreeCwd) return session;
-  // A running race lane must keep working in its own copy, not the project.
-  if (isLiveRaceWorktree(session.worktreeCwd))
+  // A running race lane, and a bot that is on, keep working in their own
+  // copy, not the project.
+  if (
+    isLiveRaceWorktree(session.worktreeCwd) ||
+    isBotCopyPath(session.worktreeCwd)
+  )
     return session.branch ? { ...session, branch: undefined } : session;
   return {
     ...session,

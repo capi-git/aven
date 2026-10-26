@@ -469,7 +469,10 @@ type UserTurnExtra = {
   secondOpinion?: Block["secondOpinion"];
   discussion?: Block["discussion"];
   noteCard?: Block["noteCard"];
+  botWake?: Block["botWake"];
   internal?: boolean;
+  /** The message's id, when the sender needs to know it (a project bot). */
+  id?: string;
 };
 
 function userTurnFields(extra?: UserTurnExtra) {
@@ -477,6 +480,7 @@ function userTurnFields(extra?: UserTurnExtra) {
     ...(extra?.secondOpinion ? { secondOpinion: extra.secondOpinion } : {}),
     ...(extra?.discussion ? { discussion: extra.discussion } : {}),
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
+    ...(extra?.botWake ? { botWake: extra.botWake } : {}),
     ...(extra?.internal ? { internal: true } : {}),
   };
 }
@@ -503,7 +507,7 @@ export function appendUser(
         : {}),
     },
     {
-      id: crypto.randomUUID(),
+      id: extra?.id ?? crypto.randomUUID(),
       role: "user",
       text,
       startedAt: Date.now(),

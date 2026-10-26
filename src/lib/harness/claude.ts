@@ -63,6 +63,7 @@ import {
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
+import { permissionRulesKey, sessionPermissions } from "./sessionPermissions";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import {
   questionPromptTitle,
@@ -210,7 +211,7 @@ export async function sendClaudeTurn(input: SendTurnInput): Promise<void> {
   if (cancelledThreads.delete(input.sessionId)) return;
 
   live.onEvent = input.onEvent;
-  live.runtimeMode = input.runtimeMode;
+  live.runtimeMode = effectiveRuntimeMode(input);
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
@@ -246,7 +247,7 @@ export async function compactClaudeContext(
   if (cancelledThreads.delete(input.sessionId)) return;
 
   live.onEvent = input.onEvent;
-  live.runtimeMode = input.runtimeMode;
+  live.runtimeMode = effectiveRuntimeMode(input);
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
@@ -445,7 +446,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.planning === planning
   ) {
     existing.onEvent = input.onEvent;
-    existing.runtimeMode = input.runtimeMode;
+    existing.runtimeMode = effectiveRuntimeMode(input);
     return existing;
   }
   // A new process takes a moment before it answers; the chat says so.
@@ -489,7 +490,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const live: Live = {
     cwd: input.cwd,
     claudeSessionId,
-    runtimeMode: input.runtimeMode,
+    runtimeMode: effectiveRuntimeMode(input),
     planning,
     settingsKey,
     onEvent: input.onEvent,
@@ -1169,7 +1170,8 @@ async function handleControlRequest(
     return;
   }
 
-  if (live.runtimeMode === "full-access") {
+  // A chat with its own rules (a bot) asks whatever its stored mode says.
+  if (live.runtimeMode === "full-access" && !sessionPermissions(sessionId)) {
     await writeJson(
       sessionId,
       buildControlResponse(
@@ -1771,17 +1773,27 @@ function projectMemoryFor(
  * next message (`projectMemoryDelivery.ts`). So editing the memory no longer
  * restarts every Claude chat in the project on its next message.
  */
+/**
+ * The access mode Aven's own approvals follow: a chat with its own rules (a
+ * project's bot) runs in their mode, never in what its stored picker says.
+ */
+function effectiveRuntimeMode(input: HarnessSessionInput): RuntimeMode {
+  return sessionPermissions(input.sessionId)?.mode ?? input.runtimeMode;
+}
+
 function settingsKeyFor(input: HarnessSessionInput): string {
   // Remember this turn's memory for a later compaction, which carries none.
   projectMemoryFor(input);
+  const permissions = sessionPermissions(input.sessionId);
   return claudeSettingsKey({
     model: nativeModelId(input.model),
     effort: input.modelSettings?.effort,
     fast: input.modelSettings?.fast,
     thinking: input.modelSettings?.thinking,
     context: input.modelSettings?.context,
-    runtimeMode: input.runtimeMode,
+    runtimeMode: permissions?.mode ?? input.runtimeMode,
     hooks: loadClaudeHooks(),
+    permissions: permissionRulesKey(permissions),
   });
 }
 
@@ -1826,13 +1838,18 @@ function launchOptions(
   if (!loadClaudeHooks()) {
     settings.disableAllHooks = true;
   }
+  // A chat with its own rules (a project's bot) always launches with them,
+  // in the mode they were written for, whatever its picker says.
+  const permissions = sessionPermissions(input.sessionId);
+  if (permissions) settings.permissions = permissions.rules;
+  if (permissions?.sandbox) settings.sandbox = permissions.sandbox;
   return {
     model: resolveClaudeApiModelId(native, context),
     effort: normalizeClaudeCliEffort(effortRaw, native),
     permissionMode:
       input.intent === "plan"
         ? "plan"
-        : runtimeModeToPermission(input.runtimeMode),
+        : runtimeModeToPermission(permissions?.mode ?? input.runtimeMode),
     resume,
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,

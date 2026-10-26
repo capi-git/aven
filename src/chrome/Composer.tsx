@@ -206,6 +206,13 @@ type Props = {
   hideProjectPicker?: boolean;
   hideBranchPicker?: boolean;
   hideTopBar?: boolean;
+  /** What the empty message box says, in place of the usual hint. */
+  placeholder?: string;
+  /**
+   * Leave out the agent pill (its agent, model and access choices): a
+   * project's bot always runs Claude, in its own mode.
+   */
+  hideAgentPill?: boolean;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -604,6 +611,8 @@ function ComposerComponent({
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
+  placeholder,
+  hideAgentPill = false,
   context,
   compactSupported = false,
   quoteRequest,
@@ -2073,26 +2082,28 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               placeholder={
-                jumpInId
-                  ? "Add something for both of them…"
-                  : discussActive
-                    ? "What should they discuss?"
-                    : inboxCard
-                      ? "Add a note, or send to start…"
-                      : noteCard
-                        ? "Add a message, or send…"
-                        : handoffCard
-                          ? "Add context, or send to continue…"
-                          : noteHint
-                            ? `${noteHint}. Say what's next…`
-                            : composerHint(
-                                hasNativeCommands(harness),
-                                looksLikeProject(cwd)
-                                  ? "files"
-                                  : notesEnabled
-                                    ? "notes"
-                                    : null,
-                              )
+                placeholder && !jumpInId && !discussActive
+                  ? placeholder
+                  : jumpInId
+                    ? "Add something for both of them…"
+                    : discussActive
+                      ? "What should they discuss?"
+                      : inboxCard
+                        ? "Add a note, or send to start…"
+                        : noteCard
+                          ? "Add a message, or send…"
+                          : handoffCard
+                            ? "Add context, or send to continue…"
+                            : noteHint
+                              ? `${noteHint}. Say what's next…`
+                              : composerHint(
+                                  hasNativeCommands(harness),
+                                  looksLikeProject(cwd)
+                                    ? "files"
+                                    : notesEnabled
+                                      ? "notes"
+                                      : null,
+                                )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -2413,22 +2424,24 @@ function ComposerComponent({
                 />
               )}
             </div>
-            <div className="personal-composer-agent">
-              <AgentPill
-                fit={fit}
-                harness={harness}
-                model={model}
-                modelSettings={modelSettings}
-                runtimeMode={runtimeMode}
-                showAccess={harnessDescriptor(harness).supportsAccessMode}
-                busy={busy}
-                hotkeys={hotkeys && enabled}
-                onModelChange={onModelChange}
-                onModelSettingsChange={onModelSettingsChange}
-                onRuntimeModeChange={onRuntimeModeChange}
-                onClose={focusField}
-              />
-            </div>
+            {hideAgentPill ? null : (
+              <div className="personal-composer-agent">
+                <AgentPill
+                  fit={fit}
+                  harness={harness}
+                  model={model}
+                  modelSettings={modelSettings}
+                  runtimeMode={runtimeMode}
+                  showAccess={harnessDescriptor(harness).supportsAccessMode}
+                  busy={busy}
+                  hotkeys={hotkeys && enabled}
+                  onModelChange={onModelChange}
+                  onModelSettingsChange={onModelSettingsChange}
+                  onRuntimeModeChange={onRuntimeModeChange}
+                  onClose={focusField}
+                />
+              </div>
+            )}
 
             {hideTopBar ? null : (
               <div className="personal-composer-context">

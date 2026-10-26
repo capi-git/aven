@@ -123,7 +123,7 @@
   gap: 7px;
   padding: 9px 10px;
   border: 1px solid var(--aven-line);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-raised);
   touch-action: none;
 }
@@ -139,7 +139,7 @@
   overflow: hidden;
   padding: 3px 7px;
   border: 1px solid var(--aven-needs-you-edge);
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-needs-you-wash);
   color: var(--aven-needs-you);
   font-size: var(--text-ui-label);
@@ -161,7 +161,7 @@
   width: 22px;
   height: 22px;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: var(--aven-muted);
   opacity: 0;
 }
@@ -205,7 +205,7 @@
   flex-direction: column;
   gap: 4px;
   padding-right: 18px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   color: inherit;
   text-align: left;
 }
@@ -355,7 +355,7 @@
 
 .work-board-outside-toggle,
 .work-board-outside-add {
-  border-radius: 4px;
+  border-radius: var(--aven-radius-capsule);
   color: inherit;
 }
 
@@ -392,7 +392,7 @@
   align-items: center;
   gap: 7px;
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   color: var(--color-content);
   text-align: left;
 }
@@ -414,7 +414,7 @@
 /* Ideas' Import issues, and the list it opens. */
 .work-board-import {
   margin-left: auto;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-capsule);
   color: var(--aven-muted);
   font-weight: 400;
 }
@@ -456,7 +456,7 @@
   align-items: center;
   gap: 7px;
   padding: 5px 4px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   font-size: var(--text-ui-body);
 }
 

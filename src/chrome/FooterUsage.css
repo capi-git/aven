@@ -14,7 +14,7 @@
   overflow: hidden;
   height: 24px;
   padding: 0 7px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
   font-size: var(--text-ui-caption);
   font-variant-numeric: tabular-nums;
@@ -103,7 +103,7 @@
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 

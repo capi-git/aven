@@ -55,6 +55,7 @@ mod notifications;
 mod personal_project;
 mod pip_group;
 mod popup_glass;
+mod project_bots;
 mod project_logo;
 mod project_memory;
 mod projectless;
@@ -385,6 +386,14 @@ pub fn run() {
             race::race_file_diff,
             race::race_apply,
             race::race_cleanup,
+            project_bots::bot_project_ready,
+            project_bots::bot_copy_prepare,
+            project_bots::bot_copy_sync,
+            project_bots::bot_copy_diff,
+            project_bots::bot_copy_file_diff,
+            project_bots::bot_copy_apply,
+            project_bots::bot_copy_discard,
+            project_bots::bot_copy_remove,
             scheduled_agents::scheduled_agent_claim,
             scheduled_agents::scheduled_agents_keep_awake,
             keep_awake::agent_keep_awake,
@@ -401,6 +410,7 @@ pub fn run() {
             projectless::projectless_cwd,
             sample_project::create_sample_project,
             window::workspace_window_labels,
+            window::macos_major_version,
             workspace_window::workspace_window_open,
             workspace_window::workspace_window_update,
             workspace_window::workspace_window_get_state,

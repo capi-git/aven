@@ -2075,6 +2075,20 @@ describe("browser tab integration", () => {
     ).toEqual(["claude", "codex"]);
   });
 
+  it("shows a bot chat's tab with the bot's critter instead of the agent's logo", async () => {
+    await render({
+      tabs: [
+        tab({ id: "a", harnesses: ["claude"], botPath: "/tmp/greet-bot" }),
+      ],
+      activeId: "a",
+    });
+    const identity = container.querySelector(
+      '[data-surface-tab-id="a"] .personal-title-tab-identity',
+    );
+    expect(identity?.querySelector(".provider-mark")).toBeNull();
+    expect(identity?.querySelector(".personal-title-tab-bot")).not.toBeNull();
+  });
+
   it("offers legacy window returns and history without new window destinations", async () => {
     await render({
       groupId: "group-owner",
@@ -2166,10 +2180,10 @@ describe("shared tab style", () => {
 
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(
-      /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: 6px;/,
+      /height: 26px;[\s\S]*padding-inline: 9px 11px;[\s\S]*border-radius: var\(--aven-radius-capsule\);/,
     );
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
-      "background: var(--aven-tab-selected);",
+      "background: var(--aven-tab-active-fill, var(--aven-tab-selected));",
     );
     expect(block(".aven-tab-close")).toContain("opacity: 0;");
     expect(block('.aven-tab[data-active="true"] .aven-tab-close')).toContain(

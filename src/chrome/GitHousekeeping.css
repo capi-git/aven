@@ -25,7 +25,7 @@
   margin: 4px 8px;
   padding: 8px 9px 9px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-inset-card);
 }
 .git-house-card[data-tone="ok"] {
@@ -86,14 +86,14 @@
   height: 24px;
   padding: 0 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   font-size: 11.5px;
   font-weight: 500;
   cursor: default;
 }
 .git-house-primary {
   background: var(--color-accent);
-  color: var(--color-background-base, #0d0d0e);
+  color: var(--aven-on-accent, var(--color-background-base, #0d0d0e));
 }
 .git-house-primary:hover:enabled {
   filter: brightness(1.08);
@@ -171,7 +171,7 @@
   align-items: center;
   gap: 7px;
   padding: 7px 9px;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   text-align: left;
   font-size: var(--text-ui-label);
   color: var(--color-content);

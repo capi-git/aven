@@ -155,6 +155,10 @@ import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
+import { BotCritter, BotStatusPill } from "./BotCritter";
+import { botsAvailable, type BotStatus } from "../lib/projectBots";
+import { botReadyPaths } from "../lib/projectBotCopy";
+import { projectAppearance } from "../lib/projectAppearance";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -265,6 +269,17 @@ export type SidebarProps = {
   teams?: readonly SidebarTeam[];
   /** Show a discussion in the team panel; its connector opens it. */
   onOpenDiscussion?: (id: string) => void;
+  /**
+   * Projects' bots that are on, listed in their own Bots section below the
+   * projects; a bot's chat is not listed with its project's chats.
+   */
+  bots?: readonly SidebarBot[];
+  /** Open a project's bot chat. */
+  onOpenBot?: (path: string) => void;
+  /** Turn a project's bot on, or change its settings. */
+  onBotSettings?: (path: string) => void;
+  /** Give a project a bot with its defaults and open its chat. */
+  onAddBot?: (path: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -304,6 +319,19 @@ export type SidebarProps = {
   onDismissUpdate?: () => void;
 };
 
+/** A project's bot as its sidebar row shows it. */
+export type SidebarBot = {
+  path: string;
+  sessionId?: string;
+  name: string;
+  /** Its project's name, shown when the row is hovered. */
+  project: string;
+  status: BotStatus;
+  /** Its latest one-line post, for the row's tooltip. */
+  headline: string;
+};
+
+const NO_BOTS: readonly SidebarBot[] = [];
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
@@ -403,6 +431,10 @@ function SidebarComponent({
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
+  bots = NO_BOTS,
+  onOpenBot,
+  onBotSettings,
+  onAddBot,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
@@ -595,6 +627,13 @@ function SidebarComponent({
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
+  /** The New bot picker: the projects that can have a bot. */
+  const [botPicker, setBotPicker] = useState<{
+    x: number;
+    y: number;
+    items: ExplorerMenuItem[];
+  } | null>(null);
+  const botPickerRequest = useRef(0);
   const loadMoreRef = useRef<HTMLLIElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestedSearchFocus = useRef<string | null>(null);
@@ -641,11 +680,19 @@ function SidebarComponent({
   // An open race is one row: its lanes fold into the chat it came from,
   // wherever that chat's row is listed. Several races can start from one.
   const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
+  // A bot's chat is its pinned row, never one of the project's chats.
+  const botChats = useMemo(
+    () =>
+      new Set(bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : []))),
+    [bots],
+  );
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
     openSessions,
     sessionFolders,
-  ).filter((session) => !session.orchestrationLeadId);
+  ).filter(
+    (session) => !session.orchestrationLeadId && !botChats.has(session.id),
+  );
   const visibleSessions = foldTeamRows(
     filterSessionsByQuery(
       filterSessionsByStatus(
@@ -838,16 +885,17 @@ function SidebarComponent({
   }, [open, documentVisible]);
 
   useEffect(() => {
-    if (!sessionMenu && !folderMenu && !filterMenu) return;
+    if (!sessionMenu && !folderMenu && !filterMenu && !botPicker) return;
     const onScroll = () => {
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
+      setBotPicker(null);
     };
     const scrollParent = sessionsScrollRef.current ?? window;
     scrollParent.addEventListener("scroll", onScroll, true);
     return () => scrollParent.removeEventListener("scroll", onScroll, true);
-  }, [sessionMenu, folderMenu, filterMenu]);
+  }, [sessionMenu, folderMenu, filterMenu, botPicker]);
 
   useEffect(() => {
     if (selectedSessionIds.size === 0) return;
@@ -1089,6 +1137,37 @@ function SidebarComponent({
       ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
+  /** A bot's row: critter, name, its project on hover, and its word. */
+  const botRow = (bot: SidebarBot) => {
+    return (
+      <button
+        key={`bot:${bot.path}`}
+        type="button"
+        className="personal-other-task personal-task-card personal-bot-row"
+        data-bot-row={bot.path}
+        title={`${bot.name} · ${bot.project}'s teammate\n${bot.headline}`}
+        aria-current={
+          bot.sessionId && bot.sessionId === activeSessionId
+            ? "true"
+            : undefined
+        }
+        onClick={() => onOpenBot?.(bot.path)}
+        onContextMenu={(event) => {
+          if (!onBotSettings) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onBotSettings(bot.path);
+        }}
+      >
+        <BotCritter path={bot.path} active={bot.status === "working"} />
+        <span className="personal-task-title">{bot.name}</span>
+        <span className="personal-bot-project">{bot.project}</span>
+        <span className="personal-task-status">
+          <BotStatusPill status={bot.status} />
+        </span>
+      </button>
+    );
+  };
   const plainRowProps = (sessionId: string) =>
     onRenameSession
       ? {
@@ -1365,6 +1444,48 @@ function SidebarComponent({
     setFilterMenu({
       x: rect.right - 228,
       y: rect.bottom + 2,
+    });
+  };
+
+  // Bots need Claude Code's sandbox: where it can't run, none is offered.
+  const addBot = botsAvailable() ? onAddBot : undefined;
+  // Bots of this profile's projects, in their own section below the projects.
+  const profileBots = bots.filter((bot) =>
+    projects.some((project) => sameProjectPath(project.path, bot.path)),
+  );
+  /** New bot: lists this profile's Git projects that have no bot yet. */
+  const openBotPicker = (target: HTMLElement) => {
+    if (botPicker) {
+      botPickerRequest.current += 1;
+      setBotPicker(null);
+      return;
+    }
+    const rect = target.getBoundingClientRect();
+    const request = ++botPickerRequest.current;
+    const candidates = projects
+      .map((project) => project.path)
+      .filter((path) => !bots.some((bot) => sameProjectPath(bot.path, path)));
+    void botReadyPaths(candidates).then((ready) => {
+      if (request !== botPickerRequest.current) return;
+      const empty = !projects.length
+        ? "Add a project first"
+        : !candidates.length
+          ? "Every project has a bot"
+          : "Bots need a Git project";
+      closeSessionMenu();
+      setFolderMenu(null);
+      setFilterMenu(null);
+      setBotPicker({
+        x: Math.max(4, rect.right - 228),
+        y: rect.bottom + 2,
+        items: ready.length
+          ? ready.map((path) => ({
+              kind: "item",
+              id: path,
+              label: projectAppearance(path).label,
+            }))
+          : [{ kind: "item", id: "", label: empty, disabled: true }],
+      });
     });
   };
 
@@ -1980,7 +2101,9 @@ function SidebarComponent({
                       ? foldTeamRows(
                           (projectSessions[project.path] ?? []).filter(
                             (session) =>
-                              !session.archived && !session.orchestrationLeadId,
+                              !session.archived &&
+                              !session.orchestrationLeadId &&
+                              !botChats.has(session.id),
                           ),
                           teams,
                         ).sort(compareSessionSummaries)
@@ -2040,6 +2163,14 @@ function SidebarComponent({
                         }
                         onMove={onMoveProject}
                         onRemove={onRemoveProject}
+                        botOn={bots.some((bot) =>
+                          sameProjectPath(bot.path, project.path),
+                        )}
+                        onBotSettings={
+                          onBotSettings && botsAvailable()
+                            ? () => onBotSettings(project.path)
+                            : undefined
+                        }
                         onPinnedChange={() =>
                           refreshProjects((revision) => revision + 1)
                         }
@@ -2171,6 +2302,43 @@ function SidebarComponent({
                     Add a project to {activeProfile.name}.
                   </p>
                 ) : null}
+                {profileBots.length || (addBot && projects.length) ? (
+                  <section
+                    className="personal-bots-group"
+                    aria-label="Bots"
+                    data-sidebar-bots=""
+                  >
+                    <div className="personal-projects-heading">
+                      <span>Bots</span>
+                      {addBot ? (
+                        <SessionsHeaderButton
+                          label="New bot"
+                          open={!!botPicker}
+                          hasPopup
+                          onClick={(event) =>
+                            openBotPicker(event.currentTarget)
+                          }
+                        >
+                          <Plus className="size-3" />
+                        </SessionsHeaderButton>
+                      ) : null}
+                    </div>
+                    <div className="personal-project-tasks">
+                      {profileBots.map(botRow)}
+                      {!profileBots.length && addBot ? (
+                        <button
+                          type="button"
+                          className="personal-view-project-tasks"
+                          onClick={(event) =>
+                            openBotPicker(event.currentTarget)
+                          }
+                        >
+                          Add a bot
+                        </button>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2246,6 +2414,19 @@ function SidebarComponent({
           onClose={() => setFolderMenu(null)}
         />
       ) : null}
+      {botPicker && addBot ? (
+        <ExplorerMenu
+          x={botPicker.x}
+          y={botPicker.y}
+          items={botPicker.items}
+          ariaLabel="Add a bot to"
+          onPick={(path) => {
+            setBotPicker(null);
+            if (path) addBot(path);
+          }}
+          onClose={() => setBotPicker(null)}
+        />
+      ) : null}
       {filterMenu ? (
         <SessionFiltersMenu
           x={filterMenu.x}
@@ -2312,6 +2493,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "projectStatus",
   "liveAgents",
   "discussions",
+  "bots",
   "teams",
   "workConflicts",
   "standaloneSessions",

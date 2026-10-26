@@ -22,7 +22,8 @@
   padding: 0 8px;
   color: var(--color-content);
   font-size: var(--text-ui-body);
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .personal-shell .personal-profile-picker {
   display: flex;
@@ -32,7 +33,7 @@
   flex: 1;
   height: 30px;
   padding-inline: 6px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   text-align: left;
 }
 .personal-shell .personal-profile-picker > span {
@@ -53,13 +54,20 @@
   > svg:last-child {
   opacity: 1;
 }
-/* Notes, Inbox and Automations: one compact row of icon buttons. Each keeps
-   its name as the tooltip and as the button's accessible name. */
+/* Notes, Inbox and Automations: one compact row of icon buttons, on a
+   capsule track like an iOS segmented control. Each keeps its name as the
+   tooltip and as the button's accessible name. */
 .personal-shell .personal-library-nav {
   display: flex;
   flex-shrink: 0;
   gap: 2px;
-  margin: 2px 6px 6px;
+  /* The track's 2px inset comes out of the margin below it, so the row
+     keeps its height while each button keeps a 28px target. */
+  margin: 2px 6px 2px;
+  padding: 2px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-quaternary);
+  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 .personal-shell .personal-library-nav > :is(button, span) {
   display: grid;
@@ -69,18 +77,19 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+  color: var(--aven-label-secondary);
 }
 .personal-shell .personal-library-nav > button:hover,
 .personal-shell .personal-library-nav > button:focus-visible {
   color: var(--color-content);
-  background: var(--personal-hover);
+  background: var(--aven-fill-tertiary);
 }
 .personal-shell .personal-library-nav > button[aria-current="page"] {
   color: var(--color-content);
-  background: var(--personal-selected);
+  background: var(--aven-control-hover);
+  box-shadow: var(--aven-control-shadow);
 }
 .personal-shell .personal-navigation .personal-projects-heading {
   display: flex;
@@ -88,9 +97,10 @@
   height: 31px;
   min-height: 31px;
   padding: 0 5px 0 8px;
-  font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 56%, transparent);
-  font-weight: 600;
+  font-size: var(--text-ui-label);
+  color: var(--aven-label-secondary);
+  font-weight: 650;
+  letter-spacing: -0.005em;
 }
 .personal-shell .personal-new-session {
   display: flex;
@@ -99,8 +109,8 @@
   gap: 8px;
   min-height: 32px;
   margin: 5px 6px 4px;
-  padding: 0 8px;
-  border-radius: 6px;
+  padding: 0 10px;
+  border-radius: var(--aven-radius-row);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 6%, transparent)
@@ -154,10 +164,10 @@
   gap: 6px;
   height: 32px;
   padding: 0 5px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   text-align: left;
   font-size: var(--text-ui-label);
-  font-weight: 500;
+  font-weight: 550;
   color: var(--color-content);
 }
 .personal-shell .personal-project-open > .personal-project-label {
@@ -256,7 +266,7 @@
   width: 24px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   color: var(--personal-muted);
 }
 .personal-shell
@@ -297,7 +307,7 @@
   position: relative;
   min-height: 32px;
   padding: 6px 8px 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
 }
 /* The chat in front is unmistakable: a stronger fill, a short accent bar at
    its leading edge and a heavier title. */
@@ -311,11 +321,11 @@
   .personal-task-card[aria-current="true"]::before {
   content: "";
   position: absolute;
-  top: 7px;
-  bottom: 7px;
+  top: 8px;
+  bottom: 8px;
   left: 3px;
-  width: 2px;
-  border-radius: 1px;
+  width: 3px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--personal-accent);
   pointer-events: none;
 }
@@ -429,7 +439,7 @@
   padding: 0;
   flex-shrink: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   color: var(--personal-muted);
 }
@@ -536,9 +546,10 @@
 .personal-shell .personal-navigation .personal-sidebar-section-label {
   margin: 7px 0 3px;
   padding: 0 8px;
-  font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 56%, transparent);
-  font-weight: 600;
+  font-size: var(--text-ui-label);
+  color: var(--aven-label-secondary);
+  font-weight: 650;
+  letter-spacing: -0.005em;
 }
 .personal-profile-viewport {
   position: relative;
@@ -623,8 +634,18 @@
 .personal-shell .personal-navigation .personal-sidebar-footer {
   padding-top: 8px;
   padding-bottom: 4px;
-  box-shadow: inset 0 1px
-    color-mix(in srgb, var(--color-content) 6%, transparent);
+}
+/* Where the list meets the footer, rows fade into the material instead of
+   stopping at a rule, as iOS's scroll edge does. The padding lets the last
+   row scroll clear of the fade. */
+.personal-shell .personal-navigation .personal-projects-scroll {
+  padding-bottom: 14px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 18px),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
 }
 .personal-shell .personal-navigation button:focus-visible,
 .personal-shell .personal-profile-viewport:focus-visible {

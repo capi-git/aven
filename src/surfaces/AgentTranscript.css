@@ -52,8 +52,8 @@
 }
 .personal-shell .personal-transcript-notice {
   margin-inline: 16px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-surface, var(--aven-hover));
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
@@ -71,24 +71,25 @@
 .personal-shell .personal-user-message[data-message-layout="chat"] {
   padding-left: 64px;
 }
+/* Your message is a Messages-style bubble: a pre-tinted grey with a hint
+   of the accent, no blur of its own (it scrolls), and a tighter corner
+   where a tail would be. */
 .personal-shell .personal-user-bubble {
-  border: 1px solid var(--aven-glass-edge, var(--aven-line));
-  border-radius: 12px;
-  padding: 11px 15px;
+  border: 0;
+  border-radius: var(--aven-radius-bubble);
+  padding: 10px 16px;
   background: color-mix(
     in srgb,
-    var(--personal-accent) 6%,
-    var(--aven-glass-surface, var(--personal-main-surface))
+    var(--personal-accent) 5%,
+    var(--aven-fill-secondary)
   );
-  -webkit-backdrop-filter: var(--aven-glass-blur, none);
-  backdrop-filter: var(--aven-glass-blur, none);
   box-shadow: none;
 }
 .personal-shell
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
   max-width: min(580px, 100%);
-  border-bottom-right-radius: 5px;
+  border-bottom-right-radius: var(--aven-radius-xs);
 }
 .personal-shell .personal-user-bubble > pre {
   font-size: var(--text-ui-reading);
@@ -100,7 +101,7 @@
   align-items: center;
 }
 .personal-shell .personal-message-attachments img {
-  border-radius: 8px;
+  border-radius: var(--aven-radius-lg);
 }
 /* Completed work stays discoverable without competing with the answer. */
 .personal-shell .personal-work-fold {
@@ -150,7 +151,7 @@
 .personal-shell .personal-activity-phase {
   padding: 6px 10px;
   border: 1px solid var(--aven-glass-card-edge, transparent);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-card, var(--aven-hover));
   box-shadow: var(--aven-glass-sheen, none);
 }
@@ -181,9 +182,9 @@
 }
 .personal-shell .personal-tool-call > pre {
   margin-block: 6px;
-  padding: 9px 11px;
-  border-radius: 8px;
-  background: var(--aven-field-bg, var(--aven-hover));
+  padding: 9px 12px;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-fill-quaternary, var(--aven-hover));
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   font-size: 12px;
   line-height: 20px;
@@ -194,8 +195,8 @@
 }
 .personal-shell .personal-tool-approval > button {
   min-height: 29px;
-  padding: 5px 11px;
-  border-radius: 6px;
+  padding: 5px 13px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 500;
 }
@@ -254,8 +255,8 @@
   .agent-markdown
   [data-streamdown="table-wrapper"] {
   border-color: var(--aven-line);
-  border-radius: 8px;
-  background: var(--aven-field-bg, var(--personal-main-surface));
+  border-radius: var(--aven-radius-md);
+  background: var(--aven-fill-quaternary, var(--personal-main-surface));
   box-shadow: none;
 }
 .personal-shell
@@ -285,8 +286,8 @@
 html.theme-light .personal-shell .personal-user-bubble {
   background: color-mix(
     in srgb,
-    var(--personal-accent) 6%,
-    var(--aven-glass-surface, var(--personal-main-surface))
+    var(--personal-accent) 4%,
+    var(--aven-fill-secondary)
   );
 }
 @container personal-transcript (max-width: 480px) {
@@ -302,8 +303,8 @@ html.theme-light .personal-shell .personal-user-bubble {
   .personal-shell .personal-user-bubble {
     background: color-mix(
       in srgb,
-      var(--personal-accent) 7%,
-      var(--personal-main-surface)
+      var(--personal-accent) 5%,
+      var(--aven-elevated-2)
     );
   }
 }

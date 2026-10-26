@@ -126,7 +126,7 @@
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   cursor: default;
 }
@@ -155,7 +155,7 @@
   gap: 5px;
   min-width: 0;
   padding: 2px 4px;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   font-size: var(--text-ui-label);
   text-align: center;
 }
@@ -252,7 +252,7 @@ button.discussion-side:focus-visible {
   gap: 1px;
   width: 22px;
   padding: 3px 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-micro, 10px);
   line-height: 12px;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
@@ -415,7 +415,7 @@ button.discussion-side:focus-visible {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-inset-card);
 }
 
@@ -439,7 +439,7 @@ button.discussion-side:focus-visible {
   margin-top: 6px;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--aven-needs-you-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-needs-you-wash);
   font-size: var(--text-ui-label);
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
@@ -470,7 +470,7 @@ button.discussion-side:focus-visible {
       var(--personal-accent, var(--color-accent)) 30%,
       var(--aven-glass-card-edge, var(--aven-line))
     );
-  border-radius: 14px;
+  border-radius: var(--aven-radius-bubble);
   background: color-mix(
     in srgb,
     var(--personal-accent, var(--color-accent)) 10%,
@@ -518,7 +518,7 @@ button.discussion-side:focus-visible {
   margin: 0 auto;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 12px;
+  border-radius: var(--aven-radius-bubble);
   background: var(
     --aven-field-bg,
     color-mix(in srgb, var(--color-content) 4%, transparent)
@@ -557,7 +557,7 @@ button.discussion-side:focus-visible {
   flex-shrink: 0;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--personal-accent, var(--color-accent));
   color: var(--personal-main-surface, var(--color-background-base));
 }

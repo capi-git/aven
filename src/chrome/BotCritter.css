@@ -1,0 +1,56 @@
+/* A bot's critter: a pixel sprite, crisp at any size. */
+.bot-critter {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* The sidebar's Bots section, below the projects. */
+.personal-shell .personal-navigation .personal-bots-group {
+  margin: 2px 2px 8px;
+}
+
+/* A bot's row in the Bots section: critter, name, its project on hover, and
+   its status word. */
+.personal-bot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.personal-bot-row .bot-critter {
+  width: 13px;
+  height: 13px;
+}
+.personal-bot-row .personal-task-title {
+  font-weight: 500;
+}
+.personal-shell
+  .personal-navigation
+  .personal-other-task.personal-bot-row
+  > .personal-task-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.personal-bot-row .personal-bot-project {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--personal-muted);
+  font-size: var(--text-ui-micro);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.personal-bot-row:hover .personal-bot-project,
+.personal-bot-row:focus-visible .personal-bot-project {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-bot-row .personal-bot-project {
+    transition: none;
+  }
+}

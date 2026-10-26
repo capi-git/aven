@@ -1,0 +1,170 @@
+/* A project bot's chat. Theme tokens only; buttons and the card are the
+   team family's (TeamCard.css). */
+.bot-chat-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  max-width: 56rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 10px 16px 8px;
+  border-bottom: var(--aven-hairline) solid var(--aven-separator);
+  font-family: var(--font-sans);
+  color: var(--color-content);
+}
+.bot-chat-critter {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+.bot-chat-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.bot-chat-name {
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-chat-whose {
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+  color: var(--aven-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-chat-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+/* The bot's first line, as it would say it in its chat. */
+.bot-chat-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 18px 16px 8px;
+  color: var(--color-content);
+}
+.bot-chat-intro-critter {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+}
+.bot-chat-intro-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bot-chat-intro-name {
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+}
+.bot-chat-intro-text {
+  margin: 0;
+  font-size: var(--text-ui-body);
+  line-height: 20px;
+}
+
+/* A wake-up's tag: one small line where a message would be. */
+.bot-wake-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 16px 2px;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: var(--aven-muted);
+}
+.bot-wake-label {
+  overflow: hidden;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-quaternary);
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-checked {
+  flex: none;
+  white-space: nowrap;
+}
+.bot-wake-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-bot-checked] {
+  padding-bottom: 6px;
+}
+
+.bot-fix-row {
+  padding: 4px 16px 10px;
+  font-family: var(--font-sans);
+}
+.bot-fix-card {
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--aven-radius-xl);
+}
+.bot-fix-card[data-state="ready"] {
+  border-color: color-mix(
+    in srgb,
+    var(--aven-review, var(--color-accent)) 45%,
+    transparent
+  );
+}
+.bot-fix-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.bot-fix-title {
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.bot-fix-card:not([data-state="ready"]) .bot-fix-title {
+  font-weight: 400;
+  color: var(--aven-muted);
+}
+.bot-fix-actions {
+  margin-left: auto;
+}
+.bot-fix-problem,
+.bot-fix-note {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 17px;
+}
+.bot-fix-problem {
+  color: var(--aven-needs-you);
+}
+.bot-fix-note {
+  color: var(--aven-muted);
+}
+.bot-fix-review {
+  max-height: 420px;
+  overflow: auto;
+}
+.bot-fix-more {
+  display: flex;
+  justify-content: flex-end;
+}

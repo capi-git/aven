@@ -62,7 +62,7 @@ function ApprovalToastCard({
 
   return (
     <article
-      className="approval-toast pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:12px]"
+      className="approval-toast pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:var(--aven-radius-bubble)]"
       role="status"
     >
       <button
@@ -89,14 +89,14 @@ function ApprovalToastCard({
         <div className="flex gap-2 border-t border-content/10 px-3.5 py-2.5">
           <button
             type="button"
-            className="flex-1 rounded-md bg-content px-2.5 py-1 text-ui-caption font-medium text-background-base hover:bg-content/80"
+            className="flex-1 rounded-full bg-content px-2.5 py-1 text-ui-caption font-semibold text-background-base hover:bg-content/80"
             onClick={() => onApproval(session.id, requestId, "allow")}
           >
             Allow
           </button>
           <button
             type="button"
-            className="flex-1 rounded-md bg-content/10 px-2.5 py-1 text-ui-caption font-medium text-content/70 hover:bg-content/20"
+            className="flex-1 rounded-full bg-content/10 px-2.5 py-1 text-ui-caption font-medium text-content/70 hover:bg-content/20"
             onClick={() => onApproval(session.id, requestId, "deny")}
           >
             Deny

@@ -137,7 +137,7 @@
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   /* Cards inside the panel sit on its own material. */
   background: var(--aven-inset-card);
 }
@@ -236,7 +236,7 @@
 }
 .team-watch-reply {
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
@@ -281,7 +281,7 @@
   gap: 10px;
   padding: 8px 8px 8px 12px;
   border: 1px solid var(--aven-needs-you-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-needs-you-wash);
 }
 .team-watch-notice p {
@@ -318,7 +318,7 @@
   width: 100%;
   min-width: 0;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   text-align: left;
   color: inherit;
 }

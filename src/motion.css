@@ -16,8 +16,12 @@
   --aven-motion-base: 150ms;
   --aven-motion-glide: 160ms;
   --aven-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --aven-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-  --aven-press-scale: 0.96;
+  /* A critically damped spring already moving, as iOS's are when a press
+     hands them its speed: it settles without overshooting. */
+  --aven-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --aven-press-scale: 0.97;
+  /* How small a popup starts as it grows out of the control that opened it. */
+  --aven-pop-scale: 0.94;
 }
 
 :root[data-motion="reduce"] {
@@ -25,6 +29,7 @@
   --aven-motion-base: 0ms;
   --aven-motion-glide: 0ms;
   --aven-press-scale: 1;
+  --aven-pop-scale: 1;
 }
 
 /* The system's setting holds before script has marked the root. */
@@ -34,14 +39,16 @@
     --aven-motion-base: 0ms;
     --aven-motion-glide: 0ms;
     --aven-press-scale: 1;
+    --aven-pop-scale: 1;
   }
 }
 
-/* A popup's frame lands with a small spring. Only its scale moves: the
-   frame is opaque from the first frame, so nothing shows through it. */
+/* A popup's frame grows out of the control that opened it (its transform
+   origin) on a critically damped spring. Only its scale moves: the frame
+   is opaque from the first frame, so nothing shows through it. */
 @keyframes aven-pop {
   from {
-    transform: scale(0.97);
+    transform: scale(var(--aven-pop-scale));
   }
 }
 
@@ -216,6 +223,21 @@
 .footer-usage-refresh:active:not(:disabled),
 .personal-new-session:active:not(:disabled),
 .personal-view-project-tasks:active:not(:disabled),
-.workspace-home-actions button:active:not(:disabled) {
+.workspace-home-actions button:active:not(:disabled),
+.personal-library-nav > button:active,
+.personal-workspace-tool:active:not(:disabled),
+.personal-composer-add > button:active:not(:disabled),
+.personal-composer-actions > button:active:not(:disabled),
+.session-run-stop:active:not(:disabled),
+.workspace-status-pill:active:not(:disabled),
+.workspace-status-navigation button:active:not(:disabled),
+.workspace-status-history button:active:not(:disabled),
+.workspace-status-layout button:active:not(:disabled),
+.workspace-inspector-tab:active,
+.workspace-inspector-close:active,
+.settings-segmented button:active:not(:disabled),
+.ship-flow-primary:active:not(:disabled),
+.ship-flow-secondary:active:not(:disabled),
+.activity-actions button:active:not(:disabled) {
   scale: var(--aven-press-scale);
 }

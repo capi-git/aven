@@ -101,7 +101,7 @@
   margin: 12px 0;
   padding: 0;
   border: 1px solid var(--aven-line);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-md);
   background: transparent;
   font-size: var(--text-ui-caption);
 }
@@ -155,7 +155,7 @@
   padding: 10px 12px;
   background: color-mix(in srgb, #ef4444 9%, transparent);
   border: 1px solid color-mix(in srgb, #ef4444 26%, transparent);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-md);
 }
 .skills-command {
   display: block;
@@ -163,7 +163,7 @@
   margin-top: 8px;
   background: var(--aven-field-bg);
   border: 1px solid var(--aven-line);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-md);
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -225,7 +225,7 @@
   width: 100%;
   padding: 9px 12px;
   text-align: left;
-  border-radius: 9px;
+  border-radius: var(--aven-radius-md);
   transition: background-color 120ms ease;
 }
 .skills-item:hover {

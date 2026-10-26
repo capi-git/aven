@@ -113,6 +113,10 @@ type Props = {
   size?: ModalSize;
   /** Extra classes on the panel (fixed height, etc). */
   className?: string;
+  /** Shown before the title, such as a mascot. */
+  leading?: ReactNode;
+  /** Shown after the title, before Close, such as an On switch. */
+  trailing?: ReactNode;
   children: ReactNode;
 };
 
@@ -122,6 +126,8 @@ export function ModalPanel({
   description,
   size = "md",
   className,
+  leading,
+  trailing,
   children,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -221,6 +227,7 @@ export function ModalPanel({
         className={`modal-panel flex flex-col overflow-hidden rounded-2xl ${className ?? ""}`}
       >
         <header className="modal-panel-content flex shrink-0 items-start gap-2 px-4 pt-3">
+          {leading}
           <div className="min-w-0 flex-1 pt-0.5">
             <h2
               id={titleId}
@@ -237,6 +244,7 @@ export function ModalPanel({
               </p>
             ) : null}
           </div>
+          {trailing}
           <button
             ref={closeRef}
             type="button"

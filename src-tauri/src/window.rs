@@ -390,9 +390,82 @@ pub(crate) fn prepare_process_exit(app: &AppHandle) {
     }
 }
 
+/// The macOS release, by its major number (26 for macOS 26), or `None`
+/// elsewhere. macOS 26 rounds windows more than earlier releases, and the
+/// interface nests its inset panels inside that corner.
+#[tauri::command]
+pub fn macos_major_version() -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_product_version().and_then(|version| major_version(&version))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// `kern.osproductversion`, such as "26.0.1". Unlike the version an app
+/// built against an older SDK is told, this is always the real release.
+#[cfg(target_os = "macos")]
+fn macos_product_version() -> Option<String> {
+    let name = c"kern.osproductversion";
+    let mut size: libc::size_t = 0;
+    // SAFETY: a size query; no buffer is written.
+    let sized = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if sized != 0 || size == 0 || size > 64 {
+        return None;
+    }
+    let mut buffer = vec![0u8; size];
+    // SAFETY: `buffer` holds `size` bytes, as the query above reported.
+    let read = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read != 0 {
+        return None;
+    }
+    buffer.truncate(size);
+    let text = std::ffi::CStr::from_bytes_until_nul(&buffer).ok()?;
+    Some(text.to_str().ok()?.to_owned())
+}
+
+fn major_version(version: &str) -> Option<u32> {
+    version.trim().split('.').next()?.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_major_release_from_a_product_version() {
+        assert_eq!(major_version("26.0.1"), Some(26));
+        assert_eq!(major_version("15.6"), Some(15));
+        assert_eq!(major_version(" 27 "), Some(27));
+        assert_eq!(major_version(""), None);
+        assert_eq!(major_version("beta"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reports_this_mac_s_release() {
+        let major = macos_major_version().expect("a macOS release");
+        assert!(major >= 13, "unexpected macOS release {major}");
+    }
 
     #[test]
     fn lists_only_workspace_windows() {

@@ -22,7 +22,7 @@ export const MOTION_MS = {
 
 export const MOTION_EASE = {
   out: "cubic-bezier(0.22, 1, 0.36, 1)",
-  spring: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+  spring: "cubic-bezier(0.16, 1, 0.3, 1)",
 } as const;
 
 /** The attribute that starts a one-shot animation in motion.css. */

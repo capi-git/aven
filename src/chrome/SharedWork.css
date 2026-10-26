@@ -22,7 +22,7 @@
   height: 28px;
   padding: 0 8px 0 9px;
   border: 1px solid color-mix(in srgb, var(--shared-work-tone) 28%, transparent);
-  border-radius: 8px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--shared-work-tone) 7%, transparent);
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-size: var(--text-ui-label);
@@ -53,7 +53,7 @@
   min-height: 32px;
   margin: 0 4px 6px;
   padding: 3px 4px 3px 11px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-surface, var(--aven-hover));
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
@@ -64,7 +64,7 @@
   height: 24px;
   margin: 0 6px;
   padding: 0 2px 0 9px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--shared-work-tone) 9%, transparent);
 }
 .duplicate-server-copy {
@@ -83,7 +83,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   outline: none;
   white-space: nowrap;
 }

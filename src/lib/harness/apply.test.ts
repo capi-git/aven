@@ -1061,3 +1061,20 @@ describe("plan keys", () => {
     expect(reopened.blocks.at(-1)?.text).toBe("# New plan");
   });
 });
+
+describe("a project bot's wake-up", () => {
+  it("keeps its tag on the message the bot was sent, and when saved", () => {
+    const session = appendUser(
+      newSession("claude", "/repo"),
+      "Chat finished · Add sign-up flow",
+      [],
+      { botWake: { label: "Chat finished · Add sign-up flow" } },
+    );
+    expect(session.blocks.at(-1)?.botWake).toEqual({
+      label: "Chat finished · Add sign-up flow",
+    });
+    expect(sanitizeSessionForPersist(session).blocks.at(-1)?.botWake).toEqual({
+      label: "Chat finished · Add sign-up flow",
+    });
+  });
+});

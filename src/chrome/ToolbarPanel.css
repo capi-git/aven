@@ -18,9 +18,11 @@
     var(--toolbar-panel-text) 12%,
     transparent
   );
+  /* Pointing at a row lifts it in grey, as iOS menus do; the accent marks
+     only what is chosen. */
   --toolbar-panel-hover: color-mix(
     in srgb,
-    var(--toolbar-panel-accent) 10%,
+    var(--toolbar-panel-text) 9%,
     transparent
   );
   --toolbar-panel-selected: color-mix(
@@ -49,8 +51,9 @@
   max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--toolbar-panel-line);
-  border-radius: 12px;
+  border-radius: var(--aven-radius-overlay, 16px);
   background: var(--toolbar-panel-bg);
+  box-shadow: var(--aven-specular, none);
   color: var(--toolbar-panel-text);
   font: 13px/1.4
     var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
@@ -98,8 +101,8 @@ html.popup-glass .toolbar-panel {
   margin: 0;
   color: var(--toolbar-panel-text);
   font-size: var(--text-ui-reading);
-  font-weight: 600;
-  letter-spacing: -0.1px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .toolbar-panel-header-actions {
@@ -117,7 +120,7 @@ html.popup-glass .toolbar-panel {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule, 999px);
   background: transparent;
   color: var(--toolbar-panel-muted);
   cursor: pointer;
@@ -135,7 +138,7 @@ html.popup-glass .toolbar-panel {
 
 .toolbar-panel-row {
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-row, 10px);
   background: transparent;
   color: var(--toolbar-panel-text);
   font: inherit;

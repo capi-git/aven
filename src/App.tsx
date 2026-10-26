@@ -1,7 +1,10 @@
 import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { useDevSmoke } from "./hooks/useDevSmoke";
-import { discardEditorDrafts } from "./lib/workspaceTransfers";
+import {
+  discardEditorDrafts,
+  isDetachedWorkspace,
+} from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useUtilityViews } from "./hooks/useUtilityViews";
 import { whenIdle } from "./lib/idle";
@@ -529,6 +532,7 @@ import {
   canReplaceSessionTitle,
   formatSessionTitle,
   sessionIsWaitingForInput,
+  sessionNeedsInput,
   newDefaultSession,
   newSession,
   newSplitSession,
@@ -537,6 +541,7 @@ import {
   titleFromPrompt,
   type Attachment,
   type Block,
+  type BotWakeMeta,
   type HarnessId,
   type PlanBuildTarget,
   type PlanStatus,
@@ -802,6 +807,28 @@ import {
   type WorkBoardActions,
 } from "./lib/workBoardFeed";
 import { addChatsToBoard } from "./lib/featureCards";
+import { useProjectBots } from "./hooks/useProjectBots";
+import { installBotPermissions } from "./lib/projectBotPermissions";
+import {
+  installBotWorkspace,
+  turnOnBotWithDefaults,
+} from "./lib/projectBotActions";
+import { BotSettingsSheet } from "./chrome/BotSettingsSheet";
+import type { SidebarBot } from "./chrome/Sidebar";
+import {
+  botChatInCopy,
+  botForChat,
+  botsAvailable,
+  botHeadline,
+  botName,
+  botStatus,
+  getProjectBot,
+  isBotChat,
+  updateProjectBot,
+  useProjectBotsStore,
+  type ProjectBot,
+} from "./lib/projectBots";
+import { projectAppearance } from "./lib/projectAppearance";
 import { chatCardDrafts } from "./lib/workBoard";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
@@ -833,6 +860,9 @@ function lastAssistantTextInTurn(session: Session): string {
   }
   return "";
 }
+
+const NO_BOT_CHATS: ReadonlySet<string> = new Set();
+const NO_SIDEBAR_BOTS: readonly SidebarBot[] = [];
 
 /** A chat started from a Race lane keeps the project but works in the lane. */
 function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
@@ -1108,6 +1138,11 @@ export default function App({
     profileId: string;
     profileName: string;
   } | null>(null);
+  // The project whose bot settings sheet is open.
+  const [botSheet, setBotSheet] = useState<string | null>(null);
+  // Chats project bots are working in: kept loaded without a tab.
+  const [botWorkingChats, setBotWorkingChats] =
+    useState<ReadonlySet<string>>(NO_BOT_CHATS);
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
@@ -2312,7 +2347,13 @@ export default function App({
     sidebarCwdKey != null &&
     !loadedProjects.has(sidebarCwdKey) &&
     !historyFailed;
-  const gitCwd = active ? sessionWorkCwd(active) : sidebarCwd;
+  // A bot works in its own copy; the panels show your project, and its
+  // changes reach you through its fix card.
+  const gitCwd = active
+    ? isBotChat(active.id)
+      ? active.cwd
+      : sessionWorkCwd(active)
+    : sidebarCwd;
   const gitCwdRef = useRef(gitCwd);
   gitCwdRef.current = gitCwd;
   const projectBranches = useProjectBranches(
@@ -3271,6 +3312,14 @@ export default function App({
         ...keptDiscussionKey.split("\n"),
         ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
       ],
+      [
+        ...botWorkingChats,
+        // A bot's new chat has nothing to save until its first message, so
+        // parking it would lose it on its way to a tab.
+        ...sessions
+          .filter((session) => !session.blocks.length && isBotChat(session.id))
+          .map((session) => session.id),
+      ],
     );
     const keepUnseen = liveAgentsEnabled;
     const idleDetached = sessions.filter(
@@ -3308,6 +3357,7 @@ export default function App({
     liveAgentsEnabled,
     orchestrationRuns,
     keptDiscussionKey,
+    botWorkingChats,
   ]);
 
   const activateTab = useCallback(
@@ -6430,6 +6480,35 @@ export default function App({
   const { onModelChange, onModelSettingsChange, onRuntimeModeChange } =
     useSessionModelControls({ sessionsRef, setSessions });
 
+  /**
+   * A chat ready for a turn: a bot's chat is put in the bot's copy, on
+   * Claude and in auto mode first (it may have been turned on while it ran
+   * elsewhere, or in another window). Says why when it can't be yet.
+   */
+  const botChatForTurn = useCallback(
+    (session: Session): Session | string => {
+      const bot = botForChat(session.id);
+      if (!bot) return session;
+      const copy = bot.copy?.path;
+      if (!copy)
+        return "The bot's copy isn't ready yet. Try again in a moment.";
+      const fix = botChatInCopy(session, copy, () =>
+        preferredModelId("claude"),
+      );
+      if (!fix) return session;
+      if (fix.restart && session.busy)
+        return "The bot is finishing something outside its copy. Send again once it's done.";
+      if (fix.restart) void forgetHarnessSession(session.harness, session.id);
+      const next = sessionsRef.current.map((item) =>
+        item.id === fix.chat.id ? fix.chat : item,
+      );
+      sessionsRef.current = next;
+      setSessions(next);
+      return fix.chat;
+    },
+    [sessionsRef, setSessions],
+  );
+
   const onSubmit = useCallback(
     (
       sessionId: string,
@@ -6455,6 +6534,20 @@ export default function App({
          * outcome is recorded quietly; the team announces itself.
          */
         teamMember?: ActivityTeam;
+        /**
+         * A project bot's wake-up: the transcript shows this small tag
+         * instead of the message the bot was sent.
+         */
+        botWake?: BotWakeMeta;
+        /** Post no Activity entry for this turn; the sender posts its own. */
+        quiet?: boolean;
+        /** The id the sent message gets, for a sender that follows its turn. */
+        userBlockId?: string;
+        /**
+         * Work to do before the agent is sent the message, once it shows in
+         * the chat (a bot syncing its copy). Returns what the agent is sent.
+         */
+        prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
       },
     ) => {
@@ -6487,8 +6580,15 @@ export default function App({
       }
       if (removingSessionIds.current.has(sessionId)) return false;
       flushHarnessEvents();
-      const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!storedCurrent) return false;
+      const found = sessionsRef.current.find((s) => s.id === sessionId);
+      if (!found) return false;
+      // A bot's chat only ever works in the bot's copy, never your folder.
+      const storedCurrent = botChatForTurn(found);
+      if (typeof storedCurrent === "string") {
+        enqueueHarnessEvent(sessionId, { type: "status", text: storedCurrent });
+        flushHarnessEvents();
+        return false;
+      }
       if (isFinishingRaceCheckout(sessionWorkCwd(storedCurrent))) {
         enqueueHarnessEvent(sessionId, {
           type: "status",
@@ -6665,7 +6765,11 @@ export default function App({
                     sessionId,
                     cwd: workCwd,
                   },
-                  { worker: !!current.orchestrationLeadId },
+                  // A bot never commits, so it gets no Git preference either.
+                  {
+                    worker:
+                      !!current.orchestrationLeadId || isBotChat(sessionId),
+                  },
                 );
             await steerHarnessTurn({
               harness: current.harness,
@@ -6711,7 +6815,10 @@ export default function App({
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
       raceLaneStarted(sessionId);
-      if (options?.managed) quietActivityTurns.current?.add(activityTurnId);
+      // A bot's turns post nothing of their own: it posts a fix, or what it
+      // said, once it has read the turn (see projectBotRunner.ts).
+      if (options?.managed || options?.quiet || isBotChat(sessionId))
+        quietActivityTurns.current?.add(activityTurnId);
       const member: ActivityTeam | undefined = options?.discussion
         ? { id: `discuss:${options.discussion.id}`, kind: "discuss" }
         : options?.teamMember;
@@ -6776,6 +6883,8 @@ export default function App({
       const cards = {
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
         ...(options?.discussion ? { discussion: options.discussion } : {}),
+        ...(options?.botWake ? { botWake: options.botWake } : {}),
+        ...(options?.userBlockId ? { id: options.userBlockId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -7068,6 +7177,15 @@ export default function App({
           return event;
         };
 
+        let turnText = harnessText;
+        if (options?.prepareText) {
+          try {
+            turnText = await options.prepareText(harnessText);
+          } catch (error) {
+            logError("Prepare message", error);
+          }
+          if (turnGen.current.get(sessionId) !== gen) return;
+        }
         if (!current.inboxAsk && changeOwner) {
           await beginSessionTurn(changeOwner.sessionId, changeOwner.cwd).catch(
             () => undefined,
@@ -7082,8 +7200,8 @@ export default function App({
             intent === "build" && approvedPlan
               ? buildPlanPrompt(approvedPlan.text)
               : options?.verbatim
-                ? harnessText
-                : await preparePrompt(harnessText, {
+                ? turnText
+                : await preparePrompt(turnText, {
                     harness: current.harness,
                     sessionId,
                     cwd: workCwd,
@@ -7098,7 +7216,10 @@ export default function App({
                   sessionId,
                   cwd: workCwd,
                 },
-                { worker: !!current.orchestrationLeadId },
+                // A bot never commits, so it gets no Git preference either.
+                {
+                  worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                },
               );
           const turnPrompt = proposalDraft
             ? orchestrationPlanningPrompt(browserPrompt, proposalDraft.settings)
@@ -7363,7 +7484,169 @@ export default function App({
         });
       return undefined;
     },
-    [enqueueHarnessEvent, flushHarnessEvents, announceActivity],
+    [enqueueHarnessEvent, flushHarnessEvents, announceActivity, botChatForTurn],
+  );
+
+  // Project bots. Every window launches a bot's chat with what it must ask
+  // first; only the main window drives bots (see useProjectBots).
+  useEffect(() => installBotPermissions(), []);
+  /** The bot's chat, loaded or made, without a tab, working in its copy. */
+  const ensureBotChat = useCallback(
+    async (bot: ProjectBot): Promise<Session | null> => {
+      const copy = bot.copy?.path;
+      if (!copy) return null;
+      let loaded = bot.sessionId
+        ? sessionsRef.current.find((session) => session.id === bot.sessionId)
+        : undefined;
+      if (bot.sessionId && !loaded) {
+        // A read that failed is not a chat that is gone: never start over
+        // under its id and save an empty chat over its history.
+        let saved: Session | null;
+        try {
+          saved = await getSession(bot.sessionId);
+        } catch (error) {
+          logError("Bot chat", error);
+          return null;
+        }
+        if (saved)
+          loaded = (await ensureOpenSession(bot.sessionId)) ?? undefined;
+        if (saved && !loaded) return null;
+      }
+      if (loaded) {
+        // It always works in its copy, with Claude, in auto mode with its
+        // asks: a new conversation there if it moved.
+        const fix = botChatInCopy(loaded, copy, () =>
+          preferredModelId("claude"),
+        );
+        if (!fix || (fix.restart && loaded.busy)) return loaded;
+        if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
+        const next = sessionsRef.current.map((session) =>
+          session.id === fix.chat.id ? fix.chat : session,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+        return fix.chat;
+      }
+      const session: Session = {
+        // The user's default Claude model, in auto mode with its asks.
+        ...newSession("claude", bot.path, undefined, "auto"),
+        ...(bot.sessionId ? { id: bot.sessionId } : {}),
+        title: botName(bot, projectAppearance(bot.path).mascot),
+        worktreeCwd: copy,
+      };
+      const next = [...sessionsRef.current, session];
+      sessionsRef.current = next;
+      setSessions(next);
+      if (bot.sessionId !== session.id)
+        updateProjectBot(bot.path, (current) => ({
+          ...current,
+          sessionId: session.id,
+        }));
+      return session;
+    },
+    [ensureOpenSession, sessionsRef, setSessions],
+  );
+  const botHost = useMemo(
+    () => ({
+      ensureChat: ensureBotChat,
+      send: (
+        sessionId: string,
+        text: string,
+        options: {
+          displayText: string;
+          botWake?: BotWakeMeta;
+          attachments?: Attachment[];
+          blockId: string;
+          prepareText?: (text: string) => Promise<string>;
+          onSettled: (outcome: ControlOutcome) => void;
+        },
+      ) =>
+        onSubmit(sessionId, text, options.attachments ?? [], {
+          displayText: options.displayText,
+          ...(options.botWake ? { botWake: options.botWake } : {}),
+          ...(options.prepareText ? { prepareText: options.prepareText } : {}),
+          userBlockId: options.blockId,
+          // The bot posts its own entry: a fix, or what it said.
+          quiet: true,
+          onSettled: options.onSettled,
+        }) !== false,
+      sendAsUsual: (
+        sessionId: string,
+        text: string,
+        attachments: Attachment[],
+      ) => void onSubmit(sessionId, text, attachments),
+      announce: announceActivity,
+      onWorking: setBotWorkingChats,
+    }),
+    [ensureBotChat, onSubmit, announceActivity],
+  );
+  // The main window alone drives bots, as it adopts races and discussions
+  // whose window closed; every other window shows them.
+  const messageBot = useProjectBots(
+    sessions,
+    sessionsRef,
+    botHost,
+    !isDetachedWorkspace() && currentWindowLabel() === "main",
+  );
+  /** What you type to a bot goes through its copy first. */
+  const onChatSubmit = useCallback(
+    (
+      sessionId: string,
+      text: string,
+      attachments: Attachment[] = [],
+      options?: Parameters<typeof onSubmit>[3],
+    ) => {
+      if (
+        !options?.queuedMessageId &&
+        (options?.intent ?? "default") === "default" &&
+        isBotChat(sessionId) &&
+        messageBot(sessionId, text, attachments)
+      )
+        return;
+      return onSubmit(sessionId, text, attachments, options);
+    },
+    [messageBot, onSubmit],
+  );
+  const openBotChat = useCallback(
+    async (path: string) => {
+      const bot = getProjectBot(path);
+      if (!bot?.on) return;
+      const chat = await ensureBotChat(bot);
+      if (!chat) return;
+      setHomeViewOpen(false);
+      await onSelectHistorySession(chat.id);
+    },
+    [ensureBotChat, onSelectHistorySession, setHomeViewOpen],
+  );
+  /**
+   * A bot turned off: its chat is an ordinary chat in the project again,
+   * in your folder, with your usual mode and nothing sent on its own.
+   */
+  const releaseBotChat = useCallback(
+    (path: string) => {
+      const bot = getProjectBot(path);
+      const chat = bot?.sessionId
+        ? sessionsRef.current.find((session) => session.id === bot.sessionId)
+        : undefined;
+      if (!bot || bot.on || !chat?.worktreeCwd || isBotChat(chat.id)) return;
+      void forgetHarnessSession(chat.harness, chat.id);
+      const next = sessionsRef.current.map((session) =>
+        session.id === chat.id
+          ? {
+              ...session,
+              worktreeCwd: undefined,
+              providerSessionId: undefined,
+              runtimeMode: loadDefaultRuntimeMode(),
+              ...(session.queuedMessages?.length
+                ? { queueStatus: "paused" as const }
+                : {}),
+            }
+          : session,
+      );
+      sessionsRef.current = next;
+      setSessions(next);
+    },
+    [sessionsRef, setSessions],
   );
 
   const onUpdatePlan = useCallback(
@@ -7819,6 +8102,9 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (!current || current.busy) return false;
+      // A bot's chat compacts only where it works: in its copy.
+      const bot = botForChat(sessionId);
+      if (bot && current.worktreeCwd !== bot.copy?.path) return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -8053,6 +8339,30 @@ export default function App({
       }
     },
     [flushHarnessEvents, announceActivity],
+  );
+
+  /** Stop a bot's chat and wait, a few seconds at most, until it has. */
+  const stopBotChat = useCallback(
+    async (path: string) => {
+      const id = getProjectBot(path)?.sessionId;
+      const busy = () =>
+        !!sessionsRef.current.find((session) => session.id === id)?.busy;
+      if (!id || !busy()) return;
+      onStop(id);
+      for (let waited = 0; waited < 10_000 && busy(); waited += 100)
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+    },
+    [onStop, sessionsRef],
+  );
+  useEffect(
+    () =>
+      installBotWorkspace({
+        openChat: (path) => void openBotChat(path),
+        openSettings: setBotSheet,
+        release: releaseBotChat,
+        stop: stopBotChat,
+      }),
+    [openBotChat, releaseBotChat, stopBotChat],
   );
   stopSessionRef.current = onStop;
 
@@ -9003,7 +9313,7 @@ export default function App({
     onModelChange,
     onModelSettingsChange,
     onRuntimeModeChange,
-    onSubmit,
+    onSubmit: onChatSubmit,
     onStop,
     onCompactContext,
     onDeleteQueuedMessage,
@@ -10008,6 +10318,73 @@ export default function App({
     statuses: chatStatus,
     teams,
   });
+  const botStore = useProjectBotsStore();
+  const sidebarBots = useMemo<readonly SidebarBot[]>(() => {
+    const on = botsAvailable()
+      ? Object.values(botStore).filter((bot) => bot.on)
+      : [];
+    if (!on.length) return NO_SIDEBAR_BOTS;
+    const now = Date.now();
+    return on.map((bot) => {
+      const chat = bot.sessionId ? sessionById.get(bot.sessionId) : undefined;
+      const status = botStatus(
+        bot,
+        chat
+          ? { busy: !!chat.busy, needsInput: sessionNeedsInput(chat) }
+          : undefined,
+        now,
+      );
+      const appearance = projectAppearance(bot.path);
+      return {
+        path: bot.path,
+        ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
+        name: botName(bot, appearance.mascot),
+        project: appearance.label,
+        status,
+        headline: botHeadline(bot, status, now),
+      };
+    });
+  }, [botStore, sessionById]);
+  const onOpenBot = useCallback(
+    (path: string) => {
+      closeUtilityViews();
+      void openBotChat(path);
+    },
+    [closeUtilityViews, openBotChat],
+  );
+  /** Add a bot: it turns on at once, with its defaults, and shows its chat. */
+  const onAddBot = useCallback(
+    (path: string) => {
+      if (getProjectBot(path)?.on) {
+        closeUtilityViews();
+        void openBotChat(path);
+        return;
+      }
+      void turnOnBotWithDefaults(path).then((problem) => {
+        if (problem) {
+          void message(problem, { title: "Can't add a bot", kind: "info" });
+          return;
+        }
+        closeUtilityViews();
+        void openBotChat(path);
+      });
+    },
+    [closeUtilityViews, openBotChat],
+  );
+  /** The project's menu and Home tile: add a bot, or open its settings. */
+  const onBotAction = useCallback(
+    (path: string) => {
+      if (getProjectBot(path)?.on) setBotSheet(path);
+      else onAddBot(path);
+    },
+    [onAddBot],
+  );
+  // A bot turned off in any window lets go of its chat in this one too.
+  useEffect(() => {
+    for (const bot of Object.values(botStore))
+      if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
+  }, [botStore, releaseBotChat]);
+
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -10090,6 +10467,10 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    bots: sidebarBots,
+    onOpenBot,
+    onBotSettings: onBotAction,
+    onAddBot,
     teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
@@ -10326,6 +10707,9 @@ export default function App({
                         }}
                         onNewProjectTask={onNewProjectTask}
                         onOpenBoard={onOpenBoard}
+                        bots={sidebarBots}
+                        onOpenBot={onOpenBot}
+                        onBotSettings={onBotAction}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
                         onLoadProjects={(paths) => {
@@ -10936,6 +11320,12 @@ export default function App({
                 />
               </div>
             </div>
+            {botSheet ? (
+              <BotSettingsSheet
+                path={botSheet}
+                onClose={() => setBotSheet(null)}
+              />
+            ) : null}
             {addProjectAnchor ? (
               <AddProjectMenu
                 anchor={addProjectAnchor}
@@ -11270,6 +11660,7 @@ function toTitleTab(
       .map((session) => holdUpHint(sessionHoldUps(session)))
       .find(Boolean),
     race: Boolean(race),
+    botPath: focused ? botForChat(focused.id)?.path : undefined,
     board,
   };
 }

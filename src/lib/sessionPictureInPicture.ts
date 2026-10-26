@@ -67,6 +67,7 @@ const THEME_VARIABLES = [
   "--theme-light-surface-color",
   "--theme-content-color",
   "--theme-accent-color",
+  "--theme-accent-foreground",
   "--theme-highlight-color",
   "--color-background-base",
   "--color-content",

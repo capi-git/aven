@@ -15,7 +15,8 @@
   align-items: center;
   height: 42px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--settings-line);
+  border-bottom: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--settings-line));
   background: var(--aven-toolbar-surface);
   user-select: none;
 }
@@ -40,7 +41,7 @@
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-capsule);
   margin-inline: 6px;
   color: var(--settings-muted);
 }
@@ -65,7 +66,8 @@
   display: flex;
   flex-direction: column;
   padding: 28px 16px 24px 0;
-  border-right: 1px solid var(--settings-line);
+  border-right: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--settings-line));
 }
 .settings-navigation-title {
   font-size: var(--text-ui-caption);
@@ -132,10 +134,10 @@
   gap: 9px;
   align-items: center;
   height: 32px;
-  padding: 0 9px;
-  border: 1px solid var(--aven-control-border);
+  padding: 0 10px;
+  border: 1px solid var(--aven-control-edge, transparent);
   background: var(--aven-field-bg);
-  border-radius: 8px;
+  border-radius: var(--aven-radius-row);
   color: var(--settings-muted);
 }
 .settings-search-field input {
@@ -161,10 +163,10 @@
   max-height: 360px;
   overflow-y: auto;
   border: 1px solid var(--aven-glass-overlay-edge);
-  border-radius: 12px;
-  padding: 5px;
+  border-radius: var(--aven-radius-overlay);
+  padding: 6px;
   background: var(--aven-popup);
-  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
 }
 .settings-search-count {
   font-size: var(--text-ui-caption);
@@ -177,7 +179,7 @@
   align-items: center;
   gap: 16px;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-row);
   text-align: left;
 }
 .settings-search-results button:hover,
@@ -597,4 +599,10 @@
 .settings-other-providers > summary span {
   margin-left: 6px;
   font-size: var(--text-ui-caption);
+}
+
+/* Light mode: iOS's grouped background behind the white group cards, edge
+   to edge across the whole page. */
+html.theme-light .settings-view {
+  background: var(--aven-grouped-background);
 }

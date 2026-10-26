@@ -45,7 +45,7 @@
 .team-card-tile .discussion-avatar {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
+  border-radius: var(--aven-radius-row);
 }
 /* The pair's link: three square pixel dots, like the typing dots. */
 .team-card-link {
@@ -248,16 +248,17 @@ button.team-card-member-open:hover {
   gap: 6px;
 }
 /* The one button of the team family: the card, the message-box bar, the
-   floating panel and the board all use it. */
+   floating panel and the board all use it. An iOS capsule: grey-tinted by
+   default, filled for the one primary action. */
 .team-card-button {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   gap: 5px;
   height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: var(--aven-radius-control, 8px);
+  padding: 0 12px;
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-capsule);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 7%, transparent)
@@ -272,12 +273,11 @@ button.team-card-member-open:hover {
 }
 .team-card-button[data-size="compact"] {
   height: 22px;
-  padding: 0 8px;
-  border-radius: 6px;
+  padding: 0 9px;
+  border-radius: var(--aven-radius-capsule);
 }
 .team-card-button:hover:not(:disabled) {
   background: var(--aven-control-hover, var(--aven-hover));
-  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
 }
 .team-card-button:disabled {
   cursor: default;
@@ -286,7 +286,9 @@ button.team-card-member-open:hover {
 .team-card-button[data-variant="primary"] {
   border-color: transparent;
   background: var(--color-content);
+  box-shadow: 0 1px 2px #00000033;
   color: var(--color-background-base);
+  font-weight: 600;
 }
 .team-card-button[data-variant="primary"]:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-content) 82%, transparent);
@@ -302,13 +304,17 @@ button.team-card-member-open:hover {
 }
 /* The way to what needs you reads in its amber. */
 .team-card-button[data-variant="needs-you"] {
-  border-color: var(--aven-needs-you-edge);
-  background: var(--aven-needs-you-wash);
+  border-color: transparent;
+  background: var(--aven-needs-you-wash-hover);
   color: var(--aven-needs-you);
 }
 .team-card-button[data-variant="needs-you"]:hover:not(:disabled) {
-  border-color: var(--aven-needs-you-edge);
-  background: var(--aven-needs-you-wash-hover);
+  border-color: transparent;
+  background: color-mix(
+    in srgb,
+    var(--color-amber-400, #ff9f0a) 26%,
+    transparent
+  );
 }
 @media (prefers-reduced-motion: reduce) {
   .team-card-button {
@@ -317,7 +323,7 @@ button.team-card-member-open:hover {
 }
 .team-card-toggle {
   margin-left: auto;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-xs);
   font-size: var(--text-ui-caption);
   line-height: 16px;
   color: color-mix(in srgb, var(--color-content) 42%, transparent);

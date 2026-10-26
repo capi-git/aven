@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { listen } from "@tauri-apps/api/event";
-import { initAppearance } from "./lib/appearance";
+import { initAppearance, syncMacosRelease } from "./lib/appearance";
 import { useBootSplashReady } from "./lib/bootSplash";
 import { initSounds } from "./lib/sounds";
 import { syncBrowserEngineOptions } from "./lib/browserEngine";
@@ -143,6 +143,7 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
 
 function startWorkspace() {
   initAppearance();
+  void syncMacosRelease();
   watchMotion();
   initSounds();
   syncBrowserEngineOptions();

@@ -46,7 +46,7 @@
 .workspace-action-dialog select,
 .workspace-folder-button {
   border: 1px solid var(--aven-control-border);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-row);
   padding: 8px 10px;
   font: inherit;
   color: var(--color-content);
@@ -67,7 +67,7 @@
 }
 .workspace-action-dialog footer button {
   padding: 7px 12px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
 }
@@ -107,7 +107,7 @@
   font-size: var(--text-ui-caption);
   padding: 4px 8px;
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  border-radius: 5px;
+  border-radius: var(--aven-radius-capsule);
 }
 .workspace-pr-context {
   display: flex;

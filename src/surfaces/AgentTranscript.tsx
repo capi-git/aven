@@ -14,8 +14,10 @@ import {
   X,
 } from "../chrome/icons";
 import {
+  createContext,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -103,6 +105,9 @@ import {
   type ScrollExtent,
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
+import { BotCheckedRow, BotFixCard, BotWakeTag } from "./BotChat";
+import { botProgressLine, isNothingToReport } from "../lib/projectBotWake";
+import { useBotTurnOwnsFix } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
@@ -138,6 +143,7 @@ import {
   type ActivityPhaseKind,
   type ToolCallState,
   type TurnItem,
+  type WorkFold,
 } from "./transcriptActivity";
 
 const NEAR_BOTTOM_PX = 16;
@@ -189,6 +195,11 @@ type Props = {
   visible?: boolean;
   /** A worker's transcript: show the orchestrator's turns instead of hiding them. */
   managed?: boolean;
+  /**
+   * The project whose bot this chat is: wake-ups show as tags, a check with
+   * nothing to report folds to one line, and a turn's fix gets its card.
+   */
+  botProject?: string;
 };
 
 const NO_PROPOSAL_REPLIES: ReadonlySet<string> = new Set();
@@ -234,6 +245,7 @@ function AgentTranscriptComponent({
   onRevealReady,
   visible = true,
   managed = false,
+  botProject,
 }: Props) {
   const scrollerId = useId();
   const scroller = useRef<HTMLDivElement>(null);
@@ -740,104 +752,116 @@ function AgentTranscriptComponent({
   }, [revealBlock, onRevealReady]);
 
   return (
-    <div
-      id={scrollerId}
-      ref={setScroller}
-      data-transcript-layout={transcriptLayout}
-      className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
-    >
-      <div className="personal-transcript-content mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
-        {firstVisibleTurn > 0 ? (
-          <div className="flex justify-center px-4 py-3">
-            <button
-              type="button"
-              className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-content/12 hover:text-content"
-              onClick={loadEarlier}
-            >
-              Load earlier messages
-            </button>
-          </div>
+    <ApprovalWords.Provider value={botProject ? BOT_APPROVAL : PLAIN_APPROVAL}>
+      <div
+        id={scrollerId}
+        ref={setScroller}
+        data-transcript-layout={transcriptLayout}
+        className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
+      >
+        <div className="personal-transcript-content mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
+          {firstVisibleTurn > 0 ? (
+            <div className="flex justify-center px-4 py-3">
+              <button
+                type="button"
+                className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-content/12 hover:text-content"
+                onClick={loadEarlier}
+              >
+                Load earlier messages
+              </button>
+            </div>
+          ) : null}
+          {visibleTurns.map((turn, turnIndex) => {
+            const turnAt = firstVisibleTurn + turnIndex;
+            const isLastTurn = turnAt === turns.length - 1;
+            const span = spans.get(turnAt);
+            const spanShown = !!span && spanShownFor(span.key);
+            // A folded discussion shows once, at the start of its span.
+            if (span && !spanShown && turnAt !== span.start) return null;
+            const spanStart = span && turnAt === span.start ? span : undefined;
+            const spanLive = !!spanStart && spanStart.end === turns.length - 1;
+            return (
+              <ChatFileReferencesContext.Provider
+                key={turn[0].id}
+                value={chatFiles.forTurn(turnAt)}
+              >
+                <TranscriptTurn
+                  turn={turn}
+                  isLastTurn={isLastTurn}
+                  stickyIndex={turnAt + 1}
+                  entering={entrances.current?.rises(turn[0].id) ?? false}
+                  fadeReplies={isLastTurn && fadeReplies}
+                  managed={managed}
+                  botProject={botProject}
+                  busy={busy}
+                  visible={visible}
+                  preparingHandoff={preparingHandoff}
+                  waitingForApproval={waitingForApproval}
+                  pendingQuestion={pendingQuestion}
+                  holdUps={isLastTurn ? holdUps : undefined}
+                  harness={harness}
+                  model={model}
+                  turnHarness={
+                    harness ? harnessForTurn(blocks, turn, harness) : undefined
+                  }
+                  modelName={modelName}
+                  modelCatalog={modelCatalog}
+                  transcriptLayout={transcriptLayout}
+                  anchored={
+                    promptAnchor &&
+                    anchorTurn &&
+                    (spanStart && !spanShown ? spanLive : isLastTurn)
+                  }
+                  workOpen={!!openWork[turn[0].id]}
+                  toggleWork={toggleWork}
+                  proposalReplyIds={proposalReplyIds}
+                  newestProposalId={newestProposalId}
+                  discussionId={spanStart?.id}
+                  discussionMeta={spanStart?.meta}
+                  discussionKey={spanStart?.key}
+                  discussionTopic={spanStart?.topic}
+                  discussionClosing={spanStart?.closing}
+                  discussionExpanded={spanStart ? spanShown : undefined}
+                  discussionAsking={
+                    spanStart ? askingSpans.has(spanStart.key) : undefined
+                  }
+                  discussionLive={spanLive}
+                  onToggleDiscussion={toggleSpan}
+                  cwd={cwd}
+                  onApproval={onApproval}
+                  onOpenFile={onOpenFile}
+                  onOpenDiff={onOpenDiff}
+                  onOpenPlan={onOpenPlan}
+                  onBuildPlan={onBuildPlan}
+                  onSaveNote={onSaveNote}
+                  memoryProject={memoryProject}
+                  onSecondOpinion={onSecondOpinion}
+                  onHandoff={onHandoff}
+                />
+              </ChatFileReferencesContext.Provider>
+            );
+          })}
+        </div>
+        {onAddToChat ? (
+          <TranscriptSelectionMenu
+            selection={selection}
+            onAddToChat={onAddToChat}
+            onDismiss={dismissSelection}
+          />
         ) : null}
-        {visibleTurns.map((turn, turnIndex) => {
-          const turnAt = firstVisibleTurn + turnIndex;
-          const isLastTurn = turnAt === turns.length - 1;
-          const span = spans.get(turnAt);
-          const spanShown = !!span && spanShownFor(span.key);
-          // A folded discussion shows once, at the start of its span.
-          if (span && !spanShown && turnAt !== span.start) return null;
-          const spanStart = span && turnAt === span.start ? span : undefined;
-          const spanLive = !!spanStart && spanStart.end === turns.length - 1;
-          return (
-            <ChatFileReferencesContext.Provider
-              key={turn[0].id}
-              value={chatFiles.forTurn(turnAt)}
-            >
-              <TranscriptTurn
-                turn={turn}
-                isLastTurn={isLastTurn}
-                stickyIndex={turnAt + 1}
-                entering={entrances.current?.rises(turn[0].id) ?? false}
-                fadeReplies={isLastTurn && fadeReplies}
-                managed={managed}
-                busy={busy}
-                visible={visible}
-                preparingHandoff={preparingHandoff}
-                waitingForApproval={waitingForApproval}
-                pendingQuestion={pendingQuestion}
-                holdUps={isLastTurn ? holdUps : undefined}
-                harness={harness}
-                model={model}
-                turnHarness={
-                  harness ? harnessForTurn(blocks, turn, harness) : undefined
-                }
-                modelName={modelName}
-                modelCatalog={modelCatalog}
-                transcriptLayout={transcriptLayout}
-                anchored={
-                  promptAnchor &&
-                  anchorTurn &&
-                  (spanStart && !spanShown ? spanLive : isLastTurn)
-                }
-                workOpen={!!openWork[turn[0].id]}
-                toggleWork={toggleWork}
-                proposalReplyIds={proposalReplyIds}
-                newestProposalId={newestProposalId}
-                discussionId={spanStart?.id}
-                discussionMeta={spanStart?.meta}
-                discussionKey={spanStart?.key}
-                discussionTopic={spanStart?.topic}
-                discussionClosing={spanStart?.closing}
-                discussionExpanded={spanStart ? spanShown : undefined}
-                discussionAsking={
-                  spanStart ? askingSpans.has(spanStart.key) : undefined
-                }
-                discussionLive={spanLive}
-                onToggleDiscussion={toggleSpan}
-                cwd={cwd}
-                onApproval={onApproval}
-                onOpenFile={onOpenFile}
-                onOpenDiff={onOpenDiff}
-                onOpenPlan={onOpenPlan}
-                onBuildPlan={onBuildPlan}
-                onSaveNote={onSaveNote}
-                memoryProject={memoryProject}
-                onSecondOpinion={onSecondOpinion}
-                onHandoff={onHandoff}
-              />
-            </ChatFileReferencesContext.Provider>
-          );
-        })}
       </div>
-      {onAddToChat ? (
-        <TranscriptSelectionMenu
-          selection={selection}
-          onAddToChat={onAddToChat}
-          onDismiss={dismissSelection}
-        />
-      ) : null}
-    </div>
+    </ApprovalWords.Provider>
   );
 }
+
+/** What a request's two buttons say: a bot asks to be allowed once. */
+type ApprovalWording = { allow: string; deny: string };
+const PLAIN_APPROVAL: ApprovalWording = { allow: "Allow", deny: "Deny" };
+const BOT_APPROVAL: ApprovalWording = {
+  allow: "Allow once",
+  deny: "Don't allow",
+};
+const ApprovalWords = createContext<ApprovalWording>(PLAIN_APPROVAL);
 
 // Keep hidden panes' local state, and catch up with current props on activation.
 export const AgentTranscript = memo(
@@ -847,6 +871,7 @@ export const AgentTranscript = memo(
 
 type TranscriptTurnProps = Pick<
   Props,
+  | "botProject"
   | "cwd"
   | "harness"
   | "model"
@@ -920,6 +945,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   entering,
   fadeReplies,
   managed,
+  botProject,
   busy,
   visible,
   preparingHandoff,
@@ -956,6 +982,11 @@ const TranscriptTurn = memo(function TranscriptTurn({
   onSecondOpinion,
   onHandoff,
 }: TranscriptTurnProps) {
+  // A bot's turn that owns its fix is never folded away: its card shows.
+  const ownsBotFix = useBotTurnOwnsFix(
+    botProject,
+    botProject ? turnUserBlock(turn, managed)?.id : undefined,
+  );
   // Your message that started a team here: it stays as you sent it.
   const teamStart = turn.length === 1 ? turn[0] : undefined;
   if (teamStart?.team)
@@ -1027,6 +1058,22 @@ const TranscriptTurn = memo(function TranscriptTurn({
   }
   const durationMs = userBlock?.durationMs;
   const settled = !(busy && isLastTurn);
+  // A bot's wake-up that found nothing folds into one quiet line.
+  if (
+    userBlock?.botWake &&
+    settled &&
+    !ownsBotFix &&
+    !turn.some((block) => block.approval) &&
+    isNothingToReport(lastProseText(turn))
+  )
+    return (
+      <div className="transcript-turn flex min-w-0 flex-col">
+        <BotCheckedRow
+          label={userBlock.botWake.label}
+          at={userBlock.startedAt}
+        />
+      </div>
+    );
   // A plan's card waits for the turn that writes it to end. Once its run
   // starts, the run drives the lead's next turns inside this one (their
   // messages are the app's), so the card stays: hiding it while the lead
@@ -1069,7 +1116,11 @@ const TranscriptTurn = memo(function TranscriptTurn({
   // Work the turn has already answered for folds away behind one line,
   // leaving the prompt and the answer to it.
   const turnId = turn[0].id;
-  const fold = foldableWork(items);
+  // A bot works out of sight: while it works, all it has done so far sits
+  // behind one line saying what it is doing now; its last message is the
+  // result.
+  const botLive = !!botProject && !settled;
+  const fold = botLive ? liveWorkFold(items) : foldableWork(items);
   const folded = fold ? foldedBlocks(items, fold) : [];
   // The fold line is the turn's status line from the first token to
   // the last: the mark, and the clock beside it. It never moves, so a
@@ -1078,16 +1129,22 @@ const TranscriptTurn = memo(function TranscriptTurn({
   const replyMotion: MotionName | undefined =
     fadeReplies && live ? "fade" : undefined;
   const foldTitle: ReactNode = live ? (
-    <LiveFoldTitle
-      startedAt={startedAt}
-      paused={waitingForApproval}
-      waitingLabel={
-        pendingQuestion ? "Needs you · Answer the question below" : undefined
-      }
-      subagent={hasRunningSubagent(turn)}
-      modelName={turnModelName}
-      holdUps={holdUps}
-    />
+    botLive && !waitingForApproval && !pendingQuestion ? (
+      <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>
+        {botProgressLine(turn)}
+      </Shimmer>
+    ) : (
+      <LiveFoldTitle
+        startedAt={startedAt}
+        paused={waitingForApproval}
+        waitingLabel={
+          pendingQuestion ? "Needs you · Answer the question below" : undefined
+        }
+        subagent={hasRunningSubagent(turn)}
+        modelName={turnModelName}
+        holdUps={holdUps}
+      />
+    )
   ) : durationMs != null ? (
     formatWorkingDuration(durationMs, true, false, turnModelName)
   ) : (
@@ -1265,6 +1322,9 @@ const TranscriptTurn = memo(function TranscriptTurn({
           : [card, ...rows]
         : rows}
       {footer}
+      {botProject && userBlock && settled ? (
+        <BotFixCard path={botProject} turnId={userBlock.id} />
+      ) : null}
       {asides.map((block) => (
         <div key={block.id} className="flow-root pb-1" data-discussion-aside>
           <TranscriptBlock
@@ -1563,6 +1623,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
     block.role === "user" ? undefined : motion,
   );
   if (block.role === "user") {
+    if (block.botWake)
+      return <BotWakeTag label={block.botWake.label} at={block.startedAt} />;
     return (
       <UserMessageBlock
         block={block}
@@ -2940,6 +3002,7 @@ function ApprovalControls({
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
 }) {
   const approval = block.approval;
+  const words = useContext(ApprovalWords);
   if (!approval || approval.decided) return null;
   return (
     <div
@@ -2951,14 +3014,14 @@ function ApprovalControls({
         className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-content/80     text-background-base"
         onClick={() => onApproval?.(approval.requestId, "allow")}
       >
-        Allow
+        {words.allow}
       </button>
       <button
         type="button"
         className="rounded-md bg-content/10 px-2.5 py-0.5 text-ui-caption text-content/70 hover:bg-content/20"
         onClick={() => onApproval?.(approval.requestId, "deny")}
       >
-        Deny
+        {words.deny}
       </button>
     </div>
   );
@@ -3003,6 +3066,28 @@ function HandoffDivider({ block }: { block: Block }) {
 
 function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
   return turnUserBlock(blocks, managed)?.id;
+}
+
+/** All of a working turn's steps so far, from its first, as one fold. */
+function liveWorkFold(items: TurnItem[]): WorkFold | undefined {
+  const start = firstFoldableIndex(items);
+  if (start < 0) return undefined;
+  let end = -1;
+  for (let index = items.length - 1; index >= start; index -= 1)
+    if (isFoldableWorkItem(items[index])) {
+      end = index;
+      break;
+    }
+  return end >= start ? { start, end } : undefined;
+}
+
+/** The turn's last reply text, for telling a bot's "Nothing to report." */
+function lastProseText(turn: readonly Block[]): string {
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const block = turn[i];
+    if (block.role === "assistant" && block.text.trim()) return block.text;
+  }
+  return "";
 }
 
 function turnUserBlock(

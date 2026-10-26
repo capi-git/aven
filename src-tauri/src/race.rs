@@ -74,7 +74,7 @@ pub struct RaceChoice {
     pub paths: Vec<String>,
 }
 
-fn git(dir: &Path) -> Command {
+pub(crate) fn git(dir: &Path) -> Command {
     let mut cmd = Command::new("git");
     crate::hide_window_console(&mut cmd);
     cmd.arg("--no-pager")
@@ -85,7 +85,7 @@ fn git(dir: &Path) -> Command {
     cmd
 }
 
-fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     run_with_input(dir, args, None)
 }
 
@@ -127,7 +127,7 @@ fn run_git(mut cmd: Command, args: &[&str], input: Option<&[u8]>) -> Result<Vec<
     })
 }
 
-fn text(bytes: Vec<u8>) -> String {
+pub(crate) fn text(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).trim().to_string()
 }
 
@@ -166,7 +166,7 @@ impl Drop for ScratchIndex {
     }
 }
 
-fn is_sha(value: &str) -> bool {
+pub(crate) fn is_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
@@ -178,18 +178,20 @@ fn valid_race_id(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
-/// Only paths inside the app's races directory are ever touched.
-fn lane_path(races: &Path, value: &str) -> Result<PathBuf, String> {
+/// Only paths inside one of the app's copy directories (`races/`, `bots/`)
+/// are ever touched.
+pub(crate) fn lane_path(races: &Path, value: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(value);
     let inside = path.is_absolute()
         && path.starts_with(races)
+        && path != races
         && path
             .components()
             .all(|part| !matches!(part, std::path::Component::ParentDir));
     if inside {
         Ok(path)
     } else {
-        Err("Not a race copy".into())
+        Err("Not one of Aven's copies".into())
     }
 }
 
@@ -213,16 +215,26 @@ fn clean_relative(value: &str) -> Result<String, String> {
 }
 
 pub fn prepare(cwd: &Path) -> Result<RaceBase, String> {
+    prepare_for(cwd, "Race")
+}
+
+/// The commit a copy starts from: the project's HEAD, or with uncommitted
+/// changes to tracked files, a commit of exactly what the user sees.
+/// `who` names the feature in the errors ("Race", "A bot").
+pub(crate) fn prepare_for(cwd: &Path, who: &str) -> Result<RaceBase, String> {
     let root = text(
         run(cwd, &["rev-parse", "--show-toplevel"])
-            .map_err(|_| "Race needs a git repository.".to_string())?,
+            .map_err(|_| format!("{who} needs a git repository."))?,
     );
     let root_path = PathBuf::from(&root);
     let head = text(
         run(&root_path, &["rev-parse", "--verify", "HEAD"])
-            .map_err(|_| "Race needs at least one commit in this repository.".to_string())?,
+            .map_err(|_| format!("{who} needs at least one commit in this repository."))?,
     );
-    let stash = text(run(&root_path, &["stash", "create"])?);
+    // `git stash create` refreshes and writes the index it reads, taking its
+    // lock: it reads a copy, so the user's own git never finds it locked.
+    let index = ScratchIndex::seeded_from(&root_path)?;
+    let stash = text(run_staged(&root_path, &index, &["stash", "create"])?);
     let untracked = !run(
         &root_path,
         &[
@@ -354,6 +366,34 @@ fn readable(bytes: Vec<u8>) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// Everything changed in `worktree` since `base`, new files included, as
+/// one binary patch. The checkout's own index is not touched.
+pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
+    if !is_sha(base) {
+        return Err("Invalid race base".into());
+    }
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    run_staged(
+        worktree,
+        &index,
+        &["diff", "--cached", "--binary", "--no-renames", base],
+    )
+}
+
+/// Apply `patch` to the checkout at `root`, checking it first so a conflict
+/// changes nothing.
+pub(crate) fn apply_patch(root: &Path, patch: &[u8]) -> Result<(), String> {
+    run_with_input(
+        root,
+        &["apply", "--check", "--whitespace=nowarn"],
+        Some(patch),
+    )
+    .map_err(|error| format!("These changes conflict with edits in your project: {error}"))?;
+    run_with_input(root, &["apply", "--whitespace=nowarn"], Some(patch))?;
+    Ok(())
+}
+
 pub fn file_diff(worktree: &Path, base: &str, path: &str) -> Result<RaceFileDiff, String> {
     let path = clean_relative(path)?;
     if !is_sha(base) {
@@ -406,11 +446,22 @@ pub fn apply(root: &Path, races: &Path, base: &str, choices: &[RaceChoice]) -> R
 }
 
 pub fn cleanup(root: &Path, races: &Path, lanes: &[RaceLane]) -> Result<(), String> {
+    remove_copies(root, races, BRANCH_PREFIX, lanes)
+}
+
+/// Remove copies inside `dir` and their branches, which must start with
+/// `prefix`. A copy git no longer tracks is deleted directly.
+pub(crate) fn remove_copies(
+    root: &Path,
+    dir: &Path,
+    prefix: &str,
+    lanes: &[RaceLane],
+) -> Result<(), String> {
     let mut errors = Vec::new();
     for lane in lanes {
-        let path = lane_path(races, &lane.path)?;
-        if !lane.branch.starts_with(BRANCH_PREFIX) {
-            return Err("Not a race branch".into());
+        let path = lane_path(dir, &lane.path)?;
+        if !lane.branch.starts_with(prefix) {
+            return Err("Not one of Aven's branches".into());
         }
         let path_text = path.to_string_lossy().to_string();
         if path.exists() {

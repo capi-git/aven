@@ -64,6 +64,7 @@ import {
   type SessionSummary,
 } from "../lib/sessionStore";
 import { requestOpenChat } from "../lib/shipRequest";
+import { isBotCopyPath } from "../lib/projectBots";
 import "./GitCopies.css";
 
 /** Other checkouts refresh less often than the open folder; each costs several Git calls. */
@@ -89,34 +90,37 @@ export type CopySummary = {
 export function summarizeCopies(
   worktrees: readonly GitWorktree[],
 ): CopySummary[] {
-  return worktrees
-    .filter((worktree) => !worktree.current)
-    .map((worktree) => {
-      const race = raceLaneAtPath(worktree.path);
-      const finished =
-        !worktree.primary &&
-        worktree.files.length === 0 &&
-        worktree.mergedIntoDefault &&
-        race?.race.state !== "running";
-      return {
-        worktree,
-        name: race
-          ? firstLine(race.race.prompt)
-          : worktree.primary
-            ? "Main folder"
-            : copyName(worktree),
-        detail: race ? race.lane.label : (worktree.branch ?? "Detached"),
-        harness: race?.lane.harness,
-        finished,
-        race,
-      };
-    })
-    .sort(
-      (a, b) =>
-        Number(a.finished) - Number(b.finished) ||
-        b.worktree.files.length - a.worktree.files.length ||
-        b.worktree.aheadOfDefault - a.worktree.aheadOfDefault,
-    );
+  return (
+    worktrees
+      // A bot's copy is its own, removed by turning the bot off.
+      .filter((worktree) => !worktree.current && !isBotCopyPath(worktree.path))
+      .map((worktree) => {
+        const race = raceLaneAtPath(worktree.path);
+        const finished =
+          !worktree.primary &&
+          worktree.files.length === 0 &&
+          worktree.mergedIntoDefault &&
+          race?.race.state !== "running";
+        return {
+          worktree,
+          name: race
+            ? firstLine(race.race.prompt)
+            : worktree.primary
+              ? "Main folder"
+              : copyName(worktree),
+          detail: race ? race.lane.label : (worktree.branch ?? "Detached"),
+          harness: race?.lane.harness,
+          finished,
+          race,
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(a.finished) - Number(b.finished) ||
+          b.worktree.files.length - a.worktree.files.length ||
+          b.worktree.aheadOfDefault - a.worktree.aheadOfDefault,
+      )
+  );
 }
 
 /** Copies that still need attention, and finished ones to tuck away. */

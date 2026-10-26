@@ -31,9 +31,9 @@
     hsl(var(--theme-hue, 218) 38% 66%)
   );
   --personal-highlight: var(--theme-highlight-color, var(--personal-accent));
-  --personal-muted: color-mix(in srgb, var(--color-content) 64%, transparent);
+  --personal-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 9%, transparent);
-  --personal-hover: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --personal-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
   --personal-selected: color-mix(
     in srgb,
     var(--personal-highlight) 11%,
@@ -48,9 +48,10 @@
     var(--personal-main-surface) 96%,
     var(--color-content)
   );
+  /* Menus and popovers: iOS's elevated grey, solid. */
   --aven-popup: color-mix(
     in srgb,
-    var(--personal-main-surface) 94%,
+    var(--personal-main-surface) 87%,
     var(--color-content)
   );
   --personal-panel-duration: 200ms;
@@ -90,7 +91,8 @@ html.theme-light .personal-shell {
     color-mix(in srgb, var(--personal-frame) 32%, #ffffff)
   );
   --personal-accent: var(--theme-accent-color, #64718d);
-  --personal-muted: color-mix(in srgb, var(--color-content) 62%, transparent);
+  --aven-popup: var(--personal-main-surface);
+  --personal-muted: color-mix(in srgb, var(--color-content) 58%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 8%, transparent);
   --personal-hover: color-mix(in srgb, var(--color-content) 4%, transparent);
   --personal-selected: color-mix(in srgb, var(--color-content) 5%, transparent);
@@ -168,7 +170,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   margin: 0 8px;
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-pane);
   box-shadow: none;
   overflow: hidden;
   background: var(--personal-main-surface);
@@ -468,7 +470,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   width: var(--nav-width, 216px);
   /* The glass panel inherits its radius from this slot. Keep the material
      and outer outline on the same curve without clipping the resize handle. */
-  border-radius: 12px;
+  border-radius: var(--aven-radius-pane);
 }
 .personal-shell .personal-inspector-slot[data-floating="true"] {
   width: var(--inspector-width, 280px);
@@ -489,15 +491,18 @@ html.has-native-glass.glass-body:not(.theme-light)
   z-index: 45;
   background: var(--personal-sidebar-surface);
   border: 1px solid var(--personal-line);
-  border-radius: 12px;
+  border-radius: var(--aven-radius-pane);
 }
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar {
-  inset: 5px auto 5px 5px;
-  height: calc(100% - 10px);
+  inset: var(--aven-window-gutter) auto var(--aven-window-gutter)
+    var(--aven-window-gutter);
+  height: calc(100% - 2 * var(--aven-window-gutter));
   background: var(--personal-navigation-surface);
-  box-shadow: none;
+  /* Light catching the floating glass's edge; its outer shadow is left
+     off, since the overlay window that draws it ends at its edge. */
+  box-shadow: var(--aven-specular);
   z-index: 50;
 }
 .personal-shell
@@ -505,14 +510,14 @@ html.has-native-glass.glass-body:not(.theme-light)
   > .personal-inspector-dock {
   inset: 0 5px 0 auto;
   padding: 0;
-  box-shadow: var(--aven-shadow);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
 }
 /* Slide fully past the window edge. Including the 5px inset makes the travel
    equal the panel's right edge, so the workspace crop can follow it exactly. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
   > .personal-sidebar {
-  transform: translateX(calc(-100% - 5px));
+  transform: translateX(calc(-100% - var(--aven-window-gutter)));
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"][data-open="false"]
@@ -607,9 +612,9 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   gap: 7px;
   height: 30px;
   margin-top: 20px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid var(--aven-control-border);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
   font-size: var(--text-ui-label);
@@ -645,7 +650,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   gap: 8px;
   width: 100%;
   padding: 8px;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-sm);
   text-align: left;
   font-size: var(--text-ui-caption);
   color: var(--color-content);
@@ -665,7 +670,7 @@ html.theme-light .personal-shell .personal-main.body-glass {
     var(--personal-main-surface) 70%,
     transparent
   );
-  border-radius: 10px;
+  border-radius: var(--aven-radius-pane);
   box-shadow: none;
 }
 html.theme-light .personal-shell .workspace-status-bar {
@@ -761,7 +766,7 @@ html.theme-light.is-mac
 .personal-shell .workspace-status-access > div > button {
   height: 26px;
   min-height: 26px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
@@ -904,7 +909,7 @@ html .personal-shell[data-unified-toolbar] [data-project-terminal-dock] {
   height: calc(100% - 10px);
   margin: 5px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: var(--aven-radius-card);
+  border-radius: var(--aven-radius-pane);
   box-shadow: var(--aven-control-shadow);
   overflow: hidden;
 }
@@ -934,10 +939,74 @@ html
   background: transparent;
 }
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
-  border-radius: 18px;
+  border-radius: var(--composer-radius, 22px);
 }
 @media (prefers-contrast: more) {
   .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
     border-color: var(--personal-muted);
+  }
+}
+
+/* The iOS look: the pinned sidebar and side panel float as glass panels
+   inset from the window's edge, as macOS 26's sidebars do, on the same
+   gutter as the pane cards. Each is a tint over the frame (no blur of its
+   own) with light along its edge, so the Glass slider, Solid and the
+   sidebar colour show through unchanged. */
+.personal-shell[data-unified-toolbar] {
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+html.theme-light .personal-shell[data-unified-toolbar] {
+  --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation {
+  padding: 5px 6px 10px 9px;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation::before {
+  content: "";
+  position: absolute;
+  /* The same gutter above, beside and below, so its corners sit
+     concentrically inside the window's. */
+  inset: var(--aven-window-gutter) 0 var(--aven-window-gutter)
+    var(--aven-window-gutter);
+  z-index: -1;
+  border-radius: var(--aven-radius-pane);
+  background: var(--aven-panel-card);
+  box-shadow: var(--aven-specular), var(--aven-rim);
+  pointer-events: none;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.personal-navigation {
+  isolation: isolate;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-inspector-slot:not([data-floating="true"])
+  .workspace-inspector {
+  height: calc(100% - 2 * var(--aven-window-gutter));
+  margin-block: var(--aven-window-gutter);
+  border-radius: var(--aven-radius-pane);
+  background: var(--aven-panel-card);
+  box-shadow: var(--aven-specular), var(--aven-rim);
+}
+.personal-shell[data-unified-toolbar]
+  .personal-inspector-slot:not([data-floating="true"])
+  .workspace-inspector-header {
+  background: transparent;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-inspector-slot:not([data-floating="true"])
+  > .personal-inspector-dock {
+  padding-right: var(--aven-window-gutter);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  /* As specific as the light rule above, so light mode is solid too. */
+  html .personal-shell[data-unified-toolbar],
+  html.theme-light .personal-shell[data-unified-toolbar] {
+    --aven-panel-card: var(--aven-elevated-1);
   }
 }

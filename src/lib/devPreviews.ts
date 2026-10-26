@@ -6,6 +6,13 @@ import {
   type DevServerAddress,
   type DevServerStrength,
 } from "./devServerUrls";
+import {
+  createOutputTail,
+  devServerStopsWatched,
+  reportDevServerStop,
+  stoppedByUser,
+  type DevServerStop,
+} from "./devServerStops";
 import { logError } from "./errors";
 import type { HarnessEvent } from "./harness/types";
 import { isEqualOrInside, joinPath, pathKey } from "./paths";
@@ -528,10 +535,38 @@ export function watchTerminalOutput(terminal: {
   const scanner = createDevOutputScanner();
   const sourceId = terminalPreviewSource(terminal.id);
   let running = false;
+  // The last lines, kept only while something listens for stops.
+  const tail = createOutputTail();
+  const stop = (reason: DevServerStop["reason"]) => {
+    const live = devServerStopsWatched()
+      ? previews.filter(
+          (preview) =>
+            preview.status === "live" && preview.sourceId === sourceId,
+        )
+      : [];
+    stopDevServers(sourceId);
+    if (!live.length) return;
+    const output = tail.text();
+    tail.clear();
+    for (const preview of live)
+      reportDevServerStop({
+        project: preview.project,
+        cwd: preview.cwd,
+        label: preview.label,
+        port: preview.port,
+        ...(preview.app ? { app: preview.app } : {}),
+        sourceId,
+        output,
+        reason,
+        byUser: stoppedByUser(output, reason),
+        at: Date.now(),
+      });
+  };
   return {
     push(text) {
+      if (devServerStopsWatched()) tail.push(text);
       for (const signal of scanner.push(text)) {
-        if (signal.kind === "stopped") stopDevServers(sourceId);
+        if (signal.kind === "stopped") stop("output");
         else
           reportDevServer({
             project: terminal.project,
@@ -551,12 +586,12 @@ export function watchTerminalOutput(terminal: {
       if (label) running = true;
       else if (running) {
         running = false;
-        stopDevServers(sourceId);
+        stop("exited");
       }
     },
     stopped() {
       running = false;
-      stopDevServers(sourceId);
+      stop("closed");
     },
   };
 }
