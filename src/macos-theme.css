@@ -200,6 +200,21 @@
   --aven-shadow: 0 22px 60px -12px #0009, 0 2px 8px #0003;
 }
 
+/* The window's own corner. macOS 26 draws Aven's titled window with a 16pt
+   continuous corner (measured from a capture of the window); Windows draws
+   the shell's 12px. Panels inset from the window edge by the gutter nest
+   concentrically inside it: their corner is the window's less the gutter. */
+:root {
+  --aven-window-radius: 16px;
+  --aven-window-gutter: 5px;
+  --aven-radius-pane: calc(
+    var(--aven-window-radius) - var(--aven-window-gutter)
+  );
+}
+html:not(.is-mac) {
+  --aven-window-radius: 12px;
+}
+
 /* A hairline is one device pixel on a Retina screen. */
 @media (min-resolution: 2dppx) {
   :root,

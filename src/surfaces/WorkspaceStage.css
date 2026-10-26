@@ -101,7 +101,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   overflow: hidden;
   box-sizing: border-box;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: var(--aven-radius-card);
+  border-radius: var(--aven-radius-pane);
   box-shadow: var(--aven-control-shadow);
 }
 .workspace-stage-surface[data-has-header="true"] {
@@ -115,8 +115,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 32px;
   min-width: 0;
   overflow: hidden;
-  border-radius: calc(var(--aven-radius-card) - 1px)
-    calc(var(--aven-radius-card) - 1px) 0 0;
+  border-radius: calc(var(--aven-radius-pane) - 1px)
+    calc(var(--aven-radius-pane) - 1px) 0 0;
   box-sizing: border-box;
 }
 .workspace-pane-minimize-controls {

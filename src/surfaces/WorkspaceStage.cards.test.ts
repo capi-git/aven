@@ -18,7 +18,7 @@ describe("panes as cards", () => {
       ".workspace-stage-surface",
     );
     expect(card).toContain("border: 1px solid var(--aven-glass-card-edge);");
-    expect(card).toContain("border-radius: var(--aven-radius-card);");
+    expect(card).toContain("border-radius: var(--aven-radius-pane);");
     expect(card).toContain("box-shadow: var(--aven-control-shadow);");
     // The window already provides the glass; a filter per card is a new
     // compositing layer for every pane.
@@ -28,7 +28,7 @@ describe("panes as cards", () => {
       ".workspace-stage-header",
     );
     expect(header).toMatch(
-      /border-radius: calc\(var\(--aven-radius-card\) - 1px\)\s+calc\(var\(--aven-radius-card\) - 1px\) 0 0;/,
+      /border-radius: calc\(var\(--aven-radius-pane\) - 1px\)\s+calc\(var\(--aven-radius-pane\) - 1px\) 0 0;/,
     );
   });
 
@@ -48,7 +48,7 @@ describe("panes as cards", () => {
     const host = rule("src/surfaces/BrowserPane.css", ".browser-native-host");
     // macOS reads this radius and rounds the page's own bottom corners.
     expect(host).toMatch(
-      /border-radius: 0 0 calc\(var\(--aven-radius-card\) - 1px\)\s+calc\(var\(--aven-radius-card\) - 1px\);/,
+      /border-radius: 0 0 calc\(var\(--aven-radius-pane\) - 1px\)\s+calc\(var\(--aven-radius-pane\) - 1px\);/,
     );
     // Windows draws the page square, so it sits inside the curve instead.
     const windows = rule(

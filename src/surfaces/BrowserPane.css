@@ -265,8 +265,8 @@
   /* Match the card's curve inside its 1px border. Native Chromium receives
      this measured radius because CSS cannot clip its sibling view, and on
      macOS rounds its own bottom corners to it. */
-  border-radius: 0 0 calc(var(--aven-radius-card) - 1px)
-    calc(var(--aven-radius-card) - 1px);
+  border-radius: 0 0 calc(var(--aven-radius-pane) - 1px)
+    calc(var(--aven-radius-pane) - 1px);
 }
 /* Windows draws the page square, so it sits just inside the card's curve
    instead of crossing it: 4px clears an 11px inner radius. */
