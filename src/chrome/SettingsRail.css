@@ -16,7 +16,7 @@
   height: 32px;
   margin: 0 2px 8px;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   background: var(--aven-field-bg, var(--aven-control-bg));
   box-shadow: none;
@@ -25,7 +25,7 @@
 }
 .settings-nav__search:focus-within {
   background: var(--aven-fill-secondary, var(--aven-control-bg));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  box-shadow: 0 0 0 2px var(--aven-focus-ring);
 }
 .settings-nav__search input {
   min-width: 0;

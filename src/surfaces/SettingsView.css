@@ -135,7 +135,7 @@
   align-items: center;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   background: var(--aven-field-bg);
   border-radius: var(--aven-radius-row);
   color: var(--settings-muted);
@@ -601,13 +601,8 @@
   font-size: var(--text-ui-caption);
 }
 
-/* Light mode: iOS's grouped background behind the white group cards. */
-html.theme-light .settings-scroll {
-  margin-bottom: 5px;
-  border-radius: var(--aven-radius-card);
-  background: color-mix(
-    in srgb,
-    var(--color-content) 3.5%,
-    var(--color-background-base)
-  );
+/* Light mode: iOS's grouped background behind the white group cards, edge
+   to edge across the whole page. */
+html.theme-light .settings-view {
+  background: var(--aven-grouped-background);
 }

@@ -45,7 +45,7 @@
 .team-card-tile .discussion-avatar {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-row);
 }
 /* The pair's link: three square pixel dots, like the typing dots. */
 .team-card-link {
@@ -257,7 +257,7 @@ button.team-card-member-open:hover {
   gap: 5px;
   height: 26px;
   padding: 0 12px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-capsule);
   background: var(
     --aven-control-bg,

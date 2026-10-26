@@ -41,7 +41,7 @@
 [data-app-inbox] [data-utility-card],
 [data-app-automations] [data-utility-card] {
   border-color: transparent;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   padding: 10px 12px;
 }
 .utility-list-card[aria-current="true"],

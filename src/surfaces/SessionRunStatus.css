@@ -7,7 +7,7 @@
   min-height: 38px;
   margin: 0 4px 8px;
   padding: 6px 8px 6px 7px;
-  border-radius: 19px;
+  border-radius: var(--aven-radius-bubble);
   color: var(--color-content);
   background: var(--aven-glass-surface, var(--aven-hover));
   box-shadow: var(--aven-specular);
@@ -177,7 +177,7 @@ html.theme-light
   flex-shrink: 0;
   min-height: 28px;
   padding: 4px 11px;
-  border: 0;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: none;

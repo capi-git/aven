@@ -42,7 +42,7 @@
   width: 180px;
   height: 28px;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-sm, 8px);
   background: var(--aven-field-bg);
   font-size: var(--text-ui-label);
@@ -50,8 +50,8 @@
   outline: none;
 }
 .bot-sheet-name:focus-visible {
-  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-color: var(--aven-focus-ring);
+  box-shadow: 0 0 0 1px var(--aven-focus-ring);
 }
 .bot-sheet-note,
 .bot-sheet-question {

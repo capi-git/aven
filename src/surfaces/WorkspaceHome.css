@@ -73,7 +73,7 @@ html.has-chat-background .workspace-home::before {
   gap: 6px;
   min-height: 30px;
   padding: 5px 14px 5px 11px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: 999px;
   background: var(--aven-control-bg);
   box-shadow: none;
@@ -98,7 +98,7 @@ html.has-chat-background .workspace-home::before {
     inset 0 var(--aven-hairline, 1px) 0
       color-mix(in srgb, #fff 30%, transparent),
     0 1px 3px #00000033;
-  color: var(--color-background-base);
+  color: var(--aven-on-accent, var(--color-background-base));
   font-weight: 600;
 }
 
@@ -130,8 +130,9 @@ html.has-chat-background .workspace-home::before {
    macos-theme.css); tiles are tints, so a full grid adds no compositor
    layers. */
 .workspace-home-panel {
+  --home-panel-pad: 4px;
   min-width: 0;
-  padding: 4px;
+  padding: var(--home-panel-pad);
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: var(--aven-radius-card, 12px);
   background: var(--aven-glass-card, var(--aven-hover));
@@ -605,7 +606,7 @@ html.has-chat-background .workspace-home::before {
   min-width: 0;
   padding: 3px 9px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 12px;
+  border-radius: var(--aven-radius-md);
   background: var(--aven-popup, var(--aven-control-bg));
   color: var(--color-content);
   font-size: var(--text-ui-caption);
@@ -802,6 +803,10 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-list {
+  /* A row's geometry, shared with the dividers between rows. */
+  --home-row-inline: 10px;
+  --home-row-gap: 10px;
+  --home-row-mark: 18px;
   margin: 0;
   list-style: none;
 }
@@ -811,11 +816,13 @@ html.has-chat-background .workspace-home::before {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 10px;
+  gap: var(--home-row-gap, 10px);
   min-height: 42px;
-  padding: 6px 10px;
-  /* Concentric with its panel: the panel's corner less its 4px padding. */
-  border-radius: calc(var(--aven-radius-card, 16px) - 4px);
+  padding: 6px var(--home-row-inline, 10px);
+  /* Concentric with its panel: the panel's corner less its padding. */
+  border-radius: calc(
+    var(--aven-radius-card, 16px) - var(--home-panel-pad, 4px)
+  );
   text-align: left;
   font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
@@ -826,8 +833,8 @@ html.has-chat-background .workspace-home::before {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: var(--home-row-mark, 18px);
+  height: var(--home-row-mark, 18px);
 }
 /* A team's mascots take the width they need, never the row's text. */
 .workspace-home-row-mark:has(.team-mini-faces) {
@@ -1062,7 +1069,7 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-window button {
   padding: 6px 13px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-capsule);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: none;
@@ -1140,11 +1147,7 @@ html.has-chat-background .workspace-home::before {
 /* Light mode: iOS's grouped background, so the white cards stand off it. A
    chosen background image keeps the page clear. */
 html.theme-light:not(.has-chat-background) .workspace-home {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 3.5%,
-    var(--color-background-base)
-  );
+  background: var(--aven-grouped-background);
 }
 
 /* Rows in a panel are divided as an iOS grouped list is: a hairline from
@@ -1157,8 +1160,11 @@ html.theme-light:not(.has-chat-background) .workspace-home {
   content: "";
   position: absolute;
   top: 0;
-  left: 38px;
-  right: -4px;
+  /* From the row's text to the panel's trailing edge. */
+  left: calc(
+    var(--home-row-inline) + var(--home-row-mark) + var(--home-row-gap)
+  );
+  right: calc(var(--home-panel-pad, 4px) * -1);
   border-top: var(--aven-hairline, 1px) solid
     var(--aven-separator, var(--aven-line));
   pointer-events: none;

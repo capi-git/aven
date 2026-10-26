@@ -17,7 +17,7 @@
 .activity-actions button {
   min-height: 28px;
   background: var(--aven-fill-tertiary, transparent);
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-capsule);
   padding: 3px 12px;
   color: inherit;

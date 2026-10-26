@@ -374,6 +374,15 @@ function paintThemeColors(scheme: ColorScheme) {
     if (color) root.style.setProperty(property, color);
     else root.style.removeProperty(property);
   }
+  // Text and glyphs on an accent fill (send, the prominent capsule) take
+  // whichever of black and white reads on that accent.
+  const accent = normalizeThemeColor(colors?.accent);
+  if (accent)
+    root.style.setProperty(
+      "--theme-accent-foreground",
+      themeForeground(accent),
+    );
+  else root.style.removeProperty("--theme-accent-foreground");
   if (background) {
     const foreground = themeForeground(background);
     root.style.setProperty("--theme-content-color", foreground);
@@ -398,6 +407,47 @@ export function applyThemeColors(colors: ThemeColorOverrides = {}) {
   if (nativeGlassReady && appliedNativeGlass === false)
     void paintOpaqueWindow();
   refreshNativeTint();
+}
+
+/** The macOS release seen last, so the first frame already has its corner. */
+const MACOS_MAJOR_KEY = "aven.macosMajor";
+/** macOS 26 rounds windows to 16pt; earlier releases to 10pt. */
+export const MACOS_LEGACY_CLASS = "is-macos-legacy";
+
+function markMacosRelease(major: number | null) {
+  document.documentElement.classList.toggle(
+    MACOS_LEGACY_CLASS,
+    IS_MAC && major !== null && major < 26,
+  );
+}
+
+/**
+ * Marks macOS 13 to 15, whose windows have smaller corners, so the inset
+ * panels stay concentric with the window. Uses the release seen last at
+ * once, then asks the system.
+ */
+export function syncMacosRelease(): Promise<void> {
+  if (!IS_MAC) {
+    markMacosRelease(null);
+    return Promise.resolve();
+  }
+  try {
+    const saved = Number(localStorage.getItem(MACOS_MAJOR_KEY));
+    markMacosRelease(Number.isFinite(saved) && saved > 0 ? saved : null);
+  } catch {
+    // private mode
+  }
+  return invoke<number | null>("macos_major_version")
+    .then((major) => {
+      if (typeof major !== "number" || !Number.isFinite(major)) return;
+      markMacosRelease(major);
+      try {
+        localStorage.setItem(MACOS_MAJOR_KEY, String(major));
+      } catch {
+        // private mode / quota
+      }
+    })
+    .catch(() => {});
 }
 
 export function initAppearance() {

@@ -62,7 +62,7 @@ function ApprovalToastCard({
 
   return (
     <article
-      className="approval-toast pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:18px]"
+      className="approval-toast pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:var(--aven-radius-bubble)]"
       role="status"
     >
       <button

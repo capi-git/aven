@@ -82,6 +82,8 @@ const DARK_LOOK = {
     "--sidebar-opacity": "0.35",
     "--status-bar-opacity": "0.21",
     "--theme-accent-color": "#57b5ff",
+    // Text on the accent: black reads on Aven's light blue.
+    "--theme-accent-foreground": "#000000",
     "--theme-background-color": "#000000",
     "--theme-content-color": "#ffffff",
     "--theme-highlight-color": "#57b5ff",
@@ -109,6 +111,7 @@ const LIGHT_LOOK = {
   style: {
     ...DARK_LOOK.style,
     "--theme-accent-color": "#0a0a0a",
+    "--theme-accent-foreground": "#ffffff",
     "--theme-background-color": "#ffffff",
     "--theme-content-color": "#000000",
     "--theme-highlight-color": "#737373",

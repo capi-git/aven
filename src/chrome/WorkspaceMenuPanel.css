@@ -87,7 +87,7 @@ html.workspace-menu-panel-window #root {
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
 .workspace-menu-panel-compact {
-  border-radius: 12px;
+  border-radius: var(--aven-radius-md);
   font-size: var(--text-ui-label);
 }
 .workspace-menu-panel-compact .workspace-menu-panel-items {

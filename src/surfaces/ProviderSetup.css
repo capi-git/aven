@@ -245,7 +245,7 @@
 .provider-setup-plan {
   margin-top: 16px;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: var(--aven-radius-card);
   background: color-mix(in srgb, var(--color-accent) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
@@ -276,7 +276,7 @@
 .provider-setup-terminal {
   height: 260px;
   padding: 12px;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-field-bg);
   border: 1px solid var(--aven-glass-card-edge);
 }
@@ -289,7 +289,7 @@
 .provider-setup-finish-mark {
   width: 52px;
   height: 52px;
-  border-radius: 16px;
+  border-radius: var(--aven-radius-card);
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--color-accent) 9%, transparent);

@@ -164,7 +164,7 @@ html.theme-light {
   /* Plain orange is too pale to read on a light background. */
   --aven-needs-you: color-mix(
     in srgb,
-    var(--color-content) 30%,
+    var(--color-content) 45%,
     var(--color-amber-400, #ff9500)
   );
   --aven-needs-you-edge: color-mix(
@@ -182,7 +182,8 @@ html.theme-light {
     var(--color-amber-400, #e2a03f) 22%,
     transparent
   );
-  --aven-git-add: #248a3d;
+  /* GitHub's green: 5:1 on white and on the pale grouped background. */
+  --aven-git-add: #1a7f37;
   --aven-git-del: #d70015;
   --aven-review: color-mix(
     in srgb,

@@ -237,8 +237,10 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
  * children need a real gutter too: CSS stacking cannot cover them. */
 const GUTTER = 2.5;
 /** Space between the cards and the workspace's outer edges, matching the
- * floating sidebar card's inset so their edges line up. */
-const EDGE = 5;
+ * floating sidebar card's inset so their edges line up. The stylesheet's
+ * `--aven-window-gutter` is the same distance; a test keeps them equal. */
+export const WORKSPACE_EDGE = 5;
+const EDGE = WORKSPACE_EDGE;
 function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const epsilon = 0.000001;
   const left = (rect.x > epsilon ? GUTTER : EDGE) + inset;

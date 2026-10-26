@@ -4,10 +4,8 @@
 .git-changes {
   --git-add: var(--aven-git-add);
   --git-del: var(--aven-git-del);
-  --git-ok: var(--aven-system-green, #30d158);
-}
-html.theme-light .git-changes {
-  --git-ok: #248a3d;
+  /* In sync reads in the same green as lines added. */
+  --git-ok: var(--aven-git-add);
 }
 
 /* Header card ----------------------------------------------------------- */
@@ -20,7 +18,7 @@ html.theme-light .git-changes {
   margin: 8px 8px 0;
   padding: 9px 11px 9px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   box-shadow: var(--aven-specular);
   background:
     radial-gradient(

@@ -85,7 +85,7 @@
       var(--discussion-voice) 24%,
       var(--aven-glass-card-edge, var(--aven-line))
     );
-  border-radius: 20px;
+  border-radius: var(--aven-radius-bubble);
   background: color-mix(
     in srgb,
     var(--discussion-voice) 9%,

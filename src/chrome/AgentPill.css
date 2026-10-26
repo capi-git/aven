@@ -264,6 +264,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   padding: 2px;
   border-radius: var(--aven-radius-capsule);
   background: var(--aven-fill-tertiary);
+  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 .agent-segment {
   flex: 1 1 auto;
@@ -278,19 +279,10 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   color: var(--color-content);
 }
 .agent-segment[aria-checked="true"] {
-  background: var(--aven-elevated-3, var(--aven-control-hover));
-  box-shadow:
-    var(--aven-specular),
-    0 1px 3px #00000033;
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
   color: var(--color-content);
   font-weight: 600;
-}
-html.theme-light .agent-segment[aria-checked="true"] {
-  background: var(--color-background-base);
-  box-shadow:
-    0 0 0 var(--aven-hairline, 1px)
-      color-mix(in srgb, var(--color-content) 6%, transparent),
-    0 1px 3px #0000001f;
 }
 
 .agent-switch-row {

@@ -120,7 +120,7 @@
 .bot-fix-card {
   gap: 8px;
   padding: 8px 8px 8px 16px;
-  border-radius: 22px;
+  border-radius: var(--aven-radius-xl);
 }
 .bot-fix-card[data-state="ready"] {
   border-color: color-mix(

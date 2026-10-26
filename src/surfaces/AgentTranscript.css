@@ -53,7 +53,7 @@
 .personal-shell .personal-transcript-notice {
   margin-inline: 16px;
   padding: 10px 14px;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-surface, var(--aven-hover));
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
@@ -76,7 +76,7 @@
    where a tail would be. */
 .personal-shell .personal-user-bubble {
   border: 0;
-  border-radius: 20px;
+  border-radius: var(--aven-radius-bubble);
   padding: 10px 16px;
   background: color-mix(
     in srgb,
@@ -89,7 +89,7 @@
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
   max-width: min(580px, 100%);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: var(--aven-radius-xs);
 }
 .personal-shell .personal-user-bubble > pre {
   font-size: var(--text-ui-reading);
@@ -101,7 +101,7 @@
   align-items: center;
 }
 .personal-shell .personal-message-attachments img {
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
 }
 /* Completed work stays discoverable without competing with the answer. */
 .personal-shell .personal-work-fold {
@@ -151,7 +151,7 @@
 .personal-shell .personal-activity-phase {
   padding: 6px 10px;
   border: 1px solid var(--aven-glass-card-edge, transparent);
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-card, var(--aven-hover));
   box-shadow: var(--aven-glass-sheen, none);
 }
@@ -255,7 +255,7 @@
   .agent-markdown
   [data-streamdown="table-wrapper"] {
   border-color: var(--aven-line);
-  border-radius: 12px;
+  border-radius: var(--aven-radius-md);
   background: var(--aven-fill-quaternary, var(--personal-main-surface));
   box-shadow: none;
 }

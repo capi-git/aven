@@ -8,7 +8,7 @@
   min-height: 32px;
   margin: 0 4px 6px;
   padding: 3px 4px 3px 10px;
-  border-radius: 14px;
+  border-radius: var(--aven-radius-lg);
   background: var(--aven-glass-surface, var(--aven-hover));
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
@@ -128,7 +128,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-radius: 12px;
+  border-radius: var(--aven-radius-md);
   background: color-mix(in srgb, var(--color-content) 4%, transparent);
   padding: 2px;
 }

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { WORKSPACE_EDGE } from "./WorkspaceStage";
 
 /** The body of the first rule whose selector list ends with `selector {`. */
 function rule(file: string, selector: string) {
@@ -12,6 +13,12 @@ function rule(file: string, selector: string) {
 }
 
 describe("panes as cards", () => {
+  it("keeps the panes' outer gap equal to the panels' window gutter", () => {
+    const css = readFileSync("src/macos-theme.css", "utf8");
+    const gutter = /--aven-window-gutter: (\d+(?:\.\d+)?)px;/.exec(css)?.[1];
+    expect(Number(gutter)).toBe(WORKSPACE_EDGE);
+  });
+
   it("draws each pane as a rounded card from the shared tokens, without a glass layer of its own", () => {
     const card = rule(
       "src/surfaces/WorkspaceStage.css",
@@ -55,7 +62,7 @@ describe("panes as cards", () => {
       "src/surfaces/BrowserPane.css",
       "html:not(.is-mac) .browser-native-host",
     );
-    expect(windows).toContain("margin: 0 4px 4px;");
+    expect(windows).toContain("margin: 0 2px 2px;");
     expect(windows).toContain("border-radius: 0;");
     // Nothing flattens the cards or the page's curve again in the shell.
     const shell = readFileSync("src/personal-shell.css", "utf8");

@@ -43,7 +43,7 @@
 }
 .modal-panel[role="dialog"] :is(input, textarea, select) {
   border-radius: var(--aven-radius-row);
-  border-color: transparent;
+  border-color: var(--aven-control-edge, transparent);
   background-color: var(--aven-field-bg, var(--aven-raised));
 }
 .modal-panel[role="dialog"] :is(button, input, textarea, select):focus-visible {

@@ -305,7 +305,15 @@ describe("popover stylesheet", () => {
     );
     expect(scale).toBeGreaterThanOrEqual(0.92);
     expect(scale).toBeLessThan(1);
+    // Both ways of reducing motion leave it at full size: Aven's switch and
+    // the system's setting.
     expect(rule(motion, ':root[data-motion="reduce"]')).toContain(
+      "--aven-pop-scale: 1;",
+    );
+    const system = motion.slice(
+      motion.indexOf("@media (prefers-reduced-motion: reduce)"),
+    );
+    expect(system.slice(0, system.indexOf("}"))).toContain(
       "--aven-pop-scale: 1;",
     );
     expect(from).not.toContain("opacity");

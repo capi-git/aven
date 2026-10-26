@@ -1004,7 +1004,9 @@ html
   padding-right: var(--aven-window-gutter);
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .personal-shell[data-unified-toolbar] {
+  /* As specific as the light rule above, so light mode is solid too. */
+  html .personal-shell[data-unified-toolbar],
+  html.theme-light .personal-shell[data-unified-toolbar] {
     --aven-panel-card: var(--aven-elevated-1);
   }
 }

@@ -410,6 +410,7 @@ pub fn run() {
             projectless::projectless_cwd,
             sample_project::create_sample_project,
             window::workspace_window_labels,
+            window::macos_major_version,
             workspace_window::workspace_window_open,
             workspace_window::workspace_window_update,
             workspace_window::workspace_window_get_state,
