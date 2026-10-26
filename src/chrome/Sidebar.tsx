@@ -156,7 +156,7 @@ import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
-import type { BotStatus } from "../lib/projectBots";
+import { botsAvailable, type BotStatus } from "../lib/projectBots";
 import { botReadyPaths } from "../lib/projectBotCopy";
 import { projectAppearance } from "../lib/projectAppearance";
 import "./PersonalNavigation.css";
@@ -1447,6 +1447,8 @@ function SidebarComponent({
     });
   };
 
+  // Bots need Claude Code's sandbox: where it can't run, none is offered.
+  const addBot = botsAvailable() ? onAddBot : undefined;
   // Bots of this profile's projects, in their own section below the projects.
   const profileBots = bots.filter((bot) =>
     projects.some((project) => sameProjectPath(project.path, bot.path)),
@@ -2165,7 +2167,7 @@ function SidebarComponent({
                           sameProjectPath(bot.path, project.path),
                         )}
                         onBotSettings={
-                          onBotSettings
+                          onBotSettings && botsAvailable()
                             ? () => onBotSettings(project.path)
                             : undefined
                         }
@@ -2300,7 +2302,7 @@ function SidebarComponent({
                     Add a project to {activeProfile.name}.
                   </p>
                 ) : null}
-                {profileBots.length || (onAddBot && projects.length) ? (
+                {profileBots.length || (addBot && projects.length) ? (
                   <section
                     className="personal-bots-group"
                     aria-label="Bots"
@@ -2308,7 +2310,7 @@ function SidebarComponent({
                   >
                     <div className="personal-projects-heading">
                       <span>Bots</span>
-                      {onAddBot ? (
+                      {addBot ? (
                         <SessionsHeaderButton
                           label="New bot"
                           open={!!botPicker}
@@ -2323,7 +2325,7 @@ function SidebarComponent({
                     </div>
                     <div className="personal-project-tasks">
                       {profileBots.map(botRow)}
-                      {!profileBots.length ? (
+                      {!profileBots.length && addBot ? (
                         <button
                           type="button"
                           className="personal-view-project-tasks"
@@ -2412,7 +2414,7 @@ function SidebarComponent({
           onClose={() => setFolderMenu(null)}
         />
       ) : null}
-      {botPicker && onAddBot ? (
+      {botPicker && addBot ? (
         <ExplorerMenu
           x={botPicker.x}
           y={botPicker.y}
@@ -2420,7 +2422,7 @@ function SidebarComponent({
           ariaLabel="Add a bot to"
           onPick={(path) => {
             setBotPicker(null);
-            if (path) onAddBot(path);
+            if (path) addBot(path);
           }}
           onClose={() => setBotPicker(null)}
         />

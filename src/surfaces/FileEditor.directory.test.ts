@@ -171,7 +171,9 @@ describe("file editor folder recovery", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([info("/Users/test/note.md", false)]);
     await render("/project/~/note.md");
-    expect(host.textContent).toContain("No such file or directory");
+    expect(host.textContent).toContain(
+      "note.md isn’t at that location anymore.",
+    );
     expect(listDir).not.toHaveBeenCalled();
     expect(onOpenFile).not.toHaveBeenCalled();
     vi.mocked(homeDir).mockClear();
@@ -235,5 +237,28 @@ describe("file editor folder recovery", () => {
     expect(host.querySelector(".directory-view-path")?.textContent).toBe(
       "/new",
     );
+  });
+});
+
+describe("file editor missing file", () => {
+  it("says the file is no longer there instead of showing the system error", async () => {
+    vi.mocked(readTextFile).mockRejectedValue(
+      new Error("/project/llms.txt: No such file or directory (os error 2)"),
+    );
+    vi.mocked(inspectPaths).mockResolvedValue([]);
+    await render("/project/llms.txt");
+    expect(host.textContent).toContain(
+      "llms.txt isn’t at that location anymore.",
+    );
+    expect(host.textContent).toContain("/project");
+    expect(host.textContent).not.toContain("os error 2");
+
+    vi.mocked(readTextFile).mockResolvedValue("# Back");
+    await act(async () =>
+      [...host.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("Retry"))!
+        .click(),
+    );
+    expect(host.textContent).not.toContain("at that location anymore");
   });
 });

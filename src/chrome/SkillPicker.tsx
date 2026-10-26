@@ -1,4 +1,4 @@
-import { Plus } from "./icons";
+import { ArrowDownCircle, Plus } from "./icons";
 import {
   memo,
   useEffect,
@@ -21,8 +21,9 @@ type Props = {
   skills: readonly SkillMatch[];
   query: string;
   /**
-   * The highlighted row: a skill's index, `skills.length` for the closing
-   * create row, or -1 when nothing is highlighted (Enter then sends).
+   * The highlighted row: a skill's index, `skills.length` for the create
+   * row, `skills.length + 1` for the closing add row, or -1 when nothing is
+   * highlighted (Enter then sends).
    */
   active: number;
   creating: boolean;
@@ -32,9 +33,15 @@ type Props = {
   onActive: (index: number) => void;
   onPick: (skill: Skill) => void;
   onStartCreate: () => void;
+  /** Opens the Add a skill dialog (install from GitHub or skills.sh). */
+  onStartAdd: () => void;
   onCancelCreate: () => void;
   onCreate: (name: string, scope: "project" | "user") => void;
 };
+
+/** Rows after the skills: Create skill, then Add a skill. */
+export const SKILL_ACTION_ROWS = 2;
+export const ADD_SKILL_LABEL = "Add a skill…";
 
 export function SkillPicker({
   skills,
@@ -47,6 +54,7 @@ export function SkillPicker({
   onActive,
   onPick,
   onStartCreate,
+  onStartAdd,
   onCancelCreate,
   onCreate,
 }: Props) {
@@ -72,6 +80,7 @@ export function SkillPicker({
           onActive={onActive}
           onPick={onPick}
           onStartCreate={onStartCreate}
+          onStartAdd={onStartAdd}
         />
       )}
     </div>
@@ -92,6 +101,7 @@ const SkillList = memo(function SkillList({
   onActive,
   onPick,
   onStartCreate,
+  onStartAdd,
 }: {
   skills: readonly SkillMatch[];
   query: string;
@@ -99,6 +109,7 @@ const SkillList = memo(function SkillList({
   onActive: (index: number) => void;
   onPick: (skill: Skill) => void;
   onStartCreate: () => void;
+  onStartAdd: () => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -133,6 +144,7 @@ const SkillList = memo(function SkillList({
 
   const searching = Boolean(query.trim());
   const createActive = active === skills.length;
+  const addActive = active === skills.length + 1;
 
   return (
     <>
@@ -220,6 +232,23 @@ const SkillList = memo(function SkillList({
         >
           <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
           <span className="min-w-0 truncate">{createSkillLabel(query)}</span>
+        </button>
+        <button
+          type="button"
+          role="option"
+          aria-selected={addActive}
+          onMouseDown={(e) => e.preventDefault()}
+          onMouseEnter={() => onRowEnter(skills.length + 1)}
+          onClick={onStartAdd}
+          className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-ui-label hover:bg-content/10 hover:text-content ${
+            addActive ? "bg-content/10 text-content" : "text-content/70"
+          }`}
+        >
+          <ArrowDownCircle className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <span className="min-w-0 flex-1 truncate">{ADD_SKILL_LABEL}</span>
+          <span className="shrink-0 text-ui-caption text-content/40">
+            GitHub or skills.sh
+          </span>
         </button>
       </div>
     </>
@@ -326,7 +355,7 @@ function CreateSkillForm({
   );
 }
 
-function ScopeButton({
+export function ScopeButton({
   label,
   hint,
   selected,

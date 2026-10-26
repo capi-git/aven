@@ -49,6 +49,15 @@ afterAll(() => {
   vi.useRealTimers();
 });
 
+// Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
+const platform = vi.hoisted(() => ({ windows: false }));
+vi.mock("../lib/platform", async (original) => ({
+  ...(await original<typeof import("../lib/platform")>()),
+  get IS_WIN() {
+    return platform.windows;
+  },
+}));
+
 // Each project mark reports its renders through a Profiler of its own. The
 // home's marks render only when the home itself does, so zero commits here
 // means a parent re-render skipped the home entirely.
@@ -746,6 +755,28 @@ describe("Your agents", () => {
     expect(home.textContent).toContain("Original task title");
     await act(async () => button("Open Renamed app").click());
     expect(value.onProject).toHaveBeenCalledExactlyOnceWith(APP);
+  });
+});
+
+describe("bots", () => {
+  afterEach(() => {
+    platform.windows = false;
+  });
+
+  it("offers to add a project's bot from its tile, but not on Windows", async () => {
+    const onBotSettings = vi.fn();
+    await render(
+      props({ projects: [{ path: APP, name: "app" }], onBotSettings }),
+    );
+    await act(async () => button("Add a bot for app").click());
+    expect(onBotSettings).toHaveBeenCalledWith(APP);
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    platform.windows = true;
+    await render(
+      props({ projects: [{ path: APP, name: "app" }], onBotSettings }),
+    );
+    expect(() => button("Add a bot for app")).toThrow();
   });
 });
 

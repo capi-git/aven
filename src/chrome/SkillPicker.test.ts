@@ -23,6 +23,7 @@ function render(props: {
       onActive: vi.fn(),
       onPick: vi.fn(),
       onStartCreate: vi.fn(),
+      onStartAdd: vi.fn(),
       onCancelCreate: vi.fn(),
       onCreate: vi.fn(),
     }),
@@ -105,6 +106,19 @@ describe("skill picker rows", () => {
     });
     expect(create).toMatch(
       /aria-selected="true"[^>]*>(?:(?!<\/button>).)*Create skill/,
+    );
+  });
+
+  it("closes with an Add a skill row after Create skill", () => {
+    const idle = render({ skills: unranked([review]), query: "", active: 0 });
+    expect(idle.indexOf("New skill")).toBeLessThan(
+      idle.indexOf("Add a skill…"),
+    );
+    expect(idle).toContain("GitHub or skills.sh");
+    const add = render({ skills: unranked([review]), query: "", active: 2 });
+    expect(add.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(add).toMatch(
+      /aria-selected="true"[^>]*>(?:(?!<\/button>).)*Add a skill…/,
     );
   });
 

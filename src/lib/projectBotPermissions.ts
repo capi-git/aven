@@ -5,6 +5,7 @@ import {
 import { slash } from "./paths";
 import { botForChat, type ProjectBot } from "./projectBots";
 
+import { agentBrowserSocket } from "./agentBrowser";
 import type { ClaudeSandboxSettings } from "./harness/sessionPermissions";
 
 /**
@@ -190,6 +191,8 @@ export const BOT_ALLOWED_HOSTS = [
  */
 export function botSandbox(
   bot: Pick<ProjectBot, "copy">,
+  /** Aven's browser socket: its in-app browser and desktop commands. */
+  browserSocket = agentBrowserSocket(),
 ): ClaudeSandboxSettings {
   const gitDir = bot.copy
     ? slash(
@@ -201,7 +204,13 @@ export function botSandbox(
     failIfUnavailable: true,
     allowUnsandboxedCommands: false,
     autoAllowBashIfSandboxed: true,
-    network: { allowedDomains: BOT_ALLOWED_HOSTS, allowLocalBinding: true },
+    network: {
+      allowedDomains: BOT_ALLOWED_HOSTS,
+      allowLocalBinding: true,
+      // Aven's own browser and desktop commands, which keep their own
+      // approvals (uploads, desktop consent): one socket, not all of them.
+      ...(browserSocket ? { allowUnixSockets: [browserSocket] } : {}),
+    },
     ...(gitDir
       ? {
           filesystem: {

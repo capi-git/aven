@@ -189,6 +189,21 @@ pub(crate) fn preview(caller: &Webview, id: &str) -> Result<Webview, String> {
 
 /// Read only browser state owned by the calling app window and explicitly
 /// granted to an agent session. Never enumerate other app windows or profiles.
+/// Desktop control acts in Aven's own window only on Chromium pages; this
+/// build has none, so it never does.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn agent_native_ids(_: &AppHandle, _: &str, _: &[String]) -> Vec<String> {
+    Vec::new()
+}
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn pages_accept_points(_: &[String], _: &[(f64, f64)]) -> bool {
+    false
+}
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn pages_have_focus(_: &[String]) -> bool {
+    false
+}
+
 pub(crate) fn agent_tab_states(caller: &Webview, ids: &[String]) -> Vec<serde_json::Value> {
     ids.iter()
         .filter_map(|id| {

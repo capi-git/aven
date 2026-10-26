@@ -818,6 +818,7 @@ import type { SidebarBot } from "./chrome/Sidebar";
 import {
   botChatInCopy,
   botForChat,
+  botsAvailable,
   botHeadline,
   botName,
   botStatus,
@@ -10319,7 +10320,9 @@ export default function App({
   });
   const botStore = useProjectBotsStore();
   const sidebarBots = useMemo<readonly SidebarBot[]>(() => {
-    const on = Object.values(botStore).filter((bot) => bot.on);
+    const on = botsAvailable()
+      ? Object.values(botStore).filter((bot) => bot.on)
+      : [];
     if (!on.length) return NO_SIDEBAR_BOTS;
     const now = Date.now();
     return on.map((bot) => {

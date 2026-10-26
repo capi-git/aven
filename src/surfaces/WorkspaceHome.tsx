@@ -32,6 +32,7 @@ import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { BotCritter } from "../chrome/BotCritter";
+import { botsAvailable } from "../lib/projectBots";
 import type { SidebarBot } from "../chrome/Sidebar";
 import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
 import { useHomeBriefing } from "../hooks/useHomeBriefing";
@@ -1154,7 +1155,7 @@ const AgentTile = memo(
               <Plus size={13} />
             </button>
           ) : null}
-          {onBotSettings && !bot ? (
+          {onBotSettings && !bot && botsAvailable() ? (
             <button
               type="button"
               aria-label={`Add a bot for ${name}`}

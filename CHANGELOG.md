@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.1.151] - 2026-10-25
+
+### Added
+
+- **Add a skill…** at the end of the / list installs skills from GitHub or skills.sh: paste owner/repo, a link or a name, see what's inside, pick the ones you want for all projects or this project, and watch it install. Aven runs the installer directly, never through a shell, and the new skills appear in / straight away.
+- Agents can upload files through a website's file picker. Aven asks you every time in its bar, lists every file with its folder and the real site, sends only private copies of the files you approved, and refuses SSH keys, cloud logins, `.env` files and other secrets.
+- Agents can hover, so buttons and menus that only appear on hover are reachable.
+
+### Changed
+
+- Agent clicks in the browser move and press like a real mouse, even when the browser is hidden behind other windows or zoomed, so menus in apps like Framer open.
+- Agents keep going on web tasks instead of giving up: they try hovering, keys and uploads, and when a step truly needs you they stop with a picture of the exact spot and one clear next step.
+- In Aven's own window, desktop control only works inside the chat's browser page; Aven's file dialogs, settings, other chats and approval bars are off limits.
+
+### Fixed
+
+- A file name in an agent's reply (such as `llms.txt`) opens the file the agent actually worked on, even deep in the project, instead of a missing file at the project's top. A name that matches nothing says "Couldn't find llms.txt in this project." instead of opening an empty tab, and a tab whose file was moved or deleted says so, with Retry.
+- The sidebar that slides out over a web page stays in place after the window is resized, instead of sitting under the window buttons and stopping short of the bottom.
+
 ## [0.1.150] - 2026-10-22
 
 ### Changed

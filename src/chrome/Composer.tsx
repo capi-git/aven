@@ -22,6 +22,7 @@ import "./Composer.css";
 import {
   memo,
   startTransition,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -129,7 +130,8 @@ import { NoteMiniCard } from "./NoteMiniCard";
 import { HandoffMiniCard } from "./HandoffMiniCard";
 import { QuestionForm } from "./QuestionForm";
 import { RECENT_SKILL_CHIPS, RecentSkillChips } from "./RecentSkillChips";
-import { SkillPicker } from "./SkillPicker";
+import { SKILL_ACTION_ROWS, SkillPicker } from "./SkillPicker";
+import { retryableLazy } from "../lib/retryableLazy";
 import { projectKey } from "../lib/paths";
 import { consumeQuoteRequest, type QuoteRequest } from "../lib/quoteDraft";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
@@ -281,6 +283,11 @@ type Props = {
 
 /** Sending into the reply in progress (steering), in plain words. */
 const STEER_HINT = "Send now — the agent sees it straight away";
+
+// Loaded on first use: most chats never add a skill from the web.
+const AddSkillDialog = retryableLazy(() =>
+  import("./AddSkillDialog").then((module) => module.AddSkillDialog),
+);
 
 /** Keys an open picker handles on keydown; their keyup must not reopen it. */
 const PICKER_KEYS = new Set(["Escape", "Enter", "Tab", "ArrowUp", "ArrowDown"]);
@@ -801,6 +808,7 @@ function ComposerComponent({
   const [creatingSkill, setCreatingSkill] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
+  const [addingSkill, setAddingSkill] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>(
     () => peekLastProjectFiles(cwd) ?? NO_FILES,
   );
@@ -929,8 +937,8 @@ function ComposerComponent({
       : rankedSkills.length > 0
         ? 0
         : -1;
-  // Every match, then the closing "Create skill" row.
-  const skillRows = rankedSkills.length + 1;
+  // Every match, then the closing "Create skill" and "Add a skill" rows.
+  const skillRows = rankedSkills.length + SKILL_ACTION_ROWS;
   const setSkillActive = useCallback(
     (index: number) => setSkillCursor({ list: skillListRef.current, index }),
     [],
@@ -1378,6 +1386,8 @@ function ComposerComponent({
     setCreateError(null);
   }, []);
 
+  const startAddingSkill = useCallback(() => setAddingSkill(true), []);
+
   const pickMention = useCallback(
     (file: MentionFile) => {
       const el = ref.current;
@@ -1811,6 +1821,11 @@ function ComposerComponent({
           startCreatingSkill();
           return;
         }
+        if (skillActive === rankedSkills.length + 1) {
+          e.preventDefault();
+          startAddingSkill();
+          return;
+        }
         if (e.key === "Tab") {
           e.preventDefault();
           return;
@@ -1896,6 +1911,7 @@ function ComposerComponent({
               onActive={setSkillActive}
               onPick={pickSkill}
               onStartCreate={startCreatingSkill}
+              onStartAdd={startAddingSkill}
               onCancelCreate={() => {
                 setCreatingSkill(false);
                 setCreateError(null);
@@ -1939,6 +1955,20 @@ function ComposerComponent({
               }}
             />
           </div>
+        ) : null}
+        {addingSkill ? (
+          <Suspense fallback={null}>
+            <AddSkillDialog
+              cwd={executionCwd}
+              onClose={() => setAddingSkill(false)}
+              // Installed where this chat's agent works, like Create skill.
+              onInstalled={() =>
+                void skillCatalog
+                  .refresh({ refresh: true })
+                  .catch(() => undefined)
+              }
+            />
+          </Suspense>
         ) : null}
         {mentionOpen && !pickerOpen ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">

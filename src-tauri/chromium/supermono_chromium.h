@@ -25,6 +25,8 @@ int sm_chromium_menu(const char *id, const char *request_id, void *anchor_parent
 int sm_chromium_close(const char *id);
 int sm_chromium_is_focused(const char *id);
 int sm_chromium_live_browser_count(void);
+// Whether a global CoreGraphics point lands on this page's visible area.
+int sm_chromium_page_accepts_point(const char *id, double x, double y);
 int sm_chromium_cancel_update(void);
 void sm_chromium_shutdown(void);
 const char *sm_chromium_last_error(void);
