@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.152] - 2026-10-26
+
+### Added
+
+- **Bots**: teammates for your projects, in their own **Bots** list under Projects. Press **+** (or **Add a bot** on a project) and pick a project: its bot takes the project's critter and says in one line what it will do. When a chat in the project finishes or its dev server crashes, the bot looks over the work and, if something broke, fixes it in its own copy of the project and shows **Fix ready** with **Review** and **Apply**. Your files only change when you press Apply. You can also just message a bot like a teammate ("run the tests and fix what fails").
+- Bots never push, open pull requests, publish or deploy; you ship their fixes. They work in a sandbox that can only write to their own copy, ask before other risky commands, rest overnight (11 pm–8 am), do at most 15 checks a day, and pause when Claude is over 80% used for the week, saying why when they do. Bots are off until you add one, and aren't available on Windows yet.
+
+### Changed
+
+- Aven has an iOS look: the sidebar and side panel float as rounded glass panels that follow your window's corners, buttons, tabs and toggles are pill-shaped, Settings is laid out as grouped lists with large titles, status uses iOS's colours, buttons press in slightly when clicked, and menus grow from the button that opened them. The layout, the critters, dark by default and your Glass and Solid settings are unchanged.
+- The active tab shows its project's colour as a light tint, and a bot's chat tab shows its critter.
+- With Increase contrast or Reduce transparency turned on in macOS, buttons and fields keep a visible edge, and text on your accent colour turns black or white, whichever reads better.
+
 ## [0.1.151] - 2026-10-25
 
 ### Added
