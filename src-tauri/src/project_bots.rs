@@ -349,11 +349,21 @@ async fn blocking<T: Send + 'static>(
 }
 
 /// Whether a folder can have a bot: a git repository with a commit. Says
-/// why not, in the same words turning a bot on would.
+/// why not, in the same words turning a bot on would; a folder that is gone
+/// says so, rather than that it needs Git.
 #[tauri::command]
 pub async fn bot_project_ready(cwd: String) -> Result<(), String> {
-    blocking(move || repo_root(&crate::fs::expand_home(&cwd)).map(|_| ())).await
+    blocking(move || project_ready(&crate::fs::expand_home(&cwd))).await
 }
+
+fn project_ready(cwd: &Path) -> Result<(), String> {
+    if !cwd.is_dir() {
+        return Err(MISSING_PROJECT.into());
+    }
+    repo_root(cwd).map(|_| ())
+}
+
+const MISSING_PROJECT: &str = "This project's folder is missing.";
 
 #[tauri::command]
 pub async fn bot_copy_prepare(
@@ -676,6 +686,21 @@ mod tests {
         assert!(error.contains("missing"), "{error}");
         let _ = std::fs::remove_dir_all(&plain);
         let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    #[test]
+    fn says_why_a_folder_cannot_have_a_bot_yet() {
+        let plain = temp_dir("ready");
+        assert_eq!(
+            project_ready(&plain.join("gone")).unwrap_err(),
+            MISSING_PROJECT
+        );
+        let error = project_ready(&plain).unwrap_err();
+        assert!(error.contains("needs a git repository"), "{error}");
+        git_ok(&plain, &["init", "-q"]);
+        let error = project_ready(&plain).unwrap_err();
+        assert!(error.contains("needs at least one commit"), "{error}");
+        let _ = std::fs::remove_dir_all(&plain);
     }
 
     #[test]
