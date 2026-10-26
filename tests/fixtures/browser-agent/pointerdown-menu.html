@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pointerdown menu</title>
+<!-- Like Radix and Framer: the trigger opens on a primary pointerdown and
+     ignores click events, so element.click() never opens it. -->
+<style>
+  body { font: 14px system-ui; margin: 40px; }
+  [role="menu"] { position: absolute; top: 80px; left: 40px; border: 1px solid #888; background: #fff; padding: 4px; }
+  [role="menuitem"] { padding: 6px 12px; cursor: default; }
+  [role="menuitem"]:hover { background: #def; }
+</style>
+<div id="trigger" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false">Add</div>
+<div id="result"></div>
+<script>
+  window.agentLog = [];
+  const trigger = document.querySelector("#trigger");
+  let menu = null;
+  const close = () => { menu?.remove(); menu = null; trigger.setAttribute("aria-expanded", "false"); };
+  const open = () => {
+    menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    for (const name of ["Upload file", "New page"]) {
+      const item = document.createElement("div");
+      item.setAttribute("role", "menuitem");
+      item.textContent = name;
+      // Items select on pointerup after a press, as in Radix.
+      item.addEventListener("pointerup", (event) => {
+        if (!event.isTrusted) return;
+        agentLog.push("selected:" + name);
+        document.querySelector("#result").textContent = "Selected " + name;
+        close();
+      });
+      menu.append(item);
+    }
+    document.body.append(menu);
+    trigger.setAttribute("aria-expanded", "true");
+  };
+  trigger.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.ctrlKey) return;
+    event.preventDefault();
+    agentLog.push("trigger:pointerdown");
+    menu ? close() : open();
+  });
+  trigger.addEventListener("click", () => agentLog.push("trigger:click"));
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); agentLog.push("trigger:key"); menu ? close() : open(); }
+  });
+</script>

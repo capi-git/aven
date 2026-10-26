@@ -90,6 +90,10 @@ import {
   type ScrollAnchor,
 } from "../lib/scrollAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
+import {
+  ChatFileReferencesContext,
+  useChatFileReferences,
+} from "../hooks/useFileReferences";
 import { useMotionOnAttach } from "../hooks/useMotionOnAttach";
 import type { MotionName } from "../lib/motion";
 import { TurnEntrances } from "../lib/transcriptMotion";
@@ -630,6 +634,8 @@ function AgentTranscriptComponent({
   }, [followTranscript, rememberScroll, scrollerEl, settleOpened, visible]);
 
   const turns = useStableTurns(groupTurns(blocks, managed));
+  // File names in a reply resolve to what this chat's agent touched.
+  const chatFiles = useChatFileReferences(turns, cwd);
   // In the chat that started a discussion, its turns fold into one card
   // after the topic; "Show in chat" unfolds them.
   const spans = discussionSpans(turns, (turn) => turnUserBlock(turn, managed));
@@ -775,60 +781,64 @@ function AgentTranscriptComponent({
             const spanStart = span && turnAt === span.start ? span : undefined;
             const spanLive = !!spanStart && spanStart.end === turns.length - 1;
             return (
-              <TranscriptTurn
+              <ChatFileReferencesContext.Provider
                 key={turn[0].id}
-                turn={turn}
-                isLastTurn={isLastTurn}
-                stickyIndex={turnAt + 1}
-                entering={entrances.current?.rises(turn[0].id) ?? false}
-                fadeReplies={isLastTurn && fadeReplies}
-                managed={managed}
-                botProject={botProject}
-                busy={busy}
-                visible={visible}
-                preparingHandoff={preparingHandoff}
-                waitingForApproval={waitingForApproval}
-                pendingQuestion={pendingQuestion}
-                holdUps={isLastTurn ? holdUps : undefined}
-                harness={harness}
-                model={model}
-                turnHarness={
-                  harness ? harnessForTurn(blocks, turn, harness) : undefined
-                }
-                modelName={modelName}
-                modelCatalog={modelCatalog}
-                transcriptLayout={transcriptLayout}
-                anchored={
-                  promptAnchor &&
-                  anchorTurn &&
-                  (spanStart && !spanShown ? spanLive : isLastTurn)
-                }
-                workOpen={!!openWork[turn[0].id]}
-                toggleWork={toggleWork}
-                proposalReplyIds={proposalReplyIds}
-                newestProposalId={newestProposalId}
-                discussionId={spanStart?.id}
-                discussionMeta={spanStart?.meta}
-                discussionKey={spanStart?.key}
-                discussionTopic={spanStart?.topic}
-                discussionClosing={spanStart?.closing}
-                discussionExpanded={spanStart ? spanShown : undefined}
-                discussionAsking={
-                  spanStart ? askingSpans.has(spanStart.key) : undefined
-                }
-                discussionLive={spanLive}
-                onToggleDiscussion={toggleSpan}
-                cwd={cwd}
-                onApproval={onApproval}
-                onOpenFile={onOpenFile}
-                onOpenDiff={onOpenDiff}
-                onOpenPlan={onOpenPlan}
-                onBuildPlan={onBuildPlan}
-                onSaveNote={onSaveNote}
-                memoryProject={memoryProject}
-                onSecondOpinion={onSecondOpinion}
-                onHandoff={onHandoff}
-              />
+                value={chatFiles.forTurn(turnAt)}
+              >
+                <TranscriptTurn
+                  turn={turn}
+                  isLastTurn={isLastTurn}
+                  stickyIndex={turnAt + 1}
+                  entering={entrances.current?.rises(turn[0].id) ?? false}
+                  fadeReplies={isLastTurn && fadeReplies}
+                  managed={managed}
+                  botProject={botProject}
+                  busy={busy}
+                  visible={visible}
+                  preparingHandoff={preparingHandoff}
+                  waitingForApproval={waitingForApproval}
+                  pendingQuestion={pendingQuestion}
+                  holdUps={isLastTurn ? holdUps : undefined}
+                  harness={harness}
+                  model={model}
+                  turnHarness={
+                    harness ? harnessForTurn(blocks, turn, harness) : undefined
+                  }
+                  modelName={modelName}
+                  modelCatalog={modelCatalog}
+                  transcriptLayout={transcriptLayout}
+                  anchored={
+                    promptAnchor &&
+                    anchorTurn &&
+                    (spanStart && !spanShown ? spanLive : isLastTurn)
+                  }
+                  workOpen={!!openWork[turn[0].id]}
+                  toggleWork={toggleWork}
+                  proposalReplyIds={proposalReplyIds}
+                  newestProposalId={newestProposalId}
+                  discussionId={spanStart?.id}
+                  discussionMeta={spanStart?.meta}
+                  discussionKey={spanStart?.key}
+                  discussionTopic={spanStart?.topic}
+                  discussionClosing={spanStart?.closing}
+                  discussionExpanded={spanStart ? spanShown : undefined}
+                  discussionAsking={
+                    spanStart ? askingSpans.has(spanStart.key) : undefined
+                  }
+                  discussionLive={spanLive}
+                  onToggleDiscussion={toggleSpan}
+                  cwd={cwd}
+                  onApproval={onApproval}
+                  onOpenFile={onOpenFile}
+                  onOpenDiff={onOpenDiff}
+                  onOpenPlan={onOpenPlan}
+                  onBuildPlan={onBuildPlan}
+                  onSaveNote={onSaveNote}
+                  memoryProject={memoryProject}
+                  onSecondOpinion={onSecondOpinion}
+                  onHandoff={onHandoff}
+                />
+              </ChatFileReferencesContext.Provider>
             );
           })}
         </div>

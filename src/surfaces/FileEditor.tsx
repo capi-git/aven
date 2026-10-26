@@ -65,6 +65,7 @@ import {
   displayPath,
   joinPath,
   parentPath,
+  prettyParent,
 } from "../lib/paths";
 import { IS_WIN } from "../lib/platform";
 import type { EditorNavigation } from "../lib/search";
@@ -134,6 +135,8 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready"; content: string }
   | { status: "directory"; path: string }
+  /** Nothing is at the path: moved, deleted, or never there. */
+  | { status: "missing" }
   | { status: "error"; message: string };
 
 type SaveState =
@@ -277,6 +280,10 @@ export function FileEditor({
               setLoadState({ status: "directory", path: folder.path });
               return;
             }
+          }
+          if (!info && missingPath) {
+            setLoadState({ status: "missing" });
+            return;
           }
         } catch {
           // Metadata is optional recovery. Retain the original read error.
@@ -493,6 +500,31 @@ export function FileEditor({
           </p>
           <p className="mt-1 text-ui-label leading-5 text-content/50">
             {loadState.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReloadKey((value) => value + 1)}
+            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-ui-label text-content hover:bg-content/15"
+          >
+            <RotateCcw className="size-3" strokeWidth={1.75} />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadState.status === "missing") {
+    return (
+      <div className="grid h-full place-items-center p-6">
+        <div className="max-w-md text-center">
+          <AlertCircle className="mx-auto mb-3 size-5 text-content/40" />
+          <p className="text-ui-body text-content">
+            {basename(path)} isn’t at that location anymore.
+          </p>
+          <p className="mt-1 text-ui-label leading-5 text-content/50 [overflow-wrap:anywhere]">
+            It may have been moved or deleted from{" "}
+            {displayAppData(prettyParent(path))}.
           </p>
           <button
             type="button"

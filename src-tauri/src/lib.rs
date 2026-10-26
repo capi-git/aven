@@ -23,6 +23,7 @@ mod browser_dialogs;
 mod browser_floating_controls;
 mod browser_sleep;
 mod browser_snapshot;
+mod browser_upload;
 mod chat_background;
 mod checkpoint;
 mod codex_storage;
@@ -71,6 +72,7 @@ mod search;
 mod session_lock_macos;
 mod session_store;
 mod shell_navigation;
+mod skill_install;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
@@ -278,6 +280,7 @@ pub fn run() {
         )
         .manage(harness::HarnessHost::new())
         .manage(pty::PtyHost::new())
+        .manage(skill_install::SkillsCliHost::default())
         .manage(update_restart::UpdateRestartState::default())
         .manage(window_transfer::WindowTransferState::new())
         .manage(workspace_window::WorkspaceWindowState::default())
@@ -493,6 +496,8 @@ pub fn run() {
             fs::read_text_file,
             fs::write_text_file,
             skills::list_skills,
+            skill_install::skills_cli_run,
+            skill_install::skills_cli_cancel,
             agent_tools::agent_tool_status,
             desktop_control::desktop_control_status,
             desktop_control::desktop_control_set_enabled,

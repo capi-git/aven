@@ -6,6 +6,9 @@ typedef NS_ENUM(NSInteger, SMAgentMarkerAction) {
   SMAgentMarkerActionType = 1,
   SMAgentMarkerActionKey = 2,
   SMAgentMarkerActionScroll = 3,
+  // The pointer rests on an element (menus and controls revealed on hover):
+  // a glide with no press feedback.
+  SMAgentMarkerActionHover = 4,
 };
 
 // Aven's agent pointer inside a browser pane: a soft ring in the acting

@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hover reveal</title>
+<!-- Row actions that only become visible (and hit-testable) on hover. -->
+<style>
+  body { font: 14px system-ui; margin: 40px; }
+  .row { display: flex; gap: 12px; align-items: center; width: 320px; padding: 8px; border-bottom: 1px solid #ddd; }
+  .row .delete { visibility: hidden; margin-left: auto; }
+  .row:hover .delete { visibility: visible; }
+  .tip { opacity: 0; transition: opacity .2s; }
+  .row:hover .tip { opacity: 1; }
+</style>
+<div class="row" id="first"><span>llms.txt</span><span class="tip">2 KB</span><button class="delete" aria-label="Delete llms.txt">Delete</button></div>
+<div class="row" id="second"><span>robots.txt</span><button class="delete" aria-label="Delete robots.txt">Delete</button></div>
+<script>
+  window.agentLog = [];
+  for (const button of document.querySelectorAll(".delete"))
+    button.addEventListener("click", (event) => agentLog.push("clicked:" + button.getAttribute("aria-label") + ":" + (event.isTrusted ? "trusted" : "direct")));
+  document.querySelector("#first").addEventListener("mouseenter", () => agentLog.push("hover:first"));
+</script>

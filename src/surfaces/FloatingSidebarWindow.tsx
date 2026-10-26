@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AddProjectMenu } from "../chrome/AddProjectMenu";
@@ -65,6 +66,13 @@ type Pending = {
   reject(error: Error): void;
 };
 
+/** This webview's own height, so the card is placed again when it changes. */
+function subscribeViewport(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+const viewportHeight = () => window.innerHeight;
+
 /**
  * The hover sidebar's overlay webview. It renders the workspace's own
  * `Sidebar` from snapshots and runs callbacks in the workspace by name; native
@@ -80,6 +88,10 @@ export function FloatingSidebarWindow() {
   );
   const latest = useRef(snapshot);
   latest.current = snapshot;
+  // The overlay and the workspace resize separately; a snapshot can arrive
+  // before this webview has its new height. Placing the card from a stale
+  // height left it above the title bar and short of the window's bottom.
+  const ownHeight = useSyncExternalStore(subscribeViewport, viewportHeight);
 
   // Aven Dev's real-app check: press this page's own Settings and Back
   // buttons. A page that freezes on Back never answers, and the workspace
@@ -414,7 +426,7 @@ export function FloatingSidebarWindow() {
 
   if (!snapshot || !props) return null;
   // Both viewports end at the window's bottom edge; align their tops.
-  const offset = window.innerHeight - snapshot.viewportHeight;
+  const offset = ownHeight - snapshot.viewportHeight;
   return (
     <OrchestrationWorkers.Provider value={workers}>
       <div

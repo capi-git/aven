@@ -1044,7 +1044,6 @@ impl Request {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
 fn global_point(x: f64, y: f64, window: Option<Region>) -> Result<(f64, f64), String> {
     validate_point(x, y)?;
     let (x, y) = if let Some(bounds) = window {
@@ -1074,6 +1073,100 @@ pub(crate) struct PresenceTarget {
     pub(crate) anchor: Option<(f64, f64)>,
     /// The element's title for the presence bar; never a value or typed text.
     pub(crate) label: Option<String>,
+}
+
+/// What desktop input to one of Aven's own windows would touch.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum OwnWindowInput {
+    /// Global points the input lands on (clicks, moves, drags, element actions).
+    Points(Vec<(f64, f64)>),
+    /// Keys and typing, which go to whatever has the keyboard focus.
+    Keys,
+    /// Bringing Aven forward.
+    Activate,
+}
+
+/// Classifies input aimed at Aven's own window. `element_point` is the
+/// element's resolved centre for element actions (None when it has no frame).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn own_window_input(
+    request: &Request,
+    window: Option<Region>,
+    element_point: Option<(f64, f64)>,
+) -> Result<OwnWindowInput, String> {
+    let element = || {
+        element_point
+            .map(|point| OwnWindowInput::Points(vec![point]))
+            .ok_or_else(|| OWN_WINDOW_OUTSIDE_PAGE.to_string())
+    };
+    Ok(match request {
+        Request::Activate { .. } => OwnWindowInput::Activate,
+        Request::Type { .. } | Request::Press { .. } => OwnWindowInput::Keys,
+        Request::TypeText { element: None, .. } | Request::PressKey { element: None, .. } => {
+            OwnWindowInput::Keys
+        }
+        Request::Move { x, y, .. }
+        | Request::Click {
+            x: Some(x),
+            y: Some(y),
+            element: None,
+            ..
+        }
+        | Request::Scroll {
+            x: Some(x),
+            y: Some(y),
+            element: None,
+            ..
+        } => OwnWindowInput::Points(vec![global_point(*x, *y, window)?]),
+        Request::Drag { from, to, .. } => OwnWindowInput::Points(vec![
+            global_point(from.x, from.y, window)?,
+            global_point(to.x, to.y, window)?,
+        ]),
+        Request::Click {
+            element: Some(_), ..
+        }
+        | Request::Scroll {
+            element: Some(_), ..
+        }
+        | Request::SecondaryAction { .. }
+        | Request::SetValue { .. }
+        | Request::SelectText { .. }
+        | Request::TypeText {
+            element: Some(_), ..
+        }
+        | Request::PressKey {
+            element: Some(_), ..
+        } => element()?,
+        _ => return Err(OWN_WINDOW_OUTSIDE_PAGE.into()),
+    })
+}
+
+pub(crate) const OWN_WINDOW_FILE_DIALOG: &str = "Desktop control does not operate file dialogs. Use the browser's upload action (Aven asks the user to approve each upload), or ask the user to choose the file. No input was sent.";
+pub(crate) const OWN_WINDOW_OUTSIDE_PAGE: &str = "In Aven's own window, desktop control acts only inside the browser page this chat uses. That is Aven's interface (chats, settings or approvals), which agents never operate. No input was sent.";
+pub(crate) const OWN_WINDOW_KEYS: &str = "Keys and typing in Aven's own window go only to this chat's browser page, and it does not have the keyboard focus. Click inside the page first, or use the browser's fill and press actions. No input was sent.";
+
+/// Whether desktop input to Aven's own window must be refused: always while
+/// one of Aven's file dialogs is open, outside this chat's browser pages, and
+/// for keys unless one of those pages has the keyboard focus.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn own_window_refusal(
+    file_dialog_open: bool,
+    input: &OwnWindowInput,
+    points_on_page: bool,
+    page_focused: bool,
+) -> Option<&'static str> {
+    if file_dialog_open {
+        return Some(OWN_WINDOW_FILE_DIALOG);
+    }
+    match input {
+        OwnWindowInput::Activate => None,
+        OwnWindowInput::Points(points) if points.is_empty() || !points_on_page => {
+            Some(OWN_WINDOW_OUTSIDE_PAGE)
+        }
+        OwnWindowInput::Points(_) => None,
+        OwnWindowInput::Keys if !page_focused => Some(OWN_WINDOW_KEYS),
+        OwnWindowInput::Keys => None,
+    }
 }
 
 #[path = "desktop_gate.rs"]
@@ -1133,6 +1226,46 @@ impl gate::Port for NativeDesktop {
     fn execute(&self, scope: &str, request: Request, guard: &gate::Guard) -> Result<Value, String> {
         platform::execute(&self.0, scope, request, guard)
     }
+}
+
+/// Asks the user, in Aven's presence bar, to approve one upload of local
+/// files to a website, and waits for the answer. Every upload asks, whether
+/// or not desktop control is on; nothing is remembered as approval. Refused
+/// at the lock screen, and withdrawn when the requesting agent disconnects or
+/// its chat ends. The bar is Aven's own native control, which the page cannot
+/// draw over or answer.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+pub(crate) fn ask_upload(
+    scope: &str,
+    upload: presence::UploadPrompt,
+    connected: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    let store = presence::store();
+    let read = platform::session_state();
+    if store.with(|state| state.observe_session(read)) {
+        platform::session_changed();
+    }
+    let id = match store.with(|state| state.ask_upload(scope, upload, std::time::Instant::now())) {
+        presence::Admission::Ask(id) => id,
+        presence::Admission::Refuse(error) => return Err(error),
+        presence::Admission::Go => return Ok(()),
+    };
+    if let Err(error) = platform::presence_show(None, false) {
+        store.with(|state| state.withdraw(id));
+        platform::presence_changed();
+        return Err(error);
+    }
+    let answer = store.wait_for_answer(id, || {
+        connected()
+            && platform::session_alive(scope)
+            && platform::session_state() == presence::Session::Active
+    });
+    platform::presence_changed();
+    answer.map_err(|error| {
+        let read = platform::session_state();
+        store.with(|state| state.observe_session(read));
+        presence::upload_wait_error(error, store.with(|state| state.session()))
+    })
 }
 
 /// Binds a chat's scope. `actor` is supplied by the frontend once per user
@@ -1384,6 +1517,112 @@ mod tests {
         let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
         request.validate()?;
         Ok(request)
+    }
+
+    #[test]
+    fn aven_windows_take_input_only_on_this_chats_page_and_never_in_file_dialogs() {
+        let window = Some(Region {
+            x: 100.0,
+            y: 50.0,
+            width: 1000.0,
+            height: 700.0,
+        });
+        let classify = |value: Value, element: Option<(f64, f64)>| {
+            own_window_input(&parse(value).unwrap(), window, element)
+        };
+        // Window points become global points; drags check both ends.
+        assert_eq!(
+            classify(json!({"action":"click","x":10,"y":20,"windowId":7}), None).unwrap(),
+            OwnWindowInput::Points(vec![(110.0, 70.0)])
+        );
+        assert_eq!(
+            classify(
+                json!({"action":"drag","from":{"x":1,"y":2},"to":{"x":3,"y":4},"windowId":7}),
+                None
+            )
+            .unwrap(),
+            OwnWindowInput::Points(vec![(101.0, 52.0), (103.0, 54.0)])
+        );
+        for value in [
+            json!({"action":"move","x":10,"y":20,"windowId":7}),
+            json!({"action":"scroll","x":10,"y":20,"deltaY":40,"windowId":7}),
+        ] {
+            assert!(matches!(
+                classify(value, None).unwrap(),
+                OwnWindowInput::Points(_)
+            ));
+        }
+        // Element actions use the element's own point; without one, refused.
+        for value in [
+            json!({"action":"click","element":3,"stateId":1,"windowId":7}),
+            json!({"action":"setValue","element":3,"stateId":1,"value":"x","windowId":7}),
+            json!({"action":"typeText","element":3,"stateId":1,"text":"x","windowId":7}),
+            json!({"action":"pressKey","element":3,"stateId":1,"key":"Enter","windowId":7}),
+            json!({"action":"secondaryAction","element":3,"stateId":1,"windowId":7}),
+            json!({"action":"selectText","element":3,"stateId":1,"text":"x","windowId":7}),
+            json!({"action":"scroll","element":3,"stateId":1,"direction":"down","windowId":7}),
+        ] {
+            assert_eq!(
+                classify(value.clone(), Some((500.0, 300.0))).unwrap(),
+                OwnWindowInput::Points(vec![(500.0, 300.0)]),
+                "{value}"
+            );
+            assert_eq!(classify(value, None).unwrap_err(), OWN_WINDOW_OUTSIDE_PAGE);
+        }
+        // Keys go wherever the focus is.
+        for value in [
+            json!({"action":"type","text":"x","windowId":7}),
+            json!({"action":"press","key":"Enter","windowId":7}),
+            json!({"action":"typeText","text":"x","windowId":7}),
+            json!({"action":"pressKey","key":"Enter","windowId":7}),
+        ] {
+            assert_eq!(classify(value, None).unwrap(), OwnWindowInput::Keys);
+        }
+        assert_eq!(
+            classify(json!({"action":"activate","app":"Aven"}), None).unwrap(),
+            OwnWindowInput::Activate
+        );
+
+        let points = OwnWindowInput::Points(vec![(1.0, 2.0)]);
+        // On this chat's page: allowed. Anywhere else in Aven: refused.
+        assert_eq!(own_window_refusal(false, &points, true, false), None);
+        assert_eq!(
+            own_window_refusal(false, &points, false, true),
+            Some(OWN_WINDOW_OUTSIDE_PAGE)
+        );
+        assert_eq!(
+            own_window_refusal(false, &OwnWindowInput::Points(vec![]), true, true),
+            Some(OWN_WINDOW_OUTSIDE_PAGE)
+        );
+        // Keys only while the page has the keyboard focus.
+        assert_eq!(
+            own_window_refusal(false, &OwnWindowInput::Keys, false, true),
+            None
+        );
+        assert_eq!(
+            own_window_refusal(false, &OwnWindowInput::Keys, true, false),
+            Some(OWN_WINDOW_KEYS)
+        );
+        assert_eq!(
+            own_window_refusal(false, &OwnWindowInput::Activate, false, false),
+            None
+        );
+        // An open file dialog refuses everything, the page included.
+        for input in [points, OwnWindowInput::Keys, OwnWindowInput::Activate] {
+            assert_eq!(
+                own_window_refusal(true, &input, true, true),
+                Some(OWN_WINDOW_FILE_DIALOG)
+            );
+        }
+        for message in [
+            OWN_WINDOW_FILE_DIALOG,
+            OWN_WINDOW_OUTSIDE_PAGE,
+            OWN_WINDOW_KEYS,
+        ] {
+            assert!(message.ends_with("No input was sent."));
+        }
+        assert!(OWN_WINDOW_FILE_DIALOG.contains("upload action"));
+        assert!(OWN_WINDOW_OUTSIDE_PAGE.contains("never operate"));
     }
 
     #[test]

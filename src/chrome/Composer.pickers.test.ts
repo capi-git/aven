@@ -298,13 +298,16 @@ describe("/ picker rows", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
-  it("wraps from the first match to Create skill", async () => {
+  it("wraps from the first match to Add a skill, then Create skill", async () => {
     catalog.skills = [skill("polish")];
     await render();
     await type("/pol");
     expect(highlighted()).toContain("/polish");
     await press("ArrowUp");
+    expect(highlighted()).toContain("Add a skill…");
+    await press("ArrowUp");
     expect(highlighted()).toContain('Create skill "pol"');
+    await press("ArrowDown");
     await press("ArrowDown");
     expect(highlighted()).toContain("/polish");
   });
