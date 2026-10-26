@@ -3,7 +3,7 @@ export const IS_MAC =
   /Mac|iPhone|iPad/.test(navigator.platform);
 
 export const IS_WIN =
-  typeof navigator !== "undefined" && /Win/i.test(navigator.platform);
+  typeof navigator !== "undefined" && /^Win/i.test(navigator.platform);
 
 /** macOS can show the desktop through the window without requiring backdrop blur. */
 export const HAS_NATIVE_GLASS = IS_MAC;

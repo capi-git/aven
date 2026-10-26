@@ -39,16 +39,13 @@ import {
 } from "./projectBots";
 
 // Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
-const platform = {
-  set windows(on: boolean) {
-    if (on)
-      Object.defineProperty(navigator, "platform", {
-        value: "Win32",
-        configurable: true,
-      });
-    else delete (navigator as { platform?: string }).platform;
+const platform = vi.hoisted(() => ({ windows: false }));
+vi.mock("./platform", async (original) => ({
+  ...(await original<typeof import("./platform")>()),
+  get IS_WIN() {
+    return platform.windows;
   },
-};
+}));
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
