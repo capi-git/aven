@@ -2,6 +2,8 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include <crt_externs.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -9,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +42,7 @@
 #include "include/cef_application_mac.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_dialog_handler.h"
 #include "include/cef_image.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_context.h"
@@ -140,6 +144,19 @@ bool AllowedUrl(const std::string& url, bool navigation = false, bool download =
   const auto scheme=Str(parsed.scheme.lowercaseString), host=Str(parsed.host.lowercaseString);
   return (scheme=="http" || scheme=="https") && !host.empty() && host!="tauri.localhost" && host!="asset.localhost" &&
     host!="ipc.localhost" && !parsed.user.length && !parsed.password.length && (dev_origin.empty() || Origin(parsed)!=dev_origin);
+}
+std::string Host(const std::string& url) {
+  NSURL *parsed=[NSURL URLWithString:Ns(url)];
+  return Str(parsed.host.lowercaseString);
+}
+// An approved upload's file (Aven's private copy of what the user approved),
+// checked again right before it is handed over: an absolute path to a regular
+// file, not a link, this process can read, still the approved size.
+bool ApprovedUploadFile(const std::string& path,double bytes) {
+  if (path.empty() || path[0]!='/' || path.find('\0')!=std::string::npos) return false;
+  struct stat info{};
+  return lstat(path.c_str(),&info)==0 && S_ISREG(info.st_mode) && access(path.c_str(),R_OK)==0 &&
+    std::isfinite(bytes) && bytes>=0 && static_cast<double>(info.st_size)==bytes;
 }
 // Chromium's built-in PDF viewer renders inside its own extension frame.
 bool PdfViewerUrl(const std::string& url) {
@@ -374,7 +391,7 @@ struct MediaRequest {
 class Page final : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler,
   public CefLoadHandler, public CefRequestHandler, public CefDownloadHandler,
   public CefPermissionHandler, public CefKeyboardHandler, public CefFindHandler, public CefFocusHandler,
-  public CefDevToolsMessageObserver, public CefJSDialogHandler, public CefDragHandler {
+  public CefDevToolsMessageObserver, public CefJSDialogHandler, public CefDragHandler, public CefDialogHandler {
  public:
   explicit Page(std::string id) : id_(std::move(id)) {}
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
@@ -388,6 +405,64 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
+  // File choosers. Only the one an approved agent upload just opened in this
+  // tab's own page is answered, with the approved files; every other chooser,
+  // folder or save dialog is the user's and opens as usual.
+  bool OnFileDialog(CefRefPtr<CefBrowser> browser,FileDialogMode mode,const CefString&,const CefString&,
+      const std::vector<CefString>& accept_filters,const std::vector<CefString>& accept_extensions,
+      const std::vector<CefString>&,CefRefPtr<CefFileDialogCallback> callback) override {
+    const auto kind=mode==FILE_DIALOG_OPEN ? supermono::AgentChooserMode::kOpen :
+      mode==FILE_DIALOG_OPEN_MULTIPLE ? supermono::AgentChooserMode::kOpenMultiple :
+      mode==FILE_DIALOG_OPEN_FOLDER ? supermono::AgentChooserMode::kFolder : supermono::AgentChooserMode::kSave;
+    const bool armed=upload_.has_value() && !closing_ && upload_gate_.Armed(CFAbsoluteTimeGetCurrent());
+    const bool main=Main(browser);
+    const auto site=main && browser->GetMainFrame() ? Host(browser->GetMainFrame()->GetURL().ToString()) : std::string();
+    switch (supermono::DecideAgentChooser(armed,main,kind,armed ? upload_->files.size() : 0,
+        armed && supermono::AgentUploadSameSite(upload_->site,site))) {
+      case supermono::AgentChooserAnswer::kLeaveToUser: return false;
+      case supermono::AgentChooserAnswer::kRefuseSite:
+        callback->Cancel();
+        FinishUpload(false,Error("The page moved to another site before its file chooser opened, so nothing was uploaded."));
+        return true;
+      case supermono::AgentChooserAnswer::kRefuseCount:
+        callback->Cancel();
+        FinishUpload(false,Error("This file chooser takes one file, so nothing was uploaded. Upload one file at a time."));
+        return true;
+      case supermono::AgentChooserAnswer::kAnswer: break;
+    }
+    std::vector<CefString> files;
+    std::vector<std::string> names;
+    for (const auto& file:upload_->files) {
+      // Aven's copies were made when the user was asked; check them again.
+      if (!ApprovedUploadFile(file.first,file.second)) {
+        callback->Cancel();
+        FinishUpload(false,Error("A file changed or disappeared before its upload, so nothing was uploaded."));
+        return true;
+      }
+      files.push_back(file.first); names.push_back(Str(Ns(file.first).lastPathComponent));
+    }
+    callback->Continue(files);
+    auto result=upload_->click ? upload_->click->Copy(false) : Object();
+    auto uploaded=CefListValue::Create(); uploaded->SetSize(names.size());
+    for (size_t i=0;i<names.size();++i) uploaded->SetString(i,names[i]);
+    result->SetList("uploaded",uploaded);
+    result->SetBool("multiple",kind==supermono::AgentChooserMode::kOpenMultiple);
+    std::vector<std::string> filters,extensions;
+    for (const auto& value:accept_filters) filters.push_back(value.ToString());
+    for (const auto& value:accept_extensions) extensions.push_back(value.ToString());
+    const auto unaccepted=supermono::AgentUploadUnaccepted(names,filters,extensions);
+    std::string note="The page's file chooser received the files. Take a fresh snapshot to confirm the site accepted them.";
+    if (!unaccepted.empty()) {
+      std::string listed,accepted;
+      for (const auto& name:unaccepted) listed+=(listed.empty()?"":", ")+name;
+      for (const auto& filter:filters) accepted+=(accepted.empty()?"":", ")+filter;
+      note="The chooser asked for "+accepted.substr(0,200)+", which "+listed.substr(0,200)+" may not match; the site may reject it. "+note;
+    }
+    result->SetString("note",note);
+    FinishUpload(true,result);
+    return true;
+  }
   bool OnDragEnter(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDragData>,DragOperationsMask) override {
     if (Main(browser)) user_input_=true;
     return false;
@@ -451,6 +526,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
       TraceLayout("native-closed-detached");
+      CancelUpload("The page closed before a file chooser opened, so nothing was uploaded.");
       auto pending=std::move(pending_); pending_.clear();
       for (auto& item:pending) item.second(false,Error("Browser closed"));
       downloads_.clear(); download_names_.clear();
@@ -536,6 +612,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void OnLoadStart(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,TransitionType transition) override {
     if (Main(browser) && frame->IsMain()) {
       if (!notice_action_.empty()) Notice("");
+      CancelUpload("The page started loading a new address before a file chooser opened, so nothing was uploaded.");
       // A new document holds no draft. Back, forward and reload can restore
       // form values, so they keep the page marked as touched.
       const int kind=transition;
@@ -576,6 +653,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
     if (Main(browser) && update_prepared_) return true;
     if (Main(browser)) { sleep_.Invalidate(); user_input_=true; }
+    // A key the agent did not send while an upload waits: the user is using
+    // this page, so any chooser that opens now is theirs.
+    if (Main(browser) && agent_keys_==0)
+      CancelUpload("The user pressed a key in the page while the upload waited for its file chooser, so Aven left the chooser to them and uploaded nothing.");
     if (Main(browser) && EditActive() && event.windows_key_code==27 &&
         (event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN)) {
       EditMode(false); return true;
@@ -1085,7 +1166,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // A click on an in-app menu cut out of the page is not page input.
     if ([clip_view_ isKindOfClass:SMBrowserClipView.class] &&
         [(SMBrowserClipView*)clip_view_ holeContainsPoint:point]) return;
-    if (NSPointInRect(point,clip_view_.bounds)) user_input_=true;
+    if (NSPointInRect(point,clip_view_.bounds)) {
+      user_input_=true;
+      CancelUpload("The user clicked in the page while the upload waited for its file chooser, so Aven left the chooser to them and uploaded nothing.");
+    }
   }
   bool CancelUpdate() {
     if (!update_prepared_) return true;
@@ -1150,6 +1234,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="snapshot") { Screenshot(request); return; }
     else if (action=="agent-screenshot") { PageScreenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
+    else if (action=="upload") { Upload(request,cmd); return; }
+    // The host stopped waiting for this upload: it must not stay armed.
+    else if (action=="upload-cancel") CancelUpload("The upload timed out before a file chooser was answered, so nothing was uploaded.");
     else if (action=="press") {
       user_input_=true;
       if (cmd->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(cmd->GetDictionary("actor")->Copy(false));
@@ -1176,7 +1263,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (web_audio_seen_) blockers.push_back("web-audio");
     if (browser_ && browser_->GetHost()->HasDevTools()) blockers.push_back("devtools");
     if (EditActive()) blockers.push_back("editing");
-    if (screenshot_running_ || zoom_.pending() || !pending_.empty() || actions_menu_) blockers.push_back("browser-busy");
+    if (screenshot_running_ || zoom_.pending() || !pending_.empty() || actions_menu_ || upload_) blockers.push_back("browser-busy");
     return blockers;
   }
   static Dict SleepResult(const std::vector<std::string>& blockers) {
@@ -1640,7 +1727,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   static Dict AgentResult(Dict result,const std::string& method) {
     // Geometry is for the native pointer only; agents receive the plain result.
     auto clean=result ? result->Copy(false) : Object();
-    for (const char *key:{"target","viewport","point","matches"}) clean->Remove(key);
+    for (const char *key:{"target","viewport","point","matches","phase","known"}) clean->Remove(key);
     if (!method.empty()) clean->SetString("method",method);
     return clean;
   }
@@ -1669,64 +1756,252 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void Dom(const std::string& request,Dict operation) {
     operation=supermono::OwnAgentDomRequest(operation);
     const auto action=Text(operation,"action");
-    if (!operation || (action!="snapshot"&&action!="fill"&&action!="click") || Json(operation).size()>70000) { Result(id_,request,false,Error("Invalid browser action")); return; }
+    if (!operation || (action!="snapshot"&&action!="fill"&&action!="click"&&action!="hover"&&action!="upload-check") ||
+        Json(operation).size()>70000) { Result(id_,request,false,Error("Invalid browser action")); return; }
     if (operation->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(operation->GetDictionary("actor")->Copy(false));
     operation->Remove("actor");
-    operation->Remove("native"); operation->Remove("pointer");
+    for (const char *key:{"native","pointer","phase","point"}) operation->Remove(key);
     CefRefPtr<Page> self=this;
-    if (action=="snapshot") {
+    if (action=="snapshot" || action=="upload-check") {
       RunAgentDom(operation,[self,request](bool ok,Dict result) { Result(self->id_,request,ok,result); });
       return;
     }
     user_input_=true;
     GuardAgentFocus();
     if (action=="fill") { FillElement(request,operation); return; }
-    // A trusted pointer press only in a pane on screen at 100% zoom, where the
-    // page's CSS pixels and the input coordinate space agree exactly. Hidden,
-    // occluded and zoomed panes keep element.click().
-    operation->SetBool("pointer",supermono::AgentPointerAllowed(MarkerPane().shown,zoom_.pending(),zoom_.factor()));
-    RunAgentDom(operation,[self,request,operation](bool ok,Dict result) {
-      if (!ok) { Result(self->id_,request,false,result); return; }
-      self->ShowMarkerAtPageRect(SMAgentMarkerActionClick,result);
-      if (Text(result,"method")!="pointer") { Result(self->id_,request,true,AgentResult(result,"")); return; }
-      auto point=result->GetDictionary("point");
+    PointerAction(operation,[self,request](bool ok,Dict result) {
+      Result(self->id_,request,ok,ok ? AgentResult(result,"") : result);
+    });
+  }
+  // Click, hover and upload with a real pointer, as a careful person would:
+  // bring the element into view and aim at a point that lands on it, move
+  // there and let hover settle (menus and row actions appear), confirm the
+  // point still lands on the element, move again so whatever appeared gets
+  // its hover, then press, hold briefly and release, and check that the press
+  // reached the element. This works in hidden panes and zoomed pages too.
+  // element.click(), which sends no pointer events at all, is used only for
+  // what a pointer cannot reach (covered, off screen, native pickers, hidden
+  // file inputs) or when the press never reached the page; results say so.
+  // `arm` (uploads only) is told around each step that can open a file
+  // chooser: the DOM calls that may click directly, and the press.
+  void PointerAction(Dict operation,Completion done,std::function<void(bool)> arm=nullptr) {
+    const auto action=Text(operation,"action");
+    const auto marker=action=="hover" ? SMAgentMarkerActionHover : SMAgentMarkerActionClick;
+    if (!arm) arm=[](bool) {};
+    auto aim=operation->Copy(false);
+    aim->SetBool("pointer",supermono::AgentPointerAllowed(zoom_.pending(),zoom_.factor()));
+    CefRefPtr<Page> self=this;
+    arm(true);
+    RunAgentDom(aim,[self,operation,done,marker,action,arm](bool ok,Dict aimed) {
+      if (!ok) { done(false,aimed); return; }
+      self->ShowMarkerAtPageRect(marker,aimed);
+      if (Text(aimed,"method")!="pointer") { done(true,aimed); return; }
+      arm(false);
+      auto point=aimed->GetDictionary("point");
       const double x=Number(point,"x",-1),y=Number(point,"y",-1);
-      self->PointerClick(x,y,[self,request,operation,result](bool ok,Dict error) {
-        self->GuardAgentFocus();
-        switch (supermono::AgentAfterInput(ok,IsTimedOut(error))) {
-          case supermono::AgentInputOutcome::kDone:
-            Result(self->id_,request,true,AgentResult(result,"pointer")); return;
-          case supermono::AgentInputOutcome::kUnconfirmed:
-            // The press may still land: never click a second time.
-            Result(self->id_,request,false,Error(supermono::kAgentClickUnconfirmed)); return;
-          case supermono::AgentInputOutcome::kFallBack: break;
-        }
-        // The press never reached the page: click the element itself instead.
-        auto fallback=operation->Copy(false); fallback->SetBool("pointer",false);
-        self->RunAgentDom(fallback,[self,request](bool ok,Dict result) {
-          Result(self->id_,request,ok,ok ? AgentResult(result,"") : result);
+      self->MovePointer(x,y,[self,operation,done,action,arm,x,y](bool ok,Dict error) {
+        if (!ok) { self->PointerFailed(operation,error,done,arm); return; }
+        self->After(supermono::kAgentHoverSettleMs,done,[self,operation,done,action,arm,x,y]() {
+          auto confirm=operation->Copy(false);
+          confirm->SetBool("pointer",true); confirm->SetString("phase","confirm");
+          auto at=Object(); at->SetDouble("x",x); at->SetDouble("y",y); confirm->SetDictionary("point",at);
+          arm(true);
+          self->RunAgentDom(confirm,[self,operation,done,action,arm](bool ok,Dict confirmed) {
+            if (!ok) { done(false,confirmed); return; }
+            // Covered or gone after the hover: the DOM script already clicked
+            // the element directly, or (hovering) says what covers it.
+            const bool has_point=confirmed->GetType("point")==VTYPE_DICTIONARY;
+            if (supermono::AgentAfterConfirm(Text(confirmed,"method")=="pointer",has_point)==supermono::AgentConfirmNext::kReport) {
+              done(true,confirmed); return;
+            }
+            arm(false);
+            auto point=confirmed->GetDictionary("point");
+            const double x=Number(point,"x",-1),y=Number(point,"y",-1);
+            self->MovePointer(x,y,[self,operation,done,action,arm,confirmed,x,y](bool ok,Dict error) {
+              if (!ok) { self->PointerFailed(operation,error,done,arm); return; }
+              if (action=="hover") { done(true,confirmed); return; }
+              self->After(supermono::kAgentPressDelayMs,done,[self,operation,done,arm,confirmed,x,y]() {
+                arm(true);
+                self->PressPointer(x,y,[self,operation,done,arm,confirmed](bool ok,Dict error) {
+                  self->GuardAgentFocus();
+                  switch (supermono::AgentAfterInput(ok,IsTimedOut(error))) {
+                    case supermono::AgentInputOutcome::kDone: break;
+                    case supermono::AgentInputOutcome::kUnconfirmed:
+                      // The press may still land: never click a second time.
+                      done(false,Error(supermono::kAgentClickUnconfirmed)); return;
+                    case supermono::AgentInputOutcome::kFallBack:
+                      self->DirectClick(operation,"The pointer press could not be sent, so Aven clicked the element directly.",done,arm);
+                      return;
+                  }
+                  auto verify=Object(); verify->SetString("action","pointer-verify");
+                  verify->SetString("ref",Text(operation,"ref"));
+                  self->RunAgentDom(verify,[self,operation,done,arm,confirmed](bool ok,Dict verified) {
+                    // A press the page navigated away from, or removed the
+                    // element on, cannot be checked; it was still delivered.
+                    if (!ok || !Boolean(verified,"known")) { done(true,confirmed); return; }
+                    if (!Boolean(verified,"pressed")) {
+                      self->DirectClick(operation,"The pointer press did not reach the page, so Aven clicked the element directly.",done,arm);
+                      return;
+                    }
+                    // The DOM script words the outcome: a press the page took
+                    // without a click event is reported as pressed, not failed.
+                    auto result=confirmed->Copy(false);
+                    auto report=verified->GetType("report")==VTYPE_DICTIONARY ? verified->GetDictionary("report") : nullptr;
+                    if (report) {
+                      CefDictionaryValue::KeyList keys;
+                      report->GetKeys(keys);
+                      for (const auto& key:keys) result->SetValue(key,report->GetValue(key)->Copy());
+                    }
+                    done(true,result);
+                  });
+                });
+              });
+            });
+          });
         });
       });
     });
   }
-  // Press and release at one page point, in CSS pixels of the main frame.
-  void PointerClick(double x,double y,Completion done) {
-    if (!std::isfinite(x) || !std::isfinite(y) || x<0 || y<0) { done(false,Error("Invalid click point")); return; }
-    auto press=Object(); press->SetString("type","mousePressed"); press->SetDouble("x",x); press->SetDouble("y",y);
+  // A move that failed outright: nothing was pressed. Clicks fall back to
+  // the element; a move with no reply means the page is not answering.
+  void PointerFailed(Dict operation,Dict error,Completion done,std::function<void(bool)> arm) {
+    if (IsTimedOut(error)) { done(false,Error(supermono::kAgentPointerNoReply)); return; }
+    if (Text(operation,"action")=="hover") { done(false,error); return; }
+    DirectClick(operation,"The pointer could not be moved there, so Aven clicked the element directly.",done,arm);
+  }
+  void DirectClick(Dict operation,const std::string& reason,Completion done,std::function<void(bool)> arm) {
+    arm(true);
+    auto direct=operation->Copy(false); direct->SetBool("pointer",false);
+    RunAgentDom(direct,[done,reason](bool ok,Dict result) {
+      if (ok) result->SetString("reason",reason);
+      done(ok,result);
+    });
+  }
+  // Continues after a pause, or reports a page that closed meanwhile.
+  void After(int milliseconds,Completion done,std::function<void()> next) {
+    CefRefPtr<Page> self=this;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)milliseconds*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+      if (self->closing_ || !self->browser_) { done(false,Error("Browser closed")); return; }
+      next();
+    });
+  }
+  // Points come from the DOM script in visual-viewport CSS pixels.
+  std::optional<supermono::AgentInputPoint> InputPoint(double x,double y) const {
+    if (!browser_) return std::nullopt;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    return supermono::AgentPointerPoint(x,y,zoom_.factor(),view.frame.size.width,view.frame.size.height);
+  }
+  void MovePointer(double x,double y,Completion done) {
+    const auto point=InputPoint(x,y);
+    if (!point) { done(false,Error("Invalid pointer point")); return; }
+    auto move=Object(); move->SetString("type","mouseMoved"); move->SetDouble("x",point->x); move->SetDouble("y",point->y);
+    move->SetString("button","none"); move->SetInt("buttons",0);
+    Dev("Input.dispatchMouseEvent",move,done);
+  }
+  // Press, hold briefly and release at one point.
+  void PressPointer(double x,double y,Completion done) {
+    const auto point=InputPoint(x,y);
+    if (!point) { done(false,Error("Invalid click point")); return; }
+    auto press=Object(); press->SetString("type","mousePressed"); press->SetDouble("x",point->x); press->SetDouble("y",point->y);
     press->SetString("button","left"); press->SetInt("buttons",1); press->SetInt("clickCount",1);
     CefRefPtr<Page> self=this;
-    Dev("Input.dispatchMouseEvent",press,[self,x,y,done](bool ok,Dict result) {
+    const auto at=*point;
+    Dev("Input.dispatchMouseEvent",press,[self,at,done](bool ok,Dict result) {
       const bool timed_out=!ok && IsTimedOut(result);
       if (!supermono::AgentNeedsRelease(ok,timed_out)) { done(false,result); return; }
-      auto release=Object(); release->SetString("type","mouseReleased"); release->SetDouble("x",x); release->SetDouble("y",y);
-      release->SetString("button","left"); release->SetInt("buttons",0); release->SetInt("clickCount",1);
       // Once pressed (or possibly pressed), always release; never re-click.
       // An unanswered press is reported as such, whatever the release does.
-      self->Dev("Input.dispatchMouseEvent",release,[done,timed_out,result](bool ok,Dict released) {
-        if (timed_out) { done(false,result); return; }
-        done(true,ok ? Object() : released);
+      const auto release=[self,at,done,timed_out,result]() {
+        auto up=Object(); up->SetString("type","mouseReleased"); up->SetDouble("x",at.x); up->SetDouble("y",at.y);
+        up->SetString("button","left"); up->SetInt("buttons",0); up->SetInt("clickCount",1);
+        self->Dev("Input.dispatchMouseEvent",up,[done,timed_out,result](bool ok,Dict released) {
+          if (timed_out) { done(false,result); return; }
+          done(true,ok ? Object() : released);
+        });
+      };
+      if (timed_out || self->closing_) { release(); return; }
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)supermono::kAgentPressHoldMs*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+        release();
       });
     });
+  }
+  // An approved upload: arm this tab's next file chooser with the files, click
+  // the element (a file input, or a control that opens one), and answer only
+  // that chooser (OnFileDialog). One-shot: it ends with the answer, after a
+  // short wait for a chooser, or as soon as the user clicks or types in the
+  // page, the page navigates or closes.
+  void Upload(const std::string& request,Dict cmd) {
+    if (upload_ || upload_gate_.Pending()) { Result(id_,request,false,Error("Another upload in this page is still waiting for its file chooser. Wait for it to finish.")); return; }
+    auto list=cmd->GetType("files")==VTYPE_LIST ? cmd->GetList("files") : nullptr;
+    if (!list || list->GetSize()==0 || list->GetSize()>supermono::kAgentUploadMaxFiles) {
+      Result(id_,request,false,Error("Upload between 1 and 10 files.")); return;
+    }
+    PendingUpload pending;
+    for (size_t i=0;i<list->GetSize();++i) {
+      auto file=list->GetType(i)==VTYPE_DICTIONARY ? list->GetDictionary(i) : nullptr;
+      const auto path=Text(file,"path");
+      const double bytes=Number(file,"bytes",-1);
+      if (!ApprovedUploadFile(path,bytes)) { Result(id_,request,false,Error("A file changed or disappeared before its upload, so nothing was uploaded.")); return; }
+      pending.files.emplace_back(path,bytes);
+    }
+    pending.site=Text(cmd,"site");
+    const auto current=browser_->GetMainFrame() ? Host(browser_->GetMainFrame()->GetURL().ToString()) : "";
+    if (!supermono::AgentUploadSameSite(pending.site,current)) {
+      Result(id_,request,false,Error("The page is no longer on the site the user approved, so nothing was uploaded.")); return;
+    }
+    auto operation=supermono::OwnAgentDomRequest(cmd->GetType("request")==VTYPE_DICTIONARY ? cmd->GetDictionary("request") : nullptr);
+    if (!operation || Text(operation,"action")!="upload" || Text(operation,"ref").empty()) {
+      Result(id_,request,false,Error("Invalid upload request")); return;
+    }
+    if (operation->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(operation->GetDictionary("actor")->Copy(false));
+    for (const char *key:{"actor","native","pointer","phase","point"}) operation->Remove(key);
+    pending.id=++upload_sequence_; pending.request=request;
+    const auto id=pending.id;
+    upload_=std::move(pending);
+    upload_gate_.Begin(id,CFAbsoluteTimeGetCurrent());
+    user_input_=true;
+    GuardAgentFocus();
+    CefRefPtr<Page> self=this;
+    // Whatever happens, the page side ends before the host stops waiting.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(supermono::kAgentUploadDeadlineSeconds*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+      if (self->upload_gate_.Current(id) && self->upload_gate_.Expired(CFAbsoluteTimeGetCurrent()))
+        self->FinishUpload(false,Error("The upload took too long, so nothing was uploaded. Take a snapshot and retry when the page responds."));
+    });
+    PointerAction(operation,[self,id](bool ok,Dict result) {
+      // Already answered (the chooser opened during the click) or cancelled.
+      if (!self->upload_ || !self->upload_gate_.Current(id)) return;
+      if (!ok) { self->FinishUpload(false,result); return; }
+      self->upload_->click=AgentResult(result,"");
+      self->upload_gate_.Clicked(id,CFAbsoluteTimeGetCurrent());
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(supermono::kAgentUploadWaitSeconds*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+        if (!self->upload_gate_.Current(id) || !self->upload_gate_.Expired(CFAbsoluteTimeGetCurrent())) return;
+        self->FinishUpload(false,Error("No file chooser opened after that click, so nothing was uploaded. Take a snapshot: the control may have opened a menu first (call upload on its upload item), or another control opens the chooser."));
+      });
+    },[self,id](bool on) { self->upload_gate_.Arm(id,on); });
+  }
+  void FinishUpload(bool ok,Dict result) {
+    if (!upload_) return;
+    upload_gate_.Finish(upload_->id);
+    const auto request=upload_->request;
+    upload_.reset();
+    Result(id_,request,ok,ok ? AgentResult(result,"") : result);
+  }
+  void CancelUpload(const std::string& reason) { if (upload_) FinishUpload(false,Error(reason)); }
+  // Desktop control may act in Aven's own window only on a page an agent
+  // uses: whether a global point (top-left origin, as CoreGraphics) lands on
+  // this page's visible area, not on a menu cut out of it or a comment card.
+  bool AcceptsScreenPoint(double x,double y) const {
+    if (!browser_ || closing_ || !visible_ || update_prepared_ || !clip_view_ || clip_view_.hidden) return false;
+    NSWindow *window=clip_view_.window;
+    NSScreen *main=NSScreen.screens.firstObject;
+    if (!window || !window.visible || !main || !std::isfinite(x) || !std::isfinite(y)) return false;
+    const NSPoint in_window=[window convertPointFromScreen:NSMakePoint(x,main.frame.size.height-y)];
+    const NSPoint local=[clip_view_ convertPoint:in_window fromView:nil];
+    if (!NSPointInRect(local,clip_view_.bounds)) return false;
+    if ([clip_view_ isKindOfClass:SMBrowserClipView.class] && [(SMBrowserClipView*)clip_view_ holeContainsPoint:local]) return false;
+    if (edit_annotation_.active && edit_annotation_.superview &&
+        NSPointInRect([edit_annotation_ convertPoint:in_window fromView:nil],edit_annotation_.bounds)) return false;
+    return true;
   }
   // Focus the field in the page, select what it holds, then type with Chromium's
   // trusted text input so frameworks see real beforeinput/input events. Verify
@@ -1873,15 +2148,13 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (restores_geometry) Layout();
     ApplyZoom();
   }
-  void Press(const std::string& request,const std::string& key) {
-    static const std::map<std::string,int> keys={{"Enter",13},{"Tab",9},{"Escape",27},{"Backspace",8},{"Delete",46},
-      {"ArrowUp",38},{"ArrowDown",40},{"ArrowLeft",37},{"ArrowRight",39},{"Home",36},{"End",35},{"PageUp",33},{"PageDown",34}};
-    auto found=keys.find(key);
-    if (found==keys.end()) { Result(id_,request,false,Error("Unsupported browser key")); return; }
+  void Press(const std::string& request,const std::string& name) {
+    const auto *key=supermono::FindAgentKey(name);
+    if (!key) { Result(id_,request,false,Error("Unsupported browser key")); return; }
     GuardAgentFocus();
     CefRefPtr<Page> self=this;
-    const auto dispatch=[self,request,key,code=found->second]() {
-      self->DispatchKey(request,key,code);
+    const auto dispatch=[self,request,key]() {
+      self->DispatchKey(request,*key);
     };
     // Show the key at the focused element; skip the lookup for hidden panes.
     if (!agent_marker_ || !MarkerPane().shown) { dispatch(); return; }
@@ -1891,19 +2164,22 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       dispatch();
     });
   }
-  void DispatchKey(const std::string& request,const std::string& key,int code) {
-    auto params=Object(); params->SetString("type","keyDown"); params->SetString("key",key); params->SetString("code",key);
-    params->SetInt("windowsVirtualKeyCode",code);
-    if (key=="Enter") { params->SetString("text","\r"); params->SetString("unmodifiedText","\r"); }
+  void DispatchKey(const std::string& request,const supermono::AgentKey& key) {
+    auto params=Object(); params->SetString("type","keyDown"); params->SetString("key",key.key); params->SetString("code",key.code);
+    params->SetInt("windowsVirtualKeyCode",key.key_code);
+    if (key.text) { params->SetString("text",key.text); params->SetString("unmodifiedText",key.text); }
     CefRefPtr<Page> self=this;
-    Dev("Input.dispatchKeyEvent",params,[self,request,key,code](bool ok,Dict result) {
+    // Keys in flight are the agent's own: they never cancel a waiting upload.
+    ++agent_keys_;
+    Dev("Input.dispatchKeyEvent",params,[self,request,key](bool ok,Dict result) {
       const bool timed_out=!ok && IsTimedOut(result);
-      if (!supermono::AgentNeedsRelease(ok,timed_out)) { Result(self->id_,request,false,result); return; }
+      if (!supermono::AgentNeedsRelease(ok,timed_out)) { --self->agent_keys_; Result(self->id_,request,false,result); return; }
       // Like a pointer press: once down (or possibly down), always release so
       // the page never sees a stuck key. An unanswered key-down is reported as
       // unconfirmed whatever the release does, and never repeated.
-      auto up=Object(); up->SetString("type","keyUp"); up->SetString("key",key); up->SetString("code",key); up->SetInt("windowsVirtualKeyCode",code);
+      auto up=Object(); up->SetString("type","keyUp"); up->SetString("key",key.key); up->SetString("code",key.code); up->SetInt("windowsVirtualKeyCode",key.key_code);
       self->Dev("Input.dispatchKeyEvent",up,[self,request,timed_out](bool ok,Dict released) {
+        --self->agent_keys_;
         if (timed_out) { Result(self->id_,request,false,Error(supermono::kAgentKeyUnconfirmed)); return; }
         Result(self->id_,request,ok,released);
       });
@@ -2001,6 +2277,18 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool edit_selection_pending_=false;
   bool screenshot_running_=false;
   supermono::AgentFocusGuard agent_focus_guard_;
+  // One approved upload at a time: the files, the site the user approved and
+  // the result request, until its chooser is answered or it is cancelled.
+  struct PendingUpload {
+    uint64_t id=0;
+    std::string request,site;
+    std::vector<std::pair<std::string,double>> files;  // path, approved size
+    Dict click;
+  };
+  std::optional<PendingUpload> upload_;
+  supermono::AgentUploadGate upload_gate_;
+  uint64_t upload_sequence_=0;
+  int agent_keys_=0;
   uint64_t edit_generation_=0;
   std::string edit_token_;
   std::string title_,error_,notice_,find_query_;
@@ -2217,6 +2505,9 @@ extern "C" int sm_chromium_is_focused(const char *id) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); return page && page->Focused(); }
 }
 extern "C" int sm_chromium_live_browser_count() { return MainThread() ? live_browser_count : -1; }
+extern "C" int sm_chromium_page_accepts_point(const char *id,double x,double y) {
+  @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); return page && page->AcceptsScreenPoint(x,y); }
+}
 extern "C" int sm_chromium_cancel_update() {
   @autoreleasepool {
     if (!MainThread()) return 0;

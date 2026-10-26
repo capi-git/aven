@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Transformed and scrolled</title>
+<!-- A button below the fold of an inner scroller, inside a transformed box. -->
+<style>
+  body { font: 14px system-ui; margin: 40px; }
+  #scroller { width: 360px; height: 160px; overflow: auto; border: 1px solid #888; }
+  #spacer { height: 900px; }
+  #moved { transform: translate(60px, 20px) scale(1.25) rotate(3deg); transform-origin: 0 0; width: 200px; }
+</style>
+<div id="scroller"><div id="spacer"></div><div id="moved"><button id="deep">Publish</button></div><div style="height:300px"></div></div>
+<script>
+  window.agentLog = [];
+  const deep = document.querySelector("#deep");
+  deep.addEventListener("pointerdown", (event) => {
+    const rect = deep.getBoundingClientRect();
+    const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    agentLog.push("pointerdown:" + (inside ? "inside" : "outside"));
+  });
+  deep.addEventListener("click", (event) => agentLog.push("click:" + (event.isTrusted ? "trusted" : "direct")));
+</script>

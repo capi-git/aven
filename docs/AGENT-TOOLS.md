@@ -21,6 +21,25 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+Agents are told to finish the job rather than hand steps back. When a page
+does not respond, they take a fresh snapshot and click by reference, hover
+first, use keys (Tab, Enter, Space, Escape, arrows), wait for a menu and look
+again, and use `upload` for file choosers. If the browser actions still cannot
+do a step (a canvas app, for example), they move to desktop control inside the
+page, on the Aven window that shows it. Aven's window titles name the tab in
+front, so that window may be titled with another project; it is still the
+agent's own page. Agents never operate file, open, save or folder dialogs or
+Aven's own interface (settings, other chats, approval bars) through desktop
+control, and hand another site's sign-in or payment frames to you. Aven
+enforces the first two: in its own windows, desktop input is accepted only
+inside the browser pages that chat uses, keys only while such a page has the
+keyboard focus, and nothing while one of Aven's file dialogs is open. They lead with real blockers they find, such as a paid
+plan, and hand back only the step that needs you (payment, sign-in, two-factor
+codes, a plan upgrade, or an approval you declined): they get as far as they
+can, show a screenshot labelled `stopped-here` of the exact spot, and give one
+precise next step, such as "Click Add, choose llms.txt from Downloads, then
+Publish".
+
 When a development server starts in an Aven terminal or in an agent's shell
 command, Aven notices the local address it prints (loopback only: `localhost`,
 `127.0.0.1`, `[::1]` and `*.localhost`; a server bound to `0.0.0.0` opens on
@@ -71,8 +90,8 @@ receives; nothing polls or watches files.
 ## Working in the background
 
 Browser actions never move your pointer, take your keyboard focus or bring Aven
-forward. Snapshots, clicks and fills run in an isolated script world inside the
-page; key presses, typing and scrolling go to the page through Chromium's own
+forward. Snapshots run in an isolated script world inside the page; clicks,
+hovers, key presses, typing and scrolling go to the page through Chromium's own
 input channel, not the Mac's.
 
 - `fill` focuses the field inside the page, selects what it holds and types the
@@ -86,12 +105,27 @@ input channel, not the Mac's.
   and clearing a field, Aven sets the value directly and reports `value`. Once
   you click or type in the page, a field the agent filled earlier counts as
   yours.
-- `click` presses the element like a pointer (`method: "pointer"`) when its
-  centre is really that element, in a pane on screen at 100% page zoom. If
-  something covers it, such as a cookie banner, or the pane is hidden, the tab
-  is zoomed or pinch-zoomed, or the control opens a native picker (selects,
-  colour and date inputs), Aven clicks the element directly instead
-  (`method: "element"`).
+- `click` works like a careful mouse (`method: "pointer"`): Aven scrolls the
+  element into view, moves the pointer onto a point that really lands on it,
+  lets hover settle (menus and row actions appear), checks the point again,
+  then presses, holds briefly and releases. This works in hidden panes, in
+  other windows and at any page or pinch zoom, so menus that open on press or
+  hover (Radix, Headless UI, Framer) respond. The result says whether the press
+  reached the element; a press the page took without a click event (menu items
+  that act on pointerup and close first) is reported as pressed, with a note to
+  take a snapshot rather than click again. Only when no pointer can reach it (something such as a
+  cookie banner covers every part of it, it is off screen, or it opens a
+  native picker such as a select or date input) does Aven click the element
+  directly (`method: "element"`, with `reason` and `coveredBy`); some apps
+  ignore that.
+- `hover` rests the pointer on an element so hover menus, tooltips and row
+  actions appear. Snapshots list controls hidden until hover with
+  `"hidden": true`; clicking one hovers it first.
+- Snapshots list buttons, links, fields, menu items, options, tabs, switches,
+  anything a site made clickable with a pointer cursor, controls inside open
+  shadow roots and same-site frames (`frame`), and hidden file inputs. Frames
+  from another site appear as one `crossOrigin` entry; their controls are not
+  listed.
 - If a click, fill or key press gets no reply in time, the error says it may
   have been applied. Take a snapshot before retrying, so a form is never
   submitted twice.
@@ -120,6 +154,66 @@ pages run with Chromium's background throttling, and a locked display may not
 render new pixels: a screenshot waits at most four seconds, then later
 screenshots fail at once with a clear message until the lock changes. Snapshot,
 click, fill, press and scroll keep working.
+
+## Uploading files
+
+An agent can send local files to a website through the page's own file
+chooser, for example to publish an `llms.txt` it wrote:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
+  '{"action":"upload","id":"PAGE_ID","ref":"REF","paths":["/absolute/path/llms.txt"]}'
+```
+
+`ref` is a file input from a snapshot (snapshots list hidden file inputs too),
+or the button or menu item that opens a chooser, such as **Add** or **Upload
+file**. Before anything leaves the Mac, Aven checks the files: absolute paths
+to existing, readable regular files (no folders, devices or pipes), at most 10
+files, 256 MB each and 512 MB together. Refused outright, with the agent told
+to ask you:
+
+- files in a hidden folder directly in your home folder (`~/.ssh`, `~/.aws`,
+  `~/.config`, `~/.gnupg`, `~/.docker`, `~/.kube`…);
+- files in a folder that holds credentials or repository internals anywhere:
+  `.ssh`, `.aws`, `.gnupg`, `.git`, `.kube`, `.docker`, `.azure`, `.gcloud`,
+  `.password-store`, and `~/Library/Keychains`;
+- files named like secrets: private keys such as `id_rsa` or `id_ed25519`,
+  `.pem`, `.key`, `.p12`, `.pfx` and `.ppk` files, keychains, and hidden files
+  such as `.env` or `.netrc`.
+
+Both the path the agent gives and the file a link points to are checked. Other
+dot-folders deeper in a project are ordinary content, for example
+`.well-known/llms.txt`, `.github/…` or a worktree under `.worktrees` or
+`.claude/worktrees`.
+
+Aven then copies the files into a private folder (readable only by you) and
+asks in its bar: **Claude wants to upload 2 files to framer.com**, with the
+total size, the page's full address when it differs from the site, and one
+line per file with its folder, then **Don’t Allow** or **Allow**. The site is
+the address's registrable domain (`framer.com` for `app.framer.com`); a long
+address is shortened from the left so its real domain stays visible. Every
+upload asks; an approval covers only that upload, and a decline holds for the
+same files and site until your next message. The bar works whether or not
+desktop control is on, ignores clicks Aven itself posts, and Aven never asks
+while the Mac is locked.
+
+The page receives the copies you approved, never the originals, so a file
+changed after you allowed it is not sent. After you allow it, Aven clicks the
+control like a pointer. It answers a file chooser only around that click: while
+the click is being made and for five seconds after it, and only the chooser in
+that page's own tab, with the approved copies. Choosers you open yourself,
+folder and save dialogs, and choosers in popup windows are never answered for
+you. If you click or type in that page while the upload waits, or the page
+navigates to another address or site, Aven stops and uploads nothing. The page
+side always ends within 30 seconds, and if the agent's request gives up first,
+Aven cancels it too. Copies are deleted at once when nothing was uploaded;
+copies a page received are kept for an hour (a site may read the file only
+when it sends a form), until that chat ends, or until Aven quits.
+
+The result lists the uploaded names, or says why nothing was sent: declined,
+no answer, no chooser opened (the control may open a menu first), a
+single-file chooser offered several files, or the page changed. A chooser that
+asks for other file types gets a note, since the site may reject the file.
 
 ## Before and after screenshots
 

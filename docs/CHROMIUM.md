@@ -148,6 +148,15 @@ cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_browser_edit_image_te
 ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_edit_|agent_dom_request_lifetime|browser_agent_marker|browser_agent_input' --output-on-failure
 ```
 
+### Agent clicks, hover and uploads
+
+`scripts/check-browser-agent.mjs` drives the fixture pages in `tests/fixtures/browser-agent` (a menu that opens only on pointerdown, a portal menu over an overlay, controls revealed on hover, a button in a transformed and scrolled box, a same-site frame, and file inputs) with the real agent DOM script and the DevTools sequence the host uses, in a headless Chromium-based browser. File choosers are answered through DevTools' chooser interception, standing in for CEF's dialog handler. It runs at 100% zoom, at 125% page zoom and under pinch zoom:
+
+```bash
+node scripts/check-browser-agent.mjs            # Brave by default
+node scripts/check-browser-agent.mjs --browser "/path/to/Chromium"
+```
+
 In the packaged app, also verify picking and changing an element, correct screenshot crops at different zoom levels, Escape/Done cancellation, and adding the comment/image to the draft without sending it.
 
 ### Marking up a page

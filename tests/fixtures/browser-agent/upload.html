@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Upload</title>
+<!-- A visible file input, and an "Add" button that opens a hidden one. -->
+<style>body { font: 14px system-ui; margin: 40px; } #hidden { display: none; }</style>
+<label>Logo <input type="file" id="direct" accept=".png,.svg"></label>
+<p><button id="add">Add</button></p>
+<input type="file" id="hidden" multiple>
+<p id="files"></p>
+<script>
+  window.agentLog = [];
+  const show = (input) => input.addEventListener("change", () => {
+    const names = [...input.files].map((file) => file.name).join(",");
+    agentLog.push(input.id + ":" + names);
+    document.querySelector("#files").textContent = names;
+  });
+  show(document.querySelector("#direct"));
+  show(document.querySelector("#hidden"));
+  document.querySelector("#add").addEventListener("click", () => document.querySelector("#hidden").click());
+</script>

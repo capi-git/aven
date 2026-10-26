@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 const HEIGHT: f64 = 64.0;
 const WIDTH: f64 = 580.0;
+/// Each further line (an upload's files) adds this much height.
+const LINE_HEIGHT: f64 = 16.0;
 static WINDOW_ID: AtomicU32 = AtomicU32::new(0);
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
@@ -43,6 +45,11 @@ define_class!(
         fn can_become_main(&self) -> bool { false }
         #[unsafe(method(avenPresenceAction:))]
         fn action(&self, sender: &NSButton) {
+            // Only the user answers: a click Aven's own desktop control posted
+            // (to any window of this process) never presses these buttons.
+            if posted_by_aven() {
+                return;
+            }
             let action = BAR.with(|slot| slot.borrow().as_ref().and_then(|bar| bound_action(&bar.actions, bar.button_base, sender.tag()).cloned()));
             if let Some(action) = action {
                 presence::with(|state| match action {
@@ -58,6 +65,30 @@ define_class!(
         }
     }
 );
+
+/// Whether the event being handled was posted by this process (desktop
+/// control marks its events and posts them as Aven). Answers by assistive
+/// technology arrive without an event and are the user's.
+fn posted_by_aven() -> bool {
+    unsafe {
+        let class = objc2::class!(NSApplication);
+        let app: Option<Retained<AnyObject>> = msg_send![class, sharedApplication];
+        let Some(app) = app else {
+            return false;
+        };
+        let event: Option<Retained<AnyObject>> = msg_send![&*app, currentEvent];
+        let Some(event) = event else {
+            return false;
+        };
+        let cg: *const c_void = msg_send![&*event, CGEvent];
+        !cg.is_null()
+            && presence::posted_by_aven(
+                CGEventGetIntegerValueField(cg, 42), // kCGEventSourceUserData
+                CGEventGetIntegerValueField(cg, 41), // kCGEventSourceUnixProcessID
+                i64::from(std::process::id()),
+            )
+    }
+}
 
 struct Bar {
     panel: Retained<PresencePanel>,
@@ -282,7 +313,8 @@ impl Bar {
             height: visible.size.height,
         };
         let avoid = self.anchor.into_iter().collect::<Vec<_>>();
-        let Some((frame, _)) = presence::place_bar(area, WIDTH, HEIGHT, false, &avoid) else {
+        let height = HEIGHT + LINE_HEIGHT * model.lines.len() as f64;
+        let Some((frame, _)) = presence::place_bar(area, WIDTH, height, false, &avoid) else {
             self.panel.orderOut(None);
             return;
         };
@@ -300,7 +332,7 @@ impl Bar {
             self.button_base = self.button_base.checked_add(8).unwrap_or(8);
             let view = NSVisualEffectView::initWithFrame(
                 NSVisualEffectView::alloc(mtm),
-                rect(0.0, 0.0, frame.width, HEIGHT),
+                rect(0.0, 0.0, frame.width, height),
             );
             unsafe {
                 let _: () = msg_send![&*view, setMaterial: 13_isize]; // HUDWindow
@@ -322,7 +354,9 @@ impl Bar {
                 model.color[2],
                 1.0,
             );
-            let dot = NSView::initWithFrame(NSView::alloc(mtm), rect(17.0, 27.0, 10.0, 10.0));
+            // Laid out from the top: title, detail, then one line per file.
+            let top = height - HEIGHT;
+            let dot = NSView::initWithFrame(NSView::alloc(mtm), rect(17.0, top + 27.0, 10.0, 10.0));
             dot.setWantsLayer(true);
             if let Some(layer) = dot.layer() {
                 layer.setCornerRadius(5.0);
@@ -343,10 +377,23 @@ impl Bar {
                 })
                 .sum();
             let text_width = (frame.width - 64.0 - buttons_width).max(50.0);
-            for (text, y, size, secondary) in [
-                (&model.title, 34.0, 13.0, false),
-                (&model.detail, 14.0, 11.0, true),
-            ] {
+            let lines = model.lines.iter().enumerate().map(|(index, line)| {
+                // Long folders lose their middle; the name at the start stays.
+                (
+                    line,
+                    top + 14.0 - LINE_HEIGHT * (index + 1) as f64,
+                    11.0,
+                    true,
+                    5_usize,
+                )
+            });
+            for (text, y, size, secondary, wrap) in [
+                (&model.title, top + 34.0, 13.0, false, 4_usize),
+                (&model.detail, top + 14.0, 11.0, true, 4_usize),
+            ]
+            .into_iter()
+            .chain(lines)
+            {
                 let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
                 label.setFrame(rect(39.0, y, text_width, 18.0));
                 label.setFont(Some(&NSFont::systemFontOfSize(size)));
@@ -357,7 +404,7 @@ impl Bar {
                 };
                 label.setTextColor(Some(&text_color));
                 unsafe {
-                    let _: () = msg_send![&*label, setLineBreakMode: 4_usize];
+                    let _: () = msg_send![&*label, setLineBreakMode: wrap];
                 }
                 view.addSubview(&label);
             }
@@ -370,8 +417,10 @@ impl Bar {
                 } else {
                     68.0
                 };
-                let button =
-                    NSButton::initWithFrame(NSButton::alloc(mtm), rect(x, 18.0, width - 4.0, 28.0));
+                let button = NSButton::initWithFrame(
+                    NSButton::alloc(mtm),
+                    rect(x, top + 18.0, width - 4.0, 28.0),
+                );
                 button.setTitle(&NSString::from_str(b.label));
                 button.setTag(self.button_base + index as isize);
                 button.setFont(Some(&NSFont::systemFontOfSize(12.0)));

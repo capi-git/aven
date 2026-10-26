@@ -23,6 +23,7 @@ mod browser_dialogs;
 mod browser_floating_controls;
 mod browser_sleep;
 mod browser_snapshot;
+mod browser_upload;
 mod chat_background;
 mod checkpoint;
 mod codex_storage;
