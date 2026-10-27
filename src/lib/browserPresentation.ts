@@ -7,6 +7,7 @@ import {
   type BrowserOverlayState,
 } from "./browserOverlays";
 import { endBrowserHandoff, waitForBrowserHandoff } from "./browserHandoff";
+import { withBrowserHitMargins } from "./browserHitMargins";
 
 const OVERLAYS = BROWSER_OVERLAYS;
 // ResizeObserver also reaches this path during native window resizing. A
@@ -378,7 +379,7 @@ export function createBrowserPresentation({
     });
   const currentBounds = () => {
     const bounds = !isPaused() ? adapter.bounds(element) : null;
-    return bounds ? clipHoverSidebars(bounds) : null;
+    return bounds ? withBrowserHitMargins(clipHoverSidebars(bounds)) : null;
   };
   const occluded = (bounds: BrowserBounds) =>
     freezeState === "frozen" ||

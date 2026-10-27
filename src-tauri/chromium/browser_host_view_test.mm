@@ -342,6 +342,64 @@ static void CheckMenuHoles() {
   std::puts("Browser menu cut-out checks passed");
 }
 
+// Strips along the page's edges over pane dividers leave the pointer to the
+// workspace beneath, in either orientation, while the page keeps drawing.
+static void CheckDividerHitMargins() {
+  using supermono::BrowserHitMargins;
+  using supermono::BrowserHitRect;
+  const NSRect page = NSMakeRect(0, 0, 400, 300);
+  CHECK(NSIsEmptyRect(BrowserHitRect(page, {}, false)));
+  // Unflipped: the page's top edge is at maxY.
+  const NSRect up = BrowserHitRect(page, BrowserHitMargins{4, 2, 3.5, 1}, false);
+  CHECK(NSEqualRects(up, NSMakeRect(4, 1, 392.5, 297)));
+  // Flipped: the top edge is at minY.
+  const NSRect down = BrowserHitRect(page, BrowserHitMargins{4, 2, 3.5, 1}, true);
+  CHECK(NSEqualRects(down, NSMakeRect(4, 2, 392.5, 297)));
+  // Margins that swallow the page leave no point to take, not "everywhere".
+  const NSRect none = BrowserHitRect(NSMakeRect(0, 0, 6, 6), BrowserHitMargins{4, 0, 4, 0}, false);
+  CHECK(!NSIsEmptyRect(none) && !NSPointInRect(NSMakePoint(3, 3), none));
+
+  NSView* parent = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 700, 500)];
+  NSView* workspace = [[NSView alloc] initWithFrame:parent.bounds];
+  [parent addSubview:workspace];
+  SMBrowserClipView* clip = [[SMBrowserClipView alloc]
+      initWithFrame:NSMakeRect(50, 50, 600, 400)];
+  [parent addSubview:clip];
+  NSView* browser = [[NSView alloc] initWithFrame:clip.bounds];
+  [clip addSubview:browser];
+  // A divider on each side: 4pt on the left, 3.5pt on the right.
+  [clip setHitRect:BrowserHitRect(browser.frame, BrowserHitMargins{4, 0, 3.5, 0}, clip.flipped)];
+  CHECK([parent hitTest:NSMakePoint(52, 200)] == workspace);   // left strip
+  CHECK([parent hitTest:NSMakePoint(55, 200)] == browser);     // past it
+  CHECK([parent hitTest:NSMakePoint(647, 200)] == workspace);  // right strip
+  CHECK([parent hitTest:NSMakePoint(645, 200)] == browser);
+  CHECK(![clip pageTakesPoint:NSMakePoint(1, 100)]);
+  CHECK([clip pageTakesPoint:NSMakePoint(10, 100)]);
+  // Entering the page through a divider strip is not entering the page.
+  __block int entered = 0;
+  clip.pointerEntered = ^{ entered += 1; };
+  auto enter = [&](NSPoint point) {
+    [clip mouseEntered:[NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+                                              location:point
+                                         modifierFlags:0
+                                             timestamp:0
+                                          windowNumber:0
+                                               context:nil
+                                           eventNumber:0
+                                        trackingNumber:0
+                                              userData:nullptr]];
+  };
+  enter(NSMakePoint(52, 200));
+  CHECK(entered == 0);
+  enter(NSMakePoint(60, 200));
+  CHECK(entered == 1);
+  clip.pointerEntered = nil;
+  // Cut-outs still pass through alongside the strips; no strips, no limit.
+  [clip setHitRect:NSZeroRect];
+  CHECK([parent hitTest:NSMakePoint(52, 200)] == browser);
+  std::printf("Browser divider strip checks passed\n");
+}
+
 static void CheckRepeatedBrowserLayout() {
   NSWindow* window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(0, 0, 640, 480)
@@ -471,6 +529,7 @@ int main() {
     CheckCanonicalBackingTies();
     CheckBottomCornerClipping();
     CheckMenuHoles();
+    CheckDividerHitMargins();
     CheckRepeatedBrowserLayout();
     CheckHiddenBrowserFocus();
     CheckFloatingSidebarStaysOnTop();

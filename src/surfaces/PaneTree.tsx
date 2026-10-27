@@ -539,6 +539,7 @@ function Sash({
       }
     >
       <div
+        data-native-hit-margin=""
         className={
           row
             ? "absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize touch-none"

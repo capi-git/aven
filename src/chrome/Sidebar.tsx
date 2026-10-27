@@ -2446,6 +2446,7 @@ function SidebarComponent({
         aria-valuemax={MAX_WIDTH}
         tabIndex={open ? 0 : -1}
         className="personal-panel-resizer personal-sidebar-divider"
+        data-native-hit-margin=""
         data-resizing={resize.dragging || undefined}
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}

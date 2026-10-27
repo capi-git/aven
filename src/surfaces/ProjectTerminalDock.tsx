@@ -202,6 +202,7 @@ export function ProjectTerminalDock({
         role="separator"
         aria-orientation={vertical ? "horizontal" : "vertical"}
         aria-label="Resize terminal"
+        data-native-hit-margin=""
         aria-valuenow={dock.size}
         className={`${sash} ${dragging ? "bg-content/15" : "hover:bg-content/10"}`}
         onPointerDown={onResizePointerDown}

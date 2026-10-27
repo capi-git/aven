@@ -1079,6 +1079,7 @@ export function WorkspaceStage({
             else sashNodes.current.delete(sashKey(sash));
           }}
           className="workspace-stage-sash"
+          data-native-hit-margin=""
           data-direction={sash.dir}
           role="separator"
           tabIndex={0}
