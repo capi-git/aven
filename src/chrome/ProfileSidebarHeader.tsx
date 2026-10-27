@@ -45,22 +45,21 @@ type Props = {
   automationsUnread?: number;
 };
 
-type Row = {
+type Tile = {
   id: string;
   label: string;
   icon: IconComponent;
   title: string;
   active?: boolean;
   onClick?: () => void;
-  keys?: string;
   count?: number;
 };
 
 /**
- * The top of the sidebar, as in Cydonia: the workspace's row (its Home, with
- * its menu and New chat beside it), then Search, Notes, Inbox and Automations
- * as labelled rows. Live and preview pages share geometry; previews never own
- * focus or actions.
+ * The top of the sidebar: the workspace's row (its Home, with its menu and
+ * New chat beside it), Search as a field, then Notes, Inbox and Automations
+ * as a row of pinned tiles, as Arc pins its favourites. Live and preview
+ * pages share geometry; previews never own focus or actions.
  */
 export function ProfileSidebarHeader({
   profile,
@@ -93,20 +92,7 @@ export function ProfileSidebarHeader({
       <span>{profile.name}</span>
     </>
   );
-  const rows: Row[] = [
-    ...(showSearch
-      ? [
-          {
-            id: "search",
-            label: "Search",
-            icon: Search,
-            title: `Search chats, files and projects (${SEARCH_KEYS})`,
-            active: searchActive,
-            onClick: onSearch,
-            keys: SEARCH_KEYS,
-          },
-        ]
-      : []),
+  const tiles: Tile[] = [
     ...(showNotes
       ? [
           {
@@ -153,22 +139,29 @@ export function ProfileSidebarHeader({
         onWorkspaceMenu(event.clientX, event.clientY);
       }
     : undefined;
-  const rowBody = (row: Row): ReactNode => (
+  // A tile is its icon; its name is the tooltip and what a screen reader
+  // says, and a small count sits in its corner.
+  const tileBody = (tile: Tile): ReactNode => (
     <>
-      <row.icon className="personal-library-icon" aria-hidden />
-      <span className="personal-library-label">{row.label}</span>
-      {row.count ? (
+      <tile.icon className="personal-library-icon" aria-hidden />
+      <span className="sr-only">{tile.label}</span>
+      {tile.count ? (
         <>
           <span className="personal-library-count" aria-hidden>
-            {row.count > 99 ? "99+" : row.count}
+            {tile.count > 99 ? "99+" : tile.count}
           </span>
-          <span className="sr-only">, {row.count} new</span>
+          <span className="sr-only">, {tile.count} new</span>
         </>
-      ) : row.keys ? (
-        <kbd className="personal-library-keys" aria-hidden>
-          {row.keys}
-        </kbd>
       ) : null}
+    </>
+  );
+  const searchBody = (
+    <>
+      <Search className="personal-library-icon" aria-hidden />
+      <span className="personal-search-label">Search</span>
+      <kbd className="personal-search-keys" aria-hidden>
+        {SEARCH_KEYS}
+      </kbd>
     </>
   );
   return (
@@ -246,35 +239,47 @@ export function ProfileSidebarHeader({
           )
         ) : null}
       </div>
-      {rows.length ? (
+      {showSearch ? (
+        preview ? (
+          <div className="personal-search-field">{searchBody}</div>
+        ) : (
+          <button
+            type="button"
+            className="personal-search-field"
+            aria-label="Search"
+            title={`Search chats, files and projects (${SEARCH_KEYS})`}
+            aria-current={searchActive ? "page" : undefined}
+            aria-keyshortcuts={
+              SEARCH_KEYS === "⇧⌘K" ? "Shift+Meta+K" : "Control+Shift+K"
+            }
+            onClick={onSearch}
+          >
+            {searchBody}
+          </button>
+        )
+      ) : null}
+      {tiles.length ? (
         <nav className="personal-library-nav" aria-label="Library">
-          {rows.map((row) =>
+          {tiles.map((tile) =>
             preview ? (
               <span
-                key={row.id}
-                className="personal-library-row"
-                data-library={row.id}
+                key={tile.id}
+                className="personal-library-tile"
+                data-library={tile.id}
               >
-                {rowBody(row)}
+                {tileBody(tile)}
               </span>
             ) : (
               <button
-                key={row.id}
+                key={tile.id}
                 type="button"
-                className="personal-library-row"
-                data-library={row.id}
-                onClick={row.onClick}
-                aria-current={row.active ? "page" : undefined}
-                aria-keyshortcuts={
-                  row.keys
-                    ? row.keys === "⇧⌘K"
-                      ? "Shift+Meta+K"
-                      : "Control+Shift+K"
-                    : undefined
-                }
-                title={row.title}
+                className="personal-library-tile"
+                data-library={tile.id}
+                onClick={tile.onClick}
+                aria-current={tile.active ? "page" : undefined}
+                title={tile.title}
               >
-                {rowBody(row)}
+                {tileBody(tile)}
               </button>
             ),
           )}

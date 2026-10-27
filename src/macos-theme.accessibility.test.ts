@@ -218,13 +218,13 @@ describe("switches, focus and hit targets", () => {
     ).toContain("var(--aven-focus-ring)");
   });
 
-  it("keeps the library row and the side panel's tabs at a 28px target", () => {
+  it("keeps the library tiles and the side panel's tabs at a 28px target", () => {
     expect(
       rule(
         "src/chrome/PersonalNavigation.css",
         ".personal-shell .personal-library-nav > :is(button, span)",
       ),
-    ).toContain("height: 28px;");
+    ).toContain("min-height: 28px;");
     expect(
       rule("src/chrome/WorkspaceInspector.css", ".workspace-inspector-tab"),
     ).toContain("min-height: 28px;");

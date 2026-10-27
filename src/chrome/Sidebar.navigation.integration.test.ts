@@ -440,14 +440,14 @@ describe("sidebar workspace navigation", () => {
     await click(button("New chat without a project"));
     expect(home).toHaveBeenCalledOnce();
     expect(newChat).toHaveBeenCalledOnce();
-    const rows = visible('nav[aria-label="Library"] > button');
-    expect(rows.map((row) => row.dataset.library)).toEqual([
-      "search",
+    expect(visible("button.personal-search-field")).toHaveLength(1);
+    const tiles = visible('nav[aria-label="Library"] > button');
+    expect(tiles.map((tile) => tile.dataset.library)).toEqual([
       "notes",
       "inbox",
       "automations",
     ]);
-    expect(rows[3].querySelector(".personal-library-count")?.textContent).toBe(
+    expect(tiles[2].querySelector(".personal-library-count")?.textContent).toBe(
       "2",
     );
 
@@ -459,7 +459,7 @@ describe("sidebar workspace navigation", () => {
     ).toBe("page");
   });
 
-  it("leaves Settings for Home from the workspace row and keeps only Search there", async () => {
+  it("leaves Settings for Home from the workspace row and keeps Search there, not the tiles", async () => {
     const order: string[] = [];
     await act(async () =>
       root.render(
@@ -482,13 +482,10 @@ describe("sidebar workspace navigation", () => {
     expect(
       button("Home, Personal workspace").hasAttribute("aria-current"),
     ).toBe(false);
+    expect(container.querySelector('nav[aria-label="Library"]')).toBeNull();
     expect(
-      [
-        ...container.querySelectorAll<HTMLElement>(
-          'nav[aria-label="Library"] [data-library]',
-        ),
-      ].map((row) => row.dataset.library),
-    ).toEqual(["search"]);
+      container.querySelector("button.personal-search-field"),
+    ).not.toBeNull();
     expect(button("New chat without a project")).toBeNull();
     await click(button("Home, Personal workspace"));
     expect(order).toEqual(["close settings", "home"]);

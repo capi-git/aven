@@ -533,9 +533,7 @@ it("keeps live heading and library callbacks current after returning from anothe
   });
   await act(async () => {
     body()
-      .querySelector<HTMLButtonElement>(
-        '.personal-library-nav button[data-library="search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     const controls = [
       ...body().querySelectorAll<HTMLButtonElement>(
@@ -577,15 +575,11 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   expect(
     container.querySelector(".personal-profile-header")?.textContent,
   ).toContain("Personal");
-  // Settings keeps only the Search row; Notes, Inbox and Automations wait
-  // for the workspace.
+  // Settings keeps Search; the tiles wait for the workspace.
+  expect(container.querySelector(".personal-library-nav")).toBeNull();
   expect(
-    [
-      ...container.querySelectorAll<HTMLElement>(
-        ".personal-library-nav [data-library]",
-      ),
-    ].map((row) => row.dataset.library),
-  ).toEqual(["search"]);
+    container.querySelector("button.personal-search-field"),
+  ).not.toBeNull();
   const settings = container.querySelector<HTMLElement>(
     '[aria-label="Settings sections"]',
   )!;
@@ -598,9 +592,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   ).toBe("page");
   await act(async () => {
     container
-      .querySelector<HTMLButtonElement>(
-        '.personal-library-nav button[data-library="search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     settings
       .querySelector<HTMLButtonElement>('[data-settings-section="providers"]')!
@@ -621,9 +613,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   expect(body().querySelector(".personal-library-nav")).not.toBeNull();
   await act(async () => {
     body()
-      .querySelector<HTMLButtonElement>(
-        '.personal-library-nav button[data-library="search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     [
       ...body().querySelectorAll<HTMLButtonElement>(

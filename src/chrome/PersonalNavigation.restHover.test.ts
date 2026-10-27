@@ -167,12 +167,9 @@ describe("project rows at rest and on hover", () => {
 });
 
 describe("one grid for every sidebar row", () => {
-  it("draws library, project, chat and workspace rows 28px high with a 16px mark column", () => {
+  it("draws Search, project, chat and workspace rows 28px high with a 16px mark column", () => {
     expect(
-      ruleFor(
-        nav,
-        ".personal-shell .personal-library-nav > :is(button, span)",
-      ).get("height"),
+      ruleFor(nav, ".personal-shell .personal-search-field").get("height"),
     ).toBe("28px");
     expect(
       ruleFor(nav, ".personal-shell .personal-library-icon").get("width"),
@@ -198,14 +195,11 @@ describe("one grid for every sidebar row", () => {
   });
 
   it("starts every label 8px + 16px + 8px in, so names line up down the sidebar", () => {
-    // Padding, then the 16px mark, then the gap: library, workspace,
+    // Padding, then the 16px mark, then the gap: Search, workspace,
     // project and chat rows all put their text at 32px.
-    const library = ruleFor(
-      nav,
-      ".personal-shell .personal-library-nav > :is(button, span)",
-    );
-    expect(library.get("padding")).toBe("0 8px");
-    expect(library.get("gap")).toBe("8px");
+    const search = ruleFor(nav, ".personal-shell .personal-search-field");
+    expect(search.get("padding")).toBe("0 8px");
+    expect(search.get("gap")).toBe("8px");
     const name = ruleFor(nav, ".personal-shell .personal-profile-name");
     expect(name.get("padding-inline")).toBe("8px");
     expect(name.get("gap")).toBe("8px");
@@ -220,6 +214,45 @@ describe("one grid for every sidebar row", () => {
     expect(ruleFor(nav, `${ROW} .personal-tasks-empty`).get("padding")).toBe(
       "4px 8px 4px 32px",
     );
+  });
+});
+
+describe("the pinned tiles", () => {
+  it("are flat neutral tiles on the 8px rhythm, taller than a row, with no wash or edge", () => {
+    const row = ruleFor(nav, ".personal-shell .personal-library-nav");
+    expect(row.get("display")).toBe("grid");
+    expect(row.get("gap")).toBe("8px");
+    const tile = ruleFor(
+      nav,
+      ".personal-shell .personal-library-nav > :is(button, span)",
+    );
+    expect(tile.get("height")).toBe("36px");
+    expect(tile.get("min-height")).toBe("28px");
+    expect(tile.get("border-radius")).toBe("var(--aven-radius-row)");
+    expect(tile.get("background")).toBe("var(--aven-fill-quaternary)");
+    expect(tile.get("border")).toBe("0");
+    expect(tile.has("box-shadow")).toBe(false);
+    // Hover and the open one are firmer greys, never the accent.
+    expect(
+      ruleFor(nav, ".personal-shell .personal-library-nav > button:hover").get(
+        "background",
+      ),
+    ).toBe("var(--aven-fill-tertiary)");
+    expect(
+      ruleFor(
+        nav,
+        '.personal-shell .personal-library-nav > button[aria-current="page"]',
+      ).get("background"),
+    ).toBe("var(--aven-fill-secondary)");
+  });
+
+  it("keeps the unread count small and grey in the tile's corner", () => {
+    const count = ruleFor(nav, ".personal-shell .personal-library-count");
+    expect(count.get("position")).toBe("absolute");
+    expect(count.get("height")).toBe("14px");
+    expect(count.get("font-size")).toBe("var(--text-ui-micro)");
+    expect(count.get("color")).toBe("var(--aven-label-secondary)");
+    expect(count.get("background")).toBe("var(--aven-fill-tertiary)");
   });
 });
 

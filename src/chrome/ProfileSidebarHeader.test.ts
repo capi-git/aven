@@ -44,14 +44,6 @@ const everything = (patch: Partial<Props> = {}): Props => ({
 const render = (props: Props) =>
   act(async () => root.render(createElement(ProfileSidebarHeader, props)));
 
-const rows = () => [
-  ...host.querySelectorAll<HTMLButtonElement>(
-    'nav[aria-label="Library"] > button',
-  ),
-];
-const label = (button: HTMLElement) =>
-  button.querySelector(".personal-library-label")?.textContent;
-
 describe("the workspace row", () => {
   it("opens Home from the name, the workspace menu from its chevron and a new chat from +", async () => {
     const props = everything({ homeActive: true });
@@ -121,67 +113,88 @@ describe("the workspace row", () => {
   });
 });
 
-describe("library rows", () => {
-  it("lists Search, Notes, Inbox and Automations as labelled rows with icons", async () => {
+describe("Search and the pinned tiles", () => {
+  const tiles = () => [
+    ...host.querySelectorAll<HTMLButtonElement>(
+      'nav[aria-label="Library"] > button',
+    ),
+  ];
+  const search = () =>
+    host.querySelector<HTMLButtonElement>("button.personal-search-field");
+
+  it("pins Notes, Inbox and Automations as a row of tiles, named by their labels", async () => {
     await render(everything({ notesActive: true }));
-    const buttons = rows();
-    expect(buttons.map(label)).toEqual([
-      "Search",
+    const buttons = tiles();
+    expect(buttons.map((button) => button.textContent)).toEqual([
       "Notes",
       "Inbox",
       "Automations",
     ]);
     for (const button of buttons) {
-      // A visible label, a decorative icon, and a tooltip that says more.
-      expect(button.title.startsWith(label(button)!)).toBe(true);
+      // The name is the accessible name and leads the tooltip, but only the
+      // icon is drawn.
+      const name = button.textContent!;
+      expect(button.title.startsWith(`${name}:`)).toBe(true);
       expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
         "true",
       );
-      expect(button.querySelector(".sr-only")).toBeNull();
+      expect(button.querySelector("span")?.className).toBe("sr-only");
     }
     expect(
       buttons.map((button) => button.getAttribute("aria-current")),
-    ).toEqual([null, "page", null, null]);
-    expect(buttons[1].title).toContain("notes");
-    expect(buttons[2].title).toContain("GitHub");
-    expect(buttons[3].title).toContain("schedule");
+    ).toEqual(["page", null, null]);
+    expect(buttons[1].title).toContain("GitHub");
+    expect(buttons[2].title).toContain("schedule");
   });
 
-  it("shows Search's real keys, ⇧⌘K, since ⌘K is the command palette", async () => {
-    await render(everything());
-    const search = rows()[0];
-    expect(search.querySelector("kbd")?.textContent).toBe(SEARCH_KEYS);
-    expect(search.getAttribute("aria-keyshortcuts")).toMatch(/Shift\+.*K/);
-    expect(search.title).toContain(SEARCH_KEYS);
-    expect(rows()[1].querySelector("kbd")).toBeNull();
+  it("puts Search above the tiles as a field, with its real keys, ⇧⌘K (⌘K is the palette)", async () => {
+    const props = everything({ searchActive: true });
+    await render(props);
+    const field = search()!;
+    expect(field.getAttribute("aria-label")).toBe("Search");
+    expect(field.textContent).toContain("Search");
+    expect(field.querySelector("kbd")?.textContent).toBe(SEARCH_KEYS);
+    expect(field.getAttribute("aria-keyshortcuts")).toMatch(/Shift\+.*K/);
+    expect(field.title).toContain(SEARCH_KEYS);
+    expect(field.getAttribute("aria-current")).toBe("page");
+    // The field comes right after the workspace's row, then the tiles.
+    expect(field.previousElementSibling?.className).toBe(
+      "personal-profile-header",
+    );
+    expect(field.nextElementSibling?.getAttribute("aria-label")).toBe(
+      "Library",
+    );
+    await act(async () => field.click());
+    expect(props.onSearch).toHaveBeenCalledOnce();
   });
 
-  it("counts unread automation runs on the Automations row, and speaks the count", async () => {
+  it("counts unread automation runs in a small badge on its tile, and speaks the count", async () => {
     await render(everything({ automationsUnread: 3 }));
-    const automations = rows()[3];
+    const automations = tiles()[2];
     expect(
       automations.querySelector(".personal-library-count")?.textContent,
     ).toBe("3");
-    expect(automations.querySelector(".sr-only")?.textContent).toBe(", 3 new");
+    expect(automations.textContent).toBe("Automations3, 3 new");
     await render(everything({ automationsUnread: 0 }));
-    expect(rows()[3].querySelector(".personal-library-count")).toBeNull();
-    expect(rows()[3].textContent).toBe("Automations");
+    expect(tiles()[2].querySelector(".personal-library-count")).toBeNull();
+    expect(tiles()[2].textContent).toBe("Automations");
     await render(everything({ automationsUnread: 140 }));
     expect(
-      rows()[3].querySelector(".personal-library-count")?.textContent,
+      tiles()[2].querySelector(".personal-library-count")?.textContent,
     ).toBe("99+");
   });
 
-  it("runs each row's action and leaves out rows that are off", async () => {
+  it("runs each tile's action and leaves out tiles that are off", async () => {
     const props = everything();
     await render(props);
-    for (const button of rows()) await act(async () => button.click());
-    expect(props.onSearch).toHaveBeenCalledOnce();
+    for (const button of tiles()) await act(async () => button.click());
     expect(props.onOpenNotes).toHaveBeenCalledOnce();
     expect(props.onOpenInbox).toHaveBeenCalledOnce();
     expect(props.onOpenAutomations).toHaveBeenCalledOnce();
     await render(everything({ showNotes: false, showInbox: false }));
-    expect(rows().map(label)).toEqual(["Search", "Automations"]);
+    expect(tiles().map((button) => button.textContent)).toEqual([
+      "Automations",
+    ]);
     await render(
       everything({
         showSearch: false,
@@ -191,13 +204,16 @@ describe("library rows", () => {
       }),
     );
     expect(host.querySelector('nav[aria-label="Library"]')).toBeNull();
+    expect(search()).toBeNull();
   });
 
   it("puts every control in the Tab order, top to bottom", async () => {
     await render(everything());
     const order = [...host.querySelectorAll<HTMLButtonElement>("button")];
     expect(
-      order.map((button) => button.getAttribute("aria-label") ?? label(button)),
+      order.map(
+        (button) => button.getAttribute("aria-label") ?? button.textContent,
+      ),
     ).toEqual([
       "Home, Personal workspace",
       "Switch workspace, Personal",
@@ -213,17 +229,18 @@ describe("library rows", () => {
     }
   });
 
-  it("draws a preview page with the same rows and no controls", () => {
+  it("draws a preview page with the same field and tiles and no controls", () => {
     const preview = document.createElement("div");
     preview.innerHTML = renderToStaticMarkup(
       createElement(ProfileSidebarHeader, everything({ preview: true })),
     );
     expect(preview.querySelector("button")).toBeNull();
     expect(
-      [...preview.querySelectorAll(".personal-library-row")].map(
-        (row) => row.querySelector(".personal-library-label")?.textContent,
+      [...preview.querySelectorAll(".personal-library-tile")].map(
+        (tile) => tile.textContent,
       ),
-    ).toEqual(["Search", "Notes", "Inbox", "Automations"]);
+    ).toEqual(["Notes", "Inbox", "Automations"]);
+    expect(preview.querySelector(".personal-search-field")).not.toBeNull();
     expect(preview.querySelector(".personal-profile-name")?.textContent).toBe(
       "Personal",
     );

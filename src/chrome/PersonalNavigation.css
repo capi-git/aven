@@ -90,44 +90,32 @@
   background: var(--personal-hover);
   color: var(--color-content);
 }
-/* Search, Notes, Inbox and Automations: plain rows, an icon and a label,
-   with a count where one applies and Search's keys. 28px rows, 16px icons,
-   the label on the same 8px step as the project and chat rows below. */
-.personal-shell .personal-library-nav {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  gap: 0;
-  margin: 0 0 8px;
-}
-.personal-shell .personal-library-nav > :is(button, span) {
+/* Search: a field, as Arc keeps its address bar above its favourites. Its
+   icon and label sit on the rows' grid (8px, a 16px icon, 8px). */
+.personal-shell .personal-search-field {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 8px;
   min-width: 0;
   height: 28px;
+  margin: 0 0 8px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--aven-radius-row);
-  background: transparent;
+  background: var(--aven-fill-quaternary);
   color: var(--aven-label-secondary);
   font-size: var(--text-ui-row);
-  font-weight: 500;
   text-align: left;
 }
-.personal-shell .personal-library-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-}
-.personal-shell .personal-library-label {
+.personal-shell .personal-search-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.personal-shell .personal-library-keys {
+.personal-shell .personal-search-keys {
   flex-shrink: 0;
   font-family: inherit;
   font-size: var(--text-ui-micro);
@@ -135,28 +123,68 @@
   letter-spacing: 0.04em;
   opacity: 0.55;
 }
-.personal-shell .personal-library-count {
-  display: inline-grid;
-  place-items: center;
-  flex-shrink: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--aven-radius-capsule);
+.personal-shell .personal-search-field:is(button:hover, :focus-visible) {
   background: var(--aven-fill-tertiary);
   color: var(--color-content);
+}
+.personal-shell .personal-search-field[aria-current="page"] {
+  background: var(--aven-fill-secondary);
+  color: var(--color-content);
+}
+/* Notes, Inbox and Automations: pinned tiles, as Arc's favourites. Flat
+   neutral fills, the icon centred, a small grey count in the corner. Each
+   keeps its name as the tooltip and as the button's accessible name, and a
+   target taller than a row. */
+.personal-shell .personal-library-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  flex-shrink: 0;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.personal-shell .personal-library-nav > :is(button, span) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 28px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-fill-quaternary);
+  color: var(--aven-label-secondary);
+}
+.personal-shell .personal-library-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.personal-shell .personal-library-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
+  color: var(--aven-label-secondary);
   font-size: var(--text-ui-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 .personal-shell .personal-library-nav > button:hover,
 .personal-shell .personal-library-nav > button:focus-visible {
   color: var(--color-content);
-  background: var(--personal-hover);
+  background: var(--aven-fill-tertiary);
 }
 .personal-shell .personal-library-nav > button[aria-current="page"] {
   color: var(--color-content);
-  background: var(--personal-selected);
+  background: var(--aven-fill-secondary);
 }
 .personal-shell .personal-navigation .personal-projects-heading {
   display: flex;

@@ -227,6 +227,7 @@
 .workspace-home-actions button:active:not(:disabled),
 .personal-library-nav > button:active,
 .personal-profile-name:active,
+.personal-search-field:active,
 .personal-workspace-tool:active:not(:disabled),
 .personal-composer-add > button:active:not(:disabled),
 .personal-composer-actions > button:active:not(:disabled),
