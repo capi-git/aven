@@ -32,12 +32,12 @@ export function useIosSimAvailability(
       return;
     }
     let cancelled = false;
-    void Promise.all([hasXcodeProject(project), loadIosSimSupport()])
-      .then(([hasProject, support]) => {
+    // Xcode's frameworks load only for projects that can use them.
+    void hasXcodeProject(project)
+      .then(async (hasProject) => {
+        const xcode = hasProject && (await loadIosSimSupport()).xcode;
         if (!cancelled)
-          setAvailability(
-            iosSimAvailability(platform, hasProject, support.xcode),
-          );
+          setAvailability(iosSimAvailability(platform, hasProject, xcode));
       })
       .catch(() => {
         if (!cancelled) setAvailability("none");
