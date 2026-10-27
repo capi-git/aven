@@ -82,7 +82,10 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
         "src/chrome/Composer.css",
         ".personal-shell .personal-composer-actions > button",
       ],
-      ["src/chrome/BotSettingsSheet.css", ".bot-sheet-name"],
+      [
+        "src/chrome/BotSettingsSheet.css",
+        '.modal-panel[role="dialog"] .bot-sheet-title-field:focus',
+      ],
       ["src/surfaces/WorkspaceHome.css", ".workspace-home-actions button"],
     ])
       expect(rule(file, selector)).toContain("var(--aven-control-edge");

@@ -495,7 +495,6 @@ function GitPage() {
     <SettingsGroup
       title="Agents and Git"
       description="Applies to every agent in every project from your next message. Asking for something different in a chat still wins."
-      scope="Device"
     >
       <Row label={SETTINGS.gitFinish.label} description={selected?.description}>
         <Select
@@ -663,7 +662,6 @@ function PreferencesPage({
     <SettingsGroup
       title="Sidebar &amp; extras"
       description="Choose what appears around your work."
-      scope="Device"
     >
       <Row {...SETTINGS.notesEnabled.row}>
         <Toggle
@@ -700,7 +698,6 @@ function PreferencesPage({
     <SettingsGroup
       title="Alerts &amp; sound"
       description="Decide what needs your attention."
-      scope="Device"
     >
       <Row {...SETTINGS.notifications.row}>
         {notificationsEnabled && notificationPermission === "denied" ? (
@@ -765,7 +762,6 @@ function PreferencesPage({
         <SettingsGroup
           title="About Aven"
           description="Your installed version and software updates."
-          scope="Device"
         >
           <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
           <Row
@@ -790,7 +786,6 @@ function PreferencesPage({
         <SettingsGroup
           title="Dev previews"
           description="When a dev server starts in a terminal or an agent's command, Aven offers its page beside the chat."
-          scope="Device"
         >
           <Row {...SETTINGS.devPreviewAutoOpen.row}>
             <Toggle
@@ -803,7 +798,6 @@ function PreferencesPage({
         <SettingsGroup
           title="Memory"
           description="Keep browser tabs ready while managing memory."
-          scope="Device"
         >
           <Row {...SETTINGS.browserMemorySaver.row}>
             <Toggle
@@ -837,7 +831,6 @@ function PreferencesPage({
       <SettingsGroup
         title="Chats"
         description="How new chats start and handle your follow-up messages."
-        scope="Device"
       >
         <Row {...SETTINGS.defaultTaskAccess.row}>
           <AccessPicker
@@ -860,7 +853,6 @@ function PreferencesPage({
       <SettingsGroup
         title="Reading &amp; review"
         description="Read and review in the way that works for you."
-        scope="Device"
       >
         <Row {...SETTINGS.transcriptLayout.row}>
           <Segmented
@@ -897,7 +889,6 @@ function PreferencesPage({
       <SettingsGroup
         title="Claude Code"
         description="Settings that only affect Claude Code."
-        scope="Device"
       >
         <Row {...SETTINGS.claudeHooks.row}>
           <Toggle
@@ -1584,7 +1575,6 @@ function ProvidersPage() {
       <SettingsGroup
         title="Model discovery"
         description="Stay current without changing the models selected for your chats."
-        scope="Device"
       >
         <Row {...SETTINGS.providerToolAutoUpdates.row}>
           <Toggle

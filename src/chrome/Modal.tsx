@@ -108,7 +108,9 @@ function popoverRoot(element: Element): HTMLElement | null {
 
 type Props = {
   onClose: () => void;
-  title: string;
+  /** The sheet's name; a sheet that names something it edits may make it
+   *  the editable field itself rather than repeat it in a row below. */
+  title: ReactNode;
   description?: string;
   size?: ModalSize;
   /** Extra classes on the panel (fixed height, etc). */

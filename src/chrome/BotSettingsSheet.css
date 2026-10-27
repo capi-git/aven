@@ -38,20 +38,29 @@
   line-height: 15px;
   color: var(--aven-muted);
 }
-.bot-sheet-name {
-  width: 180px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-sm, 8px);
-  background: var(--aven-field-bg);
-  font-size: var(--text-ui-label);
-  color: var(--color-content);
-  outline: none;
+/* The title is the bot's name, editable in place: it reads as the title
+   until pointed at, then shows the field it is. */
+.modal-panel[role="dialog"] .bot-sheet-title-field {
+  width: 100%;
+  min-width: 0;
+  margin: -2px 0 -2px -6px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
 }
-.bot-sheet-name:focus-visible {
-  border-color: var(--aven-focus-ring);
-  box-shadow: 0 0 0 1px var(--aven-focus-ring);
+.modal-panel[role="dialog"] .bot-sheet-title-field::placeholder {
+  color: inherit;
+}
+.modal-panel[role="dialog"] .bot-sheet-title-field:hover {
+  background: var(--aven-fill-quaternary);
+}
+.modal-panel[role="dialog"] .bot-sheet-title-field:focus {
+  border-color: var(--aven-control-edge, transparent);
+  background: var(--aven-field-bg);
 }
 .bot-sheet-note,
 .bot-sheet-question {

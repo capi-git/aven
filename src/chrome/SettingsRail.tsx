@@ -114,7 +114,7 @@ export function SettingsNav({
           }}
           type="search"
           aria-label="Search settings"
-          placeholder="Search"
+          placeholder="Search settings"
           autoComplete="off"
           spellCheck={false}
         />
