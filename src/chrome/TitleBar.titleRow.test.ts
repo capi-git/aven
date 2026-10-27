@@ -190,11 +190,10 @@ describe("a pane's title row", () => {
     const onMove = vi.fn();
     await render({
       variant: "title",
-      paneTools: {
-        zoom: { zoomed: false, onToggle },
-        moves: ["right"],
-        onMove,
-      },
+      paneZoom: "expand",
+      onTogglePaneZoom: onToggle,
+      paneMoves: ["right"],
+      onMovePane: onMove,
     });
     const labels = [
       ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),
@@ -219,11 +218,10 @@ describe("a pane's title row", () => {
     const onMove = vi.fn();
     await render({
       variant: "title",
-      paneTools: {
-        zoom: { zoomed: true, onToggle: vi.fn() },
-        moves: ["left", "down"],
-        onMove,
-      },
+      paneZoom: "restore",
+      onTogglePaneZoom: vi.fn(),
+      paneMoves: ["left", "down"],
+      onMovePane: onMove,
     });
     expect(tool("Restore")!.getAttribute("aria-pressed")).toBe("true");
     await act(async () => tool("Move")!.click());

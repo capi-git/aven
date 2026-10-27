@@ -544,7 +544,14 @@
   margin-right: 32px;
   cursor: default;
 }
-.workspace-status-strip > .personal-titlebar {
+.workspace-status-strip-content {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+}
+.workspace-status-strip-content > .personal-titlebar {
   flex: 1 1 auto;
   min-width: 0;
 }

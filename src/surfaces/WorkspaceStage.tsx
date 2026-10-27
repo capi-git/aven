@@ -673,11 +673,17 @@ export function WorkspaceStage({
             ]
           : [];
       });
-      const timer = window.setTimeout(
-        () => setHeldOut(new Set()),
-        ZOOM_GLIDE_MS,
-      );
+      let cancelled = false;
+      // A native page coming forward still gets its handoff (see below).
+      const timer = window.setTimeout(() => {
+        void (
+          browserHandoffPending() ? waitForBrowserHandoff() : Promise.resolve()
+        ).then(() => {
+          if (!cancelled) setHeldOut(new Set());
+        });
+      }, ZOOM_GLIDE_MS);
       return () => {
+        cancelled = true;
         window.clearTimeout(timer);
         for (const fade of fades) fade.cancel();
       };

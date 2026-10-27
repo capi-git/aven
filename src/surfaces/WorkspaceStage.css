@@ -289,6 +289,22 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - 1px);
   height: 2px;
 }
+/* A split inside a tab has the same seam: a hairline in a 9px target that
+   thickens to 2px in the muted text colour while pointed at or dragged. */
+.aven-pane-seam {
+  transition:
+    background-color var(--aven-motion-fast) ease,
+    box-shadow var(--aven-motion-fast) ease;
+}
+.aven-pane-seam:is(:hover, :active) {
+  --aven-seam-used: color-mix(
+    in srgb,
+    var(--aven-label-secondary) 45%,
+    transparent
+  );
+  background: var(--aven-seam-used);
+  box-shadow: 0 0 0 0.5px var(--aven-seam-used);
+}
 /* Where a drop lands in the target pane's body: half of it, or all of it to
    stack, inset 4px. Native browser feedback samples these resolved sRGB
    colors once per drag; the workspace palette supplies both the line and

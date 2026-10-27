@@ -6,7 +6,6 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderMarks } from "./ProviderMarks";
@@ -61,10 +60,11 @@ export type WorkspaceStatusBarProps = {
   /** Settings shares the window header instead of stacking a second toolbar. */
   settingsView?: { section: SettingsSectionId; onClose: () => void };
   /**
-   * The window's strip of tabs (Cydonia's): the workspace's tabs, sharing
-   * the toolbar's free width. Its empty room still moves the window.
+   * Receives the place for the window's strip of tabs (Cydonia's): the
+   * toolbar's free width, whose empty room still moves the window. The
+   * workspace renders its strip into it.
    */
-  strip?: ReactNode;
+  stripHost?: (element: HTMLDivElement | null) => void;
 };
 
 type QueueRow = {
@@ -167,7 +167,12 @@ function isWindowDragRoom(target: EventTarget, bar: Element) {
   );
 }
 
-function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
+/**
+ * Moves (or, double-pressed, zooms) the window from the toolbar's empty
+ * room. The window's strip renders in a portal, so it hands its own presses
+ * here.
+ */
+export function dragStatusBar(event: MouseEvent<HTMLElement>) {
   if (
     event.button !== 0 ||
     !isWindowDragRoom(event.target, event.currentTarget)
@@ -404,7 +409,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onToggleInspector,
   inspectorOpen,
   settingsView,
-  strip,
+  stripHost,
 }: WorkspaceStatusBarProps) {
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
   const activity = useActivity();
@@ -509,10 +514,12 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           </div>
         </div>
       ) : null}
-      {strip && !settingsView ? (
-        <div className="workspace-status-strip" data-window-drag-room>
-          {strip}
-        </div>
+      {stripHost && !settingsView ? (
+        <div
+          ref={stripHost}
+          className="workspace-status-strip"
+          data-window-drag-room
+        />
       ) : null}
       <div
         className="workspace-status-controls"

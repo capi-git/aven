@@ -158,7 +158,7 @@ import {
   prepareRecoveredWorkspaceTab,
   type ClosedWorkspaceEntry,
 } from "./lib/workspaceRecovery";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   useDetachedWorkspaces,
   type DetachedWorkspaceState,
@@ -292,7 +292,7 @@ import {
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
 import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
-import { WorkspaceStatusBar } from "./chrome/WorkspaceStatusBar";
+import { WorkspaceStatusBar, dragStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
 import { FooterUsage } from "./chrome/FooterUsage";
 import {
@@ -1694,6 +1694,9 @@ export default function App({
     // Focus is the authority here. Browser navigation and session updates must
     // not pull focus away from a sibling surface that the user is reading.
   }, [view.focusedId, projectCwd]);
+  const [windowStripHost, setWindowStripHost] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [surfaceDragging, setSurfaceDragging] = useState(false);
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
@@ -10654,21 +10657,15 @@ export default function App({
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
-  const paneTitleTools = (
-    owner: string,
-  ): NonNullable<TitleBarProps["paneTools"]> => {
+  const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
     const across = seamNeighbours(paneLeaves, owner);
     return {
-      zoom: spaceMode
-        ? {
-            zoomed: paneZoomed,
-            onToggle: () => onWorkspaceIntent({ type: "zoom", group: owner }),
-          }
-        : undefined,
-      moves: (["left", "right", "up", "down"] as const).filter(
+      paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
+      onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
+      paneMoves: (["left", "right", "up", "down"] as const).filter(
         (side) => across[side],
       ),
-      onMove: (side: DockEdge) => {
+      onMovePane: (side: DockEdge) => {
         const live = viewRef.current.view;
         const other = live.layout
           ? seamNeighbours(layoutLeaves(live.layout), owner)[side]
@@ -10822,6 +10819,8 @@ export default function App({
       />
     );
   };
+  // The toolbar draws the strip's place; the strip renders into it, so the
+  // toolbar itself does not redraw with every workspace change.
   const windowStripOwner =
     visibleSurfaceIds.length === 1 ? visibleSurfaceIds[0] : view.focusedId;
   const windowStrip =
@@ -10870,8 +10869,20 @@ export default function App({
               homeOpen={homeViewOpen || profileHome}
               onToggleInspector={onToggleInspector}
               inspectorOpen={inspector.open}
-              strip={windowStrip}
+              stripHost={setWindowStripHost}
             />
+            {windowStripHost && windowStrip
+              ? createPortal(
+                  <div
+                    className="workspace-status-strip-content"
+                    data-window-drag-room
+                    onMouseDown={dragStatusBar}
+                  >
+                    {windowStrip}
+                  </div>,
+                  windowStripHost,
+                )
+              : null}
             <div className="personal-shell-body">
               {!sidebarOpen ? (
                 <button
@@ -11058,7 +11069,7 @@ export default function App({
                                 content: paneBar(owner, {
                                   variant: "title",
                                   stackOnStrip: !spaceMode,
-                                  paneTools: paneTitleTools(owner),
+                                  ...paneTitleTools(owner),
                                 }),
                               }))}
                               layout={view.layout}

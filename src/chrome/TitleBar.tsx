@@ -144,15 +144,6 @@ export type Tab = {
 /** A side of a pane with another pane across the seam. */
 export type PaneSide = "left" | "right" | "up" | "down";
 
-/** What a pane's title row offers past its name (Cydonia's title row). */
-export type PaneTitleTools = {
-  /** Expand over the other panes, or Restore; absent while it is alone. */
-  zoom?: { zoomed: boolean; onToggle: () => void };
-  /** Each side with a pane across its seam, to swap places with. */
-  moves?: readonly PaneSide[];
-  onMove?: (side: PaneSide) => void;
-};
-
 const MOVE_LABEL: Record<PaneSide, string> = {
   left: "Move left",
   right: "Move right",
@@ -177,8 +168,15 @@ export type TitleBarProps = {
   variant?: "strip" | "title";
   /** The window's strip: with one tab it shows none; the pane names it. */
   hideLoneTab?: boolean;
-  /** A title row's tools. */
-  paneTools?: PaneTitleTools;
+  /**
+   * A title row's Expand or Restore tool (Cydonia's zoom); absent while the
+   * pane is alone.
+   */
+  paneZoom?: "expand" | "restore";
+  onTogglePaneZoom?: () => void;
+  /** Each side with a pane across its seam, for the title row's Move. */
+  paneMoves?: readonly PaneSide[];
+  onMovePane?: (side: PaneSide) => void;
   /** A title row whose stack is the window's strip draws no deck for it. */
   stackOnStrip?: boolean;
   /** False where another bar names the window (the window's strip). */
@@ -1215,7 +1213,10 @@ function TitleBarComponent({
   paneLocal = false,
   variant = "strip",
   hideLoneTab = false,
-  paneTools,
+  paneZoom,
+  onTogglePaneZoom,
+  paneMoves,
+  onMovePane,
   stackOnStrip = false,
   windowTitle = true,
   paneFocused = true,
@@ -2378,7 +2379,7 @@ function TitleBarComponent({
               : undefined,
           }
         : null;
-  const moves = titleRow && paneTools?.onMove ? (paneTools.moves ?? []) : [];
+  const moves = titleRow && onMovePane ? (paneMoves ?? []) : [];
   const stackItems: ExplorerMenuItem[] = titleRow
     ? [
         ...orderedIds.map((id): ExplorerMenuItem => {
@@ -2745,7 +2746,7 @@ function TitleBarComponent({
                     className="aven-pane-tool"
                     aria-label={MOVE_LABEL[side]}
                     title={MOVE_LABEL[side]}
-                    onClick={() => paneTools?.onMove?.(side)}
+                    onClick={() => onMovePane?.(side)}
                   >
                     <Icon className="size-3.5" strokeWidth={1.75} />
                   </button>
@@ -2769,16 +2770,16 @@ function TitleBarComponent({
                 <Move className="size-3.5" strokeWidth={1.75} />
               </button>
             ) : null}
-            {paneTools?.zoom ? (
+            {paneZoom && onTogglePaneZoom ? (
               <button
                 type="button"
                 className="aven-pane-tool"
-                aria-label={paneTools.zoom.zoomed ? "Restore" : "Expand"}
-                title={`${paneTools.zoom.zoomed ? "Restore" : "Expand"} (${CTRL}${ALT}Z)`}
-                aria-pressed={paneTools.zoom.zoomed}
-                onClick={paneTools.zoom.onToggle}
+                aria-label={paneZoom === "restore" ? "Restore" : "Expand"}
+                title={`${paneZoom === "restore" ? "Restore" : "Expand"} (${CTRL}${ALT}Z)`}
+                aria-pressed={paneZoom === "restore"}
+                onClick={onTogglePaneZoom}
               >
-                {paneTools.zoom.zoomed ? (
+                {paneZoom === "restore" ? (
                   <Minimize2 className="size-3.5" strokeWidth={1.75} />
                 ) : (
                   <Maximize2 className="size-3.5" strokeWidth={1.75} />
@@ -2863,7 +2864,7 @@ function TitleBarComponent({
           onPick={(side) => {
             setMoveMenu(null);
             if (moves.includes(side as PaneSide))
-              paneTools?.onMove?.(side as PaneSide);
+              onMovePane?.(side as PaneSide);
           }}
           onClose={() => setMoveMenu(null)}
         />
@@ -2931,6 +2932,7 @@ const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "visibleIds",
   "combineTargets",
   "recents",
+  "paneMoves",
 ];
 export function TitleBar(props: TitleBarProps) {
   return <MemoTitleBar {...useChromeProps(props, TITLE_DATA)} />;
