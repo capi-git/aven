@@ -80,7 +80,7 @@ html.theme-light .personal-shell {
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-button {
-  background: var(--aven-tab-active-fill, var(--aven-tab-selected));
+  background: var(--aven-tab-selected);
   box-shadow: var(--aven-tab-selected-edge);
   color: var(--color-content);
 }
@@ -136,18 +136,6 @@ html.theme-light .personal-shell {
 .aven-tab-close:focus-visible {
   outline: 1px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -1px;
-}
-/* The active tab carries its project's colour as a light tint across the
-   whole capsule, so the project in front is always named without a line
-   squeezed under a rounded shape. A tab group's colour wins inside it. */
-.personal-shell
-  .personal-title-tab-slot:not([data-tab-group])
-  > .personal-title-tab[data-active="true"][data-project-accent="true"] {
-  --aven-tab-active-fill: color-mix(
-    in srgb,
-    var(--tab-project-color) 14%,
-    var(--aven-tab-selected)
-  );
 }
 .personal-shell .personal-title-tab-identity .personal-title-tab-bot {
   width: 16px;

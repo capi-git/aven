@@ -1,0 +1,64 @@
+/* New bot's picker: ready projects read as menu rows (WorkspaceMenuPanel.css);
+   the ones that need Git first get a name, a grey note and one button (the
+   team family's, TeamCard.css). Theme tokens only. In the Add a bot sheet the
+   same rows sit on the modal, outside a toolbar panel, hence the fallbacks. */
+.bot-picker-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+  min-height: 40px;
+  padding: 5px 4px 5px 9px;
+  border-radius: var(--aven-radius-sm);
+}
+.bot-picker-setup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.bot-picker-setup-name {
+  overflow: hidden;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-picker-setup-text small {
+  overflow: hidden;
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: var(--toolbar-panel-muted, var(--aven-muted));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-picker-problem {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: var(--toolbar-panel-error, var(--aven-needs-you));
+}
+.bot-picker-note {
+  margin: 0;
+  padding: 0 15px 10px;
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: var(--toolbar-panel-muted, var(--aven-muted));
+}
+.bot-picker-items:focus {
+  outline: none;
+}
+
+/* The sheet: one row and the note, on the modal's own surface. */
+.bot-git-sheet-body {
+  padding: 4px 8px 12px;
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+}
+.bot-git-sheet-body .bot-picker-items {
+  padding: 0 0 8px;
+}
+.bot-git-sheet-body .bot-picker-note {
+  padding: 0 9px;
+}

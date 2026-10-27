@@ -69,6 +69,7 @@ mod personal_project;
 mod pip_group;
 mod popup_glass;
 mod project_bots;
+mod project_git_setup;
 mod project_logo;
 mod project_memory;
 mod projectless;
@@ -454,6 +455,7 @@ pub fn run() {
             project_bots::bot_copy_apply,
             project_bots::bot_copy_discard,
             project_bots::bot_copy_remove,
+            project_git_setup::project_git_setup,
             scheduled_agents::scheduled_agent_claim,
             scheduled_agents::scheduled_agents_keep_awake,
             keep_awake::agent_keep_awake,

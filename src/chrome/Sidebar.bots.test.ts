@@ -34,17 +34,35 @@ vi.mock("../lib/platform", async (original) => ({
 }));
 vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock("./SettingsRail", () => ({ SettingsNav: () => null }));
-// Only Git projects can have a bot; "/tmp/notes" is a plain folder.
+// Only Git projects can have a bot; "/tmp/notes" is a plain folder,
+// "/tmp/drafts" uses Git with nothing saved yet, and "/tmp/gone" is missing.
 const copy = vi.hoisted(() => ({
-  botReadyPaths: vi.fn(async (paths: readonly string[]) =>
-    paths.filter((path) => path !== "/tmp/notes"),
+  botProjectStates: vi.fn(async (paths: readonly string[]) =>
+    paths.map((path) =>
+      path === "/tmp/notes"
+        ? "no-git"
+        : path === "/tmp/drafts"
+          ? "no-commit"
+          : path === "/tmp/gone"
+            ? "unavailable"
+            : "ready",
+    ),
   ),
 }));
 vi.mock("../lib/projectBotCopy", () => copy);
+const gitSetup = vi.hoisted(() => ({
+  setUpProjectGit: vi.fn(),
+}));
+vi.mock("../lib/projectGitSetup", async (original) => ({
+  ...(await original<typeof import("../lib/projectGitSetup")>()),
+  setUpProjectGit: gitSetup.setUpProjectGit,
+}));
 
 const cwd = "/tmp/sidebar-bots";
 const docs = "/tmp/docs-site";
 const notes = "/tmp/notes";
+const drafts = "/tmp/drafts";
+const gone = "/tmp/gone";
 function summary(id: string, title: string, updatedAt: number): SessionSummary {
   return {
     id,
@@ -82,7 +100,8 @@ beforeEach(() => {
     clear: () => stored.clear(),
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  copy.botReadyPaths.mockClear();
+  copy.botProjectStates.mockClear();
+  gitSetup.setUpProjectGit.mockReset();
   rows.props = [];
   platform.windows = false;
   props = {
@@ -178,21 +197,124 @@ it("lists bots in their own section below the projects, not with their project's
   expect(onBotSettings).toHaveBeenCalledWith(cwd);
 });
 
+const picker = () =>
+  document.querySelector<HTMLElement>(
+    '[role="dialog"][aria-label="Add a bot to"]',
+  );
+const readyRows = () =>
+  [...picker()!.querySelectorAll<HTMLElement>("[data-bot-ready]")].map(
+    (row) => row.textContent,
+  );
+const setupRows = () =>
+  [...picker()!.querySelectorAll<HTMLElement>("[data-bot-setup]")].map(
+    (row) => row.textContent,
+  );
+
 it("New bot lists the Git projects without a bot, and picking one adds it", async () => {
   const onAddBot = vi.fn();
   await act(async () =>
     root.render(createElement(Sidebar, { ...props, bots: [jelly], onAddBot })),
   );
   await act(async () => button("New bot")!.click());
-  // Jelly's project already has a bot; the plain folder can't have one.
-  expect(copy.botReadyPaths).toHaveBeenCalledWith([docs, notes]);
-  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
-  expect(
-    [...menu.querySelectorAll("button")].map((item) => item.textContent),
-  ).toEqual(["docs-site"]);
+  // Jelly's project already has a bot.
+  expect(copy.botProjectStates).toHaveBeenCalledWith([docs, notes]);
+  expect(readyRows()).toEqual(["docs-site"]);
   await act(async () => button("docs-site")!.click());
   expect(onAddBot).toHaveBeenCalledWith(docs);
-  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(gitSetup.setUpProjectGit).not.toHaveBeenCalled();
+  expect(picker()).toBeNull();
+});
+
+it("lists the projects that need Git below the ready ones, each with its button", async () => {
+  await act(async () =>
+    root.render(
+      createElement(Sidebar, {
+        ...props,
+        recents: [
+          { path: notes, openedAt: 5 },
+          { path: cwd, openedAt: 4 },
+          { path: drafts, openedAt: 3 },
+          { path: docs, openedAt: 2 },
+          { path: gone, openedAt: 1 },
+        ],
+        onAddBot: vi.fn(),
+      }),
+    ),
+  );
+  await act(async () => button("New bot")!.click());
+  // Ready first, in project order; a missing folder isn't offered at all.
+  expect(readyRows()).toEqual(["sidebar-bots", "docs-site"]);
+  expect(setupRows()).toEqual([
+    "notesNot using Git yetSet up Git",
+    "draftsNothing saved in Git yetMake a first save",
+  ]);
+  const rows = [
+    ...picker()!.querySelectorAll("[data-bot-ready], [data-bot-setup]"),
+  ];
+  expect(
+    rows.indexOf(picker()!.querySelector("[data-bot-setup]")!),
+  ).toBeGreaterThan(
+    rows.indexOf(picker()!.querySelectorAll("[data-bot-ready]")[1]!),
+  );
+  expect(picker()!.querySelector(".bot-picker-note")?.textContent).toMatch(
+    /^Bots need Git to keep their own copy of your project\. Set up Git turns it on for that project on this (Mac|computer)\. Nothing is uploaded\.$/,
+  );
+});
+
+it("Set up Git sets it up on that row, then adds the bot", async () => {
+  const onAddBot = vi.fn();
+  let finish: (value: unknown) => void = () => {};
+  gitSetup.setUpProjectGit.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await act(async () =>
+    root.render(createElement(Sidebar, { ...props, onAddBot })),
+  );
+  await act(async () => button("New bot")!.click());
+  await act(async () => button("Set up Git for notes")!.click());
+  expect(gitSetup.setUpProjectGit).toHaveBeenCalledWith(notes);
+  const row = picker()!.querySelector<HTMLElement>("[data-bot-setup]")!;
+  expect(row.querySelector('[role="status"]')?.textContent).toBe(
+    "Setting up Git…",
+  );
+  expect(button("Set up Git for notes")!.disabled).toBe(true);
+  // Nothing else can start meanwhile, and the picker stays.
+  expect(button("docs-site")!.disabled).toBe(true);
+  await act(async () => {
+    document.body.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true }),
+    );
+  });
+  expect(picker()).not.toBeNull();
+  expect(onAddBot).not.toHaveBeenCalled();
+  await act(async () => finish({ started: true, wroteIgnore: true, files: 3 }));
+  expect(onAddBot).toHaveBeenCalledExactlyOnceWith(notes);
+  expect(picker()).toBeNull();
+});
+
+it("shows a problem setting up Git on the row, in plain words", async () => {
+  const onAddBot = vi.fn();
+  gitSetup.setUpProjectGit.mockRejectedValue(
+    "This folder is too big to start tracking automatically: 34,120 files. Add a .gitignore for large folders, or set up Git yourself.",
+  );
+  const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+  await act(async () =>
+    root.render(createElement(Sidebar, { ...props, onAddBot })),
+  );
+  await act(async () => button("New bot")!.click());
+  await act(async () => button("Set up Git for notes")!.click());
+  const row = picker()!.querySelector<HTMLElement>("[data-bot-setup]")!;
+  expect(row.querySelector('[role="alert"]')?.textContent).toBe(
+    "This folder is too big to start tracking automatically: 34,120 files. Add a .gitignore for large folders, or set up Git yourself.",
+  );
+  expect(row.querySelector('[role="status"]')).toBeNull();
+  // It can be tried again, and nothing was added.
+  expect(button("Set up Git for notes")!.disabled).toBe(false);
+  expect(onAddBot).not.toHaveBeenCalled();
+  expect(picker()).not.toBeNull();
+  quiet.mockRestore();
 });
 
 it("offers one quiet Add a bot when there are none yet", async () => {
@@ -203,11 +325,8 @@ it("offers one quiet Add a bot when there are none yet", async () => {
   const section = botsSection()!;
   expect(section.querySelectorAll("[data-bot-row]")).toHaveLength(0);
   await act(async () => button("Add a bot")!.click());
-  expect(
-    [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].map(
-      (item) => item.textContent,
-    ),
-  ).toEqual(["sidebar-bots", "docs-site"]);
+  expect(readyRows()).toEqual(["sidebar-bots", "docs-site"]);
+  expect(setupRows()).toEqual(["notesNot using Git yetSet up Git"]);
 });
 
 it("lists the chat as usual once the bot is off", async () => {
