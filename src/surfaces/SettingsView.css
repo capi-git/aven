@@ -152,8 +152,10 @@
 .settings-search-field input::placeholder {
   color: var(--settings-muted);
 }
+/* The shared field ring (.aven-field). */
 .settings-search-field:focus-within {
-  box-shadow: 0 0 0 3px var(--aven-focus-ring);
+  outline: 2px solid var(--aven-field-focus);
+  outline-offset: 0;
 }
 .settings-search-results {
   position: absolute;
@@ -487,7 +489,7 @@
 }
 .settings-view button:focus-visible,
 .settings-view summary:focus-visible {
-  outline: 3px solid var(--aven-focus-ring);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 2px;
 }
 @container settings (max-width: 760px) {

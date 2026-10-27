@@ -315,12 +315,14 @@
 }
 .skills-settings :is(button, summary, [tabindex]):focus-visible,
 .skills-inspector :is(button, a, [tabindex]):focus-visible,
-.skills-new-form :is(input, select, button):focus-visible {
-  outline: 3px solid var(--aven-focus-ring);
+.skills-new-form button:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 2px;
 }
+/* Fields take the shared field ring (.aven-field). */
+.skills-new-form :is(input, select):focus-visible,
 .skills-search:focus-within {
-  outline: 3px solid var(--aven-focus-ring);
+  outline: 2px solid var(--aven-field-focus);
   outline-offset: 0;
 }
 @container skills-settings (max-width: 640px) {

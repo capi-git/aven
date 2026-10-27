@@ -93,9 +93,21 @@
     [data-app-inbox],
     [data-app-automations]
   )
-  :is(button, input, textarea):focus-visible {
+  button:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
+}
+/* Fields take the shared field ring (.aven-field): one ring, not a CSS
+   outline and a utility ring together. */
+:is(
+    [data-app-notes],
+    [data-app-search],
+    [data-app-inbox],
+    [data-app-automations]
+  )
+  :is(input, textarea):focus-visible {
+  outline: 2px solid var(--aven-field-focus, var(--color-accent));
+  outline-offset: 0;
 }
 @container (max-width: 680px) {
   .note-detail-content {

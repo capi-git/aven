@@ -150,6 +150,35 @@ describe("shared controls", () => {
     expect(adHoc).toEqual([]);
   });
 
+  it("rings focused fields at half strength and controls with a 2px ring", () => {
+    for (const [file, selector] of [
+      ["src/surfaces/SettingsView.css", ".settings-search-field:focus-within"],
+      ["src/chrome/SettingsRail.css", ".settings-nav__search:focus-within"],
+      [
+        "src/surfaces/SkillsSettings.css",
+        ".skills-new-form :is(input, select):focus-visible,\n.skills-search:focus-within",
+      ],
+    ])
+      expect(rule(read(file), selector)).toContain(
+        "outline: 2px solid var(--aven-field-focus);",
+      );
+    expect(theme).toMatch(
+      /--aven-field-focus: color-mix\(\s*in srgb,\s*var\(--aven-focus-ring\) 50%,\s*transparent\s*\);/,
+    );
+    const controls = [
+      "src/surfaces/SettingsControls.css",
+      "src/surfaces/SettingsView.css",
+      "src/surfaces/SkillsSettings.css",
+    ].flatMap((file) =>
+      [
+        ...read(file).matchAll(/outline: 3px solid var\(--aven-focus-ring/g),
+      ].map(() => file),
+    );
+    // Only Settings search's matched row keeps a 3px highlight, which is
+    // not a focus ring.
+    expect(controls).toEqual(["src/surfaces/SettingsView.css"]);
+  });
+
   it("gives a bare `rounded` the control corner", () => {
     expect(read("src/index.css")).toContain("--radius: 6px;");
     expect(theme).toContain("--aven-radius-sm: 6px;");

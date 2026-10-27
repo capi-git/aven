@@ -222,7 +222,7 @@ describe("switches, focus and hit targets", () => {
     ).toContain("border-color: var(--aven-focus-ring);");
     expect(
       rule("src/chrome/SettingsRail.css", ".settings-nav__search:focus-within"),
-    ).toContain("var(--aven-focus-ring)");
+    ).toContain("var(--aven-field-focus)");
   });
 
   it("keeps the library tiles and the side panel's tabs at a 28px target", () => {

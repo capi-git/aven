@@ -373,7 +373,7 @@ export function SearchView({
             autoCorrect="off"
             autoCapitalize="off"
             data-tauri-drag-region="false"
-            className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none select-text placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
+            className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none select-text placeholder:text-content/40"
           />
           {loading ? (
             <LoaderCircle

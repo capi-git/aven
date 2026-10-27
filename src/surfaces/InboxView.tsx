@@ -391,7 +391,7 @@ export function InboxView({
             aria-label="Filter inbox"
             spellCheck={false}
             autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
+            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40"
           />
         </div>
         <button
