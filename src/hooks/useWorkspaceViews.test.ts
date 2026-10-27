@@ -1,18 +1,24 @@
 // @vitest-environment happy-dom
-import { restoreProfileWorkspace } from "./workspaceProfiles";
+import { restoreProfileWorkspace } from "../lib/workspaceProfiles";
 import { act, createElement, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { leaf, leafIds, type LayoutNode } from "./layout";
+import { leaf, leafIds, type LayoutNode } from "../lib/layout";
 import {
   closeWorkspaceViews,
   minimizeWorkspaceSide,
+  moveWorkspaceTab,
   restoreWorkspaceSplit,
   selectWorkspaceView,
-  useWorkspaceViews,
+  splitWorkspaceView,
   type WorkspaceView,
-} from "./workspaceViews";
+} from "../lib/workspaceViews";
+import {
+  WORKSPACE_SPACES_KEY,
+  type WorkspaceStrip,
+} from "../lib/workspaceSpaces";
+import { useWorkspaceViews } from "./useWorkspaceViews";
 
 const STORAGE_KEY = "supermono.workspaceViews.v1";
 const projectA = "/projects/a";
@@ -440,5 +446,109 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     );
     expect(current.view.hiddenGroups).toBeUndefined();
     expect(persisted()[projectA]).toEqual(current.view);
+  });
+
+  const spaces = () =>
+    JSON.parse(storage.get(WORKSPACE_SPACES_KEY)!) as {
+      version: number;
+      projects: Record<string, WorkspaceStrip>;
+    };
+
+  it("migrates each project once to a versioned strip, keeping the former views readable", async () => {
+    await render();
+    // A's split is one space; B (not opened) stays as it was.
+    expect(spaces().version).toBe(1);
+    const strip = spaces().projects[projectA];
+    expect(strip.entries).toHaveLength(1);
+    expect(strip.entries[0].kind).toBe("space");
+    expect(strip.front).toBe("aven-space:former");
+    expect(spaces().projects[projectB]).toBeUndefined();
+    expect(persisted()[projectA]).toEqual(current.view);
+    expect(persisted()[projectB]).toEqual(savedB);
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web"],
+      requestedFocus: "b-web",
+    });
+    expect(spaces().projects[projectB]).toEqual({
+      entries: [
+        { kind: "item", id: "b-chat" },
+        { kind: "item", id: "b-web" },
+      ],
+      front: "b-web",
+    });
+  });
+
+  it("switches the whole arrangement between strip entries and remembers the front", async () => {
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web", "b-docs"],
+      requestedFocus: "b-web",
+    });
+    // Drag b-docs onto the right edge of b-web: a space of the two.
+    await act(async () =>
+      current.change((view) =>
+        splitWorkspaceView(view, "b-docs", "right", "b-web"),
+      ),
+    );
+    expect(current.strip.entries.map((entry) => entry.kind)).toEqual([
+      "item",
+      "space",
+    ]);
+    expect(leafIds(current.view.layout!)).toEqual(["b-web", "b-docs"]);
+    // The single tab: one pane again.
+    await act(async () => current.select("b-chat"));
+    expect(current.view.layout).toEqual(leaf("b-chat"));
+    await act(async () => current.select("b-docs"));
+    expect(leafIds(current.view.layout!)).toEqual(["b-web", "b-docs"]);
+    expect(current.view.focusedId).toBe("b-docs");
+    const front = current.strip.front;
+    expect(spaces().projects[projectB].front).toBe(front);
+    // Another project and back: the space is still in front.
+    await render({
+      project: projectA,
+      ids: ["a-chat", "a-web", "a-other"],
+      requestedFocus: "a-chat",
+    });
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web", "b-docs"],
+      requestedFocus: "b-docs",
+    });
+    expect(current.strip.front).toBe(front);
+  });
+
+  it("persists the strip's order", async () => {
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web"],
+      requestedFocus: "b-web",
+    });
+    await act(async () => current.reorderEntries(["b-web", "b-chat"]));
+    expect(
+      spaces().projects[projectB].entries.map((entry) =>
+        entry.kind === "item" ? entry.id : entry.kind,
+      ),
+    ).toEqual(["b-web", "b-chat"]);
+  });
+
+  it("brings a single tab into the space in front for a drop", async () => {
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web", "b-docs"],
+      requestedFocus: "b-web",
+    });
+    await act(async () =>
+      current.change((view) =>
+        splitWorkspaceView(view, "b-docs", "right", "b-web"),
+      ),
+    );
+    // b-chat is a single tab on the strip; drop it onto b-web's title row.
+    const view = current.viewWith(["b-chat"]);
+    await act(async () =>
+      current.change(() => moveWorkspaceTab(view, "b-chat", "b-web")),
+    );
+    expect(current.strip.entries.map((entry) => entry.kind)).toEqual(["space"]);
+    expect(current.view.groups["b-web"]).toEqual(["b-web", "b-chat"]);
   });
 });

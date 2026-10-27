@@ -6,6 +6,7 @@ import {
   isDetachedWorkspace,
 } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
+import { useWorkspaceViews } from "./hooks/useWorkspaceViews";
 import { useUtilityViews } from "./hooks/useUtilityViews";
 import { whenIdle } from "./lib/idle";
 import {
@@ -130,7 +131,6 @@ import {
   type WorkspaceSurfaceDropTarget,
 } from "./surfaces/WorkspaceStage";
 import {
-  useWorkspaceViews,
   revealBesideWorkspaceView,
   selectWorkspaceView,
   closeWorkspaceViews,
