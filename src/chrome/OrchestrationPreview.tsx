@@ -584,7 +584,7 @@ export function OrchestrationPreview({
                           key={path}
                           title={path}
                           data-orchestration-scope
-                          className="max-w-full truncate rounded bg-content/6 px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
+                          className="max-w-full truncate rounded-full bg-(--aven-fill-tertiary) px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
                         >
                           {scopeLabel(path)}
                         </li>

@@ -1211,7 +1211,7 @@ function InboxLabel({
   const color = labelColor(label.color);
   return (
     <span
-      className={`inline-flex min-w-0 items-center gap-1 rounded px-1.5 py-px text-content/50 bg-content/8 ${
+      className={`inline-flex min-w-0 items-center gap-1 rounded-full px-1.5 py-px text-content/50 bg-(--aven-fill-tertiary) ${
         compact ? "max-w-20 text-ui-micro" : "text-ui-caption"
       }`}
     >

@@ -299,7 +299,7 @@
 .git-clean-detail {
   margin: 1px 0 0;
   font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+  color: var(--aven-muted);
   overflow-wrap: anywhere;
 }
 .git-clean-last {

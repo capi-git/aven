@@ -104,5 +104,5 @@ html.theme-light .git-history-ref[data-colored] {
 .git-history-empty-detail {
   margin: 2px 0 0;
   font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  color: var(--aven-muted);
 }

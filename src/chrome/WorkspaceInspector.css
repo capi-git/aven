@@ -88,7 +88,7 @@
   padding: 20px 16px;
   font-size: var(--text-ui-label);
   line-height: 1.6;
-  color: color-mix(in srgb, var(--color-content) 66%, transparent);
+  color: var(--aven-muted);
 }
 
 /* Floating panels keep their foreground opaque while their own material
