@@ -10960,6 +10960,16 @@ export default function App({
       split: splitTabIds.has(owner),
       ownHeader: (namedAbove) => ownHeader(owner, namedAbove),
     });
+  // A page alone in its pane (or in a single pane, whose title row it
+  // always has) is drawn with its toolbar in that title row, never inside
+  // the page, even while hidden.
+  const browserHeaderLent = (id: string) => {
+    const members = Object.values({
+      ...view.groups,
+      ...view.hiddenGroups,
+    }).find((group) => group.includes(id)) ?? [id];
+    return !spaceMode || members.length <= 1;
+  };
   // Tabs that a tab row (a pane's, or the window's strip) already names.
   const namedAboveIds = new Set(
     Object.values(view.groups)
@@ -11375,6 +11385,9 @@ export default function App({
                                                     visibleSurfaceIds.length ===
                                                     1
                                                   }
+                                                  headerLent={browserHeaderLent(
+                                                    id,
+                                                  )}
                                                   actions={
                                                     browserSurfaceActions
                                                   }

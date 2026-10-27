@@ -25,6 +25,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   visible,
   agentRequested,
   expanded,
+  headerLent,
   actions,
 }: {
   id: string;
@@ -35,6 +36,8 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   visible: boolean;
   agentRequested?: boolean;
   expanded: boolean;
+  /** Its pane's title row draws its toolbar (see BrowserPane). */
+  headerLent?: boolean;
   actions: RefObject<BrowserSurfaceActions>;
 }) {
   const onFocus = useCallback(
@@ -82,6 +85,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       visible={visible}
       agentRequested={agentRequested}
       expanded={expanded}
+      headerLent={headerLent}
       onFocus={onFocus}
       onClose={onClose}
       onToggleExpand={onToggleExpand}

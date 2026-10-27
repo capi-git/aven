@@ -1760,6 +1760,26 @@ describe("native preview lifecycle", () => {
     }
   });
 
+  it("never draws its toolbar inside the page while its pane's title row holds it, even hidden", async () => {
+    await openPane({ headerLent: true, visible: false });
+    await receive();
+    // Hidden, with no row lent yet: no toolbar anywhere, so the page keeps
+    // the size it has when shown.
+    expect(container.querySelector(".browser-toolbar")).toBeNull();
+    const row = document.createElement("div");
+    document.body.append(row);
+    try {
+      await act(async () =>
+        setPaneHeaderSlot("one", { element: row, names: true }),
+      );
+      expect(row.querySelector(".browser-toolbar")).not.toBeNull();
+      expect(container.querySelector(".browser-toolbar")).toBeNull();
+    } finally {
+      await act(async () => setPaneHeaderSlot("one", null));
+      row.remove();
+    }
+  });
+
   it("shows its address, not the page's name, where a tab row above names the page", async () => {
     const row = document.createElement("div");
     document.body.append(row);

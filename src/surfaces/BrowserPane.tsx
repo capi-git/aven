@@ -103,6 +103,12 @@ export type BrowserPaneProps = {
   onToggleExpand?: () => void;
   /** The project this browser belongs to; its mark sits beside the address. */
   project?: string;
+  /**
+   * Its pane's title row draws its toolbar whenever it is shown (it is its
+   * pane's only tab), so the toolbar never sits inside the page: showing
+   * the page again then moves and resizes nothing.
+   */
+  headerLent?: boolean;
 };
 
 const BROWSER_ACTIONS_WIDTH = 224;
@@ -172,6 +178,7 @@ function BrowserPaneSession({
   expanded = false,
   onToggleExpand,
   project,
+  headerLent = false,
 }: BrowserPaneProps) {
   const [url, setUrl] = useState(() => startsWithUrl(initialUrl));
   const [address, setAddress] = useState(initialUrl ?? "");
@@ -1745,7 +1752,11 @@ function BrowserPaneSession({
         }
       }}
     >
-      {headerSlot ? createPortal(toolbar, headerSlot.element) : toolbar}
+      {headerSlot
+        ? createPortal(toolbar, headerSlot.element)
+        : headerLent
+          ? null
+          : toolbar}
       {editing && (
         <div className="browser-edit-hint" role="status">
           <Pencil size={13} />
