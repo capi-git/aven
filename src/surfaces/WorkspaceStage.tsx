@@ -525,10 +525,15 @@ export function WorkspaceStage({
         return a.rect.x - b.rect.x || a.rect.y - b.rect.y;
       })[0]?.id
     : undefined;
+  // A pane with no header of its own (a tab whose panes name themselves)
+  // still gets an empty one where it holds a minimize or restore control.
   const displayHeaders = [...headers];
   if (onMinimizeSide || onRestoreSplit) {
     for (const { id } of leaves) {
-      if (!displayHeaders.some((header) => header.id === id))
+      if (
+        !displayHeaders.some((header) => header.id === id) &&
+        (minimizeControls.has(id) || id === restoreHeaderId)
+      )
         displayHeaders.push({ id, content: null });
     }
   }

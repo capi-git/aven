@@ -180,6 +180,12 @@ export type TitleBarProps = {
   onMovePane?: (side: PaneSide) => void;
   /** A title row whose stack is the window's strip draws no deck for it. */
   stackOnStrip?: boolean;
+  /**
+   * The tab in front is split into panes that each name themselves, so a
+   * title row with nothing stacked behind it keeps only its tools rather
+   * than naming the tab twice.
+   */
+  frontNamedBelow?: boolean;
   /** False where another bar names the window (the window's strip). */
   windowTitle?: boolean;
   paneFocused?: boolean;
@@ -1204,6 +1210,7 @@ function TitleBarComponent({
   paneMoves,
   onMovePane,
   stackOnStrip = false,
+  frontNamedBelow = false,
   windowTitle = true,
   paneFocused = true,
   onNewView,
@@ -1340,7 +1347,7 @@ function TitleBarComponent({
   const frontId = orderedIds.includes(focusedId) ? focusedId : orderedIds[0];
   // Labels sit in the sortable sequence so a group drags like a tab.
   const displayIds = titleRow
-    ? frontId
+    ? frontId && !(frontNamedBelow && orderedIds.length <= 1)
       ? [frontId]
       : []
     : stripDisplayIds(segments);

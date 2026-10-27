@@ -286,6 +286,43 @@ describe("a pane's title row", () => {
   });
 });
 
+describe("a title row over a tab split into panes", () => {
+  it("names nothing when its panes name themselves, and keeps its tools", async () => {
+    const onMove = vi.fn();
+    await render({
+      variant: "title",
+      tabs: [tab("a", "First task")],
+      frontNamedBelow: true,
+      paneZoom: "expand",
+      onTogglePaneZoom: vi.fn(),
+      paneMoves: ["right"],
+      onMovePane: onMove,
+    });
+    // No chip: the chat's own strip below names it once.
+    expect(tabIds()).toEqual([]);
+    expect(container.textContent).not.toContain("First task");
+    const labels = [
+      ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),
+    ].map((button) => button.getAttribute("aria-label"));
+    expect(labels).toEqual([
+      "More actions",
+      "Move right",
+      "Expand",
+      "Close tab",
+    ]);
+    await act(async () => tool("Move right")!.click());
+    expect(onMove).toHaveBeenCalledWith("right");
+    await act(async () => tool("More actions")!.click());
+    expect(menuItem("Close tab")).toBeDefined();
+  });
+
+  it("keeps the chip while other tabs stack behind it, so the deck stays", async () => {
+    await render({ variant: "title", activeId: "b", frontNamedBelow: true });
+    expect(tabIds()).toEqual(["b"]);
+    expect(container.querySelector("button.aven-tab-deck")).not.toBeNull();
+  });
+});
+
 describe("Esc on a title row", () => {
   it("gives the keyboard back to that pane, or the focused pane from the window's strip", () => {
     const stage = document.createElement("div");

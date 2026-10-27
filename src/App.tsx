@@ -10845,6 +10845,14 @@ export default function App({
   // toolbar itself does not redraw with every workspace change.
   const windowStripOwner =
     visibleSurfaceIds.length === 1 ? visibleSurfaceIds[0] : view.focusedId;
+  // A tab split into panes (a chat beside a file, say) is a space of its
+  // own, as in Cydonia: each pane names itself in its strip, so no title row
+  // names the tab again above them. Alone, like a space, it shows no tab on
+  // the window's strip either; among several panes its title row keeps only
+  // its tools.
+  const splitTabIds = new Set(
+    tabs.filter((tab) => tab.layout?.type === "split").map((tab) => tab.id),
+  );
   const windowStrip =
     workspaceVisible && !settingsOpen && view.layout && windowStripOwner
       ? paneBar(windowStripOwner, {
@@ -11084,15 +11092,21 @@ export default function App({
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage
-                              headers={visibleSurfaceIds.map((owner) => ({
-                                id: owner,
-                                key: workspaceHeaderKeys[owner],
-                                content: paneBar(owner, {
-                                  variant: "title",
-                                  stackOnStrip: !spaceMode,
-                                  ...paneTitleTools(owner),
-                                }),
-                              }))}
+                              headers={visibleSurfaceIds
+                                .filter(
+                                  (owner) =>
+                                    spaceMode || !splitTabIds.has(owner),
+                                )
+                                .map((owner) => ({
+                                  id: owner,
+                                  key: workspaceHeaderKeys[owner],
+                                  content: paneBar(owner, {
+                                    variant: "title",
+                                    stackOnStrip: !spaceMode,
+                                    frontNamedBelow: splitTabIds.has(owner),
+                                    ...paneTitleTools(owner),
+                                  }),
+                                }))}
                               layout={view.layout}
                               focusedId={view.focusedId}
                               visible={workspaceVisible}

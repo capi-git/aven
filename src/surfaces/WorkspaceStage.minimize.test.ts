@@ -161,3 +161,62 @@ describe("workspace pane minimization and visible tab headers", () => {
     expect(container.querySelector(".workspace-pane-restore")).toBeNull();
   });
 });
+
+describe("a pane whose own panes name themselves", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  const render = (layout: WorkspaceView["layout"], headers: string[]) =>
+    act(async () =>
+      root.render(
+        createElement(WorkspaceStage, {
+          layout,
+          focusedId: "chat",
+          visible: true,
+          surfaces: ["chat", "web"].map((id) => ({
+            id,
+            content: createElement("div", null, id),
+          })),
+          headers: headers.map((id) => ({ id, content: `${id} title` })),
+          onFocus: vi.fn(),
+          onLayoutChange: vi.fn(),
+          onMinimizeSide: vi.fn(),
+          dragTarget: null,
+          dragging: false,
+        }),
+      ),
+    );
+  const surface = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-workspace-surface="${id}"]`)!;
+  const header = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-workspace-header="${id}"]`);
+
+  it("gets no title row of its own, and no room kept for one", async () => {
+    // A tab split into a chat and a file, alone: its panes' strips name it.
+    await render(leaf("chat"), []);
+    expect(header("chat")).toBeNull();
+    expect(surface("chat").dataset.hasHeader).toBe("false");
+  });
+
+  it("still gets an empty row where it holds a pane's minimize control", async () => {
+    await render(initial.layout, ["web"]);
+    expect(header("web")?.textContent).toContain("web title");
+    // The chat pane named itself, but the seam's Hide control lives here.
+    expect(header("chat")).not.toBeNull();
+    expect(header("chat")?.textContent).not.toContain("chat title");
+    expect(surface("chat").dataset.hasHeader).toBe("true");
+  });
+});
