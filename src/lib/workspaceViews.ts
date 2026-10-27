@@ -768,15 +768,39 @@ export function swapWorkspacePanes(
   if (!view.layout || id === otherId) return view;
   const panes = leafIds(view.layout);
   if (!panes.includes(id) || !panes.includes(otherId)) return view;
-  const swap = (node: LayoutNode): LayoutNode =>
-    node.type === "leaf"
-      ? node.id === id
-        ? leaf(otherId)
-        : node.id === otherId
-          ? leaf(id)
-          : node
-      : { ...node, children: node.children.map(swap) };
-  return { ...view, layout: swap(view.layout) };
+  const swapIn = (layout: LayoutNode, a: string, b: string): LayoutNode => {
+    const swap = (node: LayoutNode): LayoutNode =>
+      node.type === "leaf"
+        ? node.id === a
+          ? leaf(b)
+          : node.id === b
+            ? leaf(a)
+            : node
+        : { ...node, children: node.children.map(swap) };
+    return swap(layout);
+  };
+  const next: WorkspaceView = {
+    ...view,
+    layout: swapIn(view.layout, id, otherId),
+  };
+  // With a side tucked away, Restore rebuilds the arrangement from its
+  // snapshot: swap the same two panes there, or Restore would undo the move.
+  const snapshot = view.restoreView;
+  if (snapshot?.layout) {
+    const ownerIn = (member: string) =>
+      Object.keys(snapshot.groups).find((owner) =>
+        snapshot.groups[owner].includes(member),
+      ) ?? member;
+    const a = ownerIn(id);
+    const b = ownerIn(otherId);
+    const tucked = leafIds(snapshot.layout);
+    if (a !== b && tucked.includes(a) && tucked.includes(b))
+      next.restoreView = {
+        ...snapshot,
+        layout: swapIn(snapshot.layout, a, b),
+      };
+  }
+  return next;
 }
 
 /**

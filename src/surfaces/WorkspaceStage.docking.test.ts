@@ -285,6 +285,20 @@ describe("zoom", () => {
     expect(surface("chat").getAttribute("data-aven-motion")).toBe("pane-in");
   });
 
+  it("does not glide or fade when the expanded pane switches its tab", async () => {
+    props.surfaces = ["chat", "browser", "notes"].map((id) => ({
+      id,
+      content: createElement("p", null, id),
+    }));
+    await render({ layout: columns, focusedId: "browser" });
+    await render({ layout: leaf("browser"), zoomedId: "browser" });
+    animations = [];
+    // The expanded pane's tab in front changes: its leaf is another tab.
+    await render({ layout: leaf("notes"), zoomedId: "notes" });
+    expect(animations).toEqual([]);
+    expect(surface("browser").dataset.handoff).toBeUndefined();
+  });
+
   it("lets a native page land, and does nothing with reduced motion", async () => {
     props.surfaces = [
       { id: "chat", content: createElement("p", null, "chat") },

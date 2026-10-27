@@ -657,10 +657,13 @@ export function WorkspaceStage({
   // each pane stood then, as shares of the stage.
   const zoomShown = useRef<string | null>(null);
   const zoomPlaces = useRef(new Map<string, LayoutRect>());
+  // Expanding, not a tab switch inside the pane already expanded: the stage
+  // last showed several panes.
   const zoomEntering =
     visible &&
     !!zoomedId &&
     zoomShown.current !== zoomedId &&
+    zoomPlaces.current.size > 1 &&
     positions.has(zoomedId);
   useLayoutEffect(() => {
     if (!held.size) return;
@@ -827,7 +830,12 @@ export function WorkspaceStage({
         );
       }
     };
-    if (zoomedId && previous !== zoomedId && positions.size === 1) {
+    if (
+      zoomedId &&
+      previous !== zoomedId &&
+      before.size > 1 &&
+      positions.size === 1
+    ) {
       const from = before.get(zoomedId);
       const to = positions.get(zoomedId);
       if (from && to) glide(zoomedId, px(from), px(to), true);

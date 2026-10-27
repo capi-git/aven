@@ -72,7 +72,9 @@ async function render(overrides: Partial<typeof props> = {}) {
 }
 
 const strip = () =>
-  container.querySelector<HTMLElement>('[aria-label="Workspace tabs"]')!;
+  container.querySelector<HTMLElement>(
+    '[aria-label="Workspace tabs"], [aria-label="Pane"]',
+  )!;
 const tabIds = () =>
   [...container.querySelectorAll<HTMLElement>("[data-surface-tab-id]")].map(
     (node) => node.dataset.surfaceTabId,
@@ -179,6 +181,34 @@ describe("a pane's title row", () => {
     expect(props.onSplitTab).toHaveBeenCalledWith("b", "right", "a");
   });
 
+  it("is a group of controls, not a tab list holding a deck button", async () => {
+    await render({ variant: "title", activeId: "b" });
+    expect(strip().getAttribute("role")).toBe("group");
+    expect(strip().hasAttribute("aria-orientation")).toBe(false);
+    expect(container.querySelector('[role="tab"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+  });
+
+  it("leaves Esc to a tab drag in progress", async () => {
+    await render({ variant: "title" });
+    const stage = document.createElement("div");
+    stage.dataset.workspaceStage = "";
+    stage.innerHTML = `<div data-workspace-surface="a" data-focused="true"><textarea id="box"></textarea></div>`;
+    document.body.append(stage);
+    document.documentElement.classList.add("is-reordering");
+    try {
+      const more = tool("More actions")!;
+      more.focus();
+      more.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(document.activeElement).toBe(more);
+    } finally {
+      document.documentElement.classList.remove("is-reordering");
+      stage.remove();
+    }
+  });
+
   it("draws no deck to open while the window's strip lists the tabs", async () => {
     await render({ variant: "title", stackOnStrip: true });
     expect(container.querySelector("button.aven-tab-deck")).toBeNull();
@@ -223,7 +253,8 @@ describe("a pane's title row", () => {
       paneMoves: ["left", "down"],
       onMovePane: onMove,
     });
-    expect(tool("Restore")!.getAttribute("aria-pressed")).toBe("true");
+    // Its name says what it does; it is not also a toggle.
+    expect(tool("Restore")!.hasAttribute("aria-pressed")).toBe(false);
     await act(async () => tool("Move")!.click());
     expect(menuItems()).toEqual(["Move left", "Move down"]);
     await act(async () => menuItem("Move down").click());

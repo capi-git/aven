@@ -697,9 +697,6 @@ button.aven-tab-deck:focus-visible {
   background: var(--aven-fill-tertiary);
   color: var(--color-content);
 }
-.aven-pane-tool[aria-pressed="true"] {
-  color: var(--color-content);
-}
 .aven-pane-tool:focus-visible {
   outline: 1px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -1px;

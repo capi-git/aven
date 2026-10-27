@@ -68,6 +68,7 @@ import {
   useTabHighlight,
 } from "../hooks/useTabHighlight";
 import { trackSeparators } from "../lib/tabTrack";
+import { focusPaneContent, workspacePane } from "../lib/paneFocus";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
@@ -592,13 +593,14 @@ function TitleTabItem({
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         {deck ? <TabDeck {...deck}>{identity}</TabDeck> : null}
+        {/* A title row is a group of controls, not a list of tabs. */}
         <button
           type="button"
           title={tooltip}
           aria-label={tooltip}
-          role="tab"
+          role={deck ? undefined : "tab"}
           tabIndex={tabStop ? 0 : -1}
-          aria-selected={active}
+          aria-selected={deck ? undefined : active}
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-sortable-glass
           data-tauri-drag-region="false"
@@ -796,9 +798,9 @@ function BrowserTitleTabItem({
         ) : null}
         <button
           type="button"
-          role="tab"
+          role={deck ? undefined : "tab"}
           tabIndex={tabStop ? 0 : -1}
-          aria-selected={active}
+          aria-selected={deck ? undefined : active}
           aria-description={
             preview
               ? "Preview tab. The next page you open takes its place unless you keep it open."
@@ -1185,23 +1187,7 @@ export function OverlayNav({
 export function returnFocusToPane(from: HTMLElement): boolean {
   const owner = from.closest<HTMLElement>("[data-workspace-header]")?.dataset
     .workspaceHeader;
-  const stage = document.querySelector<HTMLElement>(
-    "[data-workspace-stage]:not([hidden])",
-  );
-  const surface = [
-    ...(stage?.querySelectorAll<HTMLElement>("[data-workspace-surface]") ?? []),
-  ].find((node) =>
-    owner
-      ? node.dataset.workspaceSurface === owner
-      : node.dataset.focused === "true",
-  );
-  const target = surface?.querySelector<HTMLElement>(
-    'textarea:not(:disabled), [contenteditable="true"], input:not(:disabled):not([type="hidden"]), [tabindex="0"], button:not(:disabled)',
-  );
-  if (target) {
-    target.focus({ preventScroll: true });
-    return true;
-  }
+  if (focusPaneContent(workspacePane(owner))) return true;
   (document.activeElement as HTMLElement | null)?.blur?.();
   return false;
 }
@@ -2447,6 +2433,8 @@ function TitleBarComponent({
         if (
           event.key !== "Escape" ||
           event.defaultPrevented ||
+          // A tab being dragged: Esc cancels the drag, and nothing else.
+          document.documentElement.classList.contains("is-reordering") ||
           event.altKey ||
           event.ctrlKey ||
           event.metaKey ||
@@ -2508,12 +2496,12 @@ function TitleBarComponent({
           ) : null}
           <div
             ref={setTabStripRef}
-            role="tablist"
+            role={titleRow ? "group" : "tablist"}
             tabIndex={displayedTabIds.length ? -1 : 0}
             data-sortable-scroll-container
             data-surface-order={JSON.stringify(allOrderedIds)}
-            aria-label="Workspace tabs"
-            aria-orientation="horizontal"
+            aria-label={titleRow ? "Pane" : "Workspace tabs"}
+            aria-orientation={titleRow ? undefined : "horizontal"}
             data-tab-track={track || undefined}
             className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
             onFocusCapture={(event) => {
@@ -2776,7 +2764,6 @@ function TitleBarComponent({
                 className="aven-pane-tool"
                 aria-label={paneZoom === "restore" ? "Restore" : "Expand"}
                 title={`${paneZoom === "restore" ? "Restore" : "Expand"} (${CTRL}${ALT}Z)`}
-                aria-pressed={paneZoom === "restore"}
                 onClick={onTogglePaneZoom}
               >
                 {paneZoom === "restore" ? (
