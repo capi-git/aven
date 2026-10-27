@@ -41,7 +41,7 @@
   height: 24px;
   flex-shrink: 0;
   margin: -4px -4px -4px 0;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 .workspace-theme-close:hover {
@@ -51,14 +51,15 @@
 .workspace-theme-schemes {
   display: flex;
   gap: 2px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  border: 1px solid var(--aven-control-edge, transparent);
   padding: 2px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-track);
+  background: var(--aven-fill-quaternary);
 }
 .workspace-theme-schemes > button {
   flex: 1;
   height: 24px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-thumb);
   font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
@@ -174,7 +175,7 @@
   flex: 1;
   min-width: 0;
   padding: 6px 2px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   font-size: var(--text-ui-micro);
 }

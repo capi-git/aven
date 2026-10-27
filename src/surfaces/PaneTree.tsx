@@ -521,8 +521,8 @@ function Sash({
       aria-valuenow={Math.round(boundary * 100)}
       className={
         row
-          ? "absolute z-10 w-px bg-content/10"
-          : "absolute z-10 h-px bg-content/10"
+          ? "absolute z-10 w-(--aven-hairline) bg-(--aven-separator)"
+          : "absolute z-10 h-(--aven-hairline) bg-(--aven-separator)"
       }
       style={
         row
@@ -539,6 +539,7 @@ function Sash({
       }
     >
       <div
+        data-native-hit-margin=""
         className={
           row
             ? "absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize touch-none"

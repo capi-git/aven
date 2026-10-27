@@ -41,7 +41,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   padding: 4px 6px;
   color: var(--aven-muted);
 }
@@ -57,7 +57,7 @@
   align-items: center;
   justify-content: center;
   padding: 5px 8px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg, var(--aven-raised));
   box-shadow: var(--aven-control-shadow, none);
 }

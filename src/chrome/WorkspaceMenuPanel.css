@@ -18,17 +18,17 @@ html.workspace-menu-panel-window #root {
 .workspace-menu-panel-items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 0 8px 8px;
+  gap: 1px;
+  padding: 0 4px 4px;
 }
 .workspace-menu-panel-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
-  min-height: 48px;
-  padding: 10px;
+  min-height: 40px;
+  padding: 7px 8px;
   text-align: left;
   cursor: pointer;
 }
@@ -79,7 +79,7 @@ html.workspace-menu-panel-window #root {
 .workspace-menu-panel-separator {
   flex: 0 0 1px;
   height: 1px;
-  margin: 4px 6px;
+  margin: 4px 8px;
   background: var(--toolbar-panel-line);
 }
 .workspace-menu-panel-custom-header {
@@ -87,16 +87,18 @@ html.workspace-menu-panel-window #root {
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
 .workspace-menu-panel-compact {
-  border-radius: var(--aven-radius-md);
+  border-radius: var(--aven-radius-overlay);
   font-size: var(--text-ui-label);
 }
+/* Compact rows, nested in the menu's corner: 10px less the 4px padding. */
 .workspace-menu-panel-compact .workspace-menu-panel-items {
-  padding: 6px;
+  gap: 0;
+  padding: 4px;
 }
 .workspace-menu-panel-compact .workspace-menu-panel-item {
-  min-height: 30px;
-  padding: 6px 9px;
-  border-radius: var(--aven-radius-sm);
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: var(--aven-radius-row);
   line-height: 18px;
 }
 .workspace-menu-panel-compact .workspace-menu-panel-item[aria-checked="true"] {
@@ -137,16 +139,16 @@ html.workspace-menu-panel-window #root {
 }
 .workspace-menu-panel-search {
   flex: 0 0 auto;
-  padding: 8px 8px 6px;
+  padding: 6px 6px 5px;
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
 .workspace-menu-panel-search-field {
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 32px;
-  padding: 0 9px;
-  border: 1px solid var(--toolbar-panel-line);
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   color: var(--toolbar-panel-muted);
   background: var(--toolbar-panel-hover);

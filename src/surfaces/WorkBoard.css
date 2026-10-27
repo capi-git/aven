@@ -161,7 +161,7 @@
   width: 22px;
   height: 22px;
   place-items: center;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
   opacity: 0;
 }
@@ -281,7 +281,7 @@
   width: 100%;
   min-width: 0;
   padding: 6px 9px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-field-bg, transparent);
   color: var(--color-content);
@@ -355,7 +355,7 @@
 
 .work-board-outside-toggle,
 .work-board-outside-add {
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: inherit;
 }
 
@@ -414,7 +414,7 @@
 /* Ideas' Import issues, and the list it opens. */
 .work-board-import {
   margin-left: auto;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
   font-weight: 400;
 }

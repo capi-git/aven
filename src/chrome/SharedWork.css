@@ -21,9 +21,9 @@
   min-width: 0;
   height: 28px;
   padding: 0 8px 0 9px;
-  border: 1px solid color-mix(in srgb, var(--shared-work-tone) 28%, transparent);
-  border-radius: var(--aven-radius-capsule);
-  background: color-mix(in srgb, var(--shared-work-tone) 7%, transparent);
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-md);
+  background: color-mix(in srgb, var(--shared-work-tone) 11%, transparent);
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-size: var(--text-ui-label);
   line-height: 16px;
@@ -83,7 +83,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   outline: none;
   white-space: nowrap;
 }

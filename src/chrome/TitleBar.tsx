@@ -38,7 +38,6 @@ import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
-import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { looksLikeProject } from "../lib/recents";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import type { HarnessId } from "../lib/session";
@@ -358,7 +357,6 @@ function TitleTabItem({
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
   const { headline, tooltip } = tabCopy(tab, projectless);
-  const appearance = useProjectAppearance(projectless ? null : tab.projectPath);
   const tabRef = useRef<HTMLDivElement | null>(null);
   useTurnEndFlash(tabRef, tab.sessionIds);
   const fileIcon = tab.files[0];
@@ -385,12 +383,6 @@ function TitleTabItem({
       className="personal-title-tab aven-tab group relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
       data-active={active}
       data-closable={closable}
-      data-project-accent={appearance ? true : undefined}
-      style={
-        appearance
-          ? ({ "--tab-project-color": appearance.color } as CSSProperties)
-          : undefined
-      }
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
       data-surface-id={tab.id}

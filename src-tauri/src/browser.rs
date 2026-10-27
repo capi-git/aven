@@ -22,17 +22,41 @@ pub fn browser_renderer_epoch(caller: Webview) -> Result<u64, String> {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
     scale: f64,
+    /// Strips along the page's edges that belong to the dividers beside it
+    /// (browserHitMargins.ts). A WebView2 child cannot let the pointer through
+    /// part of itself, so the page stays clear of them instead.
+    #[serde(default)]
+    hit_margins: Option<BrowserHitMargins>,
 }
+
+/// Widths of the strips along a page's edges, in CSS pixels.
+#[derive(Clone, Copy, Default, Deserialize)]
+pub struct BrowserHitMargins {
+    #[serde(default)]
+    left: f64,
+    #[serde(default)]
+    top: f64,
+    #[serde(default)]
+    right: f64,
+    #[serde(default)]
+    bottom: f64,
+}
+
+/// No divider strip is wider than this, in CSS pixels.
+const MAX_BROWSER_HIT_MARGIN: f64 = 64.0;
 
 impl BrowserBounds {
     fn rect(&self) -> Result<Rect, String> {
         let values = [self.x, self.y, self.width, self.height, self.scale];
+        let margins = self.hit_margins.unwrap_or_default();
+        let insets = [margins.left, margins.top, margins.right, margins.bottom];
         if values.iter().any(|value| !value.is_finite())
             || self.x < 0.0
             || self.y < 0.0
@@ -41,18 +65,27 @@ impl BrowserBounds {
             || self.scale <= 0.0
             || self.scale > 8.0
             || values[..4].iter().any(|value| *value > 32768.0)
+            || insets
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0 || *value > MAX_BROWSER_HIT_MARGIN)
         {
             return Err("Invalid preview bounds".into());
         }
+        // No strip takes more than half the page.
+        let left = self.x + margins.left.min(self.width / 2.0);
+        let top = self.y + margins.top.min(self.height / 2.0);
+        let right = self.x + self.width - margins.right.min(self.width / 2.0);
+        let bottom = self.y + self.height - margins.bottom.min(self.height / 2.0);
+        // Round the edges, not the size: rounding a position and a size
+        // separately can close the one-pixel gap between neighbouring pages
+        // (and hide the divider in it) at 100%, 125% or 150%.
+        let [left, top, right, bottom] =
+            [left, top, right, bottom].map(|value| (value * self.scale).round());
         Ok(Rect {
-            position: PhysicalPosition::new(
-                (self.x * self.scale).round() as i32,
-                (self.y * self.scale).round() as i32,
-            )
-            .into(),
+            position: PhysicalPosition::new(left as i32, top as i32).into(),
             size: PhysicalSize::new(
-                (self.width * self.scale).round() as u32,
-                (self.height * self.scale).round() as u32,
+                (right - left).max(1.0) as u32,
+                (bottom - top).max(1.0) as u32,
             )
             .into(),
         })
@@ -1355,6 +1388,7 @@ mod tests {
             width: 500.0,
             height: 320.0,
             scale: 2.0,
+            hit_margins: None,
         };
         let mut placement = BrowserPlacement::default();
         assert!(placement.record_layout(bounds(), true));
@@ -1590,12 +1624,68 @@ mod tests {
             width: 500.0,
             height: 500.0,
             scale: 2.0,
+            hit_margins: None,
         };
         assert!(bounds.rect().is_ok());
         bounds.width = f64::NAN;
         assert!(bounds.rect().is_err());
         bounds.width = 0.0;
         assert!(bounds.rect().is_err());
+        bounds.width = 500.0;
+        for value in [f64::NAN, -1.0, MAX_BROWSER_HIT_MARGIN + 1.0] {
+            bounds.hit_margins = Some(BrowserHitMargins {
+                left: value,
+                ..BrowserHitMargins::default()
+            });
+            assert!(bounds.rect().is_err());
+        }
+    }
+
+    fn physical(rect: &Rect, scale: f64) -> (i32, i32, u32, u32) {
+        let position = rect.position.to_physical::<i32>(scale);
+        let size = rect.size.to_physical::<u32>(scale);
+        (position.x, position.y, size.width, size.height)
+    }
+
+    #[test]
+    fn neighbouring_pages_keep_their_divider_gap_at_fractional_scales() {
+        // A 1000px stage starting at 216.5, split 0.3 / 0.7 with a 1px gap.
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            let stage = 216.5;
+            let page = |x: f64, width: f64| BrowserBounds {
+                x,
+                y: 40.0,
+                width,
+                height: 600.0,
+                scale,
+                hit_margins: None,
+            };
+            let left = page(stage, 300.0 - 0.5).rect().unwrap();
+            let right = page(stage + 300.0 + 0.5, 700.0 - 0.5).rect().unwrap();
+            let (lx, _, lw, _) = physical(&left, scale);
+            let (rx, _, _, _) = physical(&right, scale);
+            assert!(
+                rx > lx + lw as i32,
+                "at {scale}x the pages touch: {lx}+{lw} and {rx}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_stays_clear_of_the_dividers_beside_it() {
+        let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 100, "y": 50, "width": 400, "height": 300, "scale": 1.5,
+            "hitMargins": {"left": 3.5, "top": 0, "right": 10, "bottom": 1}
+        }))
+        .unwrap();
+        // Edges: 103.5..490 x 50..349, at 1.5x rounded per edge.
+        assert_eq!(physical(&bounds.rect().unwrap(), 1.5), (155, 75, 580, 449));
+        // Older shells send no margins.
+        let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 100, "y": 50, "width": 400, "height": 300, "scale": 1.5
+        }))
+        .unwrap();
+        assert_eq!(physical(&legacy.rect().unwrap(), 1.5), (150, 75, 600, 450));
     }
 }
 

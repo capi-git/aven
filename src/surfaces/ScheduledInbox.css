@@ -33,8 +33,8 @@
   width: 100%;
   min-width: 0;
   padding: 5px 8px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-row);
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-field-bg, var(--aven-hover));
   color: var(--color-content);
   font-size: var(--text-ui-label);
@@ -59,16 +59,16 @@
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-capsule);
-  background: var(--aven-field-bg, var(--aven-hover));
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-track);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
 }
 .scheduled-days button,
 .scheduled-preset {
   min-height: 24px;
   padding: 3px 8px;
   border: 1px solid transparent;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-thumb);
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   line-height: 1.4;
@@ -79,9 +79,9 @@
   color: var(--color-content);
 }
 .scheduled-days button[aria-pressed="true"] {
-  border-color: var(--aven-control-border, var(--aven-line));
-  background: var(--aven-control-bg, var(--aven-raised));
-  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+  border-color: transparent;
+  background: var(--aven-thumb, var(--aven-raised));
+  box-shadow: var(--aven-thumb-shadow, none);
   color: var(--color-content);
   font-weight: 550;
 }
@@ -112,12 +112,11 @@
   gap: 4px;
 }
 .scheduled-examples .scheduled-preset {
-  border-color: var(--aven-line);
+  background: var(--aven-fill-quaternary);
 }
+.scheduled-examples .scheduled-preset:hover,
 .scheduled-examples .scheduled-preset[aria-pressed="true"] {
-  border-color: var(--aven-control-border, var(--aven-line));
-  background: var(--aven-control-bg, var(--aven-raised));
-  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+  background: var(--aven-control-hover, var(--aven-raised));
 }
 
 /* Empty state. The cards use the shared glass card tokens but no backdrop
@@ -186,10 +185,8 @@
   place-items: center;
   width: 26px;
   height: 26px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
   border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg, var(--aven-hover));
-  box-shadow: var(--aven-control-shadow, none);
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .automation-example-name,

@@ -10663,7 +10663,15 @@ export default function App({
                   type="button"
                   className="personal-panel-edge personal-panel-edge-left"
                   aria-label="Show workspace sidebar"
-                  {...(nativeSidebar ? {} : sidebarHover.edgeHandlers)}
+                  // Without the native sidebar layer this strip is what
+                  // reveals the sidebar, so a page at the window's edge
+                  // leaves it the pointer (browserHitMargins.ts).
+                  {...(nativeSidebar
+                    ? {}
+                    : {
+                        ...sidebarHover.edgeHandlers,
+                        "data-native-hit-margin": "",
+                      })}
                   onClick={onToggleSidebar}
                 />
               ) : null}

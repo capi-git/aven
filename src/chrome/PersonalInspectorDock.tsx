@@ -49,6 +49,7 @@ export function PersonalInspectorDock({
           aria-valuenow={resize.width}
           tabIndex={props.active ? 0 : -1}
           className="personal-panel-resizer personal-inspector-divider"
+          data-native-hit-margin=""
           data-resizing={resize.dragging || undefined}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}

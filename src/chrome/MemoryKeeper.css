@@ -34,7 +34,7 @@
   align-items: center;
   height: 24px;
   padding: 0 9px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   outline: none;
   white-space: nowrap;
 }
@@ -157,7 +157,7 @@
   gap: 4px;
   height: 22px;
   padding: 0 7px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--color-content);
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
   font-size: var(--text-ui-caption);

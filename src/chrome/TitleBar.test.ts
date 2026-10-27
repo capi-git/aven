@@ -5,12 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
-import {
-  TAB_GROUP_COLORS,
-  saveTabGroupColor,
-  saveTabGroupLabel,
-  tabGroupColor,
-} from "../lib/tabGroups";
+import { saveTabGroupColor, saveTabGroupLabel } from "../lib/tabGroups";
 import { projectKey } from "../lib/paths";
 import {
   TitleBar,
@@ -783,41 +778,25 @@ describe("browser tab integration", () => {
     }
   });
 
-  it("carries each tab's project colour for the active-tab accent", async () => {
+  it("does not tint a tab with its project's colour", async () => {
     const storage = new Map<string, string>();
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
     const app = "/projects/app";
-    const site = "/projects/site";
     saveTabGroupColor(projectKey(app), 4);
     await render({
       cwd: app,
-      tabs: [
-        tab({ id: "a", title: "One", project: "app", projectPath: app }),
-        tab({ id: "b", title: "Two", project: "site", projectPath: site }),
-        tab({ id: "c", title: "Loose", project: "~", projectPath: "~" }),
-      ],
+      tabs: [tab({ id: "a", title: "One", project: "app", projectPath: app })],
       activeId: "a",
     });
-    const item = (id: string) =>
-      container.querySelector<HTMLElement>(
-        `[data-surface-tab-id="${id}"].personal-title-tab`,
-      )!;
-    expect(item("a").dataset.projectAccent).toBe("true");
-    expect(item("a").style.getPropertyValue("--tab-project-color")).toBe(
-      TAB_GROUP_COLORS[4],
-    );
-    expect(item("b").style.getPropertyValue("--tab-project-color")).toBe(
-      tabGroupColor("site"),
-    );
-    expect(item("c").dataset.projectAccent).toBeUndefined();
-
-    await act(async () => saveTabGroupColor(projectKey(app), 6));
-    expect(item("a").style.getPropertyValue("--tab-project-color")).toBe(
-      TAB_GROUP_COLORS[6],
-    );
+    const item = container.querySelector<HTMLElement>(
+      '[data-surface-tab-id="a"].personal-title-tab',
+    )!;
+    // The active tab is the same neutral grey in every project.
+    expect(item.dataset.projectAccent).toBeUndefined();
+    expect(item.style.getPropertyValue("--tab-project-color")).toBe("");
   });
 
   it("offers Split right for the active tab and keeps a blank local session closable when another pane has sessions", async () => {
@@ -2180,7 +2159,7 @@ describe("shared tab style", () => {
 
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(
-      /height: 26px;[\s\S]*padding-inline: 9px 11px;[\s\S]*border-radius: var\(--aven-radius-capsule\);/,
+      /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: var\(--aven-radius-sm\);/,
     );
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
       "background: var(--aven-tab-selected);",
@@ -2193,6 +2172,10 @@ describe("shared tab style", () => {
     // The active tab is the same grey as every selected control; a project's
     // colour no longer tints it.
     expect(css).not.toContain("--aven-tab-active-fill");
+    // A quiet fill with no edge of its own: only Increase contrast draws one.
+    expect(css).toMatch(
+      /--aven-tab-selected-edge: inset 0 0 0 1px\s+var\(--aven-control-edge, transparent\);/,
+    );
   });
 
   it("leaves no per-family copy of the tab's size or fills", () => {

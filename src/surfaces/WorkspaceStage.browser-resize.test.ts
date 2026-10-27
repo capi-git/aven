@@ -114,9 +114,17 @@ describe("workspace divider and native page presentation", () => {
     vi.spyOn(HTMLElement.prototype, "releasePointerCapture").mockImplementation(
       () => {},
     );
-    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
-      new DOMRect(0, 0, 1000, 600),
-    ] as unknown as DOMRectList);
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(
+      function (this: HTMLElement) {
+        // The divider sits in the gap left of the page (x 504), so it gives
+        // the page no pass-through strip (browserHitMargins.ts).
+        return [
+          this.hasAttribute("data-native-hit-margin")
+            ? new DOMRect(496, 0, 8, 600)
+            : new DOMRect(0, 0, 1000, 600),
+        ] as unknown as DOMRectList;
+      },
+    );
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -251,7 +259,7 @@ describe("workspace divider and native page presentation", () => {
     expect(
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!
         .style.height,
-    ).toBe("calc(70% - 7.5px)");
+    ).toBe("calc(70% - 0.5px)");
     await act(async () => window.dispatchEvent(pointer("pointerup", 500, 422)));
     await flushFrames();
     expect(native.create).toHaveBeenCalledOnce();

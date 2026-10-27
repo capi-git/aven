@@ -492,7 +492,7 @@ function MessageQueue({
                           saveEdit(message);
                         }
                       }}
-                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
+                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
                     />
                     <button
                       type="button"
@@ -2172,7 +2172,7 @@ function ComposerComponent({
                     if (reason === "escape") ref.current?.focus();
                   }}
                   data-composer-plus
-                  className="p-1.5 outline-none"
+                  className="p-1 outline-none"
                 >
                   <p className="px-2 pb-1 pt-0.5 text-ui-micro font-medium uppercase tracking-wide text-content/40">
                     Add to message
@@ -2185,7 +2185,7 @@ function ComposerComponent({
                       setPlusOpen(false);
                       attachFromPicker();
                     }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <FilePlus className="mt-0.5 size-4 shrink-0" />
                     <span className="min-w-0">
@@ -2219,7 +2219,7 @@ function ComposerComponent({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
                       <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
                       <span className="min-w-0 flex-1">
@@ -2247,7 +2247,7 @@ function ComposerComponent({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
                       <Share className="mt-0.5 size-4 shrink-0 text-accent" />
                       <span className="min-w-0 flex-1">
@@ -2273,7 +2273,7 @@ function ComposerComponent({
                         else startDiscussMode();
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
                       <MessageMultiple className="mt-0.5 size-4 shrink-0 text-accent" />
                       <span className="min-w-0 flex-1">
@@ -2300,7 +2300,7 @@ function ComposerComponent({
                         else startRaceMode();
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
                       <Race
                         className="mt-0.5 size-4 shrink-0 text-accent"
