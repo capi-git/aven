@@ -1933,22 +1933,49 @@ function paneStrips(pane: Element): HTMLElement[] {
 }
 
 /**
+ * A hairline drawn under a bar: a bottom border, or an inset shadow pushed up
+ * from the bottom edge (a negative vertical offset).
+ */
+export function hasHairlineBelow(element: HTMLElement) {
+  const style = getComputedStyle(element);
+  if (
+    parseFloat(style.borderBottomWidth) > 0 &&
+    style.borderBottomStyle !== "none"
+  )
+    return true;
+  // Colours may be functions with commas of their own; drop them first.
+  const shadows = (style.boxShadow || "")
+    .replace(/[a-z-]+\([^()]*\)/gi, "")
+    .split(",");
+  return shadows.some((shadow) => {
+    const tokens = shadow.trim().split(/\s+/);
+    if (!tokens.includes("inset")) return false;
+    const lengths = tokens
+      .filter((token) => /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(token))
+      .map(parseFloat);
+    return lengths.length >= 2 && lengths[1] < 0;
+  });
+}
+
+/**
  * Why a tab holding a chat beside a file pane does not give each pane one
- * strip laid out above its content (the file's tab row is its strip), draw
- * panes as cards and use one tab style, or null with what it measured.
- * `file` is any element in the file's pane.
+ * strip laid out above its content (the file's tab row is its strip), lay
+ * the panes out flush as an IDE does (square, against the workspace's edges,
+ * hairlines under the tab rows and between the panes) and use one tab
+ * style, or null with what it measured. `file` is any element in the file's
+ * pane.
  */
 export function paneLayoutProblem(file: HTMLElement): {
   problem: string | null;
   summary: string;
 } {
   const fail = (problem: string) => ({ problem, summary: "" });
-  const card = file.closest<HTMLElement>(".workspace-stage-surface");
-  const stage = card?.closest<HTMLElement>("[data-workspace-stage]");
-  if (!card || !stage) return fail("the file is not in a workspace pane");
+  const tab = file.closest<HTMLElement>(".workspace-stage-surface");
+  const stage = tab?.closest<HTMLElement>("[data-workspace-stage]");
+  if (!tab || !stage) return fail("the file is not in a workspace pane");
   const filePane = file.closest<HTMLElement>("[data-pane-id]");
   const chatPane = [
-    ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
+    ...tab.querySelectorAll<HTMLElement>("[data-pane-id]"),
   ].find(
     (pane) =>
       pane !== filePane &&
@@ -1981,35 +2008,54 @@ export function paneLayoutProblem(file: HTMLElement): {
       return fail(
         `the ${who}'s strip covers ${Math.round(overlap)}px of its content`,
       );
+    if (!hasHairlineBelow(strip))
+      return fail(`the ${who}'s strip has no hairline under it`);
     strips.push(strip);
   }
   const [chatStrip, fileStrip] = strips;
-  // A card: rounded, with a hairline edge, clear of the workspace's edges.
-  const style = getComputedStyle(card);
-  const radius = parseFloat(style.borderTopLeftRadius);
-  // Panes nest in the window's corner less the gutter: 11px on macOS 26 and
-  // 5px in macOS 13 to 15's 10pt windows (the release check runs on 15).
-  if (!(radius >= 4)) return fail(`the pane's corners are ${radius}px`);
-  if (parseFloat(style.borderTopWidth) !== 1)
-    return fail(`the pane's edge is ${style.borderTopWidth}`);
-  const cardRect = card.getBoundingClientRect();
+  // Flush, as in an IDE: square, with no edge of its own, against the
+  // workspace's edges (the window's corner and the regions around the
+  // workspace draw what is beyond them).
+  const style = getComputedStyle(tab);
+  const radius = parseFloat(style.borderTopLeftRadius) || 0;
+  if (radius > 0) return fail(`the pane's corners are ${radius}px`);
+  const edge = parseFloat(style.borderTopWidth) || 0;
+  if (edge > 0) return fail(`the pane has a ${edge}px edge of its own`);
+  const tabRect = tab.getBoundingClientRect();
   const stageRect = stage.getBoundingClientRect();
-  const inset = Math.min(
-    cardRect.left - stageRect.left,
-    cardRect.top - stageRect.top,
-    stageRect.right - cardRect.right,
-    stageRect.bottom - cardRect.bottom,
+  const inset = Math.max(
+    tabRect.left - stageRect.left,
+    tabRect.top - stageRect.top,
+    stageRect.right - tabRect.right,
+    stageRect.bottom - tabRect.bottom,
   );
-  if (inset < 3) return fail(`the card is ${inset}px from the workspace edge`);
+  if (inset > 0.5)
+    return fail(`the pane is ${inset}px from the workspace edge`);
+  // A hairline divides the two panes: the split's own divider, beside them.
+  const divider = [
+    ...(chatPane.parentElement?.querySelectorAll<HTMLElement>(
+      ':scope > [role="separator"]',
+    ) ?? []),
+  ].find(onScreen);
+  if (!divider) return fail("no divider between the panes");
+  const dividerRect = divider.getBoundingClientRect();
+  const thickness =
+    divider.getAttribute("aria-orientation") === "horizontal"
+      ? dividerRect.height
+      : dividerRect.width;
+  if (!(thickness > 0 && thickness <= 1))
+    return fail(`the divider between the panes is ${thickness}px thick`);
   // One tab style: the tab's own bar, the chat's strip and the file's tabs.
   const header = stage.querySelector<HTMLElement>(
-    `:scope > [data-workspace-header="${card.dataset.workspaceSurface}"]`,
+    `:scope > [data-workspace-header="${tab.dataset.workspaceSurface}"]`,
   );
   const headerTab = header?.querySelector<HTMLElement>(".aven-tab-button");
   const chatTab = chatStrip.querySelector<HTMLElement>(".aven-tab-button");
   const fileTab = fileStrip.querySelector<HTMLElement>(".aven-tab-button");
   if (!header || !headerTab || !chatTab || !fileTab)
     return fail("the tab, the chat or the file has no tab");
+  if (!hasHairlineBelow(header))
+    return fail("the tab's bar has no hairline under it");
   const height = (element: HTMLElement) =>
     Math.round(element.getBoundingClientRect().height);
   if (
@@ -2033,7 +2079,7 @@ export function paneLayoutProblem(file: HTMLElement): {
       );
   return {
     problem: null,
-    summary: `one ${height(header)}px strip per pane above its content; cards with ${radius}px corners ${Math.round(inset)}px from the edge; tab, chat and file tabs ${look(headerTab)}`,
+    summary: `one ${height(header)}px strip per pane above its content, each over a hairline; square panes flush with the workspace, divided by a ${thickness}px hairline; tab, chat and file tabs ${look(headerTab)}`,
   };
 }
 
@@ -3117,12 +3163,13 @@ export async function runDevSmoke(
     );
 
   // A file opened beside a chat: a tab with a chat and a file pane, each with
-  // one strip above its content (the file's tab row is its strip), drawn as
-  // cards and with one tab style. A chat alone in its tab has no strip.
+  // one strip above its content (the file's tab row is its strip), laid out
+  // flush with hairlines between them and with one tab style. A chat alone
+  // in its tab has no strip.
   const openFile = get().openFile;
   if (safe && get().paneLayout && openFile)
     await step(
-      "a chat beside a file has one strip each, cards and the shared tabs",
+      "a chat beside a file has one strip each, flush panes and the shared tabs",
       async () => {
         get().motion?.showWorkspace?.();
         await openNewTask(get, config.projectPath);

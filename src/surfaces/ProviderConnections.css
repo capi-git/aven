@@ -121,8 +121,8 @@
   width: 100%;
   min-width: 0;
   padding: 6px 9px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-control, 8px);
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-control, 6px);
   background: var(--aven-field-bg);
   color: var(--color-content);
   font-family: var(--font-mono, ui-monospace, monospace);

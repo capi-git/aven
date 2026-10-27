@@ -44,13 +44,14 @@ html.has-chat-background .workspace-home::before {
   min-width: 0;
 }
 
-/* iOS's large title: bold, its tracking tightened for its size. */
+/* A plain page title, the same as Settings': semibold, its tracking
+   tightened a little. */
 .workspace-home-title h1 {
   margin: 0;
-  font-size: var(--text-ui-title, 26px);
-  font-weight: 700;
-  line-height: 1.12;
-  letter-spacing: -0.022em;
+  font-size: var(--text-ui-title, 20px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
   overflow-wrap: anywhere;
 }
 
@@ -71,10 +72,10 @@ html.has-chat-background .workspace-home::before {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
-  padding: 5px 14px 5px 11px;
+  min-height: 28px;
+  padding: 4px 12px 4px 10px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: 999px;
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg);
   box-shadow: none;
   color: var(--color-content);
@@ -90,14 +91,10 @@ html.has-chat-background .workspace-home::before {
   background: var(--aven-control-hover, var(--aven-hover));
 }
 
-/* The one prominent start: a filled accent capsule, as the send button. */
+/* The one prominent start: filled with the accent, as the send button. */
 .workspace-home-actions .workspace-home-new {
   background: var(--color-accent);
   border-color: transparent;
-  box-shadow:
-    inset 0 var(--aven-hairline, 1px) 0
-      color-mix(in srgb, #fff 30%, transparent),
-    0 1px 3px #00000033;
   color: var(--aven-on-accent, var(--color-background-base));
   font-weight: 600;
 }
@@ -113,13 +110,12 @@ html.has-chat-background .workspace-home::before {
   margin-bottom: 22px;
 }
 
-/* Section titles lead by weight, as iOS's do. */
+/* Section titles lead by weight, a step above the rows. */
 .workspace-home h2 {
-  margin: 0 0 8px 4px;
+  margin: 0 0 6px 4px;
   color: var(--color-content);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.012em;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
 }
 
 .workspace-home h2:focus {
@@ -133,18 +129,15 @@ html.has-chat-background .workspace-home::before {
   --home-panel-pad: 4px;
   min-width: 0;
   padding: var(--home-panel-pad);
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-resting-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-xl, 12px);
   background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow:
-    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 
 .workspace-home-agent {
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-resting-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-xl, 12px);
   background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow: var(--aven-glass-sheen, none);
 }
 
 /* Right now: a few small chips under the greeting, only for counts above
@@ -273,11 +266,9 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-briefing {
   margin-bottom: 22px;
   padding: 10px 10px 12px 14px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-resting-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-xl, 12px);
   background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow:
-    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -323,12 +314,11 @@ html.has-chat-background .workspace-home::before {
   width: 24px;
   height: 24px;
   margin-left: auto;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
-  background: var(--aven-fill-tertiary);
 }
-
 .workspace-home .workspace-home-briefing-dismiss:hover:not(:disabled) {
+  background: var(--aven-fill-tertiary);
   color: var(--color-content);
 }
 
@@ -455,7 +445,7 @@ html.has-chat-background .workspace-home::before {
   gap: 3px;
   min-width: 0;
   padding: 8px 10px 12px;
-  border-radius: var(--aven-radius-card, 16px);
+  border-radius: var(--aven-radius-xl, 12px);
   text-align: center;
   transition:
     background-color 120ms ease,
@@ -660,7 +650,6 @@ html.has-chat-background .workspace-home::before {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: 9px;
   background: color-mix(
     in srgb,
@@ -689,7 +678,7 @@ html.has-chat-background .workspace-home::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: var(--aven-radius-card, 16px);
+  border-radius: var(--aven-radius-xl, 12px);
 }
 
 .workspace-home .workspace-home-agent-open:hover:not(:disabled) {
@@ -757,7 +746,7 @@ html.has-chat-background .workspace-home::before {
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
 }
 
@@ -780,7 +769,7 @@ html.has-chat-background .workspace-home::before {
   min-height: 150px;
   padding: 12px;
   border: 1px dashed var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 16px);
+  border-radius: var(--aven-radius-xl, 12px);
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   font-weight: 500;
@@ -817,12 +806,10 @@ html.has-chat-background .workspace-home::before {
   width: 100%;
   align-items: center;
   gap: var(--home-row-gap, 10px);
-  min-height: 42px;
-  padding: 6px var(--home-row-inline, 10px);
+  min-height: 40px;
+  padding: 5px var(--home-row-inline, 10px);
   /* Concentric with its panel: the panel's corner less its padding. */
-  border-radius: calc(
-    var(--aven-radius-card, 16px) - var(--home-panel-pad, 4px)
-  );
+  border-radius: calc(var(--aven-radius-xl, 12px) - var(--home-panel-pad, 4px));
   text-align: left;
   font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
@@ -956,7 +943,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-more {
   margin: 6px 0 0 6px;
   padding: 4px 10px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
 }
@@ -1068,9 +1055,9 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-window button {
-  padding: 6px 13px;
+  padding: 4px 12px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: none;
   font-size: var(--text-ui-label);

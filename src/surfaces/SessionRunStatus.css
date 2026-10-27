@@ -6,8 +6,8 @@
   gap: 9px;
   min-height: 38px;
   margin: 0 4px 8px;
-  padding: 6px 8px 6px 7px;
-  border-radius: var(--aven-radius-bubble);
+  padding: 6px 6px 6px 7px;
+  border-radius: var(--aven-radius-lg);
   color: var(--color-content);
   background: var(--aven-glass-surface, var(--aven-hover));
   box-shadow: var(--aven-specular);
@@ -175,10 +175,10 @@ html.theme-light
   justify-content: center;
   gap: 5px;
   flex-shrink: 0;
-  min-height: 28px;
-  padding: 4px 11px;
+  min-height: 26px;
+  padding: 3px 10px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: none;
   color: var(--color-content);

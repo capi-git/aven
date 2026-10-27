@@ -70,6 +70,7 @@ extern "C" {
         bottom_corner_radius: f64,
         holes: *const f64,
         hole_count: c_int,
+        hit_margins: *const f64,
     ) -> c_int;
     fn sm_chromium_reparent(
         id: *const c_char,
@@ -119,7 +120,27 @@ pub struct BrowserBounds {
     /// In-app menus cut out of the live page, relative to its origin.
     #[serde(default)]
     holes: Vec<BrowserHole>,
+    /// Strips along the page's edges whose pointer events go to the dividers
+    /// beneath it (browserHitMargins.ts).
+    #[serde(default)]
+    hit_margins: Option<BrowserHitMargins>,
 }
+
+/// Widths of the pass-through strips along a page's edges, in CSS pixels.
+#[derive(Clone, Copy, Default, Deserialize)]
+pub struct BrowserHitMargins {
+    #[serde(default)]
+    left: f64,
+    #[serde(default)]
+    top: f64,
+    #[serde(default)]
+    right: f64,
+    #[serde(default)]
+    bottom: f64,
+}
+
+/// No pass-through strip is wider than this, in CSS pixels.
+const MAX_BROWSER_HIT_MARGIN: f64 = 64.0;
 
 /// Upper bound on page cut-outs; more surfaces use the still-image path.
 const MAX_BROWSER_HOLES: usize = 8;
@@ -166,6 +187,13 @@ impl BrowserBounds {
             || self
                 .viewport_height
                 .is_some_and(|height| !height.is_finite() || height <= 0.0 || height > 32768.0)
+            || self.hit_margins.is_some_and(|margins| {
+                [margins.left, margins.top, margins.right, margins.bottom]
+                    .iter()
+                    .any(|value| {
+                        !value.is_finite() || *value < 0.0 || *value > MAX_BROWSER_HIT_MARGIN
+                    })
+            })
             || self.holes.len() > MAX_BROWSER_HOLES
             || self.holes.iter().any(|hole| {
                 // A menu may start above or left of the page it overlaps.
@@ -227,6 +255,23 @@ impl BrowserBounds {
             );
         }
         Ok(points)
+    }
+    /// `[left, top, right, bottom]` pass-through strips in native points, at
+    /// most half the page each, or `None` when there are none.
+    fn hit_margin_points(&self, native_scale: f64) -> Result<Option<[f64; 4]>, String> {
+        self.points(native_scale)?;
+        let Some(margins) = self.hit_margins else {
+            return Ok(None);
+        };
+        let ratio = self.scale / native_scale;
+        let points = [
+            margins.left.min(self.width / 2.0),
+            margins.top.min(self.height / 2.0),
+            margins.right.min(self.width / 2.0),
+            margins.bottom.min(self.height / 2.0),
+        ]
+        .map(|value| value * ratio);
+        Ok(points.iter().any(|value| *value > 0.0).then_some(points))
     }
     fn viewport_points(&self, native_scale: f64) -> Result<f64, String> {
         self.points(native_scale)?;
@@ -1933,6 +1978,7 @@ pub async fn browser_layout(
         let viewport_height = bounds.viewport_points(scale)?;
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
         let holes = bounds.hole_points(scale)?;
+        let hit_margins = bounds.hit_margin_points(scale)?;
         trace_layout(
             "layout-accepted",
             &context.native_id,
@@ -1956,6 +2002,9 @@ pub async fn browser_layout(
                 bottom_corner_radius,
                 holes.as_ptr(),
                 (holes.len() / 5) as c_int,
+                hit_margins
+                    .as_ref()
+                    .map_or(std::ptr::null(), |margins| margins.as_ptr()),
             )
         })
     })
@@ -2032,10 +2081,12 @@ async fn move_page(
                 clip[1],
                 viewport_height,
                 bottom_corner_radius,
-                // Menu cut-outs are transient; the shell republishes them
-                // after a reparent rather than reusing stale rectangles.
+                // Menu cut-outs and divider strips are transient; the shell
+                // republishes them after a reparent rather than reusing stale
+                // rectangles.
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
             )
         })
     })
@@ -3059,6 +3110,7 @@ mod tests {
             viewport_height: Some(860.0),
             bottom_corner_radius: 8.0,
             holes: Vec::new(),
+            hit_margins: None,
         };
         assert_eq!(bounds.points(2.0).unwrap(), [80.0, 40.0, 640.0, 480.0]);
         assert_eq!(bounds.viewport_points(2.0).unwrap(), 688.0);
@@ -3180,6 +3232,56 @@ mod tests {
             }
             .validate()
             .is_err());
+        }
+    }
+    #[test]
+    fn converts_divider_hit_margins_to_native_points_and_bounds_them() {
+        let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 100, "y": 50, "width": 800, "height": 600, "scale": 1.5,
+            "hitMargins": {"left": 4, "top": 0, "right": 3.5, "bottom": 1}
+        }))
+        .unwrap();
+        bounds.validate().unwrap();
+        assert_eq!(
+            bounds.hit_margin_points(1.0).unwrap(),
+            Some([6.0, 0.0, 5.25, 1.5])
+        );
+        // At most half the page each.
+        let narrow = BrowserBounds {
+            width: 6.0,
+            ..bounds.clone()
+        };
+        assert_eq!(
+            narrow.hit_margin_points(1.5).unwrap(),
+            Some([3.0, 0.0, 3.0, 1.0])
+        );
+        // Absent, or all zero, sends none.
+        let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
+        }))
+        .unwrap();
+        assert_eq!(legacy.hit_margin_points(2.0).unwrap(), None);
+        let zero = BrowserBounds {
+            hit_margins: Some(BrowserHitMargins::default()),
+            ..legacy.clone()
+        };
+        assert_eq!(zero.hit_margin_points(2.0).unwrap(), None);
+        for value in [f64::NAN, f64::INFINITY, -1.0, MAX_BROWSER_HIT_MARGIN + 1.0] {
+            for side in 0..4 {
+                let mut margins = BrowserHitMargins::default();
+                match side {
+                    0 => margins.left = value,
+                    1 => margins.top = value,
+                    2 => margins.right = value,
+                    _ => margins.bottom = value,
+                }
+                assert!(BrowserBounds {
+                    hit_margins: Some(margins),
+                    ..legacy.clone()
+                }
+                .validate()
+                .is_err());
+            }
         }
     }
     #[test]

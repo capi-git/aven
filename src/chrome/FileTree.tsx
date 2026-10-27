@@ -647,7 +647,7 @@ export const FileTree = memo(function FileTree({
         onContextMenu={onBackgroundMenu}
       >
         <div
-          className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-content/10 px-2"
+          className="flex h-8 shrink-0 items-center gap-px overflow-visible border-b border-content/10 px-1.5"
           onContextMenu={(e) => e.stopPropagation()}
         >
           <HeaderIcon label="New File" onClick={() => startCreate(false)}>
@@ -677,7 +677,7 @@ export const FileTree = memo(function FileTree({
             </HeaderIcon>
           ) : null}
         </div>
-        <div className="flex h-8 shrink-0 items-center">
+        <div className="flex h-7 shrink-0 items-center">
           <button
             type="button"
             data-explorer-root
@@ -920,7 +920,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           onClick={onClick}
           onContextMenu={(e) => onItemContextMenu(entry, e)}
           style={{ paddingLeft: 8 + depth * 12 }}
-          className={`flex h-7.5 w-full cursor-default items-center gap-1 pr-2 text-left text-ui-reading leading-none ${
+          className={`flex h-6.5 w-full cursor-default items-center gap-1 pr-2 text-left text-ui-body leading-none ${
             selected
               ? "bg-content/10 text-content"
               : "text-content hover:bg-content/5"
@@ -1030,7 +1030,7 @@ function NameRow({
     <div>
       <div
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-7.5 w-full items-center gap-1 bg-content/10 pr-2"
+        className="flex h-6.5 w-full items-center gap-1 bg-content/10 pr-2"
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {isDir ? (
@@ -1066,7 +1066,7 @@ function NameRow({
             }
           }}
           onBlur={() => finish(issue === null || issue.severity !== "error")}
-          className="h-5 min-w-0 flex-1 rounded-sm bg-content/10 px-1 text-ui-reading leading-none text-content outline-none ring-1 ring-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="h-5 min-w-0 flex-1 rounded-sm bg-content/10 px-1 text-ui-body leading-none text-content outline-none ring-1 ring-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
       </div>
       {showIssue ? (

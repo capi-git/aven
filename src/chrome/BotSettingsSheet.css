@@ -24,7 +24,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 44px;
+  min-height: 40px;
   border-bottom: var(--aven-hairline) solid var(--aven-separator);
 }
 .bot-sheet-row > span {

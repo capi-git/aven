@@ -967,7 +967,7 @@ function GitSyncActions({
     ? `View PR #${pr.number}: ${pr.title}`
     : "View pull request";
   const btn =
-    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-ui-label font-medium disabled:opacity-40";
+    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-3 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
   const showPublish = canPublish;
   const showSync = canSync;
@@ -1347,7 +1347,7 @@ function ChangeDirRow({
         aria-expanded={open}
         onClick={toggle}
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-7 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
+        className="flex h-6.5 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {open ? (
@@ -1476,7 +1476,7 @@ function ChangeRow({
     <li>
       <div
         style={tree ? { paddingLeft: 8 + depth * 12 } : undefined}
-        className={`group flex h-7 w-full items-center gap-1 pr-2 leading-none ${
+        className={`group flex h-6.5 w-full items-center gap-1 pr-2 leading-none ${
           tree ? "" : "pl-2"
         } ${
           active

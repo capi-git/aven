@@ -11,7 +11,7 @@
   max-height: calc(100vh - 60px);
   overflow: auto;
   border: 1px solid var(--aven-glass-overlay-edge);
-  border-radius: var(--aven-radius-overlay);
+  border-radius: var(--aven-radius-sheet);
   background: var(--aven-popup);
   box-shadow: var(--aven-shadow);
   padding: 20px;
@@ -45,7 +45,7 @@
 .workspace-action-dialog textarea,
 .workspace-action-dialog select,
 .workspace-folder-button {
-  border: 1px solid var(--aven-control-border);
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   padding: 8px 10px;
   font: inherit;
@@ -67,7 +67,7 @@
 }
 .workspace-action-dialog footer button {
   padding: 7px 12px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
 }
@@ -107,7 +107,7 @@
   font-size: var(--text-ui-caption);
   padding: 4px 8px;
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
 }
 .workspace-pr-context {
   display: flex;

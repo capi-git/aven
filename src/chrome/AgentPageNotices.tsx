@@ -58,7 +58,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
           <button
             type="button"
             onClick={() => onShow(notice)}
-            className="shrink-0 rounded-full bg-content/10 px-3 py-0.5 text-ui-label font-medium text-content hover:bg-content/15"
+            className="shrink-0 rounded-md bg-content/10 px-3 py-0.5 text-ui-label font-medium text-content hover:bg-content/15"
           >
             Show
           </button>
@@ -66,7 +66,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
             type="button"
             aria-label="Dismiss"
             onClick={() => onDismiss(notice.id)}
-            className="grid size-6 shrink-0 place-items-center rounded-full text-content/50 hover:bg-content/10 hover:text-content"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content"
           >
             <X className="size-3.5" />
           </button>

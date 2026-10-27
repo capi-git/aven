@@ -14,6 +14,14 @@
 // Cut-outs in this view's coordinates, or NULL. The view retains the path.
 - (void)setHolePath:(CGPathRef)path;
 - (BOOL)holeContainsPoint:(NSPoint)point;
+// Where the page takes the pointer, in this view's coordinates; outside it
+// (strips along the page's edges over pane dividers) the pointer goes to the
+// workspace webview beneath, though the page still draws there. NSZeroRect
+// means the whole view.
+- (void)setHitRect:(NSRect)rect;
+// Whether the pointer at `point` (this view's coordinates) belongs to the
+// page: not in a cut-out, an edge strip, or the part a slide has not uncovered.
+- (BOOL)pageTakesPoint:(NSPoint)point;
 // Called when the pointer moves onto the live page. The workspace webview
 // beneath never sees the pointer cross into this view, so a hover panel
 // beside the page would otherwise stay open.
@@ -34,6 +42,7 @@
 
 @implementation SMBrowserClipView {
   CGPathRef _holes;
+  NSRect _hitRect;
   NSTrackingArea* _tracking;
   CALayer* _slideMask;
   NSUInteger _slideToken;
@@ -124,9 +133,7 @@
   // A menu cut out of the page, or the part a slide has not uncovered, still
   // belongs to the workspace webview.
   const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  if (self.pointerEntered && ![self holeContainsPoint:point] &&
-      point.x >= [self visibleLeadingEdge])
-    self.pointerEntered();
+  if (self.pointerEntered && [self pageTakesPoint:point]) self.pointerEntered();
 }
 - (void)dealloc {
   if (_holes) CGPathRelease(_holes);
@@ -139,15 +146,21 @@
 - (BOOL)holeContainsPoint:(NSPoint)point {
   return _holes && CGPathContainsPoint(_holes, nullptr, NSPointToCGPoint(point), false);
 }
+- (void)setHitRect:(NSRect)rect {
+  _hitRect = rect;
+}
+- (BOOL)pageTakesPoint:(NSPoint)point {
+  if (_holes && [self holeContainsPoint:point]) return NO;
+  if (point.x < [self visibleLeadingEdge]) return NO;
+  return NSIsEmptyRect(_hitRect) || NSPointInRect(point, _hitRect);
+}
 - (NSView*)hitTest:(NSPoint)point {
   // AppKit passes the point in the superview's coordinate system. Returning
-  // nil lets the window continue to the workspace webview under the menu.
-  if (self.superview) {
-    const NSPoint local = [self convertPoint:point fromView:self.superview];
-    if ((_holes && [self holeContainsPoint:local]) ||
-        local.x < [self visibleLeadingEdge])
-      return nil;
-  }
+  // nil lets the window continue to the workspace webview under the menu or
+  // divider.
+  if (self.superview &&
+      ![self pageTakesPoint:[self convertPoint:point fromView:self.superview]])
+    return nil;
   return [super hitTest:point];
 }
 @end
@@ -159,6 +172,37 @@ struct BrowserHole {
   double x = 0, y = 0, width = 0, height = 0, radius = 0;
   bool operator==(const BrowserHole&) const = default;
 };
+
+// Strips along the page's edges, in native points, whose pointer events go to
+// the workspace's dividers beneath the page.
+struct BrowserHitMargins {
+  double left = 0, top = 0, right = 0, bottom = 0;
+  bool operator==(const BrowserHitMargins&) const = default;
+  bool empty() const { return left <= 0 && top <= 0 && right <= 0 && bottom <= 0; }
+};
+
+// Where the page takes the pointer, in the clipping host's coordinates: the
+// browser frame less its margins. The page's top edge is the frame's top edge
+// in either AppKit orientation. NSZeroRect when there are no margins.
+inline NSRect BrowserHitRect(NSRect browser_frame, const BrowserHitMargins& margins,
+                             bool flipped) {
+  if (margins.empty()) return NSZeroRect;
+  const auto edge = [](double value) {
+    return std::isfinite(value) ? std::max(0.0, value) : 0.0;
+  };
+  const double left = edge(margins.left), right = edge(margins.right);
+  const double top = edge(margins.top), bottom = edge(margins.bottom);
+  NSRect rect = browser_frame;
+  rect.origin.x += left;
+  rect.size.width = std::max(0.0, rect.size.width - left - right);
+  rect.origin.y += flipped ? top : bottom;
+  rect.size.height = std::max(0.0, rect.size.height - top - bottom);
+  // A page narrower than its margins takes no pointer at all; keep a
+  // non-empty rectangle that contains no point so it is not read as "none".
+  if (rect.size.width <= 0 || rect.size.height <= 0)
+    return NSMakeRect(rect.origin.x, rect.origin.y, 0.001, 0.001);
+  return rect;
+}
 
 struct BrowserHostFrames {
   NSRect clip;

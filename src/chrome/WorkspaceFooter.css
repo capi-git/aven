@@ -43,7 +43,7 @@
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
 }
 
 .workspace-footer-icon[aria-pressed="true"] {

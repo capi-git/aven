@@ -126,7 +126,7 @@
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   cursor: default;
 }
@@ -252,7 +252,7 @@ button.discussion-side:focus-visible {
   gap: 1px;
   width: 22px;
   padding: 3px 0;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-xs);
   font-size: var(--text-ui-micro, 10px);
   line-height: 12px;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
@@ -294,7 +294,7 @@ button.discussion-side:focus-visible {
 .discussion-fold button {
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--aven-line);
+  background: var(--aven-fill-quaternary);
 }
 .discussion-fold button:hover {
   background: var(--aven-hover);
@@ -423,8 +423,8 @@ button.discussion-side:focus-visible {
   align-self: center;
   margin-top: 6px;
   padding: 4px 12px;
-  border: 1px solid var(--aven-line);
   border-radius: 999px;
+  background: var(--aven-fill-quaternary);
   font-size: var(--text-ui-label);
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   text-align: center;
@@ -557,7 +557,7 @@ button.discussion-side:focus-visible {
   flex-shrink: 0;
   width: 26px;
   height: 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--personal-accent, var(--color-accent));
   color: var(--personal-main-surface, var(--color-background-base));
 }

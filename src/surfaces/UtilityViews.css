@@ -21,7 +21,7 @@
 :is([data-app-notes], [data-app-inbox]) input[placeholder^="Filter"],
 [data-app-search] input[aria-label="Search"] {
   min-height: 28px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   background: var(--aven-field-bg, var(--aven-hover));
 }
@@ -59,7 +59,7 @@
   padding-inline: 10px;
 }
 [data-app-search] button[aria-pressed] {
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   padding-inline: 10px;
   color: var(--aven-muted);
 }
@@ -78,7 +78,7 @@
 }
 .note-detail-content header button {
   height: 30px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
 }
 .file-editor-status {
   border-color: var(--aven-line);

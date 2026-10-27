@@ -22,6 +22,20 @@ export type BrowserBounds = {
    * show through. CSS pixels relative to the page origin (`x`, `y`).
    */
   holes?: BrowserHole[];
+  /**
+   * Strips along the page's edges, in CSS pixels, whose pointer events go to
+   * the dividers and edges beneath the page (browserHitMargins.ts). The page
+   * still draws there on macOS; Windows keeps the page clear of them.
+   */
+  hitMargins?: BrowserHitMargins;
+};
+
+/** Widths of the strips along each edge of a page; see `hitMargins`. */
+export type BrowserHitMargins = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 };
 
 /** A rounded rectangle cut out of the native page, relative to its origin. */

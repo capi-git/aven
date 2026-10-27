@@ -134,7 +134,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   align-items: center;
   margin: 0 6px;
   padding: 0 8px 0 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 52%, transparent);
 }
@@ -233,7 +233,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   height: 22px;
   margin-top: 6px;
   padding: 0 8px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
