@@ -387,14 +387,17 @@ function CommandPaletteBody({
   let index = -1;
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
-      <div className="absolute inset-0 bg-black/40" onMouseDown={onClose} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
         data-command-palette
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[11%] flex max-h-[min(560px,76vh)] w-[min(640px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden aven-glass-overlay"
+        className="absolute left-1/2 top-[11%] flex max-h-[min(560px,76vh)] w-[min(640px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden aven-sheet"
       >
         <label className="flex items-center gap-2.5 border-b border-content/10 px-4 py-3 text-content/50">
           <Search className="size-4 shrink-0" strokeWidth={1.75} />
@@ -410,7 +413,7 @@ function CommandPaletteBody({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="min-w-0 flex-1 bg-transparent text-[15px] text-content outline-none placeholder:text-content/40"
+            className="min-w-0 flex-1 bg-transparent text-ui-sheet text-content outline-none placeholder:text-content/40"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
           />
@@ -458,7 +461,7 @@ function CommandPaletteBody({
                       data-palette-index={position}
                       onMouseMove={() => setActive(position)}
                       onClick={race}
-                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-lg px-3 py-1.5 text-ui-body ${selected ? "bg-content/10" : ""}`}
+                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-md px-3 py-1.5 text-ui-body ${selected ? "bg-(--aven-selected)" : ""}`}
                     >
                       <Race className="size-4 shrink-0 text-content/60" />
                       <span className="min-w-0 flex-1 truncate text-content">
@@ -479,7 +482,7 @@ function CommandPaletteBody({
                       data-palette-index={position}
                       onMouseMove={() => setActive(position)}
                       onClick={() => start(false)}
-                      className={`m-1 cursor-default rounded-[10px] border px-3 py-2.5 ${selected ? "border-content/25 bg-content/[0.07]" : "border-content/12 bg-content/[0.03]"}`}
+                      className={`m-1 cursor-default rounded-(--aven-radius-lg) border px-3 py-2.5 ${selected ? "border-content/25 bg-content/[0.07]" : "border-content/12 bg-content/[0.03]"}`}
                     >
                       <div className="flex items-center gap-2.5">
                         <MessageSquarePlus className="size-4 shrink-0 text-content/60" />
@@ -530,7 +533,7 @@ function CommandPaletteBody({
                     data-palette-index={position}
                     onMouseMove={() => setActive(position)}
                     onClick={() => activate(item)}
-                    className={`flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-ui-body ${selected ? "bg-content/10" : ""}`}
+                    className={`flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui-body ${selected ? "bg-(--aven-selected)" : ""}`}
                   >
                     <Row item={item} project={project} />
                   </div>

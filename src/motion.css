@@ -140,6 +140,7 @@
    layer. */
 .aven-popover-frame,
 .modal-panel,
+.aven-sheet,
 .discussion-float {
   animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring) backwards;
 }

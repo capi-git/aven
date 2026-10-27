@@ -16,6 +16,8 @@
   --text-ui-body: 13px;
   --text-ui-reading: 14px;
   --text-ui-heading: 20px;
+  /* Sheet titles and a palette's search. */
+  --text-ui-sheet: 15px;
   /* Page titles: Home, Settings and other top-level pages. */
   --text-ui-title: 20px;
 

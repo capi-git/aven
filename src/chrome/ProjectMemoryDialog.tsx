@@ -141,14 +141,17 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
       onKeyDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}
     >
-      <div className="absolute inset-0 bg-black/30" onMouseDown={onClose} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Project memory for ${name}`}
         aria-busy={loading || saving}
         onMouseDown={(event) => event.stopPropagation()}
-        className="project-memory-dialog absolute left-1/2 top-[12%] flex max-h-[80vh] w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
+        className="project-memory-dialog absolute left-1/2 top-[12%] flex max-h-[80vh] w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-sheet p-4"
       >
         <header className="flex items-center gap-2.5">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/5">
@@ -158,7 +161,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-ui-body font-medium leading-tight text-content">
+            <h2 className="truncate text-ui-sheet font-semibold leading-tight tracking-[-0.01em] text-content">
               Project memory
             </h2>
             <p className="truncate text-ui-caption leading-tight text-content/50">

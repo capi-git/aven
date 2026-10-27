@@ -55,7 +55,7 @@
   background: var(--toolbar-panel-bg);
   box-shadow: var(--aven-specular, none);
   color: var(--toolbar-panel-text);
-  font: 13px/1.4
+  font: var(--text-ui-body) / 1.4
     var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   -webkit-font-smoothing: antialiased;
 }

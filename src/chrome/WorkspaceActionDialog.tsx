@@ -55,7 +55,7 @@ function Frame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="workspace-action-dialog"
+        className="workspace-action-dialog aven-sheet"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === "Escape" && !busy) {
@@ -81,8 +81,13 @@ function Frame({
       >
         <header>
           <h2>{title}</h2>
-          <button aria-label="Close dialog" disabled={busy} onClick={onClose}>
-            <X className="size-4" />
+          <button
+            type="button"
+            aria-label="Close dialog"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <X className="size-3.5" strokeWidth={1.75} />
           </button>
         </header>
         {children}

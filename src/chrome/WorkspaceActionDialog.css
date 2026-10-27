@@ -3,17 +3,13 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: #0006;
+  background: rgb(0 0 0 / 40%);
   color: var(--color-content);
 }
 .workspace-action-dialog {
   width: min(460px, calc(100vw - 40px));
   max-height: calc(100vh - 60px);
   overflow: auto;
-  border: 1px solid var(--aven-glass-overlay-edge);
-  border-radius: var(--aven-radius-sheet);
-  background: var(--aven-popup);
-  box-shadow: var(--aven-shadow);
   padding: 20px;
   font-size: var(--text-ui-label);
 }
@@ -24,10 +20,27 @@
   gap: 12px;
   margin-bottom: 16px;
 }
+/* The sheet's header: its title and a quiet close, as Modal draws them. */
 .workspace-action-dialog h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-ui-sheet);
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.workspace-action-dialog header button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -6px -8px -6px 0;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-label-secondary);
+  background: transparent;
+}
+.workspace-action-dialog header button:hover:not(:disabled) {
+  color: var(--color-content);
+  background: var(--aven-fill-secondary);
 }
 .workspace-action-dialog form {
   display: flex;
@@ -74,12 +87,19 @@
 .workspace-action-dialog button:disabled {
   opacity: 0.4;
 }
+.workspace-action-dialog footer button:hover:not(:disabled) {
+  background: var(--aven-control-hover);
+}
+/* The default action is the dialogs' inverted fill (ConfirmDialog). */
 .workspace-action-dialog footer .workspace-primary-button {
-  background: var(--aven-selected);
-  color: var(--color-content);
+  background: var(--color-content);
+  color: var(--color-background-base);
+}
+.workspace-action-dialog footer .workspace-primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-content) 88%, transparent);
 }
 .workspace-action-dialog .workspace-action-error {
-  color: #df8e8e;
+  color: var(--aven-danger-text);
 }
 .workspace-saved-scripts {
   list-style: none;
@@ -106,8 +126,11 @@
 .workspace-script-suggestions button {
   font-size: var(--text-ui-caption);
   padding: 4px 8px;
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-control-bg);
   border-radius: var(--aven-radius-sm);
+}
+.workspace-script-suggestions button:hover:not(:disabled) {
+  background: var(--aven-control-hover);
 }
 .workspace-pr-context {
   display: flex;
@@ -118,6 +141,6 @@
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .workspace-action-dialog :is(button, input, select, textarea):focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 2px;
 }

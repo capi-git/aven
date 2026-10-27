@@ -291,7 +291,10 @@ describe("popover stylesheet", () => {
 
   it("springs its frame in by scale alone, so it is solid from the first frame", () => {
     expect(
-      rule(motion, ".aven-popover-frame,\n.modal-panel,\n.discussion-float"),
+      rule(
+        motion,
+        ".aven-popover-frame,\n.modal-panel,\n.aven-sheet,\n.discussion-float",
+      ),
     ).toContain(
       "animation: aven-pop var(--aven-motion-base) var(--aven-ease-spring)",
     );

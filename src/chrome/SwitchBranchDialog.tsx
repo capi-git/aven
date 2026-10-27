@@ -103,7 +103,7 @@ export function SwitchBranchDialog({
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div
-        className="absolute inset-0 bg-black/30"
+        className="modal-backdrop absolute inset-0 bg-black/40"
         onMouseDown={() => {
           if (!busy && !generating) onCancel();
         }}
@@ -114,10 +114,10 @@ export function SwitchBranchDialog({
         aria-busy={Boolean(busy) || generating}
         aria-label={creating ? `Create ${branch}` : `Switch to ${branch}`}
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
+        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-sheet p-4"
       >
         <div className="flex flex-col gap-1">
-          <h2 className="text-ui-body font-medium leading-tight text-content">
+          <h2 className="text-ui-sheet font-semibold leading-tight tracking-[-0.01em] text-content">
             Uncommitted changes
           </h2>
           <p className="text-ui-label leading-snug text-content/55">
