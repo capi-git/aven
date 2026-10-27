@@ -23,7 +23,7 @@
 }
 .markdown-local-image-open:focus-visible,
 .markdown-local-image-actions button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 3px;
 }
 .markdown-local-image-status {
@@ -89,6 +89,6 @@
   cursor: zoom-in;
 }
 .markdown-image-open:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 3px;
 }

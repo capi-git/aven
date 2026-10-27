@@ -430,7 +430,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 .personal-shell .personal-inspector-divider:focus-visible,
 .personal-shell .personal-sidebar button:focus-visible,
 .personal-shell .personal-sidebar input:focus-visible {
-  outline: 2px solid var(--personal-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 2px;
 }
 
@@ -555,7 +555,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 /* Hovering the edge reveals the panel itself, as in Arc; the strip stays
    invisible. Keyboard focus still draws its outline. */
 .personal-panel-edge:focus-visible {
-  outline: 1px solid var(--personal-accent);
+  outline: 1px solid var(--aven-focus-ring);
   outline-offset: -1px;
 }
 @media (prefers-reduced-motion: reduce) {
