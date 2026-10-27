@@ -187,7 +187,7 @@ export function ProjectSearch({
         </span>
       </div>
       <div className="shrink-0 space-y-2 border-b border-content/10 p-2">
-        <div className="flex items-center gap-1 rounded-md border border-content/10 bg-content/5 px-2 pr-1">
+        <div className="flex items-center gap-1 rounded-md bg-content/8 px-2 pr-1">
           <input
             ref={inputRef}
             value={query}
@@ -226,7 +226,7 @@ export function ProjectSearch({
           placeholder="files to include"
           aria-label="files to include"
           spellCheck={false}
-          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="w-full rounded-md bg-content/8 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
         <input
           value={exclude}
@@ -234,7 +234,7 @@ export function ProjectSearch({
           placeholder="files to exclude"
           aria-label="files to exclude"
           spellCheck={false}
-          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="w-full rounded-md bg-content/8 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
       </div>
 

@@ -7,7 +7,7 @@
   max-width: 280px;
   height: 28px;
   padding: 0 8px 0 7px;
-  border: 1px solid transparent;
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-sm);
   background: var(
     --composer-control,
@@ -24,7 +24,7 @@
   color: var(--color-content);
 }
 .agent-pill[aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--agent-pill-accent) 34%, transparent);
+  border-color: var(--aven-control-edge, transparent);
 }
 .agent-pill-mark {
   width: 15px;

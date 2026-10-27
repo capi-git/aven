@@ -174,7 +174,7 @@ html.theme-light .ship-flow {
   padding: 6px 8px 26px;
   overflow-y: auto;
   resize: none;
-  border: 1px solid var(--aven-control-border, transparent);
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   outline: none;
   font-size: var(--text-ui-body);

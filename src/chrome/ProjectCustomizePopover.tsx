@@ -153,7 +153,7 @@ function ProjectAppearancePopover({
             event.preventDefault();
             close();
           }}
-          className="h-8 min-w-0 flex-1 rounded-md border border-content/15 bg-content/5 px-2 text-ui-label text-content outline-none focus:border-accent/60"
+          className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-content/8 px-2 text-ui-label text-content outline-none focus:border-accent/60"
         />
       </div>
 

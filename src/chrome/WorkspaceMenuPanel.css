@@ -148,7 +148,7 @@ html.workspace-menu-panel-window #root {
   gap: 7px;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--toolbar-panel-line);
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   color: var(--toolbar-panel-muted);
   background: var(--toolbar-panel-hover);

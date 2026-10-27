@@ -21,7 +21,7 @@
 :is([data-app-notes], [data-app-inbox]) input[placeholder^="Filter"],
 [data-app-search] input[aria-label="Search"] {
   min-height: 28px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   background: var(--aven-field-bg, var(--aven-hover));
 }

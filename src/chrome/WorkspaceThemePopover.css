@@ -51,9 +51,10 @@
 .workspace-theme-schemes {
   display: flex;
   gap: 2px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  border: 1px solid var(--aven-control-edge, transparent);
   padding: 2px;
   border-radius: var(--aven-radius-track);
+  background: var(--aven-fill-quaternary);
 }
 .workspace-theme-schemes > button {
   flex: 1;

@@ -5,11 +5,11 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
-  /* The tab in front: a quiet neutral fill inside a hairline edge, the same
-     grey in every project. */
-  --aven-tab-selected: var(--aven-fill-tertiary);
-  --aven-tab-selected-edge: inset 0 0 0 var(--aven-hairline)
-    var(--aven-separator);
+  /* The tab in front: a quiet neutral fill, the same grey in every project,
+     with no edge of its own (Increase contrast gives it the control edge). */
+  --aven-tab-selected: var(--aven-fill-secondary);
+  --aven-tab-selected-edge: inset 0 0 0 1px
+    var(--aven-control-edge, transparent);
 }
 html.theme-light,
 html.theme-light .personal-shell {

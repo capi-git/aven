@@ -120,7 +120,7 @@
 .settings-nav__item[aria-current="page"] {
   border-color: transparent;
   background: var(--aven-control-hover, var(--aven-selected));
-  box-shadow: var(--aven-specular, none);
+  box-shadow: none;
   color: var(--color-content);
 }
 /* A short accent bar marks the open page. */

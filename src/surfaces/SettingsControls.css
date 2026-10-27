@@ -80,17 +80,16 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--color-accent) 80%, transparent);
 }
-/* A grouped list: one card per group with a hairline edge and no lift,
-   rows divided by hairlines inset from the leading edge to the card's
-   trailing edge. */
+/* A grouped list: one filled card per group (with a hairline edge in light
+   mode) and no lift, rows divided by hairlines inset from the leading edge
+   to the card's trailing edge. */
 .settings-group-surface {
   --settings-inset: 14px;
   min-width: 0;
   padding: 0 var(--settings-inset);
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border: 1px solid var(--aven-resting-card-edge, var(--aven-line));
   border-radius: var(--aven-radius-card, 10px);
   background: var(--aven-glass-card, var(--aven-raised));
-  box-shadow: var(--aven-glass-sheen, none);
 }
 .settings-row {
   display: grid;

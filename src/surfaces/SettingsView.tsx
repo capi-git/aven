@@ -2013,7 +2013,7 @@ function NotificationsBlocked() {
           onClick={() => {
             void openNotificationSettings().catch(() => {});
           }}
-          className="rounded-md border border-content/10 px-2 py-1 text-content/70 hover:bg-content/10 hover:text-content"
+          className="rounded-md px-2 py-1 text-content/70 hover:bg-content/10 hover:text-content"
         >
           Open System Settings
         </button>

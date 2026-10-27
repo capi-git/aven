@@ -281,7 +281,7 @@
   width: 100%;
   min-width: 0;
   padding: 6px 9px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-field-bg, transparent);
   color: var(--color-content);

@@ -105,13 +105,8 @@
   max-width: 100%;
   height: 26px;
   padding: 0 10px;
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--discussion-voice) 32%,
-      var(--aven-control-border, var(--aven-line))
-    );
-  border-radius: var(--aven-radius-control, 8px);
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-control, 6px);
   background: color-mix(
     in srgb,
     var(--discussion-voice) 12%,

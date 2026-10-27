@@ -73,16 +73,11 @@
   flex: 0 0 auto;
   gap: 4px;
   padding: 0 8px;
-  border: 1px solid
-    var(
-      --aven-control-border,
-      color-mix(in srgb, var(--color-content) 10%, transparent)
-    );
+  border: 1px solid var(--aven-control-edge, transparent);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 9%, transparent)
   );
-  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
   font: inherit;
   font-size: var(--text-ui-caption);
@@ -238,11 +233,7 @@
   width: auto;
   height: 20px;
   padding: 0 8px;
-  border: 1px solid
-    var(
-      --aven-control-border,
-      color-mix(in srgb, var(--color-content) 10%, transparent)
-    );
+  border: 1px solid var(--aven-control-edge, transparent);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 9%, transparent)
@@ -313,9 +304,8 @@
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 5%, transparent)
   );
-  border: 1px solid var(--aven-control-border, transparent);
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-sm);
-  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   padding: 8px 12px;
   font: inherit;
   font-size: var(--text-ui-caption);

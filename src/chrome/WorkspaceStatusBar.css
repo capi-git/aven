@@ -290,7 +290,7 @@
 .workspace-status-nav-group:has(button) {
   padding-inline: 2px;
   background: var(--aven-fill-quaternary);
-  box-shadow: var(--aven-specular);
+  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 .workspace-status-nav-group {
   display: inline-flex;

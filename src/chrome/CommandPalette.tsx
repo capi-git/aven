@@ -578,7 +578,7 @@ function Chip({
       type="button"
       tabIndex={-1}
       onClick={onClick}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-content/15 bg-content/[0.06] px-2 py-0.5 text-ui-label text-content hover:bg-content/10"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-content/8 px-2 py-0.5 text-ui-label text-content hover:bg-content/12"
     >
       {icon}
       <span className="truncate">{label}</span>

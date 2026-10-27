@@ -224,10 +224,9 @@
   flex-wrap: wrap;
   margin-bottom: 22px;
   padding: 3px 10px 3px 9px;
-  border: 1px solid var(--aven-glass-card-edge, var(--settings-line));
+  border: 1px solid var(--aven-control-edge, transparent);
   border-radius: 999px;
-  background: var(--aven-control-bg);
-  box-shadow: var(--aven-glass-sheen, none);
+  background: var(--aven-fill-quaternary, var(--aven-control-bg));
   font-size: var(--text-ui-caption);
   line-height: 18px;
   color: var(--settings-muted);
@@ -351,11 +350,9 @@
 .settings-provider-card {
   margin-block: 10px;
   padding: 14px;
-  border: 1px solid var(--aven-glass-card-edge, var(--settings-line));
+  border: 1px solid var(--aven-resting-card-edge, var(--settings-line));
   background: var(--aven-glass-card, var(--aven-grouped-surface));
-  border-radius: var(--aven-radius-card, 12px);
-  box-shadow:
-    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
+  border-radius: var(--aven-radius-card, 10px);
 }
 .settings-provider-heading {
   display: flex;
@@ -382,7 +379,6 @@
   align-items: center;
   margin-left: 8px;
   padding: 1px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   color: var(--color-content);
@@ -428,11 +424,9 @@
 }
 .settings-shortcuts-table {
   overflow: hidden;
-  border: 1px solid var(--aven-glass-card-edge, var(--settings-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-resting-card-edge, var(--settings-line));
+  border-radius: var(--aven-radius-card, 10px);
   background: var(--aven-glass-card, var(--aven-grouped-surface));
-  box-shadow:
-    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
   margin-bottom: 16px;
 }
 .settings-shortcuts table {

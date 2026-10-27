@@ -59,9 +59,8 @@
 }
 
 .settings-color-picker__target[aria-checked="true"] {
-  border-color: var(--aven-control-border, var(--aven-line));
-  background: var(--aven-control-bg, var(--aven-raised));
-  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+  border-color: var(--aven-control-edge, transparent);
+  background: var(--aven-control-hover, var(--aven-raised));
   color: var(--color-content);
   font-weight: 550;
 }

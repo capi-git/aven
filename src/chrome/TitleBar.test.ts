@@ -2193,9 +2193,9 @@ describe("shared tab style", () => {
     // The active tab is the same grey as every selected control; a project's
     // colour no longer tints it.
     expect(css).not.toContain("--aven-tab-active-fill");
-    // A quiet fill inside a hairline edge, not a lifted capsule.
+    // A quiet fill with no edge of its own: only Increase contrast draws one.
     expect(css).toMatch(
-      /--aven-tab-selected-edge: inset 0 0 0 var\(--aven-hairline\)\s+var\(--aven-separator\);/,
+      /--aven-tab-selected-edge: inset 0 0 0 1px\s+var\(--aven-control-edge, transparent\);/,
     );
   });
 

@@ -161,6 +161,86 @@ describe("the pro look's shapes", () => {
     );
   });
 
+  it("keeps controls flat: a fill, no outline, ring or lift", () => {
+    // Dark and light both drop the iOS look's lift and top-edge light.
+    expect(theme.match(/--aven-control-shadow: none;/g)?.length).toBe(2);
+    expect(token("--aven-control-edge")).toBe("transparent");
+    // Fields, chips, the agent pill and segmented tracks draw only the
+    // Increase contrast edge.
+    for (const [file, selector] of [
+      ["src/surfaces/SettingsView.css", ".settings-scope-line"],
+      ["src/surfaces/SettingsView.css", ".settings-search-field"],
+      ["src/chrome/AgentPill.css", ".agent-pill"],
+      ["src/chrome/Composer.css", ".composer-recent-skill"],
+      [
+        "src/chrome/WorkspaceMenuPanel.css",
+        ".workspace-menu-panel-search-field",
+      ],
+      ["src/chrome/WorkspaceThemePopover.css", ".workspace-theme-schemes"],
+      ["src/surfaces/ScheduledInbox.css", ".scheduled-days"],
+      [
+        "src/surfaces/UtilityViews.css",
+        '[data-app-search] input[aria-label="Search"]',
+      ],
+      ["src/chrome/SharedWork.css", ".shared-work-bar"],
+    ]) {
+      const body = rule(file, selector);
+      expect(body).toMatch(
+        /border: 1px solid var\(--aven-control-edge, transparent\);/,
+      );
+      expect(body).not.toMatch(
+        /box-shadow: var\(--aven-(glass-sheen|specular)/,
+      );
+    }
+    // The active tab is a fill; its edge is the Increase contrast one.
+    expect(read("src/chrome/TitleBar.css")).toMatch(
+      /--aven-tab-selected-edge: inset 0 0 0 1px\s+var\(--aven-control-edge, transparent\);/,
+    );
+  });
+
+  it("keeps the primary buttons a solid fill without a shadow", () => {
+    for (const [file, selector] of [
+      [
+        "src/chrome/Composer.css",
+        ".personal-shell .personal-composer-actions > .composer-send",
+      ],
+      [
+        "src/surfaces/WorkspaceHome.css",
+        ".workspace-home-actions .workspace-home-new",
+      ],
+      ["src/chrome/GitChangesPanel.css", ".git-ship-button"],
+      ["src/chrome/TeamCard.css", '.team-card-button[data-variant="primary"]'],
+    ])
+      expect(rule(file, selector)).not.toMatch(/box-shadow: (?!none)/);
+  });
+
+  it("steps secondary buttons' fill from rest to hover to pressed", () => {
+    expect(token("--aven-control-bg")).toBe("var(--aven-fill-tertiary)");
+    expect(token("--aven-control-hover")).toBe("var(--aven-fill-secondary)");
+    expect(token("--aven-control-pressed")).toBe("var(--aven-fill)");
+    expect(theme).toMatch(
+      /\.settings-button:not\(\.settings-button-danger\),[\s\S]*?\):active:not\(:disabled\) \{\s*background: var\(--aven-control-pressed\);/,
+    );
+  });
+
+  it("fills Settings groups and Home's cards, edged only in light mode", () => {
+    expect(token("--aven-resting-card-edge")).toBe("var(--aven-control-edge)");
+    expect(
+      rule("src/macos-theme.css", "html.theme-light .personal-shell"),
+    ).toContain("--aven-resting-card-edge: var(--aven-glass-card-edge);");
+    for (const [file, selector] of [
+      ["src/surfaces/SettingsControls.css", ".settings-group-surface"],
+      ["src/surfaces/WorkspaceHome.css", ".workspace-home-panel"],
+    ])
+      expect(rule(file, selector)).toMatch(
+        /border: 1px solid var\(--aven-resting-card-edge/,
+      );
+    // Cards in the chat keep their edge.
+    expect(rule("src/chrome/TeamCard.css", ".team-card")).toContain(
+      "border: 1px solid var(--aven-glass-card-edge",
+    );
+  });
+
   it("presses subtly and grows popups a little from their control", () => {
     const motion = read("src/motion.css");
     expect(motion).toContain("--aven-press-scale: 0.98;");
