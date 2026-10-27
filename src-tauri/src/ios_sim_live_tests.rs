@@ -271,6 +271,17 @@ fn ios_sim_live_round_trip() {
         label(&snap(), "echo") == "Echo: Hello Aven 123 caf"
     });
     assert_eq!(notify_flag(&udid), Some(0), "pasting leaves input working");
+    // Option-E then E: iOS composes the accent from the keys, as the pane
+    // sends a Mac keyboard's keys by position with their modifiers.
+    native::key(&udid, 0xE2, true).unwrap();
+    native::key(&udid, 0x08, true).unwrap();
+    native::key(&udid, 0x08, false).unwrap();
+    native::key(&udid, 0xE2, false).unwrap();
+    native::key(&udid, 0x08, true).unwrap();
+    native::key(&udid, 0x08, false).unwrap();
+    wait_for("a dead-key accent", Duration::from_secs(5), || {
+        label(&snap(), "echo") == "Echo: Hello Aven 123 café"
+    });
 
     // Landscape: the framebuffer stays portrait; taps map through the turn.
     set_orientation(&udid, "landscapeLeft").unwrap();
