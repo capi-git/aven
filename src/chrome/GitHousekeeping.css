@@ -97,11 +97,11 @@
   filter: brightness(1.08);
 }
 .git-house-secondary {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 .git-house-secondary:hover:enabled {
-  background: color-mix(in srgb, var(--color-content) 15%, transparent);
+  background: var(--aven-control-hover);
 }
 .git-house-link {
   padding: 0 6px;
@@ -110,7 +110,7 @@
 }
 .git-house-link:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-control-bg);
 }
 .git-house-primary:disabled,
 .git-house-secondary:disabled {
@@ -178,7 +178,7 @@
   color: var(--git-house-tone);
 }
 .git-release-line:hover {
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
 }
 .git-release-line:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));

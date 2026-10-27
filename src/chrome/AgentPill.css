@@ -18,10 +18,14 @@
   line-height: 1;
   white-space: nowrap;
 }
+/* The composer's grey buttons step rest → hover → pressed. */
 .agent-pill:hover,
 .agent-pill[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-hover);
   color: var(--color-content);
+}
+.agent-pill:active {
+  background: var(--aven-control-pressed);
 }
 .agent-pill-mark {
   width: 15px;
@@ -56,7 +60,7 @@
   place-items: center;
   width: 17px;
   height: 17px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--agent-full-access) 18%, transparent);
   color: var(--agent-full-access);
 }
@@ -69,7 +73,7 @@ html.theme-light .agent-pill-access {
   width: 6px;
   height: 6px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--agent-usage-warning, var(--color-warning, #d99c45));
 }
 html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
@@ -125,7 +129,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   width: 6px;
   height: 6px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--agent-usage-warning);
 }
 .agent-panel-usage-text {
@@ -148,13 +152,13 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
 .agent-panel-usage-action {
   padding: 3px 9px;
   border-radius: var(--aven-radius-sm);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-control-bg);
   color: color-mix(in srgb, var(--color-content) 86%, transparent);
   font-size: var(--text-ui-caption);
   white-space: nowrap;
 }
 .agent-panel-usage-action:hover {
-  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  background: var(--aven-control-hover);
   color: var(--color-content);
 }
 .agent-panel-usage-action:focus-visible {

@@ -57,7 +57,7 @@
   gap: 6px;
   padding: 2px 9px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-caption);
   font-weight: 500;
   line-height: 16px;

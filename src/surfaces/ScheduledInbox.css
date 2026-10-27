@@ -5,7 +5,7 @@
   gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   background: var(--aven-glass-card, var(--aven-raised));
   box-shadow:
     var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
@@ -161,7 +161,7 @@
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   background: var(--aven-glass-card, var(--aven-raised));
   box-shadow:
     var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);

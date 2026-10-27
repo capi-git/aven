@@ -78,6 +78,38 @@ describe("shared controls", () => {
     );
   });
 
+  it("lifts buttons and rows by the shared steps, not literal greys", () => {
+    // Pane headers and toolbars are being rebuilt in their own work.
+    const toolbars = new Set([
+      "src/chrome/TitleBar.css",
+      "src/chrome/WorkspaceStatusBar.css",
+      "src/chrome/WorkspaceFooter.css",
+      "src/chrome/FooterUsage.css",
+      "src/surfaces/BrowserPane.css",
+      "src/surfaces/DetachedWorkspace.css",
+      "src/surfaces/IosSimulatorPane.css",
+      "src/surfaces/PdfViewer.css",
+      "src/surfaces/WorkspaceStage.css",
+    ]);
+    const literal: string[] = [];
+    for (const file of tracked("src/*.css").filter((f) => !toolbars.has(f))) {
+      const css = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (!/:hover|:active/.test(selector)) continue;
+        if (
+          /background(?:-color)?:\s*color-mix\(\s*in srgb,\s*(?:var\(--color-content\)|currentColor)\s*[\d.]+%,\s*transparent\s*\)/.test(
+            body,
+          )
+        )
+          literal.push(`${file}: ${selector.trim()}`);
+      }
+    }
+    expect(literal).toEqual([]);
+    expect(theme).toMatch(
+      /--aven-inverse-hover: color-mix\(\s*in srgb,\s*var\(--color-content\) 88%,\s*transparent\s*\);/,
+    );
+  });
+
   it("gives a bare `rounded` the control corner", () => {
     expect(read("src/index.css")).toContain("--radius: 6px;");
     expect(theme).toContain("--aven-radius-sm: 6px;");

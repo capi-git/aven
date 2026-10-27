@@ -225,7 +225,7 @@
   margin-bottom: 22px;
   padding: 3px 10px 3px 9px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-fill-quaternary, var(--aven-control-bg));
   font-size: var(--text-ui-caption);
   line-height: 18px;
@@ -379,7 +379,7 @@
   align-items: center;
   margin-left: 8px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-fill, var(--aven-hover));
   color: var(--color-content);
   font-size: 10.5px;
@@ -469,7 +469,7 @@
     var(--aven-glass-sheen, none),
     0 1px 0 #00000033;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   white-space: normal;
 }
 .settings-empty {
@@ -480,7 +480,7 @@
 .settings-view [data-search-match="true"] {
   outline: 3px solid var(--aven-focus-ring);
   outline-offset: 3px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-md);
 }
 .settings-view [tabindex="-1"] {
   scroll-margin-block: 24px;

@@ -64,7 +64,7 @@
   width: 28px;
   height: 4px;
   overflow: hidden;
-  border-radius: 99px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--color-content) 14%, transparent);
 }
 

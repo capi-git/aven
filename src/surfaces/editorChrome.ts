@@ -83,34 +83,40 @@ function editorThemeStyles(dark: boolean) {
         backgroundColor: "color-mix(in srgb, #f87171 32%, transparent)",
         outline: "1px solid color-mix(in srgb, #f87171 55%, transparent)",
       },
-      ".cm-panels, .cm-tooltip": {
+      ".cm-panels": {
         backgroundColor: "var(--color-background-base)",
         color: "var(--color-content)",
-      },
-      ".cm-panels": {
         borderColor:
           "color-mix(in srgb, var(--color-content) 10%, transparent)",
       },
+      // Tooltips and completions are popovers: the shared popup surface,
+      // edge, corner and shadow.
       ".cm-tooltip": {
-        border:
-          "1px solid color-mix(in srgb, var(--color-content) 12%, transparent)",
-        borderRadius: "6px",
+        backgroundColor: "var(--aven-popup)",
+        color: "var(--color-content)",
+      },
+      ".cm-tooltip.cm-tooltip": {
+        border: "1px solid var(--aven-glass-overlay-edge)",
+        borderRadius: "var(--aven-radius-overlay)",
+        boxShadow: "var(--aven-specular), var(--aven-shadow)",
         overflow: "hidden",
       },
       ".cm-tooltip.cm-tooltip-autocomplete": {
-        backgroundColor: "var(--color-background-base)",
+        backgroundColor: "var(--aven-popup)",
       },
       ".cm-tooltip-autocomplete > ul": {
         fontFamily: "var(--font-mono)",
         fontSize: "12px",
         maxHeight: "240px",
+        padding: "var(--aven-menu-inset)",
       },
       ".cm-tooltip-autocomplete > ul > li": {
         padding: "2px 8px",
+        borderRadius: "var(--aven-radius-row)",
       },
       ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
         backgroundColor:
-          "color-mix(in srgb, var(--color-content) 14%, transparent)",
+          "color-mix(in srgb, var(--color-content) 9%, transparent)",
         color: "var(--color-content)",
       },
       ".cm-completionDetail": {

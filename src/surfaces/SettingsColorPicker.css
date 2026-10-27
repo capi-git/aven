@@ -24,7 +24,7 @@
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--aven-line);
-  border-radius: 7px;
+  border-radius: var(--aven-radius-track);
   background: var(--aven-field-bg, var(--aven-hover));
 }
 
@@ -35,7 +35,7 @@
   gap: 7px;
   padding: 3px 10px 3px 7px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-thumb);
   background: transparent;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
@@ -78,7 +78,7 @@
   grid-area: field;
   position: relative;
   height: 128px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-md);
   background:
     linear-gradient(to top, #000, transparent),
     linear-gradient(to right, #fff, hsl(var(--picker-hue, 0) 100% 50%));
@@ -91,7 +91,7 @@
   position: relative;
   height: 12px;
   margin: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: linear-gradient(90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
   cursor: ew-resize;
   touch-action: none;
@@ -128,7 +128,7 @@
   gap: 8px;
   padding: 0 8px;
   border: 1px solid var(--aven-line);
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-muted);
   font-size: var(--text-ui-caption);
 }

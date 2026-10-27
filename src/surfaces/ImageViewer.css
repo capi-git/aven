@@ -17,7 +17,7 @@
   /* Clear of the title bar, where macOS draws the traffic lights. */
   padding: 30px 20px 14px;
   color: var(--image-viewer-text);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   line-height: 1.45;
   outline: none;
   overscroll-behavior: contain;
@@ -65,7 +65,7 @@ html.image-viewer-open #root {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -73,7 +73,7 @@ html.image-viewer-open #root {
 .image-viewer-meta {
   flex: none;
   color: var(--image-viewer-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -83,7 +83,7 @@ html.image-viewer-open #root {
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--image-viewer-edge);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: var(--image-viewer-surface);
 }
 .image-viewer-action {
@@ -93,10 +93,10 @@ html.image-viewer-open #root {
   height: 26px;
   padding: 0 9px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--image-viewer-text);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   white-space: nowrap;
   cursor: default;
 }
@@ -127,7 +127,7 @@ html.image-viewer-open #root {
   overflow: visible;
 }
 .image-viewer-image {
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   /* Transparent pixels read as transparent, not as the backdrop. */
   background: repeating-conic-gradient(
       rgb(128 128 128 / 0.22) 0 25%,
@@ -153,7 +153,7 @@ html.image-viewer-open #root {
   text-align: center;
 }
 .image-viewer-status small {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   opacity: 0.8;
   overflow-wrap: anywhere;
 }
@@ -190,7 +190,7 @@ html.image-viewer-open #root {
   min-height: 18px;
   margin: 0;
   color: var(--image-viewer-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }

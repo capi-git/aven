@@ -96,7 +96,7 @@
   color: var(--color-background-base);
 }
 .workspace-action-dialog footer .workspace-primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-content) 88%, transparent);
+  background: var(--aven-inverse-hover);
 }
 .workspace-action-dialog .workspace-action-error {
   color: var(--aven-danger-text);

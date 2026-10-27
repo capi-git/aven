@@ -62,7 +62,7 @@
   width: 100%;
   text-align: left;
   padding: 15px 14px;
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   border: 1px solid var(--aven-glass-card-edge);
   background: var(--aven-inset-card);
   box-shadow: var(--aven-glass-sheen, none);
@@ -192,7 +192,7 @@
 }
 .provider-setup-check {
   padding: 16px;
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   border: 1px solid var(--aven-glass-card-edge);
   background: var(--aven-inset-card);
 }

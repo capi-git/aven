@@ -454,7 +454,7 @@ html.theme-light .composer-send:not(:disabled) {
 }
 
 html.theme-light .composer-send:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-content) 90%, transparent);
+  background: var(--aven-inverse-hover);
 }
 
 html.theme-light .composer-send:disabled {
@@ -531,7 +531,7 @@ header[data-tauri-drag-region] button {
 .sidebar-opacity-slider {
   appearance: none;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--color-content) 15%, transparent);
   outline: none;
 }
@@ -540,7 +540,7 @@ header[data-tauri-drag-region] button {
   appearance: none;
   width: 12px;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--color-content);
   cursor: pointer;
 }
@@ -597,7 +597,7 @@ header[data-tauri-drag-region] button {
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   outline: none;
   background: transparent;
   box-shadow: none;
@@ -608,7 +608,7 @@ header[data-tauri-drag-region] button {
 }
 
 .agent-markdown .markdown-code-copy:hover {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 

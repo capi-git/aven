@@ -18,7 +18,7 @@
   inset-block-start: 0;
   inset-inline-end: 0;
   width: 5px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--color-content) 34%, transparent);
   opacity: 0.14;
   transition:

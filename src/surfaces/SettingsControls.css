@@ -65,7 +65,7 @@
   gap: 5px;
   padding: 2px 8px 2px 7px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-fill-quaternary, var(--aven-control-bg));
   color: var(--aven-muted);
   font-size: 10.5px;
@@ -200,13 +200,13 @@
   flex: 1;
   height: 28px;
   margin: 0;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-md);
   background: transparent;
   cursor: pointer;
 }
 .settings-slider input::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 99px;
+  border-radius: var(--aven-radius-capsule);
   background: linear-gradient(
     to right,
     var(--color-accent) var(--settings-slider-fill),
@@ -216,7 +216,7 @@
 }
 .settings-slider input::-moz-range-track {
   height: 4px;
-  border-radius: 99px;
+  border-radius: var(--aven-radius-capsule);
   background: linear-gradient(
     to right,
     var(--color-accent) var(--settings-slider-fill),
@@ -276,7 +276,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: transparent;
   cursor: pointer;
 }
@@ -297,7 +297,7 @@
   position: relative;
   width: 32px;
   height: 20px;
-  border-radius: 99px;
+  border-radius: var(--aven-radius-capsule);
   background: var(
     --aven-fill,
     color-mix(in srgb, var(--color-content) 16%, transparent)
@@ -314,7 +314,7 @@
   left: 2px;
   width: var(--settings-toggle-knob);
   height: 16px;
-  border-radius: 99px;
+  border-radius: var(--aven-radius-capsule);
   background: #fff;
   box-shadow:
     0 0 0 0.5px #0000000f,

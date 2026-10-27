@@ -7,7 +7,7 @@
   align-items: center;
   height: 16px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--chat-status-tone) 15%, transparent);
   color: color-mix(in srgb, var(--chat-status-tone) 85%, var(--color-content));
   font-size: var(--text-ui-micro);

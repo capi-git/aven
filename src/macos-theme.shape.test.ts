@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -75,7 +76,7 @@ describe("the pro look's shapes", () => {
       );
     expect(
       rule("src/surfaces/SettingsControls.css", ".settings-group-scope"),
-    ).toContain("border-radius: 999px;");
+    ).toContain("border-radius: var(--aven-radius-capsule);");
   });
 
   it("draws every segmented control on the track and thumb corners", () => {
@@ -322,6 +323,30 @@ describe("the pro look's shapes", () => {
     expect(rule("src/chrome/TeamCard.css", ".team-card")).toContain(
       "border: 1px solid var(--aven-glass-card-edge",
     );
+  });
+
+  it("writes capsules with the token, and no corner fallback that disagrees with it", () => {
+    const files = execFileSync("git", ["ls-files", "src/*.css"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    const literal: string[] = [];
+    const disagree: string[] = [];
+    for (const file of files) {
+      const css = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [declaration] of css.matchAll(/radius:\s*(?:999|99)px/g))
+        literal.push(`${file}: ${declaration}`);
+      for (const [, name, fallback] of css.matchAll(
+        /var\((--aven-radius-[a-z]+), (\d+px)\)/g,
+      )) {
+        const value = token(name);
+        if (/^\d+px$/.test(value) && value !== fallback)
+          disagree.push(`${file}: ${name} ${value} ≠ ${fallback}`);
+      }
+    }
+    expect(literal).toEqual([]);
+    expect(disagree).toEqual([]);
   });
 
   it("presses subtly and grows popups a little from their control", () => {

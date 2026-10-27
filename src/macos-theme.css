@@ -189,8 +189,16 @@
   --aven-radius-control: var(--aven-radius-sm);
   /* One height for a single-line field or pop-up button. */
   --aven-field-height: 28px;
+  /* The default button in a sheet or card: the text colour as its fill,
+     a little lighter under the pointer. */
+  --aven-inverse-hover: color-mix(
+    in srgb,
+    var(--color-content) 88%,
+    transparent
+  );
   /* Secondary buttons: a fill alone, a step stronger on hover and another
-     while pressed. */
+     while pressed. A borderless (ghost) button takes the resting fill under
+     the pointer. Rows in a list lift by --aven-hover. */
   --aven-control-bg: var(--aven-fill-tertiary);
   --aven-control-hover: var(--aven-fill-secondary);
   --aven-control-pressed: var(--aven-fill);
