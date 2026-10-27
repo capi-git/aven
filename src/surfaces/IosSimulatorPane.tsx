@@ -12,6 +12,7 @@ import {
   Camera,
   ChevronDown,
   Home,
+  Lock,
   Play,
   ScreenRotation,
   Smartphone,
@@ -88,7 +89,8 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   const [logsOpen, setLogsOpen] = useState(false);
   const [menu, setMenu] = useState<Menu>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [screenReady, setScreenReady] = useState(false);
+  /** Why the live view shows no screen yet (the device is still starting). */
+  const [screenError, setScreenError] = useState<string | null>(null);
   const [keyboard, setKeyboard] = useState(false);
   const [frame, setFrame] = useState<Frame | null>(null);
   const [backing, setBacking] = useState<string | null>(null);
@@ -167,7 +169,8 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
       listenIosSimView((event) => {
         if (event.view !== viewId) return;
         if (event.type === "focus") setKeyboard(!!event.focused);
-        if (event.type === "screen") setScreenReady(!!event.ok);
+        if (event.type === "screen")
+          setScreenError(event.ok ? null : (event.error ?? "No screen yet"));
       }),
     ];
     return () => {
@@ -199,7 +202,7 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
     if (!support?.xcode || !udid) return;
     let cancelled = false;
     setDeviceReady(false);
-    setScreenReady(false);
+    setScreenError(null);
     setFrame(null);
     void iosSim
       .useDevice(project, udid)
@@ -479,6 +482,21 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
         >
           <Home className="size-3.5" />
         </button>
+        {live ? (
+          <button
+            type="button"
+            className="ios-sim-icon"
+            title="Lock"
+            aria-label="Lock"
+            disabled={!udid || !deviceReady}
+            onClick={() =>
+              udid &&
+              act("Could not press Lock", () => iosSim.button(udid, "lock"))
+            }
+          >
+            <Lock className="size-3.5" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="ios-sim-icon"
@@ -569,10 +587,10 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
               ? "Pick a device to start it"
               : "No iPhone or iPad simulators. Add one in Xcode."}
           </p>
-        ) : (live && !screenReady) || (!live && !frame) ? (
-          <p className="ios-sim-placeholder">
-            {starting || !deviceReady ? status.message || "Starting…" : ""}
-          </p>
+        ) : !deviceReady || starting || (!live && !frame) ? (
+          <p className="ios-sim-placeholder">{status.message || "Starting…"}</p>
+        ) : live && screenError ? (
+          <p className="ios-sim-placeholder">{screenError}</p>
         ) : null}
       </div>
 

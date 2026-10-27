@@ -563,6 +563,8 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic) AvenSimDisplayInfo info;
 @property(nonatomic) BOOL live;
 @property(nonatomic) BOOL shown;
+// The last screen state reported (-1 none yet, 0 no screen, 1 live).
+@property(nonatomic) NSInteger reportedScreen;
 @property(nonatomic) NSRect content;
 @property(nonatomic, copy) NSArray<NSValue *> *holes;
 @property(nonatomic) double clipLeft;
@@ -598,6 +600,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   [_screenView.layer addSublayer:_screenLayer];
   _maskLayer = [CAShapeLayer layer];
   _maskLayer.fillRule = kCAFillRuleEvenOdd;
+  _reportedScreen = -1;
   return self;
 }
 
@@ -829,7 +832,10 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   id<AvenSimDisplay> display = record ? MainDisplay(record, &message) : nil;
   AvenSimDisplayInfo info = {0};
   if (!display || !DisplayInfo(display, &info)) {
-    Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @NO, @"error" : message ?: @"No screen"});
+    if (self.reportedScreen != 0) {
+      self.reportedScreen = 0;
+      Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @NO, @"error" : message ?: @"No screen"});
+    }
     // The device may still be starting; try again shortly.
     __weak AvenSimView *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 2)), dispatch_get_main_queue(), ^{
@@ -866,6 +872,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
                    if (view && view.live) [view refreshDisplay];
                  }];
   [self refreshDisplay];
+  self.reportedScreen = 1;
   Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @YES});
 }
 
@@ -935,6 +942,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   [self stopFrames];
   [self.marker clear];
   self.udid = udid;
+  self.reportedScreen = -1;
   self.info = (AvenSimDisplayInfo){0};
   self.screenLayer.contents = nil;
   if (!udid && self.window.firstResponder == self && self.webview) [self.window makeFirstResponder:self.webview];
