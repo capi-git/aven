@@ -1,4 +1,4 @@
-import { ALT, CTRL, MOD, SHIFT } from "./platform";
+import { ALT, CTRL, IS_MAC, MOD, SHIFT } from "./platform";
 import { SETTINGS } from "./settingDefinitions";
 import { defineStoredSetting } from "./settingsRegistry";
 export { SETTINGS } from "./settingDefinitions";
@@ -277,12 +277,22 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Pane: Focus Right", keys: `${MOD}${ALT}→`, when: "Always" },
   { command: "Pane: Focus Up", keys: `${MOD}${ALT}↑`, when: "Always" },
   { command: "Pane: Focus Down", keys: `${MOD}${ALT}↓`, when: "Always" },
-  { command: "Pane: Next", keys: `${CTRL}${ALT}Tab`, when: "!terminalFocus" },
-  {
-    command: "Pane: Previous",
-    keys: `${CTRL}${ALT}${SHIFT}Tab`,
-    when: "!terminalFocus",
-  },
+  // Windows keeps Ctrl+Alt+Tab for itself; PageDown and PageUp step panes
+  // there (tabKeys.ts).
+  ...(IS_MAC
+    ? [
+        {
+          command: "Pane: Next",
+          keys: `${CTRL}${ALT}Tab`,
+          when: "!terminalFocus",
+        },
+        {
+          command: "Pane: Previous",
+          keys: `${CTRL}${ALT}${SHIFT}Tab`,
+          when: "!terminalFocus",
+        },
+      ]
+    : []),
   {
     command: "Pane: Expand or Restore",
     keys: `${CTRL}${ALT}Z`,
