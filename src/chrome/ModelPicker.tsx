@@ -49,6 +49,7 @@ import {
 } from "../lib/session";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
+import "./Menu.css";
 import { Popover } from "./Popover";
 import { MOD } from "../lib/platform";
 
@@ -447,15 +448,14 @@ export function ModelChooser({
       </nav>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="pb-1.5">
-          <label className="flex items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <div className="aven-menu aven-menu-search-bar">
+          <label className="aven-menu-search">
+            <Search aria-hidden="true" strokeWidth={1.75} />
             <input
               type="text"
               value={query}
               placeholder="Search models…"
               aria-label="Search models"
-              className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKey}
             />
@@ -595,8 +595,8 @@ function ModelList({
 
   if (models.length === 0) {
     return (
-      <div className="px-3 py-4 text-ui-label text-content/50">
-        {emptyLabel}
+      <div className="aven-menu">
+        <p className="aven-menu-note">{emptyLabel}</p>
       </div>
     );
   }
@@ -606,7 +606,7 @@ function ModelList({
       ref={setListRef}
       role="listbox"
       aria-label="Models"
-      className="min-h-0 flex-1 overflow-y-auto overscroll-none px-1.5 pb-1.5"
+      className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
     >
       {models.map((item, index) => {
         const selected = item.id === currentId;
@@ -619,13 +619,9 @@ function ModelList({
             key={item.id}
             ref={highlighted ? activeRef : undefined}
             onMouseEnter={() => onActive(index)}
-            className={`flex w-full items-center gap-1 rounded-lg px-1 ${
-              disabled
-                ? ""
-                : highlighted || selected
-                  ? "bg-content/10"
-                  : "hover:bg-content/5"
-            }`}
+            data-active={!disabled && (highlighted || selected)}
+            aria-disabled={disabled}
+            className="aven-menu-item aven-menu-item-rich"
           >
             <button
               type="button"
@@ -643,15 +639,13 @@ function ModelList({
                 if (disabled) return;
                 onPick(item);
               }}
-              className={`flex min-w-0 flex-1 items-center gap-2 px-1.5 py-2 text-left ${
-                disabled ? "cursor-not-allowed text-content/35" : "text-content"
+              className={`flex min-w-0 flex-1 items-center gap-2 text-left ${
+                disabled ? "cursor-not-allowed" : ""
               }`}
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-ui-body font-medium leading-5">
-                  {item.name}
-                </span>
-                <span className="mt-0.5 flex items-center gap-1 text-ui-caption leading-4 text-content/50">
+              <span className="aven-menu-text">
+                <span className="aven-menu-label">{item.name}</span>
+                <span className="aven-menu-description flex items-center gap-1">
                   <HarnessIcon
                     harness={item.harness}
                     className="size-3 shrink-0 opacity-80"
@@ -679,7 +673,7 @@ function ModelList({
                 e.stopPropagation();
                 onToggleFavorite(item.id);
               }}
-              className={`grid size-6 shrink-0 place-items-center rounded-md ${
+              className={`-my-0.5 -mr-1 grid size-6 shrink-0 place-items-center self-center rounded-(--aven-radius-sm) ${
                 favorited
                   ? "text-content"
                   : "text-content/30 hover:text-content/70"

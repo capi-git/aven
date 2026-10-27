@@ -1,5 +1,6 @@
 import { Popover, type PopoverAnchor } from "./Popover";
 import { ArrowDownCircle, Folder, FolderPlus } from "./icons";
+import "./Menu.css";
 
 /** The sidebar's add-project choices, shared by the workspace and the floating sidebar. */
 export function AddProjectMenu({
@@ -24,19 +25,39 @@ export function AddProjectMenu({
       autoFocus
       onDismiss={onDismiss}
     >
-      <div
-        className="personal-project-menu"
-        role="menu"
-        aria-label="Add project"
-      >
-        <button role="menuitem" onClick={onAddExisting}>
-          <FolderPlus className="size-3.5" /> Add existing project
+      <div className="aven-menu" role="menu" aria-label="Add project">
+        <button
+          type="button"
+          role="menuitem"
+          className="aven-menu-item"
+          onClick={onAddExisting}
+        >
+          <span aria-hidden="true" className="aven-menu-icon">
+            <FolderPlus />
+          </span>
+          <span className="aven-menu-label">Add existing project</span>
         </button>
-        <button role="menuitem" onClick={onClone}>
-          <ArrowDownCircle className="size-3.5" /> Clone from URL
+        <button
+          type="button"
+          role="menuitem"
+          className="aven-menu-item"
+          onClick={onClone}
+        >
+          <span aria-hidden="true" className="aven-menu-icon">
+            <ArrowDownCircle />
+          </span>
+          <span className="aven-menu-label">Clone from URL</span>
         </button>
-        <button role="menuitem" onClick={onCreate}>
-          <Folder className="size-3.5" /> Quick start new project
+        <button
+          type="button"
+          role="menuitem"
+          className="aven-menu-item"
+          onClick={onCreate}
+        >
+          <span aria-hidden="true" className="aven-menu-icon">
+            <Folder />
+          </span>
+          <span className="aven-menu-label">Quick start new project</span>
         </button>
       </div>
     </Popover>

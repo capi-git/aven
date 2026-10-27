@@ -490,43 +490,6 @@ html.theme-light .settings-button-danger:not(:disabled):hover {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.settings-select-options {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-}
-.settings-select-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 26px;
-  padding: 4px 8px;
-  text-align: left;
-  cursor: pointer;
-}
-.settings-select-option[data-active="true"]:not(:disabled) {
-  background: var(--toolbar-panel-hover);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--toolbar-panel-text) 28%, transparent);
-}
-.settings-select-option:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.settings-select-option > svg {
-  flex-shrink: 0;
-  color: var(--toolbar-panel-text);
-}
-.settings-select-option-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  overflow-wrap: anywhere;
-}
-
 .settings-swatches {
   display: flex;
   flex-wrap: wrap;

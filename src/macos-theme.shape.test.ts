@@ -146,12 +146,11 @@ describe("the pro look's shapes", () => {
     expect(
       rule("src/chrome/SettingsRail.css", ".settings-nav__item"),
     ).toContain("min-height: 28px;");
-    expect(
-      rule(
-        "src/chrome/WorkspaceMenuPanel.css",
-        ".workspace-menu-panel-compact .workspace-menu-panel-item",
-      ),
-    ).toContain("min-height: 26px;");
+    // Every menu's rows (Menu.css): 26px.
+    expect(rule("src/chrome/Menu.css", ".aven-menu-item")).toContain(
+      "min-height: var(--aven-menu-row);",
+    );
+    expect(theme).toContain("--aven-menu-row: 26px;");
     // File tree and Changes rows: 26px.
     expect(read("src/chrome/FileTree.tsx")).toContain(
       "flex h-6.5 w-full cursor-default items-center",
@@ -172,10 +171,7 @@ describe("the pro look's shapes", () => {
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
       ["src/chrome/Composer.css", ".composer-recent-skill"],
-      [
-        "src/chrome/WorkspaceMenuPanel.css",
-        ".workspace-menu-panel-search-field",
-      ],
+      ["src/chrome/Menu.css", ".aven-menu-search"],
       ["src/chrome/WorkspaceThemePopover.css", ".workspace-theme-schemes"],
       ["src/surfaces/ScheduledInbox.css", ".scheduled-days"],
       [

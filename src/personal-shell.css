@@ -648,29 +648,6 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   font-size: var(--text-ui-caption);
   color: var(--personal-muted);
 }
-.personal-project-menu {
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-}
-.personal-project-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 26px;
-  padding: 4px 8px;
-  border-radius: var(--aven-radius-row);
-  text-align: left;
-  font-size: var(--text-ui-label);
-  color: var(--color-content);
-}
-.personal-project-menu button:hover,
-.personal-project-menu button:focus-visible {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  outline: none;
-}
-
 /* The light shell follows the pale frame / white workspace reference.
    These are static surfaces; no extra backdrop filters or animation layers. */
 html.theme-light .personal-shell .personal-main.body-glass {

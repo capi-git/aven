@@ -40,6 +40,7 @@ import { LAYER } from "../lib/layers";
 import { secondOpinionTargets } from "../lib/secondOpinion";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
+import "./Menu.css";
 import { Popover } from "./Popover";
 
 type Props = {
@@ -369,18 +370,14 @@ export function SecondOpinionButton({
             aria-label={menuLabel}
             onKeyDown={onMenuKey}
             data-provider-target
-            className="p-1 font-sans"
+            className="aven-menu font-sans"
           >
-            <div className="px-1.5 pb-2 pt-1.5">
-              <p className="text-ui-caption leading-3 text-content/50 text-balance">
-                {description}
-              </p>
-            </div>
-            <div className="mx-1 mb-1 h-px bg-content/10" />
+            <p className="aven-menu-note aven-menu-description text-balance">
+              {description}
+            </p>
+            <div role="separator" className="aven-menu-separator" />
             {targets.length === 0 ? (
-              <div className="px-2.5 py-2 text-ui-label leading-4 text-content/50">
-                {disabledTitle}
-              </div>
+              <div className="aven-menu-note">{disabledTitle}</div>
             ) : (
               targets.map((harness, index) => {
                 const highlighted = index === active;
@@ -406,21 +403,19 @@ export function SecondOpinionButton({
                       if (!available && probed) return;
                       pickPreferred(harness);
                     }}
-                    className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-ui-body leading-none ${
-                      !available && probed
-                        ? "text-content/30"
-                        : highlighted
-                          ? "bg-content/10 text-content"
-                          : "text-content hover:bg-content/5"
-                    }`}
+                    data-active={highlighted && !(!available && probed)}
+                    className="aven-menu-item"
                   >
-                    <HarnessIcon harness={harness} className="size-3.5" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <span aria-hidden="true" className="aven-menu-icon">
+                      <HarnessIcon harness={harness} className="size-3.5" />
+                    </span>
+                    <span className="aven-menu-label">
                       {HARNESS_TITLE[harness]}
                     </span>
                     {modelsOf(harness).length > 0 ? (
                       <ChevronRight
-                        className="size-3.5 shrink-0 text-content/40"
+                        aria-hidden="true"
+                        className="aven-menu-chevron"
                         strokeWidth={1.75}
                       />
                     ) : null}
@@ -444,7 +439,7 @@ export function SecondOpinionButton({
               aria-label={`${HARNESS_TITLE[activeHarness]} models`}
               onMouseEnter={() => setInSubmenu(true)}
               data-provider-target
-              className="overflow-y-auto overscroll-none p-1"
+              className="aven-menu overflow-y-auto overscroll-none"
             >
               {models.map((model, index) => {
                 const highlighted = index === modelActive;
@@ -459,20 +454,12 @@ export function SecondOpinionButton({
                       setModelActive(index);
                     }}
                     onClick={() => pick(activeHarness, model.id)}
-                    className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-ui-body leading-none ${
-                      highlighted
-                        ? "bg-content/10 text-content"
-                        : "text-content hover:bg-content/5"
-                    }`}
+                    data-active={highlighted}
+                    className="aven-menu-item"
                   >
-                    <span className="min-w-0 flex-1 truncate">
-                      {model.name}
-                    </span>
+                    <span className="aven-menu-label">{model.name}</span>
                     {model.id === preferred ? (
-                      <Check
-                        className="size-3 shrink-0 text-content/45"
-                        strokeWidth={2}
-                      />
+                      <Check aria-hidden="true" className="aven-menu-check" />
                     ) : null}
                   </button>
                 );

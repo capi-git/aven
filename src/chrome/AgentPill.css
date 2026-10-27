@@ -89,24 +89,21 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
 /* One panel: the model list on the left, everything about how it works on
    the right. Each column scrolls on its own inside the popover's height. */
 .agent-panel {
+  /* The panel's rows are menu rows (Menu.css): the same ink, fills and
+     lines as every menu. */
   --toolbar-panel-text: var(--color-content);
-  --toolbar-panel-accent: var(--personal-accent, var(--color-accent));
+  --toolbar-panel-accent: var(--aven-focus-ring, var(--color-accent));
   --toolbar-panel-muted: color-mix(
     in srgb,
-    var(--color-content) 58%,
-    transparent
+    var(--color-content) 70%,
+    var(--aven-popup)
   );
   --toolbar-panel-hover: color-mix(
     in srgb,
-    var(--color-content) 6%,
+    var(--color-content) 9%,
     transparent
   );
-  --toolbar-panel-selected: color-mix(
-    in srgb,
-    var(--color-content) 10%,
-    transparent
-  );
-  --agent-panel-line: color-mix(in srgb, var(--color-content) 9%, transparent);
+  --agent-panel-line: color-mix(in srgb, var(--color-content) 12%, transparent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -182,7 +179,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 6px;
+  padding: var(--aven-menu-inset);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -196,19 +193,21 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   padding-top: 8px;
   border-top: 1px solid var(--agent-panel-line);
 }
+/* Section names and notes read as a menu's (Menu.css). */
 .agent-panel-heading {
-  margin: 0 8px 5px;
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  margin: 0 var(--aven-menu-row-x) 4px;
+  color: var(--toolbar-panel-muted);
   font-size: var(--text-ui-micro);
-  font-weight: 500;
-  letter-spacing: 0.05em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 16px;
   text-transform: uppercase;
 }
 .agent-panel-note {
-  margin: 4px 8px 6px;
-  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+  margin: 4px var(--aven-menu-row-x) 6px;
+  color: var(--toolbar-panel-muted);
   font-size: var(--text-ui-caption);
-  line-height: 1.4;
+  line-height: 16px;
 }
 
 /* Effort levels keep the tile ripple; a dot gives each level its color. */
@@ -217,38 +216,36 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   flex-direction: column;
   gap: 1px;
 }
+/* Menu rows: 26px, the menu's hover; the check marks the chosen one. */
 .agent-choice-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--aven-menu-gap);
   width: 100%;
-  padding: 5px 8px;
+  min-height: var(--aven-menu-row);
+  padding: 4px var(--aven-menu-row-x);
   border-radius: var(--aven-radius-row);
-  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+  color: var(--color-content);
   font-size: var(--text-ui-label);
+  line-height: 18px;
   text-align: left;
 }
 .agent-choice-row:hover {
   background: var(--toolbar-panel-hover);
-  color: var(--color-content);
-}
-.agent-choice-row[aria-checked="true"] {
-  background: var(--toolbar-panel-selected);
-  color: var(--color-content);
 }
 .model-effort-dot {
   width: 6px;
   height: 6px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(
     --model-effort-color,
     color-mix(in srgb, var(--color-content) 30%, transparent)
   );
 }
 .agent-choice-check {
-  width: 14px;
-  height: 14px;
+  width: var(--aven-menu-icon);
+  height: var(--aven-menu-icon);
   flex-shrink: 0;
   color: var(--toolbar-panel-text);
 }
@@ -285,17 +282,18 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
 .agent-switch-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--aven-menu-gap);
   width: 100%;
-  padding: 6px 8px;
+  min-height: var(--aven-menu-row);
+  padding: 4px var(--aven-menu-row-x);
   border-radius: var(--aven-radius-row);
-  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+  color: var(--color-content);
   font-size: var(--text-ui-label);
+  line-height: 18px;
   text-align: left;
 }
 .agent-switch-row:hover:not(:disabled) {
   background: var(--toolbar-panel-hover);
-  color: var(--color-content);
 }
 .agent-switch-row:disabled {
   cursor: default;
@@ -328,32 +326,18 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   transform: translateX(11px);
 }
 
-/* Access, from the shared access options, in a compact form. */
+/* Access, from the shared access options: menu rows set flush in the
+   section. Full access keeps its warning glyph. */
 .agent-panel .access-panel-options {
-  gap: 1px;
   padding: 0;
 }
-.agent-panel .access-panel-options[data-compact] .access-panel-option {
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: var(--aven-radius-row);
-}
-.agent-panel .access-panel-options[data-compact] .access-panel-icon,
-.agent-panel .access-panel-options[data-compact] .access-panel-check {
-  margin-top: 0;
-}
-.agent-panel .access-panel-options[data-compact] .access-panel-copy strong {
-  font-size: var(--text-ui-label);
-  font-weight: 400;
-}
-.agent-panel .access-panel-option[data-mode="full-access"] .access-panel-icon {
+.agent-panel .access-panel-option[data-mode="full-access"] .aven-menu-icon {
   color: #e7a575;
 }
 html.theme-light
   .agent-panel
   .access-panel-option[data-mode="full-access"]
-  .access-panel-icon {
+  .aven-menu-icon {
   color: #a54d1f;
 }
 

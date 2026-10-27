@@ -1,5 +1,6 @@
 import { MessageSquarePlus } from "../chrome/icons";
 import { useEffect, useRef } from "react";
+import "../chrome/Menu.css";
 import { Popover } from "../chrome/Popover";
 import { type TranscriptSelection } from "../lib/transcriptSelection";
 
@@ -43,7 +44,7 @@ export function TranscriptSelectionMenu({
       }}
       role="toolbar"
       aria-label="Selected text actions"
-      className="p-1"
+      className="aven-menu"
     >
       <button
         type="button"
@@ -53,14 +54,12 @@ export function TranscriptSelectionMenu({
           window.getSelection()?.removeAllRanges();
           onDismiss();
         }}
-        className="flex h-7 items-center gap-1.5 rounded-lg px-2 font-sans text-ui-body leading-none text-content outline-none ring-accent/40 hover:bg-content/5 focus-visible:ring-2"
+        className="aven-menu-item font-sans"
       >
-        <MessageSquarePlus
-          aria-hidden="true"
-          className="size-3.5"
-          strokeWidth={1.75}
-        />
-        Add to chat
+        <span aria-hidden="true" className="aven-menu-icon">
+          <MessageSquarePlus strokeWidth={1.75} />
+        </span>
+        <span className="aven-menu-label">Add to chat</span>
       </button>
     </Popover>
   );

@@ -1,0 +1,288 @@
+/* One menu. Every menu, picker list and switcher in Aven draws its rows
+   from these classes, in the workspace window and in the separate native
+   menu windows alike, so a context menu, the workspace switcher and the
+   composer's + menu read as one family.
+
+   The frame is the popover's (Overlays.css) or a ToolbarPanel's: a solid
+   --aven-popup surface, a hairline edge and a 10px corner. Rows inset
+   --aven-menu-inset from it, so their 6px corner nests concentrically.
+
+   Ink follows a ToolbarPanel's palette when the menu sits in one (a native
+   window carries its owner's palette inline), and the workspace text
+   otherwise. */
+.aven-menu {
+  --aven-menu-ink: var(--toolbar-panel-text, var(--color-content));
+  --aven-menu-muted: color-mix(
+    in srgb,
+    var(--aven-menu-ink) 70%,
+    var(--toolbar-panel-bg, var(--aven-popup))
+  );
+  --aven-menu-hover: color-mix(in srgb, var(--aven-menu-ink) 9%, transparent);
+  --aven-menu-line: color-mix(in srgb, var(--aven-menu-ink) 12%, transparent);
+  --aven-menu-focus: var(
+    --toolbar-panel-accent,
+    var(--aven-focus-ring, var(--color-accent))
+  );
+  --aven-menu-danger: color-mix(
+    in srgb,
+    var(--color-danger, #d96c58) 80%,
+    var(--aven-menu-ink)
+  );
+  display: flex;
+  flex-direction: column;
+  padding: var(--aven-menu-inset);
+  color: var(--aven-menu-ink);
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+}
+
+.aven-menu:focus,
+.aven-menu:focus-visible {
+  outline: none;
+}
+
+.aven-menu-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--aven-menu-gap);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--aven-menu-row);
+  padding: 4px var(--aven-menu-row-x);
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+/* Pointing at a row, the arrow keys' row and a row whose submenu is open
+   all lift it in the same grey. A checked row keeps the plain surface: its
+   check says it is chosen. */
+.aven-menu-item:hover:not(:disabled),
+.aven-menu-item:focus-visible,
+.aven-menu-item[data-active="true"],
+.aven-menu-item[aria-expanded="true"] {
+  background: var(--aven-menu-hover);
+}
+
+.aven-menu-item:focus {
+  outline: none;
+}
+
+.aven-menu-item:focus-visible {
+  outline: 1px solid var(--aven-menu-focus);
+  outline-offset: -1px;
+}
+
+.aven-menu-item:disabled,
+.aven-menu-item[aria-disabled="true"] {
+  opacity: 0.45;
+}
+
+.aven-menu-item-danger {
+  color: var(--aven-menu-danger);
+}
+
+/* A leading glyph: an icon, a provider mark or a project mark. */
+.aven-menu-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--aven-menu-icon);
+  height: var(--aven-menu-icon);
+  color: var(--aven-menu-muted);
+}
+
+.aven-menu-icon > svg,
+.aven-menu-icon > img {
+  width: 100%;
+  height: 100%;
+}
+
+.aven-menu-item-danger .aven-menu-icon {
+  color: inherit;
+}
+
+.aven-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Trailing quiet text: a path, a count or a keyboard shortcut. */
+.aven-menu-detail,
+.aven-menu-shortcut {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--aven-menu-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aven-menu-shortcut {
+  flex-shrink: 0;
+}
+
+.aven-menu-check {
+  flex: 0 0 auto;
+  width: var(--aven-menu-icon);
+  height: var(--aven-menu-icon);
+  color: var(--aven-menu-ink);
+}
+
+/* A row that opens a submenu ends in a quiet chevron. */
+.aven-menu-chevron {
+  flex: 0 0 auto;
+  width: var(--aven-menu-icon);
+  height: var(--aven-menu-icon);
+  color: var(--aven-menu-muted);
+}
+
+/* A row with a line of description under its label. */
+.aven-menu-item-rich {
+  align-items: flex-start;
+  padding-block: 6px;
+}
+
+.aven-menu-item-rich > .aven-menu-icon {
+  width: var(--aven-menu-icon-rich);
+  height: var(--aven-menu-icon-rich);
+  margin-top: 1px;
+}
+
+.aven-menu-item-rich > .aven-menu-check {
+  margin-top: 2px;
+}
+
+.aven-menu-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A two-line row's title is a step heavier than its description. */
+.aven-menu-item-rich > .aven-menu-text > :first-child {
+  font-weight: 500;
+}
+
+/* Quiet copy in a menu: an empty list, a note or an error. */
+.aven-menu-note {
+  margin: 0;
+  padding: 4px var(--aven-menu-row-x);
+  color: var(--aven-menu-muted);
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+}
+
+.aven-menu-description {
+  color: var(--aven-menu-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+}
+
+.aven-menu-separator {
+  flex: 0 0 1px;
+  height: 1px;
+  margin: var(--aven-menu-inset) var(--aven-menu-row-x);
+  background: var(--aven-menu-line);
+}
+
+/* A group's name above its rows. */
+.aven-menu-section {
+  padding: 6px var(--aven-menu-row-x) 2px;
+  color: var(--aven-menu-muted);
+  font-size: var(--text-ui-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.aven-menu-section:first-child {
+  padding-top: 2px;
+}
+
+/* A picker's search, above its list: a filled field inset like a row. */
+.aven-menu-search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  height: var(--aven-field-height);
+  margin: var(--aven-menu-inset);
+  padding: 0 var(--aven-menu-row-x);
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-menu-hover);
+  color: var(--aven-menu-muted);
+}
+
+.aven-menu-search:focus-within {
+  border-color: color-mix(in srgb, var(--aven-menu-ink) 28%, transparent);
+}
+
+.aven-menu-search > svg {
+  flex: 0 0 auto;
+  width: var(--aven-menu-icon);
+  height: var(--aven-menu-icon);
+}
+
+.aven-menu-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--aven-menu-ink);
+  font: inherit;
+  font-size: var(--text-ui-label);
+}
+
+.aven-menu-search input::placeholder {
+  color: var(--aven-menu-muted);
+}
+
+/* A picker: a search bar over a scrolling list, in one popover. */
+.aven-menu-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.aven-menu-picker > .aven-menu:not(.aven-menu-search-bar) {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* The search bar stays put while the list under it scrolls. */
+.aven-menu-search-bar {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--aven-menu-line);
+}
+
+.aven-menu-search-bar .aven-menu-search {
+  margin: 0;
+}
+
+.aven-menu-error {
+  color: var(--aven-menu-danger);
+  border-top: 1px solid var(--aven-menu-line);
+}
+
+@media (prefers-contrast: more) {
+  .aven-menu {
+    --aven-menu-muted: var(--aven-menu-ink);
+    --aven-menu-line: color-mix(in srgb, var(--aven-menu-ink) 35%, transparent);
+  }
+}

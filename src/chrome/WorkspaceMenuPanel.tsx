@@ -10,6 +10,7 @@ import { isImeComposition } from "../lib/keyboard";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
 import { Check, Search } from "./icons";
+import "./Menu.css";
 import "./WorkspaceMenuPanel.css";
 
 /** Identical content in the web popover and the owned native popup. */
@@ -113,9 +114,9 @@ export function WorkspaceMenuPanelContent({
         />
       ) : null}
       {snapshot.searchable ? (
-        <div className="workspace-menu-panel-search">
-          <label className="workspace-menu-panel-search-field">
-            <Search size={14} aria-hidden="true" />
+        <div className="aven-menu aven-menu-search-bar">
+          <label className="aven-menu-search">
+            <Search aria-hidden="true" />
             <input
               ref={search}
               type="search"
@@ -144,16 +145,13 @@ export function WorkspaceMenuPanelContent({
         role="menu"
         tabIndex={-1}
         aria-label={snapshot.title}
-        className="workspace-menu-panel-items"
+        className="workspace-menu-panel-items aven-menu"
         onKeyDown={navigate}
       >
         {items.map((item, index) => (
           <Fragment key={item.id}>
             {item.separatorBefore && (!snapshot.searchable || index > 0) ? (
-              <div
-                role="separator"
-                className="workspace-menu-panel-separator"
-              />
+              <div role="separator" className="aven-menu-separator" />
             ) : null}
             <button
               type="button"
@@ -163,9 +161,8 @@ export function WorkspaceMenuPanelContent({
               onPointerEnter={
                 snapshot.compact
                   ? (event) => {
-                      const label = event.currentTarget.querySelector(
-                        ".workspace-menu-panel-item-label",
-                      );
+                      const label =
+                        event.currentTarget.querySelector(".aven-menu-label");
                       const clipped =
                         !!label && label.scrollWidth > label.clientWidth;
                       if (clipped) event.currentTarget.title = item.label;
@@ -175,39 +172,33 @@ export function WorkspaceMenuPanelContent({
               }
               role={item.checked == null ? "menuitem" : "menuitemcheckbox"}
               aria-checked={item.checked}
-              className={`toolbar-panel-row workspace-menu-panel-item${item.danger ? " workspace-menu-panel-item-danger" : ""}`}
+              className={`aven-menu-item${item.description ? " aven-menu-item-rich" : ""}${item.danger ? " aven-menu-item-danger" : ""}`}
               disabled={item.disabled}
               onClick={() => {
                 if (!item.disabled) onSelect(item.id);
               }}
             >
-              <span className="workspace-menu-panel-item-line">
-                <span className="workspace-menu-panel-item-label">
-                  {item.label}
-                </span>
-                {item.checked ? (
-                  <Check
-                    aria-hidden="true"
-                    className="workspace-menu-panel-check"
-                    size={14}
-                  />
-                ) : null}
-                {item.shortcut ? (
-                  <span className="workspace-menu-panel-shortcut">
-                    {item.shortcut}
-                  </span>
-                ) : null}
-              </span>
               {item.description ? (
-                <small className="toolbar-panel-secondary">
-                  {item.description}
-                </small>
+                <span className="aven-menu-text">
+                  <span className="aven-menu-label">{item.label}</span>
+                  <small className="aven-menu-description">
+                    {item.description}
+                  </small>
+                </span>
+              ) : (
+                <span className="aven-menu-label">{item.label}</span>
+              )}
+              {item.checked ? (
+                <Check aria-hidden="true" className="aven-menu-check" />
+              ) : null}
+              {item.shortcut ? (
+                <span className="aven-menu-shortcut">{item.shortcut}</span>
               ) : null}
             </button>
           </Fragment>
         ))}
         {snapshot.searchable && !items.length ? (
-          <p className="workspace-menu-panel-empty">
+          <p className="aven-menu-note workspace-menu-panel-empty">
             {terms.length ? "No matches" : "No recent tabs"}
           </p>
         ) : null}

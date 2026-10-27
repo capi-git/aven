@@ -177,7 +177,18 @@
   --aven-radius-card: 10px;
   /* Menus, popovers and floating panels. */
   --aven-radius-overlay: 10px;
+  /* Every menu, picker and switcher (chrome/Menu.css): rows inset 4px in a
+     10px menu, so a row's 6px corner nests concentrically; one line of
+     12px text in a 26px row; 14px glyphs, 16px beside a two-line row. */
+  --aven-menu-inset: 4px;
+  --aven-menu-row: 26px;
+  --aven-menu-row-x: 8px;
+  --aven-menu-gap: 8px;
+  --aven-menu-icon: 14px;
+  --aven-menu-icon-rich: 16px;
   --aven-radius-control: var(--aven-radius-sm);
+  /* One height for a single-line field or pop-up button. */
+  --aven-field-height: 28px;
   /* Secondary buttons: a fill alone, a step stronger on hover and another
      while pressed. */
   --aven-control-bg: var(--aven-fill-tertiary);

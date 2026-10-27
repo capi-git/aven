@@ -15,109 +15,22 @@ html.workspace-menu-panel-window #root {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Rows, separators, the search field and empty notes are the shared menu's
+   (Menu.css). This file only places them in the panel. */
 .workspace-menu-panel-items {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 4px 4px;
-}
-.workspace-menu-panel-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  min-height: 40px;
-  padding: 7px 8px;
-  text-align: left;
-  cursor: pointer;
-}
-.workspace-menu-panel-item:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.workspace-menu-panel-item small {
-  font-size: var(--text-ui-label);
-  line-height: 1.45;
+  min-height: 0;
 }
 .workspace-menu-panel-error {
   margin: 0 16px 12px;
   color: var(--toolbar-panel-error);
   font-size: var(--text-ui-label);
 }
-
-.workspace-menu-panel-items:focus {
-  outline: none;
-}
-.workspace-menu-panel-item-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-}
-.workspace-menu-panel-item-label {
-  flex: 1;
-  min-width: 0;
-}
-.workspace-menu-panel-check {
-  flex-shrink: 0;
-  color: var(--toolbar-panel-text);
-}
-.workspace-menu-panel-shortcut {
-  flex-shrink: 0;
-  color: var(--toolbar-panel-muted);
-  font-size: var(--text-ui-caption);
-  white-space: nowrap;
-}
-.workspace-menu-panel-item-danger {
-  color: var(--toolbar-panel-error);
-}
-.workspace-menu-panel-item-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--toolbar-panel-error) 12%, transparent);
-}
-.workspace-menu-panel-separator {
-  flex: 0 0 1px;
-  height: 1px;
-  margin: 4px 8px;
-  background: var(--toolbar-panel-line);
-}
 .workspace-menu-panel-custom-header {
   padding: 6px;
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
 .workspace-menu-panel-compact {
-  border-radius: var(--aven-radius-overlay);
   font-size: var(--text-ui-label);
-}
-/* Compact rows, nested in the menu's corner: 10px less the 4px padding. */
-.workspace-menu-panel-compact .workspace-menu-panel-items {
-  gap: 0;
-  padding: 4px;
-}
-.workspace-menu-panel-compact .workspace-menu-panel-item {
-  min-height: 26px;
-  padding: 4px 8px;
-  border-radius: var(--aven-radius-row);
-  line-height: 18px;
-}
-.workspace-menu-panel-compact .workspace-menu-panel-item[aria-checked="true"] {
-  /* The check conveys the setting; only the current target is highlighted. */
-  background: transparent;
-}
-.workspace-menu-panel-compact .workspace-menu-panel-item:hover:not(:disabled),
-.workspace-menu-panel-compact .workspace-menu-panel-item:focus-visible {
-  background: var(--toolbar-panel-hover);
-}
-.workspace-menu-panel-compact .workspace-menu-panel-item:focus-visible {
-  outline: 1px solid var(--toolbar-panel-accent);
-  outline-offset: -1px;
-}
-
-.workspace-menu-panel-compact .workspace-menu-panel-item-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workspace-menu-panel-searchable {
@@ -126,59 +39,21 @@ html.workspace-menu-panel-window #root {
   overflow: hidden;
 }
 .workspace-menu-panel-searchable .workspace-menu-panel-items {
-  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.workspace-menu-panel-searchable .workspace-menu-panel-item small {
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 18px;
-}
-.workspace-menu-panel-search {
-  flex: 0 0 auto;
-  padding: 6px 6px 5px;
-  border-bottom: 1px solid var(--toolbar-panel-line);
-}
-.workspace-menu-panel-search-field {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-row);
-  color: var(--toolbar-panel-muted);
-  background: var(--toolbar-panel-hover);
-}
-.workspace-menu-panel-search-field:focus-within {
-  border-color: color-mix(in srgb, var(--toolbar-panel-text) 28%, transparent);
-}
-.workspace-menu-panel-search-field input {
-  min-width: 0;
-  width: 100%;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--toolbar-panel-text);
-  font: inherit;
-}
-.workspace-menu-panel-search-field input::placeholder {
-  color: var(--toolbar-panel-muted);
-}
 .workspace-menu-panel-count {
-  margin-top: 5px;
+  margin: 5px var(--aven-menu-row-x) 0;
   color: var(--toolbar-panel-muted);
   font-size: var(--text-ui-caption);
   line-height: 16px;
 }
 .workspace-menu-panel-empty {
-  margin: 0;
-  padding: 12px 6px;
-  color: var(--toolbar-panel-muted);
-  font-size: var(--text-ui-label);
-  line-height: 18px;
+  padding-block: 8px;
   text-align: center;
+}
+.workspace-menu-panel-searchable .aven-menu-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
