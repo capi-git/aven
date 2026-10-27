@@ -266,7 +266,7 @@ export function ProjectSearch({
               <span className="min-w-0 flex-1 truncate text-ui-label text-content">
                 {group.name}
               </span>
-              <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-ui-micro tabular-nums text-accent">
+              <span className="rounded-full bg-content/15 px-1.5 py-0.5 text-ui-micro tabular-nums text-content">
                 {group.matches.length}
               </span>
             </div>

@@ -533,9 +533,7 @@ it("keeps live heading and library callbacks current after returning from anothe
   });
   await act(async () => {
     body()
-      .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     const controls = [
       ...body().querySelectorAll<HTMLButtonElement>(
@@ -577,7 +575,11 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   expect(
     container.querySelector(".personal-profile-header")?.textContent,
   ).toContain("Personal");
+  // Settings keeps Search; the tiles wait for the workspace.
   expect(container.querySelector(".personal-library-nav")).toBeNull();
+  expect(
+    container.querySelector("button.personal-search-field"),
+  ).not.toBeNull();
   const settings = container.querySelector<HTMLElement>(
     '[aria-label="Settings sections"]',
   )!;
@@ -590,9 +592,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   ).toBe("page");
   await act(async () => {
     container
-      .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     settings
       .querySelector<HTMLButtonElement>('[data-settings-section="providers"]')!
@@ -613,9 +613,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   expect(body().querySelector(".personal-library-nav")).not.toBeNull();
   await act(async () => {
     body()
-      .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
-      )!
+      .querySelector<HTMLButtonElement>("button.personal-search-field")!
       .click();
     [
       ...body().querySelectorAll<HTMLButtonElement>(

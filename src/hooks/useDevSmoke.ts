@@ -2045,41 +2045,34 @@ export function paneLayoutProblem(file: HTMLElement): {
       : dividerRect.width;
   if (!(thickness > 0 && thickness <= 1))
     return fail(`the divider between the panes is ${thickness}px thick`);
-  // One tab style: the tab's own bar, the chat's strip and the file's tabs.
+  // One title row per pane, as in Cydonia: the panes' strips name them, so
+  // no title row above them names the tab again.
   const header = stage.querySelector<HTMLElement>(
     `:scope > [data-workspace-header="${tab.dataset.workspaceSurface}"]`,
   );
-  const headerTab = header?.querySelector<HTMLElement>(".aven-tab-button");
+  if (header?.querySelector(".aven-tab-button"))
+    return fail("a title row above the panes names the tab again");
+  // One tab style: the chat's strip and the file's tabs.
   const chatTab = chatStrip.querySelector<HTMLElement>(".aven-tab-button");
   const fileTab = fileStrip.querySelector<HTMLElement>(".aven-tab-button");
-  if (!header || !headerTab || !chatTab || !fileTab)
-    return fail("the tab, the chat or the file has no tab");
-  if (!hasHairlineBelow(header))
-    return fail("the tab's bar has no hairline under it");
+  if (!chatTab || !fileTab) return fail("the chat or the file has no tab");
   const height = (element: HTMLElement) =>
     Math.round(element.getBoundingClientRect().height);
-  if (
-    height(chatStrip) !== height(header) ||
-    height(fileStrip) !== height(header)
-  )
+  if (height(chatStrip) !== height(fileStrip))
     return fail(
-      `the tab's bar is ${height(header)}px, the chat's strip ${height(chatStrip)}px and the file's ${height(fileStrip)}px`,
+      `the chat's strip is ${height(chatStrip)}px and the file's ${height(fileStrip)}px`,
     );
   const look = (element: HTMLElement) => {
     const tab = getComputedStyle(element);
     return `${height(element)}px tall, ${tab.borderTopLeftRadius} corners`;
   };
-  for (const [who, tab] of [
-    ["chat's strip", chatTab],
-    ["file's", fileTab],
-  ] as const)
-    if (look(tab) !== look(headerTab))
-      return fail(
-        `the tab is ${look(headerTab)} and the ${who} is ${look(tab)}`,
-      );
+  if (look(fileTab) !== look(chatTab))
+    return fail(
+      `the chat's tab is ${look(chatTab)} and the file's is ${look(fileTab)}`,
+    );
   return {
     problem: null,
-    summary: `one ${height(header)}px strip per pane above its content, each over a hairline; square panes flush with the workspace, divided by a ${thickness}px hairline; tab, chat and file tabs ${look(headerTab)}`,
+    summary: `one ${height(chatStrip)}px strip per pane above its content, each over a hairline, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
   };
 }
 

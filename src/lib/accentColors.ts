@@ -19,10 +19,12 @@ export type AccentPreset = {
   colors: Record<ColorScheme, { accent: string; highlight: string }>;
 };
 
-/** Distinct accents from the existing workspace palettes, Aven's blue first. */
+/** Distinct accents from the existing workspace palettes, Aven's neutral
+ *  default first. Mono's near-white would sit beside it as a near-twin, so it
+ *  stays a whole palette rather than a swatch. */
 const ACCENT_PALETTES: readonly { name: string; label: string }[] = [
-  { name: "Aven", label: "Aven blue" },
-  { name: "Mono", label: "Mono" },
+  { name: "Aven", label: "Neutral" },
+  { name: "Blue", label: "Blue" },
   { name: "Cove", label: "Cove" },
   { name: "Indigo", label: "Indigo" },
   { name: "Forest", label: "Forest" },

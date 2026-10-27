@@ -53,12 +53,7 @@
 .discussion-link {
   position: absolute;
   width: 6px;
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--personal-accent, var(--color-accent)) 50%,
-      transparent
-    );
+  border: 1px solid color-mix(in srgb, var(--color-content) 32%, transparent);
   border-right: 0;
   border-radius: 5px 0 0 5px;
 }
@@ -99,7 +94,7 @@ button.discussion-link:focus-visible {
   background: linear-gradient(
     to bottom,
     transparent calc(100% - 14px),
-    var(--personal-accent, var(--color-accent))
+    color-mix(in srgb, var(--color-content) 75%, transparent)
   );
   animation: discussion-link-down 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
@@ -107,7 +102,7 @@ button.discussion-link:focus-visible {
   background: linear-gradient(
     to top,
     transparent calc(100% - 14px),
-    var(--personal-accent, var(--color-accent))
+    color-mix(in srgb, var(--color-content) 75%, transparent)
   );
   animation-name: discussion-link-up;
 }

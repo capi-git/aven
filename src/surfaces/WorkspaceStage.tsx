@@ -24,13 +24,29 @@ import {
   restoreScrollOffsets,
   type ScrollOffsets,
 } from "../lib/hiddenSurfaces";
-import { playMotion } from "../lib/motion";
+import {
+  MOTION_ATTRIBUTE,
+  motionReduced,
+  playBounded,
+  playMotion,
+  type BoundedMotion,
+} from "../lib/motion";
 import { subscribeMemoryPressure } from "../lib/memoryPressure";
 import {
   browserHandoffPending,
   waitForBrowserHandoff,
 } from "../lib/browserHandoff";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
+import {
+  DOCK_EASE,
+  DOCK_PREVIEW_INSET,
+  DOCK_TWEEN_MS,
+  dockClip,
+  dockOverlap,
+  dockZone,
+  dockZoneFraction,
+  type DockRect,
+} from "../lib/paneDock";
 import {
   ChevronDown,
   ChevronLeft,
@@ -69,6 +85,12 @@ export type WorkspaceStageProps = {
   dragging: boolean;
   dragLabel?: string;
   dragKind?: "tab" | "group";
+  /**
+   * The pane expanded over the others (Cydonia's zoom), if any. It glides
+   * from its place to the whole stage while the others fade under it, and
+   * back again on Restore. A native page lands at its new bounds instead.
+   */
+  zoomedId?: string | null;
 };
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
@@ -98,7 +120,31 @@ function retainedDropIndex(
   }
 }
 
-/** Client coordinates keep drop targets independent of native browser stacking. */
+/** A header's members in their full order, when its strip publishes them. */
+function headerMembers(header: HTMLElement): string[] | null {
+  const serialized = header.querySelector<HTMLElement>("[data-surface-order]")
+    ?.dataset.surfaceOrder;
+  if (!serialized) return null;
+  try {
+    const order: unknown = JSON.parse(serialized);
+    return Array.isArray(order) &&
+      order.length > 0 &&
+      order.every((id): id is string => typeof id === "string") &&
+      new Set(order).size === order.length
+      ? order
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a tab dragged to (x, y) docks, in client coordinates so native
+ * browser stacking never matters. As in Cydonia: a pane's title row, or the
+ * middle of its body, stacks the tab in that pane; within a quarter of an
+ * edge it splits that side (see paneDock.ts). A header that is a strip of
+ * tabs (a detached window's) still takes the tab at the slot it is over.
+ */
 export function workspaceSurfaceDropAt(
   container: HTMLElement,
   x: number,
@@ -129,16 +175,17 @@ export function workspaceSurfaceDropAt(
     const tabs = header
       ? [...header.querySelectorAll<HTMLElement>("[data-surface-tab-id]")]
       : [];
+    // A title row shows only the tab in front; its strip still lists them all.
+    const members =
+      (header && headerMembers(header)) ??
+      tabs.map((tab) => tab.dataset.surfaceTabId ?? "");
     // A selected tab can split away from its own group only if a sibling
     // remains to occupy the original pane. Its own header still reorders.
     const moving = new Set(draggedIds);
-    const sameGroup = tabs.some((tab) =>
-      moving.has(tab.dataset.surfaceTabId ?? ""),
-    );
+    const sameGroup = members.some((member) => moving.has(member));
     if (
-      (id === draggedId && tabs.length < 2) ||
-      (sameGroup &&
-        tabs.every((tab) => moving.has(tab.dataset.surfaceTabId ?? "")))
+      (id === draggedId && members.length < 2) ||
+      (sameGroup && members.every((member) => moving.has(member)))
     )
       continue;
     if (header) {
@@ -152,6 +199,9 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
+        // A title row stacks the tab behind the one in front.
+        if (header.querySelector('[data-variant="title"]'))
+          return { id, edge: "tab" };
         const measuredTabs = tabs
           .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))
           .filter(({ rect }) => rect.width > 0 && rect.height > 0);
@@ -176,52 +226,55 @@ export function workspaceSurfaceDropAt(
       ":scope > [data-workspace-body]",
     );
     const rect = (body ?? surface).getBoundingClientRect();
-    if (
-      rect.width <= 0 ||
-      rect.height <= 0 ||
-      x < rect.left ||
-      x > rect.right ||
-      y < rect.top ||
-      y > rect.bottom
-    )
-      continue;
-    const horizontal = (x - rect.left) / rect.width;
-    const vertical = (y - rect.top) / rect.height;
-    const edges: Array<["left" | "right" | "up" | "down", number]> = [
-      ["left", horizontal],
-      ["right", 1 - horizontal],
-      ["up", vertical],
-      ["down", 1 - vertical],
-    ];
-    const nearest = edges.reduce((closest, next) =>
-      next[1] < closest[1] ? next : closest,
-    );
-    const previousEdge =
-      previous?.id === id && previous.edge !== "tab"
-        ? edges.find(([edge]) => edge === previous.edge)
-        : undefined;
-    // A broad center joins the tab strip. A small deadband keeps the preview
-    // stable near the center/edge boundary and at split corners.
-    const edgeLimit =
-      previous?.id === id && previous.edge === "tab" ? 0.18 : 0.22;
-    if (
-      previousEdge &&
-      previousEdge[1] <= 0.26 &&
-      previousEdge[1] <= nearest[1] + 0.045
-    )
-      return { id, edge: previousEdge[0] };
-    if (nearest[1] <= edgeLimit) return { id, edge: nearest[0] };
+    const held =
+      previous?.id === id
+        ? previous.edge === "tab"
+          ? previous.index === undefined
+            ? "join"
+            : null
+          : previous.edge
+        : null;
+    const zone = dockZone(rect, x, y, held);
+    if (!zone) continue;
+    if (zone !== "join") return { id, edge: zone };
     return sameGroup ? null : { id, edge: "tab" };
   }
   return null;
 }
 
-const rectStyle = (rect: LayoutRect): CSSProperties => ({
-  left: `${rect.x * 100}%`,
-  top: `${rect.y * 100}%`,
-  width: `${rect.w * 100}%`,
-  height: `${rect.h * 100}%`,
+/** A share of a pane's body, inset as the docking preview is. */
+const previewStyle = (rect: LayoutRect): CSSProperties => ({
+  left: `calc(${rect.x * 100}% + ${DOCK_PREVIEW_INSET}px)`,
+  top: `calc(${rect.y * 100}% + ${DOCK_PREVIEW_INSET}px)`,
+  width: `calc(${rect.w * 100}% - ${2 * DOCK_PREVIEW_INSET}px)`,
+  height: `calc(${rect.h * 100}% - ${2 * DOCK_PREVIEW_INSET}px)`,
 });
+
+/** A box on screen in the stage's own CSS pixels. */
+function stageBox(stage: HTMLElement, rect: DOMRect): DockRect {
+  const zoom = effectiveCssZoom(stage) || 1;
+  const outer = stage.getBoundingClientRect();
+  return {
+    left: (rect.left - outer.left) / zoom,
+    top: (rect.top - outer.top) / zoom,
+    width: rect.width / zoom,
+    height: rect.height / zoom,
+  };
+}
+
+const sameBox = (a: DockRect | null, b: DockRect | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5);
+
+/** A drop is followed by its new layout within this long, or not at all. */
+const DROP_REVEAL_WINDOW_MS = 1000;
+/** Cydonia's zoom: a pane glides to the whole space in 200ms, eased out. */
+export const ZOOM_GLIDE_MS = 200;
 
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
@@ -333,6 +386,7 @@ export function WorkspaceStage({
   dragging,
   dragLabel,
   dragKind = "tab",
+  zoomedId = null,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
   // Publish only committed destination changes; native pages draw their own
@@ -471,10 +525,15 @@ export function WorkspaceStage({
         return a.rect.x - b.rect.x || a.rect.y - b.rect.y;
       })[0]?.id
     : undefined;
+  // A pane with no header of its own (a tab whose panes name themselves)
+  // still gets an empty one where it holds a minimize or restore control.
   const displayHeaders = [...headers];
   if (onMinimizeSide || onRestoreSplit) {
     for (const { id } of leaves) {
-      if (!displayHeaders.some((header) => header.id === id))
+      if (
+        !displayHeaders.some((header) => header.id === id) &&
+        (minimizeControls.has(id) || id === restoreHeaderId)
+      )
         displayHeaders.push({ id, content: null });
     }
   }
@@ -599,8 +658,47 @@ export function WorkspaceStage({
     for (const id of newSplitPanes(before, now))
       playMotion(surfaceNodes.current.get(id), "pane-in");
   }, [shownKey]);
+  // Zoom: the pane that was expanded when this stage last drew, and where
+  // each pane stood then, as shares of the stage.
+  const zoomShown = useRef<string | null>(null);
+  const zoomPlaces = useRef(new Map<string, LayoutRect>());
+  // Expanding, not a tab switch inside the pane already expanded: the stage
+  // last showed several panes.
+  const zoomEntering =
+    visible &&
+    !!zoomedId &&
+    zoomShown.current !== zoomedId &&
+    zoomPlaces.current.size > 1 &&
+    positions.has(zoomedId);
   useLayoutEffect(() => {
     if (!held.size) return;
+    // A pane expanding: the panes it covers fade out beneath it.
+    if (zoomEntering && !motionReduced()) {
+      setHeldOut(new Set(held));
+      // The hold ends on a timer, which is what removes these panes; each
+      // fade only dims them on the way and is dropped with the hold, so a
+      // timeline WebKit holds back cannot leave a pane half faded.
+      const fades = [...held].flatMap((id) => {
+        const node = surfaceNodes.current.get(id);
+        return node && typeof node.animate === "function"
+          ? [
+              node.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: ZOOM_GLIDE_MS,
+                easing: DOCK_EASE,
+                fill: "forwards",
+              }),
+            ]
+          : [];
+      });
+      const timer = window.setTimeout(
+        () => setHeldOut(new Set()),
+        ZOOM_GLIDE_MS,
+      );
+      return () => {
+        window.clearTimeout(timer);
+        for (const fade of fades) fade.cancel();
+      };
+    }
     // Children's layout effects have run, so incoming pages have registered.
     // Always set a new object: the surfaces that just left are derived from
     // the previous commit and need this render to drop or keep them.
@@ -669,6 +767,276 @@ export function WorkspaceStage({
     if (visible && layout) paint(layout);
   }, [layout, visible, headerIds]);
   useEffect(() => () => stopResize.current?.(false), []);
+
+  const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
+  const hintZone = joining
+    ? "join"
+    : dragTarget && dragTarget.edge !== "tab"
+      ? dragTarget.edge
+      : null;
+  const hint = hintZone ? dockZoneFraction(hintZone) : null;
+
+  // Expanding a pane (or putting it back) glides it between its place and
+  // the whole stage in 200ms, eased out: growing, it is laid out at once at
+  // its new size and its clip opens from where it stood; shrinking, it
+  // scales down from the whole stage while the panes it uncovers fade in
+  // (newSplitPanes). Native pages are never moved, so they land.
+  useLayoutEffect(() => {
+    const container = stage.current;
+    const previous = zoomShown.current;
+    const before = new Map(zoomPlaces.current);
+    if (visible) {
+      zoomShown.current = zoomedId;
+      zoomPlaces.current = new Map(positions);
+    }
+    if (!container || !visible || motionReduced()) return;
+    // Measured only when a pane does glide: reading the stage's size forces
+    // a layout, which an ordinary tab switch must not pay.
+    const px = (rect: LayoutRect): DockRect => {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      return {
+        left: rect.x * width,
+        top: rect.y * height,
+        width: rect.w * width,
+        height: rect.h * height,
+      };
+    };
+    const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
+      const surface = surfaceNodes.current.get(id);
+      if (!surface || surface.querySelector(".browser-native-host")) return;
+      const header = headerNodes.current.get(id);
+      const headerFrom = { ...from, height: 32 };
+      const headerTo = { ...to, height: 32 };
+      for (const [node, start, end] of [
+        [surface, from, to],
+        [header, headerFrom, headerTo],
+      ] as const) {
+        if (!node || typeof node.animate !== "function") continue;
+        if (end.width <= 0 || end.height <= 0) continue;
+        play(
+          node,
+          grow
+            ? [
+                { clipPath: dockClip(start, end, 0) },
+                { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+              ]
+            : [
+                {
+                  transformOrigin: "0 0",
+                  transform: `translate(${start.left - end.left}px, ${start.top - end.top}px) scale(${start.width / end.width}, ${start.height / end.height})`,
+                },
+                {
+                  transformOrigin: "0 0",
+                  transform: "translate(0px, 0px) scale(1, 1)",
+                },
+              ],
+          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
+        );
+      }
+    };
+    if (
+      zoomedId &&
+      previous !== zoomedId &&
+      before.size > 1 &&
+      positions.size === 1
+    ) {
+      const from = before.get(zoomedId);
+      const to = positions.get(zoomedId);
+      if (from && to) glide(zoomedId, px(from), px(to), true);
+    } else if (
+      !zoomedId &&
+      previous &&
+      positions.size > 1 &&
+      positions.has(previous)
+    ) {
+      const from = before.get(previous);
+      const to = positions.get(previous);
+      if (from && to) glide(previous, px(from), px(to), false);
+    }
+    // Positions are derived from the layout this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomedId, layout, visible]);
+
+  // The docking preview, drawn once over the whole stage so it can glide
+  // between zones and between panes (Cydonia's 150ms tween). The hint in the
+  // target pane's body says where it goes; a native page reads that hint for
+  // its own indicator, which stands still. When a drop splits a pane, the
+  // pane it makes grows from the preview to its place while the preview
+  // fades.
+  const previewNode = useRef<HTMLDivElement>(null);
+  const previewState = useRef<{
+    box: DockRect | null;
+    glide: BoundedMotion | null;
+    fade: BoundedMotion | null;
+    split: boolean;
+    dragLayout: LayoutNode | null;
+  }>({ box: null, glide: null, fade: null, split: false, dragLayout: null });
+  const dropReveal = useRef<{
+    box: DockRect;
+    until: number;
+    from: LayoutNode | null;
+  } | null>(null);
+  // Every animation this stage starts is bounded (see playBounded), so a
+  // timeline WebKit holds back under a native page never leaves a preview,
+  // a clip or a fading pane on screen. Unmounting stops them all.
+  const stageMotions = useRef(new Set<BoundedMotion>());
+  const play = (
+    element: Element,
+    keyframes: Keyframe[],
+    options: { duration: number; easing?: string; fill?: FillMode },
+    onEnd?: () => void,
+  ) => {
+    const motions = stageMotions.current;
+    const motion: BoundedMotion = playBounded(
+      element,
+      keyframes,
+      options,
+      () => {
+        motions.delete(motion);
+        onEnd?.();
+      },
+    );
+    motions.add(motion);
+    return {
+      animation: motion.animation,
+      stop() {
+        motions.delete(motion);
+        motion.stop();
+      },
+    } satisfies BoundedMotion;
+  };
+  useLayoutEffect(() => {
+    const motions = stageMotions.current;
+    const preview = previewState.current;
+    return () => {
+      for (const motion of motions) motion.stop();
+      motions.clear();
+      preview.glide = null;
+      preview.fade = null;
+    };
+  }, []);
+  const revealDrop = (box: DockRect) => {
+    const container = stage.current;
+    if (!container || motionReduced()) return;
+    let best: { id: string; overlap: number } | null = null;
+    for (const id of positions.keys()) {
+      const node = surfaceNodes.current.get(id);
+      if (!node) continue;
+      const body =
+        node.querySelector<HTMLElement>(":scope > [data-workspace-body]") ??
+        node;
+      const overlap = dockOverlap(
+        stageBox(container, body.getBoundingClientRect()),
+        box,
+      );
+      if (!best || overlap > best.overlap) best = { id, overlap };
+    }
+    if (!best || best.overlap < 0.5) return;
+    for (const node of [
+      surfaceNodes.current.get(best.id),
+      headerNodes.current.get(best.id),
+    ]) {
+      if (!node || typeof node.animate !== "function") continue;
+      // The reveal replaces the plain fade-in of a new split.
+      if (node.getAttribute(MOTION_ATTRIBUTE) === "pane-in")
+        node.removeAttribute(MOTION_ATTRIBUTE);
+      const to = stageBox(container, node.getBoundingClientRect());
+      if (to.width <= 0 || to.height <= 0) continue;
+      play(
+        node,
+        [
+          { clipPath: dockClip(box, to) },
+          { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+        ],
+        { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
+      );
+    }
+  };
+  useLayoutEffect(() => {
+    const element = previewNode.current;
+    const container = stage.current;
+    if (!element || !container) return;
+    const state = previewState.current;
+    const reduced = motionReduced();
+    const animate = typeof element.animate === "function" && !reduced;
+    if (dragging) state.dragLayout = layout;
+    const hintNode =
+      visible && dragging
+        ? container.querySelector<HTMLElement>("[data-workspace-drop-hint]")
+        : null;
+    const target = hintNode
+      ? stageBox(container, hintNode.getBoundingClientRect())
+      : null;
+    if (!target || target.width <= 0 || target.height <= 0) {
+      if (!dragging && state.box && state.split)
+        dropReveal.current = {
+          box: state.box,
+          until: performance.now() + DROP_REVEAL_WINDOW_MS,
+          from: state.dragLayout,
+        };
+      state.glide?.stop();
+      state.glide = null;
+      if (state.box && animate && !state.fade) {
+        // Fade where it was; it is gone when the fade ends, run or not.
+        state.fade = play(
+          element,
+          [{ opacity: 1 }, { opacity: 0 }],
+          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE, fill: "forwards" },
+          () => {
+            state.fade = null;
+            element.dataset.shown = "false";
+          },
+        );
+      } else if (!state.fade) element.dataset.shown = "false";
+      state.box = null;
+      state.split = false;
+    } else {
+      // Glide from wherever the preview is drawn, even part way along.
+      const drawn =
+        state.box && state.glide
+          ? stageBox(container, element.getBoundingClientRect())
+          : state.box;
+      state.glide?.stop();
+      state.glide = null;
+      state.fade?.stop();
+      state.fade = null;
+      element.style.left = `${target.left}px`;
+      element.style.top = `${target.top}px`;
+      element.style.width = `${target.width}px`;
+      element.style.height = `${target.height}px`;
+      element.dataset.shown = "true";
+      if (drawn && animate && !sameBox(drawn, target)) {
+        const glide = play(
+          element,
+          [
+            {
+              transform: `translate(${drawn.left - target.left}px, ${drawn.top - target.top}px) scale(${drawn.width / target.width}, ${drawn.height / target.height})`,
+            },
+            { transform: "translate(0px, 0px) scale(1, 1)" },
+          ],
+          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
+          () => {
+            if (state.glide === glide) state.glide = null;
+          },
+        );
+        state.glide = glide;
+      }
+      state.box = target;
+      state.split = hintZone !== null && hintZone !== "join";
+    }
+    const pending = dropReveal.current;
+    if (pending && !dragging) {
+      if (performance.now() > pending.until) dropReveal.current = null;
+      else if (layout !== pending.from) {
+        dropReveal.current = null;
+        revealDrop(pending.box);
+      }
+    }
+    // The hint's zone and pane say all the preview needs; the layout is for
+    // the drop's own reveal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, dragging, dragTarget?.id, dragTarget?.edge, hintZone, layout]);
 
   function startResize(
     event: ReactPointerEvent<HTMLDivElement>,
@@ -828,22 +1196,6 @@ export function WorkspaceStage({
     handle.addEventListener("lostpointercapture", lost);
   }
 
-  const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
-  const hint = joining
-    ? { x: 0.08, y: 0.08, w: 0.84, h: 0.84 }
-    : dragTarget && dragTarget.edge !== "tab"
-      ? { x: 0, y: 0, w: 1, h: 1 }
-      : null;
-  if (hint && dragTarget && !joining) {
-    if (dragTarget.edge === "left" || dragTarget.edge === "right") {
-      hint.w /= 2;
-      if (dragTarget.edge === "right") hint.x += hint.w;
-    } else {
-      hint.h /= 2;
-      if (dragTarget.edge === "down") hint.y += hint.h;
-    }
-  }
-
   return (
     <div
       ref={stage}
@@ -906,7 +1258,7 @@ export function WorkspaceStage({
                   data-drop-edge={dragTarget.edge}
                   data-drop-kind={dragKind}
                   data-drop-title={dragLabel ?? ""}
-                  style={rectStyle(hint)}
+                  style={previewStyle(hint)}
                   aria-hidden="true"
                 />
               ) : null}
@@ -955,6 +1307,7 @@ export function WorkspaceStage({
             }}
             className="workspace-stage-header"
             data-workspace-header={id}
+            data-focused={visible && focusedId === id}
             data-drop-target={
               dragging && dragTarget?.id === id ? "true" : undefined
             }
@@ -1131,6 +1484,12 @@ export function WorkspaceStage({
       ))}
       {/* Captured drags use geometric drop targets. Keep native pages live;
           the header indicator stays visible above them without a snapshot. */}
+      <div
+        ref={previewNode}
+        className="workspace-stage-drop-preview"
+        data-shown="false"
+        aria-hidden="true"
+      />
     </div>
   );
 }

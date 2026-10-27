@@ -7,6 +7,7 @@ import {
   applyThemeColors,
   applyThemePreference,
   applyThemeTint,
+  AVEN_BLUE_THEME_COLORS,
   AVEN_THEME_COLORS,
   MONO_THEME_COLORS,
   BLACK_THEME_COLORS,
@@ -130,6 +131,12 @@ export const WORKSPACE_THEME_PRESETS: readonly WorkspaceThemePreset[] = [
     hue: THEME_HUE_DEFAULT,
     saturation: THEME_SATURATION_DEFAULT,
     colors: AVEN_THEME_COLORS,
+  },
+  {
+    name: "Blue",
+    hue: THEME_HUE_DEFAULT,
+    saturation: THEME_SATURATION_DEFAULT,
+    colors: AVEN_BLUE_THEME_COLORS,
   },
   {
     name: "Mono",
@@ -324,7 +331,33 @@ function normalizeColors(
     }
     if (Object.keys(palette).length) colors[scheme] = palette;
   }
+  if (colors.dark && isFormerAvenDark(colors.dark))
+    colors.dark = {
+      ...colors.dark,
+      accent: AVEN_THEME_COLORS.dark.accent,
+      highlight: AVEN_THEME_COLORS.dark.highlight,
+    };
   return Object.keys(colors).length ? colors : undefined;
+}
+
+/**
+ * Aven's former default dark palette: blue on black. Every workspace saved
+ * the default explicitly, so this exact palette means "the default" and
+ * follows the neutral one now. Blue (a different highlight) and a custom
+ * blue (no highlight of its own) are choices and stay as they are.
+ */
+const FORMER_AVEN_DARK = {
+  background: "#000000",
+  accent: "#57b5ff",
+  highlight: "#57b5ff",
+} as const;
+
+function isFormerAvenDark(palette: Partial<WorkspaceColors>): boolean {
+  return (
+    palette.background === FORMER_AVEN_DARK.background &&
+    palette.accent === FORMER_AVEN_DARK.accent &&
+    palette.highlight === FORMER_AVEN_DARK.highlight
+  );
 }
 
 export function defaultWorkspaceTheme(): WorkspaceTheme {

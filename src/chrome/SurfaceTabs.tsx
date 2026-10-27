@@ -33,6 +33,11 @@ import { revealFile } from "../lib/revealFile";
 import { terminalTabLabel } from "../lib/terminalTab";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useSortable } from "../hooks/useSortable";
+import {
+  TAB_TRACK_ID_ATTRIBUTE,
+  useTabHighlight,
+} from "../hooks/useTabHighlight";
+import { trackSeparators } from "../lib/tabTrack";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
@@ -227,6 +232,23 @@ export function SurfaceTabs({
     [sortable.setContainerRef, lockOverscroll],
   );
   const canDrag = files.length > 1;
+  // Two tabs or more stand on a track: equal shares, one sliding highlight
+  // and a hairline between resting neighbours (see tabTrack.ts).
+  const track = files.length > 1;
+  const separators = track
+    ? trackSeparators(
+        visibleIds.map((id) => ({ id, tab: true })),
+        activeFileId,
+      )
+    : null;
+  const highlightRef = useTabHighlight(
+    tabStripRef,
+    track ? activeFileId : null,
+    {
+      enabled: track && !sortable.draggingId,
+      layoutKey: visibleIds.join("\n"),
+    },
+  );
   useLayoutEffect(() => {
     if (sortable.draggingId) return;
     tabButtonsRef.current.get(activeFileId)?.scrollIntoView({
@@ -258,6 +280,7 @@ export function SurfaceTabs({
         tabIndex={visibleIds.length ? -1 : 0}
         aria-label={label}
         aria-orientation="horizontal"
+        data-tab-track={track || undefined}
         className="aven-surface-tab-strip aven-tab-strip scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto overscroll-none"
         onBlurCapture={(event) => {
           if (
@@ -300,6 +323,9 @@ export function SurfaceTabs({
           onSelectFile(nextId);
         }}
       >
+        {track ? (
+          <span ref={highlightRef} className="aven-tab-highlight" aria-hidden />
+        ) : null}
         {onPaneDragStart ? (
           <div
             role="button"
@@ -349,6 +375,8 @@ export function SurfaceTabs({
               data-active={active}
               data-closable
               data-draggable={canDrag || undefined}
+              {...{ [TAB_TRACK_ID_ATTRIBUTE]: file.id }}
+              data-tab-separator={separators?.has(file.id) || undefined}
               onFocusCapture={(event) => {
                 focusedTabControlRef.current = event.target as HTMLElement;
               }}
@@ -487,7 +515,9 @@ export function SurfaceTabs({
         })}
         {onPaneDragStart ? (
           <div
-            className="min-w-4 flex-1 cursor-grab active:cursor-grabbing"
+            className={`${
+              track ? "w-8 shrink-0" : "min-w-4 flex-1"
+            } cursor-grab active:cursor-grabbing`}
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               event.preventDefault();

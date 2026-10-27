@@ -22,7 +22,6 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  Kanban,
   MoreHorizontal,
   Plus,
 } from "./icons";
@@ -43,7 +42,7 @@ type Props = {
   onSelect: () => void;
   onToggle: () => void;
   onNew?: () => void;
-  /** Open the project's board, from the menu or the icon shown on hover. */
+  /** Open the project's board, from the ··· menu. */
   onOpenBoard?: () => void;
   onMove?: (path: string, profileId: string) => void;
   onRemove?: (path: string, options: { purgeData: boolean }) => void;
@@ -211,6 +210,7 @@ export function PersonalProjectRow({
           type="button"
           className="personal-project-row-action personal-project-disclosure"
           aria-label={`${expanded ? "Collapse" : "Expand"} ${label} chats`}
+          title={`${expanded ? "Hide" : "Show"} ${label}'s chats`}
           aria-expanded={expanded}
           onClick={onToggle}
         >
@@ -220,17 +220,6 @@ export function PersonalProjectRow({
             <ChevronRight className="size-3" />
           )}
         </button>
-        {onOpenBoard ? (
-          <button
-            type="button"
-            className="personal-project-row-action personal-project-board"
-            aria-label={`Open ${label} board`}
-            title={`Open ${label} board`}
-            onClick={onOpenBoard}
-          >
-            <Kanban className="size-3.5" />
-          </button>
-        ) : null}
         {onNew ? (
           <button
             type="button"

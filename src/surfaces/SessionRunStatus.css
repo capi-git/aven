@@ -18,13 +18,6 @@
   line-height: 17px;
   container: session-run / inline-size;
 }
-.session-run-status[data-run-state="working"] {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 7%,
-    var(--aven-glass-surface)
-  );
-}
 .session-run-status[data-run-state="waiting"] {
   background: color-mix(
     in srgb,
@@ -83,7 +76,7 @@
 }
 .session-run-status[data-run-state="working"] .session-run-mark {
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
 }
 .session-run-status[data-run-state="waiting"] .session-run-mark {
   color: var(--color-skill);

@@ -117,7 +117,7 @@ describe("workspace status data and actions", () => {
         view === "settings"
           ? { settingsView: { section: "appearance", onClose: vi.fn() } }
           : view === "workspace"
-            ? { session: task() }
+            ? { sessions: [task()] }
             : {},
       );
       await click("Minimize window");
@@ -201,101 +201,53 @@ describe("workspace status data and actions", () => {
     expect(panel.hidden).toBe(true);
   });
 
-  it("shows the active turn's provider mark and leaves the model name to the agent pill", async () => {
+  it("leaves the chat's agent to its tab and message box: Activity is one icon and its count", async () => {
     const current = task({
       harness: "claude",
       model: "claude:next-model",
       busy: true,
-      blocks: [
-        {
-          id: "turn",
-          role: "user",
-          text: "Work",
-          startedAt: 1,
-          turnModel: { harness: "codex", model: "codex:running-model" },
-        },
-      ],
     });
-    await render({
-      session: current,
-      sessions: [current, task({ id: "other", harness: "claude" })],
-    });
-    const context = () => container.querySelector(".workspace-status-context")!;
-    expect(context().textContent).not.toContain("running-model");
-    expect(context().textContent).not.toContain("next-model");
-    expect(context().querySelectorAll(".provider-mark")).toHaveLength(1);
-    expect(
-      context().querySelector(".provider-mark")?.getAttribute("data-provider"),
-    ).toBe("codex");
-    expect(
-      context().querySelector(".provider-mark")?.getAttribute("data-working"),
-    ).toBe("true");
-    await render({ session: { ...current, busy: false } });
-    expect(context().textContent).not.toContain("next-model");
-    expect(
-      context().querySelector(".provider-mark")?.getAttribute("data-provider"),
-    ).toBe("claude");
-    expect(
-      context().querySelector(".provider-mark")?.getAttribute("data-working"),
-    ).toBe("false");
-    await render({ session: undefined });
+    await render({ sessions: [current, task({ id: "other" })] });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".workspace-status-task",
+    )!;
     expect(container.querySelector(".provider-mark")).toBeNull();
-    expect(
-      container.querySelector(".workspace-status-task")?.textContent,
-    ).not.toContain("Aven");
+    expect(container.querySelector(".workspace-status-context")).toBeNull();
+    expect(trigger.textContent).not.toContain("model");
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+    // Running work still reads in its label.
+    expect(trigger.getAttribute("aria-label")).toBe("Activity: 1 running");
   });
 
-  it("keeps the provider working during optional questions and pauses for blocking input", async () => {
+  it("counts optional questions as input without blocking the queue summary", async () => {
     const current = task({
       busy: true,
       pendingQuestion: { requestId: 7, questions: [], blocking: false },
     });
-    const working = () =>
-      container.querySelector(".provider-mark")?.getAttribute("data-working");
-    await render({ session: current, sessions: [current] });
-    expect(working()).toBe("true");
     expect(workspaceQueueSummary([current]).questions).toBe(1);
-    await render({
-      session: {
-        ...current,
-        harness: "claude",
-        pendingQuestion: { requestId: 8, questions: [] },
-      },
-    });
-    expect(working()).toBe("false");
-    await render({
-      session: {
-        ...current,
-        blocks: [
-          {
-            id: "approval",
-            role: "approval",
-            text: "Allow?",
-            approval: { requestId: 9 },
-          },
-        ],
-      },
-    });
-    expect(working()).toBe("false");
+    expect(workspaceQueueSummary([current]).running).toBe(1);
+    await render({ sessions: [current] });
+    expect(
+      button("Activity: 1 running · 1 needs input").getAttribute(
+        "aria-haspopup",
+      ),
+    ).toBe("dialog");
   });
 
-  it("opens Activity from the provider mark without dragging", async () => {
-    await render({ session: task() });
+  it("opens Activity from its icon without dragging", async () => {
+    await render({ sessions: [task()] });
     const trigger = button("Activity: Queue is clear");
-    const mark = trigger.querySelector<HTMLSpanElement>(".provider-marks")!;
-    expect(trigger.textContent).not.toContain("model");
-    for (const target of [mark]) {
-      await act(async () => {
-        target.dispatchEvent(
-          new MouseEvent("mousedown", { bubbles: true, button: 0 }),
-        );
-        target.click();
-      });
-      expect(
-        container.querySelector('[role="dialog"][aria-label="Activity"]'),
-      ).not.toBeNull();
-      await click("Activity: Queue is clear");
-    }
+    const icon = trigger.querySelector("svg")!;
+    await act(async () => {
+      icon.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+      trigger.click();
+    });
+    expect(
+      container.querySelector('[role="dialog"][aria-label="Activity"]'),
+    ).not.toBeNull();
+    await click("Activity: Queue is clear");
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
@@ -310,7 +262,7 @@ describe("workspace status data and actions", () => {
       harness: "codex",
       model: "model",
     });
-    await render({ session: task(), onToggleSidebar: vi.fn() });
+    await render({ sessions: [task()], onToggleSidebar: vi.fn() });
     const bar = container.querySelector<HTMLElement>(".workspace-status-bar")!;
     const children = () => [...bar.children];
     const trigger = button("Activity: Queue is clear · 1 unread");
@@ -323,9 +275,6 @@ describe("workspace status data and actions", () => {
     expect(children().indexOf(trigger)).toBeLessThan(
       children().indexOf(controls),
     );
-    expect(
-      trigger.querySelector(".workspace-status-context .provider-mark"),
-    ).not.toBeNull();
     expect(trigger.textContent).not.toContain("model");
     expect(trigger.querySelector(".workspace-status-unread")?.textContent).toBe(
       "1",
@@ -341,13 +290,12 @@ describe("workspace status data and actions", () => {
     expect(
       children().indexOf(bar.querySelector(".workspace-status-settings")!),
     ).toBeGreaterThan(children().indexOf(trigger));
-    expect(trigger.querySelector(".workspace-status-context")).toBeNull();
   });
 
   it("replaces the task label with the current settings section and keeps exit controls out of window dragging", async () => {
     const closeSettings = vi.fn();
     await render({
-      session: task({ model: "current-task-model" }),
+      sessions: [task({ model: "current-task-model" })],
       settingsView: { section: "appearance", onClose: closeSettings },
     });
     const settingsTitle = () =>
@@ -383,7 +331,7 @@ describe("workspace status data and actions", () => {
   it("keeps Activity available in settings and dismisses it when entering or leaving settings", async () => {
     const activity = () =>
       container.querySelector('[role="dialog"][aria-label="Activity"]');
-    await render({ session: task() });
+    await render({ sessions: [task()] });
     await click("Activity: Queue is clear");
     expect(activity()).not.toBeNull();
 
@@ -399,9 +347,6 @@ describe("workspace status data and actions", () => {
 
     await render({ settingsView: undefined });
     expect(activity()).toBeNull();
-    expect(
-      container.querySelector(".workspace-status-context .provider-mark"),
-    ).not.toBeNull();
     await click("Activity: Queue is clear");
     expect(activity()).not.toBeNull();
   });
@@ -584,6 +529,52 @@ describe("workspace status data and actions", () => {
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
+  it("leaves Search and Home to the pinned sidebar's rows and brings them back while it is hidden", async () => {
+    const search = vi.fn();
+    const home = vi.fn();
+    await render({
+      onToggleSidebar: vi.fn(),
+      sidebarOpen: true,
+      onSearch: search,
+      onHome: home,
+      onGoBack: vi.fn(),
+      onGoForward: vi.fn(),
+      canGoBack: true,
+    });
+    const labels = () =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="Workspace navigation"] button',
+        ),
+      ].map((node) => node.getAttribute("aria-label"));
+    // At rest: the sidebar toggle and history. Search is the sidebar's
+    // Search row, Home its workspace row.
+    expect(labels()).toEqual(["Toggle workspace sidebar", "Back", "Forward"]);
+    await render({ sidebarOpen: false });
+    expect(labels()).toEqual([
+      "Toggle workspace sidebar",
+      "Search workspace",
+      "Workspace Home",
+      "Back",
+      "Forward",
+    ]);
+    await click("Search workspace");
+    await click("Workspace Home");
+    expect(search).toHaveBeenCalledOnce();
+    expect(home).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a new browser to Home's own Open browser button", async () => {
+    const browser = vi.fn();
+    await render({ onNewBrowser: browser, homeOpen: true });
+    expect(
+      container.querySelector('button[aria-label="New browser tab"]'),
+    ).toBeNull();
+    await render({ homeOpen: false });
+    await click("New browser tab");
+    expect(browser).toHaveBeenCalledOnce();
+  });
+
   it("leaves navigation to the visible sidebar and brings it back when hidden", async () => {
     const toggle = vi.fn();
     await render({ onToggleSidebar: toggle, navigationInSidebar: true });
@@ -692,7 +683,7 @@ describe("workspace status data and actions", () => {
   });
 
   it("keeps usage, access, external-open and settings controls out of the header", async () => {
-    await render({ session: task({ context: { used: 101_000 } }) });
+    await render({ sessions: [task({ context: { used: 101_000 } })] });
     const labels = [...container.querySelectorAll("button")].map((node) =>
       node.getAttribute("aria-label"),
     );

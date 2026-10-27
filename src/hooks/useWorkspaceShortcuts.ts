@@ -5,7 +5,13 @@ import type { FocusDir, SplitDir } from "../lib/layout";
 import { NOTIFICATION_CLICK_EVENT } from "../lib/notifications";
 import type { Session } from "../lib/session";
 import type { SettingsSectionId } from "../lib/settings";
-import { shouldHandleListNavigation, tabCommand } from "../lib/tabKeys";
+import {
+  PAGE_SHORTCUT_EVENT,
+  shouldHandleListNavigation,
+  tabCommand,
+} from "../lib/tabKeys";
+
+export { PAGE_SHORTCUT_EVENT };
 import {
   applyUiScale,
   loadUiScale,
@@ -38,6 +44,10 @@ export type WorkspaceActions = {
   onClosePane: (sessionId?: string) => void;
   onNext: () => void;
   onPrev: () => void;
+  /** The next (1) or previous (-1) pane in layout order (Cydonia's ⌃⌥⇥). */
+  onStepPane: (step: number) => void;
+  /** Expand the focused pane over the others, or put it back (⌃⌥Z). */
+  onZoomPane: () => void;
   onVisitBack: () => void;
   onVisitForward: () => void;
   onActivate: (slot: number) => void;
@@ -218,6 +228,16 @@ export function useWorkspaceShortcuts({
         ) {
           return;
         }
+        // A terminal keeps its Control-Option chords, ⌃⌥W included.
+        if (
+          (cmd === "next-pane" ||
+            cmd === "prev-pane" ||
+            cmd === "zoom-pane" ||
+            (cmd === "close" && e.ctrlKey && e.altKey)) &&
+          target?.closest(".aven-terminal")
+        ) {
+          return;
+        }
         if (
           (cmd === "split-right" || cmd === "split-down") &&
           target?.closest(".cm-editor")
@@ -259,6 +279,9 @@ export function useWorkspaceShortcuts({
           });
         else if (cmd === "next") run("next", a.onNext);
         else if (cmd === "prev") run("prev", a.onPrev);
+        else if (cmd === "next-pane") run("next-pane", () => a.onStepPane(1));
+        else if (cmd === "prev-pane") run("prev-pane", () => a.onStepPane(-1));
+        else if (cmd === "zoom-pane") run("zoom-pane", a.onZoomPane);
         else if (cmd === "back") run("back", a.onVisitBack);
         else if (cmd === "forward") run("forward", a.onVisitForward);
         else if (cmd === "split-right")
@@ -369,6 +392,30 @@ export function useWorkspaceShortcuts({
       ),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
+      // A chord a focused Chromium page forwarded to this window only (it
+      // keeps the key otherwise). Scoped to this window: never another's.
+      listenInThisWindow<{ action?: unknown }>(
+        PAGE_SHORTCUT_EVENT,
+        ({ payload }) => {
+          const a = actions.current;
+          switch (payload?.action) {
+            case "next-tab":
+              return run("next", a.onNext);
+            case "prev-tab":
+              return run("prev", a.onPrev);
+            case "next-pane":
+              return run("next-pane", () => a.onStepPane(1));
+            case "prev-pane":
+              return run("prev-pane", () => a.onStepPane(-1));
+            case "zoom-pane":
+              return run("zoom-pane", a.onZoomPane);
+            case "close-pane":
+              return run("close", () => {
+                if (!closeFocusedTeamPanel()) a.onClosePane();
+              });
+          }
+        },
+      ),
       listen("back_tab", () =>
         run("back", () => {
           if (!indentFocusedEditor("less")) actions.current.onVisitBack();

@@ -69,7 +69,7 @@
   --git-copy-tone: var(--color-warning, #d99c45);
 }
 .git-copy[data-tone="ahead"] {
-  --git-copy-tone: var(--color-accent);
+  --git-copy-tone: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .git-copy[data-tone="merged"] {
   --git-copy-tone: #4ade80;
@@ -108,7 +108,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   border-radius: 50%;
 }
 .git-copy-dot[data-dot="working"] {
-  background: var(--color-accent);
+  background: var(--color-content);
 }
 .git-copy-dot[data-dot="uncommitted"] {
   background: var(--aven-needs-you);

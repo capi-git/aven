@@ -62,7 +62,7 @@ html.workspace-menu-panel-window #root {
 }
 .workspace-menu-panel-check {
   flex-shrink: 0;
-  color: var(--toolbar-panel-accent);
+  color: var(--toolbar-panel-text);
 }
 .workspace-menu-panel-shortcut {
   flex-shrink: 0;
@@ -154,7 +154,7 @@ html.workspace-menu-panel-window #root {
   background: var(--toolbar-panel-hover);
 }
 .workspace-menu-panel-search-field:focus-within {
-  border-color: var(--toolbar-panel-accent);
+  border-color: color-mix(in srgb, var(--toolbar-panel-text) 28%, transparent);
 }
 .workspace-menu-panel-search-field input {
   min-width: 0;

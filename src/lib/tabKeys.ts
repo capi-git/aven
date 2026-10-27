@@ -12,8 +12,14 @@
  *   Forward in history  cmd-]
  *   Activate tab 1–8    cmd-1 … cmd-8
  *   Last tab            cmd-9
- *   Cycle next tab      ctrl-tab
+ *   Cycle next tab      ctrl-tab        (the focused pane's tabs)
  *   Cycle previous tab  ctrl-shift-tab
+ *   Next pane           ctrl-opt-tab    (layout order, as in Cydonia; Mac)
+ *   Previous pane       ctrl-opt-shift-tab
+ *   Next/previous pane  ctrl-opt-pagedown / ctrl-opt-pageup (everywhere;
+ *                       Windows keeps ctrl-alt-tab)
+ *   Expand/restore pane ctrl-opt-z
+ *   Close tab           ctrl-opt-w      (as cmd-w)
  *   Focus pane          cmd-opt-arrows
  *   New terminal        cmd-`
  *   New terminal tab    shift-cmd-`
@@ -30,6 +36,14 @@
  */
 
 import type { FocusDir } from "./layout";
+import { IS_MAC } from "./platform";
+
+/**
+ * The event a focused Chromium page sends its chord to its own window by
+ * (`browser_chromium.rs`): never a menu command's name, which every window
+ * hears.
+ */
+export const PAGE_SHORTCUT_EVENT = "page_shortcut";
 
 export type TabCommand =
   | "new"
@@ -50,13 +64,49 @@ export type TabCommand =
   | "archive-session"
   | "prev-project"
   | "next-project"
+  | "next-pane"
+  | "prev-pane"
+  | "zoom-pane"
   | { activate: number }
   | { focus: FocusDir };
 
-export function tabCommand(e: KeyboardEvent): TabCommand | null {
+/** The letter a key types in the keyboard layout, ignoring modifiers. */
+export function layoutLetter(
+  e: Pick<KeyboardEvent, "key" | "keyCode">,
+): string {
+  // Browsers derive a letter key's code from the layout's own letter (65–90),
+  // whatever Option does to the character it types.
+  if (e.keyCode >= 65 && e.keyCode <= 90)
+    return String.fromCharCode(e.keyCode).toLowerCase();
+  return e.key.length === 1 ? e.key.toLowerCase() : "";
+}
+
+export function tabCommand(e: KeyboardEvent, mac = IS_MAC): TabCommand | null {
   if (e.isComposing) return null;
 
   const mod = e.metaKey || e.ctrlKey;
+
+  // Control-Option chords. Letters match the keyboard layout's letter, as
+  // a page's own key code does (so ⌃⌥Z is the key that types Z on AZERTY
+  // and QWERTZ too), not its physical position; Option changes what a
+  // letter types on a Mac (⌥Z is Ω). Off a Mac, AltGr reports Control and
+  // Alt and types other characters (Polish ż): never one of these.
+  if (
+    e.ctrlKey &&
+    e.altKey &&
+    !e.metaKey &&
+    (mac || !e.getModifierState?.("AltGraph"))
+  ) {
+    // Windows keeps Ctrl+Alt+Tab for itself; PageDown/PageUp work anywhere.
+    if (e.key === "PageDown") return "next-pane";
+    if (e.key === "PageUp") return "prev-pane";
+    if (mac && (e.key === "Tab" || e.code === "Tab"))
+      return e.shiftKey ? "prev-pane" : "next-pane";
+    const letter = layoutLetter(e);
+    const typed = !mac && e.key.length === 1 && e.key.toLowerCase() !== letter;
+    if (!e.shiftKey && !typed && letter === "z") return "zoom-pane";
+    if (!e.shiftKey && !typed && letter === "w") return "close";
+  }
 
   if (mod && e.altKey && !e.shiftKey) {
     if (e.key.toLowerCase() === "t") return "close-others";

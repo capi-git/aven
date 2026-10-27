@@ -21,6 +21,7 @@
 #include "browser_pump.h"
 #include "browser_host_view.h"
 #include "browser_tab_zoom.h"
+#include "browser_workspace_keys.h"
 #include "browser_actions_menu.h"
 #include "browser_drop_indicator.h"
 #include "browser_agent_marker.h"
@@ -660,6 +661,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && EditActive() && event.windows_key_code==27 &&
         (event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN)) {
       EditMode(false); return true;
+    }
+    // The workspace's Control-Tab and Control-Option pane chords, which the
+    // page would keep: the app hears only Command keys through its menu.
+    // Keys an agent sends stay in the page.
+    if ((event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN) && Main(browser) && agent_keys_==0) {
+      if (const char* action=supermono::WorkspaceKey(event.windows_key_code,
+            (event.modifiers & EVENTFLAG_COMMAND_DOWN)!=0,(event.modifiers & EVENTFLAG_CONTROL_DOWN)!=0,
+            (event.modifiers & EVENTFLAG_ALT_DOWN)!=0,(event.modifiers & EVENTFLAG_SHIFT_DOWN)!=0)) {
+        auto d=Object(); d->SetString("type","shortcut"); d->SetString("action",action); Emit(id_,d); return true;
+      }
     }
     if ((event.type!=KEYEVENT_RAWKEYDOWN && event.type!=KEYEVENT_KEYDOWN) || !(event.modifiers & EVENTFLAG_COMMAND_DOWN)) return false;
     auto c=event.unmodified_character;

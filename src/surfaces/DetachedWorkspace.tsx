@@ -9,6 +9,7 @@ import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { TitleBar, type Tab } from "../chrome/TitleBar";
+import { PAGE_SHORTCUT_EVENT } from "../lib/tabKeys";
 import { sessionModelIdentity } from "../lib/sessionLabels";
 import {
   confirmCloseTerminal,
@@ -56,6 +57,7 @@ import {
 } from "../lib/workspaceViews";
 import {
   applyWorkspaceIntent,
+  pageShortcutOutcome,
   hiddenSplitStatus,
   type WorkspaceIntent,
 } from "../lib/workspaceIntents";
@@ -495,6 +497,35 @@ export function DetachedWorkspace() {
     },
     [change],
   );
+  // A chord a focused page here forwarded (the page keeps it otherwise):
+  // this window acts on it, never the main window.
+  const pageShortcut = useRef<(action: unknown) => void>(() => {});
+  pageShortcut.current = (action) => {
+    const state = current.current?.state;
+    const outcome = state ? pageShortcutOutcome(state.view, action) : null;
+    if (!outcome) return;
+    if (outcome.type === "select")
+      change((s) => ({ ...s, view: selectWorkspaceView(s.view, outcome.id) }));
+    else if (outcome.type === "zoom")
+      arrange({ type: "zoom", group: outcome.group });
+    else void closeSurface(outcome.id).catch(report);
+  };
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void nativeWorkspaceWindow
+      .listen<{ action?: unknown }>(PAGE_SHORTCUT_EVENT, (payload) =>
+        pageShortcut.current(payload?.action),
+      )
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
   const closeLeaf = useCallback(
     (tabId: string, paneId: string) => {
       const tab = current.current?.state.tabs.find((t) => t.id === tabId);

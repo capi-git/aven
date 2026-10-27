@@ -43,11 +43,7 @@
   color: var(--color-content);
 }
 .personal-shell .personal-transcript-response .agent-markdown blockquote {
-  border-left-color: color-mix(
-    in srgb,
-    var(--personal-accent) 45%,
-    transparent
-  );
+  border-left-color: color-mix(in srgb, var(--color-content) 25%, transparent);
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .personal-shell .personal-transcript-notice {
@@ -77,11 +73,7 @@
   border: 0;
   border-radius: var(--aven-radius-bubble);
   padding: 10px 16px;
-  background: color-mix(
-    in srgb,
-    var(--personal-accent) 5%,
-    var(--aven-fill-secondary)
-  );
+  background: var(--aven-fill-secondary);
   box-shadow: none;
 }
 .personal-shell
@@ -281,13 +273,6 @@
   max-width: 832px;
   padding: 4px 16px 16px;
 }
-html.theme-light .personal-shell .personal-user-bubble {
-  background: color-mix(
-    in srgb,
-    var(--personal-accent) 4%,
-    var(--aven-fill-secondary)
-  );
-}
 @container personal-transcript (max-width: 480px) {
   .personal-shell .personal-user-message[data-message-layout="chat"] {
     padding-left: 30px;
@@ -299,11 +284,7 @@ html.theme-light .personal-shell .personal-user-bubble {
 }
 @media (prefers-reduced-transparency: reduce) {
   .personal-shell .personal-user-bubble {
-    background: color-mix(
-      in srgb,
-      var(--personal-accent) 5%,
-      var(--aven-elevated-2)
-    );
+    background: var(--aven-elevated-2);
   }
 }
 

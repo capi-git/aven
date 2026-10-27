@@ -43,18 +43,35 @@ export const THEME_PREFERENCE_DEFAULT: ThemePreference = "system";
  *  the opaque dark look those installs had. */
 const LEGACY_THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
-/** Aven's default: black glass with a blue accent in dark mode, white and
- *  near-black in light mode. Saved workspace palettes remain independent. */
+/** Aven's default: black glass with a near-white accent in dark mode (black
+ *  text on it), white and near-black in light mode. Colour is kept for what
+ *  means something; anyone who wants it on controls picks an accent. */
 export const AVEN_THEME_COLORS = {
   dark: {
     background: "#000000",
-    accent: "#57b5ff",
-    highlight: "#57b5ff",
+    accent: "#e8e8ea",
+    highlight: "#a1a1a6",
   },
   light: {
     background: "#ffffff",
     accent: "#0a0a0a",
     highlight: "#737373",
+  },
+} satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
+
+/** The former blue default, kept selectable as Blue, with a blue that reads
+ *  on white in light mode. Its highlight differs from the former default's,
+ *  so choosing Blue is never mistaken for that default (workspaceThemes.ts). */
+export const AVEN_BLUE_THEME_COLORS = {
+  dark: {
+    background: "#000000",
+    accent: "#57b5ff",
+    highlight: "#8ccbff",
+  },
+  light: {
+    background: "#ffffff",
+    accent: "#0a6cc4",
+    highlight: "#6aaee8",
   },
 } satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
 
@@ -597,7 +614,23 @@ function nativeGlassTint(): GlassTint {
   const [r, g, b] = custom
     ? hexRgb(custom)
     : hslRgb(appliedThemeHue, appliedThemeSaturation, 4);
-  return { r, g, b, alpha: appliedSidebarOpacity };
+  return { r, g, b, alpha: glassTintAlpha(appliedSidebarOpacity) };
+}
+
+/**
+ * The least of the shell's own colour that glass keeps over the desktop. A
+ * thinner tint let a colourful wallpaper wash the whole window in its hue;
+ * with this floor it reads as a darker grey. The Glass slider still runs from
+ * the most glass to Solid over the rest of the range, and personal-shell.css
+ * mixes `--personal-window-opacity` the same way.
+ */
+export const GLASS_TINT_FLOOR = 0.2;
+
+/** The shell tint's opacity for a Glass slider value (0..1). */
+export function glassTintAlpha(opacity: number): number {
+  const alpha = GLASS_TINT_FLOOR + (1 - GLASS_TINT_FLOOR) * opacity;
+  // Four places, so 0.2 + 0.4 is sent as 0.6 rather than 0.6000000000000001.
+  return Math.round(alpha * 10_000) / 10_000;
 }
 
 function tintKey(tint: GlassTint) {

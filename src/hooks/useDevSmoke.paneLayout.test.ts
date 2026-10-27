@@ -44,6 +44,7 @@ function layout({
   divider = 0.5,
   hairlines = true,
   fileTabHeight = 26,
+  titleRow = false,
 } = {}) {
   const hairline = hairlines
     ? "box-shadow:inset 0 -0.5px 0 rgba(255,255,255,0.2)"
@@ -76,9 +77,13 @@ function layout({
           <div role="separator" aria-orientation="vertical" data-divider></div>
         </div>
       </div>
-      <div data-workspace-header="tab" style="${hairline}"><button
+      ${
+        titleRow
+          ? `<div data-workspace-header="tab" style="${hairline}"><button
         class="aven-tab-button" data-header-tab
-        style="border-top-left-radius:6px"></button></div>
+        style="border-top-left-radius:6px"></button></div>`
+          : ""
+      }
     </div>`;
   boxes.clear();
   at("[data-workspace-stage]", { left: 0, top: 0, width: 1000, height: 600 });
@@ -88,8 +93,15 @@ function layout({
     width: 1000 - 2 * inset,
     height: 600 - 2 * inset,
   });
-  at("[data-workspace-header]", { left: 0, top: 0, width: 1000, height: 32 });
-  at("[data-header-tab]", { left: 6, top: 3, width: 200, height: 26 });
+  if (titleRow) {
+    at("[data-workspace-header]", {
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 32,
+    });
+    at("[data-header-tab]", { left: 6, top: 3, width: 200, height: 26 });
+  }
   document.querySelectorAll("[data-pane-strip]").forEach((element, index) =>
     boxes.set(element, {
       left: 0,
@@ -133,7 +145,7 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content, each over a hairline; square panes flush with the workspace, divided by a 0.5px hairline; tab, chat and file tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content, each over a hairline, and no title row naming the tab again; square panes flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
     );
     // Under Increase contrast, or on a 1x screen, the hairline is a full pixel.
     expect(paneLayoutProblem(layout({ divider: 1 })).problem).toBeNull();
@@ -180,11 +192,28 @@ describe("paneLayoutProblem", () => {
       "the chat's strip has no hairline under it",
     );
     expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
-      "the tab's bar is 32px, the chat's strip 24px and the file's 32px",
+      "the chat's strip is 24px and the file's 32px",
     );
     expect(paneLayoutProblem(layout({ fileTabHeight: 32 })).problem).toBe(
-      "the tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
+      "the chat's tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
     );
+  });
+});
+
+describe("one title row per pane", () => {
+  it("names a title row that repeats the tab above panes that name themselves", () => {
+    expect(paneLayoutProblem(layout({ titleRow: true })).problem).toBe(
+      "a title row above the panes names the tab again",
+    );
+    // An empty header (one holding only a minimize control) is fine.
+    const file = layout();
+    document
+      .querySelector("[data-workspace-stage]")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<div data-workspace-header="tab"><button class="workspace-pane-toggle"></button></div>',
+      );
+    expect(paneLayoutProblem(file).problem).toBeNull();
   });
 });
 

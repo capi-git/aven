@@ -31,11 +31,9 @@
 .git-house-card[data-tone="ok"] {
   --git-house-tone: #4ade80;
 }
-.git-house-card[data-tone="info"] {
-  --git-house-tone: var(--color-accent);
-}
+.git-house-card[data-tone="info"],
 .git-house-card[data-tone="busy"] {
-  --git-house-tone: var(--color-accent);
+  --git-house-tone: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .git-house-card[data-tone="warn"] {
   --git-house-tone: var(--color-warning, #d99c45);

@@ -110,7 +110,7 @@ function editorThemeStyles(dark: boolean) {
       },
       ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
         backgroundColor:
-          "color-mix(in srgb, var(--color-accent) 25%, transparent)",
+          "color-mix(in srgb, var(--color-content) 14%, transparent)",
         color: "var(--color-content)",
       },
       ".cm-completionDetail": {

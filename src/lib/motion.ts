@@ -129,3 +129,55 @@ export function playMotion(
   running.set(element, finish);
   return true;
 }
+
+/** How long past its duration a bounded animation may run before it is stopped. */
+export const MOTION_BOUND_SLACK_MS = 50;
+
+export type BoundedMotion = {
+  /** The animation, or null where the element cannot animate. */
+  readonly animation: Animation | null;
+  /** Stop it now without running its end. */
+  stop(): void;
+};
+
+/**
+ * Plays a script-started animation that always ends. WebKit can hold back
+ * its animation timeline while a native Chromium page covers the view, so an
+ * animation may never finish on its own; a timer at its duration (plus a
+ * little) stops it and runs `onEnd` regardless, and nothing it drew is left
+ * on screen. `onEnd` runs once, in the same task that stops the animation,
+ * so an element it hides never flashes back at full strength.
+ */
+export function playBounded(
+  element: Element,
+  keyframes: Keyframe[],
+  options: { duration: number; easing?: string; fill?: FillMode },
+  onEnd?: () => void,
+): BoundedMotion {
+  let done = false;
+  const animation =
+    typeof (element as HTMLElement).animate === "function"
+      ? element.animate(keyframes, options)
+      : null;
+  const end = () => {
+    if (done) return;
+    done = true;
+    window.clearTimeout(timer);
+    animation?.cancel();
+    onEnd?.();
+  };
+  const timer = window.setTimeout(
+    end,
+    options.duration + MOTION_BOUND_SLACK_MS,
+  );
+  if (animation) animation.onfinish = end;
+  return {
+    animation,
+    stop() {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      animation?.cancel();
+    },
+  };
+}

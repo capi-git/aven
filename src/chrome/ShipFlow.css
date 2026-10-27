@@ -120,7 +120,8 @@ html.theme-light .ship-flow {
   gap: 8px;
   padding: 6px 8px;
   border-radius: var(--aven-radius-row);
-  background: color-mix(in srgb, var(--ship-tone) 9%, transparent);
+  /* A neutral row; only the mark carries the result's colour. */
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .ship-flow-tests[data-tone="ok"] {
   --ship-tone: var(--ship-ok);
@@ -129,7 +130,7 @@ html.theme-light .ship-flow {
   --ship-tone: var(--ship-warn);
 }
 .ship-flow-tests[data-tone="busy"] {
-  --ship-tone: var(--color-accent);
+  --ship-tone: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .ship-flow-tests-mark {
   display: grid;

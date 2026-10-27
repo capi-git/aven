@@ -193,10 +193,10 @@
 }
 
 .work-board-column[data-drop-target] {
-  border-color: var(--color-accent);
+  border-color: var(--aven-label-secondary, var(--aven-muted));
   box-shadow:
     var(--aven-glass-sheen, none),
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--color-content) 25%, transparent);
 }
 
 .work-board-card-open {

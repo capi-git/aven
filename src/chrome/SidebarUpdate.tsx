@@ -80,7 +80,7 @@ export function SidebarUpdateWaiting({
     <section
       role="status"
       aria-label="Update ready"
-      className="flex w-full items-start gap-2 rounded-lg bg-accent/15 px-2 py-2 text-content"
+      className="flex w-full items-start gap-2 rounded-lg bg-content/8 px-2 py-2 text-content"
     >
       <span className="mt-0.5 grid size-[18px] shrink-0 place-items-center">
         <Clock className="size-4 text-accent" aria-hidden />
@@ -99,7 +99,7 @@ export function SidebarUpdateWaiting({
           <button
             type="button"
             onClick={() => void restartUpdateNow()}
-            className="rounded px-1 py-0.5 font-medium text-accent hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded px-1 py-0.5 font-medium text-content hover:bg-content/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Restart now
           </button>
@@ -168,7 +168,7 @@ export function SidebarUpdate({
       className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
         busy
           ? "bg-content/5 text-content/75 hover:bg-content/10 hover:text-content"
-          : "bg-accent/15 text-content hover:bg-accent/20"
+          : "bg-content/8 text-content hover:bg-content/12"
       } disabled:cursor-default disabled:opacity-70`}
     >
       <span className="grid size-[18px] shrink-0 place-items-center">
