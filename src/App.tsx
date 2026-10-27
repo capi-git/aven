@@ -126,10 +126,13 @@ import {
   type BrowserSurfaceActions,
 } from "./surfaces/WorkspaceBrowserSurface";
 import {
+  SWITCH_MS,
   WorkspaceStage,
   workspaceSurfaceDropAt,
+  ZOOM_GLIDE_MS,
   type WorkspaceSurfaceDropTarget,
 } from "./surfaces/WorkspaceStage";
+import { motionReduced } from "./lib/motion";
 import {
   revealBesideWorkspaceView,
   closeWorkspaceViews,
@@ -145,14 +148,19 @@ import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
   neighborCombineTargets,
+  GLIDING_INTENTS,
+  MOVING_INTENTS,
   workspaceIntentIds,
   type WorkspaceIntent,
 } from "./lib/workspaceIntents";
+import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
   entryKey,
   stepStripEntry,
   stripEntryAt,
   stripEntryFocus,
+  stripEntryKeyOf,
+  stripEntryShown,
   stripItems,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
@@ -1663,7 +1671,25 @@ export default function App({
       return { ...all, [cwd]: keepBrowserTab(current, target.id) };
     });
   }, []);
-  const onWorkspaceIntent = useCallback(
+  // A native page in an arrangement change moves as a picture of itself,
+  // taken just before the change (browserMotion.ts).
+  const browserIdsRef = useRef<ReadonlySet<string>>(new Set());
+  browserIdsRef.current = new Set(browserSurfaces.map((tab) => tab.surfaceId));
+  /** Hold the pages a motion moves, or null when no page is involved. */
+  const holdPagesForMotion = useCallback((incoming: readonly string[]) => {
+    if (motionReduced()) return null;
+    const { view } = viewRef.current;
+    const pages = browserIdsRef.current;
+    const live = (view.layout ? leafIds(view.layout) : []).filter((id) =>
+      pages.has(id),
+    );
+    const coming = incoming.filter((id) => pages.has(id) && !live.includes(id));
+    if (!live.length && !coming.length) return null;
+    return holdMotionPages(live, coming);
+  }, []);
+  // Bumped for changes whose panes glide to their new places.
+  const [paneGlide, setPaneGlide] = useState(0);
+  const applyIntent = useCallback(
     (intent: WorkspaceIntent) => {
       // A tab from elsewhere on the strip (a single tab dropped into the
       // space in front, say) joins the view in front for the move.
@@ -1673,8 +1699,25 @@ export default function App({
       );
       result.keep.forEach(onKeepBrowser);
       changeLayout(() => result.view);
+      if (GLIDING_INTENTS.has(intent.type)) setPaneGlide((glide) => glide + 1);
     },
     [changeLayout, onKeepBrowser],
+  );
+  const onWorkspaceIntent = useCallback(
+    (intent: WorkspaceIntent) => {
+      const holding = MOVING_INTENTS.has(intent.type)
+        ? holdPagesForMotion(workspaceIntentIds(intent))
+        : null;
+      if (!holding) {
+        applyIntent(intent);
+        return;
+      }
+      void holding.then((held) => {
+        applyIntent(intent);
+        releaseMotionPagesAfter(held, ZOOM_GLIDE_MS);
+      });
+    },
+    [applyIntent, holdPagesForMotion],
   );
   const visibleSurfaceIds = view.layout ? leafIds(view.layout) : [];
   const browserFocused = browserSurfaces.some(
@@ -4522,7 +4565,7 @@ export default function App({
     [onClosePane, onCloseTab, tabCloseScope],
   );
 
-  const onSelectSurface = useCallback(
+  const selectSurfaceNow = useCallback(
     (id: string) => {
       if (browserSurfaces.some((tab) => tab.surfaceId === id))
         onSelectBrowserTab(id);
@@ -4532,6 +4575,27 @@ export default function App({
       }
     },
     [browserSurfaces, onSelectBrowserTab, activateTab],
+  );
+  // Another strip entry: its arrangement replaces the one in front, and a
+  // page in either moves as its picture through the switch.
+  const onSelectSurface = useCallback(
+    (id: string) => {
+      const { strip } = viewRef.current;
+      const key = stripEntryKeyOf(strip, id);
+      const holding =
+        key && key !== strip.front
+          ? holdPagesForMotion(stripEntryShown(strip, key))
+          : null;
+      if (!holding) {
+        selectSurfaceNow(id);
+        return;
+      }
+      void holding.then((held) => {
+        selectSurfaceNow(id);
+        releaseMotionPagesAfter(held, SWITCH_MS);
+      });
+    },
+    [selectSurfaceNow, holdPagesForMotion],
   );
   // ⌃⇥ as in Cydonia: through the focused pane's stack when a space is in
   // front and the pane holds two tabs or more; otherwise along the strip,
@@ -10894,6 +10958,27 @@ export default function App({
       },
     ];
   });
+  // Which way the strip moved to reach the entry in front, for the stage's
+  // switch. 0 when this is no switch: another project, or the entry in
+  // front itself became a space or came apart.
+  const stripKeys = strip.entries.map(entryKey);
+  const arrangementSeen = useRef<{ project: string; front: string } | null>(
+    null,
+  );
+  const previousArrangement = arrangementSeen.current;
+  const arrangementStep =
+    previousArrangement &&
+    previousArrangement.project === projectCwd &&
+    previousArrangement.front !== strip.front &&
+    stripKeys.includes(previousArrangement.front)
+      ? stripKeys.indexOf(strip.front) >=
+        stripKeys.indexOf(previousArrangement.front)
+        ? 1
+        : -1
+      : 0;
+  useLayoutEffect(() => {
+    arrangementSeen.current = { project: projectCwd, front: strip.front };
+  });
   const windowStrip =
     workspaceVisible && !settingsOpen && view.layout && windowStripOwner
       ? paneBar(windowStripOwner, {
@@ -10903,13 +10988,16 @@ export default function App({
           tabs: titleTabs.filter((tab) => stripItemIds.includes(tab.id)),
           browserTabs: browserTabsFor(stripItemIds),
           spaces: stripSpaces,
-          surfaceOrder: strip.entries.map(entryKey),
+          surfaceOrder: stripKeys,
           activeId: strip.front,
           visibleIds: [strip.front],
           onSelectSpace: (key) => {
             const id = stripEntryFocus(strip, key);
             if (id) onSelectSurface(id);
           },
+          onSelect: onSelectSurface,
+          onSelectBrowser: (id) =>
+            id ? onSelectSurface(id) : onSelectBrowserTab(),
           onReorderSurfaces: (ids, movedId) => {
             workspaceViews.reorderEntries(ids);
             onReorderTabs(
@@ -11213,6 +11301,11 @@ export default function App({
                                   ? (visibleSurfaceIds[0] ?? null)
                                   : null
                               }
+                              arrangement={{
+                                key: `${projectCwd}\n${strip.front}`,
+                                step: arrangementStep,
+                              }}
+                              glide={paneGlide}
                               dragging={surfaceDragging}
                               dragLabel="Move tab"
                               dragTarget={surfaceDrop}

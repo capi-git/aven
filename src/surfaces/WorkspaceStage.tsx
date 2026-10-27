@@ -91,6 +91,18 @@ export type WorkspaceStageProps = {
    * back again on Restore. A native page lands at its new bounds instead.
    */
   zoomedId?: string | null;
+  /**
+   * The strip entry in front (Cydonia's window tab), and which way the
+   * strip moved to reach it. A new key switches the whole arrangement: the
+   * incoming panes slide in a little and fade up while the outgoing ones
+   * fade away. A step of 0 (another project) switches at once.
+   */
+  arrangement?: { key: string; step: number } | null;
+  /**
+   * Bumped when an arrangement change should glide (a split, a closed or
+   * restored pane, a Move): each pane glides from its old place to its new.
+   */
+  glide?: number;
 };
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
@@ -275,6 +287,53 @@ const sameBox = (a: DockRect | null, b: DockRect | null) =>
 const DROP_REVEAL_WINDOW_MS = 1000;
 /** Cydonia's zoom: a pane glides to the whole space in 200ms, eased out. */
 export const ZOOM_GLIDE_MS = 200;
+/** Switching strip entries crossfades the arrangements in 180ms. */
+export const SWITCH_MS = 180;
+/** How far the incoming arrangement slides in from the side it comes from. */
+const SWITCH_SHIFT_PX = 24;
+
+type PaneBox = { left: number; top: number; width: number; height: number };
+
+/**
+ * How a pane glides between two places. Same size: it moves. Growing: it
+ * is laid out at once at its new size and its clip opens from where it
+ * stood. Otherwise, or for a page held as a picture, it scales from where
+ * it stood. A pictured page always scales: its picture stretches with it.
+ */
+export function paneGlideKeyframes(
+  from: PaneBox,
+  to: PaneBox,
+  pictured = false,
+): Keyframe[] {
+  const moved = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+  if (
+    Math.abs(from.width - to.width) < 1 &&
+    Math.abs(from.height - to.height) < 1
+  )
+    return [{ transform: moved }, { transform: "translate(0px, 0px)" }];
+  if (
+    !pictured &&
+    from.width <= to.width + 0.5 &&
+    from.height <= to.height + 0.5
+  )
+    return [
+      { clipPath: dockClip(from, to, 0) },
+      { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+    ];
+  return [
+    {
+      transformOrigin: "0 0",
+      transform: `${moved} scale(${from.width / to.width}, ${from.height / to.height})`,
+    },
+    { transformOrigin: "0 0", transform: "translate(0px, 0px) scale(1, 1)" },
+  ];
+}
+
+/** A live native page cannot move with its pane; a pictured one can. */
+function paneCanGlide(surface: HTMLElement): "html" | "pictured" | null {
+  if (!surface.querySelector(".browser-native-host")) return "html";
+  return surface.querySelector(".browser-motion-image") ? "pictured" : null;
+}
 
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
@@ -387,6 +446,8 @@ export function WorkspaceStage({
   dragLabel,
   dragKind = "tab",
   zoomedId = null,
+  arrangement = null,
+  glide = 0,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
   // Publish only committed destination changes; native pages draw their own
@@ -646,6 +707,14 @@ export function WorkspaceStage({
   useLayoutEffect(() => {
     committedShown.current = shownIds;
   });
+  // Switching strip entries: the arrangement in front changes whole.
+  const arrangementShown = useRef<string | null>(null);
+  const switching =
+    visible &&
+    !!arrangement &&
+    arrangement.step !== 0 &&
+    arrangementShown.current !== null &&
+    arrangementShown.current !== arrangement.key;
   // A newly opened split pane fades in beside the panes already there. A
   // switch (between tabs, or back from Settings) appears at once: fading the
   // incoming pane gave it a layer of its own and measurably slowed switching.
@@ -672,6 +741,29 @@ export function WorkspaceStage({
     positions.has(zoomedId);
   useLayoutEffect(() => {
     if (!held.size) return;
+    // Another strip entry in front: the panes it replaces fade away while
+    // its own come in. A page held as a picture fades with its pane.
+    if (switching && !motionReduced()) {
+      setHeldOut(new Set(held));
+      const fades = [...held].flatMap((id) => {
+        const node = surfaceNodes.current.get(id);
+        return node && typeof node.animate === "function"
+          ? [
+              node.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: SWITCH_MS,
+                easing: DOCK_EASE,
+                fill: "forwards",
+              }),
+            ]
+          : [];
+      });
+      // As with the zoom below, a timer ends the hold and so the fades.
+      const timer = window.setTimeout(() => setHeldOut(new Set()), SWITCH_MS);
+      return () => {
+        window.clearTimeout(timer);
+        for (const fade of fades) fade.cancel();
+      };
+    }
     // A pane expanding: the panes it covers fade out beneath it.
     if (zoomEntering && !motionReduced()) {
       setHeldOut(new Set(held));
@@ -780,7 +872,8 @@ export function WorkspaceStage({
   // the whole stage in 200ms, eased out: growing, it is laid out at once at
   // its new size and its clip opens from where it stood; shrinking, it
   // scales down from the whole stage while the panes it uncovers fade in
-  // (newSplitPanes). Native pages are never moved, so they land.
+  // (newSplitPanes). A native page moves as its picture when one was taken
+  // in time (browserMotion.ts); otherwise it lands at its new bounds.
   useLayoutEffect(() => {
     const container = stage.current;
     const previous = zoomShown.current;
@@ -804,7 +897,10 @@ export function WorkspaceStage({
     };
     const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
       const surface = surfaceNodes.current.get(id);
-      if (!surface || surface.querySelector(".browser-native-host")) return;
+      const kind = surface ? paneCanGlide(surface) : null;
+      if (!surface || !kind) return;
+      // A page held as a picture scales with its pane either way.
+      if (kind === "pictured") grow = false;
       const header = headerNodes.current.get(id);
       const headerFrom = { ...from, height: 32 };
       const headerTo = { ...to, height: 32 };
@@ -857,6 +953,96 @@ export function WorkspaceStage({
     // Positions are derived from the layout this effect follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomedId, layout, visible]);
+
+  // The incoming arrangement of a strip switch slides in from the side the
+  // strip moved to, fading up as the outgoing one fades (held, above).
+  useLayoutEffect(() => {
+    const previous = arrangementShown.current;
+    if (visible && arrangement) arrangementShown.current = arrangement.key;
+    if (
+      !visible ||
+      !arrangement ||
+      arrangement.step === 0 ||
+      previous === null ||
+      previous === arrangement.key ||
+      motionReduced()
+    )
+      return;
+    const shift = Math.sign(arrangement.step) * SWITCH_SHIFT_PX;
+    for (const id of positions.keys())
+      for (const node of [
+        surfaceNodes.current.get(id),
+        headerNodes.current.get(id),
+      ]) {
+        if (!node || typeof node.animate !== "function") continue;
+        play(
+          node,
+          [
+            { opacity: 0, transform: `translateX(${shift}px)` },
+            { opacity: 1, transform: "translateX(0px)" },
+          ],
+          { duration: SWITCH_MS, easing: DOCK_EASE },
+        );
+      }
+    // Positions follow the arrangement this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrangement?.key, visible]);
+
+  // A split, a closed or restored pane or a Move: each pane that stays
+  // glides from its old place to its new one, in the zoom's 200ms.
+  const glidePlaces = useRef(new Map<string, LayoutRect>());
+  const glideSeen = useRef(glide);
+  useLayoutEffect(() => {
+    const before = glidePlaces.current;
+    if (visible) glidePlaces.current = new Map(positions);
+    const asked = glideSeen.current !== glide;
+    glideSeen.current = glide;
+    const container = stage.current;
+    if (!asked || !container || !visible || motionReduced()) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const px = (rect: LayoutRect): PaneBox => ({
+      left: rect.x * width,
+      top: rect.y * height,
+      width: rect.w * width,
+      height: rect.h * height,
+    });
+    for (const [id, rect] of positions) {
+      const was = before.get(id);
+      if (
+        !was ||
+        (was.x === rect.x &&
+          was.y === rect.y &&
+          was.w === rect.w &&
+          was.h === rect.h)
+      )
+        continue;
+      const surface = surfaceNodes.current.get(id);
+      const kind = surface ? paneCanGlide(surface) : null;
+      if (!surface || !kind || typeof surface.animate !== "function") continue;
+      const from = px(was);
+      const to = px(rect);
+      if (to.width <= 0 || to.height <= 0) continue;
+      play(surface, paneGlideKeyframes(from, to, kind === "pictured"), {
+        duration: ZOOM_GLIDE_MS,
+        easing: DOCK_EASE,
+      });
+      const header = headerNodes.current.get(id);
+      if (header && typeof header.animate === "function")
+        play(
+          header,
+          [
+            {
+              transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`,
+            },
+            { transform: "translate(0px, 0px)" },
+          ],
+          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
+        );
+    }
+    // Positions are derived from the layout this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, visible, glide]);
 
   // The docking preview, drawn once over the whole stage so it can glide
   // between zones and between panes (Cydonia's 150ms tween). The hint in the

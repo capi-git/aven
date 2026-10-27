@@ -67,6 +67,7 @@ import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
 import { useBrowserMarkup } from "../hooks/useBrowserMarkup";
 import { useDevServerStart } from "../hooks/useDevServerStart";
 import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
+import { registerMotionPage } from "../lib/browserMotion";
 import {
   createBrowserPresentation,
   type BrowserSnapshot,
@@ -492,6 +493,44 @@ function BrowserPaneSession({
     onAddToChat,
   });
   const markupImage = markup.state?.phase === "active" ? markup.state : null;
+  // Layout motions move a picture of the page while the live page waits at
+  // its final bounds (browserMotion.ts). Mark up keeps its own still image.
+  const [motionImage, setMotionImage] = useState<string | null>(null);
+  const markingUp = useRef(false);
+  markingUp.current = !!markup.state;
+  useEffect(
+    () =>
+      registerMotionPage(id, {
+        capture: async () => {
+          const pageId = nativePageId.current;
+          if (
+            !pageId ||
+            !presentationController.current ||
+            !presentation.current.visible ||
+            presentation.current.error ||
+            markingUp.current
+          )
+            return null;
+          return nativeBrowser.snapshot(pageId);
+        },
+        hold: async (src) => {
+          const controller = presentationController.current;
+          if (!controller || markingUp.current) return false;
+          // Decoded and painted before the live page is hidden, so the pane
+          // never shows the window behind it.
+          await decodeMotionImage(src);
+          flushSync(() => setMotionImage(src));
+          await nextPaint();
+          await controller.holdForMotion();
+          return true;
+        },
+        release: async () => {
+          await presentationController.current?.releaseFromMotion();
+          setMotionImage(null);
+        },
+      }),
+    [id],
+  );
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
   const sleepProtection =
@@ -1817,7 +1856,7 @@ function BrowserPaneSession({
             onSend={markup.send}
             onClose={markup.leave}
           />
-        ) : snapshot && !error ? (
+        ) : snapshot && !error && !motionImage ? (
           <img
             className="browser-page-snapshot"
             src={snapshot.src}
@@ -1827,6 +1866,15 @@ function BrowserPaneSession({
               left: snapshot.left,
               top: snapshot.top,
             }}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+          />
+        ) : null}
+        {motionImage ? (
+          <img
+            className="browser-motion-image"
+            src={motionImage}
             alt=""
             aria-hidden="true"
             draggable={false}
@@ -1929,4 +1977,25 @@ function BrowserPaneSession({
       </div>
     </section>
   );
+}
+
+async function decodeMotionImage(src: string) {
+  const image = new Image();
+  image.src = src;
+  try {
+    await image.decode();
+  } catch {
+    // An undecodable picture still holds the place; the page returns after.
+  }
+}
+
+/** One painted frame, or 16ms where WebKit holds frames back under pages. */
+function nextPaint() {
+  return new Promise<void>((resolve) => {
+    const fallback = window.setTimeout(resolve, 16);
+    requestAnimationFrame(() => {
+      window.clearTimeout(fallback);
+      resolve();
+    });
+  });
 }

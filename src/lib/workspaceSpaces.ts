@@ -430,6 +430,14 @@ export function stripEntryFocus(
   return entry ? entryFocus(entry) : undefined;
 }
 
+/** The panes an entry shows when it comes to the front. */
+export function stripEntryShown(strip: WorkspaceStrip, key: string): string[] {
+  const entry = strip.entries.find((candidate) => entryKey(candidate) === key);
+  if (!entry) return [];
+  if (entry.kind === "item") return [entry.id];
+  return entry.view.layout ? leafIds(entry.view.layout) : [];
+}
+
 /** Reorder the strip; keys it does not name keep their order after it. */
 export function reorderStripEntries(
   strip: WorkspaceStrip,

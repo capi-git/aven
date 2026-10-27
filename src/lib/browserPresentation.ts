@@ -16,6 +16,8 @@ const LAYOUT_FALLBACK_MS = 16;
 const OVERLAY_SNAPSHOT_DEADLINE_MS = 80;
 const SNAPSHOT_PAINT_DEADLINE_MS = 16;
 const ZOOM_SNAPSHOT_DELAY_MS = 60;
+/** A motion hold never waits longer than this on the native page. */
+const MOTION_HANDOFF_DEADLINE_MS = 160;
 
 export type BrowserSnapshot = {
   src: string;
@@ -231,6 +233,18 @@ export type BrowserPresentation = {
   freeze(src: string): Promise<boolean>;
   /** Show the live page again, or abandon a freeze still in progress. */
   thaw(): void;
+  /**
+   * Hide the live page while a picture of it moves with a layout motion
+   * (the pane's own image, which the caller paints first). Resolves once
+   * the page is hidden, or at a short deadline.
+   */
+  holdForMotion(): Promise<void>;
+  /**
+   * Show the live page again at its final bounds. Resolves once it is shown
+   * (or at a short deadline, or at once when the pane is not showing), so
+   * the picture can go without a gap.
+   */
+  releaseFromMotion(): Promise<void>;
   dispose(): void;
 };
 
@@ -275,6 +289,36 @@ export function createBrowserPresentation({
   // the hidden page. Either way no overlay capture may replace it.
   let freezeState: "none" | "covering" | "frozen" = "none";
   let freezeGeneration = 0;
+  // A layout motion moves a picture of the page; the live page stays hidden
+  // until the motion hands it back at its final bounds.
+  let motionHeld = false;
+  const motionWaiters = new Set<{
+    shown: boolean;
+    resolve: () => void;
+  }>();
+  const settleMotion = () => {
+    for (const waiter of [...motionWaiters])
+      if ((lastLayout !== "hidden") === waiter.shown || disposed) {
+        motionWaiters.delete(waiter);
+        waiter.resolve();
+      }
+  };
+  const waitForLayout = (shown: boolean) =>
+    new Promise<void>((resolve) => {
+      const waiter = {
+        shown,
+        resolve: () => {
+          window.clearTimeout(deadline);
+          resolve();
+        },
+      };
+      const deadline = window.setTimeout(() => {
+        motionWaiters.delete(waiter);
+        resolve();
+      }, MOTION_HANDOFF_DEADLINE_MS);
+      motionWaiters.add(waiter);
+      settleMotion();
+    });
   // WK may report itself occluded by the native Chromium child. Presentation
   // belongs to the selected workspace pane; macOS hides minimized windows.
   const isPaused = () => {
@@ -455,19 +499,25 @@ export function createBrowserPresentation({
     }
     // Nonmodal menus are cut out of the live page in this same pass, so the
     // page stays visible and sharp around them without a still image.
-    let show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
+    let show =
+      !!bounds &&
+      hasVisibleBrowserArea(bounds) &&
+      !current.capture &&
+      !motionHeld;
     let nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
     if (
       nextLayout === lastLayout &&
       (!bounds || JSON.stringify(lastBounds) === lastGeometry)
     ) {
       endBrowserHandoff(surfaceId);
+      settleMotion();
       return;
     }
     inFlight = true;
     try {
       if (
         !show &&
+        !motionHeld &&
         freezeState === "none" &&
         bounds &&
         hasVisibleBrowserArea(bounds) &&
@@ -487,7 +537,11 @@ export function createBrowserPresentation({
         current = placement(currentBounds());
         bounds = current.bounds;
         if (bounds) lastBounds = bounds;
-        show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
+        show =
+          !!bounds &&
+          hasVisibleBrowserArea(bounds) &&
+          !current.capture &&
+          !motionHeld;
         nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
         if (
           nextLayout === lastLayout &&
@@ -545,6 +599,7 @@ export function createBrowserPresentation({
         onNotice(`Could not update preview placement: ${errorMessage(reason)}`);
     } finally {
       inFlight = false;
+      settleMotion();
       if (!show || lastLayout !== "hidden") endBrowserHandoff(surfaceId);
       if (pending && !disposed) {
         pending = false;
@@ -748,15 +803,32 @@ export function createBrowserPresentation({
     if (previous === "covering" && lastLayout !== "hidden") onSnapshot(null);
     present();
   };
+  const holdForMotion = () => {
+    if (disposed) return Promise.resolve();
+    motionHeld = true;
+    present();
+    return waitForLayout(false);
+  };
+  const releaseFromMotion = () => {
+    if (disposed || !motionHeld) return Promise.resolve();
+    motionHeld = false;
+    present();
+    // A pane that is not showing keeps its page hidden; nothing to wait for.
+    if (isPaused()) return Promise.resolve();
+    return waitForLayout(true);
+  };
   updatePresentation();
   return {
     update: updatePresentation,
     updateZoom,
     freeze,
     thaw,
+    holdForMotion,
+    releaseFromMotion,
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      settleMotion();
       endBrowserHandoff(surfaceId);
       cancelQueued();
       cancelOverlayCapture();

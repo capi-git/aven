@@ -50,6 +50,22 @@ export type WorkspaceIntentResult = {
   keep: string[];
 };
 
+/** Intents whose panes glide to their new places (the zoom has its own). */
+export const GLIDING_INTENTS: ReadonlySet<WorkspaceIntent["type"]> = new Set([
+  "drop",
+  "split",
+  "combine",
+  "unsplit",
+  "minimize",
+  "restore",
+  "swap",
+]);
+/** Intents that move panes, so a native page moves as a picture of itself. */
+export const MOVING_INTENTS: ReadonlySet<WorkspaceIntent["type"]> = new Set([
+  ...GLIDING_INTENTS,
+  "zoom",
+]);
+
 /** Tabs an intent moves, which may come from elsewhere on the strip. */
 export function workspaceIntentIds(intent: WorkspaceIntent): string[] {
   if (intent.type === "drop") return [intent.id];
