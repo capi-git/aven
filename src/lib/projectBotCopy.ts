@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { GitSetupNeed } from "./projectGitSetup";
 import type { RaceDiff, RaceFileDiff } from "./race";
 
 /**
@@ -57,19 +58,43 @@ export function isFixChanged(error: unknown): boolean {
   );
 }
 
-/** The folders among `paths` that can have a bot, in the same order. */
-export async function botReadyPaths(
+/**
+ * Whether a project can have a bot: ready, or not yet because it isn't
+ * using Git or Git has nothing saved (both fixed by setting up Git), or
+ * not at all (its folder is gone, say).
+ */
+export type BotProjectState = "ready" | GitSetupNeed | "unavailable";
+
+/** Which state the host's "not ready" reason means. */
+export function botProjectState(error: unknown): BotProjectState {
+  const text = String(error instanceof Error ? error.message : error);
+  if (/needs a git repository/i.test(text)) return "no-git";
+  if (/needs at least one commit/i.test(text)) return "no-commit";
+  return "unavailable";
+}
+
+/** Each of `paths`' states, in the same order. */
+export function botProjectStates(
   paths: readonly string[],
-): Promise<string[]> {
-  const ready = await Promise.all(
+): Promise<BotProjectState[]> {
+  return Promise.all(
     paths.map((path) =>
-      botCopyHost.ready(path).then(
-        () => true,
-        () => false,
-      ),
+      botCopyHost
+        .ready(path)
+        .then((): BotProjectState => "ready", botProjectState),
     ),
   );
-  return paths.filter((_, index) => ready[index]);
+}
+
+/**
+ * Before a bot is added: what the project needs first, setting up Git or a
+ * first save, or null when it can try now (any other problem is said then).
+ */
+export async function gitSetupNeeded(
+  path: string,
+): Promise<GitSetupNeed | null> {
+  const [state] = await botProjectStates([path]);
+  return state === "no-git" || state === "no-commit" ? state : null;
 }
 
 /** A host error as one plain sentence, without git's own prefix. */

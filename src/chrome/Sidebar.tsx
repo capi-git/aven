@@ -157,7 +157,12 @@ import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
 import { botsAvailable, type BotStatus } from "../lib/projectBots";
-import { botReadyPaths } from "../lib/projectBotCopy";
+import { botProjectStates } from "../lib/projectBotCopy";
+import {
+  BOT_PICKER_WIDTH,
+  BotPicker,
+  type BotPickerProject,
+} from "./BotPicker";
 import { projectAppearance } from "../lib/projectAppearance";
 import "./PersonalNavigation.css";
 
@@ -627,13 +632,16 @@ function SidebarComponent({
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
-  /** The New bot picker: the projects that can have a bot. */
+  /** The New bot picker: the projects that can have a bot, or could with Git. */
   const [botPicker, setBotPicker] = useState<{
     x: number;
     y: number;
-    items: ExplorerMenuItem[];
+    projects: BotPickerProject[];
+    empty: string;
   } | null>(null);
   const botPickerRequest = useRef(0);
+  // A row is setting up Git: scrolling the sidebar leaves the picker open.
+  const botPickerBusy = useRef(false);
   const loadMoreRef = useRef<HTMLLIElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestedSearchFocus = useRef<string | null>(null);
@@ -890,7 +898,7 @@ function SidebarComponent({
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
-      setBotPicker(null);
+      if (!botPickerBusy.current) setBotPicker(null);
     };
     const scrollParent = sessionsScrollRef.current ?? window;
     scrollParent.addEventListener("scroll", onScroll, true);
@@ -1453,9 +1461,13 @@ function SidebarComponent({
   const profileBots = bots.filter((bot) =>
     projects.some((project) => sameProjectPath(project.path, bot.path)),
   );
-  /** New bot: lists this profile's Git projects that have no bot yet. */
+  /**
+   * New bot: this profile's projects without a bot. Those ready for one come
+   * first; below them, the ones that need Git, which the picker sets up.
+   */
   const openBotPicker = (target: HTMLElement) => {
     if (botPicker) {
+      if (botPickerBusy.current) return;
       botPickerRequest.current += 1;
       setBotPicker(null);
       return;
@@ -1465,26 +1477,31 @@ function SidebarComponent({
     const candidates = projects
       .map((project) => project.path)
       .filter((path) => !bots.some((bot) => sameProjectPath(bot.path, path)));
-    void botReadyPaths(candidates).then((ready) => {
+    void botProjectStates(candidates).then((states) => {
       if (request !== botPickerRequest.current) return;
+      const listed = candidates.flatMap((path, index): BotPickerProject[] => {
+        const state = states[index];
+        return state && state !== "unavailable"
+          ? [{ path, label: projectAppearance(path).label, state }]
+          : [];
+      });
       const empty = !projects.length
         ? "Add a project first"
         : !candidates.length
           ? "Every project has a bot"
-          : "Bots need a Git project";
+          : "No project here can have a bot";
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
+      botPickerBusy.current = false;
       setBotPicker({
-        x: Math.max(4, rect.right - 228),
+        x: Math.max(4, rect.right - BOT_PICKER_WIDTH),
         y: rect.bottom + 2,
-        items: ready.length
-          ? ready.map((path) => ({
-              kind: "item",
-              id: path,
-              label: projectAppearance(path).label,
-            }))
-          : [{ kind: "item", id: "", label: empty, disabled: true }],
+        projects: [
+          ...listed.filter((project) => project.state === "ready"),
+          ...listed.filter((project) => project.state !== "ready"),
+        ],
+        empty,
       });
     });
   };
@@ -2415,16 +2432,23 @@ function SidebarComponent({
         />
       ) : null}
       {botPicker && addBot ? (
-        <ExplorerMenu
+        <BotPicker
           x={botPicker.x}
           y={botPicker.y}
-          items={botPicker.items}
-          ariaLabel="Add a bot to"
-          onPick={(path) => {
-            setBotPicker(null);
-            if (path) addBot(path);
+          projects={botPicker.projects}
+          empty={botPicker.empty}
+          onBusyChange={(busy) => {
+            botPickerBusy.current = busy;
           }}
-          onClose={() => setBotPicker(null)}
+          onAdd={(path) => {
+            botPickerBusy.current = false;
+            setBotPicker(null);
+            addBot(path);
+          }}
+          onClose={() => {
+            botPickerBusy.current = false;
+            setBotPicker(null);
+          }}
         />
       ) : null}
       {filterMenu ? (

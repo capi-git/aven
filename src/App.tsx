@@ -814,6 +814,9 @@ import {
   turnOnBotWithDefaults,
 } from "./lib/projectBotActions";
 import { BotSettingsSheet } from "./chrome/BotSettingsSheet";
+import { BotGitSetupSheet } from "./chrome/BotPicker";
+import { gitSetupNeeded } from "./lib/projectBotCopy";
+import type { GitSetupNeed } from "./lib/projectGitSetup";
 import type { SidebarBot } from "./chrome/Sidebar";
 import {
   botChatInCopy,
@@ -1140,6 +1143,11 @@ export default function App({
   } | null>(null);
   // The project whose bot settings sheet is open.
   const [botSheet, setBotSheet] = useState<string | null>(null);
+  /** Add a bot, asked of a project that needs Git first. */
+  const [botGitSetup, setBotGitSetup] = useState<{
+    path: string;
+    state: GitSetupNeed;
+  } | null>(null);
   // Chats project bots are working in: kept loaded without a tab.
   const [botWorkingChats, setBotWorkingChats] =
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
@@ -10352,7 +10360,10 @@ export default function App({
     },
     [closeUtilityViews, openBotChat],
   );
-  /** Add a bot: it turns on at once, with its defaults, and shows its chat. */
+  /**
+   * Add a bot: it turns on at once, with its defaults, and shows its chat. A
+   * project that isn't using Git yet first offers to set it up.
+   */
   const onAddBot = useCallback(
     (path: string) => {
       if (getProjectBot(path)?.on) {
@@ -10360,7 +10371,12 @@ export default function App({
         void openBotChat(path);
         return;
       }
-      void turnOnBotWithDefaults(path).then((problem) => {
+      void gitSetupNeeded(path).then(async (need) => {
+        if (need) {
+          setBotGitSetup({ path, state: need });
+          return;
+        }
+        const problem = await turnOnBotWithDefaults(path);
         if (problem) {
           void message(problem, { title: "Can't add a bot", kind: "info" });
           return;
@@ -11324,6 +11340,19 @@ export default function App({
               <BotSettingsSheet
                 path={botSheet}
                 onClose={() => setBotSheet(null)}
+              />
+            ) : null}
+            {botGitSetup && botsAvailable() ? (
+              <BotGitSetupSheet
+                project={{
+                  ...botGitSetup,
+                  label: projectAppearance(botGitSetup.path).label,
+                }}
+                onAdd={(path) => {
+                  setBotGitSetup(null);
+                  onAddBot(path);
+                }}
+                onClose={() => setBotGitSetup(null)}
               />
             ) : null}
             {addProjectAnchor ? (
