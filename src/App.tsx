@@ -1,5 +1,6 @@
 import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
+import { useIosSimAvailability } from "./hooks/useIosSimAvailability";
 import { useDevSmoke } from "./hooks/useDevSmoke";
 import {
   discardEditorDrafts,
@@ -359,6 +360,8 @@ import {
   isBoardTab,
   layoutLeaves,
   leafIds,
+  newSimulatorTab,
+  simulatorProjectOf,
   movePane,
   neighborLeafId,
   newFileTab,
@@ -1324,6 +1327,21 @@ export default function App({
         openFile({ sessionId, cwd }, path, navigation) {
           return agentFileBridge.current(sessionId, cwd, path, navigation);
         },
+        simulatorProject({ sessionId, cwd }) {
+          const session = sessionsRef.current.find(
+            (item) => item.id === sessionId,
+          );
+          if (!session || !sameProjectPath(sessionWorkCwd(session), cwd))
+            return null;
+          // The iPhone pane beside this chat: in the same workspace tab.
+          const tab = tabsRef.current.find((entry) =>
+            leafIds(entry.layout).includes(sessionId),
+          );
+          const project = tab ? simulatorProjectOf(tab) : null;
+          return project && sameProjectPath(project, session.cwd)
+            ? project
+            : null;
+        },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(
             (item) => item.id === sessionId,
@@ -1588,6 +1606,11 @@ export default function App({
           sizes: [1 - browserState.ratio, browserState.ratio],
         }
       : undefined;
+  const iphoneAvailability = useIosSimAvailability(
+    looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+      ? projectCwd
+      : null,
+  );
   const workspaceViews = useWorkspaceViews(
     projectCwd,
     [
@@ -10003,6 +10026,31 @@ export default function App({
   };
   const openBoardRef = useRef(openBoard);
   openBoardRef.current = openBoard;
+  /**
+   * The project's iPhone simulator, opened beside the chat in `tabId` (the
+   * active tab unless named), or brought forward when already there.
+   */
+  const openIphone = (tabId?: string) => {
+    const project = normalizeProjectPath(projectCwdRef.current);
+    if (!looksLikeProject(project) || isProjectlessCwd(project)) return;
+    const targetId =
+      tabId && tabsRef.current.some((entry) => entry.id === tabId)
+        ? tabId
+        : activeTabIdRef.current;
+    if (!tabsRef.current.some((entry) => entry.id === targetId)) return;
+    setComposerFocused(false);
+    closeUtilityViews();
+    setTabs((previous) =>
+      previous.map((entry) =>
+        entry.id === targetId
+          ? openEditorTab(entry, newSimulatorTab(project))
+          : entry,
+      ),
+    );
+    viewRef.current.focus(project, targetId);
+  };
+  const openIphoneRef = useRef(openIphone);
+  openIphoneRef.current = openIphone;
   const onOpenBoard = useCallback(
     (path?: string) => openBoardRef.current(path),
     [],
@@ -10793,6 +10841,21 @@ export default function App({
                 );
                 onOpenBoard();
               }
+            : undefined
+        }
+        onOpenIphone={
+          iphoneAvailability === "ready"
+            ? () => {
+                workspaceViews.change((view) =>
+                  selectWorkspaceView(view, owner),
+                );
+                openIphoneRef.current(owner);
+              }
+            : undefined
+        }
+        iphoneHint={
+          iphoneAvailability === "needs-xcode"
+            ? "Install Xcode to run iPhone apps"
             : undefined
         }
         onNewView={

@@ -279,6 +279,78 @@ Clickable chat references use absolute file links. Wrap destinations containing
 spaces in angle brackets, for example `[Notes](</project/My Notes.md:12>)`.
 Regular clicks and middle-clicks use Aven's editor.
 
+## iPhone and iPad apps
+
+On a Mac with Xcode, a project with an `.xcodeproj` or `.xcworkspace` gets an
+**iPhone** button in its pane header, next to the browser and board buttons
+(also **iPhone** in the strip's right-click menu). It opens the simulator
+beside the chat. Without Xcode the menu shows "Install Xcode to run iPhone
+apps" instead; Windows shows nothing.
+
+The pane's toolbar picks the device (iPhones and iPads Xcode offers; picking
+one starts it) and the scheme (hidden when there is only one), and has Home,
+Rotate, Screenshot (copies the screen to the clipboard) and **Run**. Run
+builds the scheme for the simulator, installs and opens the app, and becomes
+**Stop** while it builds or runs. The strip below reads "Building…",
+"Running · built in 1.8 s" or "Build failed · 2 errors" with **Show errors**,
+which opens the build log with the errors listed first. **Logs** opens the
+app's console output. Builds use their own DerivedData in Aven's app data
+folder (`ios-sim/<project>`), removed with the project; the chosen device and
+scheme are remembered per project.
+
+The screen is live: Aven shows the simulator's own framebuffer in a native
+layer, at the simulator's frame rate, with no Simulator window. Click and drag
+to touch, scroll to swipe, and type while the screen has the keyboard: keys go
+to the device by position with their modifiers, so Option-E then E types é;
+Paste (Command-V) copies the Mac's clipboard text into the device first.
+Aven uses Xcode's private simulator frameworks for this, loaded when the pane
+first opens, only for the framework versions Aven was tested with, and checked
+before use. Right after Aven starts a device it fixes
+the device's input once ("Getting the iPhone ready…"), which restarts its home
+screen (about ten seconds). Picking a simulator that is already running does
+the same once when its input needs it. The pane opens on the device the project
+last used, else on one Aven started or one that is shut down; it never takes
+over a simulator that is already running until you pick it. A running one the
+project used before shows without the fix and says to pick it again if its
+touches need it. With an Xcode whose simulator frameworks Aven has not been
+tested with, or when the check fails, the pane falls back to **Basic mode**:
+screenshots a few times a second, with taps, swipes and typing anywhere on the
+screen through Aven's XCUITest agent (`AVEN_IOS_SIM_ALLOW_UNTESTED=1` tries
+the live view on an untested Xcode). When only Xcode's command line tools are
+selected, the pane says how to select Xcode instead.
+
+Agents use the same simulator with `--aven-simulator`, over the chat's scoped
+connection, only while an iPhone pane is open beside that chat, and only on
+the simulators Aven started for that project or the user picked in its iPhone
+pane. Real devices are never reachable.
+Each such turn carries a short `<aven-iphone>` note with the command.
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-simulator '{"action":"list"}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-simulator '{"action":"launch"}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-simulator '{"action":"snapshot"}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-simulator '{"action":"tap","x":201,"y":249}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-simulator --help
+```
+
+- `list` names the devices in scope with their screen size in points and
+  orientation, and the app's run status.
+- `launch` builds, installs and opens the app like Run and waits for the
+  result, including build errors; `"build":false` reopens the last build.
+- `snapshot` returns the accessibility outline (role, label, identifier,
+  value, frame) of the project's app when it is in front, otherwise of the
+  home screen, with the screen's size in points. It comes from Aven's XCUITest
+  agent, which Aven builds into its app data the first time (about a minute)
+  and starts per device (about ten seconds). Secure fields read `<redacted>`.
+- `tap`, `swipe`, `type`, `press` (Enter, Tab, Backspace, arrows…), `button`
+  (home, lock) and `rotate` act on the device. Coordinates are the screen's
+  upright points from its top-left corner, the same as snapshot frames and
+  screenshots, also in landscape. Taps show the agent's ring in the pane.
+- `screenshot` saves a JPEG at point size with the browser's screenshots
+  (`turn-shots`), returning `{path,width,height,markdown}`; labels and tidying
+  work the same way.
+- `logs` returns the app's recent console lines.
+
 ## Native Mac apps
 
 Aven has built-in desktop control for observing and operating native Mac windows.

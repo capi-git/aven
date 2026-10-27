@@ -25,6 +25,31 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AVFoundation");
         println!("cargo:rustc-link-arg=-Wl,-ObjC");
     }
+    // The iPhone pane's native bridge. It loads Xcode's simulator frameworks
+    // at runtime, so nothing here links against Xcode.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=macos/ios_simulator.m");
+        println!("cargo:rerun-if-changed=macos/ios_simulator.h");
+        cc::Build::new()
+            .file("macos/ios_simulator.m")
+            .flag("-fobjc-arc")
+            .flag("-fmodules")
+            .flag("-Wall")
+            .flag("-Wextra")
+            .flag("-Wno-unused-parameter")
+            .flag("-mmacosx-version-min=13.0")
+            .compile("aven_ios_simulator");
+        for framework in [
+            "AppKit",
+            "CoreImage",
+            "Foundation",
+            "ImageIO",
+            "IOSurface",
+            "QuartzCore",
+        ] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
     // generate_context! embeds icons; cargo ignores them unless we watch here.
     println!("cargo:rerun-if-changed=icons");
     // GNU ld exports every symbol from the Tauri cdylib and blows past the

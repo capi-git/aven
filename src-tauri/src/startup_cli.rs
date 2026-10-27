@@ -11,8 +11,9 @@ Usage: aven [COMMAND]
   control --help             Show orchestration control commands
   --aven-browser --help      Show in-app browser commands
   --aven-desktop --help      Show native macOS desktop commands
+  --aven-simulator --help    Show iPhone simulator commands
 
-Browser, desktop control, and orchestration commands use the scoped connection supplied by Aven.
+Browser, desktop control, simulator, and orchestration commands use the scoped connection supplied by Aven.
 ";
 
 #[derive(Debug, PartialEq)]
@@ -21,6 +22,7 @@ enum Startup {
     Control,
     Browser,
     DesktopControl,
+    Simulator,
     Help,
     Version,
     Invalid,
@@ -38,6 +40,7 @@ fn classify(args: &[OsString], macos: bool) -> Startup {
         "control" => Startup::Control,
         "--aven-browser" | "--supermono-browser" => Startup::Browser,
         "--aven-desktop" => Startup::DesktopControl,
+        "--aven-simulator" => Startup::Simulator,
         "--help" | "-h" | "help" if args.len() == 1 => Startup::Help,
         "--version" | "-V" if args.len() == 1 => Startup::Version,
         // Older LaunchServices versions pass a process serial number when
@@ -66,7 +69,11 @@ pub fn run_startup_cli() -> Option<i32> {
         &std::env::args_os().skip(1).collect::<Vec<_>>(),
         cfg!(target_os = "macos"),
     ) {
-        Startup::Desktop | Startup::Control | Startup::Browser | Startup::DesktopControl => None,
+        Startup::Desktop
+        | Startup::Control
+        | Startup::Browser
+        | Startup::DesktopControl
+        | Startup::Simulator => None,
         Startup::Help => {
             print!("{HELP}");
             Some(0)
@@ -110,6 +117,9 @@ mod tests {
             desktop.extend(&args);
             assert_eq!(route(&desktop, true), Startup::DesktopControl);
             assert_eq!(route(&desktop, false), Startup::DesktopControl);
+            let mut simulator = vec!["--aven-simulator"];
+            simulator.extend(&args);
+            assert_eq!(route(&simulator, true), Startup::Simulator);
             for flag in ["--aven-browser", "--supermono-browser"] {
                 let mut browser = vec![flag];
                 browser.extend(&args);
@@ -135,6 +145,7 @@ mod tests {
             vec!["--supermono-browesr"],
             vec!["--aven-browesr"],
             vec!["--aven-desktpo"],
+            vec!["--aven-simulater"],
             vec!["--type=renderer"],
             vec!["list"],
             vec![""],
@@ -146,6 +157,7 @@ mod tests {
     #[test]
     fn help_lists_desktop_control_without_launching_the_app() {
         assert!(HELP.contains("--aven-desktop --help"));
+        assert!(HELP.contains("--aven-simulator --help"));
     }
 
     #[cfg(unix)]

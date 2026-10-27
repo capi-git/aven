@@ -1,0 +1,176 @@
+/* The iPhone pane: toolbar, the simulator's screen (a native layer over the
+   stage), and a slim status strip with the app's console. Shared tokens
+   only: a square, flush pane with flat controls at the control corner (a
+   fill and no outline; ghost buttons fill only on hover). */
+.ios-sim-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-background-base);
+  color: var(--color-content);
+}
+.ios-sim-empty {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  color: var(--aven-muted);
+  font-size: 13px;
+}
+.ios-sim-toolbar,
+.ios-sim-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-shrink: 0;
+  padding: 4px 8px;
+}
+/* The browser toolbar's bar, so the two panes read as one family. */
+.ios-sim-toolbar {
+  min-height: 40px;
+  border-bottom: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+  background: var(--aven-toolbar-surface, transparent);
+}
+.ios-sim-chip,
+.ios-sim-icon,
+.ios-sim-run,
+.ios-sim-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--aven-radius-sm, 6px);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.ios-sim-chip,
+.ios-sim-run {
+  border-color: var(--aven-control-edge, transparent);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+}
+.ios-sim-chip {
+  max-width: 45%;
+  padding: 0 8px;
+}
+.ios-sim-icon {
+  justify-content: center;
+  width: 28px;
+  flex: 0 0 28px;
+}
+.ios-sim-run {
+  padding: 0 10px;
+  font-weight: 500;
+}
+.ios-sim-run[data-active] {
+  color: var(--color-red-400);
+}
+.ios-sim-icon:hover:not(:disabled),
+.ios-sim-link:hover {
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  color: var(--color-content);
+}
+.ios-sim-chip:hover:not(:disabled),
+.ios-sim-run:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+.ios-sim-chip:active:not(:disabled),
+.ios-sim-run:active:not(:disabled) {
+  background: var(--aven-control-pressed, var(--aven-control-hover));
+}
+.ios-sim-chip:disabled,
+.ios-sim-icon:disabled,
+.ios-sim-run:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+.ios-sim-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 8px;
+  outline: none;
+}
+.ios-sim-stage:focus-visible {
+  box-shadow: 0 0 0 1px var(--aven-separator);
+}
+.ios-sim-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.ios-sim-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--aven-muted);
+  font-size: 12px;
+}
+.ios-sim-strip {
+  min-height: 30px;
+  border-top: var(--aven-hairline, 1px) solid var(--aven-separator);
+  color: var(--aven-muted);
+  font-size: 12px;
+}
+.ios-sim-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--aven-separator);
+}
+.ios-sim-strip[data-tone="running"] .ios-sim-dot {
+  background: var(--color-emerald-400);
+}
+.ios-sim-strip[data-tone="busy"] .ios-sim-dot {
+  background: var(--color-amber-400);
+}
+.ios-sim-strip[data-tone="failed"] .ios-sim-dot {
+  background: var(--color-red-400);
+}
+.ios-sim-link {
+  height: 22px;
+  padding: 0 6px;
+  gap: 2px;
+}
+.ios-sim-basic {
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--aven-muted);
+}
+.ios-sim-logs {
+  flex: 0 0 32%;
+  min-height: 80px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-top: var(--aven-hairline, 1px) solid var(--aven-separator);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: color-mix(in srgb, var(--color-content) 85%, transparent);
+  user-select: text;
+}

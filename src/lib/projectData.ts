@@ -5,6 +5,7 @@ import { clearProjectChatBackground } from "./chatBackground";
 import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
 import { clearProjectMemory } from "./projectMemory";
 import { clearFeatureCards } from "./featureCards";
+import { clearIosSimProject } from "./iosSimulator";
 import { forgetBotForProject } from "./projectBotActions";
 import { normalizeProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
@@ -36,7 +37,7 @@ export async function projectSessionCount(path: string): Promise<number> {
   return sessions.length;
 }
 
-/** Saved chats, rail appearance, project memory, board cards and its bot. The caller owns the live-session lifecycle. */
+/** Saved chats, rail appearance, project memory, board cards, its bot and iPhone builds. The caller owns the live-session lifecycle. */
 export async function removeProjectData(
   path: string,
   options: {
@@ -69,6 +70,8 @@ export async function removeProjectData(
     await clearFeatureCards(normalized);
     // Its bot's copy of the project goes, and so does the bot.
     await forgetBotForProject(normalized);
+    // The iPhone pane's DerivedData, build log and remembered device.
+    await clearIosSimProject(normalized);
     options.assertWorkspaceReady();
     clearProjectChatBackgroundSetting(key);
     clearTabGroupSettings(key);

@@ -77,6 +77,8 @@ export type FilePaneTab = {
   race?: RaceTabSource;
   /** A project's board of chats by where their work stands. */
   board?: BoardTabSource;
+  /** A project's iPhone simulator, beside the chat that uses it. */
+  simulator?: SimulatorTabSource;
   /** An earlier version's discussion page; see `DiscussionTabSource`. */
   discussion?: DiscussionTabSource;
   terminal?: boolean;
@@ -347,7 +349,8 @@ export function isVirtualDocumentTab(file: FilePaneTab): boolean {
     isCommitTab(file) ||
     isAgentTab(file) ||
     isRaceTab(file) ||
-    isBoardTab(file)
+    isBoardTab(file) ||
+    isSimulatorTab(file)
   );
 }
 
@@ -411,12 +414,45 @@ export function newBoardWorkspaceTab(project: string): WorkspaceTab {
   };
 }
 
+/** The iPhone pane: a project's simulator, opened beside a chat. */
+export type SimulatorTabSource = { project: string };
+
+/** The iPhone tab's label. */
+export const SIMULATOR_TAB_TITLE = "iPhone";
+
+export function isSimulatorTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { simulator: SimulatorTabSource } {
+  return !!file.simulator;
+}
+
+/** An iPhone tab for `project`'s simulator. */
+export function newSimulatorTab(project: string): FilePaneTab {
+  return {
+    id: crypto.randomUUID(),
+    path: SIMULATOR_TAB_TITLE,
+    cwd: project,
+    simulator: { project },
+  };
+}
+
+/** Whether a workspace tab shows an iPhone pane (for its chats' agents). */
+export function simulatorProjectOf(
+  tab: Pick<WorkspaceTab, "editorPanes">,
+): string | null {
+  for (const pane of tab.editorPanes)
+    for (const file of pane.files)
+      if (file.simulator) return file.simulator.project;
+  return null;
+}
+
 /**
- * A tab that only shows a project's work, a board or a race overview, and
- * holds none of its own: removing the project closes it without asking.
+ * A tab that only shows a project's work, a board, a race overview or its
+ * iPhone, and holds none of its own: removing the project closes it without
+ * asking.
  */
 export function isProjectView(file: FilePaneTab): boolean {
-  return isBoardTab(file) || isRaceTab(file);
+  return isBoardTab(file) || isRaceTab(file) || isSimulatorTab(file);
 }
 
 /** Boards follow the main window's chats, so they never move to another. */
@@ -549,6 +585,7 @@ export function editorTabKey(file: FilePaneTab): string {
   if (file.terminal) return `terminal:${file.id}`;
   if (file.agent) return `agent:${file.agent.sessionId}`;
   if (file.board) return `board:${file.board.project}`;
+  if (file.simulator) return `simulator:${file.simulator.project}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
   if (file.releaseNotes) return `release-notes:${file.releaseNotes.version}`;
   if (file.commit) return `commit:${file.cwd}:${file.commit.sha}`;
