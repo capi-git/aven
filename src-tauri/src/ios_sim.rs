@@ -428,6 +428,14 @@ pub(crate) fn project_info(project: &str, container: Option<&str>) -> ProjectInf
     };
     let mut args: Vec<String> = chosen.args().to_vec();
     args.extend(["-list".into(), "-json".into()]);
+    // `-list` takes no DerivedData path; this keeps its logs out of the
+    // person's own DerivedData folder too.
+    if let Ok(dir) = project_dir(project) {
+        args.push(format!(
+            "-IDECustomDerivedDataLocation={}",
+            dir.join("DerivedData").display()
+        ));
+    }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let listed = run(tool(XCODEBUILD, &args), Duration::from_secs(60), None)
         .and_then(|output| checked(output, "Reading the schemes"))

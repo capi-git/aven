@@ -305,8 +305,11 @@ pub fn dev_smoke_finish(
     }
     let text = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
     std::fs::write(dir.join("result.json"), text).map_err(|error| error.to_string())?;
-    // The stand-in provider must not outlive the run.
+    // The stand-in provider must not outlive the run, nor the iPhone
+    // check's builds, app consoles and XCUITest agent.
     harness.kill_all();
+    #[cfg(target_os = "macos")]
+    crate::ios_sim::shutdown();
     let passed = result.get("passed").and_then(Value::as_bool) == Some(true);
     // The throwaway profile holds nothing to save, and a quit request could be
     // held by the app's own confirmation, so leave at once.

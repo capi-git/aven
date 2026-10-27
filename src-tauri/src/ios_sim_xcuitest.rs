@@ -167,6 +167,12 @@ fn alive(server: &Server) -> bool {
 /// Starts the agent server on `udid` and waits until it listens.
 fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
     let xctestrun = ensure_built()?;
+    // Test results and logs stay in Aven's agent folder, not the person's
+    // own DerivedData.
+    let derived = agent_root()?
+        .join("DerivedData")
+        .to_string_lossy()
+        .into_owned();
     let port = free_port()?;
     let token = format!(
         "{}{}",
@@ -183,6 +189,8 @@ fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
             &run,
             "-destination",
             &destination,
+            "-derivedDataPath",
+            &derived,
             "-only-testing:AvenSimAgentUITests/AgentServer/testServe",
         ],
     );
