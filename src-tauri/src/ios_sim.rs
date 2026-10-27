@@ -705,19 +705,20 @@ pub(crate) struct PaneChoice {
 }
 
 #[tauri::command]
-pub fn ios_sim_pane_choice(project: String, choice: PaneChoice) {
+pub fn ios_sim_pane_choice(project: String, mut choice: PaneChoice) {
     let key = project_key(&project);
-    let mut state = state();
-    if let Some(udid) = choice
+    // Only a simulator's UDID counts as a pick; anything else is dropped.
+    choice.udid = choice
         .udid
-        .as_deref()
         .filter(|u| ios_sim_devices::valid_udid(u))
-    {
+        .map(|u| u.to_uppercase());
+    let mut state = state();
+    if let Some(udid) = &choice.udid {
         state
             .scope
             .entry(key.clone())
             .or_default()
-            .insert(udid.to_uppercase());
+            .insert(udid.clone());
     }
     state.choices.insert(key, choice);
 }
@@ -1876,6 +1877,41 @@ mod tests {
         let mut many = bounds.clone();
         many.holes = vec![bounds.holes[0].clone(); MAX_HOLES + 1];
         assert!(many.layout(2.0, true).is_err());
+    }
+
+    #[test]
+    fn scopes_devices_to_the_project_whose_pane_picked_or_booted_them() {
+        let project = "/scope-test/pom/";
+        let picked = "11111111-2222-3333-4444-555555555555";
+        ios_sim_pane_choice(
+            project.into(),
+            PaneChoice {
+                udid: Some(picked.to_lowercase()),
+                container: None,
+                scheme: None,
+            },
+        );
+        // Booting for a project (ensure_device) records the same way.
+        add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
+        ios_sim_pane_choice(
+            project.into(),
+            PaneChoice {
+                udid: Some("booted".into()),
+                container: None,
+                scheme: None,
+            },
+        );
+        let scope = scoped_devices("/scope-test/pom");
+        assert_eq!(
+            scope.into_iter().collect::<Vec<_>>(),
+            [
+                "11111111-2222-3333-4444-555555555555",
+                "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+            ]
+        );
+        assert!(scoped_devices("/scope-test/other").is_empty());
+        // Not a simulator: no pick, and no device for agents to default to.
+        assert_eq!(pane_device(project), None);
     }
 
     #[test]

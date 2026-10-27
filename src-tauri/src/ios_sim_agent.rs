@@ -1,8 +1,9 @@
 //! `aven --aven-simulator '<json>'`: agents use the iPhone pane's simulator.
 //!
 //! Requests travel over the chat's scoped browser connection. A chat may
-//! drive only the simulators its project's iPhone pane booted or picked, and
-//! only while that pane is open beside it; real devices are never reachable.
+//! drive only the simulators Aven booted for its project or the user picked
+//! in that project's iPhone pane, and only while that pane is open beside
+//! it; real devices are never reachable.
 //! Coordinates are the screen's upright points from its top-left corner,
 //! matching screenshots and snapshots.
 // The iPhone pane runs on macOS only; other builds keep the shared parts.
@@ -173,7 +174,8 @@ Usage:
   aven --aven-simulator --help
 
 Works only while this chat has an iPhone pane open beside it, and only on the
-simulators that pane uses. Coordinates are the screen's upright points from
+simulators Aven started for this project or the user picked in its iPhone
+pane; never on real devices. Coordinates are the screen's upright points from
 its top-left corner, the same as screenshots and snapshot frames. udid is
 optional when the pane uses one simulator.
 

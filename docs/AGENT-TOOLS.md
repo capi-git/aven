@@ -306,13 +306,15 @@ Paste (Command-V) copies the Mac's clipboard text into the device first.
 Aven uses Xcode's private simulator frameworks for this, loaded when the pane
 first opens and checked before use. Right after Aven starts a device it fixes
 the device's input once ("Getting the iPhone ready…"), which restarts its home
-screen. If Xcode changes and the check fails, the pane falls back to
+screen (about ten seconds). Picking a simulator that is already running does
+the same once when its input needs it. If Xcode changes and the check fails, the pane falls back to
 **Basic mode**: screenshots a few times a second, with taps, swipes and typing
 through Aven's XCUITest agent.
 
 Agents use the same simulator with `--aven-simulator`, over the chat's scoped
 connection, only while an iPhone pane is open beside that chat, and only on
-the simulators that pane started or picked. Real devices are never reachable.
+the simulators Aven started for that project or the user picked in its iPhone
+pane. Real devices are never reachable.
 Each such turn carries a short `<aven-iphone>` note with the command.
 
 ```sh
