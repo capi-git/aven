@@ -11,7 +11,13 @@ import AppWindowIcon from "@hugeicons/core-free-icons/AppWindowIcon";
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon";
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
 import ArrowDownLeft01Icon from "@hugeicons/core-free-icons/ArrowDownLeft01Icon";
+import ArrowAllDirectionIcon from "@hugeicons/core-free-icons/ArrowAllDirectionIcon";
+import ArrowDown02Icon from "@hugeicons/core-free-icons/ArrowDown02Icon";
 import ArrowExpand01Icon from "@hugeicons/core-free-icons/ArrowExpand01Icon";
+import ArrowLeft02Icon from "@hugeicons/core-free-icons/ArrowLeft02Icon";
+import ArrowShrink01Icon from "@hugeicons/core-free-icons/ArrowShrink01Icon";
+import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon";
+import DashboardSquare01Icon from "@hugeicons/core-free-icons/DashboardSquare01Icon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
 import ArrowRight02Icon from "@hugeicons/core-free-icons/ArrowRight02Icon";
@@ -187,6 +193,14 @@ export const ArrowUpRight = wrap(ArrowUpRight01Icon, "ArrowUpRight");
 export const ArrowDownLeft = wrap(ArrowDownLeft01Icon, "ArrowDownLeft");
 /** ↗ drawn edge to edge: the arrow you draw with in Mark up. */
 export const ArrowDiagonal = wrap(DiagonalArrowIcon, "ArrowDiagonal");
+/** Pane moves across a seam: a plain arrow each way, and the four together. */
+export const MoveLeft = wrap(ArrowLeft02Icon, "MoveLeft");
+export const MoveRight = wrap(ArrowRight02Icon, "MoveRight");
+export const MoveUp = wrap(ArrowUp02Icon, "MoveUp");
+export const MoveDown = wrap(ArrowDown02Icon, "MoveDown");
+export const Move = wrap(ArrowAllDirectionIcon, "Move");
+/** A split arrangement of panes. */
+export const LayoutDashboard = wrap(DashboardSquare01Icon, "LayoutDashboard");
 export const Bot = wrap(BotIcon, "Bot");
 export const Brain = wrap(BrainIcon, "Brain");
 export const Briefcase = wrap(Briefcase01Icon, "Briefcase");
@@ -252,6 +266,7 @@ export const LoaderCircle = wrap(Loading03Icon, "LoaderCircle");
 export const Lock = wrap(SquareLock02Icon, "Lock");
 export const LockOpen = wrap(SquareUnlock01Icon, "LockOpen");
 export const Maximize2 = wrap(ArrowExpand01Icon, "Maximize2");
+export const Minimize2 = wrap(ArrowShrink01Icon, "Minimize2");
 export const MessageMultiple = wrap(MessageMultiple01Icon, "MessageMultiple");
 export const MessageSquare = wrap(Comment01Icon, "MessageSquare");
 export const MessageSquarePlus = wrap(CommentAdd01Icon, "MessageSquarePlus");

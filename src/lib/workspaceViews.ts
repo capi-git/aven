@@ -755,6 +755,49 @@ export function restoreWorkspaceSplit(view: WorkspaceView): WorkspaceView {
   return selectWorkspaceView(restored, current.focusedId);
 }
 
+/**
+ * Exchange a pane with another, as Cydonia's Move does across a seam: each
+ * keeps its tabs, the arrangement keeps its shape and sizes, and the focus
+ * stays where it was (on the pane that moved, when it moved itself).
+ */
+export function swapWorkspacePanes(
+  view: WorkspaceView,
+  id: string,
+  otherId: string,
+): WorkspaceView {
+  if (!view.layout || id === otherId) return view;
+  const panes = leafIds(view.layout);
+  if (!panes.includes(id) || !panes.includes(otherId)) return view;
+  const swap = (node: LayoutNode): LayoutNode =>
+    node.type === "leaf"
+      ? node.id === id
+        ? leaf(otherId)
+        : node.id === otherId
+          ? leaf(id)
+          : node
+      : { ...node, children: node.children.map(swap) };
+  return { ...view, layout: swap(view.layout) };
+}
+
+/**
+ * Whether the view is a split arrangement (Cydonia's space): several panes,
+ * or one standing over the others that a Restore puts back. A single pane
+ * of tabs is not; its tabs are the window's strip.
+ */
+export function workspaceIsSpace(view: WorkspaceView): boolean {
+  return (
+    !!view.restoreView ||
+    (view.layout ? leafIds(view.layout).length > 1 : false)
+  );
+}
+
+/** One pane expanded over the others (or the rest tucked away). */
+export function workspaceZoomed(view: WorkspaceView): boolean {
+  return (
+    !!view.restoreView && !!view.layout && leafIds(view.layout).length === 1
+  );
+}
+
 /** Expand temporarily; restore exact surviving pane groups and proportions. */
 export function toggleWorkspaceExpansion(
   view: WorkspaceView,

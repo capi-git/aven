@@ -1,4 +1,4 @@
-import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
+import { ALT, CTRL, MOD, SHIFT } from "./platform";
 import { SETTINGS } from "./settingDefinitions";
 import { defineStoredSetting } from "./settingsRegistry";
 export { SETTINGS } from "./settingDefinitions";
@@ -200,8 +200,6 @@ export const subscribeAutosave = SETTINGS.autosave.subscribe;
 export const CLAUDE_HOOKS_DEFAULT = SETTINGS.claudeHooks.defaultValue;
 export const loadClaudeHooks = SETTINGS.claudeHooks.load;
 export const saveClaudeHooks = SETTINGS.claudeHooks.save;
-
-const CTRL = IS_MAC ? "⌃" : "Ctrl+";
 
 export type KeybindingRow = {
   command: string;

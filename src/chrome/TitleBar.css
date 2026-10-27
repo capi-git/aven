@@ -129,6 +129,73 @@
   outline: 1px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -1px;
 }
+/* A strip on a track, as in Cydonia: two tabs or more share the whole strip
+   equally, never narrower than 120px (then it scrolls), their labels
+   centred. One highlight under them is the tab in front; it slides between
+   tabs (useTabHighlight). A hairline parts two resting neighbours. */
+.aven-tab-strip[data-tab-track] {
+  position: relative;
+}
+.aven-tab-strip[data-tab-track] .aven-tab-slot {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 120px;
+  max-width: none;
+}
+/* Centred with the close button's room, which shows on hover (Cydonia
+   keeps an invisible close in the centred row). */
+.aven-tab-strip[data-tab-track] .aven-tab-button {
+  justify-content: center;
+}
+.aven-tab-strip[data-tab-track] .aven-tab-label {
+  flex: 0 1 auto;
+}
+.aven-tab-strip[data-tab-track] .personal-title-tab-text {
+  flex: 0 1 auto;
+}
+.aven-tab-highlight {
+  position: absolute;
+  top: calc(50% - 13px);
+  left: 0;
+  width: 0;
+  height: 26px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-tab-selected);
+  box-shadow: var(--aven-tab-selected-edge);
+  transform-origin: 0 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+.aven-tab-strip[data-tab-highlight="on"] > .aven-tab-highlight {
+  opacity: 1;
+}
+[data-pane-focused="false"] .aven-tab-highlight {
+  background: var(--aven-fill-quaternary);
+  box-shadow: none;
+}
+/* The highlight is the front tab's fill. */
+.aven-tab-strip[data-tab-highlight="on"]
+  .aven-tab[data-active="true"]
+  .aven-tab-button {
+  background: transparent;
+  box-shadow: none;
+}
+.aven-tab-strip[data-tab-track] [data-tab-separator]::before {
+  content: "";
+  position: absolute;
+  /* The middle of the 2px gap before the tab. */
+  left: -1.5px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--aven-separator);
+  pointer-events: none;
+}
+/* A tab being dragged moves its own fill; lines would stay behind. */
+.aven-tab-strip[data-tab-track]:has([data-sortable-dragging="true"])
+  [data-tab-separator]::before {
+  content: none;
+}
 .personal-shell .personal-title-tab-identity .personal-title-tab-bot {
   width: 16px;
   height: 16px;
@@ -295,6 +362,7 @@
 }
 
 @media (prefers-contrast: more) {
+  .aven-tab-highlight,
   .aven-tab[data-active="true"] .aven-tab-button {
     background: color-mix(
       in srgb,
@@ -476,5 +544,170 @@
   }
   .personal-tab-ghost {
     display: none;
+  }
+}
+
+/* A track's tab growing in widens its share from nothing (its maximum is no
+   longer a width to grow towards). */
+.aven-tab-strip[data-tab-track] [data-tab-opening] {
+  animation-name: aven-track-tab-open;
+}
+@keyframes aven-track-tab-open {
+  from {
+    flex-grow: 0;
+    min-width: 0;
+    opacity: 0.35;
+  }
+}
+
+/* A pane's title row, after Cydonia's: the tab in front on a chip sized to
+   its name, lit while the pane has focus, with its kind icon on a deck; the
+   pane's tools at the row's end. */
+.personal-titlebar[data-variant="title"] .aven-tab-strip {
+  padding-inline: 4px;
+}
+.personal-titlebar[data-variant="title"] .aven-tab-slot {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.personal-titlebar[data-variant="title"] .aven-tab > .aven-tab-motion {
+  align-self: center;
+  height: 26px;
+  padding-left: 3px;
+  border-radius: var(--aven-radius-sm);
+  transition: background-color var(--aven-motion-fast) var(--aven-tab-ease);
+}
+.personal-titlebar[data-variant="title"] .aven-tab .aven-tab-button,
+.personal-titlebar[data-variant="title"] .aven-tab .aven-tab-button:hover {
+  padding: 0 10px 0 6px;
+  background: transparent;
+  box-shadow: none;
+}
+.personal-titlebar[data-variant="title"] .aven-tab:hover > .aven-tab-motion {
+  background: var(--aven-fill-quaternary);
+}
+.personal-titlebar[data-variant="title"][data-pane-focused="true"]
+  .aven-tab[data-active="true"]
+  > .aven-tab-motion {
+  background: var(--aven-tab-selected);
+  box-shadow: var(--aven-tab-selected-edge);
+}
+.personal-titlebar[data-variant="title"] .aven-tab-label {
+  font-weight: 500;
+}
+/* The title row's own × and the browser's layout menu are tools at the
+   row's end. */
+.personal-titlebar[data-variant="title"] .aven-tab-close,
+.personal-titlebar[data-variant="title"] .personal-title-browser-menu {
+  display: none;
+}
+
+/* The deck: the kind icon on a tile, a card or two peeking out past it for
+   the tabs behind (Cydonia's icon deck). */
+.aven-tab-deck {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: center;
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-xs);
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.aven-tab-deck-face {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--aven-radius-xs);
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+  transition: background-color var(--aven-motion-fast) var(--aven-tab-ease);
+}
+.aven-tab-deck-face .personal-title-tab-identity {
+  display: grid;
+  place-items: center;
+}
+.aven-tab-deck-card {
+  position: absolute;
+  top: 50%;
+  width: 2.5px;
+  border-radius: 0 var(--aven-radius-xs) var(--aven-radius-xs) 0;
+  pointer-events: none;
+}
+.aven-tab-deck-card[data-depth="1"] {
+  left: 21.5px;
+  height: 16px;
+  margin-top: -8px;
+  background: color-mix(in srgb, var(--color-content) 18%, transparent);
+}
+.aven-tab-deck-card[data-depth="2"] {
+  left: 25.5px;
+  height: 12px;
+  margin-top: -6px;
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+button.aven-tab-deck:hover .aven-tab-deck-face,
+button.aven-tab-deck[aria-expanded="true"] .aven-tab-deck-face {
+  background: color-mix(in srgb, var(--color-content) 20%, transparent);
+}
+button.aven-tab-deck:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
+}
+
+/* The pane's tools: More, Move, Expand or Restore, and Close. Always on the
+   focused pane; elsewhere while the row is pointed at. */
+.aven-pane-tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) var(--aven-tab-ease);
+}
+.personal-titlebar[data-variant="title"]:hover .aven-pane-tools,
+.personal-titlebar[data-variant="title"][data-pane-focused="true"]
+  .aven-pane-tools,
+.aven-pane-tools:focus-within,
+.aven-pane-tools[data-open] {
+  opacity: 1;
+}
+.aven-pane-tool {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  color: var(--aven-label-secondary);
+  cursor: default;
+}
+.aven-pane-tool:hover,
+.aven-pane-tool[aria-expanded="true"] {
+  background: var(--aven-fill-tertiary);
+  color: var(--color-content);
+}
+.aven-pane-tool[aria-pressed="true"] {
+  color: var(--color-content);
+}
+.aven-pane-tool:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-pane-tools,
+  .aven-tab-deck-face,
+  .personal-titlebar[data-variant="title"] .aven-tab > .aven-tab-motion {
+    transition: none;
   }
 }

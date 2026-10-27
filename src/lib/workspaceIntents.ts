@@ -9,6 +9,8 @@ import {
   reorderWorkspaceGroup,
   restoreWorkspaceSplit,
   splitWorkspaceView,
+  swapWorkspacePanes,
+  toggleWorkspaceExpansion,
   type ViewEdge,
   type WorkspaceView,
 } from "./workspaceViews";
@@ -31,7 +33,11 @@ export type WorkspaceIntent =
       side: "before" | "after";
     }
   | { type: "restore" }
-  | { type: "resize"; layout: LayoutNode };
+  | { type: "resize"; layout: LayoutNode }
+  /** Swap a pane with the one across a seam (Cydonia's Move). */
+  | { type: "swap"; group: string; with: string }
+  /** Expand a pane over the others, or put it back (Cydonia's zoom). */
+  | { type: "zoom"; group: string };
 
 export type WorkspaceIntentResult = {
   view: WorkspaceView;
@@ -97,6 +103,16 @@ export function applyWorkspaceIntent(
       return { view: restoreWorkspaceSplit(view), keep: [] };
     case "resize":
       return { view: { ...view, layout: intent.layout }, keep: [] };
+    case "swap":
+      return {
+        view: swapWorkspacePanes(view, intent.group, intent.with),
+        keep: [],
+      };
+    case "zoom":
+      return {
+        view: toggleWorkspaceExpansion(view, intent.group),
+        keep: [],
+      };
   }
 }
 

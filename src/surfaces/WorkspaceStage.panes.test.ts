@@ -49,7 +49,7 @@ describe("flush panes", () => {
     );
   });
 
-  it("divides panes with a resting hairline that turns to the accent while used", () => {
+  it("divides panes with a seam: a hairline in a 9px target, 2px while used", () => {
     const line = rule(
       "src/surfaces/WorkspaceStage.css",
       ".workspace-stage-sash::after",
@@ -61,9 +61,25 @@ describe("flush panes", () => {
         '.workspace-stage-sash[data-direction="right"]::after',
       ),
     ).toContain("width: var(--aven-hairline);");
+    expect(
+      rule(
+        "src/surfaces/WorkspaceStage.css",
+        '.workspace-stage-sash[data-direction="right"]',
+      ),
+    ).toContain("width: 9px;");
+    expect(
+      rule(
+        "src/surfaces/WorkspaceStage.css",
+        '.workspace-stage-sash[data-direction="down"]',
+      ),
+    ).toContain("height: 9px;");
     const css = readFileSync("src/surfaces/WorkspaceStage.css", "utf8");
+    // Cydonia's hover: 2px in the muted text colour at 45%.
     expect(css).toMatch(
-      /\.workspace-stage-sash:hover::after,\s*\.workspace-stage-sash:focus-visible::after,\s*\.workspace-stage-sash:active::after \{\s*background: var\(--color-accent\);/,
+      /\.workspace-stage-sash:is\(:hover, :active\)::after[^{]*\{\s*background: color-mix\(in srgb, var\(--aven-label-secondary\) 45%, transparent\);/,
+    );
+    expect(css).toMatch(
+      /\.workspace-stage-sash\[data-direction="right"\]:is\(\s*:hover,\s*:focus-visible,\s*:active\s*\)::after \{\s*left: calc\(50% - 1px\);\s*width: 2px;/,
     );
     // A split inside a tab uses the same line.
     expect(readFileSync("src/surfaces/PaneTree.tsx", "utf8")).toContain(

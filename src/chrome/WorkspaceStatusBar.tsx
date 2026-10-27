@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderMarks } from "./ProviderMarks";
@@ -59,6 +60,11 @@ export type WorkspaceStatusBarProps = {
   inspectorOpen?: boolean;
   /** Settings shares the window header instead of stacking a second toolbar. */
   settingsView?: { section: SettingsSectionId; onClose: () => void };
+  /**
+   * The window's strip of tabs (Cydonia's): the workspace's tabs, sharing
+   * the toolbar's free width. Its empty room still moves the window.
+   */
+  strip?: ReactNode;
 };
 
 type QueueRow = {
@@ -149,8 +155,24 @@ function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
+/** Empty toolbar room, including the strip's, moves the window. */
+function isWindowDragRoom(target: EventTarget, bar: Element) {
+  if (target === bar) return true;
+  if (!(target instanceof Element)) return false;
+  return (
+    !!target.closest("[data-window-drag-room]") &&
+    !target.closest(
+      'button, a, input, textarea, select, [role="tab"], [role="button"], [data-surface-tab-id], [data-tab-group], .personal-tab-group-slot',
+    )
+  );
+}
+
 function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
-  if (event.button !== 0 || event.target !== event.currentTarget) return;
+  if (
+    event.button !== 0 ||
+    !isWindowDragRoom(event.target, event.currentTarget)
+  )
+    return;
   event.preventDefault();
   const currentWindow = getCurrentWindow();
   const action =
@@ -382,6 +404,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onToggleInspector,
   inspectorOpen,
   settingsView,
+  strip,
 }: WorkspaceStatusBarProps) {
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
   const activity = useActivity();
@@ -484,6 +507,11 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
             <ChevronRight size={11} aria-hidden />
             <strong>{settingsSectionLabel(settingsView.section)}</strong>
           </div>
+        </div>
+      ) : null}
+      {strip && !settingsView ? (
+        <div className="workspace-status-strip" data-window-drag-room>
+          {strip}
         </div>
       ) : null}
       <div

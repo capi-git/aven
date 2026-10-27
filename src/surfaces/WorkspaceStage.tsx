@@ -24,13 +24,23 @@ import {
   restoreScrollOffsets,
   type ScrollOffsets,
 } from "../lib/hiddenSurfaces";
-import { playMotion } from "../lib/motion";
+import { MOTION_ATTRIBUTE, motionReduced, playMotion } from "../lib/motion";
 import { subscribeMemoryPressure } from "../lib/memoryPressure";
 import {
   browserHandoffPending,
   waitForBrowserHandoff,
 } from "../lib/browserHandoff";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
+import {
+  DOCK_EASE,
+  DOCK_PREVIEW_INSET,
+  DOCK_TWEEN_MS,
+  dockClip,
+  dockOverlap,
+  dockZone,
+  dockZoneFraction,
+  type DockRect,
+} from "../lib/paneDock";
 import {
   ChevronDown,
   ChevronLeft,
@@ -98,7 +108,31 @@ function retainedDropIndex(
   }
 }
 
-/** Client coordinates keep drop targets independent of native browser stacking. */
+/** A header's members in their full order, when its strip publishes them. */
+function headerMembers(header: HTMLElement): string[] | null {
+  const serialized = header.querySelector<HTMLElement>("[data-surface-order]")
+    ?.dataset.surfaceOrder;
+  if (!serialized) return null;
+  try {
+    const order: unknown = JSON.parse(serialized);
+    return Array.isArray(order) &&
+      order.length > 0 &&
+      order.every((id): id is string => typeof id === "string") &&
+      new Set(order).size === order.length
+      ? order
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a tab dragged to (x, y) docks, in client coordinates so native
+ * browser stacking never matters. As in Cydonia: a pane's title row, or the
+ * middle of its body, stacks the tab in that pane; within a quarter of an
+ * edge it splits that side (see paneDock.ts). A header that is a strip of
+ * tabs (a detached window's) still takes the tab at the slot it is over.
+ */
 export function workspaceSurfaceDropAt(
   container: HTMLElement,
   x: number,
@@ -129,16 +163,17 @@ export function workspaceSurfaceDropAt(
     const tabs = header
       ? [...header.querySelectorAll<HTMLElement>("[data-surface-tab-id]")]
       : [];
+    // A title row shows only the tab in front; its strip still lists them all.
+    const members =
+      (header && headerMembers(header)) ??
+      tabs.map((tab) => tab.dataset.surfaceTabId ?? "");
     // A selected tab can split away from its own group only if a sibling
     // remains to occupy the original pane. Its own header still reorders.
     const moving = new Set(draggedIds);
-    const sameGroup = tabs.some((tab) =>
-      moving.has(tab.dataset.surfaceTabId ?? ""),
-    );
+    const sameGroup = members.some((member) => moving.has(member));
     if (
-      (id === draggedId && tabs.length < 2) ||
-      (sameGroup &&
-        tabs.every((tab) => moving.has(tab.dataset.surfaceTabId ?? "")))
+      (id === draggedId && members.length < 2) ||
+      (sameGroup && members.every((member) => moving.has(member)))
     )
       continue;
     if (header) {
@@ -152,6 +187,9 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
+        // A title row stacks the tab behind the one in front.
+        if (header.querySelector('[data-variant="title"]'))
+          return { id, edge: "tab" };
         const measuredTabs = tabs
           .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))
           .filter(({ rect }) => rect.width > 0 && rect.height > 0);
@@ -176,52 +214,53 @@ export function workspaceSurfaceDropAt(
       ":scope > [data-workspace-body]",
     );
     const rect = (body ?? surface).getBoundingClientRect();
-    if (
-      rect.width <= 0 ||
-      rect.height <= 0 ||
-      x < rect.left ||
-      x > rect.right ||
-      y < rect.top ||
-      y > rect.bottom
-    )
-      continue;
-    const horizontal = (x - rect.left) / rect.width;
-    const vertical = (y - rect.top) / rect.height;
-    const edges: Array<["left" | "right" | "up" | "down", number]> = [
-      ["left", horizontal],
-      ["right", 1 - horizontal],
-      ["up", vertical],
-      ["down", 1 - vertical],
-    ];
-    const nearest = edges.reduce((closest, next) =>
-      next[1] < closest[1] ? next : closest,
-    );
-    const previousEdge =
-      previous?.id === id && previous.edge !== "tab"
-        ? edges.find(([edge]) => edge === previous.edge)
-        : undefined;
-    // A broad center joins the tab strip. A small deadband keeps the preview
-    // stable near the center/edge boundary and at split corners.
-    const edgeLimit =
-      previous?.id === id && previous.edge === "tab" ? 0.18 : 0.22;
-    if (
-      previousEdge &&
-      previousEdge[1] <= 0.26 &&
-      previousEdge[1] <= nearest[1] + 0.045
-    )
-      return { id, edge: previousEdge[0] };
-    if (nearest[1] <= edgeLimit) return { id, edge: nearest[0] };
+    const held =
+      previous?.id === id
+        ? previous.edge === "tab"
+          ? previous.index === undefined
+            ? "join"
+            : null
+          : previous.edge
+        : null;
+    const zone = dockZone(rect, x, y, held);
+    if (!zone) continue;
+    if (zone !== "join") return { id, edge: zone };
     return sameGroup ? null : { id, edge: "tab" };
   }
   return null;
 }
 
-const rectStyle = (rect: LayoutRect): CSSProperties => ({
-  left: `${rect.x * 100}%`,
-  top: `${rect.y * 100}%`,
-  width: `${rect.w * 100}%`,
-  height: `${rect.h * 100}%`,
+/** A share of a pane's body, inset as the docking preview is. */
+const previewStyle = (rect: LayoutRect): CSSProperties => ({
+  left: `calc(${rect.x * 100}% + ${DOCK_PREVIEW_INSET}px)`,
+  top: `calc(${rect.y * 100}% + ${DOCK_PREVIEW_INSET}px)`,
+  width: `calc(${rect.w * 100}% - ${2 * DOCK_PREVIEW_INSET}px)`,
+  height: `calc(${rect.h * 100}% - ${2 * DOCK_PREVIEW_INSET}px)`,
 });
+
+/** A box on screen in the stage's own CSS pixels. */
+function stageBox(stage: HTMLElement, rect: DOMRect): DockRect {
+  const zoom = effectiveCssZoom(stage) || 1;
+  const outer = stage.getBoundingClientRect();
+  return {
+    left: (rect.left - outer.left) / zoom,
+    top: (rect.top - outer.top) / zoom,
+    width: rect.width / zoom,
+    height: rect.height / zoom,
+  };
+}
+
+const sameBox = (a: DockRect | null, b: DockRect | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5);
+
+/** A drop is followed by its new layout within this long, or not at all. */
+const DROP_REVEAL_WINDOW_MS = 1000;
 
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
@@ -670,6 +709,149 @@ export function WorkspaceStage({
   }, [layout, visible, headerIds]);
   useEffect(() => () => stopResize.current?.(false), []);
 
+  const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
+  const hintZone = joining
+    ? "join"
+    : dragTarget && dragTarget.edge !== "tab"
+      ? dragTarget.edge
+      : null;
+  const hint = hintZone ? dockZoneFraction(hintZone) : null;
+
+  // The docking preview, drawn once over the whole stage so it can glide
+  // between zones and between panes (Cydonia's 150ms tween). The hint in the
+  // target pane's body says where it goes; a native page reads that hint for
+  // its own indicator, which stands still. When a drop splits a pane, the
+  // pane it makes grows from the preview to its place while the preview
+  // fades.
+  const previewNode = useRef<HTMLDivElement>(null);
+  const previewState = useRef<{
+    box: DockRect | null;
+    animation: Animation | null;
+    split: boolean;
+    dragLayout: LayoutNode | null;
+  }>({ box: null, animation: null, split: false, dragLayout: null });
+  const dropReveal = useRef<{
+    box: DockRect;
+    until: number;
+    from: LayoutNode | null;
+  } | null>(null);
+  const revealDrop = (box: DockRect) => {
+    const container = stage.current;
+    if (!container || motionReduced()) return;
+    let best: { id: string; overlap: number } | null = null;
+    for (const id of positions.keys()) {
+      const node = surfaceNodes.current.get(id);
+      if (!node) continue;
+      const body =
+        node.querySelector<HTMLElement>(":scope > [data-workspace-body]") ??
+        node;
+      const overlap = dockOverlap(
+        stageBox(container, body.getBoundingClientRect()),
+        box,
+      );
+      if (!best || overlap > best.overlap) best = { id, overlap };
+    }
+    if (!best || best.overlap < 0.5) return;
+    for (const node of [
+      surfaceNodes.current.get(best.id),
+      headerNodes.current.get(best.id),
+    ]) {
+      if (!node || typeof node.animate !== "function") continue;
+      // The reveal replaces the plain fade-in of a new split.
+      if (node.getAttribute(MOTION_ATTRIBUTE) === "pane-in")
+        node.removeAttribute(MOTION_ATTRIBUTE);
+      const to = stageBox(container, node.getBoundingClientRect());
+      if (to.width <= 0 || to.height <= 0) continue;
+      node.animate(
+        [
+          { clipPath: dockClip(box, to) },
+          { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+        ],
+        { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
+      );
+    }
+  };
+  useLayoutEffect(() => {
+    const element = previewNode.current;
+    const container = stage.current;
+    if (!element || !container) return;
+    const state = previewState.current;
+    const reduced = motionReduced();
+    const animate = typeof element.animate === "function" && !reduced;
+    if (dragging) state.dragLayout = layout;
+    const hintNode =
+      visible && dragging
+        ? container.querySelector<HTMLElement>("[data-workspace-drop-hint]")
+        : null;
+    const target = hintNode
+      ? stageBox(container, hintNode.getBoundingClientRect())
+      : null;
+    if (!target || target.width <= 0 || target.height <= 0) {
+      if (!dragging && state.box && state.split)
+        dropReveal.current = {
+          box: state.box,
+          until: performance.now() + DROP_REVEAL_WINDOW_MS,
+          from: state.dragLayout,
+        };
+      if (state.box) {
+        state.animation?.cancel();
+        state.animation = null;
+        if (animate) {
+          const fade = element.animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: DOCK_TWEEN_MS,
+            easing: DOCK_EASE,
+            fill: "forwards",
+          });
+          state.animation = fade;
+          fade.onfinish = () => {
+            if (state.animation !== fade) return;
+            state.animation = null;
+            element.dataset.shown = "false";
+            fade.cancel();
+          };
+        } else element.dataset.shown = "false";
+      }
+      state.box = null;
+      state.split = false;
+    } else {
+      // Glide from wherever the preview is drawn, even part way along.
+      const drawn =
+        state.box && state.animation?.playState === "running"
+          ? stageBox(container, element.getBoundingClientRect())
+          : state.box;
+      state.animation?.cancel();
+      state.animation = null;
+      element.style.left = `${target.left}px`;
+      element.style.top = `${target.top}px`;
+      element.style.width = `${target.width}px`;
+      element.style.height = `${target.height}px`;
+      element.dataset.shown = "true";
+      if (drawn && animate && !sameBox(drawn, target))
+        state.animation = element.animate(
+          [
+            {
+              transform: `translate(${drawn.left - target.left}px, ${drawn.top - target.top}px) scale(${drawn.width / target.width}, ${drawn.height / target.height})`,
+            },
+            { transform: "translate(0px, 0px) scale(1, 1)" },
+          ],
+          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
+        );
+      state.box = target;
+      state.split = hintZone !== null && hintZone !== "join";
+    }
+    const pending = dropReveal.current;
+    if (pending && !dragging) {
+      if (performance.now() > pending.until) dropReveal.current = null;
+      else if (layout !== pending.from) {
+        dropReveal.current = null;
+        revealDrop(pending.box);
+      }
+    }
+    // The hint's zone and pane say all the preview needs; the layout is for
+    // the drop's own reveal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, dragging, dragTarget?.id, dragTarget?.edge, hintZone, layout]);
+
   function startResize(
     event: ReactPointerEvent<HTMLDivElement>,
     sash: LayoutSash,
@@ -828,22 +1010,6 @@ export function WorkspaceStage({
     handle.addEventListener("lostpointercapture", lost);
   }
 
-  const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
-  const hint = joining
-    ? { x: 0.08, y: 0.08, w: 0.84, h: 0.84 }
-    : dragTarget && dragTarget.edge !== "tab"
-      ? { x: 0, y: 0, w: 1, h: 1 }
-      : null;
-  if (hint && dragTarget && !joining) {
-    if (dragTarget.edge === "left" || dragTarget.edge === "right") {
-      hint.w /= 2;
-      if (dragTarget.edge === "right") hint.x += hint.w;
-    } else {
-      hint.h /= 2;
-      if (dragTarget.edge === "down") hint.y += hint.h;
-    }
-  }
-
   return (
     <div
       ref={stage}
@@ -906,7 +1072,7 @@ export function WorkspaceStage({
                   data-drop-edge={dragTarget.edge}
                   data-drop-kind={dragKind}
                   data-drop-title={dragLabel ?? ""}
-                  style={rectStyle(hint)}
+                  style={previewStyle(hint)}
                   aria-hidden="true"
                 />
               ) : null}
@@ -955,6 +1121,7 @@ export function WorkspaceStage({
             }}
             className="workspace-stage-header"
             data-workspace-header={id}
+            data-focused={visible && focusedId === id}
             data-drop-target={
               dragging && dragTarget?.id === id ? "true" : undefined
             }
@@ -1131,6 +1298,12 @@ export function WorkspaceStage({
       ))}
       {/* Captured drags use geometric drop targets. Keep native pages live;
           the header indicator stays visible above them without a snapshot. */}
+      <div
+        ref={previewNode}
+        className="workspace-stage-drop-preview"
+        data-shown="false"
+        aria-hidden="true"
+      />
     </div>
   );
 }

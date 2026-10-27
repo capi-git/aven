@@ -135,8 +135,11 @@ import {
   closeWorkspaceViews,
   toggleWorkspaceExpansion,
   resolveWorkspaceView,
+  workspaceIsSpace,
+  workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
+import { seamNeighbours, type DockEdge } from "./lib/paneDock";
 import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
@@ -281,7 +284,11 @@ import {
 } from "./lib/paletteAgents";
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
-import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
+import {
+  TitleBar,
+  type Tab as TitleTab,
+  type TitleBarProps,
+} from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
 import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
@@ -348,6 +355,7 @@ import {
   newBoardWorkspaceTab,
   boardTabFor,
   isBoardTab,
+  layoutLeaves,
   leafIds,
   movePane,
   neighborLeafId,
@@ -10622,6 +10630,195 @@ export default function App({
     [floatingSidebar.revealed, setFloatingSidebarRevealed],
   );
 
+  // Panes and tabs as in Cydonia. A single pane's tabs are the window's
+  // strip, in the toolbar, over the pane's title row. Several panes (or one
+  // expanded over the rest) are a space: no strip, and each pane's title row
+  // names its tab in front, with the rest of its tabs as a deck.
+  const spaceMode = workspaceIsSpace(view);
+  const paneZoomed = workspaceZoomed(view);
+  const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
+  const paneTitleTools = (
+    owner: string,
+  ): NonNullable<TitleBarProps["paneTools"]> => {
+    const across = seamNeighbours(paneLeaves, owner);
+    return {
+      zoom: spaceMode
+        ? {
+            zoomed: paneZoomed,
+            onToggle: () => onWorkspaceIntent({ type: "zoom", group: owner }),
+          }
+        : undefined,
+      moves: (["left", "right", "up", "down"] as const).filter(
+        (side) => across[side],
+      ),
+      onMove: (side: DockEdge) => {
+        const live = viewRef.current.view;
+        const other = live.layout
+          ? seamNeighbours(layoutLeaves(live.layout), owner)[side]
+          : undefined;
+        if (other)
+          onWorkspaceIntent({ type: "swap", group: owner, with: other });
+      },
+    };
+  };
+  const paneBar = (owner: string, extra: Partial<TitleBarProps>) => {
+    const members = view.groups[owner] ?? [owner];
+    return (
+      <TitleBar
+        tabs={titleTabs.filter((tab) => members.includes(tab.id))}
+        totalSessionTabs={titleTabs.length}
+        onOpenRaceOverview={openRaceOverview}
+        paneLocal
+        paneFocused={owner === view.focusedId}
+        activeId={owner}
+        cwd={sidebarCwd}
+        projectRailOpen={projectRailOpen}
+        sidebarOpen={sidebarOpen}
+        inspectorOpen={inspector.open && workspaceVisible}
+        onToggleInspector={onToggleInspector}
+        browserTabs={browserSurfaces
+          .filter((tab) => members.includes(tab.surfaceId))
+          .map((tab) => ({
+            id: tab.surfaceId,
+            favicon: tab.favicon,
+            kept: tab.kept,
+            url: tab.url,
+            // A race agent's page says whose
+            // version it shows.
+            title: racePreviewTitle(
+              tab.title ||
+                (tab.url
+                  ? tab.url.replace(/^https?:\/\//, "").split("/")[0]
+                  : "New browser tab"),
+              racePreviewLabelFor(tab.url),
+            ),
+          }))}
+        browserOpen={browserState.open}
+        browserActive={browserFocused}
+        visibleIds={visibleSurfaceIds}
+        surfaceOrder={members}
+        onReorderSurfaces={(ids, movedId) => {
+          onWorkspaceIntent({
+            type: "reorder",
+            group: owner,
+            ids,
+          });
+          onReorderTabs(
+            ids.filter((id) => tabs.some((tab) => tab.id === id)),
+            movedId && tabs.some((tab) => tab.id === movedId)
+              ? movedId
+              : undefined,
+          );
+        }}
+        onSplitTab={(id, edge, beside) =>
+          onWorkspaceIntent({
+            type: "split",
+            id,
+            edge,
+            beside,
+          })
+        }
+        onUnsplit={() =>
+          onWorkspaceIntent({
+            type: "unsplit",
+            group: owner,
+          })
+        }
+        combineTargets={neighborCombineTargets(view, owner)}
+        onCombineWith={(into) =>
+          onWorkspaceIntent({
+            type: "combine",
+            group: owner,
+            into,
+          })
+        }
+        groupId={owner}
+        onReopenClosedTab={() => {
+          void onReopenClosedTab();
+        }}
+        canReopenClosedTab={recovery.closed.some(
+          (entry) => entry.cwd === projectCwd,
+        )}
+        onUndoLayout={onUndoLayout}
+        canUndoLayout={recovery.layouts.some(
+          (entry) => entry.cwd === projectCwd,
+        )}
+        onSurfaceDragMove={onSurfaceDragMove}
+        onSurfaceDragEnd={onSurfaceDragEnd}
+        onNewBrowser={() => {
+          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          onNewBrowserTab();
+        }}
+        onOpenBoard={
+          looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+            ? () => {
+                workspaceViews.change((view) =>
+                  selectWorkspaceView(view, owner),
+                );
+                onOpenBoard();
+              }
+            : undefined
+        }
+        onNewView={
+          members.length > 1 || visibleSurfaceIds.length > 1
+            ? (id) =>
+                onWorkspaceIntent({
+                  type: "split",
+                  id,
+                  edge: "right",
+                  beside: owner,
+                })
+            : undefined
+        }
+        onSelectBrowser={onSelectBrowserTab}
+        onKeepBrowser={onKeepBrowser}
+        browserPreviewId={
+          browserState.activeTabId
+            ? browserIdForTab(projectCwd, browserState.activeTabId)
+            : null
+        }
+        onCloseBrowser={onCloseBrowserTab}
+        onToggleSidebar={onToggleSidebar}
+        onSelect={(id) => {
+          workspaceViews.change((view) => selectWorkspaceView(view, id));
+          activateTab(id);
+        }}
+        onNew={() => {
+          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          onNew();
+        }}
+        onShowTerminal={undefined}
+        projectTerminalActive={
+          !!currentProjectDock && currentProjectDock.pane.files.length > 0
+        }
+        onOpenSettings={onOpenSettings}
+        onOpenInbox={onOpenInbox}
+        onOpenAutomations={onOpenAutomations}
+        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+        onClose={onCloseTitleTab}
+        onCloseMany={onCloseTabs}
+        onReorder={onReorderTabs}
+        onGoToFile={onGoToFile}
+        recents={recents}
+        onSelectProject={onSelectProject}
+        {...extra}
+      />
+    );
+  };
+  const windowStripOwner =
+    visibleSurfaceIds.length === 1 ? visibleSurfaceIds[0] : view.focusedId;
+  const windowStrip =
+    workspaceVisible && !settingsOpen && view.layout && windowStripOwner
+      ? paneBar(windowStripOwner, {
+          variant: "strip",
+          hideLoneTab: true,
+          windowTitle: false,
+          // A space is one tab of the strip, and one tab shows none: only
+          // the strip's New chat, browser and board buttons remain.
+          ...(spaceMode ? { tabs: [], browserTabs: [] } : {}),
+        })
+      : null;
+
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
       <OrchestrationActions.Provider value={orchestrationActions}>
@@ -10656,6 +10853,7 @@ export default function App({
               homeOpen={homeViewOpen || profileHome}
               onToggleInspector={onToggleInspector}
               inspectorOpen={inspector.open}
+              strip={windowStrip}
             />
             <div className="personal-shell-body">
               {!sidebarOpen ? (
@@ -10837,186 +11035,15 @@ export default function App({
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage
-                              headers={visibleSurfaceIds.map((owner) => {
-                                const members = view.groups[owner] ?? [owner];
-                                return {
-                                  id: owner,
-                                  key: workspaceHeaderKeys[owner],
-                                  content: (
-                                    <TitleBar
-                                      tabs={titleTabs.filter((tab) =>
-                                        members.includes(tab.id),
-                                      )}
-                                      totalSessionTabs={titleTabs.length}
-                                      onOpenRaceOverview={openRaceOverview}
-                                      paneLocal
-                                      paneFocused={owner === view.focusedId}
-                                      activeId={owner}
-                                      cwd={sidebarCwd}
-                                      projectRailOpen={projectRailOpen}
-                                      sidebarOpen={sidebarOpen}
-                                      inspectorOpen={
-                                        inspector.open && workspaceVisible
-                                      }
-                                      onToggleInspector={onToggleInspector}
-                                      browserTabs={browserSurfaces
-                                        .filter((tab) =>
-                                          members.includes(tab.surfaceId),
-                                        )
-                                        .map((tab) => ({
-                                          id: tab.surfaceId,
-                                          favicon: tab.favicon,
-                                          kept: tab.kept,
-                                          url: tab.url,
-                                          // A race agent's page says whose
-                                          // version it shows.
-                                          title: racePreviewTitle(
-                                            tab.title ||
-                                              (tab.url
-                                                ? tab.url
-                                                    .replace(/^https?:\/\//, "")
-                                                    .split("/")[0]
-                                                : "New browser tab"),
-                                            racePreviewLabelFor(tab.url),
-                                          ),
-                                        }))}
-                                      browserOpen={browserState.open}
-                                      browserActive={browserFocused}
-                                      visibleIds={visibleSurfaceIds}
-                                      surfaceOrder={members}
-                                      onReorderSurfaces={(ids, movedId) => {
-                                        onWorkspaceIntent({
-                                          type: "reorder",
-                                          group: owner,
-                                          ids,
-                                        });
-                                        onReorderTabs(
-                                          ids.filter((id) =>
-                                            tabs.some((tab) => tab.id === id),
-                                          ),
-                                          movedId &&
-                                            tabs.some(
-                                              (tab) => tab.id === movedId,
-                                            )
-                                            ? movedId
-                                            : undefined,
-                                        );
-                                      }}
-                                      onSplitTab={(id, edge, beside) =>
-                                        onWorkspaceIntent({
-                                          type: "split",
-                                          id,
-                                          edge,
-                                          beside,
-                                        })
-                                      }
-                                      onUnsplit={() =>
-                                        onWorkspaceIntent({
-                                          type: "unsplit",
-                                          group: owner,
-                                        })
-                                      }
-                                      combineTargets={neighborCombineTargets(
-                                        view,
-                                        owner,
-                                      )}
-                                      onCombineWith={(into) =>
-                                        onWorkspaceIntent({
-                                          type: "combine",
-                                          group: owner,
-                                          into,
-                                        })
-                                      }
-                                      groupId={owner}
-                                      onReopenClosedTab={() => {
-                                        void onReopenClosedTab();
-                                      }}
-                                      canReopenClosedTab={recovery.closed.some(
-                                        (entry) => entry.cwd === projectCwd,
-                                      )}
-                                      onUndoLayout={onUndoLayout}
-                                      canUndoLayout={recovery.layouts.some(
-                                        (entry) => entry.cwd === projectCwd,
-                                      )}
-                                      onSurfaceDragMove={onSurfaceDragMove}
-                                      onSurfaceDragEnd={onSurfaceDragEnd}
-                                      onNewBrowser={() => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, owner),
-                                        );
-                                        onNewBrowserTab();
-                                      }}
-                                      onOpenBoard={
-                                        looksLikeProject(projectCwd) &&
-                                        !isProjectlessCwd(projectCwd)
-                                          ? () => {
-                                              workspaceViews.change((view) =>
-                                                selectWorkspaceView(
-                                                  view,
-                                                  owner,
-                                                ),
-                                              );
-                                              onOpenBoard();
-                                            }
-                                          : undefined
-                                      }
-                                      onNewView={
-                                        members.length > 1 ||
-                                        visibleSurfaceIds.length > 1
-                                          ? (id) =>
-                                              onWorkspaceIntent({
-                                                type: "split",
-                                                id,
-                                                edge: "right",
-                                                beside: owner,
-                                              })
-                                          : undefined
-                                      }
-                                      onSelectBrowser={onSelectBrowserTab}
-                                      onKeepBrowser={onKeepBrowser}
-                                      browserPreviewId={
-                                        browserState.activeTabId
-                                          ? browserIdForTab(
-                                              projectCwd,
-                                              browserState.activeTabId,
-                                            )
-                                          : null
-                                      }
-                                      onCloseBrowser={onCloseBrowserTab}
-                                      onToggleSidebar={onToggleSidebar}
-                                      onSelect={(id) => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, id),
-                                        );
-                                        activateTab(id);
-                                      }}
-                                      onNew={() => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, owner),
-                                        );
-                                        onNew();
-                                      }}
-                                      onShowTerminal={undefined}
-                                      projectTerminalActive={
-                                        !!currentProjectDock &&
-                                        currentProjectDock.pane.files.length > 0
-                                      }
-                                      onOpenSettings={onOpenSettings}
-                                      onOpenInbox={onOpenInbox}
-                                      onOpenAutomations={onOpenAutomations}
-                                      onOpenNotes={
-                                        notesEnabled ? onOpenNotes : undefined
-                                      }
-                                      onClose={onCloseTitleTab}
-                                      onCloseMany={onCloseTabs}
-                                      onReorder={onReorderTabs}
-                                      onGoToFile={onGoToFile}
-                                      recents={recents}
-                                      onSelectProject={onSelectProject}
-                                    />
-                                  ),
-                                };
-                              })}
+                              headers={visibleSurfaceIds.map((owner) => ({
+                                id: owner,
+                                key: workspaceHeaderKeys[owner],
+                                content: paneBar(owner, {
+                                  variant: "title",
+                                  stackOnStrip: !spaceMode,
+                                  paneTools: paneTitleTools(owner),
+                                }),
+                              }))}
                               layout={view.layout}
                               focusedId={view.focusedId}
                               visible={workspaceVisible}

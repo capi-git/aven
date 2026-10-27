@@ -1193,10 +1193,11 @@ describe("workspace stage", () => {
       ".workspace-stage-drop-hint",
     )!;
     expect(hint.parentElement).toBe(body("browser"));
-    expect(hint.style.left).toBe("0%");
-    expect(hint.style.top).toBe("50%");
-    expect(hint.style.width).toBe("100%");
-    expect(hint.style.height).toBe("50%");
+    // That half of the body, inset 4px (Cydonia's preview).
+    expect(hint.style.left).toBe("calc(0% + 4px)");
+    expect(hint.style.top).toBe("calc(50% + 4px)");
+    expect(hint.style.width).toBe("calc(100% - 8px)");
+    expect(hint.style.height).toBe("calc(50% - 8px)");
     await render({ dragging: false });
     expect(
       container.querySelector("[data-native-browser-occluded]"),

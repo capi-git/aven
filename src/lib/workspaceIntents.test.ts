@@ -252,3 +252,54 @@ describe("hiddenSplitStatus", () => {
     ).toBeUndefined();
   });
 });
+
+describe("Cydonia's pane moves", () => {
+  it("swaps a pane across its seam, keeping each pane's tabs, sizes and focus", () => {
+    const before = grouped();
+    const { view, keep } = applyWorkspaceIntent(before, {
+      type: "swap",
+      group: "chat-a",
+      with: "chat-b",
+    });
+    expect(keep).toEqual([]);
+    expect(view.layout).toEqual({
+      ...columns,
+      children: [leaf("chat-b"), leaf("chat-a")],
+    });
+    expect(view.groups).toEqual(before.groups);
+    expect(view.focusedId).toBe("chat-a");
+  });
+
+  it("ignores a swap with itself or a pane that is not shown", () => {
+    const before = grouped();
+    expect(
+      applyWorkspaceIntent(before, {
+        type: "swap",
+        group: "chat-a",
+        with: "chat-a",
+      }).view,
+    ).toBe(before);
+    expect(
+      applyWorkspaceIntent(before, {
+        type: "swap",
+        group: "chat-a",
+        with: "browser-b",
+      }).view,
+    ).toBe(before);
+  });
+
+  it("zooms a pane over the others and puts it back", () => {
+    const zoomed = applyWorkspaceIntent(grouped(), {
+      type: "zoom",
+      group: "chat-b",
+    }).view;
+    expect(zoomed.layout && leafIds(zoomed.layout)).toEqual(["chat-b"]);
+    expect(zoomed.restoreView).toBeDefined();
+    const restored = applyWorkspaceIntent(zoomed, {
+      type: "zoom",
+      group: "chat-b",
+    }).view;
+    expect(restored.layout).toEqual(columns);
+    expect(restored.restoreView).toBeUndefined();
+  });
+});
