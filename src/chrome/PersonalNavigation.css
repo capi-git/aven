@@ -306,7 +306,7 @@
 .personal-shell .personal-sidebar-slot[data-open="false"] .project-mark * {
   animation-play-state: paused;
 }
-/* A row's actions (fold, board, New chat, ···) take no room at rest and
+/* A row's actions (fold, New chat, ···) take no room at rest and
    show on hover, on keyboard focus anywhere in the row (they stay in the Tab
    order) and while the ··· menu is open. An open project keeps its fold
    chevron, which says it is open. */
