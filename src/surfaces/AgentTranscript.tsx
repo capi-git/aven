@@ -3011,7 +3011,7 @@ function ApprovalControls({
     >
       <button
         type="button"
-        className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-content/80     text-background-base"
+        className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-(--aven-inverse-hover)     text-background-base"
         onClick={() => onApproval?.(approval.requestId, "allow")}
       >
         {words.allow}

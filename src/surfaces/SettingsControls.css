@@ -384,31 +384,13 @@
   color: var(--color-content);
 }
 .settings-button-danger {
-  color: var(--color-red-400, #ff453a);
-  background: color-mix(
-    in srgb,
-    var(--color-red-400, #ff453a) 14%,
-    transparent
-  );
+  color: var(--aven-danger-text);
+  background: var(--aven-danger-fill);
   border-color: var(--aven-control-edge, transparent);
 }
-/* The light red is too pale for text on its own wash; use the deeper one,
-   a touch darker still, so it reads at 5:1. */
-html.theme-light .settings-button-danger,
-html.theme-light .settings-button-danger:not(:disabled):hover {
-  color: color-mix(
-    in srgb,
-    var(--color-content) 15%,
-    var(--color-red-600, #d70015)
-  );
-}
 .settings-button-danger:not(:disabled):hover {
-  color: var(--color-red-400, #ff453a);
-  background: color-mix(
-    in srgb,
-    var(--color-red-400, #ff453a) 20%,
-    transparent
-  );
+  color: var(--aven-danger-text);
+  background: var(--aven-danger-fill-hover);
 }
 .settings-select:disabled,
 .settings-button:disabled,

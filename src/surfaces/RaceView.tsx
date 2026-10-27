@@ -645,7 +645,7 @@ function RaceBody({
                         () => void finish("Keeping…", { lane: index }),
                       );
                     }}
-                    className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
+                    className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-30"
                   >
                     Keep this
                   </button>
@@ -736,7 +736,7 @@ function RaceBody({
                     () => void finish("Keeping…", { files: picked }),
                   )
                 }
-                className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
+                className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-30"
               >
                 {working ??
                   (selectedCount
@@ -816,7 +816,7 @@ function RaceBody({
                       sessions.find((entry) => entry.id === id),
                     ).then(setActionError)
                   }
-                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
+                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
                 >
                   {`Continue with ${continueWith}`}
                 </button>

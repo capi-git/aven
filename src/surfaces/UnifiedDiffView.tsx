@@ -412,7 +412,7 @@ const FileSection = memo(function FileSection({
             aria-label="Stage file"
             disabled={busy}
             onClick={() => onStageFile(file.id)}
-            className="grid size-4 place-items-center rounded-[3px] bg-content text-background-base hover:opacity-80 disabled:opacity-40"
+            className="grid size-4 place-items-center rounded-[3px] bg-content text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             <Check className="size-2.5" strokeWidth={2.5} />
           </button>
@@ -961,7 +961,7 @@ const DiffLineRow = memo(function DiffLineRow({
             onClick={(event) =>
               onComment(event.currentTarget.getBoundingClientRect())
             }
-            className={`absolute top-0.5 left-0.5 z-10 grid size-4 place-items-center rounded-[3px] bg-content text-background-base outline-none transition-opacity hover:opacity-80 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring) ${
+            className={`absolute top-0.5 left-0.5 z-10 grid size-4 place-items-center rounded-[3px] bg-content text-background-base outline-none transition-opacity hover:bg-(--aven-inverse-hover) focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring) ${
               hovered || commenting
                 ? "opacity-100"
                 : "pointer-events-none opacity-0"

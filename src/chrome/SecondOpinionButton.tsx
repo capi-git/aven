@@ -117,7 +117,7 @@ export function BuildTargetButton({
       menuLabel="Build this plan with another model or provider"
       includeCurrent
       disabled={disabled}
-      triggerClassName="flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md border-l border-background-base/20 bg-content text-background-base hover:bg-content/90 disabled:pointer-events-none disabled:opacity-40"
+      triggerClassName="flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md border-l border-background-base/20 bg-content text-background-base hover:bg-(--aven-inverse-hover) disabled:pointer-events-none disabled:opacity-40"
     />
   );
 }

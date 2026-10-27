@@ -470,7 +470,7 @@ export function OrchestrationPreview({
             !superseded &&
             ["ready", "starting"].includes(proposal.status) && (
               <button
-                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
                 disabled={!editable}
                 title={
                   busy && !starting
@@ -687,7 +687,7 @@ export function OrchestrationPreview({
       {(error || proposal.error) && (
         <p
           role="alert"
-          className="px-3 py-2 text-ui-label text-red-600 dark:text-red-400"
+          className="px-3 py-2 text-ui-label text-(--aven-danger-text)"
           title={error ? undefined : proposal.error}
         >
           {error ?? planProblemText(proposal.error!)}

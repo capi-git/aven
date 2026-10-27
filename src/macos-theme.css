@@ -217,12 +217,19 @@
     var(--color-content)
   );
   --aven-shadow: 0 22px 60px -12px #0009, 0 2px 8px #0003;
-  /* Words that warn of a destructive choice: a menu's Delete, an error in
-     a dialog. */
-  --aven-danger-text: color-mix(
+  /* Destructive choices, in the system red: their words (a menu's Delete,
+     an error in a dialog) and a destructive button's wash, a step
+     stronger under the pointer. */
+  --aven-danger-text: var(--color-red-400, #ff453a);
+  --aven-danger-fill: color-mix(
     in srgb,
-    var(--color-danger, #d96c58) 80%,
-    var(--color-content)
+    var(--color-red-400, #ff453a) 14%,
+    transparent
+  );
+  --aven-danger-fill-hover: color-mix(
+    in srgb,
+    var(--color-red-400, #ff453a) 20%,
+    transparent
   );
 }
 
@@ -336,6 +343,13 @@ html.theme-light .personal-shell {
   --aven-control-pressed: var(--aven-fill);
   --aven-field-bg: var(--aven-fill-tertiary);
   --aven-shadow: 0 22px 60px -14px #00000033, 0 2px 8px #00000014;
+  /* The light red is too pale for text on its own wash; the deeper one, a
+     touch darker still, reads at 5:1. */
+  --aven-danger-text: color-mix(
+    in srgb,
+    var(--color-content) 15%,
+    var(--color-red-600, #d70015)
+  );
 }
 
 /* A hairline is one device pixel at every display scale and interface zoom:

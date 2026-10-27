@@ -183,7 +183,7 @@ export function InboxCommentForm({
           <button
             type="submit"
             disabled={!canPost}
-            className="inline-flex h-7 items-center rounded-md bg-content px-3 text-ui-label text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40"
+            className="inline-flex h-7 items-center rounded-md bg-content px-3 text-ui-label text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40"
           >
             {posting ? "Posting…" : replyTo ? "Reply" : "Comment"}
           </button>

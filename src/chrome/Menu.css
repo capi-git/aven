@@ -23,11 +23,7 @@
     --toolbar-panel-accent,
     var(--aven-focus-ring, var(--color-accent))
   );
-  --aven-menu-danger: color-mix(
-    in srgb,
-    var(--color-danger, #d96c58) 80%,
-    var(--aven-menu-ink)
-  );
+  --aven-menu-danger: var(--aven-danger-text);
   display: flex;
   flex-direction: column;
   padding: var(--aven-menu-inset);

@@ -435,7 +435,7 @@ function PlanSurface({
               type="button"
               disabled={buildDisabled}
               onClick={() => onBuildPlan(plan.sessionId, block.id)}
-              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-not-allowed disabled:opacity-40 ${
                 session ? "rounded-l-md" : "rounded-md"
               }`}
             >

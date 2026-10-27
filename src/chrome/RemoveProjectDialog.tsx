@@ -86,7 +86,10 @@ export function RemoveProjectDialog({
             </p>
           ) : null}
           {countError ? (
-            <p role="alert" className="text-ui-label leading-snug text-red-300">
+            <p
+              role="alert"
+              className="text-ui-label leading-snug text-(--aven-danger-text)"
+            >
               Could not load this project's chats. Cancel and try again.
             </p>
           ) : null}
@@ -100,7 +103,7 @@ export function RemoveProjectDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content"
           >
             Cancel
           </button>
@@ -108,7 +111,7 @@ export function RemoveProjectDialog({
             type="button"
             onClick={onConfirm}
             disabled={sessions == null || countError}
-            className="rounded-md bg-red-500/20 px-3 py-1.5 text-ui-label font-medium text-red-300 hover:bg-red-500/30 disabled:opacity-50"
+            className="rounded-md px-3 py-1.5 text-ui-label font-medium bg-(--aven-danger-fill) text-(--aven-danger-text) hover:bg-(--aven-danger-fill-hover) disabled:opacity-50"
           >
             Delete
           </button>

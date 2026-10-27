@@ -87,7 +87,7 @@ export function DiffCommentComposer({
           <button
             type="submit"
             disabled={!comment.trim()}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-label font-medium text-background-base hover:opacity-80 disabled:cursor-default disabled:opacity-40"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40"
           >
             <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
             Add to chat

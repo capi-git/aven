@@ -192,7 +192,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={Boolean(busy) || generating}
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content disabled:opacity-40"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content disabled:opacity-40"
           >
             Cancel
           </button>
@@ -211,7 +211,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={Boolean(busy) || generating}
             onClick={onStash}
-            className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {busy === "stash" ? (
               <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />

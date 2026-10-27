@@ -158,7 +158,7 @@ function RememberPopover({
         {error ? (
           <p
             role="alert"
-            className="mt-1.5 text-ui-caption leading-snug text-red-300"
+            className="mt-1.5 text-ui-caption leading-snug text-(--aven-danger-text)"
           >
             {error}
           </p>

@@ -205,7 +205,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
           <button
             type="submit"
             disabled={busy || !ready}
-            className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {busy ? "Sending…" : "Continue"}
           </button>

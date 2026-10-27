@@ -97,7 +97,7 @@ export function PlanPreview({
                     type="button"
                     title="Build this plan"
                     disabled={buildDisabled}
-                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-ui-caption text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-ui-caption text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-not-allowed disabled:opacity-40 ${
                       harness ? "rounded-l-md" : "rounded-md"
                     }`}
                     onClick={() => onBuild()}

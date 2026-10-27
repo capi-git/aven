@@ -204,7 +204,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
           id="project-memory-status"
           className="flex flex-wrap items-center gap-x-2 text-ui-caption text-content/45"
         >
-          <span className={over ? "text-red-300" : undefined}>
+          <span className={over ? "text-(--aven-danger-text)" : undefined}>
             {projectMemorySize(text.length)}
           </span>
           {edited ? (
@@ -223,12 +223,18 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
         </p>
 
         {error ? (
-          <p role="alert" className="text-ui-label leading-snug text-red-300">
+          <p
+            role="alert"
+            className="text-ui-label leading-snug text-(--aven-danger-text)"
+          >
             Could not load this project's memory. {error}
           </p>
         ) : null}
         {saveError ? (
-          <p role="alert" className="text-ui-label leading-snug text-red-300">
+          <p
+            role="alert"
+            className="text-ui-label leading-snug text-(--aven-danger-text)"
+          >
             {saveError}
           </p>
         ) : null}

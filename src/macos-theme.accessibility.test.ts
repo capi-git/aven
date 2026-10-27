@@ -180,12 +180,16 @@ describe("status text in light mode", () => {
   });
 
   it("reads the danger button at 4.5:1 on its wash", () => {
+    // Light mode's destructive words take the deeper red, for every
+    // destructive button, menu row and error.
     expect(
-      rule(
-        "src/surfaces/SettingsControls.css",
-        "html.theme-light .settings-button-danger,\nhtml.theme-light .settings-button-danger:not(:disabled):hover",
-      ),
-    ).toContain("var(--color-red-600, #d70015)");
+      rule("src/macos-theme.css", "html.theme-light .personal-shell"),
+    ).toMatch(
+      /--aven-danger-text: color-mix\(\s*in srgb,\s*var\(--color-content\) 15%,\s*var\(--color-red-600, #d70015\)\s*\);/,
+    );
+    expect(
+      rule("src/surfaces/SettingsControls.css", ".settings-button-danger"),
+    ).toContain("color: var(--aven-danger-text);");
     const text = mix("#000000", 0.15, "#d70015");
     expect(contrast(text, mix("#ff3b30", 0.2, white))).toBeGreaterThanOrEqual(
       4.5,

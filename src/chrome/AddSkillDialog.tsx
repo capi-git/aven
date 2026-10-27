@@ -352,7 +352,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
         {error ? (
           <p
             role="alert"
-            className="whitespace-pre-line text-ui-label text-red-600 dark:text-red-400"
+            className="whitespace-pre-line text-ui-label text-(--aven-danger-text)"
           >
             {error}
           </p>
@@ -383,7 +383,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
             <button
               type="button"
               onClick={running ? stop : onClose}
-              className="aven-press rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content"
+              className="aven-press rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content"
             >
               {running ? "Stop" : "Cancel"}
             </button>
@@ -395,7 +395,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
               (phase === "idle" && !parsed?.ok) ||
               (phase === "preview" && chosen === 0)
             }
-            className="aven-press rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
+            className="aven-press rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {primary}
           </button>

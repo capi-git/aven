@@ -121,6 +121,35 @@ describe("shared controls", () => {
     expect(rows).toEqual([]);
   });
 
+  it("draws every destructive button and warning in the one danger red", () => {
+    const adHoc = classStrings()
+      .filter(({ classes }) =>
+        /\bbg-red-\d+\/\d+|text-red-600 dark:text-red-400|\btext-red-300\b/.test(
+          classes,
+        ),
+      )
+      .map(({ file, classes }) => `${file}: ${classes}`);
+    expect(adHoc).toEqual([]);
+    for (const token of [
+      "--aven-danger-text",
+      "--aven-danger-fill",
+      "--aven-danger-fill-hover",
+    ])
+      expect(theme).toContain(`${token}:`);
+  });
+
+  it("gives every inverted default button one hover", () => {
+    const adHoc = classStrings()
+      .filter(({ classes }) =>
+        /\bbg-content\b[^]*text-background-base/.test(classes),
+      )
+      .filter(({ classes }) =>
+        /hover:(?:bg-content\/\d+|opacity-\d+)/.test(classes),
+      )
+      .map(({ file, classes }) => `${file}: ${classes}`);
+    expect(adHoc).toEqual([]);
+  });
+
   it("gives a bare `rounded` the control corner", () => {
     expect(read("src/index.css")).toContain("--radius: 6px;");
     expect(theme).toContain("--aven-radius-sm: 6px;");
