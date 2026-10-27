@@ -4,7 +4,7 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays } from "../lib/models";
-import { TitleBar, type Tab } from "./TitleBar";
+import { TitleBar, returnFocusToPane, type Tab } from "./TitleBar";
 
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ setFocus: vi.fn().mockResolvedValue(undefined) }),
@@ -254,5 +254,45 @@ describe("a pane's title row", () => {
     expect(css).toMatch(
       /\.personal-titlebar\[data-variant="title"\]\[data-pane-focused="true"\]\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
     );
+  });
+});
+
+describe("Esc on a title row", () => {
+  it("gives the keyboard back to that pane, or the focused pane from the window's strip", () => {
+    const stage = document.createElement("div");
+    stage.dataset.workspaceStage = "";
+    stage.innerHTML = `
+      <div data-workspace-surface="left" data-focused="false"><textarea id="left-box"></textarea></div>
+      <div data-workspace-surface="right" data-focused="true"><textarea id="right-box"></textarea></div>
+      <div data-workspace-header="left"><button id="left-tool">More</button></div>`;
+    const strip = document.createElement("button");
+    document.body.append(stage, strip);
+    try {
+      expect(returnFocusToPane(stage.querySelector("#left-tool")!)).toBe(true);
+      expect(document.activeElement?.id).toBe("left-box");
+      expect(returnFocusToPane(strip)).toBe(true);
+      expect(document.activeElement?.id).toBe("right-box");
+    } finally {
+      stage.remove();
+      strip.remove();
+    }
+  });
+
+  it("is what Esc does on a title row's controls", async () => {
+    await render({ variant: "title" });
+    const stage = document.createElement("div");
+    stage.dataset.workspaceStage = "";
+    stage.innerHTML = `<div data-workspace-surface="a" data-focused="true"><textarea id="box"></textarea></div>`;
+    document.body.append(stage);
+    try {
+      const more = tool("More actions")!;
+      more.focus();
+      more.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(document.activeElement?.id).toBe("box");
+    } finally {
+      stage.remove();
+    }
   });
 });

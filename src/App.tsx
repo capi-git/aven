@@ -139,7 +139,7 @@ import {
   workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
-import { seamNeighbours, type DockEdge } from "./lib/paneDock";
+import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
 import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
@@ -4529,6 +4529,21 @@ export default function App({
     if (order.length)
       onSelectSurface(order[(index - 1 + order.length) % order.length]);
   }, [onSelectSurface]);
+  // Cydonia's pane keys: the next or previous pane in layout order (left to
+  // right, each column top to bottom), and expanding the focused pane.
+  const onStepPane = useCallback(
+    (step: number) => {
+      const { layout, focusedId } = viewRef.current.view;
+      const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
+      if (next) onSelectSurface(next);
+    },
+    [onSelectSurface],
+  );
+  const onZoomPane = useCallback(() => {
+    const current = viewRef.current.view;
+    if (workspaceIsSpace(current))
+      onWorkspaceIntent({ type: "zoom", group: current.focusedId });
+  }, [onWorkspaceIntent]);
 
   const navigateHistory = useCallback(
     (direction: "back" | "forward") => {
@@ -9230,6 +9245,8 @@ export default function App({
     onClosePane,
     onNext,
     onPrev,
+    onStepPane,
+    onZoomPane,
     onVisitBack,
     onVisitForward,
     onActivate,
@@ -11080,6 +11097,11 @@ export default function App({
                               }
                               restoreEdge={view.minimizedEdge}
                               restoreStatus={restoreStatus}
+                              zoomedId={
+                                paneZoomed && !view.minimizedEdge
+                                  ? (visibleSurfaceIds[0] ?? null)
+                                  : null
+                              }
                               dragging={surfaceDragging}
                               dragLabel="Move tab"
                               dragTarget={surfaceDrop}

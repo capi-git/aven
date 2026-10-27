@@ -12,8 +12,12 @@
  *   Forward in history  cmd-]
  *   Activate tab 1–8    cmd-1 … cmd-8
  *   Last tab            cmd-9
- *   Cycle next tab      ctrl-tab
+ *   Cycle next tab      ctrl-tab        (the focused pane's tabs)
  *   Cycle previous tab  ctrl-shift-tab
+ *   Next pane           ctrl-opt-tab    (layout order, as in Cydonia)
+ *   Previous pane       ctrl-opt-shift-tab
+ *   Expand/restore pane ctrl-opt-z
+ *   Close tab           ctrl-opt-w      (as cmd-w)
  *   Focus pane          cmd-opt-arrows
  *   New terminal        cmd-`
  *   New terminal tab    shift-cmd-`
@@ -30,6 +34,7 @@
  */
 
 import type { FocusDir } from "./layout";
+import { IS_MAC } from "./platform";
 
 export type TabCommand =
   | "new"
@@ -50,13 +55,31 @@ export type TabCommand =
   | "archive-session"
   | "prev-project"
   | "next-project"
+  | "next-pane"
+  | "prev-pane"
+  | "zoom-pane"
   | { activate: number }
   | { focus: FocusDir };
 
-export function tabCommand(e: KeyboardEvent): TabCommand | null {
+export function tabCommand(e: KeyboardEvent, mac = IS_MAC): TabCommand | null {
   if (e.isComposing) return null;
 
   const mod = e.metaKey || e.ctrlKey;
+
+  // Control-Option chords, by physical key: Option changes what a letter
+  // types on a Mac (⌥Z is Ω), where browsers may report Option as AltGraph
+  // too. Elsewhere AltGr reports Control and Alt, and types letters (Polish
+  // ż); it is never one of these.
+  if (
+    e.ctrlKey &&
+    e.altKey &&
+    !e.metaKey &&
+    (mac || !e.getModifierState?.("AltGraph"))
+  ) {
+    if (e.code === "Tab") return e.shiftKey ? "prev-pane" : "next-pane";
+    if (!e.shiftKey && e.code === "KeyZ") return "zoom-pane";
+    if (!e.shiftKey && e.code === "KeyW") return "close";
+  }
 
   if (mod && e.altKey && !e.shiftKey) {
     if (e.key.toLowerCase() === "t") return "close-others";

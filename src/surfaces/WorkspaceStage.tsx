@@ -79,6 +79,12 @@ export type WorkspaceStageProps = {
   dragging: boolean;
   dragLabel?: string;
   dragKind?: "tab" | "group";
+  /**
+   * The pane expanded over the others (Cydonia's zoom), if any. It glides
+   * from its place to the whole stage while the others fade under it, and
+   * back again on Restore. A native page lands at its new bounds instead.
+   */
+  zoomedId?: string | null;
 };
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
@@ -261,6 +267,8 @@ const sameBox = (a: DockRect | null, b: DockRect | null) =>
 
 /** A drop is followed by its new layout within this long, or not at all. */
 const DROP_REVEAL_WINDOW_MS = 1000;
+/** Cydonia's zoom: a pane glides to the whole space in 200ms, eased out. */
+export const ZOOM_GLIDE_MS = 200;
 
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
@@ -372,6 +380,7 @@ export function WorkspaceStage({
   dragging,
   dragLabel,
   dragKind = "tab",
+  zoomedId = null,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
   // Publish only committed destination changes; native pages draw their own
@@ -638,8 +647,41 @@ export function WorkspaceStage({
     for (const id of newSplitPanes(before, now))
       playMotion(surfaceNodes.current.get(id), "pane-in");
   }, [shownKey]);
+  // Zoom: the pane that was expanded when this stage last drew, and where
+  // each pane stood then, as shares of the stage.
+  const zoomShown = useRef<string | null>(null);
+  const zoomPlaces = useRef(new Map<string, LayoutRect>());
+  const zoomEntering =
+    visible &&
+    !!zoomedId &&
+    zoomShown.current !== zoomedId &&
+    positions.has(zoomedId);
   useLayoutEffect(() => {
     if (!held.size) return;
+    // A pane expanding: the panes it covers fade out beneath it.
+    if (zoomEntering && !motionReduced()) {
+      setHeldOut(new Set(held));
+      const fades = [...held].flatMap((id) => {
+        const node = surfaceNodes.current.get(id);
+        return node && typeof node.animate === "function"
+          ? [
+              node.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: ZOOM_GLIDE_MS,
+                easing: DOCK_EASE,
+                fill: "forwards",
+              }),
+            ]
+          : [];
+      });
+      const timer = window.setTimeout(
+        () => setHeldOut(new Set()),
+        ZOOM_GLIDE_MS,
+      );
+      return () => {
+        window.clearTimeout(timer);
+        for (const fade of fades) fade.cancel();
+      };
+    }
     // Children's layout effects have run, so incoming pages have registered.
     // Always set a new object: the surfaces that just left are derived from
     // the previous commit and need this render to drop or keep them.
@@ -716,6 +758,78 @@ export function WorkspaceStage({
       ? dragTarget.edge
       : null;
   const hint = hintZone ? dockZoneFraction(hintZone) : null;
+
+  // Expanding a pane (or putting it back) glides it between its place and
+  // the whole stage in 200ms, eased out: growing, it is laid out at once at
+  // its new size and its clip opens from where it stood; shrinking, it
+  // scales down from the whole stage while the panes it uncovers fade in
+  // (newSplitPanes). Native pages are never moved, so they land.
+  useLayoutEffect(() => {
+    const container = stage.current;
+    const previous = zoomShown.current;
+    const before = new Map(zoomPlaces.current);
+    if (visible) {
+      zoomShown.current = zoomedId;
+      zoomPlaces.current = new Map(positions);
+    }
+    if (!container || !visible || motionReduced()) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const px = (rect: LayoutRect): DockRect => ({
+      left: rect.x * width,
+      top: rect.y * height,
+      width: rect.w * width,
+      height: rect.h * height,
+    });
+    const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
+      const surface = surfaceNodes.current.get(id);
+      if (!surface || surface.querySelector(".browser-native-host")) return;
+      const header = headerNodes.current.get(id);
+      const headerFrom = { ...from, height: 32 };
+      const headerTo = { ...to, height: 32 };
+      for (const [node, start, end] of [
+        [surface, from, to],
+        [header, headerFrom, headerTo],
+      ] as const) {
+        if (!node || typeof node.animate !== "function") continue;
+        if (end.width <= 0 || end.height <= 0) continue;
+        node.animate(
+          grow
+            ? [
+                { clipPath: dockClip(start, end, 0) },
+                { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+              ]
+            : [
+                {
+                  transformOrigin: "0 0",
+                  transform: `translate(${start.left - end.left}px, ${start.top - end.top}px) scale(${start.width / end.width}, ${start.height / end.height})`,
+                },
+                {
+                  transformOrigin: "0 0",
+                  transform: "translate(0px, 0px) scale(1, 1)",
+                },
+              ],
+          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
+        );
+      }
+    };
+    if (zoomedId && previous !== zoomedId && positions.size === 1) {
+      const from = before.get(zoomedId);
+      const to = positions.get(zoomedId);
+      if (from && to) glide(zoomedId, px(from), px(to), true);
+    } else if (
+      !zoomedId &&
+      previous &&
+      positions.size > 1 &&
+      positions.has(previous)
+    ) {
+      const from = before.get(previous);
+      const to = positions.get(previous);
+      if (from && to) glide(previous, px(from), px(to), false);
+    }
+    // Positions are derived from the layout this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomedId, layout, visible]);
 
   // The docking preview, drawn once over the whole stage so it can glide
   // between zones and between panes (Cydonia's 150ms tween). The hint in the

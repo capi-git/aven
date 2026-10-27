@@ -277,6 +277,23 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Pane: Focus Right", keys: `${MOD}${ALT}→`, when: "Always" },
   { command: "Pane: Focus Up", keys: `${MOD}${ALT}↑`, when: "Always" },
   { command: "Pane: Focus Down", keys: `${MOD}${ALT}↓`, when: "Always" },
+  { command: "Pane: Next", keys: `${CTRL}${ALT}Tab`, when: "!terminalFocus" },
+  {
+    command: "Pane: Previous",
+    keys: `${CTRL}${ALT}${SHIFT}Tab`,
+    when: "!terminalFocus",
+  },
+  {
+    command: "Pane: Expand or Restore",
+    keys: `${CTRL}${ALT}Z`,
+    when: "!terminalFocus",
+  },
+  { command: "Pane: Close", keys: `${CTRL}${ALT}W`, when: "!terminalFocus" },
+  {
+    command: "Pane: Back to Its Content",
+    keys: "Esc",
+    when: "titleRowFocus",
+  },
   { command: "Terminal: New", keys: `${MOD}\``, when: "Always" },
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
   { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
@@ -295,6 +312,10 @@ export function formatKeybindingContext(when: string): string {
       return "Outside the editor";
     case "editorFocus":
       return "In the editor";
+    case "!terminalFocus":
+      return "Outside the terminal";
+    case "titleRowFocus":
+      return "In a pane's title row or the window's tabs";
     default:
       return when;
   }

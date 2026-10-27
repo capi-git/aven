@@ -1188,6 +1188,25 @@ fn handle_event(native_id: &str, event: Value) {
                 route_toolbar_command(context, action.to_string());
             }
         }
+        "shortcut" => {
+            // A workspace chord pressed while the page had the keyboard: the
+            // workspace showing the page acts on it, as on its own keydown.
+            if let Some(command) = event
+                .get("action")
+                .and_then(Value::as_str)
+                .and_then(workspace_shortcut_command)
+            {
+                let label = context
+                    .delegate
+                    .lock()
+                    .ok()
+                    .and_then(|d| d.clone())
+                    .unwrap_or_else(|| context.caller.label().into());
+                let _ = context
+                    .caller
+                    .emit_to(EventTarget::webview(label), command, ());
+            }
+        }
         "download" => {
             if let Some(download) = event.get("download").and_then(parse_download) {
                 let downloads = {
@@ -2254,6 +2273,20 @@ async fn flush_toolbar_command(context: &Arc<PageContext>) {
     }
 }
 
+/// The workspace command for a chord a page forwards (see
+/// `browser_workspace_keys.h`); anything else is ignored.
+fn workspace_shortcut_command(action: &str) -> Option<&'static str> {
+    match action {
+        "next-tab" => Some("next_tab"),
+        "prev-tab" => Some("prev_tab"),
+        "next-pane" => Some("next_pane"),
+        "prev-pane" => Some("prev_pane"),
+        "zoom-pane" => Some("zoom_pane"),
+        "close-pane" => Some("close_tab"),
+        _ => None,
+    }
+}
+
 fn route_toolbar_command(context: Arc<PageContext>, action: String) {
     tauri::async_runtime::spawn(async move {
         let floating = {
@@ -2462,6 +2495,24 @@ async fn close_context_for_reload(
 
 fn reload_owns_page(owner: &str, label: &str, placement: &Placement) -> bool {
     owner == label && placement.window.is_none() && placement.detached_window.is_none()
+}
+
+#[cfg(test)]
+mod workspace_shortcut_tests {
+    use super::workspace_shortcut_command;
+
+    #[test]
+    fn page_chords_become_the_workspace_commands_their_keys_name() {
+        assert_eq!(workspace_shortcut_command("next-tab"), Some("next_tab"));
+        assert_eq!(workspace_shortcut_command("prev-tab"), Some("prev_tab"));
+        assert_eq!(workspace_shortcut_command("next-pane"), Some("next_pane"));
+        assert_eq!(workspace_shortcut_command("prev-pane"), Some("prev_pane"));
+        assert_eq!(workspace_shortcut_command("zoom-pane"), Some("zoom_pane"));
+        assert_eq!(workspace_shortcut_command("close-pane"), Some("close_tab"));
+        // A page cannot name any other app command.
+        assert_eq!(workspace_shortcut_command("open_settings"), None);
+        assert_eq!(workspace_shortcut_command("quit"), None);
+    }
 }
 
 #[cfg(test)]

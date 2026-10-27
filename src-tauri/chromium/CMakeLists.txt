@@ -78,6 +78,10 @@ add_test(NAME floating_sidebar_host COMMAND supermono_chromium_floating_sidebar_
 add_executable(supermono_chromium_browser_tab_zoom_test EXCLUDE_FROM_ALL browser_tab_zoom_test.cc)
 add_test(NAME browser_tab_zoom_isolation COMMAND supermono_chromium_browser_tab_zoom_test)
 
+# The Control and Control-Option chords a focused page hands to the app.
+add_executable(supermono_chromium_browser_workspace_keys_test EXCLUDE_FROM_ALL browser_workspace_keys_test.cc)
+add_test(NAME browser_workspace_keys COMMAND supermono_chromium_browser_workspace_keys_test)
+
 add_executable(supermono_chromium_browser_sleep_state_test EXCLUDE_FROM_ALL browser_sleep_state_test.cc)
 add_test(NAME browser_sleep_state COMMAND supermono_chromium_browser_sleep_state_test)
 

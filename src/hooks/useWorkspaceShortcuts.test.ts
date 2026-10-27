@@ -50,6 +50,8 @@ function fakeActions(): WorkspaceActions {
     onClosePane: action(),
     onNext: action(),
     onPrev: action(),
+    onStepPane: action(),
+    onZoomPane: action(),
     onVisitBack: action(),
     onVisitForward: action(),
     onActivate: action(),
@@ -217,4 +219,92 @@ it("stops listening when the workspace goes away", async () => {
   await act(async () => {});
   expect(native.unlistened.sort()).toEqual(events.sort());
   root = createRoot(host);
+});
+
+it("walks and zooms panes with Control-Option, by physical key", async () => {
+  const actions = fakeActions();
+  await render(actions);
+  const chord = (code: string, key: string, shiftKey = false) => {
+    now += 1_000;
+    const event = new KeyboardEvent("keydown", {
+      key,
+      code,
+      ctrlKey: true,
+      altKey: true,
+      shiftKey,
+      bubbles: true,
+    });
+    // happy-dom reports any Alt as AltGraph; a real chord has none.
+    Object.defineProperty(event, "getModifierState", { value: () => false });
+    window.dispatchEvent(event);
+  };
+  chord("Tab", "Tab");
+  expect(actions.onStepPane).toHaveBeenLastCalledWith(1);
+  chord("Tab", "Tab", true);
+  expect(actions.onStepPane).toHaveBeenLastCalledWith(-1);
+  // On a Mac, Option turns Z into Ω; the physical key still zooms.
+  chord("KeyZ", "Ω");
+  expect(actions.onZoomPane).toHaveBeenCalledTimes(1);
+  chord("KeyW", "∑");
+  expect(actions.onClosePane).toHaveBeenCalledTimes(1);
+});
+
+it("leaves a terminal its Control-Option chords", async () => {
+  const actions = fakeActions();
+  await render(actions);
+  const terminal = document.createElement("div");
+  terminal.className = "aven-terminal";
+  const input = document.createElement("textarea");
+  terminal.append(input);
+  document.body.append(terminal);
+  try {
+    for (const [code, key] of [
+      ["Tab", "Tab"],
+      ["KeyZ", "Ω"],
+    ]) {
+      now += 1_000;
+      const event = new KeyboardEvent("keydown", {
+        key,
+        code,
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+      });
+      Object.defineProperty(event, "getModifierState", {
+        value: () => false,
+      });
+      input.dispatchEvent(event);
+    }
+    expect(actions.onStepPane).not.toHaveBeenCalled();
+    expect(actions.onZoomPane).not.toHaveBeenCalled();
+    // Outside the terminal the same chord walks the panes.
+    now += 1_000;
+    const outside = new KeyboardEvent("keydown", {
+      key: "Tab",
+      code: "Tab",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(outside, "getModifierState", { value: () => false });
+    document.body.dispatchEvent(outside);
+    expect(actions.onStepPane).toHaveBeenCalledWith(1);
+  } finally {
+    terminal.remove();
+  }
+});
+
+it("takes pane keys forwarded by a focused Chromium page", async () => {
+  const actions = fakeActions();
+  await render(actions);
+  native.handlers.get("next_pane")!({ payload: undefined });
+  expect(actions.onStepPane).toHaveBeenLastCalledWith(1);
+  now += 1_000;
+  native.handlers.get("prev_pane")!({ payload: undefined });
+  expect(actions.onStepPane).toHaveBeenLastCalledWith(-1);
+  native.handlers.get("zoom_pane")!({ payload: undefined });
+  expect(actions.onZoomPane).toHaveBeenCalledTimes(1);
+  // ⌃⇥ from a page steps the focused pane's tabs, as the menu's Next Tab.
+  native.handlers.get("next_tab")!({ payload: undefined });
+  expect(actions.onNext).toHaveBeenCalledTimes(1);
 });

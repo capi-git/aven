@@ -38,6 +38,10 @@ export type WorkspaceActions = {
   onClosePane: (sessionId?: string) => void;
   onNext: () => void;
   onPrev: () => void;
+  /** The next (1) or previous (-1) pane in layout order (Cydonia's ⌃⌥⇥). */
+  onStepPane: (step: number) => void;
+  /** Expand the focused pane over the others, or put it back (⌃⌥Z). */
+  onZoomPane: () => void;
   onVisitBack: () => void;
   onVisitForward: () => void;
   onActivate: (slot: number) => void;
@@ -218,6 +222,13 @@ export function useWorkspaceShortcuts({
         ) {
           return;
         }
+        // A terminal keeps its Control-Option chords.
+        if (
+          (cmd === "next-pane" || cmd === "prev-pane" || cmd === "zoom-pane") &&
+          target?.closest(".aven-terminal")
+        ) {
+          return;
+        }
         if (
           (cmd === "split-right" || cmd === "split-down") &&
           target?.closest(".cm-editor")
@@ -259,6 +270,9 @@ export function useWorkspaceShortcuts({
           });
         else if (cmd === "next") run("next", a.onNext);
         else if (cmd === "prev") run("prev", a.onPrev);
+        else if (cmd === "next-pane") run("next-pane", () => a.onStepPane(1));
+        else if (cmd === "prev-pane") run("prev-pane", () => a.onStepPane(-1));
+        else if (cmd === "zoom-pane") run("zoom-pane", a.onZoomPane);
         else if (cmd === "back") run("back", a.onVisitBack);
         else if (cmd === "forward") run("forward", a.onVisitForward);
         else if (cmd === "split-right")
@@ -369,6 +383,16 @@ export function useWorkspaceShortcuts({
       ),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
+      // Forwarded by a focused Chromium page, which keeps the key otherwise.
+      listenInThisWindow("next_pane", () =>
+        run("next-pane", () => actions.current.onStepPane(1)),
+      ),
+      listenInThisWindow("prev_pane", () =>
+        run("prev-pane", () => actions.current.onStepPane(-1)),
+      ),
+      listenInThisWindow("zoom_pane", () =>
+        run("zoom-pane", actions.current.onZoomPane),
+      ),
       listen("back_tab", () =>
         run("back", () => {
           if (!indentFocusedEditor("less")) actions.current.onVisitBack();

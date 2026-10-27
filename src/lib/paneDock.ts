@@ -138,7 +138,11 @@ export function dockOverlap(a: DockRect, b: DockRect): number {
  * preview's corners: where a pane grows from as it arrives. Every inset is
  * kept within the element.
  */
-export function dockClip(from: DockRect, to: DockRect): string {
+export function dockClip(
+  from: DockRect,
+  to: DockRect,
+  radius = DOCK_PREVIEW_RADIUS,
+): string {
   const clamp = (value: number, span: number) =>
     Math.max(0, Math.min(span, value));
   const top = clamp(from.top - to.top, to.height);
@@ -148,7 +152,7 @@ export function dockClip(from: DockRect, to: DockRect): string {
     to.height,
   );
   const right = clamp(to.left + to.width - (from.left + from.width), to.width);
-  return `inset(${top}px ${right}px ${bottom}px ${left}px round ${DOCK_PREVIEW_RADIUS}px)`;
+  return `inset(${top}px ${right}px ${bottom}px ${left}px round ${radius}px)`;
 }
 
 /** The pane on each side across a seam from `id`: the one sharing most of it. */

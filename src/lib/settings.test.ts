@@ -221,6 +221,8 @@ describe("workspace navigation keybindings", () => {
       "In a chat, with other views closed",
       "In the workspace, outside text fields or in an empty composer",
       "Outside the editor",
+      "Outside the terminal",
+      "In a pane's title row or the window's tabs",
       "In the editor",
     ]);
     expect(
@@ -235,6 +237,22 @@ describe("workspace navigation keybindings", () => {
       filterKeybindings(KEYBINDINGS, "empty composer").map((row) => row.when),
     ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
     expect(formatKeybindingContext("Custom context")).toBe("Custom context");
+  });
+
+  it("documents Cydonia's pane keys in the shortcut list", () => {
+    const rows = Object.fromEntries(
+      KEYBINDINGS.filter((row) => row.command.startsWith("Pane: ")).map(
+        (row) => [`${row.command} ${row.keys}`, row.when],
+      ),
+    );
+    expect(rows).toMatchObject({
+      "Pane: Next ⌃⌥Tab": "!terminalFocus",
+      "Pane: Previous ⌃⌥⇧Tab": "!terminalFocus",
+      "Pane: Expand or Restore ⌃⌥Z": "!terminalFocus",
+      "Pane: Close ⌃⌥W": "!terminalFocus",
+      "Pane: Close ⌘W": "Always",
+      "Pane: Back to Its Content Esc": "titleRowFocus",
+    });
   });
 
   it("documents chat and project cycling in the shortcut list", () => {

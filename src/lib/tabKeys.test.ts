@@ -8,6 +8,8 @@ import {
   tabCommand,
 } from "./tabKeys";
 
+const key_ = (partial: Parameters<typeof key>[0]) => key(partial);
+
 function key(
   partial: Partial<
     Pick<
@@ -37,6 +39,48 @@ function key(
     ...partial,
   } as KeyboardEvent;
 }
+
+describe("tabCommand: Cydonia's pane chords", () => {
+  const chord = (code: string, key: string, extra: object = {}) =>
+    tabCommand(
+      key_({ code, key, ctrlKey: true, altKey: true, ...extra }),
+      false,
+    );
+  it("reads Control-Option chords by physical key", () => {
+    expect(chord("Tab", "Tab")).toBe("next-pane");
+    expect(chord("Tab", "Tab", { shiftKey: true })).toBe("prev-pane");
+    expect(chord("KeyZ", "Ω")).toBe("zoom-pane");
+    expect(chord("KeyW", "∑")).toBe("close");
+  });
+  it("leaves other chords as they were", () => {
+    // ⌃⇥ still steps the focused pane's tabs.
+    expect(tabCommand(key_({ key: "Tab", code: "Tab", ctrlKey: true }))).toBe(
+      "next",
+    );
+    // ⌘⌥ arrows still focus panes; ⌃⌥ with ⌘ is not a pane chord.
+    expect(
+      tabCommand(
+        key_({
+          key: "Tab",
+          code: "Tab",
+          ctrlKey: true,
+          altKey: true,
+          metaKey: true,
+        }),
+      ),
+    ).toBeNull();
+    expect(chord("KeyZ", "Ω", { shiftKey: true })).toBeNull();
+  });
+  it("never mistakes AltGr typing for a chord", () => {
+    const altGr = {
+      ...key_({ code: "KeyZ", key: "ż", ctrlKey: true, altKey: true }),
+      getModifierState: (name: string) => name === "AltGraph",
+    } as KeyboardEvent;
+    expect(tabCommand(altGr, false)).toBeNull();
+    // A Mac's Option may report AltGraph; there it is the chord.
+    expect(tabCommand(altGr, true)).toBe("zoom-pane");
+  });
+});
 
 describe("tabCommand", () => {
   it("reopens the latest closed tab with Cmd/Ctrl+Shift+T", () => {
