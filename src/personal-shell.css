@@ -468,9 +468,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 .personal-shell .personal-sidebar-slot[data-floating="true"] {
   width: var(--nav-width, 216px);
-  /* The glass panel inherits its radius from this slot. Keep the material
-     and outer outline on the same curve without clipping the resize handle. */
-  border-radius: var(--aven-radius-pane);
+  border-radius: 0;
 }
 .personal-shell .personal-inspector-slot[data-floating="true"] {
   width: var(--inspector-width, 280px);
@@ -493,16 +491,23 @@ html.has-native-glass.glass-body:not(.theme-light)
   border: 1px solid var(--personal-line);
   border-radius: var(--aven-radius-pane);
 }
+/* The hover sidebar is a drawer, flush with the window's left edge and the
+   workspace's top and bottom (the window's corner rounds its outer
+   corner), with a hairline and a soft shadow on its open side. Inset as a
+   card it left a gutter around it where, over a page, the window behind the
+   workspace showed through: a dark band in light mode. Flush, it covers
+   everything the workspace leaves to it. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar {
-  inset: var(--aven-window-gutter) auto var(--aven-window-gutter)
-    var(--aven-window-gutter);
-  height: calc(100% - 2 * var(--aven-window-gutter));
+  inset: 0 auto 0 0;
+  height: 100%;
+  border: 0;
+  border-right: var(--aven-hairline) solid var(--aven-separator);
+  border-radius: 0;
   background: var(--personal-navigation-surface);
-  /* Light catching the floating glass's edge; its outer shadow is left
-     off, since the overlay window that draws it ends at its edge. */
-  box-shadow: var(--aven-specular);
+  box-shadow: 6px 0 18px -10px
+    color-mix(in srgb, var(--color-background-base) 55%, #000);
   z-index: 50;
 }
 .personal-shell
@@ -512,12 +517,13 @@ html.has-native-glass.glass-body:not(.theme-light)
   padding: 0;
   box-shadow: var(--aven-specular), var(--aven-shadow);
 }
-/* Slide fully past the window edge. Including the 5px inset makes the travel
-   equal the panel's right edge, so the workspace crop can follow it exactly. */
+/* Slide fully past the window edge, its shadow with it. Native code slides
+   the overlay by the drawer's right edge, so the workspace crop follows it
+   exactly. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
   > .personal-sidebar {
-  transform: translateX(calc(-100% - var(--aven-window-gutter)));
+  transform: translateX(calc(-100% - 20px));
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"][data-open="false"]

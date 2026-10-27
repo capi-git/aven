@@ -15,3 +15,13 @@ html.aven-floating-sidebar-overlay
   transform: none !important;
   transition: none !important;
 }
+
+/* Native code slides the overlay by the drawer's right edge, so a shadow
+   beyond that edge would peek in at the window's edge while the drawer
+   waits closed: the hairline marks its side instead. */
+html.aven-floating-sidebar-overlay
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar {
+  box-shadow: none;
+}
