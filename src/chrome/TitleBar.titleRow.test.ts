@@ -4,6 +4,13 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays } from "../lib/models";
+import {
+  changeSurfaceGroup,
+  createSurfaceGroup,
+  ungroupSurfaceGroup,
+} from "../lib/surfaceGroups";
+import { layoutLeaves } from "../lib/layout";
+import { selectWorkspaceView, type WorkspaceView } from "../lib/workspaceViews";
 import { TitleBar, returnFocusToPane, type Tab } from "./TitleBar";
 
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -73,7 +80,7 @@ async function render(overrides: Partial<typeof props> = {}) {
 
 const strip = () =>
   container.querySelector<HTMLElement>(
-    '[aria-label="Workspace tabs"], [aria-label="Pane"]',
+    '[aria-label="Workspace tabs"], [aria-label="Pane"], [aria-label="Tabs in this pane"]',
   )!;
 const tabIds = () =>
   [...container.querySelectorAll<HTMLElement>("[data-surface-tab-id]")].map(
@@ -150,45 +157,231 @@ describe("a strip on a track", () => {
   });
 });
 
-describe("a pane's title row", () => {
-  it("shows the tab in front, with the tabs behind it as a deck", async () => {
+/** Lays the strips out `width` CSS pixels wide (happy-dom lays out nothing). */
+function stripWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("aven-tab-strip") ? width : 0;
+    },
+  });
+}
+
+const tabButton = (label: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    (button) => button.textContent?.includes(label),
+  )!;
+
+describe("a pane's title row with several tabs", () => {
+  afterEach(() => {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+      .clientWidth;
+  });
+
+  it("lays them side by side as tabs, each one click away", async () => {
     await render({ variant: "title", activeId: "b" });
-    expect(tabIds()).toEqual(["b"]);
-    const deck = container.querySelector<HTMLButtonElement>(
-      "button.aven-tab-deck",
-    )!;
-    expect(deck.getAttribute("aria-label")).toBe("3 tabs in this pane");
-    expect(deck.dataset.behind).toBe("2");
-    await act(async () => deck.click());
-    expect(menuItems()).toEqual([
-      "First task",
-      "Second task",
-      "Third",
-      "Move to a pane of its own",
+    const header = container.querySelector<HTMLElement>(".personal-titlebar")!;
+    expect(header.dataset.titleLayout).toBe("tabs");
+    expect(strip().getAttribute("role")).toBe("tablist");
+    expect(strip().getAttribute("aria-label")).toBe("Tabs in this pane");
+    expect(strip().getAttribute("aria-orientation")).toBe("horizontal");
+    expect(tabIds()).toEqual(["a", "b", "c"]);
+    const tabs = [
+      ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ];
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+      "false",
     ]);
-    await act(async () => menuItem("Third").click());
+    // Only the tab in front is a Tab stop; arrows move between the rest.
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
+    // The window strip's tabs: on a track, one highlight, no deck, no "+N".
+    expect(strip().dataset.tabTrack).toBe("true");
+    expect(strip().querySelectorAll(".aven-tab-highlight")).toHaveLength(1);
+    expect(container.querySelector(".aven-tab-deck")).toBeNull();
+    expect(container.querySelector("[data-title-overflow]")).toBeNull();
+    await act(async () => tabButton("Third").click());
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
     expect(props.onSelect).toHaveBeenCalledWith("c");
   });
 
-  it("splits the front tab out of its stack", async () => {
+  it("keeps what a strip tab does: close, middle-click, arrows and its menu", async () => {
     await render({ variant: "title", activeId: "b" });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>("button.aven-tab-deck")!
+        .querySelector<HTMLButtonElement>('[aria-label="Close Third"]')!
         .click(),
     );
-    await act(async () => menuItem("Move to a pane of its own").click());
-    expect(props.onSplitTab).toHaveBeenCalledWith("b", "right", "a");
+    expect(props.onClose).toHaveBeenCalledWith("c");
+    const first = container.querySelector<HTMLElement>(
+      '[data-surface-tab-id="a"]',
+    )!;
+    await act(async () =>
+      first.dispatchEvent(
+        new MouseEvent("auxclick", { button: 1, bubbles: true }),
+      ),
+    );
+    expect(props.onClose).toHaveBeenCalledWith("a");
+    const second = tabButton("Second task");
+    second.focus();
+    await act(async () =>
+      second.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    );
+    expect(props.onSelect).toHaveBeenCalledWith("c");
+    await act(async () =>
+      tabButton("Third").dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true }),
+      ),
+    );
+    expect(menuItem("Close tab")).toBeDefined();
+    await act(async () => menuItem("Close tab").click());
+    expect(props.onClose).toHaveBeenLastCalledWith("c");
   });
 
-  it("is a group of controls, not a tab list holding a deck button", async () => {
+  it("keeps Move to a pane of its own in a tab's menu", async () => {
     await render({ variant: "title", activeId: "b" });
+    await act(async () =>
+      tabButton("Third").dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true }),
+      ),
+    );
+    await act(async () => menuItem("Move to a pane of its own").click());
+    // Beside its own pane, whose tab in front stays where it is.
+    expect(props.onSplitTab).toHaveBeenCalledWith("c", "right", "b");
+    // The tab in front leaves beside another of its pane's tabs, also from
+    // the pane's More actions.
+    await act(async () => tool("More actions")!.click());
+    await act(async () => menuItem("Move to a pane of its own").click());
+    expect(props.onSplitTab).toHaveBeenLastCalledWith("b", "right", "a");
+  });
+
+  it("fronts a tab picked in a pane that does not have focus", async () => {
+    let view: WorkspaceView = {
+      focusedId: "left",
+      layout: {
+        type: "split",
+        id: "root",
+        dir: "right",
+        children: [
+          { type: "leaf", id: "left" },
+          { type: "leaf", id: "a" },
+        ],
+        sizes: [50, 50],
+      },
+      groups: { left: ["left"], a: ["a", "b", "c"] },
+      order: ["left", "a", "b", "c"],
+    };
+    await render({
+      variant: "title",
+      activeId: "a",
+      paneFocused: false,
+      onSelect: vi.fn((id: string) => {
+        view = selectWorkspaceView(view, id);
+      }),
+    });
+    expect(tabIds()).toEqual(["a", "b", "c"]);
+    await act(async () => tabButton("Third").click());
+    expect(view.focusedId).toBe("c");
+    expect(view.groups.c).toEqual(["a", "b", "c"]);
+    expect(layoutLeaves(view.layout!).map((entry) => entry.id)).toEqual([
+      "left",
+      "c",
+    ]);
+  });
+
+  it("folds the tabs that do not fit into a +N that lists only them", async () => {
+    stripWidth(400);
+    await render({
+      variant: "title",
+      tabs: ["a", "b", "c", "d", "e", "f", "g", "h"].map((id) =>
+        tab(id, `Task ${id.toUpperCase()}`),
+      ),
+      activeId: "f",
+    });
+    // 400px holds three 96px tabs beside the +N; the tab in front stays.
+    expect(tabIds()).toEqual(["a", "b", "f"]);
+    const more = container.querySelector<HTMLButtonElement>(
+      "[data-title-overflow]",
+    )!;
+    expect(more.textContent).toBe("+5");
+    expect(more.getAttribute("aria-label")).toBe("5 more tabs in this pane");
+    await act(async () => more.click());
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(menuItems()).toEqual([
+      "Task C",
+      "Task D",
+      "Task E",
+      "Task G",
+      "Task H",
+    ]);
+    await act(async () => menuItem("Task G").click());
+    expect(props.onSelect).toHaveBeenCalledWith("g");
+  });
+
+  it("shows every tab while they all fit at 96px, and folds one past that", async () => {
+    stripWidth(300);
+    await render({ variant: "title", activeId: "b" });
+    // Three 96px tabs, two 2px gaps and the 8px padding: exactly 300px.
+    expect(tabIds()).toEqual(["a", "b", "c"]);
+    expect(container.querySelector("[data-title-overflow]")).toBeNull();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    stripWidth(299);
+    await render({ variant: "title", activeId: "b" });
+    expect(tabIds()).toEqual(["a", "b"]);
+    expect(container.querySelector("[data-title-overflow]")?.textContent).toBe(
+      "+1",
+    );
+  });
+
+  it("keeps a folded group's tabs in the +N", async () => {
+    const group = createSurfaceGroup(["b", "c"], 0);
+    changeSurfaceGroup(group, { collapsed: true });
+    try {
+      await render({ variant: "title", activeId: "a" });
+      expect(tabIds()).toEqual(["a"]);
+      expect(
+        container.querySelector("[data-title-overflow]")?.textContent,
+      ).toBe("+2");
+    } finally {
+      ungroupSurfaceGroup(group);
+    }
+  });
+});
+
+describe("a pane's title row with one tab", () => {
+  it("names that tab on its own, with no tabs, deck menu or +N", async () => {
+    await render({ variant: "title", tabs: [tab("a", "Only")] });
+    const header = container.querySelector<HTMLElement>(".personal-titlebar")!;
+    expect(header.dataset.titleLayout).toBe("lone");
+    expect(tabIds()).toEqual(["a"]);
     expect(strip().getAttribute("role")).toBe("group");
+    expect(strip().getAttribute("aria-label")).toBe("Pane");
     expect(strip().hasAttribute("aria-orientation")).toBe(false);
+    expect(strip().dataset.tabTrack).toBeUndefined();
     expect(container.querySelector('[role="tab"]')).toBeNull();
     expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector(".aven-tab-highlight")).toBeNull();
+    expect(container.querySelector("[data-title-overflow]")).toBeNull();
+    // Its icon on a tile, which is not a control.
+    expect(container.querySelector(".aven-tab-deck")).not.toBeNull();
+    expect(container.querySelector("button.aven-tab-deck")).toBeNull();
+    expect(container.textContent).toContain("Only");
   });
 
+  it("names only the tab in front while the window's strip lists the tabs", async () => {
+    await render({ variant: "title", activeId: "b", stackOnStrip: true });
+    expect(tabIds()).toEqual(["b"]);
+    expect(strip().getAttribute("role")).toBe("group");
+    expect(container.querySelector("[data-title-overflow]")).toBeNull();
+    expect(container.querySelector("button.aven-tab-deck")).toBeNull();
+  });
+});
+
+describe("a pane's title row", () => {
   it("leaves Esc to a tab drag in progress", async () => {
     await render({ variant: "title" });
     const stage = document.createElement("div");
@@ -207,12 +400,6 @@ describe("a pane's title row", () => {
       document.documentElement.classList.remove("is-reordering");
       stage.remove();
     }
-  });
-
-  it("draws no deck to open while the window's strip lists the tabs", async () => {
-    await render({ variant: "title", stackOnStrip: true });
-    expect(container.querySelector("button.aven-tab-deck")).toBeNull();
-    expect(container.querySelector(".aven-tab-deck")).not.toBeNull();
   });
 
   it("offers More, Move, Expand and Close, with their shortcuts", async () => {
@@ -279,9 +466,18 @@ describe("a pane's title row", () => {
     expect(css).toMatch(
       /\.personal-titlebar\[data-variant="title"\]:hover \.aven-pane-tools,\s*\.personal-titlebar\[data-variant="title"\]\[data-pane-focused="true"\]\s*\.aven-pane-tools,\s*\.aven-pane-tools:focus-within,\s*\.aven-pane-tools\[data-open\] \{\s*opacity: 1;/,
     );
-    // The title sits on the lit chip only on the focused pane.
+    // A lone title sits on the lit chip only on the focused pane.
     expect(css).toMatch(
-      /\.personal-titlebar\[data-variant="title"\]\[data-pane-focused="true"\]\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
+      /\.personal-titlebar\[data-title-layout="lone"\]\[data-pane-focused="true"\]\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
+    );
+    // A row of tabs lights its highlight on the focused pane; elsewhere the
+    // tab in front keeps the quieter fill, as on any strip.
+    expect(css).toMatch(
+      /\[data-pane-focused="false"\] \.aven-tab-highlight \{\s*background: var\(--aven-fill-quaternary\);/,
+    );
+    // Its tabs go down to 96px in a pane before they fold into the +N.
+    expect(css).toMatch(
+      /\.personal-titlebar\[data-title-layout="tabs"\] \.aven-tab-slot \{\s*min-width: 96px;/,
     );
   });
 });
@@ -316,10 +512,10 @@ describe("a title row over a tab split into panes", () => {
     expect(menuItem("Close tab")).toBeDefined();
   });
 
-  it("keeps the chip while other tabs stack behind it, so the deck stays", async () => {
+  it("lays out the tabs when others share its pane", async () => {
     await render({ variant: "title", activeId: "b", frontNamedBelow: true });
-    expect(tabIds()).toEqual(["b"]);
-    expect(container.querySelector("button.aven-tab-deck")).not.toBeNull();
+    expect(tabIds()).toEqual(["a", "b", "c"]);
+    expect(strip().getAttribute("role")).toBe("tablist");
   });
 });
 

@@ -17,6 +17,66 @@ export const TAB_TRACK_GAP = 2;
 export const TAB_SLIDE_MS = 150;
 export const TAB_SLIDE_EASE = "cubic-bezier(0, 0, 0.58, 1)";
 
+/**
+ * A pane's title row lays its tabs on a track too, but folds the ones that
+ * no longer fit into a "+N" rather than scrolling, so every tab it shows is
+ * one click away. A pane is a share of the window, so its tabs may get
+ * narrower than the window strip's before they fold: at 96px a tab still
+ * shows its icon and the start of its name (the rest is in its tooltip),
+ * and a half-width pane beside the file panel keeps three tabs.
+ */
+export const TITLE_ROW_TAB_MIN_WIDTH = 96;
+/** The room a title row keeps for its "+N", with the gap before it. */
+export const TITLE_ROW_MORE_WIDTH = 36;
+/** A title row's strip padding, both sides together (TitleBar.css). */
+export const TITLE_ROW_PADDING = 8;
+
+/**
+ * How many of a title row's `count` tabs it shows side by side in `width`
+ * CSS pixels of strip: all of them while they fit at the minimum width, and
+ * otherwise as many as fit beside the "+N" (never fewer than one). With
+ * `folding`, other tabs are folded away regardless (a folded group's), so
+ * the "+N" is drawn and its room kept even when these would all fit. A
+ * strip that is not laid out yet (no width) shows them all.
+ */
+export function titleRowCapacity(
+  width: number,
+  count: number,
+  folding = false,
+): number {
+  if (!(width > 0) || count <= 1) return count;
+  const slot = TITLE_ROW_TAB_MIN_WIDTH + TAB_TRACK_GAP;
+  const room = width - TITLE_ROW_PADDING;
+  if (!folding && count * slot - TAB_TRACK_GAP <= room) return count;
+  const beside = Math.floor((room - TITLE_ROW_MORE_WIDTH) / slot);
+  return Math.max(1, Math.min(count - (folding ? 0 : 1), beside));
+}
+
+/**
+ * Which of a title row's tabs it shows and which fold into its "+N", both in
+ * the pane's order. The first `capacity` tabs show; the tab in front always
+ * shows, taking the last place when it would not otherwise, so a tab picked
+ * from the "+N" comes into the row. Tabs in `folded` (a folded group's)
+ * stay in the "+N" unless they are in front.
+ */
+export function titleRowTabs(
+  ids: readonly string[],
+  frontId: string | null | undefined,
+  capacity: number,
+  folded: ReadonlySet<string> = new Set(),
+): { shown: string[]; hidden: string[] } {
+  const candidates = ids.filter((id) => id === frontId || !folded.has(id));
+  const take = Math.max(1, Math.min(capacity, candidates.length));
+  let picked = candidates.slice(0, take);
+  if (frontId && candidates.includes(frontId) && !picked.includes(frontId))
+    picked = [...picked.slice(0, take - 1), frontId];
+  const shown = new Set(picked);
+  return {
+    shown: ids.filter((id) => shown.has(id)),
+    hidden: ids.filter((id) => !shown.has(id)),
+  };
+}
+
 /** One item in a strip's order: a tab, or something else (a group label). */
 export type TrackEntry = { id: string; tab: boolean };
 

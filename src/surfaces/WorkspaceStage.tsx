@@ -140,10 +140,11 @@ function headerMembers(header: HTMLElement): string[] | null {
 
 /**
  * Where a tab dragged to (x, y) docks, in client coordinates so native
- * browser stacking never matters. As in Cydonia: a pane's title row, or the
- * middle of its body, stacks the tab in that pane; within a quarter of an
- * edge it splits that side (see paneDock.ts). A header that is a strip of
- * tabs (a detached window's) still takes the tab at the slot it is over.
+ * browser stacking never matters. As in Cydonia: a pane's lone title row,
+ * or the middle of its body, stacks the tab in that pane; within a quarter
+ * of an edge it splits that side (see paneDock.ts). A header that lays out
+ * tabs (a title row with several, a detached window's strip) takes the tab
+ * at the slot it is over.
  */
 export function workspaceSurfaceDropAt(
   container: HTMLElement,
@@ -175,7 +176,7 @@ export function workspaceSurfaceDropAt(
     const tabs = header
       ? [...header.querySelectorAll<HTMLElement>("[data-surface-tab-id]")]
       : [];
-    // A title row shows only the tab in front; its strip still lists them all.
+    // A title row may show only some of its tabs; its strip lists them all.
     const members =
       (header && headerMembers(header)) ??
       tabs.map((tab) => tab.dataset.surfaceTabId ?? "");
@@ -199,8 +200,14 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
-        // A title row stacks the tab behind the one in front.
-        if (header.querySelector('[data-variant="title"]'))
+        // A lone title row takes the tab into its pane; a row of tabs (a
+        // title row with several, or a detached window's strip) takes it at
+        // the slot it is over.
+        if (
+          header.querySelector(
+            '[data-variant="title"]:not([data-title-layout="tabs"])',
+          )
+        )
           return { id, edge: "tab" };
         const measuredTabs = tabs
           .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))

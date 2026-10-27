@@ -10723,7 +10723,7 @@ export default function App({
   // Panes and tabs as in Cydonia. A single pane's tabs are the window's
   // strip, in the toolbar, over the pane's title row. Several panes (or one
   // expanded over the rest) are a space: no strip, and each pane's title row
-  // names its tab in front, with the rest of its tabs as a deck.
+  // names its tab, or lays its tabs side by side when it holds several.
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
