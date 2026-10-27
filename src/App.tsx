@@ -156,6 +156,7 @@ import {
 import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
   entryKey,
+  isSpaceKey,
   stepStripEntry,
   stripEntryAt,
   stripEntryFocus,
@@ -4582,8 +4583,12 @@ export default function App({
     (id: string) => {
       const { strip } = viewRef.current;
       const key = stripEntryKeyOf(strip, id);
+      // Only a switch to or from a space moves; one single tab to another
+      // is instant, so its pages need no pictures.
       const holding =
-        key && key !== strip.front
+        key &&
+        key !== strip.front &&
+        (isSpaceKey(key) || isSpaceKey(strip.front))
           ? holdPagesForMotion(stripEntryShown(strip, key))
           : null;
       if (!holding) {
@@ -10959,8 +10964,9 @@ export default function App({
     ];
   });
   // Which way the strip moved to reach the entry in front, for the stage's
-  // switch. 0 when this is no switch: another project, or the entry in
-  // front itself became a space or came apart.
+  // switch. 0 when this is no switch: another project, the entry in front
+  // itself became a space or came apart, or one single tab to another, which
+  // stays instant (fading a pane in measurably slowed tab switching).
   const stripKeys = strip.entries.map(entryKey);
   const arrangementSeen = useRef<{ project: string; front: string } | null>(
     null,
@@ -10970,7 +10976,8 @@ export default function App({
     previousArrangement &&
     previousArrangement.project === projectCwd &&
     previousArrangement.front !== strip.front &&
-    stripKeys.includes(previousArrangement.front)
+    stripKeys.includes(previousArrangement.front) &&
+    (isSpaceKey(previousArrangement.front) || isSpaceKey(strip.front))
       ? stripKeys.indexOf(strip.front) >=
         stripKeys.indexOf(previousArrangement.front)
         ? 1
