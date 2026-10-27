@@ -58,6 +58,12 @@ fn sanitize_project_key(project: &str) -> String {
     format!("{readable}-{:016x}", fnv1a(trimmed))
 }
 
+/// A file-name stem unique to a project path (also names the iPhone pane's
+/// per-project build folder).
+pub(crate) fn project_stem(project: &str) -> String {
+    sanitize_project_key(project)
+}
+
 fn logo_stem(project: &str) -> String {
     sanitize_project_key(project)
 }

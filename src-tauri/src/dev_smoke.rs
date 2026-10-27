@@ -16,6 +16,9 @@ const MARKER: &str = ".aven-smoke";
 /// Beside `MARKER`: run the speed test (`dev-aven.py --perf`) instead, with
 /// its settings in `perf.json`.
 const PERF_MARKER: &str = ".aven-perf";
+/// Beside `MARKER`: run the iPhone pane's live check (`dev-aven.py --iphone`)
+/// instead, on the throwaway simulator named in `iphone.json`.
+const IPHONE_MARKER: &str = ".aven-iphone";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,9 +31,12 @@ pub struct SmokeConfig {
     /// The speed test's settings, when this run is the speed test.
     #[serde(skip_serializing_if = "Option::is_none")]
     perf: Option<Value>,
+    /// The iPhone check's throwaway simulator, when this run is that check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    iphone: Option<Value>,
 }
 
-fn smoke_dir() -> Option<PathBuf> {
+pub(crate) fn smoke_dir() -> Option<PathBuf> {
     if !cfg!(debug_assertions) {
         return None;
     }
@@ -48,10 +54,17 @@ pub fn dev_smoke_config() -> Option<SmokeConfig> {
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_else(|| Value::Object(Default::default()))
     });
+    let iphone = dir.join(IPHONE_MARKER).is_file().then(|| {
+        std::fs::read_to_string(dir.join("iphone.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_else(|| Value::Object(Default::default()))
+    });
     Some(SmokeConfig {
         project_path: dir.join("project").to_string_lossy().into_owned(),
         bin_dir: dir.join("home/.local/bin").to_string_lossy().into_owned(),
         perf,
+        iphone,
     })
 }
 
@@ -292,8 +305,11 @@ pub fn dev_smoke_finish(
     }
     let text = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
     std::fs::write(dir.join("result.json"), text).map_err(|error| error.to_string())?;
-    // The stand-in provider must not outlive the run.
+    // The stand-in provider must not outlive the run, nor the iPhone
+    // check's builds, app consoles and XCUITest agent.
     harness.kill_all();
+    #[cfg(target_os = "macos")]
+    crate::ios_sim::shutdown();
     let passed = result.get("passed").and_then(Value::as_bool) == Some(true);
     // The throwaway profile holds nothing to save, and a quit request could be
     // held by the app's own confirmation, so leave at once.

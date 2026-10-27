@@ -13,6 +13,8 @@ export type DevSmokeConfig = {
   binDir: string;
   /** Present when this run is the speed test (`dev-aven.py --perf`). */
   perf?: Record<string, unknown>;
+  /** Present when this run is the iPhone check (`dev-aven.py --iphone`). */
+  iphone?: { udid?: string };
 };
 
 /** What the stand-in provider answers. */

@@ -546,6 +546,15 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     (value.board as { project: string }).project
       ? { project: (value.board as { project: string }).project }
       : undefined;
+  const simulator =
+    value.simulator &&
+    typeof value.simulator === "object" &&
+    typeof (value.simulator as { project?: unknown }).project === "string" &&
+    (value.simulator as { project: string }).project
+      ? { project: (value.simulator as { project: string }).project }
+      : undefined;
+  if ("simulator" in value && value.simulator != null && !simulator)
+    return null;
   const hasDiscussion = "discussion" in value && value.discussion != null;
   const discussion = sanitizeDiscussion(value.discussion);
   if (hasDiscussion && !discussion) return null;
@@ -595,6 +604,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(commit ? { commit } : {}),
     ...(race ? { race } : {}),
     ...(board ? { board } : {}),
+    ...(simulator ? { simulator } : {}),
     ...(discussion ? { discussion } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(value.review === true ? { review: true } : {}),

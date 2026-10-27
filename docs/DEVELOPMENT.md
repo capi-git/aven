@@ -149,3 +149,35 @@ a local WKWebView page (no network) and a pause refusal. A passive listen-only
 tap confirms that the test posted no pointer events; the fixture reports that it
 never became active or key. The fixture quits afterwards (60-second failsafe). The
 terminal running the test needs Accessibility access.
+
+## iPhone pane
+
+The iPhone pane's native bridge (`src-tauri/macos/ios_simulator.m`) is built
+into every macOS build by `build.rs`; it loads Xcode's simulator frameworks at
+runtime, so nothing links against Xcode. Unit tests cover Xcode project and
+build-output parsing, point mapping, keys and the agent command's scoping. An
+opt-in live test creates a throwaway simulator ("Aven Dev iPhone Test …"),
+boots it, runs the input fix, builds and runs `tests/fixtures/ios-sample`,
+taps, types, pastes, rotates and presses Home, then deletes the simulator:
+
+```sh
+AVEN_IOS_SIM_LIVE=1 ./scripts/with-dev-env.sh cargo test -p aven --lib ios_sim_live -- --ignored --nocapture
+```
+
+It needs Xcode with an iOS simulator runtime and takes about a minute and a
+half; it never touches other simulators. `AVEN_IOS_SIM_FORCE_BASIC=1` makes
+Aven Dev use the pane's basic mode, to check the fallback.
+
+`npm run check:iphone` checks the real pane in Aven Dev, in a throwaway
+profile with the stand-in `claude`, on a throwaway simulator ("Aven Dev
+iPhone") it creates and deletes afterwards. The sample app is the project. It
+opens the pane from the header's iPhone button, waits for the device to start
+and its screen to go live, presses Run, and reads the console under Logs.
+Clicks and keys reach the pane's native view through debug-only hooks (its own
+hit test and handlers, never system input), and Aven's XCUITest agent reads
+the results back: a tap, typing including Option-E then E, a tap in
+landscape after Rotate, and Home. Last, the stand-in agent in the chat uses
+the simulator through `--aven-simulator` (list, launch, snapshot, tap,
+screenshot, logs, and a refused request for another simulator). Pass
+`-- --iphone-shots <folder>` to keep its framebuffer screenshots. Quit Aven
+Dev first; the check needs the preview port.

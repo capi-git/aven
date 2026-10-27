@@ -23,6 +23,7 @@ import {
   Plus,
   Search,
   Settings,
+  Smartphone,
   StickyNote,
   Terminal,
   X,
@@ -224,6 +225,10 @@ export type TitleBarProps = {
   onNewBrowser?: () => void;
   /** Open (or bring forward) the current project's board. */
   onOpenBoard?: () => void;
+  /** Open the project's iPhone simulator beside the chat. */
+  onOpenIphone?: () => void;
+  /** Shown in the strip's menu when the project needs Xcode for its iPhone. */
+  iphoneHint?: string;
   onSurfaceDragMove?: (
     id: string,
     x: number,
@@ -1365,6 +1370,8 @@ function TitleBarComponent({
   onUnsplit,
   onNewBrowser,
   onOpenBoard,
+  onOpenIphone,
+  iphoneHint,
   onSurfaceDragMove,
   onSurfaceDragEnd,
   groupId,
@@ -2045,6 +2052,15 @@ function TitleBarComponent({
       id: "bar-new-browser",
       label: "New browser tab",
     });
+  if (onOpenIphone)
+    barItems.push({ kind: "item", id: "bar-open-iphone", label: "iPhone" });
+  else if (iphoneHint)
+    barItems.push({
+      kind: "item",
+      id: "bar-iphone-hint",
+      label: iphoneHint,
+      disabled: true,
+    });
   if (stripGroups.length) barItems.push({ kind: "sep" });
   if (stripGroups.some((segment) => !segment.group.collapsed))
     barItems.push({ kind: "item", id: "fold-all", label: "Fold all groups" });
@@ -2131,6 +2147,10 @@ function TitleBarComponent({
     }
     if (id === "bar-new-browser") {
       onNewBrowser?.();
+      return;
+    }
+    if (id === "bar-open-iphone") {
+      onOpenIphone?.();
       return;
     }
     if (id === "fold-all" || id === "unfold-all") {
@@ -2803,6 +2823,18 @@ function TitleBarComponent({
                 onClick={onOpenBoard}
               >
                 <Kanban className="size-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {onOpenIphone ? (
+              <button
+                type="button"
+                aria-label="iPhone"
+                title="Run this project's app on an iPhone simulator"
+                data-tauri-drag-region="false"
+                className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={onOpenIphone}
+              >
+                <Smartphone className="size-3.5" strokeWidth={1.75} />
               </button>
             ) : null}
           </div>
