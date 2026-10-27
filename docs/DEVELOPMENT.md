@@ -167,3 +167,17 @@ AVEN_IOS_SIM_LIVE=1 ./scripts/with-dev-env.sh cargo test -p aven --lib ios_sim_l
 It needs Xcode with an iOS simulator runtime and takes about a minute and a
 half; it never touches other simulators. `AVEN_IOS_SIM_FORCE_BASIC=1` makes
 Aven Dev use the pane's basic mode, to check the fallback.
+
+`npm run check:iphone` checks the real pane in Aven Dev, in a throwaway
+profile with the stand-in `claude`, on a throwaway simulator ("Aven Dev
+iPhone") it creates and deletes afterwards. The sample app is the project. It
+opens the pane from the header's iPhone button, waits for the device to start
+and its screen to go live, presses Run, and reads the console under Logs.
+Clicks and keys reach the pane's native view through debug-only hooks (its own
+hit test and handlers, never system input), and Aven's XCUITest agent reads
+the results back: a tap, typing including Option-E then E, a tap in
+landscape after Rotate, and Home. Last, the stand-in agent in the chat uses
+the simulator through `--aven-simulator` (list, launch, snapshot, tap,
+screenshot, logs, and a refused request for another simulator). Pass
+`-- --iphone-shots <folder>` to keep its framebuffer screenshots. Quit Aven
+Dev first; the check needs the preview port.

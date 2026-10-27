@@ -1097,6 +1097,58 @@ int aven_sim_view_focus(const char *view_id) {
   return [view.window makeFirstResponder:view] ? 0 : 1;
 }
 
+int aven_sim_view_debug_click(const char *view_id, double x, double y) {
+  @autoreleasepool {
+    AvenSimView *view = ViewFor(view_id);
+    if (!view || !view.shown || !view.live || !view.window) return 1;
+    AvenSimDisplayInfo info = view.info;
+    AvenSimPoint p = aven_ios_sim_device_to_view(view.bounds.size.width, view.bounds.size.height, info.width,
+                                                 info.height, aven_ios_sim_quarter_turns(info.orientation), x, y);
+    NSPoint local = NSMakePoint(p.x, p.y);
+    // The click must reach this view through hit testing, as a person's would.
+    NSPoint inParent = [view convertPoint:local toView:view.superview];
+    if ([view hitTest:inParent] != view) return 2;
+    NSPoint inWindow = [view convertPoint:local toView:nil];
+    NSEvent *(^mouse)(NSEventType) = ^NSEvent *(NSEventType type) {
+      return [NSEvent mouseEventWithType:type
+                                location:inWindow
+                           modifierFlags:0
+                               timestamp:NSProcessInfo.processInfo.systemUptime
+                            windowNumber:view.window.windowNumber
+                                 context:nil
+                             eventNumber:0
+                              clickCount:1
+                                pressure:type == NSEventTypeLeftMouseDown ? 1 : 0];
+    };
+    [view mouseDown:mouse(NSEventTypeLeftMouseDown)];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 80 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      [view mouseUp:mouse(NSEventTypeLeftMouseUp)];
+    });
+    return 0;
+  }
+}
+
+int aven_sim_view_debug_key(const char *view_id, unsigned short key_code, const char *characters,
+                            unsigned long modifiers) {
+  @autoreleasepool {
+    AvenSimView *view = ViewFor(view_id);
+    if (!view || !view.shown || !view.udid || !view.window) return 1;
+    NSString *text = characters ? @(characters) : @"";
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:(NSEventModifierFlags)modifiers
+                                     timestamp:NSProcessInfo.processInfo.systemUptime
+                                  windowNumber:view.window.windowNumber
+                                       context:nil
+                                    characters:text
+                   charactersIgnoringModifiers:text
+                                     isARepeat:NO
+                                       keyCode:key_code];
+    [view keyDown:event];
+    return 0;
+  }
+}
+
 void aven_sim_view_detach(const char *view_id) {
   @autoreleasepool {
     AvenSimView *view = ViewFor(view_id);

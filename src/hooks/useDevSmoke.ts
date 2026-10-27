@@ -38,6 +38,7 @@ import { resolveClaudeBinary } from "../lib/harness/child";
 import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
+import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
 import { providerShortName } from "../lib/discussionVoices";
@@ -2197,6 +2198,8 @@ export function useDevSmoke(options: Options) {
     if (!config || started) return;
     started = true;
     if (config.perf) void runDevPerf(config, () => latest.current);
+    else if (config.iphone)
+      void runDevIphoneCheck(config, () => latest.current);
     else void runDevSmoke(config, () => latest.current);
   }, []);
 }

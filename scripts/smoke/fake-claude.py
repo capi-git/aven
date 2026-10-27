@@ -14,7 +14,8 @@ discussion, write files into its folder as a race lane, or edit one file
 through its Write tool. Asked to plan an
 orchestration that carries the orchestration marker, it proposes two tasks;
 as a worker it can ask its lead a question; as the lead it supervises
-through Aven's control command, the same way a real lead does. It never
+through Aven's control command, the same way a real lead does. For the iPhone
+check it uses the iPhone pane's simulator through `--aven-simulator`. It never
 contacts a network or an account.
 Every invocation is logged beside it as evidence that Aven's native spawn
 path ran.
@@ -457,6 +458,65 @@ def option(args, name):
     return None
 
 
+# "AVEN_SMOKE_IPHONE" (dev-aven.py --iphone) makes the turn use the iPhone
+# pane beside its chat as an agent would: through `--aven-simulator` on the
+# scoped connection Aven gave this process. The reply reports what it saw.
+IPHONE_WORD = "AVEN_SMOKE_IPHONE"
+IPHONE_REPLY = "AVEN_IPHONE_OK"
+IPHONE_FAILED = "AVEN_IPHONE_FAILED"
+TAP_BUTTON = re.compile(r'id=tapButton @(-?\d+),(-?\d+) (\d+)x(\d+)')
+TAP_COUNT = re.compile(r'"Taps: (\d+)"')
+
+
+def simulator(action, timeout=600):
+    executable = os.environ.get("AVEN_BROWSER_EXECUTABLE")
+    if not executable:
+        raise RuntimeError("no scoped connection in this process")
+    done = subprocess.run([executable, "--aven-simulator", json.dumps(action)],
+                          capture_output=True, text=True, timeout=timeout)
+    result = json.loads(done.stdout or "{}")
+    log({"pid": os.getpid(), "simulator": action.get("action"), "ok": result.get("ok")})
+    return result
+
+
+def iphone_turn(text):
+    report = {"guidance": "<aven-iphone>" in text}
+    try:
+        listed = simulator({"action": "list"})
+        devices = (listed.get("result") or {}).get("devices") or []
+        report["devices"] = len(devices)
+        if len(devices) != 1:
+            raise RuntimeError(f"expected one device in scope: {listed}")
+        report["screen"] = devices[0].get("screen")
+        launched = simulator({"action": "launch", "build": False})
+        report["launch"] = (launched.get("result") or {}).get("status") or launched.get("error")
+        time.sleep(2)
+        before = simulator({"action": "snapshot"})
+        outline = (before.get("result") or {}).get("outline") or ""
+        button = TAP_BUTTON.search(outline)
+        if not button:
+            raise RuntimeError(f"no Tap me button in the snapshot: {before}")
+        x, y, w, h = (int(v) for v in button.groups())
+        report["tapsBefore"] = int((TAP_COUNT.search(outline) or [0, -1])[1])
+        tapped = simulator({"action": "tap", "x": x + w / 2, "y": y + h / 2})
+        report["tap"] = tapped.get("ok")
+        time.sleep(1)
+        after = simulator({"action": "snapshot"})
+        outline = (after.get("result") or {}).get("outline") or ""
+        report["tapsAfter"] = int((TAP_COUNT.search(outline) or [0, -1])[1])
+        shot = simulator({"action": "screenshot", "label": "iphone-agent"})
+        report["screenshot"] = (shot.get("result") or {}).get("path") or shot.get("error")
+        report["shotSize"] = [(shot.get("result") or {}).get("width"), (shot.get("result") or {}).get("height")]
+        logs = simulator({"action": "logs", "lines": 50})
+        report["logLines"] = len((logs.get("result") or {}).get("lines") or [])
+        # Another simulator is out of scope, whatever its identifier.
+        stranger = simulator({"action": "tap", "udid": str(uuid.uuid4()).upper(), "x": 1, "y": 1})
+        report["strangerRefused"] = stranger.get("ok") is False
+        return f"{IPHONE_REPLY} {json.dumps(report)}"
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+        return f"{IPHONE_FAILED} {error} {json.dumps(report)}"
+
+
 def main():
     args = sys.argv[1:]
     log({
@@ -556,6 +616,8 @@ def main():
                     reply = f"{REPLY} {STALL}"
             elif not helper and "<aven_orchestration>" in text:
                 reply = lead_turn(text)
+            elif not helper and IPHONE_WORD in text:
+                reply = iphone_turn(text)
             message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",

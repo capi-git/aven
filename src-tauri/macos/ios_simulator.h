@@ -68,6 +68,13 @@ int aven_sim_view_marker(const char *view_id, double x, double y, const char *na
 int aven_sim_view_focus(const char *view_id);
 void aven_sim_view_detach(const char *view_id);
 
+// Aven Dev's iPhone check only: a click on the live view at a framebuffer
+// point, through its hit test and mouse handlers (no system input), and a
+// key press through its key handler. 0 when the view took it.
+int aven_sim_view_debug_click(const char *view_id, double x, double y);
+int aven_sim_view_debug_key(const char *view_id, unsigned short key_code, const char *characters,
+                            unsigned long modifiers);
+
 // Puts PNG bytes on the Mac clipboard.
 int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t error_len);
 

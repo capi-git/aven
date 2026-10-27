@@ -1624,7 +1624,7 @@ fn webview_pointer(view: &Webview) -> Result<usize, String> {
         .map_err(|_| "The workspace closed".to_string())
 }
 
-async fn on_main<T: Send + 'static>(
+pub(crate) async fn on_main<T: Send + 'static>(
     app: &AppHandle,
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
@@ -1722,6 +1722,12 @@ pub async fn ios_sim_view_focus(caller: Webview, id: String) -> Result<bool, Str
     }
     let app = caller.app_handle().clone();
     on_main(&app, move || Ok(native::view_focus(&id))).await
+}
+
+/// The device a pane's live view shows.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+pub(crate) fn view_device(id: &str) -> Option<String> {
+    state().view_devices.get(id).cloned()
 }
 
 /// Shows the agent's ring in every live view of `udid`.

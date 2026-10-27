@@ -45,6 +45,8 @@ mod inbox_media;
 #[cfg(target_os = "macos")]
 mod ios_sim;
 mod ios_sim_agent;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod ios_sim_dev;
 mod ios_sim_devices;
 mod ios_sim_geometry;
 mod ios_sim_keys;
@@ -415,6 +417,16 @@ pub fn run() {
             ios_sim::ios_sim_view_close,
             #[cfg(target_os = "macos")]
             ios_sim::ios_sim_view_focus,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_snapshot,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_screen,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_click,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_keys,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_shot,
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,
             browser_agent::browser_agent_open_file_result,

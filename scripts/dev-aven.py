@@ -324,6 +324,88 @@ def smoke(keep=False):
             print(f'Kept the check\'s folder for inspection: {root}', flush=True)
 
 
+IPHONE_MARKER = '.aven-iphone'
+IPHONE_TIMEOUT = 1500
+IPHONE_SIMULATOR = 'Aven Dev iPhone'
+
+
+def newest_iphone():
+    """The newest iOS runtime and an iPhone it supports (a Pro when there is one)."""
+    listed = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j'], text=True,
+                                                timeout=60))
+    runtimes = [r for r in listed.get('runtimes', [])
+                if r.get('isAvailable') and '.iOS-' in r.get('identifier', '')]
+    require(runtimes, 'The iPhone check needs Xcode with an iOS simulator runtime.')
+    runtime = max(runtimes, key=lambda r: [int(p) for p in r.get('version', '0').split('.') if p.isdigit()])
+    phones = [t for t in runtime.get('supportedDeviceTypes', []) if t.get('productFamily') == 'iPhone']
+    require(phones, 'The newest iOS runtime offers no iPhone.')
+    phone = next((t for t in phones if t.get('name', '').endswith(' Pro')), phones[0])
+    return phone['identifier'], runtime['identifier']
+
+
+def iphone_check(keep=False, shots=None):
+    """The iPhone pane's live check, on a throwaway simulator it then deletes.
+
+    Aven Dev runs in a throwaway profile with the stand-in `claude`; the sample
+    app in tests/fixtures/ios-sample is the project. Only the simulator this
+    created is used; the person's own simulators are never booted or touched.
+    """
+    root = prepare_smoke_folder()
+    (root / IPHONE_MARKER).write_text('Aven Dev iPhone check\n')
+    shutil.rmtree(root / 'project')
+    shutil.copytree(ROOT / 'tests/fixtures/ios-sample', root / 'project')
+    device_type, runtime = newest_iphone()
+    udid = subprocess.check_output(['xcrun', 'simctl', 'create', IPHONE_SIMULATOR, device_type, runtime],
+                                   text=True, timeout=120).strip()
+    (root / 'iphone.json').write_text(json.dumps({'udid': udid}))
+    print(f'Created the throwaway simulator {IPHONE_SIMULATOR} ({udid}).', flush=True)
+    passed = False
+    try:
+        child_env = host_scoped_environment()
+        with development_server(child_env):
+            ensure_not_running()
+            print('Running the iPhone check in a throwaway profile...', flush=True)
+            app_env = {
+                **child_env,
+                'HOME': str(root / 'home'),
+                'SHELL': '/bin/zsh',
+                'PATH': f'{root / "home/.local/bin"}:/usr/bin:/bin:/usr/sbin:/sbin',
+                'AVEN_DEV_SMOKE_DIR': str(root),
+            }
+            with (root / 'app.log').open('w') as log:
+                app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
+                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    app.wait(timeout=IPHONE_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    os.killpg(app.pid, signal.SIGTERM)
+                    try:
+                        app.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(app.pid, signal.SIGKILL)
+                    print(f'The check did not finish within {IPHONE_TIMEOUT} seconds.', file=sys.stderr)
+        stop_stand_ins(root)
+        passed = report_smoke(root, app.returncode)
+        if shots:
+            out = Path(shots).expanduser()
+            out.mkdir(parents=True, exist_ok=True)
+            pictures = sorted((root / 'shots').glob('*.png'))
+            pictures += sorted((root / 'home/Library/Application Support').glob('*/turn-shots/*/*.jpg'))
+            for picture in pictures:
+                shutil.copy2(picture, out / picture.name)
+            print(f'Copied {len(pictures)} screenshots to {out}', flush=True)
+        return passed
+    finally:
+        for command in (['shutdown', udid], ['delete', udid]):
+            subprocess.run(['xcrun', 'simctl', *command], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=120)
+        print(f'Deleted the throwaway simulator {udid}.', flush=True)
+        if passed and not keep:
+            remove_smoke_folder(root)
+        else:
+            print(f'Kept the check\'s folder for inspection: {root}', flush=True)
+
+
 PERF_MARKER = '.aven-perf'
 PERF_TIMEOUT = 900
 PERF_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Speed test page</title>
@@ -670,6 +752,9 @@ def main():
     parser.add_argument('--smoke', action='store_true',
                         help='Run the real-app check in a throwaway profile, then exit with its result')
     parser.add_argument('--keep-smoke-folder', action='store_true', help='Keep the check\'s throwaway folder')
+    parser.add_argument('--iphone', action='store_true',
+                        help='Run the iPhone pane\'s live check on a throwaway simulator, then exit with its result')
+    parser.add_argument('--iphone-shots', metavar='DIR', help='Copy the iPhone check\'s screenshots here')
     parser.add_argument('--perf', action='store_true',
                         help='Run the speed test (production interface, throwaway profile) and print what each scenario cost')
     parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
@@ -696,6 +781,9 @@ def main():
         if args.smoke:
             if not smoke(keep=args.keep_smoke_folder):
                 raise RuntimeError('The real-app check failed.')
+        elif args.iphone:
+            if not iphone_check(keep=args.keep_smoke_folder, shots=args.iphone_shots):
+                raise RuntimeError('The iPhone check failed.')
         elif args.perf:
             if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only,
                         sample=args.perf_sample):

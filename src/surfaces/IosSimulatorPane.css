@@ -1,6 +1,7 @@
 /* The iPhone pane: toolbar, the simulator's screen (a native layer over the
    stage), and a slim status strip with the app's console. Shared tokens
-   only, square structure and 6px controls like the rest of the workspace. */
+   only: a square, flush pane with flat controls at the control corner (a
+   fill and no outline; ghost buttons fill only on hover). */
 .ios-sim-pane {
   display: flex;
   flex-direction: column;
@@ -41,18 +42,22 @@
   gap: 6px;
   min-width: 0;
   height: 28px;
-  border: 0;
-  border-radius: var(--aven-radius-xs);
+  border: 1px solid transparent;
+  border-radius: var(--aven-radius-sm, 6px);
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   font-size: 12px;
   cursor: pointer;
 }
+.ios-sim-chip,
+.ios-sim-run {
+  border-color: var(--aven-control-edge, transparent);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+}
 .ios-sim-chip {
   max-width: 45%;
   padding: 0 8px;
-  background: var(--aven-control-bg);
-  color: var(--color-content);
 }
 .ios-sim-icon {
   justify-content: center;
@@ -61,19 +66,23 @@
 }
 .ios-sim-run {
   padding: 0 10px;
-  background: var(--aven-control-bg);
-  color: var(--color-content);
   font-weight: 500;
 }
 .ios-sim-run[data-active] {
   color: var(--color-red-400);
 }
-.ios-sim-chip:hover:not(:disabled),
 .ios-sim-icon:hover:not(:disabled),
-.ios-sim-run:hover:not(:disabled),
 .ios-sim-link:hover {
   background: var(--aven-hover);
   color: var(--color-content);
+}
+.ios-sim-chip:hover:not(:disabled),
+.ios-sim-run:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+.ios-sim-chip:active:not(:disabled),
+.ios-sim-run:active:not(:disabled) {
+  background: var(--aven-control-pressed, var(--aven-control-hover));
 }
 .ios-sim-chip:disabled,
 .ios-sim-icon:disabled,

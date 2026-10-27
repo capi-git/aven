@@ -99,6 +99,13 @@ extern "C" {
         action: i32,
     ) -> i32;
     fn aven_sim_view_focus(view_id: *const c_char) -> i32;
+    fn aven_sim_view_debug_click(view_id: *const c_char, x: f64, y: f64) -> i32;
+    fn aven_sim_view_debug_key(
+        view_id: *const c_char,
+        key_code: u16,
+        characters: *const c_char,
+        modifiers: u64,
+    ) -> i32;
     fn aven_sim_view_detach(view_id: *const c_char);
     fn aven_sim_copy_png(
         png: *const u8,
@@ -361,6 +368,33 @@ pub(crate) fn view_marker(
 
 pub(crate) fn view_focus(view_id: &str) -> bool {
     c(view_id).is_ok_and(|id| unsafe { aven_sim_view_focus(id.as_ptr()) } == 0)
+}
+
+/// Aven Dev's iPhone check: a click on the live view at a framebuffer point,
+/// through its hit test and mouse handlers. Main thread.
+#[cfg(debug_assertions)]
+pub(crate) fn view_debug_click(view_id: &str, x: f64, y: f64) -> Result<(), String> {
+    let id = c(view_id)?;
+    match unsafe { aven_sim_view_debug_click(id.as_ptr(), x, y) } {
+        0 => Ok(()),
+        2 => Err("The click did not reach the iPhone's screen".into()),
+        _ => Err("The iPhone pane is not showing a live screen".into()),
+    }
+}
+
+/// Aven Dev's iPhone check: a key press through the live view's key handler.
+#[cfg(debug_assertions)]
+pub(crate) fn view_debug_key(
+    view_id: &str,
+    key_code: u16,
+    characters: &str,
+    modifiers: u64,
+) -> Result<(), String> {
+    let (id, text) = (c(view_id)?, c(characters)?);
+    match unsafe { aven_sim_view_debug_key(id.as_ptr(), key_code, text.as_ptr(), modifiers) } {
+        0 => Ok(()),
+        _ => Err("The iPhone pane has no device".into()),
+    }
 }
 
 pub(crate) fn view_detach(view_id: &str) {
