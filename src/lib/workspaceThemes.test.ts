@@ -3,7 +3,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { activateWindowAppearance, watchSystemColorScheme } from "./appearance";
+import {
+  activateWindowAppearance,
+  AVEN_THEME_COLORS,
+  watchSystemColorScheme,
+} from "./appearance";
 import {
   loadWorkspaceTheme,
   resetWorkspaceTheme,
@@ -149,10 +153,11 @@ describe("workspace appearance migration and persistence", () => {
       bodyGlass: true,
       matchPanels: false,
       colors: {
+        // A neutral accent: colour is for what means something.
         dark: {
           background: "#000000",
-          accent: "#57b5ff",
-          highlight: "#57b5ff",
+          accent: "#e8e8ea",
+          highlight: "#a1a1a6",
         },
         light: {
           background: "#ffffff",
@@ -344,11 +349,71 @@ describe("workspace appearance migration and persistence", () => {
     });
   });
 
-  it("keeps the former monochrome default selectable as Mono", () => {
+  it("keeps the former blue default selectable as Blue", () => {
     expect(
-      WORKSPACE_THEME_PRESETS.map((preset) => preset.name).slice(0, 3),
-    ).toEqual(["Aven", "Mono", "Sky"]);
+      WORKSPACE_THEME_PRESETS.map((preset) => preset.name).slice(0, 4),
+    ).toEqual(["Aven", "Blue", "Mono", "Sky"]);
     expect(WORKSPACE_THEME_PRESETS[1]).toEqual({
+      name: "Blue",
+      hue: 207,
+      saturation: 0,
+      colors: {
+        dark: {
+          background: "#000000",
+          accent: "#57b5ff",
+          highlight: "#8ccbff",
+        },
+        light: {
+          background: "#ffffff",
+          accent: "#0a6cc4",
+          highlight: "#6aaee8",
+        },
+      },
+    });
+  });
+
+  it("moves a workspace saved with the former blue default to the neutral one", () => {
+    localStorage.setItem(
+      WORKSPACE_THEMES_KEY,
+      JSON.stringify({
+        version: 1,
+        fallback: defaultWorkspaceTheme(),
+        themes: {
+          former: {
+            ...defaultWorkspaceTheme(),
+            opacity: 0.4,
+            colors: {
+              dark: {
+                background: "#000000",
+                accent: "#57B5FF",
+                highlight: "#57b5ff",
+              },
+              light: { ...AVEN_THEME_COLORS.light },
+            },
+          },
+          // Blue on another background was a choice, not the default.
+          mist: {
+            ...defaultWorkspaceTheme(),
+            colors: {
+              dark: {
+                background: "#171b25",
+                accent: "#57b5ff",
+                highlight: "#57b5ff",
+              },
+            },
+          },
+        },
+      }),
+    );
+    expect(loadWorkspaceTheme("former")).toEqual({
+      ...defaultWorkspaceTheme(),
+      opacity: 0.4,
+    });
+    expect(loadWorkspaceTheme("mist").colors?.dark?.accent).toBe("#57b5ff");
+  });
+
+  it("keeps the former monochrome default selectable as Mono", () => {
+    expect(WORKSPACE_THEME_PRESETS[2]).toEqual({
       name: "Mono",
       hue: 207,
       saturation: 0,
@@ -389,7 +454,7 @@ describe("workspace appearance migration and persistence", () => {
     const black = WORKSPACE_THEME_PRESETS.find(
       (preset) => preset.name === "Black",
     )!;
-    expect(WORKSPACE_THEME_PRESETS).toHaveLength(21);
+    expect(WORKSPACE_THEME_PRESETS).toHaveLength(22);
     const next = applyWorkspaceThemePreset("personal", black, "dark");
     expect({ ...next, colors: original.colors }).toEqual(original);
     expect(next.colors?.dark?.background).toBe("#000000");
@@ -776,7 +841,7 @@ describe("workspace theme activation", () => {
     expect(style.getPropertyValue("--theme-background-color")).toBe("#f0f0f0");
     render("work");
     expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#e8e8ea");
   });
   it("switches directly to each destination theme without overwriting either profile", () => {
     saveWorkspaceTheme("personal", {
@@ -852,8 +917,9 @@ describe("workspace theme activation", () => {
     expect(vi.mocked(invoke).mock.calls).toEqual([
       [
         "set_window_glass_enabled",
-        // The shell's dark frame, hsl(90 30% 4%), at the new opacity.
-        { enabled: true, tint: { r: 10, g: 13, b: 7, alpha: 0.05 } },
+        // The shell's dark frame, hsl(90 30% 4%), at the new opacity above
+        // the glass floor.
+        { enabled: true, tint: { r: 10, g: 13, b: 7, alpha: 0.24 } },
       ],
     ]);
   });

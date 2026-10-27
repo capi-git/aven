@@ -8,16 +8,15 @@ import {
   type MouseEvent,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ProviderMarks } from "./ProviderMarks";
 import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
+import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
 import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
 import { useActivity } from "../lib/activity";
-import { sessionModelIdentity } from "../lib/sessionLabels";
 import {
   Check,
   ListBullet,
@@ -34,14 +33,12 @@ import {
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
-  sessionIsWaitingForInput,
   type Session,
 } from "../lib/session";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
   sessions: readonly Session[];
-  session?: Session;
   onSelectSession: (id: string) => boolean | Promise<boolean>;
   onToggleSidebar?: () => void;
   sidebarOpen?: boolean;
@@ -59,6 +56,12 @@ export type WorkspaceStatusBarProps = {
   inspectorOpen?: boolean;
   /** Settings shares the window header instead of stacking a second toolbar. */
   settingsView?: { section: SettingsSectionId; onClose: () => void };
+  /**
+   * Receives the place for the window's strip of tabs (Cydonia's): the
+   * toolbar's free width, whose empty room still moves the window. The
+   * workspace renders its strip into it.
+   */
+  stripHost?: (element: HTMLDivElement | null) => void;
 };
 
 type QueueRow = {
@@ -149,8 +152,29 @@ function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
-  if (event.button !== 0 || event.target !== event.currentTarget) return;
+/** Empty toolbar room, including the strip's, moves the window. */
+function isWindowDragRoom(target: EventTarget, bar: Element) {
+  if (target === bar) return true;
+  if (!(target instanceof Element)) return false;
+  return (
+    !!target.closest("[data-window-drag-room]") &&
+    !target.closest(
+      'button, a, input, textarea, select, [role="tab"], [role="button"], [data-surface-tab-id], [data-tab-group], .personal-tab-group-slot',
+    )
+  );
+}
+
+/**
+ * Moves (or, double-pressed, zooms) the window from the toolbar's empty
+ * room. The window's strip renders in a portal, so it hands its own presses
+ * here.
+ */
+export function dragStatusBar(event: MouseEvent<HTMLElement>) {
+  if (
+    event.button !== 0 ||
+    !isWindowDragRoom(event.target, event.currentTarget)
+  )
+    return;
   event.preventDefault();
   const currentWindow = getCurrentWindow();
   const action =
@@ -252,7 +276,7 @@ export function WorkspaceNavigation({
               type="button"
               className="workspace-navigation-secondary"
               aria-label="Search workspace"
-              title="Search workspace"
+              title={`Search workspace (${SEARCH_KEYS})`}
               onClick={onSearch}
             >
               <Search size={14} />
@@ -366,7 +390,6 @@ export function WorkspaceNavigation({
 
 export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   sessions,
-  session,
   onSelectSession,
   onToggleSidebar,
   sidebarOpen,
@@ -382,6 +405,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onToggleInspector,
   inspectorOpen,
   settingsView,
+  stripHost,
 }: WorkspaceStatusBarProps) {
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
   const activity = useActivity();
@@ -417,13 +441,16 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <WorkspaceNavigation
           onToggleSidebar={onToggleSidebar}
           sidebarOpen={sidebarOpen}
-          onSearch={onSearch}
-          onNewBrowser={onNewBrowser}
+          // The pinned sidebar has Search and Home as rows (Home is the
+          // workspace's own row), so the toolbar keeps them only while the
+          // sidebar is hidden. Home has its own Open browser.
+          onSearch={sidebarOpen ? undefined : onSearch}
+          onNewBrowser={homeOpen ? undefined : onNewBrowser}
           onGoBack={onGoBack}
           onGoForward={onGoForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          onHome={onHome}
+          onHome={sidebarOpen ? undefined : onHome}
           homeOpen={homeOpen}
         />
       ) : null}
@@ -440,21 +467,9 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         aria-expanded={menu === "queue"}
         onClick={() => setMenu(menu === "queue" ? null : "queue")}
       >
-        {/* The composer's agent pill names the model. Here the provider's
-            mark only shows whether the chat in front is working. */}
-        {!showingSettings && session ? (
-          <span className="workspace-status-context">
-            <ProviderMarks
-              harnesses={[sessionModelIdentity(session).harness]}
-              busyHarnesses={
-                session.busy && !sessionIsWaitingForInput(session)
-                  ? [sessionModelIdentity(session).harness]
-                  : []
-              }
-            />
-          </span>
-        ) : null}
-        <QueueIcon size={12} aria-hidden />
+        {/* Only Activity's state: the chat in front shows its agent in its
+            tab and the message box's agent pill, not again here. */}
+        <QueueIcon size={14} aria-hidden />
         <span className="sr-only">{summary.label}</span>
         {unreadActivity > 0 ? (
           <span className="workspace-status-unread">
@@ -485,6 +500,13 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
             <strong>{settingsSectionLabel(settingsView.section)}</strong>
           </div>
         </div>
+      ) : null}
+      {stripHost && !settingsView ? (
+        <div
+          ref={stripHost}
+          className="workspace-status-strip"
+          data-window-drag-room
+        />
       ) : null}
       <div
         className="workspace-status-controls"

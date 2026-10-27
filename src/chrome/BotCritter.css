@@ -8,7 +8,7 @@
 
 /* The sidebar's Bots section, below the projects. */
 .personal-shell .personal-navigation .personal-bots-group {
-  margin: 2px 2px 8px;
+  margin: 0 0 8px;
 }
 
 /* A bot's row in the Bots section: critter, name, its project on hover, and
@@ -20,9 +20,11 @@
   width: 100%;
   min-width: 0;
 }
+/* In the rows' 16px mark column, so the name lines up with the others. */
 .personal-bot-row .bot-critter {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
+  margin-inline: 1px;
 }
 .personal-bot-row .personal-task-title {
   font-weight: 500;

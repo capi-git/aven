@@ -78,7 +78,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--color-accent) 80%, transparent);
+  background: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 /* A grouped list: one filled card per group (with a hairline edge in light
    mode) and no lift, rows divided by hairlines inset from the leading edge
@@ -236,7 +236,7 @@
   box-shadow:
     0 0 0 0.5px #0000001f,
     0 1px 3px #00000040,
-    0 0 0 3px color-mix(in srgb, var(--color-accent) 0%, transparent);
+    0 0 0 3px color-mix(in srgb, var(--color-content) 0%, transparent);
   transition: box-shadow 160ms ease;
 }
 .settings-slider
@@ -244,7 +244,7 @@
   box-shadow:
     0 0 0 0.5px #0000001f,
     0 1px 3px #00000040,
-    0 0 0 4px color-mix(in srgb, var(--color-accent) 22%, transparent);
+    0 0 0 4px color-mix(in srgb, var(--color-content) 16%, transparent);
 }
 .settings-slider input::-moz-range-thumb {
   width: 16px;
@@ -509,7 +509,7 @@ html.theme-light .settings-button-danger:not(:disabled):hover {
 .settings-select-option[data-active="true"]:not(:disabled) {
   background: var(--toolbar-panel-hover);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--toolbar-panel-accent) 70%, transparent);
+    color-mix(in srgb, var(--toolbar-panel-text) 28%, transparent);
 }
 .settings-select-option:disabled {
   opacity: 0.45;
@@ -517,7 +517,7 @@ html.theme-light .settings-button-danger:not(:disabled):hover {
 }
 .settings-select-option > svg {
   flex-shrink: 0;
-  color: var(--toolbar-panel-accent);
+  color: var(--toolbar-panel-text);
 }
 .settings-select-option-copy {
   display: flex;

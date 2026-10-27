@@ -12,6 +12,11 @@ import {
 } from "vitest";
 import { useSortable, type SortableOptions } from "./useSortable";
 
+const ghost = vi.hoisted(() => ({ capture: vi.fn(), fade: vi.fn() }));
+vi.mock("../lib/dropGhost", () => ({
+  captureDropGhost: ghost.capture,
+}));
+
 describe("useSortable external drops and cancellation", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -114,6 +119,8 @@ describe("useSortable external drops and cancellation", () => {
   }
 
   beforeEach(() => {
+    ghost.fade.mockReset();
+    ghost.capture.mockReset().mockImplementation(() => ({ fade: ghost.fade }));
     now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     restoreClock = () => clock.mockRestore();
@@ -202,6 +209,8 @@ describe("useSortable external drops and cancellation", () => {
       { screenX: 0, screenY: 0 },
     );
     expect(onReorder).not.toHaveBeenCalled();
+    // The tab's ghost fades where the workspace took it.
+    expect(ghost.fade).toHaveBeenCalledOnce();
     expect(sortable.consumeClick()).toBe(true);
     expect(document.documentElement.classList.contains("is-reordering")).toBe(
       false,
@@ -252,8 +261,17 @@ describe("useSortable external drops and cancellation", () => {
       await pointer(window, "pointerup", 20, 15);
       expect(options.onDragEnd).toHaveBeenCalledOnce();
       expect(onReorder).not.toHaveBeenCalled();
+      // A cancelled drag leaves no ghost behind.
+      expect(ghost.fade).not.toHaveBeenCalled();
     },
   );
+
+  it("leaves no ghost when a drop outside the strip is not taken", async () => {
+    await start();
+    await pointer(window, "pointerup", 12, 150);
+    expect(options.onDragEnd).toHaveBeenCalledOnce();
+    expect(ghost.fade).not.toHaveBeenCalled();
+  });
 
   it("does not report a drag or consume a click below the activation threshold", async () => {
     withVisuals = true;

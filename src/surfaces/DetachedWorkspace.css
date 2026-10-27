@@ -61,7 +61,7 @@
   border-bottom: 2px solid transparent;
 }
 .detached-workspace-tab[data-active="true"] {
-  border-bottom-color: var(--color-accent);
+  border-bottom-color: var(--color-content);
 }
 .detached-workspace-tab > button:first-child {
   min-width: 0;

@@ -1188,6 +1188,28 @@ fn handle_event(native_id: &str, event: Value) {
                 route_toolbar_command(context, action.to_string());
             }
         }
+        "shortcut" => {
+            // A workspace chord pressed while the page had the keyboard. Only
+            // the window showing the page hears it, under a name no menu
+            // command or broadcast listener uses, so no other window acts.
+            if let Some(action) = event
+                .get("action")
+                .and_then(Value::as_str)
+                .and_then(page_shortcut_action)
+            {
+                let label = context
+                    .delegate
+                    .lock()
+                    .ok()
+                    .and_then(|d| d.clone())
+                    .unwrap_or_else(|| context.caller.label().into());
+                let _ = context.caller.emit_to(
+                    EventTarget::AnyLabel { label },
+                    PAGE_SHORTCUT_EVENT,
+                    json!({ "action": action }),
+                );
+            }
+        }
         "download" => {
             if let Some(download) = event.get("download").and_then(parse_download) {
                 let downloads = {
@@ -2254,6 +2276,23 @@ async fn flush_toolbar_command(context: &Arc<PageContext>) {
     }
 }
 
+/// The event a page's forwarded chord reaches its own window by.
+const PAGE_SHORTCUT_EVENT: &str = "page_shortcut";
+
+/// The chords a page may forward (see `browser_workspace_keys.h`); anything
+/// else is ignored.
+fn page_shortcut_action(action: &str) -> Option<&'static str> {
+    match action {
+        "next-tab" => Some("next-tab"),
+        "prev-tab" => Some("prev-tab"),
+        "next-pane" => Some("next-pane"),
+        "prev-pane" => Some("prev-pane"),
+        "zoom-pane" => Some("zoom-pane"),
+        "close-pane" => Some("close-pane"),
+        _ => None,
+    }
+}
+
 fn route_toolbar_command(context: Arc<PageContext>, action: String) {
     tauri::async_runtime::spawn(async move {
         let floating = {
@@ -2462,6 +2501,37 @@ async fn close_context_for_reload(
 
 fn reload_owns_page(owner: &str, label: &str, placement: &Placement) -> bool {
     owner == label && placement.window.is_none() && placement.detached_window.is_none()
+}
+
+#[cfg(test)]
+mod workspace_shortcut_tests {
+    use super::{page_shortcut_action, PAGE_SHORTCUT_EVENT};
+
+    #[test]
+    fn page_chords_pass_through_only_by_their_own_names() {
+        for action in [
+            "next-tab",
+            "prev-tab",
+            "next-pane",
+            "prev-pane",
+            "zoom-pane",
+            "close-pane",
+        ] {
+            assert_eq!(page_shortcut_action(action), Some(action));
+        }
+        // A page cannot name any other app command.
+        assert_eq!(page_shortcut_action("open_settings"), None);
+        assert_eq!(page_shortcut_action("close_tab"), None);
+        assert_eq!(page_shortcut_action("quit"), None);
+    }
+
+    #[test]
+    fn page_chords_use_an_event_no_menu_command_broadcasts() {
+        // Menu commands are broadcast under their own ids and heard by every
+        // window's plain listeners; a page's chord must not share one.
+        assert_eq!(PAGE_SHORTCUT_EVENT, "page_shortcut");
+        assert!(!crate::menu::is_broadcast_command(PAGE_SHORTCUT_EVENT));
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AUTOSAVE_DEFAULT,
   loadAutosave,
@@ -221,6 +221,9 @@ describe("workspace navigation keybindings", () => {
       "In a chat, with other views closed",
       "In the workspace, outside text fields or in an empty composer",
       "Outside the editor",
+      "Outside the terminal",
+      "In a pane's title row or the window's tabs",
+      "Anywhere, including with VoiceOver, which keeps ⌃⌥ for itself",
       "In the editor",
     ]);
     expect(
@@ -235,6 +238,59 @@ describe("workspace navigation keybindings", () => {
       filterKeybindings(KEYBINDINGS, "empty composer").map((row) => row.when),
     ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
     expect(formatKeybindingContext("Custom context")).toBe("Custom context");
+  });
+
+  // The labels are read from the platform when the module loads, so each
+  // case loads it afresh on the platform it names.
+  async function paneKeys(platform: string) {
+    vi.stubGlobal("navigator", { platform });
+    vi.resetModules();
+    const { KEYBINDINGS: rows } = await import("./settings");
+    return Object.fromEntries(
+      rows
+        .filter((row) => row.command.startsWith("Pane: "))
+        .map((row) => [`${row.command} ${row.keys}`, row.when]),
+    );
+  }
+
+  describe("pane keys", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    });
+
+    it("documents Cydonia's pane keys on a Mac", async () => {
+      expect(await paneKeys("MacIntel")).toMatchObject({
+        "Pane: Next ⌃⌥Tab": "!terminalFocus",
+        "Pane: Previous ⌃⌥⇧Tab": "!terminalFocus",
+        "Pane: Expand or Restore ⌃⌥Z": "!terminalFocus",
+        "Pane: Close ⌃⌥W": "!terminalFocus",
+        "Pane: Close ⌘W": "Always",
+        "Pane: Back to Its Content Esc": "titleRowFocus",
+        "Pane: Next / Previous ⌃⌥PageDown / ⌃⌥PageUp": "!terminalFocus",
+        "Pane: Move Between Panes ⌘⌥← → ↑ ↓": "voiceOver",
+      });
+    });
+
+    it.each(["Win32", "Linux x86_64"])(
+      "documents the pane keys %s leaves free",
+      async (platform) => {
+        const rows = await paneKeys(platform);
+        expect(rows).toMatchObject({
+          "Pane: Expand or Restore Ctrl+Alt+Z": "!terminalFocus",
+          "Pane: Close Ctrl+Alt+W": "!terminalFocus",
+          "Pane: Close Ctrl+W": "Always",
+          "Pane: Back to Its Content Esc": "titleRowFocus",
+          "Pane: Next / Previous Ctrl+Alt+PageDown / Ctrl+Alt+PageUp":
+            "!terminalFocus",
+          "Pane: Move Between Panes Ctrl+Alt+← → ↑ ↓": "voiceOver",
+        });
+        // Windows keeps Ctrl+Alt+Tab, so the list does not offer it.
+        expect(Object.keys(rows).filter((row) => row.includes("Tab"))).toEqual(
+          [],
+        );
+      },
+    );
   });
 
   it("documents chat and project cycling in the shortcut list", () => {

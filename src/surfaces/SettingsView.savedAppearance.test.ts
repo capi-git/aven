@@ -81,12 +81,13 @@ const DARK_LOOK = {
     "--chat-background-opacity": "0.24",
     "--sidebar-opacity": "0.35",
     "--status-bar-opacity": "0.21",
-    "--theme-accent-color": "#57b5ff",
-    // Text on the accent: black reads on Aven's light blue.
+    // Saved with the former blue default, it follows the neutral default.
+    "--theme-accent-color": "#e8e8ea",
+    // Text on the accent: black reads on the near-white.
     "--theme-accent-foreground": "#000000",
     "--theme-background-color": "#000000",
     "--theme-content-color": "#ffffff",
-    "--theme-highlight-color": "#57b5ff",
+    "--theme-highlight-color": "#a1a1a6",
     "--theme-hue": "207",
     "--theme-light-surface-color": "#000000",
     "--theme-saturation": "0%",
@@ -94,7 +95,8 @@ const DARK_LOOK = {
   blur: 11,
   glass: {
     enabled: true,
-    tint: { r: 0, g: 0, b: 0, alpha: 0.35 },
+    // The saved 0.35 above the glass floor: 0.2 + 0.8 × 0.35.
+    tint: { r: 0, g: 0, b: 0, alpha: 0.48 },
   },
   windowColor: undefined,
   zoom: 0.8,

@@ -4,6 +4,14 @@
   max-width: min(320px, max(190px, calc(100vw - 540px)));
   touch-action: pan-y;
 }
+/* The hover drawer (in the workspace or the macOS overlay) keeps the pinned
+   sidebar's padding, so its rows sit on the same grid with the same room
+   above the workspace row. */
+.personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.personal-navigation {
+  padding: 4px 6px 6px;
+}
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
   margin-left: -5px;
   padding-right: 0;
@@ -13,71 +21,176 @@
   margin-left: auto;
   color: var(--personal-muted);
 }
+/* One grid for the sidebar's content: boxes (row fills, the Search field,
+   the tiles) span the column; inside them, 16px icons sit 8px in and text
+   8px after the icon, and the last glyph on the right (the +, a chevron, a
+   time, Search's keys) ends 8px short of the column's edge. Rows are 28px,
+   with 8px between the workspace row, Search and the tiles. Chat rows have
+   a 1px border of their own, so their padding is 1px less. */
 .personal-shell .personal-navigation .personal-profile-header {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 7px;
-  height: 32px;
-  padding: 0 6px;
+  gap: 2px;
+  height: 28px;
+  margin: 0 0 8px;
   color: var(--color-content);
   font-size: var(--text-ui-body);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
-.personal-shell .personal-profile-picker {
+/* The workspace's name is its Home; the chevron beside it switches
+   workspace, and New chat sits at the row's end. */
+.personal-shell .personal-profile-name {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   height: 28px;
-  padding-inline: 6px;
-  border-radius: var(--aven-radius-sm);
+  padding-inline: 8px;
+  border-radius: var(--aven-radius-row);
   text-align: left;
 }
-.personal-shell .personal-profile-picker > span {
+.personal-shell .personal-profile-name > svg {
+  flex-shrink: 0;
+  color: var(--personal-muted);
+}
+.personal-shell .personal-profile-name > span {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.personal-shell .personal-profile-picker > svg:last-child {
-  color: var(--personal-muted);
-  opacity: 0;
-}
-.personal-shell .personal-profile-picker:hover > svg:last-child,
-.personal-shell .personal-profile-picker:focus-visible > svg:last-child,
+/* Home on screen: the whole row is selected, as a library row is. */
 .personal-shell
-  .personal-profile-picker[aria-expanded="true"]
-  > svg:last-child {
-  opacity: 1;
+  .personal-profile-header:has(> .personal-profile-name[aria-current="page"]) {
+  border-radius: var(--aven-radius-row);
+  background: var(--personal-selected);
 }
-/* Notes, Inbox and Automations: one compact row of icon buttons on a track,
-   with the segmented controls' corners. Each keeps its name as the tooltip
-   and as the button's accessible name, and a 28px target. */
-.personal-shell .personal-library-nav {
-  display: flex;
-  flex-shrink: 0;
-  gap: 2px;
-  margin: 2px 0 4px;
-  padding: 2px;
-  border-radius: var(--aven-radius-track);
-  background: var(--aven-fill-quaternary);
-  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
-}
-.personal-shell .personal-library-nav > :is(button, span) {
+.personal-shell .personal-profile-picker,
+.personal-shell .personal-profile-new {
   display: grid;
   place-items: center;
-  flex: 1 1 0;
+  flex-shrink: 0;
+  height: 28px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--personal-muted);
+}
+.personal-shell .personal-profile-picker {
+  width: 20px;
+  opacity: 0;
+}
+.personal-shell
+  .personal-profile-header:is(:hover, :focus-within)
+  .personal-profile-picker,
+.personal-shell .personal-profile-picker[aria-expanded="true"] {
+  opacity: 1;
+}
+.personal-shell .personal-profile-new {
+  width: 28px;
+  margin-left: auto;
+  margin-right: 2px;
+}
+.personal-shell .personal-profile-new:disabled {
+  opacity: 0.5;
+}
+.personal-shell
+  .personal-navigation
+  :is(
+    .personal-profile-name,
+    .personal-profile-picker,
+    .personal-profile-new
+  ):is(:hover, [aria-expanded="true"]):not(:disabled) {
+  background: var(--personal-hover);
+  color: var(--color-content);
+}
+/* Search: a field, as Arc keeps its address bar above its favourites. Its
+   icon and label sit on the rows' grid (8px, a 16px icon, 8px). */
+.personal-shell .personal-search-field {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
   min-width: 0;
   height: 28px;
+  margin: 0 0 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-fill-quaternary);
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-row);
+  text-align: left;
+}
+.personal-shell .personal-search-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.personal-shell .personal-search-keys {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  opacity: 0.45;
+}
+.personal-shell .personal-search-field:is(button:hover, :focus-visible) {
+  background: var(--aven-fill-tertiary);
+  color: var(--color-content);
+}
+.personal-shell .personal-search-field[aria-current="page"] {
+  background: var(--aven-fill-secondary);
+  color: var(--color-content);
+}
+/* Notes, Inbox and Automations: pinned tiles, as Arc's favourites. Flat
+   neutral fills, the icon centred, a small grey count in the corner. Each
+   keeps its name as the tooltip and as the button's accessible name, and a
+   target taller than a row. */
+.personal-shell .personal-library-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  flex-shrink: 0;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.personal-shell .personal-library-nav > :is(button, span) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 28px;
+  height: 36px;
   padding: 0;
   border: 0;
-  border-radius: var(--aven-radius-thumb);
-  background: transparent;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-fill-quaternary);
   color: var(--aven-label-secondary);
+}
+.personal-shell .personal-library-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.personal-shell .personal-library-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-micro);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 .personal-shell .personal-library-nav > button:hover,
 .personal-shell .personal-library-nav > button:focus-visible {
@@ -86,45 +199,19 @@
 }
 .personal-shell .personal-library-nav > button[aria-current="page"] {
   color: var(--color-content);
-  background: var(--aven-control-hover);
-  box-shadow: var(--aven-control-shadow);
+  background: var(--aven-fill-secondary);
 }
 .personal-shell .personal-navigation .personal-projects-heading {
   display: flex;
   align-items: center;
+  gap: 2px;
   height: 28px;
   min-height: 28px;
-  padding: 0 4px 0 8px;
+  padding: 0 2px 0 8px;
   font-size: var(--text-ui-caption);
   color: var(--aven-label-secondary);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-.personal-shell .personal-new-session {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  margin: 2px 0 4px;
-  padding: 0 8px;
-  border-radius: var(--aven-radius-row);
-  background: var(
-    --aven-control-bg,
-    color-mix(in srgb, var(--color-content) 6%, transparent)
-  );
-  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
-  color: var(--color-content);
-  font-size: var(--text-ui-label);
   font-weight: 500;
-  text-align: left;
-}
-.personal-shell .personal-new-session:hover,
-.personal-shell .personal-new-session:focus-visible {
-  background: var(--personal-hover);
-}
-.personal-shell .personal-new-session:disabled {
-  opacity: 0.5;
+  letter-spacing: 0.01em;
 }
 .personal-shell .personal-projects-heading > .personal-sessions-heading {
   width: auto;
@@ -135,8 +222,8 @@
   flex: 1;
 }
 .personal-shell .personal-projects-heading > button {
-  width: 20px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   opacity: 0;
 }
 .personal-shell .personal-projects-heading:hover > button,
@@ -145,23 +232,23 @@
   opacity: 1;
 }
 .personal-shell .personal-navigation .personal-project-group {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 .personal-shell .personal-navigation .personal-project-row {
   display: flex;
   align-items: center;
   min-height: 28px;
-  gap: 1px;
-  padding: 0;
+  gap: 0;
+  padding: 0 2px 0 0;
 }
 .personal-shell .personal-navigation .personal-project-open {
   display: flex;
   min-width: 0;
   flex: 1;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   height: 28px;
-  padding: 0 6px;
+  padding: 0 6px 0 8px;
   border-radius: var(--aven-radius-row);
   text-align: left;
   font-size: var(--text-ui-row);
@@ -176,6 +263,8 @@
 }
 .personal-shell .personal-navigation .personal-project-symbol {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
   color: var(--personal-muted);
 }
 /* What is happening in the project: quiet marks at the row's end. A running
@@ -198,7 +287,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--personal-accent);
+  background: var(--color-content);
 }
 .personal-shell
   .personal-navigation
@@ -208,8 +297,9 @@
   display: inline-block;
 }
 .personal-shell .personal-navigation .personal-project-memory {
+  display: none;
   flex-shrink: 0;
-  color: color-mix(in srgb, var(--personal-accent) 80%, var(--color-content));
+  color: var(--personal-muted);
 }
 .personal-shell .personal-navigation .personal-project-waiting {
   width: 6px;
@@ -217,14 +307,11 @@
   border-radius: 50%;
   background: var(--color-amber-400);
 }
-/* Changed files in the project's working copy: a small dot at rest, the
-   count when the row is pointed at or focused. */
+/* At rest a project row is its mark and name, and only what needs the
+   person stays: the amber waiting dot and the unread count. Changed files
+   and a memory update show with the actions, on hover or keyboard focus. */
 .personal-shell .personal-navigation .personal-project-files {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-content) 38%, transparent);
+  display: none;
 }
 .personal-shell .personal-navigation .personal-project-files-count {
   display: none;
@@ -233,9 +320,7 @@
   .personal-navigation
   .personal-project-row:is(:hover, :focus-within)
   .personal-project-files {
-  width: auto;
-  height: auto;
-  background: none;
+  display: inline;
 }
 .personal-shell
   .personal-navigation
@@ -243,45 +328,55 @@
   .personal-project-files-count {
   display: inline;
 }
+.personal-shell
+  .personal-navigation
+  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-memory {
+  display: inline-block;
+}
 .personal-shell .personal-navigation .personal-project-unread {
   display: inline-grid;
   place-items: center;
-  min-width: 15px;
-  height: 15px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--personal-accent) 26%, transparent);
-  color: var(--color-content);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-tertiary);
+  color: var(--aven-label-secondary);
   font-weight: 600;
 }
 /* A hidden sidebar keeps its rows; their mascots stop stepping. */
 .personal-shell .personal-sidebar-slot[data-open="false"] .project-mark * {
   animation-play-state: paused;
 }
+/* A row's actions (fold, New chat, ···) take no room at rest and
+   show on hover, on keyboard focus anywhere in the row (they stay in the Tab
+   order) and while the ··· menu is open. An open project keeps its fold
+   chevron, which says it is open. */
 .personal-shell .personal-navigation .personal-project-row-action {
   display: grid;
   place-items: center;
-  width: 24px;
+  width: 0;
   height: 24px;
   flex-shrink: 0;
+  overflow: hidden;
   border-radius: var(--aven-radius-sm);
   color: var(--personal-muted);
-}
-.personal-shell
-  .personal-navigation
-  .personal-project-row-action:not(.personal-project-disclosure) {
-  color: var(--personal-muted);
-}
-.personal-shell .personal-navigation .personal-project-more,
-.personal-shell .personal-navigation .personal-project-board {
-  width: 22px;
   opacity: 0;
   pointer-events: none;
 }
-.personal-shell .personal-project-row:hover .personal-project-more,
-.personal-shell .personal-project-row:focus-within .personal-project-more,
-.personal-shell .personal-project-row:hover .personal-project-board,
-.personal-shell .personal-project-row:focus-within .personal-project-board {
+.personal-shell
+  .personal-navigation
+  .personal-project-row:is(
+    :hover,
+    :focus-within,
+    :has(.personal-project-more[aria-expanded="true"])
+  )
+  .personal-project-row-action,
+.personal-shell
+  .personal-navigation
+  .personal-project-disclosure[aria-expanded="true"] {
+  width: 24px;
   opacity: 1;
   pointer-events: auto;
 }
@@ -304,14 +399,23 @@
 .personal-shell .personal-navigation .personal-task-card {
   position: relative;
   min-height: 28px;
-  padding: 5px 8px 5px 10px;
+  padding: 4px 7px;
   border-radius: var(--aven-radius-row);
 }
-/* The chat in front is unmistakable: a stronger fill, a short accent bar at
-   its leading edge and a heavier title. */
+/* Every chat row's first 16px: its agent's mark, a pin, a talk mark or the
+   working dot, so titles start where the rows above put their labels. */
+.personal-shell .personal-navigation .personal-task-lead {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+/* The chat in front is unmistakable: a stronger fill, a short bar at its
+   leading edge and a heavier title. */
 .personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
   border-color: transparent;
-  background: color-mix(in srgb, var(--personal-highlight) 18%, transparent);
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
   box-shadow: none;
 }
 .personal-shell
@@ -324,7 +428,7 @@
   left: 3px;
   width: 2px;
   border-radius: var(--aven-radius-capsule);
-  background: var(--personal-accent);
+  background: var(--color-content);
   pointer-events: none;
 }
 .personal-shell
@@ -350,7 +454,7 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   text-align: left;
   border: 1px solid transparent;
   color: var(--color-content);
@@ -377,7 +481,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--personal-accent);
+  background: var(--color-content);
 }
 .personal-shell .personal-navigation .personal-task-indent {
   width: 5px;
@@ -404,16 +508,25 @@
 .personal-shell .personal-navigation .personal-task-filter input {
   font-size: var(--text-ui-label);
 }
-.personal-shell .personal-navigation .personal-tasks-empty {
-  padding: 7px 12px;
-  color: var(--personal-muted);
-  font-size: var(--text-ui-caption);
-}
+/* Quiet lines under a project ("No chats yet", "View all 12 chats",
+   "Load chats"): a 28px row whose text starts where chat titles start. A
+   line for the whole list, outside any project, starts at the headings. */
+.personal-shell .personal-navigation .personal-tasks-empty,
 .personal-shell .personal-navigation .personal-view-project-tasks {
-  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px 4px 32px;
   color: var(--personal-muted);
   font-size: var(--text-ui-caption);
   text-align: left;
+}
+.personal-shell
+  .personal-navigation
+  .personal-projects-scroll
+  > .personal-tasks-empty {
+  padding-left: 8px;
 }
 .personal-shell .personal-navigation .personal-view-project-tasks:hover {
   color: var(--color-content);
@@ -440,6 +553,20 @@
   border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--personal-muted);
+}
+/* New workspace is rare: it shows with the footer's other controls under
+   the pointer or keyboard focus, and while its form is open. */
+.personal-shell .personal-navigation .personal-workspace-add {
+  opacity: 0;
+}
+.personal-shell
+  .personal-navigation
+  .personal-workspace-switcher:is(:hover, :focus-within)
+  .personal-workspace-add,
+.personal-shell
+  .personal-navigation
+  .personal-workspace-add[aria-expanded="true"] {
+  opacity: 1;
 }
 .personal-shell
   .personal-navigation
@@ -602,32 +729,18 @@
   }
 }
 
-.personal-shell .personal-profile-picker:hover,
-.personal-shell .personal-profile-picker[aria-expanded="true"] {
-  background: var(--personal-hover);
-}
-.personal-shell .personal-new-session > svg {
-  color: var(--personal-muted);
-}
-.personal-shell .personal-new-session:hover:not(:disabled) {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 10%,
-    var(--aven-control-bg, var(--personal-frame))
-  );
-}
 .personal-shell
   .personal-navigation
   .personal-task-card[data-session-selected="true"] {
-  background: color-mix(in srgb, var(--personal-accent) 21%, transparent);
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
   box-shadow: none;
 }
 .personal-shell
   .personal-navigation
   .personal-task-card[data-needs-approval="true"] {
-  border-color: color-mix(in srgb, var(--personal-accent) 60%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 35%, transparent);
   border-style: dashed;
-  background: color-mix(in srgb, var(--personal-accent) 9%, transparent);
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .personal-shell .personal-navigation .personal-sidebar-footer {
   padding-top: 6px;

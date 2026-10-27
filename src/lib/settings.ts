@@ -1,4 +1,4 @@
-import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
+import { ALT, CTRL, IS_MAC, MOD, SHIFT } from "./platform";
 import { SETTINGS } from "./settingDefinitions";
 import { defineStoredSetting } from "./settingsRegistry";
 export { SETTINGS } from "./settingDefinitions";
@@ -201,8 +201,6 @@ export const CLAUDE_HOOKS_DEFAULT = SETTINGS.claudeHooks.defaultValue;
 export const loadClaudeHooks = SETTINGS.claudeHooks.load;
 export const saveClaudeHooks = SETTINGS.claudeHooks.save;
 
-const CTRL = IS_MAC ? "⌃" : "Ctrl+";
-
 export type KeybindingRow = {
   command: string;
   keys: string;
@@ -279,6 +277,43 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Pane: Focus Right", keys: `${MOD}${ALT}→`, when: "Always" },
   { command: "Pane: Focus Up", keys: `${MOD}${ALT}↑`, when: "Always" },
   { command: "Pane: Focus Down", keys: `${MOD}${ALT}↓`, when: "Always" },
+  // Windows keeps Ctrl+Alt+Tab for itself; PageDown and PageUp step panes
+  // there (tabKeys.ts).
+  ...(IS_MAC
+    ? [
+        {
+          command: "Pane: Next",
+          keys: `${CTRL}${ALT}Tab`,
+          when: "!terminalFocus",
+        },
+        {
+          command: "Pane: Previous",
+          keys: `${CTRL}${ALT}${SHIFT}Tab`,
+          when: "!terminalFocus",
+        },
+      ]
+    : []),
+  {
+    command: "Pane: Expand or Restore",
+    keys: `${CTRL}${ALT}Z`,
+    when: "!terminalFocus",
+  },
+  { command: "Pane: Close", keys: `${CTRL}${ALT}W`, when: "!terminalFocus" },
+  {
+    command: "Pane: Back to Its Content",
+    keys: "Esc",
+    when: "titleRowFocus",
+  },
+  {
+    command: "Pane: Next / Previous",
+    keys: `${CTRL}${ALT}PageDown / ${CTRL}${ALT}PageUp`,
+    when: "!terminalFocus",
+  },
+  {
+    command: "Pane: Move Between Panes",
+    keys: `${MOD}${ALT}← → ↑ ↓`,
+    when: "voiceOver",
+  },
   { command: "Terminal: New", keys: `${MOD}\``, when: "Always" },
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
   { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
@@ -297,6 +332,12 @@ export function formatKeybindingContext(when: string): string {
       return "Outside the editor";
     case "editorFocus":
       return "In the editor";
+    case "!terminalFocus":
+      return "Outside the terminal";
+    case "titleRowFocus":
+      return "In a pane's title row or the window's tabs";
+    case "voiceOver":
+      return "Anywhere, including with VoiceOver, which keeps ⌃⌥ for itself";
     default:
       return when;
   }

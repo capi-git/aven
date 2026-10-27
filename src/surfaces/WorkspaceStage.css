@@ -1,3 +1,9 @@
+:root,
+.personal-shell {
+  /* Drag and drop feedback: grey, as everything in the workspace is. */
+  --aven-drop-line: var(--aven-label-secondary);
+  --aven-drop-wash: color-mix(in srgb, var(--color-content) 6%, transparent);
+}
 .workspace-stage {
   /* Wallpaper coordinates follow this workspace, including nested splits.
      Container units resize with the window without layout observers. */
@@ -124,6 +130,13 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: 4px;
   display: flex;
   gap: 2px;
+  /* With the title row's tools: on the focused pane, or while pointed at. */
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) ease;
+}
+.workspace-stage-header:is(:hover, :focus-within, [data-focused="true"])
+  .workspace-pane-minimize-controls {
+  opacity: 1;
 }
 .workspace-pane-toggle {
   position: relative;
@@ -165,7 +178,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-content);
 }
 .workspace-pane-restore[data-status="attention"] .workspace-pane-status {
   background: var(--color-warning, #d99a45);
@@ -202,9 +215,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   inset: 0;
   z-index: 40;
   pointer-events: none;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  border-bottom: 1px solid var(--aven-drop-line);
+  background: var(--aven-drop-wash);
 }
 .workspace-stage-body {
   position: relative;
@@ -222,23 +234,30 @@ html.has-chat-background:not(.chat-background-empty-only)
   touch-action: none;
   outline: none;
 }
+/* A seam, as in Cydonia: a hairline in a 9px target. Pointing at it or
+   dragging it thickens the line to 2px in the muted text colour; keyboard
+   focus shows the focus ring's colour. Beside a native page the target is
+   kept clear of the page (data-native-hit-margin, browserHitMargins.ts). */
 .workspace-stage-sash[data-direction="right"] {
-  width: 8px;
+  width: 9px;
   transform: translateX(-50%);
   cursor: col-resize;
 }
 .workspace-stage-sash[data-direction="down"] {
-  height: 8px;
+  height: 9px;
   transform: translateY(-50%);
   cursor: row-resize;
 }
-/* The divider is a hairline in the gap between two panes, the same line as
-   the sidebar's and side panel's edges; pointing at it, focusing or
-   dragging it turns it to the accent. */
 .workspace-stage-sash::after {
   content: "";
   position: absolute;
   background: var(--aven-separator);
+  transition:
+    background-color var(--aven-motion-fast) ease,
+    width var(--aven-motion-fast) ease,
+    height var(--aven-motion-fast) ease,
+    left var(--aven-motion-fast) ease,
+    top var(--aven-motion-fast) ease;
 }
 .workspace-stage-sash[data-direction="right"]::after {
   top: 0;
@@ -252,39 +271,81 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - var(--aven-hairline) / 2);
   height: var(--aven-hairline);
 }
-.workspace-stage-sash:hover::after,
-.workspace-stage-sash:focus-visible::after,
-.workspace-stage-sash:active::after {
-  background: var(--color-accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+.workspace-stage-sash:is(:hover, :active)::after,
+.workspace-stage[data-resizing="true"] .workspace-stage-sash:focus::after {
+  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
+}
+.workspace-stage-sash:focus-visible::after {
+  background: var(--aven-focus-ring, var(--color-accent));
 }
 .workspace-stage-sash[data-direction="right"]:is(
     :hover,
     :focus-visible,
     :active
   )::after {
-  left: calc(50% - 0.5px);
-  width: 1px;
+  left: calc(50% - 1px);
+  width: 2px;
 }
 .workspace-stage-sash[data-direction="down"]:is(
     :hover,
     :focus-visible,
     :active
   )::after {
-  top: calc(50% - 0.5px);
-  height: 1px;
+  top: calc(50% - 1px);
+  height: 2px;
 }
-/* Native browser feedback samples these resolved sRGB colors once per drag.
-   The workspace palette supplies both the line and its contrasting halo. */
-.workspace-stage-drop-hint {
+/* A split inside a tab: where a dropped pane will go. */
+.aven-pane-drop-wash {
+  background: var(--aven-drop-wash);
+}
+.aven-pane-drop-line {
+  background: var(--aven-drop-line);
+}
+/* A split inside a tab has the same seam: a hairline in a 9px target that
+   thickens to 2px in the muted text colour while pointed at or dragged. */
+.aven-pane-seam {
+  transition:
+    background-color var(--aven-motion-fast) ease,
+    box-shadow var(--aven-motion-fast) ease;
+}
+.aven-pane-seam:is(:hover, :active) {
+  --aven-seam-used: color-mix(
+    in srgb,
+    var(--aven-label-secondary) 45%,
+    transparent
+  );
+  background: var(--aven-seam-used);
+  box-shadow: 0 0 0 0.5px var(--aven-seam-used);
+}
+/* Where a drop lands in the target pane's body: half of it, or all of it to
+   stack, inset 4px. Drop feedback is neutral grey, never a colour: a line in
+   the secondary label colour over a faint wash of the text colour. Native
+   browser feedback samples these resolved sRGB colours once per drag; the
+   workspace palette supplies both the line and its contrasting halo. The
+   preview below draws it over HTML panes. */
+.workspace-stage-drop-hint,
+.workspace-stage-drop-preview {
   position: absolute;
   z-index: 41;
+  box-sizing: border-box;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
-  border-radius: var(--aven-radius-md);
+  border: 1px solid var(--aven-drop-line);
+  border-radius: var(--aven-radius-sm);
   outline: 0.5px solid
     color-mix(in srgb, var(--color-background-base) 90%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  background: var(--aven-drop-wash);
+}
+.workspace-stage-drop-hint {
+  visibility: hidden;
+}
+/* One preview for the whole stage, so it glides between zones and panes. */
+.workspace-stage-drop-preview {
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.workspace-stage-drop-preview[data-shown="false"] {
+  display: none;
 }
 
 .workspace-stage-insertion {
@@ -293,7 +354,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   bottom: 4px;
   width: 1px;
   z-index: 42;
-  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: var(--aven-drop-line);
   border-radius: 2px;
   pointer-events: none;
 }

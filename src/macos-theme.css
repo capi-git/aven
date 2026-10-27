@@ -409,7 +409,7 @@ textarea {
     .workspace-home-actions button:not(.workspace-home-new),
     .session-run-stop,
     .git-clean-action,
-    .personal-new-session,
+    .personal-profile-new,
     .personal-home-add
   ):active:not(:disabled) {
   background: var(--aven-control-pressed);

@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
+import { captureDropGhost } from "../lib/dropGhost";
 import { moveItem } from "../lib/reorder";
 import {
   SortableMotion,
@@ -484,6 +485,12 @@ export function useSortable(
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
         scrollFrame = null;
         const current = drag.current;
+        // A tab let go outside its strip may land in a pane; measure its
+        // look before the motion below puts it back.
+        const ghost =
+          commit && current?.active && !current.inStrip
+            ? captureDropGhost(nodes.current.get(current.id))
+            : null;
         if (animate) {
           settling.current = current?.active ? motion.current.capture() : null;
           motion.current.reset();
@@ -511,6 +518,7 @@ export function useSortable(
           !commit,
           { screenX: current.screenX, screenY: current.screenY },
         );
+        if (consumed) ghost?.fade();
         if (
           consumed ||
           !current.inStrip ||

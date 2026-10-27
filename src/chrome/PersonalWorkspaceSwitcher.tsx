@@ -133,7 +133,11 @@ export function PersonalWorkspaceSwitcher({
             className="personal-workspace-tool personal-profile-switch"
             data-profile-index={index}
             aria-label={`${profile.name} workspace`}
-            title={profile.name}
+            title={
+              profile.id === activeProfileId
+                ? `${profile.name} workspace`
+                : `Switch to ${profile.name}`
+            }
             aria-pressed={profile.id === activeProfileId}
             onClick={() => {
               onSelectProfile?.(profile.id);
@@ -168,7 +172,7 @@ export function PersonalWorkspaceSwitcher({
         <button
           ref={addRef}
           type="button"
-          className="personal-workspace-tool"
+          className="personal-workspace-tool personal-workspace-add"
           aria-label="Add workspace"
           title="New workspace"
           aria-haspopup="dialog"
@@ -220,7 +224,7 @@ export function PersonalWorkspaceSwitcher({
               maxLength={40}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="mt-2 h-8 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-xs text-content outline-none focus:border-accent/60"
+              className="mt-2 h-8 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-xs text-content outline-none focus:border-content/35"
               placeholder="Name"
             />
             <button

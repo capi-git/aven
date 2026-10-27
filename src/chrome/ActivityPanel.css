@@ -136,7 +136,7 @@
   height: 5px;
   width: 5px;
   border-radius: 50%;
-  background: var(--toolbar-panel-accent);
+  background: var(--toolbar-panel-text);
 }
 .activity-empty {
   margin: 0;

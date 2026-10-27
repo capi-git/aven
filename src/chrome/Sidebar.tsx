@@ -305,11 +305,16 @@ export type SidebarProps = {
   onOpenInbox?: () => void;
   onOpenAutomations?: () => void;
   onOpenNotes?: () => void;
+  /** The workspace's row opens its Home. */
+  onOpenHome?: () => void;
   onGoToFile?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   automationsActive?: boolean;
   notesActive?: boolean;
+  homeActive?: boolean;
+  /** Finished automation runs nobody has opened, counted on its row. */
+  automationsUnread?: number;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
@@ -461,11 +466,13 @@ function SidebarComponent({
   onOpenInbox,
   onOpenAutomations,
   onOpenNotes,
+  onOpenHome,
   searchActive = false,
   inboxActive = false,
   automationsActive = false,
   notesActive = false,
-
+  homeActive = false,
+  automationsUnread = 0,
   notesEnabled = true,
   unseenFinishedIds: unseenFinishedIdsProp,
   settingsOpen = false,
@@ -1114,12 +1121,21 @@ function SidebarComponent({
   /** A plain row's leading mark: talking, working, or a spacer. */
   const plainLead = (session: SessionSummary, runningLabel: string) => {
     const talk = talks.get(session.id);
-    if (talk)
-      return <DiscussionTalkMark harness={session.harness} talk={talk} />;
-    return busySessionIds.has(session.id) ? (
-      <span className="personal-task-working-dot" aria-label={runningLabel} />
-    ) : (
-      <span className="personal-task-indent" />
+    // One 16px slot before every title, so titles line up with the
+    // workspace rows and the project names above them.
+    return (
+      <span className="personal-task-lead">
+        {talk ? (
+          <DiscussionTalkMark harness={session.harness} talk={talk} />
+        ) : busySessionIds.has(session.id) ? (
+          <span
+            className="personal-task-working-dot"
+            aria-label={runningLabel}
+          />
+        ) : (
+          <span className="personal-task-indent" />
+        )}
+      </span>
     );
   };
   /** Names the partner when its row is not on screen to link to. */
@@ -1545,7 +1561,7 @@ function SidebarComponent({
       {tasksExpanded ? (
         <>
           {!cwd || cwd === "~" ? (
-            <p className="px-4 py-4 text-ui-label leading-relaxed text-content/60">
+            <p className="personal-tasks-empty">
               Open a project to see its chats.
             </p>
           ) : (
@@ -1559,15 +1575,13 @@ function SidebarComponent({
             */}
               {pendingFirstLoad ? null : status === "error" &&
                 sessions.length === 0 ? (
-                <p className="px-3 py-2 text-ui-label text-content/50">
-                  Couldn't load chats
-                </p>
+                <p className="personal-tasks-empty">Couldn't load chats</p>
               ) : visibleSessions.length === 0 ? (
                 // A narrowed-down result is a transient answer to what the user
                 // just typed, so it stays a quiet line of text. Only the genuine
                 // "this project has nothing in it" case earns the illustration.
                 narrowedByUser ? (
-                  <p className="px-3 py-2 text-ui-label text-content/50">
+                  <p className="personal-tasks-empty">
                     {searchNarrowed
                       ? "No matching chats"
                       : "No chats match these filters"}
@@ -1630,10 +1644,10 @@ function SidebarComponent({
                           } ${draggingFolder ? "opacity-40" : ""}`}
                         >
                           {showFolderDropStart ? (
-                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
+                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-content/60" />
                           ) : null}
                           {showFolderDropEnd ? (
-                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
+                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-content/60" />
                           ) : null}
                           <div
                             className={`overflow-hidden rounded-md ${
@@ -1786,6 +1800,22 @@ function SidebarComponent({
           ? (x, y) => openWorkspaceMenu(activeProfile, x, y)
           : undefined
       }
+      onOpenHome={
+        onOpenHome
+          ? () => {
+              // Home sits under Settings, so leave Settings for it.
+              if (settingsOpen) onCloseSettings?.();
+              onOpenHome();
+            }
+          : undefined
+      }
+      homeActive={homeActive && !settingsOpen}
+      showNewSession={!settingsOpen && !!onNewStandalone}
+      startingNewSession={startingStandalone}
+      onNewSession={() => {
+        setTasksExpanded(true);
+        onNewStandalone?.();
+      }}
       showSearch={!!onSearch}
       searchActive={searchActive}
       onSearch={onSearch}
@@ -1798,6 +1828,7 @@ function SidebarComponent({
       showAutomations={!settingsOpen && !!onOpenAutomations}
       automationsActive={automationsActive}
       onOpenAutomations={onOpenAutomations}
+      automationsUnread={automationsUnread}
     />
   );
 
@@ -1947,21 +1978,6 @@ function SidebarComponent({
               }}
             >
               {profileHeader}
-              {onNewStandalone ? (
-                <button
-                  type="button"
-                  className="personal-new-session"
-                  aria-label="New chat without a project"
-                  disabled={startingStandalone}
-                  onClick={() => {
-                    setTasksExpanded(true);
-                    onNewStandalone();
-                  }}
-                >
-                  <Plus className="size-3.5" />
-                  <span>{startingStandalone ? "Starting…" : "New chat"}</span>
-                </button>
-              ) : null}
               <div
                 ref={setScroller}
                 data-tour="projects"
@@ -2694,7 +2710,7 @@ function FolderRow({
       }`}
     >
       {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
       ) : null}
       <span
         className={`relative grid size-4 shrink-0 place-items-center ${
@@ -2781,7 +2797,7 @@ function FolderRenameRow({
       }`}
     >
       {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
       ) : null}
       <span className="relative grid size-4 shrink-0 place-items-center text-content/50">
         <ChevronDown className="size-3.5" strokeWidth={1.75} />
@@ -3098,7 +3114,7 @@ function SessionCard({
           aria-current={isActive ? "true" : undefined}
           className={`personal-task-card relative border rounded-md text-left ${dragging ? "opacity-40" : ""} ${
             isSelected
-              ? "bg-accent/15 text-content border-transparent"
+              ? "bg-content/12 text-content border-transparent"
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
@@ -3110,7 +3126,7 @@ function SessionCard({
             <span
               aria-hidden
               data-session-insert={dropEdge}
-              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-accent ${dropEdge === "after" ? "bottom-0" : "top-0"}`}
+              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-content/60 ${dropEdge === "after" ? "bottom-0" : "top-0"}`}
             />
           ) : null}
           <button
@@ -3211,7 +3227,7 @@ function SessionCard({
           dropTarget
             ? "text-content border-transparent"
             : isSelected
-              ? "bg-accent/15 text-content border-transparent"
+              ? "bg-content/12 text-content border-transparent"
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
@@ -3224,12 +3240,12 @@ function SessionCard({
             <span
               data-session-insert={dropEdge}
               aria-hidden
-              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-accent ${
+              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-content/60 ${
                 dropEdge === "before" ? "top-0" : "bottom-0"
               }`}
             />
           ) : (
-            <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+            <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
           )
         ) : null}
         {compact ? null : (
@@ -3255,22 +3271,28 @@ function SessionCard({
           </span>
         )}
         <span
-          className={`relative flex min-w-0 items-center gap-1.5 ${
-            compact ? "" : "mt-1"
+          className={`relative flex min-w-0 items-center ${
+            compact ? "gap-2" : "mt-1 gap-1.5"
           }`}
         >
           {talk && compact ? (
-            <DiscussionTalkMark harness={session.harness} talk={talk} />
+            <span className="personal-task-lead">
+              <DiscussionTalkMark harness={session.harness} talk={talk} />
+            </span>
           ) : session.pinned ? (
-            <Pin
-              className="size-3 shrink-0 text-content/45"
-              strokeWidth={1.75}
-            />
+            <span className="personal-task-lead">
+              <Pin
+                className="size-3 shrink-0 text-content/45"
+                strokeWidth={1.75}
+              />
+            </span>
           ) : compact ? (
-            <HarnessIcon
-              harness={session.harness}
-              className="size-3 shrink-0 opacity-60"
-            />
+            <span className="personal-task-lead">
+              <HarnessIcon
+                harness={session.harness}
+                className="size-3 shrink-0 opacity-60"
+              />
+            </span>
           ) : null}
           <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
             {title}

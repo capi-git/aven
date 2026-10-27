@@ -47,6 +47,14 @@ describe("macOS native glass tint", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps at least a fifth of the shell colour over the desktop", () => {
+    // The Glass slider runs over the rest of the range; Solid stays solid.
+    expect(appearance.GLASS_TINT_FLOOR).toBe(0.2);
+    expect(
+      [0, 0.05, 0.3, 0.4, 0.5, 0.52, 1].map(appearance.glassTintAlpha),
+    ).toEqual([0.2, 0.24, 0.44, 0.52, 0.6, 0.616, 1]);
+  });
+
   it("hands the shell colour and opacity to AppKit before the page stops painting it", async () => {
     appearance.applyThemeColors({ dark: { background: "#123456" } });
     let acknowledge = (_value: boolean) => {};
@@ -58,7 +66,8 @@ describe("macOS native glass tint", () => {
     appearance.activateWindowAppearance();
     expect(invoke).toHaveBeenCalledWith("set_window_glass_enabled", {
       enabled: true,
-      tint: { r: 0x12, g: 0x34, b: 0x56, alpha: 0.5 },
+      // The slider's 0.5, above the glass floor.
+      tint: { r: 0x12, g: 0x34, b: 0x56, alpha: 0.6 },
     });
     expect(hasNativeTint()).toBe(false);
     acknowledge(true);
@@ -71,7 +80,7 @@ describe("macOS native glass tint", () => {
     // hsl(0 100% 4%), the dark `--personal-frame` fallback.
     expect(invoke).toHaveBeenLastCalledWith("set_window_glass_enabled", {
       enabled: true,
-      tint: { r: 20, g: 0, b: 0, alpha: 0.5 },
+      tint: { r: 20, g: 0, b: 0, alpha: 0.6 },
     });
   });
 
@@ -106,7 +115,7 @@ describe("macOS native glass tint", () => {
     expect(glassCalls()).toEqual([
       [
         "set_window_glass_enabled",
-        { enabled: true, tint: { r: 0x20, g: 0x40, b: 0x60, alpha: 0.4 } },
+        { enabled: true, tint: { r: 0x20, g: 0x40, b: 0x60, alpha: 0.52 } },
       ],
     ]);
 
@@ -127,7 +136,7 @@ describe("macOS native glass tint", () => {
     appearance.applySidebarOpacity(0.3);
     await settle();
     expect(glassCalls().at(-1)?.[1]).toMatchObject({
-      tint: { alpha: 0.3 },
+      tint: { alpha: 0.44 },
     });
     expect(hasNativeTint()).toBe(true);
   });
@@ -255,7 +264,7 @@ describe("macOS native glass tint", () => {
     appearance.applyThemeColors({ dark: { background: "#204060" } });
     await settle();
     observer.disconnect();
-    expect(glassCalls().at(-1)?.[1]).toMatchObject({ tint: { alpha: 0.3 } });
+    expect(glassCalls().at(-1)?.[1]).toMatchObject({ tint: { alpha: 0.44 } });
     expect(classes).not.toContain(true);
     expect(glassPending()).toBe(false);
   });
@@ -332,8 +341,9 @@ describe("native glass tint stylesheet", () => {
     expect(shellCss).toMatch(
       /background: color-mix\(\s*in srgb,\s*var\(--personal-frame\) calc\(var\(--personal-window-opacity\) \* 100%\),\s*transparent\s*\);/,
     );
+    // The same floor as glassTintAlpha.
     expect(shellCss).toContain(
-      "--personal-window-opacity: var(--sidebar-opacity, 1);",
+      "--personal-window-opacity: calc(0.2 + 0.8 * var(--sidebar-opacity, 1));",
     );
     const indexCss = readFileSync("src/index.css", "utf8");
     expect(indexCss).toMatch(

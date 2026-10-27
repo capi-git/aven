@@ -723,7 +723,7 @@ function NoteEditor({
         <div
           aria-busy={imageBusy}
           className={`relative min-h-[448px] rounded-lg border transition-colors ${
-            imageDrag ? "border-accent/60 bg-accent/5" : "border-transparent"
+            imageDrag ? "border-content/40 bg-content/5" : "border-transparent"
           }`}
           onDragOver={(event: ReactDragEvent<HTMLDivElement>) => {
             if (!hasFileTransfer(event.dataTransfer)) return;

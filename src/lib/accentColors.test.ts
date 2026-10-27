@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AVEN_THEME_COLORS } from "./appearance";
+import { AVEN_BLUE_THEME_COLORS, AVEN_THEME_COLORS } from "./appearance";
 import {
   ACCENT_PRESETS,
   accentSwatches,
@@ -30,18 +30,28 @@ const preset = (name: string) =>
   ACCENT_PRESETS.find((candidate) => candidate.name === name)!;
 
 describe("accent colours", () => {
-  it("offers distinct palette accents with Aven's default blue first", () => {
+  it("offers distinct palette accents, Aven's neutral default first and Blue next", () => {
     expect(ACCENT_PRESETS[0]).toMatchObject({
       name: "Aven",
-      label: "Aven blue",
+      label: "Neutral",
       colors: {
-        dark: { accent: "#57b5ff", highlight: "#57b5ff" },
+        dark: { accent: "#e8e8ea", highlight: "#a1a1a6" },
         light: {
           accent: AVEN_THEME_COLORS.light.accent,
           highlight: AVEN_THEME_COLORS.light.highlight,
         },
       },
     });
+    expect(ACCENT_PRESETS[1]).toMatchObject({
+      name: "Blue",
+      label: "Blue",
+      colors: {
+        dark: { accent: "#57b5ff" },
+        light: { accent: AVEN_BLUE_THEME_COLORS.light.accent },
+      },
+    });
+    // Mono's near-white would be a near-twin of the neutral default.
+    expect(ACCENT_PRESETS.map((accent) => accent.name)).not.toContain("Mono");
     for (const accent of ACCENT_PRESETS) {
       const palette = WORKSPACE_THEME_PRESETS.find(
         (candidate) => candidate.name === accent.name,
@@ -80,6 +90,34 @@ describe("accent colours", () => {
     };
     expect(selectedAccentPreset(custom, "dark")).toBeNull();
     expect(selectedAccentPreset(custom, "light")).toBeNull();
+  });
+
+  it("keeps Blue and a custom blue as chosen; the former default turns neutral", () => {
+    const theme = defaultWorkspaceTheme();
+    saveWorkspaceTheme("blue", {
+      colors: withAccentPreset(theme.colors, preset("Blue")),
+    });
+    expect(selectedAccentPreset(loadWorkspaceTheme("blue"), "dark")?.name).toBe(
+      "Blue",
+    );
+    expect(loadWorkspaceTheme("blue").colors?.dark?.accent).toBe("#57b5ff");
+    saveWorkspaceCustomAccent("custom", "#57b5ff");
+    expect(loadWorkspaceTheme("custom").colors?.dark?.accent).toBe("#57b5ff");
+    saveWorkspaceTheme("former", {
+      colors: {
+        dark: {
+          background: "#000000",
+          accent: "#57b5ff",
+          highlight: "#57b5ff",
+        },
+      },
+    });
+    expect(loadWorkspaceTheme("former").colors?.dark).toEqual(
+      AVEN_THEME_COLORS.dark,
+    );
+    expect(
+      selectedAccentPreset(loadWorkspaceTheme("former"), "dark")?.name,
+    ).toBe("Aven");
   });
 
   it("sets a palette accent in both modes and keeps the backgrounds", () => {

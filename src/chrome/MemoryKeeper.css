@@ -112,7 +112,7 @@
   transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .memory-keeper-switch[aria-checked="true"] .memory-keeper-track {
-  background: color-mix(in srgb, var(--color-accent) 70%, transparent);
+  background: var(--color-accent);
 }
 .memory-keeper-switch[aria-checked="true"] .memory-keeper-track::after {
   transform: translateX(11px);

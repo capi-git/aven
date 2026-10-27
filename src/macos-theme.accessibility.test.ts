@@ -201,25 +201,30 @@ describe("switches, focus and hit targets", () => {
     );
   });
 
-  it("shows typing in the message box in the focus ring's colour", () => {
+  it("shows typing in the message box with a neutral lift, and the focus ring with Increase Contrast", () => {
+    const typing = rule(
+      "src/chrome/Composer.css",
+      ".personal-shell .personal-composer [data-composer-box]:focus-within",
+    );
+    expect(typing).toContain(
+      "border-color: color-mix(in srgb, var(--color-content) 24%, transparent);",
+    );
+    expect(typing).not.toContain("accent");
     expect(
-      rule(
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer [data-composer-box]:focus-within",
-      ),
-    ).toContain("var(--aven-focus-ring)");
+      media(read("src/chrome/Composer.css"), "(prefers-contrast: more)"),
+    ).toContain("border-color: var(--aven-focus-ring);");
     expect(
       rule("src/chrome/SettingsRail.css", ".settings-nav__search:focus-within"),
     ).toContain("var(--aven-focus-ring)");
   });
 
-  it("keeps the library row and the side panel's tabs at a 28px target", () => {
+  it("keeps the library tiles and the side panel's tabs at a 28px target", () => {
     expect(
       rule(
         "src/chrome/PersonalNavigation.css",
         ".personal-shell .personal-library-nav > :is(button, span)",
       ),
-    ).toContain("height: 28px;");
+    ).toContain("min-height: 28px;");
     expect(
       rule("src/chrome/WorkspaceInspector.css", ".workspace-inspector-tab"),
     ).toContain("min-height: 28px;");

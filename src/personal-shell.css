@@ -34,9 +34,10 @@
   --personal-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 9%, transparent);
   --personal-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
+  /* Selected rows are a neutral fill: colour stays for meaning, not state. */
   --personal-selected: color-mix(
     in srgb,
-    var(--personal-highlight) 11%,
+    var(--color-content) 10%,
     transparent
   );
   --aven-muted: var(--personal-muted);
@@ -102,7 +103,9 @@ html.theme-light .personal-shell {
 /* The window owns the base translucency; navigation adds a light foreground tint.
    Floating panels stay solid unless workspace matching is explicitly enabled. */
 html.has-native-glass:not(.theme-light) .personal-shell {
-  --personal-window-opacity: var(--sidebar-opacity, 1);
+  /* Never thinner than a fifth of the shell colour, so a colourful wallpaper
+     reads as grey rather than tinting the window (GLASS_TINT_FLOOR). */
+  --personal-window-opacity: calc(0.2 + 0.8 * var(--sidebar-opacity, 1));
 }
 
 /* macOS paints this same shell tint on the window itself once it confirms
@@ -420,7 +423,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 
 .personal-shell .personal-browser-divider:hover,
 .personal-shell .personal-inspector-divider:hover {
-  background: color-mix(in srgb, var(--personal-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
 }
 
 .personal-shell .personal-browser-divider:focus-visible,
@@ -468,9 +471,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 .personal-shell .personal-sidebar-slot[data-floating="true"] {
   width: var(--nav-width, 216px);
-  /* The glass panel inherits its radius from this slot. Keep the material
-     and outer outline on the same curve without clipping the resize handle. */
-  border-radius: var(--aven-radius-pane);
+  border-radius: 0;
 }
 .personal-shell .personal-inspector-slot[data-floating="true"] {
   width: var(--inspector-width, 280px);
@@ -493,16 +494,23 @@ html.has-native-glass.glass-body:not(.theme-light)
   border: 1px solid var(--personal-line);
   border-radius: var(--aven-radius-pane);
 }
+/* The hover sidebar is a drawer, flush with the window's left edge and the
+   workspace's top and bottom (the window's corner rounds its outer
+   corner), with a hairline and a soft shadow on its open side. Inset as a
+   card it left a gutter around it where, over a page, the window behind the
+   workspace showed through: a dark band in light mode. Flush, it covers
+   everything the workspace leaves to it. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar {
-  inset: var(--aven-window-gutter) auto var(--aven-window-gutter)
-    var(--aven-window-gutter);
-  height: calc(100% - 2 * var(--aven-window-gutter));
+  inset: 0 auto 0 0;
+  height: 100%;
+  border: 0;
+  border-right: var(--aven-hairline) solid var(--aven-separator);
+  border-radius: 0;
   background: var(--personal-navigation-surface);
-  /* Light catching the floating glass's edge; its outer shadow is left
-     off, since the overlay window that draws it ends at its edge. */
-  box-shadow: var(--aven-specular);
+  box-shadow: 6px 0 18px -10px
+    color-mix(in srgb, var(--color-background-base) 55%, #000);
   z-index: 50;
 }
 .personal-shell
@@ -512,12 +520,13 @@ html.has-native-glass.glass-body:not(.theme-light)
   padding: 0;
   box-shadow: var(--aven-specular), var(--aven-shadow);
 }
-/* Slide fully past the window edge. Including the 5px inset makes the travel
-   equal the panel's right edge, so the workspace crop can follow it exactly. */
+/* Slide fully past the window edge, its shadow with it. Native code slides
+   the overlay by the drawer's right edge, so the workspace crop follows it
+   exactly. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
   > .personal-sidebar {
-  transform: translateX(calc(-100% - var(--aven-window-gutter)));
+  transform: translateX(calc(-100% - 20px));
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"][data-open="false"]
@@ -773,9 +782,6 @@ html.theme-light.is-mac
   visibility: hidden;
   pointer-events: none;
 }
-.personal-shell .workspace-status-context {
-  display: flex;
-}
 
 .personal-shell
   .personal-sidebar[data-navigation-header="true"]
@@ -828,12 +834,17 @@ html.theme-light.is-mac
   .personal-sidebar-divider:not(:focus-visible)::after {
   background: transparent;
 }
+/* The same seam as between panes: 2px in the muted text colour while
+   pointed at or dragged; keyboard focus shows the focus ring's colour. */
 .personal-shell .personal-panel-resizer:hover::after,
 .personal-shell .personal-panel-resizer:focus-visible::after,
 .personal-shell .personal-panel-resizer[data-resizing="true"]::after {
-  left: 3px;
-  width: 3px;
-  background: var(--personal-accent);
+  left: 3.5px;
+  width: 2px;
+  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
+}
+.personal-shell .personal-panel-resizer:focus-visible::after {
+  background: var(--aven-focus-ring, var(--color-accent));
 }
 .personal-shell .personal-panel-resizer:hover,
 .personal-shell .personal-panel-resizer:focus-visible {
@@ -841,8 +852,7 @@ html.theme-light.is-mac
   outline: none;
 }
 /* Docked panels meet the workspace edge to edge: the resizer's resting line
-   is the hairline between them, and pointing at it, focusing or dragging
-   widens it to the accent. */
+   is the hairline between them, and pointing at it or dragging widens it. */
 
 /* Design A: a single window toolbar over the workspace. The native window
    supplies the outer curve; panes meet flush between hairlines
@@ -939,11 +949,13 @@ html
    The tint is an inset shadow, painted over each region's own background
    without another layer or blur. */
 .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+  /* As opaque as the 0.1.152 panels, so a wallpaper's colour does not show
+     through the chrome any more than it did. */
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 5%, transparent);
   --aven-panel-tint: inset 0 0 0 100vmax var(--aven-panel-card);
 }
 html.theme-light .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, var(--color-content) 3%, transparent);
+  --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
 }
 /* On a Mac the toolbar cancels the interface zoom (zoom below), which would
    scale its hairline off one device pixel; dividing by that zoom keeps it. */

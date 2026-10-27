@@ -200,7 +200,7 @@ export function DiscussionChip({
   const label = discussionChipFitLabel(pick, rounds, role, fit);
   return (
     <div
-      className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
+      className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-content/10 text-ui-caption text-content"
       data-discussion-chip
       data-full-label={full}
     >
@@ -214,7 +214,7 @@ export function DiscussionChip({
         aria-expanded={open}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => onOpenChange(!open)}
-        className="flex h-full min-w-0 items-center gap-1 rounded-l-md pl-1.5 pr-1 hover:bg-accent/15"
+        className="flex h-full min-w-0 items-center gap-1 rounded-l-md pl-1.5 pr-1 hover:bg-content/15"
       >
         <MessageMultiple className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate" data-discussion-chip-label>
@@ -228,7 +228,7 @@ export function DiscussionChip({
         aria-label="Turn off Discuss mode"
         onMouseDown={(event) => event.preventDefault()}
         onClick={onTurnOff}
-        className="grid h-full shrink-0 place-items-center rounded-r-md px-1 hover:bg-accent/15"
+        className="grid h-full shrink-0 place-items-center rounded-r-md px-1 hover:bg-content/15"
       >
         <X className="size-3" />
       </button>
@@ -356,7 +356,7 @@ function DiscussionMenu({
                 </>
               ) : null}
               <Check
-                className={`size-3.5 shrink-0 text-accent ${newChat ? "" : "invisible"}`}
+                className={`size-3.5 shrink-0 text-content ${newChat ? "" : "invisible"}`}
               />
             </>
           }
@@ -409,7 +409,7 @@ function DiscussionMenu({
                 </span>
               </span>
               <Check
-                className={`size-3.5 shrink-0 text-accent ${selected ? "" : "invisible"}`}
+                className={`size-3.5 shrink-0 text-content ${selected ? "" : "invisible"}`}
               />
             </button>
           );

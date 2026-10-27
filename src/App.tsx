@@ -108,6 +108,7 @@ import {
   useAutomationsKeepAwake,
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
+import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
@@ -135,8 +136,12 @@ import {
   closeWorkspaceViews,
   toggleWorkspaceExpansion,
   resolveWorkspaceView,
+  workspaceIsSpace,
+  workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
+import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
+import { focusPaneContent, workspacePane } from "./lib/paneFocus";
 import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
@@ -155,7 +160,7 @@ import {
   prepareRecoveredWorkspaceTab,
   type ClosedWorkspaceEntry,
 } from "./lib/workspaceRecovery";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   useDetachedWorkspaces,
   type DetachedWorkspaceState,
@@ -281,11 +286,15 @@ import {
 } from "./lib/paletteAgents";
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
-import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
+import {
+  TitleBar,
+  type Tab as TitleTab,
+  type TitleBarProps,
+} from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
 import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
-import { WorkspaceStatusBar } from "./chrome/WorkspaceStatusBar";
+import { WorkspaceStatusBar, dragStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
 import { FooterUsage } from "./chrome/FooterUsage";
 import {
@@ -348,6 +357,7 @@ import {
   newBoardWorkspaceTab,
   boardTabFor,
   isBoardTab,
+  layoutLeaves,
   leafIds,
   movePane,
   neighborLeafId,
@@ -1686,6 +1696,9 @@ export default function App({
     // Focus is the authority here. Browser navigation and session updates must
     // not pull focus away from a sibling surface that the user is reading.
   }, [view.focusedId, projectCwd]);
+  const [windowStripHost, setWindowStripHost] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [surfaceDragging, setSurfaceDragging] = useState(false);
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
@@ -4521,6 +4534,25 @@ export default function App({
     if (order.length)
       onSelectSurface(order[(index - 1 + order.length) % order.length]);
   }, [onSelectSurface]);
+  // Cydonia's pane keys: the next or previous pane in layout order (left to
+  // right, each column top to bottom), and expanding the focused pane.
+  const onStepPane = useCallback(
+    (step: number) => {
+      const { layout, focusedId } = viewRef.current.view;
+      const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
+      if (!next) return;
+      onSelectSurface(next);
+      // The keyboard goes with the focus: into its message box, or the
+      // pane's first field or control (a page's address, a board's card).
+      window.setTimeout(() => focusPaneContent(workspacePane(next)), 0);
+    },
+    [onSelectSurface],
+  );
+  const onZoomPane = useCallback(() => {
+    const current = viewRef.current.view;
+    if (workspaceIsSpace(current))
+      onWorkspaceIntent({ type: "zoom", group: current.focusedId });
+  }, [onWorkspaceIntent]);
 
   const navigateHistory = useCallback(
     (direction: "back" | "forward") => {
@@ -5661,11 +5693,22 @@ export default function App({
 
   const onFocusDir = useCallback(
     (dir: FocusDir) => {
-      if (!activeTab) return;
-      const next = neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
-      if (next) onFocusPane(next);
+      // A split inside the tab first; past its edge, the workspace's pane
+      // that way. (With VoiceOver, which keeps ⌃⌥ for itself, this is how
+      // to move between panes.)
+      const inner =
+        activeTab && neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
+      if (inner) {
+        onFocusPane(inner);
+        return;
+      }
+      const { layout, focusedId } = viewRef.current.view;
+      const pane = layout ? neighborLeafId(layout, focusedId, dir) : null;
+      if (!pane) return;
+      onSelectSurface(pane);
+      window.setTimeout(() => focusPaneContent(workspacePane(pane)), 0);
     },
-    [activeTab, onFocusPane],
+    [activeTab, onFocusPane, onSelectSurface],
   );
 
   const onRatio = useCallback(
@@ -9222,6 +9265,8 @@ export default function App({
     onClosePane,
     onNext,
     onPrev,
+    onStepPane,
+    onZoomPane,
     onVisitBack,
     onVisitForward,
     onActivate,
@@ -10401,6 +10446,7 @@ export default function App({
       if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
   }, [botStore, releaseBotChat]);
 
+  const automationsUnread = useUnreadAutomationRuns();
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -10514,6 +10560,10 @@ export default function App({
     inboxActive: inboxViewOpen,
     automationsActive: automationsViewOpen,
     notesActive: notesViewOpen,
+    // The workspace's row is its Home.
+    onOpenHome,
+    homeActive: homeShown,
+    automationsUnread,
     notesEnabled,
     projectRailOpen,
     onToggleProjectRail,
@@ -10622,6 +10672,199 @@ export default function App({
     [floatingSidebar.revealed, setFloatingSidebarRevealed],
   );
 
+  // Panes and tabs as in Cydonia. A single pane's tabs are the window's
+  // strip, in the toolbar, over the pane's title row. Several panes (or one
+  // expanded over the rest) are a space: no strip, and each pane's title row
+  // names its tab in front, with the rest of its tabs as a deck.
+  const spaceMode = workspaceIsSpace(view);
+  const paneZoomed = workspaceZoomed(view);
+  const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
+  const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
+    const across = seamNeighbours(paneLeaves, owner);
+    return {
+      paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
+      onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
+      paneMoves: (["left", "right", "up", "down"] as const).filter(
+        (side) => across[side],
+      ),
+      onMovePane: (side: DockEdge) => {
+        const live = viewRef.current.view;
+        const other = live.layout
+          ? seamNeighbours(layoutLeaves(live.layout), owner)[side]
+          : undefined;
+        if (other)
+          onWorkspaceIntent({ type: "swap", group: owner, with: other });
+      },
+    };
+  };
+  const paneBar = (owner: string, extra: Partial<TitleBarProps>) => {
+    const members = view.groups[owner] ?? [owner];
+    return (
+      <TitleBar
+        tabs={titleTabs.filter((tab) => members.includes(tab.id))}
+        totalSessionTabs={titleTabs.length}
+        onOpenRaceOverview={openRaceOverview}
+        paneLocal
+        paneFocused={owner === view.focusedId}
+        activeId={owner}
+        cwd={sidebarCwd}
+        projectRailOpen={projectRailOpen}
+        sidebarOpen={sidebarOpen}
+        inspectorOpen={inspector.open && workspaceVisible}
+        onToggleInspector={onToggleInspector}
+        browserTabs={browserSurfaces
+          .filter((tab) => members.includes(tab.surfaceId))
+          .map((tab) => ({
+            id: tab.surfaceId,
+            favicon: tab.favicon,
+            kept: tab.kept,
+            url: tab.url,
+            // A race agent's page says whose
+            // version it shows.
+            title: racePreviewTitle(
+              tab.title ||
+                (tab.url
+                  ? tab.url.replace(/^https?:\/\//, "").split("/")[0]
+                  : "New browser tab"),
+              racePreviewLabelFor(tab.url),
+            ),
+          }))}
+        browserOpen={browserState.open}
+        browserActive={browserFocused}
+        visibleIds={visibleSurfaceIds}
+        surfaceOrder={members}
+        onReorderSurfaces={(ids, movedId) => {
+          onWorkspaceIntent({
+            type: "reorder",
+            group: owner,
+            ids,
+          });
+          onReorderTabs(
+            ids.filter((id) => tabs.some((tab) => tab.id === id)),
+            movedId && tabs.some((tab) => tab.id === movedId)
+              ? movedId
+              : undefined,
+          );
+        }}
+        onSplitTab={(id, edge, beside) =>
+          onWorkspaceIntent({
+            type: "split",
+            id,
+            edge,
+            beside,
+          })
+        }
+        onUnsplit={() =>
+          onWorkspaceIntent({
+            type: "unsplit",
+            group: owner,
+          })
+        }
+        combineTargets={neighborCombineTargets(view, owner)}
+        onCombineWith={(into) =>
+          onWorkspaceIntent({
+            type: "combine",
+            group: owner,
+            into,
+          })
+        }
+        groupId={owner}
+        onReopenClosedTab={() => {
+          void onReopenClosedTab();
+        }}
+        canReopenClosedTab={recovery.closed.some(
+          (entry) => entry.cwd === projectCwd,
+        )}
+        onUndoLayout={onUndoLayout}
+        canUndoLayout={recovery.layouts.some(
+          (entry) => entry.cwd === projectCwd,
+        )}
+        onSurfaceDragMove={onSurfaceDragMove}
+        onSurfaceDragEnd={onSurfaceDragEnd}
+        onNewBrowser={() => {
+          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          onNewBrowserTab();
+        }}
+        onOpenBoard={
+          looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+            ? () => {
+                workspaceViews.change((view) =>
+                  selectWorkspaceView(view, owner),
+                );
+                onOpenBoard();
+              }
+            : undefined
+        }
+        onNewView={
+          members.length > 1 || visibleSurfaceIds.length > 1
+            ? (id) =>
+                onWorkspaceIntent({
+                  type: "split",
+                  id,
+                  edge: "right",
+                  beside: owner,
+                })
+            : undefined
+        }
+        onSelectBrowser={onSelectBrowserTab}
+        onKeepBrowser={onKeepBrowser}
+        browserPreviewId={
+          browserState.activeTabId
+            ? browserIdForTab(projectCwd, browserState.activeTabId)
+            : null
+        }
+        onCloseBrowser={onCloseBrowserTab}
+        onToggleSidebar={onToggleSidebar}
+        onSelect={(id) => {
+          workspaceViews.change((view) => selectWorkspaceView(view, id));
+          activateTab(id);
+        }}
+        onNew={() => {
+          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          onNew();
+        }}
+        onShowTerminal={undefined}
+        projectTerminalActive={
+          !!currentProjectDock && currentProjectDock.pane.files.length > 0
+        }
+        onOpenSettings={onOpenSettings}
+        onOpenInbox={onOpenInbox}
+        onOpenAutomations={onOpenAutomations}
+        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+        onClose={onCloseTitleTab}
+        onCloseMany={onCloseTabs}
+        onReorder={onReorderTabs}
+        onGoToFile={onGoToFile}
+        recents={recents}
+        onSelectProject={onSelectProject}
+        {...extra}
+      />
+    );
+  };
+  // The toolbar draws the strip's place; the strip renders into it, so the
+  // toolbar itself does not redraw with every workspace change.
+  const windowStripOwner =
+    visibleSurfaceIds.length === 1 ? visibleSurfaceIds[0] : view.focusedId;
+  // A tab split into panes (a chat beside a file, say) is a space of its
+  // own, as in Cydonia: each pane names itself in its strip, so no title row
+  // names the tab again above them. Alone, like a space, it shows no tab on
+  // the window's strip either; among several panes its title row keeps only
+  // its tools.
+  const splitTabIds = new Set(
+    tabs.filter((tab) => tab.layout?.type === "split").map((tab) => tab.id),
+  );
+  const windowStrip =
+    workspaceVisible && !settingsOpen && view.layout && windowStripOwner
+      ? paneBar(windowStripOwner, {
+          variant: "strip",
+          hideLoneTab: true,
+          windowTitle: false,
+          // A space is one tab of the strip, and one tab shows none: only
+          // the strip's New chat, browser and board buttons remain.
+          ...(spaceMode ? { tabs: [], browserTabs: [] } : {}),
+        })
+      : null;
+
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
       <OrchestrationActions.Provider value={orchestrationActions}>
@@ -10638,7 +10881,6 @@ export default function App({
                   : undefined
               }
               sessions={profileSessions}
-              session={profileHome ? undefined : active}
               onSelectSession={onOpenApprovalSession}
               onToggleSidebar={onToggleSidebar}
               sidebarOpen={sidebarOpen}
@@ -10656,7 +10898,20 @@ export default function App({
               homeOpen={homeViewOpen || profileHome}
               onToggleInspector={onToggleInspector}
               inspectorOpen={inspector.open}
+              stripHost={setWindowStripHost}
             />
+            {windowStripHost && windowStrip
+              ? createPortal(
+                  <div
+                    className="workspace-status-strip-content"
+                    data-window-drag-room
+                    onMouseDown={dragStatusBar}
+                  >
+                    {windowStrip}
+                  </div>,
+                  windowStripHost,
+                )
+              : null}
             <div className="personal-shell-body">
               {!sidebarOpen ? (
                 <button
@@ -10837,186 +11092,21 @@ export default function App({
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage
-                              headers={visibleSurfaceIds.map((owner) => {
-                                const members = view.groups[owner] ?? [owner];
-                                return {
+                              headers={visibleSurfaceIds
+                                .filter(
+                                  (owner) =>
+                                    spaceMode || !splitTabIds.has(owner),
+                                )
+                                .map((owner) => ({
                                   id: owner,
                                   key: workspaceHeaderKeys[owner],
-                                  content: (
-                                    <TitleBar
-                                      tabs={titleTabs.filter((tab) =>
-                                        members.includes(tab.id),
-                                      )}
-                                      totalSessionTabs={titleTabs.length}
-                                      onOpenRaceOverview={openRaceOverview}
-                                      paneLocal
-                                      paneFocused={owner === view.focusedId}
-                                      activeId={owner}
-                                      cwd={sidebarCwd}
-                                      projectRailOpen={projectRailOpen}
-                                      sidebarOpen={sidebarOpen}
-                                      inspectorOpen={
-                                        inspector.open && workspaceVisible
-                                      }
-                                      onToggleInspector={onToggleInspector}
-                                      browserTabs={browserSurfaces
-                                        .filter((tab) =>
-                                          members.includes(tab.surfaceId),
-                                        )
-                                        .map((tab) => ({
-                                          id: tab.surfaceId,
-                                          favicon: tab.favicon,
-                                          kept: tab.kept,
-                                          url: tab.url,
-                                          // A race agent's page says whose
-                                          // version it shows.
-                                          title: racePreviewTitle(
-                                            tab.title ||
-                                              (tab.url
-                                                ? tab.url
-                                                    .replace(/^https?:\/\//, "")
-                                                    .split("/")[0]
-                                                : "New browser tab"),
-                                            racePreviewLabelFor(tab.url),
-                                          ),
-                                        }))}
-                                      browserOpen={browserState.open}
-                                      browserActive={browserFocused}
-                                      visibleIds={visibleSurfaceIds}
-                                      surfaceOrder={members}
-                                      onReorderSurfaces={(ids, movedId) => {
-                                        onWorkspaceIntent({
-                                          type: "reorder",
-                                          group: owner,
-                                          ids,
-                                        });
-                                        onReorderTabs(
-                                          ids.filter((id) =>
-                                            tabs.some((tab) => tab.id === id),
-                                          ),
-                                          movedId &&
-                                            tabs.some(
-                                              (tab) => tab.id === movedId,
-                                            )
-                                            ? movedId
-                                            : undefined,
-                                        );
-                                      }}
-                                      onSplitTab={(id, edge, beside) =>
-                                        onWorkspaceIntent({
-                                          type: "split",
-                                          id,
-                                          edge,
-                                          beside,
-                                        })
-                                      }
-                                      onUnsplit={() =>
-                                        onWorkspaceIntent({
-                                          type: "unsplit",
-                                          group: owner,
-                                        })
-                                      }
-                                      combineTargets={neighborCombineTargets(
-                                        view,
-                                        owner,
-                                      )}
-                                      onCombineWith={(into) =>
-                                        onWorkspaceIntent({
-                                          type: "combine",
-                                          group: owner,
-                                          into,
-                                        })
-                                      }
-                                      groupId={owner}
-                                      onReopenClosedTab={() => {
-                                        void onReopenClosedTab();
-                                      }}
-                                      canReopenClosedTab={recovery.closed.some(
-                                        (entry) => entry.cwd === projectCwd,
-                                      )}
-                                      onUndoLayout={onUndoLayout}
-                                      canUndoLayout={recovery.layouts.some(
-                                        (entry) => entry.cwd === projectCwd,
-                                      )}
-                                      onSurfaceDragMove={onSurfaceDragMove}
-                                      onSurfaceDragEnd={onSurfaceDragEnd}
-                                      onNewBrowser={() => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, owner),
-                                        );
-                                        onNewBrowserTab();
-                                      }}
-                                      onOpenBoard={
-                                        looksLikeProject(projectCwd) &&
-                                        !isProjectlessCwd(projectCwd)
-                                          ? () => {
-                                              workspaceViews.change((view) =>
-                                                selectWorkspaceView(
-                                                  view,
-                                                  owner,
-                                                ),
-                                              );
-                                              onOpenBoard();
-                                            }
-                                          : undefined
-                                      }
-                                      onNewView={
-                                        members.length > 1 ||
-                                        visibleSurfaceIds.length > 1
-                                          ? (id) =>
-                                              onWorkspaceIntent({
-                                                type: "split",
-                                                id,
-                                                edge: "right",
-                                                beside: owner,
-                                              })
-                                          : undefined
-                                      }
-                                      onSelectBrowser={onSelectBrowserTab}
-                                      onKeepBrowser={onKeepBrowser}
-                                      browserPreviewId={
-                                        browserState.activeTabId
-                                          ? browserIdForTab(
-                                              projectCwd,
-                                              browserState.activeTabId,
-                                            )
-                                          : null
-                                      }
-                                      onCloseBrowser={onCloseBrowserTab}
-                                      onToggleSidebar={onToggleSidebar}
-                                      onSelect={(id) => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, id),
-                                        );
-                                        activateTab(id);
-                                      }}
-                                      onNew={() => {
-                                        workspaceViews.change((view) =>
-                                          selectWorkspaceView(view, owner),
-                                        );
-                                        onNew();
-                                      }}
-                                      onShowTerminal={undefined}
-                                      projectTerminalActive={
-                                        !!currentProjectDock &&
-                                        currentProjectDock.pane.files.length > 0
-                                      }
-                                      onOpenSettings={onOpenSettings}
-                                      onOpenInbox={onOpenInbox}
-                                      onOpenAutomations={onOpenAutomations}
-                                      onOpenNotes={
-                                        notesEnabled ? onOpenNotes : undefined
-                                      }
-                                      onClose={onCloseTitleTab}
-                                      onCloseMany={onCloseTabs}
-                                      onReorder={onReorderTabs}
-                                      onGoToFile={onGoToFile}
-                                      recents={recents}
-                                      onSelectProject={onSelectProject}
-                                    />
-                                  ),
-                                };
-                              })}
+                                  content: paneBar(owner, {
+                                    variant: "title",
+                                    stackOnStrip: !spaceMode,
+                                    frontNamedBelow: splitTabIds.has(owner),
+                                    ...paneTitleTools(owner),
+                                  }),
+                                }))}
                               layout={view.layout}
                               focusedId={view.focusedId}
                               visible={workspaceVisible}
@@ -11053,6 +11143,11 @@ export default function App({
                               }
                               restoreEdge={view.minimizedEdge}
                               restoreStatus={restoreStatus}
+                              zoomedId={
+                                paneZoomed && !view.minimizedEdge
+                                  ? (visibleSurfaceIds[0] ?? null)
+                                  : null
+                              }
                               dragging={surfaceDragging}
                               dragLabel="Move tab"
                               dragTarget={surfaceDrop}
@@ -11189,9 +11284,10 @@ export default function App({
                             (session) => !session.inboxAsk,
                           )}
                           focusToken={searchViewFocusToken}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveSearch}
-                          onToggleSidebar={onToggleSidebar}
                           onOpenFile={onOpenFile}
                           onOpenSession={onSelectHistorySession}
                           onOpenProject={onSelectProject}
@@ -11227,9 +11323,10 @@ export default function App({
                         <InboxView
                           cwd={sidebarCwd}
                           recents={recents}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveInbox}
-                          onToggleSidebar={onToggleSidebar}
                           onStart={onStartInboxItem}
                           onAsk={onAskInboxItem}
                           onAskRestart={onRestartInboxAsk}
@@ -11242,9 +11339,10 @@ export default function App({
                         <AutomationsView
                           cwd={sidebarCwd}
                           recents={recents}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveAutomations}
-                          onToggleSidebar={onToggleSidebar}
                           onRunAutomation={(agent) =>
                             startScheduledAgentRef.current(agent)
                           }
@@ -11255,10 +11353,11 @@ export default function App({
                     {notesViewOpen ? (
                       <LazyViewSlot label="notes">
                         <NotesView
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           cwd={projectCwd}
                           onClose={onLeaveNotes}
-                          onToggleSidebar={onToggleSidebar}
                         />
                       </LazyViewSlot>
                     ) : null}

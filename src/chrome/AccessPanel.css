@@ -41,7 +41,7 @@ html.access-panel-window #root {
   color: var(--toolbar-panel-muted);
 }
 .access-panel-option[aria-checked="true"] .access-panel-icon {
-  color: var(--toolbar-panel-accent);
+  color: var(--toolbar-panel-text);
 }
 .access-panel-copy {
   display: flex;
@@ -62,7 +62,7 @@ html.access-panel-window #root {
 .access-panel-check {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--toolbar-panel-accent);
+  color: var(--toolbar-panel-text);
   visibility: hidden;
 }
 .access-panel-option[aria-checked="true"] .access-panel-check {

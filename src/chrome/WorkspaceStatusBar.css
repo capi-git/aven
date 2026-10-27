@@ -204,20 +204,12 @@
   }
 }
 
-.workspace-status-context {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: min(44vw, 540px);
-  color: var(--color-content);
-  font-size: var(--text-ui-label);
-  font-weight: 600;
-}
 .workspace-status-task {
-  height: 30px;
-  padding: 3px 8px;
-  gap: 8px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  gap: 6px;
+  justify-content: center;
   border-radius: var(--aven-radius-sm);
   max-width: min(44vw, 540px);
 }
@@ -285,12 +277,10 @@
   background: transparent;
   cursor: default;
 }
-/* Related toolbar buttons share one platter, on the segmented controls'
-   track and thumb corners. */
+/* Plain toolbar buttons, as in Cydonia: no platter behind them, a fill
+   only under the pointer or when pressed. */
 .workspace-status-nav-group:has(button) {
-  padding-inline: 2px;
-  background: var(--aven-fill-quaternary);
-  box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
+  padding-inline: 0;
 }
 .workspace-status-nav-group {
   display: inline-flex;
@@ -383,9 +373,6 @@
     + .workspace-status-history:has(button)::before {
     left: -4px;
   }
-  .workspace-status-context {
-    font-size: var(--text-ui-caption);
-  }
   .workspace-status-navigation,
   .workspace-status-history {
     gap: 0;
@@ -398,8 +385,8 @@
   border-radius: 8px;
   font-size: var(--text-ui-micro);
   line-height: 13px;
-  background: var(--color-accent);
-  color: var(--aven-on-accent, var(--color-background-base));
+  background: var(--color-content);
+  color: var(--color-background-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -529,6 +516,54 @@
 @media (prefers-reduced-motion: reduce) {
   .workspace-status-pill,
   .workspace-status-access > div > button {
+    transition: none;
+  }
+}
+
+/* The window's strip of tabs takes the toolbar's free width and stops 32px
+   short of its end, so the window can always be taken by that room. */
+.workspace-status-strip {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+  margin-right: 32px;
+  cursor: default;
+}
+.workspace-status-strip-content {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+}
+.workspace-status-strip-content > .personal-titlebar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.workspace-status-strip .aven-tab-strip {
+  padding-inline: 0;
+}
+
+/* The window strip keeps New chat at rest. New browser and Open board show
+   while the toolbar is pointed at or holds keyboard focus (and while the
+   tour points at them), so the bar at rest is the tabs. */
+.workspace-status-bar
+  :is(.personal-title-browser-new, .personal-title-board-open) {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.workspace-status-bar:is(:hover, :focus-within)
+  :is(.personal-title-browser-new, .personal-title-board-open),
+html:has(.aven-tour)
+  .workspace-status-bar
+  :is(.personal-title-browser-new, .personal-title-board-open) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-status-bar
+    :is(.personal-title-browser-new, .personal-title-board-open) {
     transition: none;
   }
 }

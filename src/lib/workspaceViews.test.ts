@@ -14,6 +14,9 @@ import {
   toggleWorkspaceExpansion,
   minimizeWorkspaceSide,
   restoreWorkspaceSplit,
+  swapWorkspacePanes,
+  workspaceIsSpace,
+  workspaceZoomed,
   type WorkspaceView,
 } from "./workspaceViews";
 
@@ -1069,5 +1072,78 @@ describe("agent-opened surfaces", () => {
     const unknown = revealBesideWorkspaceView(single(), "page", "missing");
     expect(unknown.layout && leafIds(unknown.layout)).toEqual(["page"]);
     expect(revealBesideWorkspaceView(view, "missing", "chat-a")).toBe(view);
+  });
+});
+
+describe("presenting the view as Cydonia's spaces", () => {
+  it("is a space with several panes or one expanded, and plain tabs alone", () => {
+    const split = grouped();
+    expect(workspaceIsSpace(split)).toBe(true);
+    expect(workspaceZoomed(split)).toBe(false);
+    const expanded = toggleWorkspaceExpansion(split, "chat-b");
+    expect(workspaceIsSpace(expanded)).toBe(true);
+    expect(workspaceZoomed(expanded)).toBe(true);
+    const alone = resolveWorkspaceView(
+      { layout: leaf("chat-a"), focusedId: "chat-a", order: ids, groups: {} },
+      ids,
+      "chat-a",
+    );
+    expect(workspaceIsSpace(alone)).toBe(false);
+    expect(workspaceZoomed(alone)).toBe(false);
+  });
+
+  it("swaps two panes in a nested arrangement without changing its shape", () => {
+    const rows: LayoutNode = {
+      type: "split",
+      id: "rows",
+      dir: "down",
+      sizes: [0.3, 0.7],
+      children: [columns, leaf("chat-c")],
+    };
+    const view = resolveWorkspaceView(
+      { layout: rows, focusedId: "chat-c", order: ids, groups: {} },
+      ids,
+      "chat-c",
+    );
+    const swapped = swapWorkspacePanes(view, "chat-c", "chat-a");
+    expect(swapped.layout).toEqual({
+      ...rows,
+      children: [
+        { ...columns, children: [leaf("chat-c"), leaf("chat-b")] },
+        leaf("chat-a"),
+      ],
+    });
+    expect(swapped.groups).toEqual(view.groups);
+    expectPartition(swapped);
+  });
+});
+
+describe("Move with a side tucked away", () => {
+  it("survives Restore: the snapshot's panes swap too", () => {
+    const rows: LayoutNode = {
+      type: "split",
+      id: "rows",
+      dir: "down",
+      sizes: [0.5, 0.5],
+      children: [columns, leaf("chat-c")],
+    };
+    const view = resolveWorkspaceView(
+      { layout: rows, focusedId: "chat-a", order: ids, groups: {} },
+      ids,
+      "chat-a",
+    );
+    // Tuck the lower row away, swap the two panes left, then restore.
+    const tucked = minimizeWorkspaceSide(view, "rows", 0, "after");
+    expect(tucked.layout && leafIds(tucked.layout)).toEqual([
+      "chat-a",
+      "chat-b",
+    ]);
+    const moved = swapWorkspacePanes(tucked, "chat-a", "chat-b");
+    const restored = restoreWorkspaceSplit(moved);
+    expect(restored.layout && leafIds(restored.layout)).toEqual([
+      "chat-b",
+      "chat-a",
+      "chat-c",
+    ]);
   });
 });

@@ -1993,12 +1993,12 @@ function ComposerComponent({
           data-attachments-only={attachmentsOnly || undefined}
           className={`relative z-10 rounded-lg border bg-content/3 ${
             fileDrag
-              ? "border-accent/60"
+              ? "border-content/40"
               : "border-content/10 has-focus:border-content/20"
           }`}
         >
           {fileDrag ? (
-            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-accent/8 text-ui-label text-content/70">
+            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-content/6 text-ui-label text-content/70">
               Drop files to attach
             </div>
           ) : null}
@@ -2229,7 +2229,7 @@ function ComposerComponent({
                         </span>
                       </span>
                       {planSelected ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
                       ) : null}
                     </button>
                   )}
@@ -2249,7 +2249,7 @@ function ComposerComponent({
                       }}
                       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
-                      <Share className="mt-0.5 size-4 shrink-0 text-accent" />
+                      <Share className="mt-0.5 size-4 shrink-0 text-content" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Orchestrator</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
@@ -2257,7 +2257,7 @@ function ComposerComponent({
                         </span>
                       </span>
                       {orchestrationSelected ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2275,7 +2275,7 @@ function ComposerComponent({
                       }}
                       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
-                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-accent" />
+                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-content" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-ui-body">Discuss</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
@@ -2284,7 +2284,7 @@ function ComposerComponent({
                         </span>
                       </span>
                       {discussActive ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2303,7 +2303,7 @@ function ComposerComponent({
                       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
                     >
                       <Race
-                        className="mt-0.5 size-4 shrink-0 text-accent"
+                        className="mt-0.5 size-4 shrink-0 text-content"
                         strokeWidth={1.75}
                       />
                       <span className="min-w-0 flex-1">
@@ -2313,7 +2313,7 @@ function ComposerComponent({
                         </span>
                       </span>
                       {raceActive ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2330,7 +2330,7 @@ function ComposerComponent({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-content/10 px-1.5 text-ui-caption text-content hover:bg-content/15"
               >
                 <Share className="size-3.5" />
                 {fit === "narrow" ? null : "Orchestrator"}

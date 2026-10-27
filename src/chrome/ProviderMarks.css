@@ -34,11 +34,7 @@
   opacity: 0.78;
 }
 .provider-mark[data-working="true"] {
-  border-color: color-mix(
-    in srgb,
-    var(--personal-accent, var(--color-accent)) 60%,
-    transparent
-  );
+  border-color: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .provider-mark[data-working="true"] .provider-mark-art {
   animation: provider-working 2.8s ease-in-out infinite;

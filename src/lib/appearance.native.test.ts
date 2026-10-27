@@ -53,8 +53,10 @@ describe("native workspace transparency", () => {
     const style = document.documentElement.style;
     expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
     expect(style.getPropertyValue("--theme-content-color")).toBe("#ffffff");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
-    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#57b5ff");
+    // A neutral near-white accent, with black text on it.
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#e8e8ea");
+    expect(style.getPropertyValue("--theme-accent-foreground")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#a1a1a6");
     expect(style.getPropertyValue("--sidebar-opacity")).toBe("0.52");
     expect(document.documentElement.classList.contains("glass-body")).toBe(
       true,
@@ -70,7 +72,8 @@ describe("native workspace transparency", () => {
     await Promise.resolve();
     expect(invoke).toHaveBeenLastCalledWith("set_window_glass_enabled", {
       enabled: true,
-      tint: { r: 0, g: 0, b: 0, alpha: 0.52 },
+      // The default Glass slider (0.52) above the floor: 0.2 + 0.8 × 0.52.
+      tint: { r: 0, g: 0, b: 0, alpha: 0.616 },
     });
     expect(getCurrentWindow().setBackgroundColor).not.toHaveBeenCalled();
   });
@@ -165,8 +168,9 @@ describe("native workspace transparency", () => {
       ["set_window_glass_enabled", { enabled: false }],
       [
         "set_window_glass_enabled",
-        // The default shell frame, hsl(207 16% 4%), at the sidebar opacity.
-        { enabled: true, tint: { r: 9, g: 10, b: 12, alpha: 0.6 } },
+        // The default shell frame, hsl(207 16% 4%), at the sidebar opacity
+        // above the glass floor.
+        { enabled: true, tint: { r: 9, g: 10, b: 12, alpha: 0.68 } },
       ],
       ["set_window_glass_enabled", { enabled: false }],
       ["set_window_glass_enabled", { enabled: false }],
