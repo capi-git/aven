@@ -294,6 +294,16 @@ export const KEYBINDINGS: KeybindingRow[] = [
     keys: "Esc",
     when: "titleRowFocus",
   },
+  {
+    command: "Pane: Next / Previous",
+    keys: `${CTRL}${ALT}PageDown / ${CTRL}${ALT}PageUp`,
+    when: "!terminalFocus",
+  },
+  {
+    command: "Pane: Move Between Panes",
+    keys: `${MOD}${ALT}← → ↑ ↓`,
+    when: "voiceOver",
+  },
   { command: "Terminal: New", keys: `${MOD}\``, when: "Always" },
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
   { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
@@ -316,6 +326,8 @@ export function formatKeybindingContext(when: string): string {
       return "Outside the terminal";
     case "titleRowFocus":
       return "In a pane's title row or the window's tabs";
+    case "voiceOver":
+      return "Anywhere, including with VoiceOver, which keeps ⌃⌥ for itself";
     default:
       return when;
   }

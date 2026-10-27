@@ -5,7 +5,13 @@ import type { FocusDir, SplitDir } from "../lib/layout";
 import { NOTIFICATION_CLICK_EVENT } from "../lib/notifications";
 import type { Session } from "../lib/session";
 import type { SettingsSectionId } from "../lib/settings";
-import { shouldHandleListNavigation, tabCommand } from "../lib/tabKeys";
+import {
+  PAGE_SHORTCUT_EVENT,
+  shouldHandleListNavigation,
+  tabCommand,
+} from "../lib/tabKeys";
+
+export { PAGE_SHORTCUT_EVENT };
 import {
   applyUiScale,
   loadUiScale,
@@ -222,9 +228,12 @@ export function useWorkspaceShortcuts({
         ) {
           return;
         }
-        // A terminal keeps its Control-Option chords.
+        // A terminal keeps its Control-Option chords, ⌃⌥W included.
         if (
-          (cmd === "next-pane" || cmd === "prev-pane" || cmd === "zoom-pane") &&
+          (cmd === "next-pane" ||
+            cmd === "prev-pane" ||
+            cmd === "zoom-pane" ||
+            (cmd === "close" && e.ctrlKey && e.altKey)) &&
           target?.closest(".aven-terminal")
         ) {
           return;
@@ -383,15 +392,29 @@ export function useWorkspaceShortcuts({
       ),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
-      // Forwarded by a focused Chromium page, which keeps the key otherwise.
-      listenInThisWindow("next_pane", () =>
-        run("next-pane", () => actions.current.onStepPane(1)),
-      ),
-      listenInThisWindow("prev_pane", () =>
-        run("prev-pane", () => actions.current.onStepPane(-1)),
-      ),
-      listenInThisWindow("zoom_pane", () =>
-        run("zoom-pane", actions.current.onZoomPane),
+      // A chord a focused Chromium page forwarded to this window only (it
+      // keeps the key otherwise). Scoped to this window: never another's.
+      listenInThisWindow<{ action?: unknown }>(
+        PAGE_SHORTCUT_EVENT,
+        ({ payload }) => {
+          const a = actions.current;
+          switch (payload?.action) {
+            case "next-tab":
+              return run("next", a.onNext);
+            case "prev-tab":
+              return run("prev", a.onPrev);
+            case "next-pane":
+              return run("next-pane", () => a.onStepPane(1));
+            case "prev-pane":
+              return run("prev-pane", () => a.onStepPane(-1));
+            case "zoom-pane":
+              return run("zoom-pane", a.onZoomPane);
+            case "close-pane":
+              return run("close", () => {
+                if (!closeFocusedTeamPanel()) a.onClosePane();
+              });
+          }
+        },
       ),
       listen("back_tab", () =>
         run("back", () => {

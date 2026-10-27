@@ -1189,12 +1189,13 @@ fn handle_event(native_id: &str, event: Value) {
             }
         }
         "shortcut" => {
-            // A workspace chord pressed while the page had the keyboard: the
-            // workspace showing the page acts on it, as on its own keydown.
-            if let Some(command) = event
+            // A workspace chord pressed while the page had the keyboard. Only
+            // the window showing the page hears it, under a name no menu
+            // command or broadcast listener uses, so no other window acts.
+            if let Some(action) = event
                 .get("action")
                 .and_then(Value::as_str)
-                .and_then(workspace_shortcut_command)
+                .and_then(page_shortcut_action)
             {
                 let label = context
                     .delegate
@@ -1202,9 +1203,11 @@ fn handle_event(native_id: &str, event: Value) {
                     .ok()
                     .and_then(|d| d.clone())
                     .unwrap_or_else(|| context.caller.label().into());
-                let _ = context
-                    .caller
-                    .emit_to(EventTarget::webview(label), command, ());
+                let _ = context.caller.emit_to(
+                    EventTarget::AnyLabel { label },
+                    PAGE_SHORTCUT_EVENT,
+                    json!({ "action": action }),
+                );
             }
         }
         "download" => {
@@ -2273,16 +2276,19 @@ async fn flush_toolbar_command(context: &Arc<PageContext>) {
     }
 }
 
-/// The workspace command for a chord a page forwards (see
-/// `browser_workspace_keys.h`); anything else is ignored.
-fn workspace_shortcut_command(action: &str) -> Option<&'static str> {
+/// The event a page's forwarded chord reaches its own window by.
+const PAGE_SHORTCUT_EVENT: &str = "page_shortcut";
+
+/// The chords a page may forward (see `browser_workspace_keys.h`); anything
+/// else is ignored.
+fn page_shortcut_action(action: &str) -> Option<&'static str> {
     match action {
-        "next-tab" => Some("next_tab"),
-        "prev-tab" => Some("prev_tab"),
-        "next-pane" => Some("next_pane"),
-        "prev-pane" => Some("prev_pane"),
-        "zoom-pane" => Some("zoom_pane"),
-        "close-pane" => Some("close_tab"),
+        "next-tab" => Some("next-tab"),
+        "prev-tab" => Some("prev-tab"),
+        "next-pane" => Some("next-pane"),
+        "prev-pane" => Some("prev-pane"),
+        "zoom-pane" => Some("zoom-pane"),
+        "close-pane" => Some("close-pane"),
         _ => None,
     }
 }
@@ -2499,19 +2505,32 @@ fn reload_owns_page(owner: &str, label: &str, placement: &Placement) -> bool {
 
 #[cfg(test)]
 mod workspace_shortcut_tests {
-    use super::workspace_shortcut_command;
+    use super::{page_shortcut_action, PAGE_SHORTCUT_EVENT};
 
     #[test]
-    fn page_chords_become_the_workspace_commands_their_keys_name() {
-        assert_eq!(workspace_shortcut_command("next-tab"), Some("next_tab"));
-        assert_eq!(workspace_shortcut_command("prev-tab"), Some("prev_tab"));
-        assert_eq!(workspace_shortcut_command("next-pane"), Some("next_pane"));
-        assert_eq!(workspace_shortcut_command("prev-pane"), Some("prev_pane"));
-        assert_eq!(workspace_shortcut_command("zoom-pane"), Some("zoom_pane"));
-        assert_eq!(workspace_shortcut_command("close-pane"), Some("close_tab"));
+    fn page_chords_pass_through_only_by_their_own_names() {
+        for action in [
+            "next-tab",
+            "prev-tab",
+            "next-pane",
+            "prev-pane",
+            "zoom-pane",
+            "close-pane",
+        ] {
+            assert_eq!(page_shortcut_action(action), Some(action));
+        }
         // A page cannot name any other app command.
-        assert_eq!(workspace_shortcut_command("open_settings"), None);
-        assert_eq!(workspace_shortcut_command("quit"), None);
+        assert_eq!(page_shortcut_action("open_settings"), None);
+        assert_eq!(page_shortcut_action("close_tab"), None);
+        assert_eq!(page_shortcut_action("quit"), None);
+    }
+
+    #[test]
+    fn page_chords_use_an_event_no_menu_command_broadcasts() {
+        // Menu commands are broadcast under their own ids and heard by every
+        // window's plain listeners; a page's chord must not share one.
+        assert_eq!(PAGE_SHORTCUT_EVENT, "page_shortcut");
+        assert!(!crate::menu::is_broadcast_command(PAGE_SHORTCUT_EVENT));
     }
 }
 

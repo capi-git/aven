@@ -17,7 +17,8 @@ static bool Is(const char* action, const char* expected) {
 
 int main() {
   using supermono::WorkspaceKey;
-  constexpr int kTab = 0x09, kW = 0x57, kZ = 0x5A, kA = 0x41;
+  constexpr int kTab = 0x09, kW = 0x57, kZ = 0x5A, kA = 0x41, kPageUp = 0x21,
+                kPageDown = 0x22;
   // Control-Tab steps the focused pane's tabs.
   CHECK(Is(WorkspaceKey(kTab, false, true, false, false), "next-tab"));
   CHECK(Is(WorkspaceKey(kTab, false, true, false, true), "prev-tab"));
@@ -26,6 +27,9 @@ int main() {
   CHECK(Is(WorkspaceKey(kTab, false, true, true, true), "prev-pane"));
   CHECK(Is(WorkspaceKey(kZ, false, true, true, false), "zoom-pane"));
   CHECK(Is(WorkspaceKey(kW, false, true, true, false), "close-pane"));
+  CHECK(Is(WorkspaceKey(kPageDown, false, true, true, false), "next-pane"));
+  CHECK(Is(WorkspaceKey(kPageUp, false, true, true, false), "prev-pane"));
+  CHECK(!WorkspaceKey(kPageDown, false, true, false, false));
   // Everything else stays with the page: plain and shifted letters, other
   // Control chords, Option alone, and Command keys (the menu has those).
   CHECK(!WorkspaceKey(kZ, false, true, true, true));

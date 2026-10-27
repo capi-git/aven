@@ -223,6 +223,7 @@ describe("workspace navigation keybindings", () => {
       "Outside the editor",
       "Outside the terminal",
       "In a pane's title row or the window's tabs",
+      "Anywhere, including with VoiceOver, which keeps ⌃⌥ for itself",
       "In the editor",
     ]);
     expect(
@@ -252,6 +253,8 @@ describe("workspace navigation keybindings", () => {
       "Pane: Close ⌃⌥W": "!terminalFocus",
       "Pane: Close ⌘W": "Always",
       "Pane: Back to Its Content Esc": "titleRowFocus",
+      "Pane: Next / Previous ⌃⌥PageDown / ⌃⌥PageUp": "!terminalFocus",
+      "Pane: Move Between Panes ⌘⌥← → ↑ ↓": "voiceOver",
     });
   });
 

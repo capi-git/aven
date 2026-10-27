@@ -1,6 +1,7 @@
 import type { Tab } from "../chrome/TitleBar";
 import type { WorkspaceSurfaceDropTarget } from "../surfaces/WorkspaceStage";
 import { leafIds, neighborLeafId, type LayoutNode } from "./layout";
+import { stepPane } from "./paneDock";
 import {
   collapseWorkspaceView,
   combineWorkspaceGroups,
@@ -11,6 +12,7 @@ import {
   splitWorkspaceView,
   swapWorkspacePanes,
   toggleWorkspaceExpansion,
+  workspaceIsSpace,
   type ViewEdge,
   type WorkspaceView,
 } from "./workspaceViews";
@@ -149,4 +151,39 @@ export function hiddenSplitStatus(
   if (tucked.some((tab) => tab.needsInput)) return "attention";
   if (tucked.some((tab) => tab.busyHarnesses.length > 0)) return "working";
   return undefined;
+}
+
+/**
+ * What a chord forwarded by a focused page does in a window that has no
+ * workspace shortcuts of its own (a detached window): step the focused
+ * pane's tabs or the panes, expand the pane, or close its tab. Null for
+ * anything else, or nothing to do.
+ */
+export function pageShortcutOutcome(
+  view: WorkspaceView,
+  action: unknown,
+):
+  | { type: "select"; id: string }
+  | { type: "zoom"; group: string }
+  | { type: "close"; id: string }
+  | null {
+  const focused = view.focusedId;
+  if (!focused || !view.layout) return null;
+  if (action === "next-tab" || action === "prev-tab") {
+    const stack = view.groups[focused] ?? [focused];
+    const next = stepPane(stack, focused, action === "next-tab" ? 1 : -1);
+    return next && next !== focused ? { type: "select", id: next } : null;
+  }
+  if (action === "next-pane" || action === "prev-pane") {
+    const next = stepPane(
+      leafIds(view.layout),
+      focused,
+      action === "next-pane" ? 1 : -1,
+    );
+    return next ? { type: "select", id: next } : null;
+  }
+  if (action === "zoom-pane")
+    return workspaceIsSpace(view) ? { type: "zoom", group: focused } : null;
+  if (action === "close-pane") return { type: "close", id: focused };
+  return null;
 }

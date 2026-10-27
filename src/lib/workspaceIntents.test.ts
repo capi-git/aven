@@ -4,6 +4,7 @@ import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
   neighborCombineTargets,
+  pageShortcutOutcome,
 } from "./workspaceIntents";
 import { resolveWorkspaceView, type WorkspaceView } from "./workspaceViews";
 
@@ -301,5 +302,52 @@ describe("Cydonia's pane moves", () => {
     }).view;
     expect(restored.layout).toEqual(columns);
     expect(restored.restoreView).toBeUndefined();
+  });
+});
+
+describe("a chord a page forwards to a detached window", () => {
+  it("steps the focused pane's tabs and the panes, zooms and closes there", () => {
+    const view = grouped();
+    expect(pageShortcutOutcome(view, "next-tab")).toEqual({
+      type: "select",
+      id: "browser-a",
+    });
+    expect(pageShortcutOutcome(view, "prev-tab")).toEqual({
+      type: "select",
+      id: "browser-a",
+    });
+    expect(pageShortcutOutcome(view, "next-pane")).toEqual({
+      type: "select",
+      id: "chat-b",
+    });
+    expect(pageShortcutOutcome(view, "prev-pane")).toEqual({
+      type: "select",
+      id: "chat-b",
+    });
+    expect(pageShortcutOutcome(view, "zoom-pane")).toEqual({
+      type: "zoom",
+      group: "chat-a",
+    });
+    expect(pageShortcutOutcome(view, "close-pane")).toEqual({
+      type: "close",
+      id: "chat-a",
+    });
+  });
+
+  it("does nothing it cannot, and nothing it is not named", () => {
+    const alone = resolveWorkspaceView(
+      {
+        layout: leaf("chat-a"),
+        focusedId: "chat-a",
+        order: ["chat-a"],
+        groups: {},
+      },
+      ["chat-a"],
+      "chat-a",
+    );
+    expect(pageShortcutOutcome(alone, "next-tab")).toBeNull();
+    expect(pageShortcutOutcome(alone, "next-pane")).toBeNull();
+    expect(pageShortcutOutcome(alone, "zoom-pane")).toBeNull();
+    expect(pageShortcutOutcome(grouped(), "open_settings")).toBeNull();
   });
 });

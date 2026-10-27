@@ -16,6 +16,7 @@ function key(
       KeyboardEvent,
       | "key"
       | "code"
+      | "keyCode"
       | "metaKey"
       | "ctrlKey"
       | "altKey"
@@ -36,47 +37,70 @@ function key(
     shiftKey: false,
     key: "",
     code: "",
+    keyCode: 0,
     ...partial,
   } as KeyboardEvent;
 }
 
 describe("tabCommand: Cydonia's pane chords", () => {
-  const chord = (code: string, key: string, extra: object = {}) =>
+  const chord = (
+    code: string,
+    key: string,
+    keyCode: number,
+    extra: object = {},
+    mac = true,
+  ) =>
     tabCommand(
-      key_({ code, key, ctrlKey: true, altKey: true, ...extra }),
-      false,
+      key_({ code, key, keyCode, ctrlKey: true, altKey: true, ...extra }),
+      mac,
     );
-  it("reads Control-Option chords by physical key", () => {
-    expect(chord("Tab", "Tab")).toBe("next-pane");
-    expect(chord("Tab", "Tab", { shiftKey: true })).toBe("prev-pane");
-    expect(chord("KeyZ", "Ω")).toBe("zoom-pane");
-    expect(chord("KeyW", "∑")).toBe("close");
+  it("walks panes with Control-Option-Tab on a Mac and PageDown/PageUp anywhere", () => {
+    expect(chord("Tab", "Tab", 9)).toBe("next-pane");
+    expect(chord("Tab", "Tab", 9, { shiftKey: true })).toBe("prev-pane");
+    expect(chord("PageDown", "PageDown", 34)).toBe("next-pane");
+    expect(chord("PageUp", "PageUp", 33)).toBe("prev-pane");
+    // Windows keeps Ctrl+Alt+Tab; its users have PageDown and PageUp.
+    expect(chord("Tab", "Tab", 9, {}, false)).toBeNull();
+    expect(chord("PageDown", "PageDown", 34, {}, false)).toBe("next-pane");
+    expect(chord("PageUp", "PageUp", 33, {}, false)).toBe("prev-pane");
+  });
+  it("matches the layout's letter, as a page's key code does", () => {
+    // US: Option turns Z into Ω and W into ∑.
+    expect(chord("KeyZ", "Ω", 90)).toBe("zoom-pane");
+    expect(chord("KeyW", "∑", 87)).toBe("close");
+    // AZERTY: the key that types Z sits where W is, and the other way round.
+    expect(chord("KeyW", "Ω", 90)).toBe("zoom-pane");
+    expect(chord("KeyZ", "∑", 87)).toBe("close");
+    // QWERTZ: Z is where Y is; the key in Z's place types Y.
+    expect(chord("KeyY", "Ω", 90)).toBe("zoom-pane");
+    expect(chord("KeyZ", "¥", 89)).toBeNull();
   });
   it("leaves other chords as they were", () => {
     // ⌃⇥ still steps the focused pane's tabs.
-    expect(tabCommand(key_({ key: "Tab", code: "Tab", ctrlKey: true }))).toBe(
-      "next",
-    );
-    // ⌘⌥ arrows still focus panes; ⌃⌥ with ⌘ is not a pane chord.
     expect(
-      tabCommand(
-        key_({
-          key: "Tab",
-          code: "Tab",
-          ctrlKey: true,
-          altKey: true,
-          metaKey: true,
-        }),
-      ),
-    ).toBeNull();
-    expect(chord("KeyZ", "Ω", { shiftKey: true })).toBeNull();
+      tabCommand(key_({ key: "Tab", code: "Tab", keyCode: 9, ctrlKey: true })),
+    ).toBe("next");
+    // With Command as well it is not a pane chord.
+    expect(chord("Tab", "Tab", 9, { metaKey: true })).toBeNull();
+    expect(chord("KeyZ", "Ω", 90, { shiftKey: true })).toBeNull();
   });
-  it("never mistakes AltGr typing for a chord", () => {
+  it("never mistakes AltGr typing for a chord off a Mac", () => {
     const altGr = {
-      ...key_({ code: "KeyZ", key: "ż", ctrlKey: true, altKey: true }),
+      ...key_({
+        code: "KeyZ",
+        key: "ż",
+        keyCode: 90,
+        ctrlKey: true,
+        altKey: true,
+      }),
       getModifierState: (name: string) => name === "AltGraph",
     } as KeyboardEvent;
     expect(tabCommand(altGr, false)).toBeNull();
+    // Left Ctrl+Alt types AltGr characters on Windows without AltGraph set.
+    expect(chord("KeyZ", "ż", 90, {}, false)).toBeNull();
+    expect(chord("Digit1", "|", 49, {}, false)).toBeNull();
+    // A plain Ctrl+Alt+Z there is the chord.
+    expect(chord("KeyZ", "z", 90, {}, false)).toBe("zoom-pane");
     // A Mac's Option may report AltGraph; there it is the chord.
     expect(tabCommand(altGr, true)).toBe("zoom-pane");
   });

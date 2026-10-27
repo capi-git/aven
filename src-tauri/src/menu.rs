@@ -21,7 +21,7 @@ fn help_url(id: &str) -> Option<&'static str> {
 }
 
 /// Menu commands every window hears; each window decides whether it acts.
-fn is_broadcast_command(id: &str) -> bool {
+pub(crate) fn is_broadcast_command(id: &str) -> bool {
     matches!(
         id,
         "new_tab"

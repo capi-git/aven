@@ -6,11 +6,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 type Handler = (event: { payload: unknown }) => void;
 const native = vi.hoisted(() => ({
   handlers: new Map<string, Handler>(),
+  /** Whether each event is heard only by this window (listenInThisWindow). */
+  scoped: new Map<string, boolean>(),
   unlistened: [] as string[],
   emit: vi.fn(async () => {}),
 }));
-function subscribe(event: string, handler: Handler) {
+function subscribe(event: string, handler: Handler, scoped = false) {
   native.handlers.set(event, handler);
+  native.scoped.set(event, scoped);
   return Promise.resolve(() => {
     native.unlistened.push(event);
   });
@@ -21,7 +24,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 vi.mock("../lib/windowMenuEvents", () => ({
   listenInThisWindow: (event: string, handler: Handler) =>
-    subscribe(event, handler),
+    subscribe(event, handler, true),
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ label: "main" }),
@@ -36,6 +39,7 @@ import { NOTIFICATION_CLICK_EVENT } from "../lib/notifications";
 import { TOUR_START_EVENT } from "../lib/tour";
 import type { Session } from "../lib/session";
 import {
+  PAGE_SHORTCUT_EVENT,
   useWorkspaceShortcuts,
   type WorkspaceActions,
 } from "./useWorkspaceShortcuts";
@@ -117,6 +121,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(performance, "now").mockImplementation(() => now);
   native.handlers.clear();
+  native.scoped.clear();
   native.unlistened = [];
   native.emit.mockClear();
   utility = flag(false);
@@ -221,14 +226,16 @@ it("stops listening when the workspace goes away", async () => {
   root = createRoot(host);
 });
 
-it("walks and zooms panes with Control-Option, by physical key", async () => {
+it("walks and zooms panes with Control-Option chords", async () => {
   const actions = fakeActions();
   await render(actions);
   const chord = (code: string, key: string, shiftKey = false) => {
     now += 1_000;
+    const keyCode = { PageDown: 34, PageUp: 33, KeyZ: 90, KeyW: 87 }[code] ?? 0;
     const event = new KeyboardEvent("keydown", {
       key,
       code,
+      keyCode,
       ctrlKey: true,
       altKey: true,
       shiftKey,
@@ -238,14 +245,14 @@ it("walks and zooms panes with Control-Option, by physical key", async () => {
     Object.defineProperty(event, "getModifierState", { value: () => false });
     window.dispatchEvent(event);
   };
-  chord("Tab", "Tab");
+  // (tabKeys.test.ts covers ⌃⌥⇥ on a Mac and other keyboard layouts.)
+  chord("PageDown", "PageDown");
   expect(actions.onStepPane).toHaveBeenLastCalledWith(1);
-  chord("Tab", "Tab", true);
+  chord("PageUp", "PageUp");
   expect(actions.onStepPane).toHaveBeenLastCalledWith(-1);
-  // On a Mac, Option turns Z into Ω; the physical key still zooms.
-  chord("KeyZ", "Ω");
+  chord("KeyZ", "z");
   expect(actions.onZoomPane).toHaveBeenCalledTimes(1);
-  chord("KeyW", "∑");
+  chord("KeyW", "w");
   expect(actions.onClosePane).toHaveBeenCalledTimes(1);
 });
 
@@ -258,14 +265,16 @@ it("leaves a terminal its Control-Option chords", async () => {
   terminal.append(input);
   document.body.append(terminal);
   try {
-    for (const [code, key] of [
-      ["Tab", "Tab"],
-      ["KeyZ", "Ω"],
-    ]) {
+    for (const [code, key, keyCode] of [
+      ["PageDown", "PageDown", 34],
+      ["KeyZ", "z", 90],
+      ["KeyW", "w", 87],
+    ] as const) {
       now += 1_000;
       const event = new KeyboardEvent("keydown", {
         key,
         code,
+        keyCode,
         ctrlKey: true,
         altKey: true,
         bubbles: true,
@@ -277,11 +286,13 @@ it("leaves a terminal its Control-Option chords", async () => {
     }
     expect(actions.onStepPane).not.toHaveBeenCalled();
     expect(actions.onZoomPane).not.toHaveBeenCalled();
+    expect(actions.onClosePane).not.toHaveBeenCalled();
     // Outside the terminal the same chord walks the panes.
     now += 1_000;
     const outside = new KeyboardEvent("keydown", {
-      key: "Tab",
-      code: "Tab",
+      key: "PageDown",
+      code: "PageDown",
+      keyCode: 34,
       ctrlKey: true,
       altKey: true,
       bubbles: true,
@@ -294,17 +305,31 @@ it("leaves a terminal its Control-Option chords", async () => {
   }
 });
 
-it("takes pane keys forwarded by a focused Chromium page", async () => {
+it("takes chords a focused Chromium page forwards to this window only", async () => {
   const actions = fakeActions();
   await render(actions);
-  native.handlers.get("next_pane")!({ payload: undefined });
+  // One window-scoped event: Tauri delivers a targeted event to every
+  // window's plain listeners, so a plain listen would act in all of them.
+  expect(native.scoped.get(PAGE_SHORTCUT_EVENT)).toBe(true);
+  for (const old of ["next_pane", "prev_pane", "zoom_pane"])
+    expect(native.handlers.has(old)).toBe(false);
+  const forward = (action: string) => {
+    now += 1_000;
+    native.handlers.get(PAGE_SHORTCUT_EVENT)!({ payload: { action } });
+  };
+  forward("next-pane");
   expect(actions.onStepPane).toHaveBeenLastCalledWith(1);
-  now += 1_000;
-  native.handlers.get("prev_pane")!({ payload: undefined });
+  forward("prev-pane");
   expect(actions.onStepPane).toHaveBeenLastCalledWith(-1);
-  native.handlers.get("zoom_pane")!({ payload: undefined });
+  forward("zoom-pane");
   expect(actions.onZoomPane).toHaveBeenCalledTimes(1);
-  // ⌃⇥ from a page steps the focused pane's tabs, as the menu's Next Tab.
-  native.handlers.get("next_tab")!({ payload: undefined });
+  forward("next-tab");
   expect(actions.onNext).toHaveBeenCalledTimes(1);
+  forward("prev-tab");
+  expect(actions.onPrev).toHaveBeenCalledTimes(1);
+  forward("close-pane");
+  expect(actions.onClosePane).toHaveBeenCalledTimes(1);
+  // Nothing else can be named.
+  forward("open_settings");
+  expect(actions.openSettings).not.toHaveBeenCalled();
 });

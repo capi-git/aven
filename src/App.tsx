@@ -140,6 +140,7 @@ import {
   type WorkspaceView,
 } from "./lib/workspaceViews";
 import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
+import { focusPaneContent, workspacePane } from "./lib/paneFocus";
 import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
@@ -4538,7 +4539,11 @@ export default function App({
     (step: number) => {
       const { layout, focusedId } = viewRef.current.view;
       const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
-      if (next) onSelectSurface(next);
+      if (!next) return;
+      onSelectSurface(next);
+      // The keyboard goes with the focus: into its message box, or the
+      // pane's first field or control (a page's address, a board's card).
+      window.setTimeout(() => focusPaneContent(workspacePane(next)), 0);
     },
     [onSelectSurface],
   );
@@ -5687,11 +5692,22 @@ export default function App({
 
   const onFocusDir = useCallback(
     (dir: FocusDir) => {
-      if (!activeTab) return;
-      const next = neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
-      if (next) onFocusPane(next);
+      // A split inside the tab first; past its edge, the workspace's pane
+      // that way. (With VoiceOver, which keeps ⌃⌥ for itself, this is how
+      // to move between panes.)
+      const inner =
+        activeTab && neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
+      if (inner) {
+        onFocusPane(inner);
+        return;
+      }
+      const { layout, focusedId } = viewRef.current.view;
+      const pane = layout ? neighborLeafId(layout, focusedId, dir) : null;
+      if (!pane) return;
+      onSelectSurface(pane);
+      window.setTimeout(() => focusPaneContent(workspacePane(pane)), 0);
     },
-    [activeTab, onFocusPane],
+    [activeTab, onFocusPane, onSelectSurface],
   );
 
   const onRatio = useCallback(
