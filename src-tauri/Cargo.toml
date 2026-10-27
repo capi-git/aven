@@ -18,6 +18,8 @@ chromium = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Compiles the iPhone pane's Objective-C bridge (macos/ios_simulator.m).
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "unstable"] }

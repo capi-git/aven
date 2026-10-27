@@ -228,6 +228,7 @@ version = "0.1.152"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "cc",
  "dispatch2",
  "jpeg-decoder",
  "jpeg-encoder",

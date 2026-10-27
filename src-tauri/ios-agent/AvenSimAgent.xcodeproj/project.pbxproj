@@ -1,0 +1,69 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+		B1000000000000000000000A /* AvenSimHost */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AvenSimHost; sourceTree = "<group>"; };
+		B1000000000000000000000B /* AvenSimAgentUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AvenSimAgentUITests; sourceTree = "<group>"; };
+		B10000000000000000000001 = {isa = PBXGroup; children = (B1000000000000000000000A, B1000000000000000000000B, B10000000000000000000002); sourceTree = "<group>"; };
+		B10000000000000000000002 /* Products */ = {isa = PBXGroup; children = (B10000000000000000000003, B10000000000000000000004); name = Products; sourceTree = "<group>"; };
+		B10000000000000000000003 /* AvenSimHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AvenSimHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000004 /* AvenSimAgentUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AvenSimAgentUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000010 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000011 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000012 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000013 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000014 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000015 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000020 /* AvenSimHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000030;
+			buildPhases = (B10000000000000000000010, B10000000000000000000011, B10000000000000000000012);
+			buildRules = ();
+			dependencies = ();
+			fileSystemSynchronizedGroups = (B1000000000000000000000A);
+			name = AvenSimHost;
+			productName = AvenSimHost;
+			productReference = B10000000000000000000003;
+			productType = "com.apple.product-type.application";
+		};
+		B10000000000000000000021 /* AvenSimAgentUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000031;
+			buildPhases = (B10000000000000000000013, B10000000000000000000014, B10000000000000000000015);
+			buildRules = ();
+			dependencies = (B10000000000000000000041);
+			fileSystemSynchronizedGroups = (B1000000000000000000000B);
+			name = AvenSimAgentUITests;
+			productName = AvenSimAgentUITests;
+			productReference = B10000000000000000000004;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		B10000000000000000000040 = {isa = PBXContainerItemProxy; containerPortal = B10000000000000000000050; proxyType = 1; remoteGlobalIDString = B10000000000000000000020; remoteInfo = AvenSimHost; };
+		B10000000000000000000041 = {isa = PBXTargetDependency; target = B10000000000000000000020; targetProxy = B10000000000000000000040; };
+		B10000000000000000000050 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 2700; LastUpgradeCheck = 2700; TargetAttributes = {B10000000000000000000021 = {TestTargetID = B10000000000000000000020;};};};
+			buildConfigurationList = B10000000000000000000032;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = B10000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B10000000000000000000002;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (B10000000000000000000020, B10000000000000000000021);
+		};
+		B10000000000000000000060 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; PRODUCT_BUNDLE_IDENTIFIER = com.capi.aven.simagent.host; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2";}; name = Debug; };
+		B10000000000000000000061 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.capi.aven.simagent.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_TARGET_NAME = AvenSimHost;}; name = Debug; };
+		B10000000000000000000062 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; IPHONEOS_DEPLOYMENT_TARGET = 18.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_OPTIMIZATION_LEVEL = "-Onone";}; name = Debug; };
+		B10000000000000000000030 = {isa = XCConfigurationList; buildConfigurations = (B10000000000000000000060); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+		B10000000000000000000031 = {isa = XCConfigurationList; buildConfigurations = (B10000000000000000000061); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+		B10000000000000000000032 = {isa = XCConfigurationList; buildConfigurations = (B10000000000000000000062); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+	};
+	rootObject = B10000000000000000000050;
+}

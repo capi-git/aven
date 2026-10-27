@@ -31,6 +31,9 @@ struct Grant {
     /// Who acts in this session's browser pages: the in-pane pointer's name
     /// and colour. Supplied by the frontend on user turns.
     actor: Option<crate::desktop_presence::Actor>,
+    /// The project whose iPhone pane is open beside this chat, if any: the
+    /// chat may drive only that pane's simulators.
+    simulator_project: Option<String>,
 }
 
 struct PendingOpen {
@@ -231,6 +234,9 @@ enum Request {
     Desktop {
         request: crate::desktop_control::Request,
     },
+    Simulator {
+        request: crate::ios_sim_agent::Request,
+    },
     List {},
     Open {
         url: String,
@@ -309,9 +315,11 @@ enum Request {
 impl Request {
     fn id(&self) -> Option<&str> {
         match self {
-            Self::List {} | Self::Open { .. } | Self::OpenFile { .. } | Self::Desktop { .. } => {
-                None
-            }
+            Self::List {}
+            | Self::Open { .. }
+            | Self::OpenFile { .. }
+            | Self::Desktop { .. }
+            | Self::Simulator { .. } => None,
             Self::Navigate { id, .. }
             | Self::Snapshot { id }
             | Self::Screenshot { id, .. }
@@ -332,6 +340,7 @@ impl Request {
         }
         match self {
             Self::Desktop { request } => request.validate(),
+            Self::Simulator { request } => request.validate(),
             Self::OpenFile { path, line, column } => validate_file_request(path, *line, *column),
             Self::Open { url, .. } | Self::Navigate { url, .. } if url.len() > 4096 => {
                 Err("Address is too long".into())
@@ -492,11 +501,15 @@ pub fn browser_agent_bind(
     session_id: String,
     browser_ids: Vec<String>,
     actor: Option<crate::desktop_presence::ActorInput>,
+    simulator_project: Option<String>,
 ) -> Result<BrowserAgentBinding, String> {
     crate::browser::label(&caller, "agent-check")?;
     if !valid_id(&session_id)
         || browser_ids.len() > MAX_TABS
         || browser_ids.iter().any(|id| !valid_id(id))
+        || simulator_project
+            .as_deref()
+            .is_some_and(|project| !valid_simulator_project(project))
     {
         return Err("Invalid agent browser scope".into());
     }
@@ -520,16 +533,25 @@ pub fn browser_agent_bind(
         browser_ids,
         actor.as_ref().map(crate::desktop_presence::resolve_actor),
     )?;
-    if let Some((token, _)) = grants
-        .iter()
+    if let Some((token, grant)) = grants
+        .iter_mut()
         .find(|(_, grant)| grant.session_id == session_id)
     {
+        grant.simulator_project = simulator_project;
         crate::desktop_control::bind_session(token, actor.as_ref())?;
     }
     Ok(BrowserAgentBinding {
         socket_path: server.socket_path.clone(),
         executable_path,
     })
+}
+
+/// An absolute project path for the iPhone pane's scope.
+fn valid_simulator_project(project: &str) -> bool {
+    !project.is_empty()
+        && project.len() <= 4096
+        && !project.contains('\0')
+        && std::path::Path::new(project).is_absolute()
 }
 
 fn bind_scope(
@@ -575,6 +597,7 @@ fn bind_scope(
                 .filter(|id| seen.insert(id.clone()))
                 .collect(),
             actor,
+            simulator_project: None,
         },
     );
     Ok(())
@@ -997,7 +1020,10 @@ fn execute(
     };
     // Working agents keep the Mac from idle sleep for the request's lifetime.
     let _awake = crate::keep_awake::hold_request();
-    let browser = !matches!(envelope.request, Request::Desktop { .. });
+    let browser = !matches!(
+        envelope.request,
+        Request::Desktop { .. } | Request::Simulator { .. }
+    );
     let locked_before = browser && screen_lock().0;
     let result = dispatch(server, envelope, &grant, connected);
     if !browser {
@@ -1268,6 +1294,19 @@ fn dispatch(
     match envelope.request {
         Request::Desktop { request } => {
             crate::desktop_control::execute(&server.app, &envelope.token, request, connected)
+        }
+        Request::Simulator { request } => {
+            let actor = grant
+                .actor
+                .clone()
+                .unwrap_or_else(crate::desktop_presence::Actor::fallback);
+            crate::ios_sim_agent::execute(
+                &server.app,
+                &grant.session_id,
+                grant.simulator_project.as_deref(),
+                (actor.name, actor.color),
+                request,
+            )
         }
         Request::List {} => {
             let (ids, note) = wake_session_pages(server, &caller, grant, envelope.token)?;
@@ -1662,25 +1701,37 @@ Requests use session credentials already supplied to the harness environment.
 Do not print or persist AVEN_BROWSER_TOKEN or its legacy alias.
 "#;
 
+/// Which scoped command an agent ran.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CliKind {
+    Browser,
+    Desktop,
+    Simulator,
+}
+
 /// Return None for a normal app launch, or the CLI exit code without booting UI.
 pub fn run_browser_cli() -> Option<i32> {
-    run_agent_cli(false)
+    run_agent_cli(CliKind::Browser)
 }
 
 pub fn run_desktop_cli() -> Option<i32> {
-    run_agent_cli(true)
+    run_agent_cli(CliKind::Desktop)
 }
 
-fn run_agent_cli(desktop: bool) -> Option<i32> {
+pub fn run_simulator_cli() -> Option<i32> {
+    run_agent_cli(CliKind::Simulator)
+}
+
+fn run_agent_cli(kind: CliKind) -> Option<i32> {
     let mut args = std::env::args().skip(1);
     let flag = args.next();
-    let matches = if desktop {
-        flag.as_deref() == Some("--aven-desktop")
-    } else {
-        matches!(
+    let matches = match kind {
+        CliKind::Desktop => flag.as_deref() == Some("--aven-desktop"),
+        CliKind::Simulator => flag.as_deref() == Some("--aven-simulator"),
+        CliKind::Browser => matches!(
             flag.as_deref(),
             Some("--aven-browser" | "--supermono-browser")
-        )
+        ),
     };
     if !matches {
         return None;
@@ -1691,15 +1742,15 @@ fn run_agent_cli(desktop: bool) -> Option<i32> {
     } else if matches!(input.as_str(), "--help" | "help" | "-h") {
         println!(
             "{}",
-            if desktop {
-                crate::desktop_control::HELP
-            } else {
-                HELP
+            match kind {
+                CliKind::Desktop => crate::desktop_control::HELP,
+                CliKind::Simulator => crate::ios_sim_agent::HELP,
+                CliKind::Browser => HELP,
             }
         );
         return Some(0);
     } else {
-        browser_cli_request(&input, desktop)
+        browser_cli_request(&input, kind)
     };
     let response = result.unwrap_or_else(|error: String| json!({"ok":false,"error":error}));
     println!("{response}");
@@ -1712,15 +1763,36 @@ fn run_agent_cli(desktop: bool) -> Option<i32> {
     )
 }
 
-/// Keep desktop names in their own tagged namespace and validate before even
-/// opening the socket. The server repeats validation after token authorization.
+#[cfg(test)]
 fn cli_request_value(input: &str, desktop: bool) -> Result<Value, String> {
+    cli_request_value_for(
+        input,
+        if desktop {
+            CliKind::Desktop
+        } else {
+            CliKind::Browser
+        },
+    )
+}
+
+/// Keep desktop and simulator names in their own tagged namespaces and
+/// validate before even opening the socket. The server repeats validation
+/// after token authorization.
+fn cli_request_value_for(input: &str, kind: CliKind) -> Result<Value, String> {
     if input.len() > MAX_REQUEST_BYTES - 256 {
         return Err("Agent request is too large".into());
     }
     let value: Value = serde_json::from_str(input)
         .map_err(|_| "Pass a JSON action; use --help for examples".to_string())?;
-    if desktop {
+    if kind == CliKind::Simulator {
+        let request: crate::ios_sim_agent::Request = serde_json::from_str(input).map_err(|_| {
+            "Invalid simulator action or fields; use --aven-simulator --help for examples"
+                .to_string()
+        })?;
+        request.validate()?;
+        return Ok(json!({"action":"simulator","request":value}));
+    }
+    if kind == CliKind::Desktop {
         let request: crate::desktop_control::Request =
             serde_json::from_str(input).map_err(|_| {
                 "Invalid desktop action or fields; use --aven-desktop --help for examples"
@@ -1734,6 +1806,9 @@ fn cli_request_value(input: &str, desktop: bool) -> Result<Value, String> {
         })?;
         if matches!(request, Request::Desktop { .. }) {
             return Err("Use --aven-desktop for desktop actions".into());
+        }
+        if matches!(request, Request::Simulator { .. }) {
+            return Err("Use --aven-simulator for simulator actions".into());
         }
         request.validate()?;
         Ok(value)
@@ -1778,18 +1853,38 @@ fn cli_reply_wait(request: &Value, desktop: bool) -> Duration {
     }
 }
 
+/// How long the CLI waits for a simulator action: builds can take minutes.
 #[cfg(unix)]
-fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
+fn simulator_reply_wait(request: &Value) -> Duration {
+    request
+        .get("request")
+        .and_then(|inner| {
+            serde_json::from_value::<crate::ios_sim_agent::Request>(inner.clone()).ok()
+        })
+        .map(|inner| inner.reply_wait())
+        .unwrap_or(Duration::from_secs(60))
+}
+
+#[cfg(unix)]
+fn browser_cli_request(input: &str, kind: CliKind) -> Result<Value, String> {
     use std::{io::Write, os::unix::net::UnixStream};
-    let request = cli_request_value(input, desktop)?;
+    let request = cli_request_value_for(input, kind)?;
+    let desktop = kind == CliKind::Desktop;
     if desktop && !cfg!(target_os = "macos") {
         return Err("Desktop control is only available on macOS.".into());
+    }
+    if kind == CliKind::Simulator && !cfg!(target_os = "macos") {
+        return Err("The iPhone simulator is only available on macOS.".into());
     }
     let (path, token) = browser_cli_connection(|key| std::env::var_os(key))?;
     let mut stream = UnixStream::connect(path)
         .map_err(|_| "Aven's browser connection is unavailable; keep the app open".to_string())?;
     stream
-        .set_read_timeout(Some(cli_reply_wait(&request, desktop)))
+        .set_read_timeout(Some(if kind == CliKind::Simulator {
+            simulator_reply_wait(&request)
+        } else {
+            cli_reply_wait(&request, desktop)
+        }))
         .map_err(|error| error.to_string())?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
@@ -1805,12 +1900,12 @@ fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
 }
 
 #[cfg(not(unix))]
-fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
-    cli_request_value(input, desktop)?;
-    Err(if desktop {
-        "Desktop control is only available on macOS."
-    } else {
-        "Agent browser controls are currently available on macOS only"
+fn browser_cli_request(input: &str, kind: CliKind) -> Result<Value, String> {
+    cli_request_value_for(input, kind)?;
+    Err(match kind {
+        CliKind::Desktop => "Desktop control is only available on macOS.",
+        CliKind::Simulator => "The iPhone simulator is only available on macOS.",
+        CliKind::Browser => "Agent browser controls are currently available on macOS only",
     }
     .into())
 }
@@ -1918,6 +2013,7 @@ mod tests {
                 session_id: "session-a".into(),
                 ids: vec!["tab-a".into()],
                 actor: None,
+                simulator_project: None,
             },
         )])
     }
@@ -2512,6 +2608,7 @@ mod tests {
                 session_id: "session-b".into(),
                 ids: vec!["tab-a".into()],
                 actor: None,
+                simulator_project: None,
             },
         );
         grants.remove("secret");
@@ -2570,6 +2667,7 @@ mod tests {
             session_id: "session".into(),
             ids: vec!["tab-a".into()],
             actor: None,
+            simulator_project: None,
         };
         let result = {
             let mut reservations = sleep_reservations().lock().unwrap();

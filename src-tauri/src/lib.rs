@@ -16,7 +16,7 @@ mod browser_agent_dom;
 #[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
 mod browser_drop_indicator;
 mod panic_log;
-pub use browser_agent::{run_browser_cli, run_desktop_cli};
+pub use browser_agent::{run_browser_cli, run_desktop_cli, run_simulator_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
 mod browser_dialogs;
 #[cfg(target_os = "macos")]
@@ -42,6 +42,17 @@ mod git_housekeeping;
 mod github_account;
 mod harness;
 mod inbox_media;
+#[cfg(target_os = "macos")]
+mod ios_sim;
+mod ios_sim_agent;
+mod ios_sim_devices;
+mod ios_sim_geometry;
+mod ios_sim_keys;
+#[cfg(target_os = "macos")]
+mod ios_sim_native;
+mod ios_sim_xcode;
+#[cfg(target_os = "macos")]
+mod ios_sim_xcuitest;
 mod keep_awake;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -306,6 +317,7 @@ pub fn run() {
                 session_lock_macos::install();
                 window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());
+                ios_sim::init(app.handle());
                 if let Some(window) = app.get_window("main") {
                     macos::install(&window);
                     window_reveal::conceal(&window);
@@ -367,6 +379,42 @@ pub fn run() {
             team_watch::team_watch_show_owner,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_support,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_has_project,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_project,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_forget_project,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_devices,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_use_device,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_pane_choice,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_run,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_stop,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_state,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_button,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_rotate,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_screenshot,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_basic_frame,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_basic_input,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_view_layout,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_view_close,
+            #[cfg(target_os = "macos")]
+            ios_sim::ios_sim_view_focus,
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,
             browser_agent::browser_agent_open_file_result,
@@ -685,6 +733,8 @@ pub fn run() {
             }
             tauri::RunEvent::Exit => {
                 browser_agent::shutdown();
+                #[cfg(target_os = "macos")]
+                ios_sim_xcuitest::shutdown();
                 #[cfg(all(feature = "chromium", target_os = "macos"))]
                 browser::shutdown();
                 reap_harness_children(handle);
