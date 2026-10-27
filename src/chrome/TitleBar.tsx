@@ -12,11 +12,6 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
-  Move,
-  MoveDown,
-  MoveLeft,
-  MoveRight,
-  MoveUp,
   PanelLeft,
   PanelRight,
   Pin,
@@ -68,9 +63,15 @@ import {
   TAB_TRACK_ID_ATTRIBUTE,
   useTabHighlight,
 } from "../hooks/useTabHighlight";
-import { trackSeparators } from "../lib/tabTrack";
+import {
+  TAB_TRACK_GAP,
+  titleRowCapacity,
+  titleRowTabs,
+  trackSeparators,
+} from "../lib/tabTrack";
 import { focusPaneContent, workspacePane } from "../lib/paneFocus";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
+import { useHostPaneHeader } from "../hooks/usePaneHeader";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -152,12 +153,6 @@ const MOVE_LABEL: Record<PaneSide, string> = {
   up: "Move up",
   down: "Move down",
 };
-const MOVE_ICON = {
-  left: MoveLeft,
-  right: MoveRight,
-  up: MoveUp,
-  down: MoveDown,
-} as const;
 
 export type TitleBarProps = {
   paneLocal?: boolean;
@@ -187,6 +182,24 @@ export type TitleBarProps = {
    * than naming the tab twice.
    */
   frontNamedBelow?: boolean;
+  /**
+   * The tab in front draws a header row of its own (a page's toolbar, an
+   * iPhone's pickers, a tab's files). A lone title row gives it the row in
+   * place of the tab's name; under a row of tabs it draws that row itself,
+   * and the title row leaves the line under both to it.
+   */
+  frontOwnHeader?: boolean;
+  /**
+   * A tab row above (the window's strip) already names the tab in front,
+   * so a toolbar lent this row does not name it again. Defaults to the
+   * strip holding this pane's tabs and showing more than one.
+   */
+  frontNamed?: boolean;
+  /** Hiding this pane beside its divider, offered in the pane's "…". */
+  paneHides?: readonly { key: string; label: string }[];
+  onHidePane?: (key: string) => void;
+  /** The window strip leaves Recent and Keep open to the pane's "…". */
+  previewActionsInPane?: boolean;
   /** False where another bar names the window (the window's strip). */
   windowTitle?: boolean;
   paneFocused?: boolean;
@@ -397,59 +410,16 @@ type SortableApi = ReturnType<typeof useSortable>;
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
 /**
- * A title row's kind icon on a tile, after Cydonia's deck: with tabs behind
- * the one in front, a card or two peeks out past the tile, and pressing it
- * lists the pane's tabs.
+ * A lone title row's kind icon on a tile, after Cydonia's deck. A pane with
+ * more than one tab lays them side by side instead (see `paneTabs`).
  */
-function TabDeck({
-  behind,
-  open,
-  onOpen,
-  children,
-}: {
-  behind: number;
-  open: boolean;
-  onOpen: (anchor: HTMLElement) => void;
-  children: ReactNode;
-}) {
-  if (behind <= 0)
-    return (
-      <span className="aven-tab-deck" data-behind="0">
-        <span className="aven-tab-deck-face">{children}</span>
-      </span>
-    );
-  const label = `${behind + 1} tabs in this pane`;
+function TabDeck({ children }: { children: ReactNode }) {
   return (
-    <button
-      type="button"
-      className="aven-tab-deck"
-      data-behind={Math.min(behind, 2)}
-      data-no-drag
-      data-tauri-drag-region="false"
-      aria-label={label}
-      title={label}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen(event.currentTarget);
-      }}
-    >
+    <span className="aven-tab-deck">
       <span className="aven-tab-deck-face">{children}</span>
-      <span className="aven-tab-deck-card" data-depth="1" aria-hidden />
-      {behind > 1 ? (
-        <span className="aven-tab-deck-card" data-depth="2" aria-hidden />
-      ) : null}
-    </button>
+    </span>
   );
 }
-
-type TabDeckProps = {
-  behind: number;
-  open: boolean;
-  onOpen: (anchor: HTMLElement) => void;
-};
 
 function TitleTabItem({
   tab,
@@ -480,8 +450,8 @@ function TitleTabItem({
   onClose: (id: string) => void;
   onContextMenu: (id: string, event: MenuPoint) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
-  /** A title row draws the tab's icon on a deck. */
-  deck?: TabDeckProps;
+  /** A lone title row draws the tab's icon on a deck. */
+  deck?: boolean;
 }) {
   const { headline, tooltip } = tabCopy(tab, projectless);
   const tabRef = useRef<HTMLDivElement | null>(null);
@@ -609,8 +579,8 @@ function TitleTabItem({
         <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
-        {deck ? <TabDeck {...deck}>{identity}</TabDeck> : null}
-        {/* A title row is a group of controls, not a list of tabs. */}
+        {deck ? <TabDeck>{identity}</TabDeck> : null}
+        {/* A lone title row is a group of controls, not a list of tabs. */}
         <button
           type="button"
           title={tooltip}
@@ -655,7 +625,8 @@ function TitleTabItem({
             </span>
           </span>
         </button>
-        {closable ? (
+        {/* A lone title's × is its pane's Close tool. */}
+        {closable && !deck ? (
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
@@ -850,8 +821,8 @@ function BrowserTitleTabItem({
   itemRef?: (element: HTMLDivElement | null) => void;
   /** A hairline before it, parting it from a resting neighbour. */
   separator?: boolean;
-  /** A title row draws the page's icon on a deck. */
-  deck?: TabDeckProps;
+  /** A lone title row draws the page's icon on a deck. */
+  deck?: boolean;
 }) {
   const label = title.trim() || "Browser";
   const dropBefore =
@@ -931,7 +902,7 @@ function BrowserTitleTabItem({
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         {deck ? (
-          <TabDeck {...deck}>
+          <TabDeck>
             <BrowserTabIcon favicon={favicon} />
           </TabDeck>
         ) : null}
@@ -960,7 +931,7 @@ function BrowserTitleTabItem({
             <span className="personal-title-tab-visible" aria-hidden />
           ) : null}
         </button>
-        {onClose ? (
+        {onClose && !deck ? (
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
@@ -1333,6 +1304,8 @@ export function returnFocusToPane(from: HTMLElement): boolean {
 
 const NO_IDS: readonly string[] = [];
 const NO_SEPARATORS: ReadonlySet<string> = new Set();
+/** A lone title row's one slot for the tab motion, whichever tab it names. */
+const LONE_TITLE_SLOTS: readonly string[] = ["\u0000lone-title"];
 
 function TitleBarComponent({
   paneLocal = false,
@@ -1344,6 +1317,11 @@ function TitleBarComponent({
   onMovePane,
   stackOnStrip = false,
   frontNamedBelow = false,
+  frontOwnHeader = false,
+  frontNamed,
+  paneHides,
+  onHidePane,
+  previewActionsInPane = false,
   windowTitle = true,
   paneFocused = true,
   onNewView,
@@ -1485,18 +1463,59 @@ function TitleBarComponent({
   );
   const segments = stripSegments(orderedIds, groupState);
   const titleRow = variant === "title";
-  // A title row shows the tab in front; the rest are its deck.
   const frontId = orderedIds.includes(focusedId) ? focusedId : orderedIds[0];
+  // A title row whose pane holds two tabs or more lays them side by side on
+  // a track, as the window's strip does, so each is one click away. Those
+  // that no longer fit fold into a "+N", as do a folded group's (the row
+  // draws no group labels); the tab in front always shows. A lone tab keeps
+  // the row's single title, and a row whose tabs are on the window's strip
+  // names only the tab in front.
+  const paneTabs = titleRow && !stackOnStrip && orderedIds.length > 1;
+  const [paneRowWidth, setPaneRowWidth] = useState(0);
+  const paneFolded = paneTabs
+    ? new Set(
+        orderedIds.filter(
+          (id) =>
+            id !== frontId &&
+            groupState.groups[groupState.members[id] ?? ""]?.collapsed,
+        ),
+      )
+    : null;
+  const paneRow = paneFolded
+    ? titleRowTabs(
+        orderedIds,
+        frontId,
+        titleRowCapacity(
+          paneRowWidth,
+          orderedIds.length - paneFolded.size,
+          paneFolded.size > 0,
+        ),
+        paneFolded,
+      )
+    : null;
   // Labels sit in the sortable sequence so a group drags like a tab.
-  const displayIds = titleRow
-    ? frontId && !(frontNamedBelow && orderedIds.length <= 1)
-      ? [frontId]
-      : []
-    : stripDisplayIds(segments);
+  const displayIds = paneRow
+    ? paneRow.shown
+    : titleRow
+      ? frontId && !(frontNamedBelow && orderedIds.length <= 1)
+        ? [frontId]
+        : []
+      : stripDisplayIds(segments);
+  const paneHidden = paneRow?.hidden ?? NO_IDS;
+  // One header per pane: a lone title row whose tab draws a toolbar of its
+  // own gives it the row, and every title row lists the content's secondary
+  // actions in the pane's one "…". The toolbar names the tab only when no
+  // tab on the window's strip already does.
+  const hostsHeader = titleRow && !paneTabs && frontOwnHeader && !!frontId;
+  const paneHeader = useHostPaneHeader(titleRow ? frontId : null, {
+    host: titleRow,
+    offer: hostsHeader,
+    names: !(frontNamed ?? (stackOnStrip && orderedIds.length > 1)),
+  });
   const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
   // On a track (two tabs or more) the tabs share the strip's width and one
   // highlight slides under them. The window's strip shows no lone tab.
-  const track = !titleRow && displayedTabIds.length >= 2;
+  const track = titleRow ? paneTabs : displayedTabIds.length >= 2;
   const loneHidden = !titleRow && hideLoneTab && !track;
   const separators = track
     ? trackSeparators(
@@ -1553,16 +1572,21 @@ function TitleBarComponent({
     displayIds,
     (ids, movedId) => {
       let members = groupState.members;
-      const joined = movedId
-        ? groupAfterDrop(ids, movedId, members)
-        : undefined;
+      // A title row draws no group labels, so moving a tab along it leaves
+      // its group alone, and the tabs in its "+N" keep their places.
+      const joined =
+        movedId && !paneTabs
+          ? groupAfterDrop(ids, movedId, members)
+          : undefined;
       if (movedId && joined !== undefined) {
         members = { ...members };
         if (joined) members[movedId] = joined;
         else delete members[movedId];
         setSurfaceGroupMembership({ [movedId]: joined });
       }
-      const order = orderFromDisplay(ids, members, orderedIds);
+      const order = paneTabs
+        ? mergePreviewTabOrder(orderedIds, ids)
+        : orderFromDisplay(ids, members, orderedIds);
       const moved = movedId && !chipGroupId(movedId) ? movedId : undefined;
       const complete = mergePreviewTabOrder(allOrderedIds, order);
       if (onReorderSurfaces) onReorderSurfaces(complete, moved);
@@ -1593,10 +1617,11 @@ function TitleBarComponent({
   );
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
-  // Tabs grow in and closed tabs collapse, as in MonoCode. A title row
-  // changes its one tab in place.
+  // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
+  // changes its one tab in place, and becoming a row of tabs (or one again)
+  // replaces the row rather than growing every tab in.
   const slotMotion = useTabSlotMotion(
-    titleRow ? NO_IDS : displayIds,
+    titleRow && !paneTabs ? LONE_TITLE_SLOTS : displayIds,
     tabStripRef,
   );
   const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
@@ -1604,7 +1629,6 @@ function TitleBarComponent({
     layoutKey: displayIds.join("\n"),
   });
   const [stackMenu, setStackMenu] = useState<HTMLElement | null>(null);
-  const [moveMenu, setMoveMenu] = useState<HTMLElement | null>(null);
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -1746,6 +1770,31 @@ function TitleBarComponent({
       ro.disconnect();
     };
   }, [syncTabOverflow]);
+
+  // A row of tabs in a title row fits its tabs to the strip's width, less
+  // the strip's own buttons after them (the "+N" keeps its room in
+  // titleRowCapacity). The strip's width never depends on how many tabs it
+  // shows, so this settles in one pass.
+  const hasStripTools = Boolean(onOpenIphone);
+  useLayoutEffect(() => {
+    const el = tabStripRef.current;
+    if (!paneTabs || !el) return;
+    const measure = () => {
+      let width = el.clientWidth;
+      for (const tool of el.querySelectorAll<HTMLElement>(
+        ":scope > [data-strip-tool]",
+      ))
+        width -= tool.offsetWidth + TAB_TRACK_GAP;
+      setPaneRowWidth((previous) =>
+        Math.abs(previous - width) < 0.5 ? previous : width,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [paneTabs, hasStripTools]);
 
   const overflowSignature = JSON.stringify(
     orderedIds.map((id) => {
@@ -1891,12 +1940,75 @@ function TitleBarComponent({
       },
     );
   const moveItems: ExplorerMenuItem[] = [];
+  // A pane's tab can leave for a pane of its own beside it (Cydonia's deck
+  // offered this; it is here now that the tabs sit side by side).
+  if (contextId && paneTabs && onSplitTab)
+    moveItems.push({
+      kind: "item",
+      id: "own-pane",
+      label: "Move to a pane of its own",
+    });
   if (contextId && onReturnTabToWindow)
     moveItems.push({
       kind: "item",
       id: "return-tab-window",
       label: "Return tab to original window",
     });
+  // The pane's "…" (its More tool) adds what the pane and its content offer
+  // to the tab's own actions: the content's secondary actions, Recent
+  // pages, the iPhone, moving and hiding the pane.
+  const moves = titleRow && onMovePane ? (paneMoves ?? []) : [];
+  const paneMenuOpen =
+    titleRow &&
+    menuKind === "tab" &&
+    tabMenu?.anchor?.dataset.paneTool === "more";
+  const contentMenu = paneMenuOpen ? paneHeader.menu : null;
+  const contentItem = (item: ExplorerMenuItem): ExplorerMenuItem =>
+    item.kind === "item"
+      ? {
+          ...item,
+          id: item.id.startsWith("page:")
+            ? `page:content:${item.id.slice("page:".length)}`
+            : `content:${item.id}`,
+        }
+      : item;
+  const contentItems = contentMenu ? contentMenu.items().map(contentItem) : [];
+  const contentPages: Record<string, ExplorerMenuItem[]> = Object.fromEntries(
+    Object.entries(contentMenu?.pages?.() ?? {}).map(([name, items]) => [
+      `content:${name}`,
+      items.map(contentItem),
+    ]),
+  );
+  const recentItems: ExplorerMenuItem[] =
+    paneMenuOpen && previewEnabled
+      ? [...browserEntries].reverse().map((tab) => ({
+          kind: "item",
+          id: `recent:${tab.id}`,
+          label: tab.title || "Browser",
+          description: tab.url,
+          checked: tab.id === focusedId,
+          shortcut: tab.kept ? "Kept" : undefined,
+        }))
+      : [];
+  const paneMoveItems: ExplorerMenuItem[] = paneMenuOpen
+    ? [
+        ...moves.map((side): ExplorerMenuItem => ({
+          kind: "item",
+          id: `pane-move:${side}`,
+          label: MOVE_LABEL[side],
+        })),
+        ...(moves.length && moveItems.length ? [{ kind: "sep" } as const] : []),
+        ...moveItems,
+      ]
+    : moveItems;
+  const paneHideItems: ExplorerMenuItem[] =
+    paneMenuOpen && onHidePane
+      ? (paneHides ?? []).map((hide) => ({
+          kind: "item",
+          id: `pane-hide:${hide.key}`,
+          label: hide.label,
+        }))
+      : [];
   const joinableGroups = stripGroups.filter(
     (segment) => segment.group.id !== contextGroupId,
   );
@@ -1949,6 +2061,21 @@ function TitleBarComponent({
   };
   const tabRootItems: ExplorerMenuItem[] = [];
   if (contextId) {
+    if (contentItems.length)
+      tabRootItems.push(...contentItems, { kind: "sep" });
+    if (recentItems.length)
+      tabRootItems.push({
+        kind: "item",
+        id: "page:recent",
+        label: "Recent pages",
+        shortcut: "›",
+      });
+    if (paneMenuOpen && onOpenIphone)
+      tabRootItems.push({
+        kind: "item",
+        id: "bar-open-iphone",
+        label: "iPhone",
+      });
     if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
       tabRootItems.push(
         { kind: "item", id: "keep-open", label: "Keep open" },
@@ -1975,7 +2102,8 @@ function TitleBarComponent({
       });
     tabRootItems.push(
       ...pageEntry("split", "Split", splitItems),
-      ...pageEntry("move", "Move to", moveItems),
+      ...pageEntry("move", paneMenuOpen ? "Move" : "Move to", paneMoveItems),
+      ...paneHideItems,
       { kind: "sep" },
     );
     if (onReopenClosedTab)
@@ -2098,9 +2226,11 @@ function TitleBarComponent({
   const pages: Record<string, ExplorerMenuItem[]> = {
     group: groupPageItems,
     split: splitItems,
-    move: moveItems,
+    move: paneMoveItems,
     close: closeItems,
     color: colorItems,
+    recent: recentItems,
+    ...contentPages,
   };
   const page = tabMenu?.page;
   const contextMenuItems: ExplorerMenuItem[] =
@@ -2133,6 +2263,24 @@ function TitleBarComponent({
       return;
     }
     setTabMenu(null);
+    if (id.startsWith("content:")) {
+      contentMenu?.pick(id.slice("content:".length));
+      return;
+    }
+    if (id.startsWith("recent:")) {
+      const page = id.slice("recent:".length);
+      if (browsers.has(page)) onSelectBrowser?.(unified ? page : undefined);
+      return;
+    }
+    if (id.startsWith("pane-move:")) {
+      const side = id.slice("pane-move:".length) as PaneSide;
+      if (moves.includes(side)) onMovePane?.(side);
+      return;
+    }
+    if (id.startsWith("pane-hide:")) {
+      onHidePane?.(id.slice("pane-hide:".length));
+      return;
+    }
     if (id === "reopen-tab") {
       if (canReopenClosedTab) onReopenClosedTab?.();
       return;
@@ -2210,6 +2358,12 @@ function TitleBarComponent({
       setSurfaceGroupMembership({ [contextId]: null });
     } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
+    } else if (id === "own-pane") {
+      const beside =
+        contextId !== frontId
+          ? frontId
+          : orderedIds.find((other) => other !== contextId);
+      if (beside) onSplitTab?.(contextId, "right", beside);
     } else if (id === "return-tab-window") {
       onReturnTabToWindow?.(contextId);
     } else if (id === "race-overview") {
@@ -2326,17 +2480,8 @@ function TitleBarComponent({
     </div>
   );
 
-  const deck: TabDeckProps | undefined = titleRow
-    ? {
-        behind: stackOnStrip ? 0 : Math.max(0, orderedIds.length - 1),
-        open: Boolean(stackMenu),
-        onOpen: (anchor) => {
-          setTabMenu(null);
-          setMoveMenu(null);
-          setStackMenu((open) => (open ? null : anchor));
-        },
-      }
-    : undefined;
+  // A lone title row draws its tab's icon on a tile.
+  const deck = titleRow && !paneTabs;
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
@@ -2490,8 +2635,10 @@ function TitleBarComponent({
             : undefined
         }
         onContextMenu={(event) => openMenu(event.clientX, event.clientY)}
+        // A title row's page opens the same menu from a right-click or the
+        // pane's "…", so it draws no layout arrow of its own.
         onMenu={
-          hasSurfaceMenu || onBrowserModeChange
+          !titleRow && (hasSurfaceMenu || onBrowserModeChange)
             ? (button) => {
                 const rect = button.getBoundingClientRect();
                 if (hasSurfaceMenu) {
@@ -2546,39 +2693,21 @@ function TitleBarComponent({
               : undefined,
           }
         : null;
-  const moves = titleRow && onMovePane ? (paneMoves ?? []) : [];
-  const stackItems: ExplorerMenuItem[] = titleRow
-    ? [
-        ...orderedIds.map((id): ExplorerMenuItem => {
-          const tab = sessionTabs.get(id);
-          return {
-            kind: "item",
-            id: `stack:${id}`,
-            label: tab
-              ? tabCopy(tab, projectlessWorkspace).headline
-              : browsers.get(id)?.title.trim() || "Browser",
-            checked: id === frontId,
-          };
-        }),
-        ...(onSplitTab && orderedIds.length > 1
-          ? [
-              { kind: "sep" } as const,
-              {
-                kind: "item",
-                id: "stack-split",
-                label: "Move to a pane of its own",
-              } as const,
-            ]
-          : []),
-      ]
-    : [];
+  // The "+N" lists the pane's tabs that are not in its row.
+  const stackItems: ExplorerMenuItem[] = paneHidden.map(
+    (id): ExplorerMenuItem => {
+      const tab = sessionTabs.get(id);
+      return {
+        kind: "item",
+        id: `stack:${id}`,
+        label: tab
+          ? tabCopy(tab, projectlessWorkspace).headline
+          : browsers.get(id)?.title.trim() || "Browser",
+      };
+    },
+  );
   const pickStack = (item: string) => {
     setStackMenu(null);
-    if (item === "stack-split") {
-      const beside = orderedIds.find((id) => id !== frontId);
-      if (frontId && beside) onSplitTab?.(frontId, "right", beside);
-      return;
-    }
     const id = item.slice("stack:".length);
     if (sessionTabs.has(id)) onSelect(id);
     else if (browsers.has(id)) onSelectBrowser?.(unified ? id : undefined);
@@ -2604,6 +2733,17 @@ function TitleBarComponent({
       className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
       data-pane-local={paneLocal || undefined}
       data-variant={variant}
+      data-title-layout={titleRow ? (paneTabs ? "tabs" : "lone") : undefined}
+      // The line under the pane's whole header is drawn below this row when
+      // the tab in front draws its own row under it, or (a tab split into
+      // panes) its panes' strips do.
+      data-header-continues={
+        (titleRow &&
+          (paneTabs
+            ? frontOwnHeader
+            : frontNamedBelow && orderedIds.length <= 1)) ||
+        undefined
+      }
       data-pane-focused={paneFocused}
       data-tauri-drag-region={paneLocal ? "false" : "deep"}
       onContextMenu={(event) => {
@@ -2659,190 +2799,234 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        <div
-          className="relative h-full min-w-0 flex-1 overflow-hidden"
-          onWheel={(event) => {
-            const el = tabStripRef.current;
-            if (!el || el.scrollWidth <= el.clientWidth) return;
-            if (event.deltaX === 0 && event.deltaY !== 0) {
-              el.scrollLeft += event.deltaY;
-            }
-          }}
-        >
-          {tabOverflow.left ? (
-            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
-          ) : null}
-          {tabOverflow.right ? (
-            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
-          ) : null}
+        {hostsHeader ? (
+          // The tab's own toolbar draws here, in place of its name.
           <div
-            ref={setTabStripRef}
-            role={titleRow ? "group" : "tablist"}
-            tabIndex={displayedTabIds.length ? -1 : 0}
-            data-sortable-scroll-container
-            data-surface-order={JSON.stringify(allOrderedIds)}
-            aria-label={titleRow ? "Pane" : "Workspace tabs"}
-            aria-orientation={titleRow ? undefined : "horizontal"}
-            data-tab-track={track || undefined}
-            className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
-            onFocusCapture={(event) => {
-              const target = event.target as HTMLElement;
-              focusedTabControlRef.current = target.closest(
-                "[data-surface-tab-id]",
-              )
-                ? target
-                : null;
-            }}
-            onBlurCapture={(event) => {
-              if (
-                !(event.relatedTarget instanceof Node) ||
-                !event.currentTarget.contains(event.relatedTarget)
-              ) {
-                focusedTabControlRef.current = null;
+            ref={paneHeader.slotRef}
+            className="aven-pane-header-slot"
+            data-pane-header-slot={frontId}
+          />
+        ) : (
+          <div
+            className="relative h-full min-w-0 flex-1 overflow-hidden"
+            onWheel={(event) => {
+              const el = tabStripRef.current;
+              if (!el || el.scrollWidth <= el.clientWidth) return;
+              if (event.deltaX === 0 && event.deltaY !== 0) {
+                el.scrollLeft += event.deltaY;
               }
-            }}
-            onKeyDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (
-                target === event.currentTarget &&
-                (event.key === "ContextMenu" ||
-                  (event.shiftKey && event.key === "F10"))
-              ) {
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                openBarMenu(rect.left, rect.bottom);
-                return;
-              }
-              if (
-                event.defaultPrevented ||
-                event.altKey ||
-                event.ctrlKey ||
-                event.metaKey ||
-                event.shiftKey ||
-                target.getAttribute("role") !== "tab"
-              ) {
-                return;
-              }
-              const buttons = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  '[role="tab"]',
-                ),
-              );
-              const index = buttons.indexOf(target as HTMLButtonElement);
-              if (index < 0) return;
-              const next =
-                event.key === "ArrowRight"
-                  ? (index + 1) % buttons.length
-                  : event.key === "ArrowLeft"
-                    ? (index - 1 + buttons.length) % buttons.length
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? buttons.length - 1
-                        : -1;
-              if (next < 0) return;
-              event.preventDefault();
-              const nextButton = buttons[next];
-              const id = nextButton?.closest<HTMLElement>(
-                "[data-surface-tab-id]",
-              )?.dataset.surfaceTabId;
-              nextButton?.focus();
-              if (id && sessionTabs.has(id)) onSelect(id);
-              else if (id && spaceTabs.has(id)) onSelectSpace?.(id);
-              else if (id && browsers.has(id))
-                onSelectBrowser?.(unified ? id : undefined);
             }}
           >
-            {track ? (
-              <span
-                ref={highlightRef}
-                className="aven-tab-highlight"
-                aria-hidden
-              />
+            {tabOverflow.left ? (
+              <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
             ) : null}
-            {slotGhosts(null)}
-            {loneHidden
-              ? null
-              : displayIds.flatMap((id, index) => [
-                  stripItem(id, index),
-                  ...slotGhosts(id),
-                ])}
-            {paneLocal && !titleRow ? (
-              <button
-                type="button"
-                aria-label="New chat"
-                title="New chat"
-                data-tauri-drag-region="false"
-                className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onNew}
-              >
-                <Plus className="size-3.5" strokeWidth={1.75} />
-              </button>
+            {tabOverflow.right ? (
+              <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
             ) : null}
-            {!titleRow &&
-            (onNewBrowser ||
-              (browserEntries.length === 0 && onSelectBrowser)) ? (
-              <button
-                type="button"
-                aria-label={
-                  paneLocal
-                    ? "New browser"
-                    : unified
-                      ? "New browser tab"
-                      : "Open browser"
+            <div
+              ref={setTabStripRef}
+              role={titleRow && !paneTabs ? "group" : "tablist"}
+              tabIndex={displayedTabIds.length ? -1 : 0}
+              data-sortable-scroll-container
+              data-surface-order={JSON.stringify(allOrderedIds)}
+              aria-label={
+                titleRow
+                  ? paneTabs
+                    ? "Tabs in this pane"
+                    : "Pane"
+                  : "Workspace tabs"
+              }
+              aria-orientation={
+                titleRow && !paneTabs ? undefined : "horizontal"
+              }
+              data-tab-track={track || undefined}
+              className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
+              onFocusCapture={(event) => {
+                const target = event.target as HTMLElement;
+                focusedTabControlRef.current = target.closest(
+                  "[data-surface-tab-id]",
+                )
+                  ? target
+                  : null;
+              }}
+              onBlurCapture={(event) => {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                ) {
+                  focusedTabControlRef.current = null;
                 }
-                title={
-                  paneLocal
-                    ? "New browser"
-                    : unified
-                      ? "New browser tab"
-                      : "Open browser"
+              }}
+              onKeyDown={(event) => {
+                const target = event.target as HTMLElement;
+                if (
+                  target === event.currentTarget &&
+                  (event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10"))
+                ) {
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  openBarMenu(rect.left, rect.bottom);
+                  return;
                 }
-                data-tauri-drag-region="false"
-                data-tour="browser-button"
-                className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={() =>
-                  onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
+                if (
+                  event.defaultPrevented ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey ||
+                  target.getAttribute("role") !== "tab"
+                ) {
+                  return;
                 }
-              >
-                <Globe className="size-3.5" strokeWidth={1.75} />
-                <Plus
-                  className="personal-title-browser-plus absolute size-2"
-                  strokeWidth={1.75}
+                const buttons = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  ),
+                );
+                const index = buttons.indexOf(target as HTMLButtonElement);
+                if (index < 0) return;
+                const next =
+                  event.key === "ArrowRight"
+                    ? (index + 1) % buttons.length
+                    : event.key === "ArrowLeft"
+                      ? (index - 1 + buttons.length) % buttons.length
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? buttons.length - 1
+                          : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                const nextButton = buttons[next];
+                const id = nextButton?.closest<HTMLElement>(
+                  "[data-surface-tab-id]",
+                )?.dataset.surfaceTabId;
+                nextButton?.focus();
+                if (id && sessionTabs.has(id)) onSelect(id);
+                else if (id && spaceTabs.has(id)) onSelectSpace?.(id);
+                else if (id && browsers.has(id))
+                  onSelectBrowser?.(unified ? id : undefined);
+              }}
+            >
+              {track ? (
+                <span
+                  ref={highlightRef}
+                  className="aven-tab-highlight"
+                  aria-hidden
                 />
-              </button>
-            ) : null}
-            {onOpenBoard && !titleRow ? (
-              <button
-                type="button"
-                aria-label="Open board"
-                title="Open this project's board"
-                data-tauri-drag-region="false"
-                data-tour="board"
-                className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onOpenBoard}
-              >
-                <Kanban className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {onOpenIphone ? (
-              <button
-                type="button"
-                aria-label="iPhone"
-                title="Run this project's app on an iPhone simulator"
-                data-tauri-drag-region="false"
-                className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onOpenIphone}
-              >
-                <Smartphone className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
+              ) : null}
+              {slotGhosts(null)}
+              {loneHidden
+                ? null
+                : displayIds.flatMap((id, index) => [
+                    stripItem(id, index),
+                    ...slotGhosts(id),
+                  ])}
+              {paneHidden.length ? (
+                <button
+                  type="button"
+                  className="aven-title-more"
+                  data-title-overflow
+                  data-no-drag
+                  data-tauri-drag-region="false"
+                  aria-label={`${paneHidden.length} more ${
+                    paneHidden.length === 1 ? "tab" : "tabs"
+                  } in this pane`}
+                  title={`${paneHidden.length} more ${
+                    paneHidden.length === 1 ? "tab" : "tabs"
+                  } in this pane`}
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(stackMenu)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    const button = event.currentTarget;
+                    setTabMenu(null);
+                    setStackMenu((open) => (open ? null : button));
+                  }}
+                >
+                  +{paneHidden.length}
+                </button>
+              ) : null}
+              {paneLocal && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="New chat"
+                  title="New chat"
+                  data-tauri-drag-region="false"
+                  className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onNew}
+                >
+                  <Plus className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {!titleRow &&
+              (onNewBrowser ||
+                (browserEntries.length === 0 && onSelectBrowser)) ? (
+                <button
+                  type="button"
+                  aria-label={
+                    paneLocal
+                      ? "New browser"
+                      : unified
+                        ? "New browser tab"
+                        : "Open browser"
+                  }
+                  title={
+                    paneLocal
+                      ? "New browser"
+                      : unified
+                        ? "New browser tab"
+                        : "Open browser"
+                  }
+                  data-tauri-drag-region="false"
+                  data-tour="browser-button"
+                  className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={() =>
+                    onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
+                  }
+                >
+                  <Globe className="size-3.5" strokeWidth={1.75} />
+                  <Plus
+                    className="personal-title-browser-plus absolute size-2"
+                    strokeWidth={1.75}
+                  />
+                </button>
+              ) : null}
+              {onOpenBoard && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="Open board"
+                  title="Open this project's board"
+                  data-tauri-drag-region="false"
+                  data-tour="board"
+                  className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onOpenBoard}
+                >
+                  <Kanban className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {onOpenIphone && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="iPhone"
+                  title="Run this project's app on an iPhone simulator"
+                  data-tauri-drag-region="false"
+                  data-strip-tool
+                  className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onOpenIphone}
+                >
+                  <Smartphone className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
 
         {previewEnabled &&
         browserEntries.length > 0 &&
-        !(titleRow && stackOnStrip) ? (
+        !titleRow &&
+        !previewActionsInPane ? (
           <div
             className="personal-tab-preview-actions"
             data-tauri-drag-region="false"
@@ -2881,7 +3065,6 @@ function TitleBarComponent({
             className="aven-pane-tools"
             data-pane-tools
             data-open={
-              Boolean(moveMenu) ||
               (Boolean(tabMenu) &&
                 tabMenu?.anchor?.dataset.paneTool === "more") ||
               undefined
@@ -2905,7 +3088,6 @@ function TitleBarComponent({
                   }
                   const rect = button.getBoundingClientRect();
                   setStackMenu(null);
-                  setMoveMenu(null);
                   setBrowserMenu(null);
                   setTabMenu({
                     tabId: frontTool.id,
@@ -2916,40 +3098,6 @@ function TitleBarComponent({
                 }}
               >
                 <MoreHorizontal className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {moves.length === 1 ? (
-              (() => {
-                const side = moves[0];
-                const Icon = MOVE_ICON[side];
-                return (
-                  <button
-                    type="button"
-                    className="aven-pane-tool"
-                    aria-label={MOVE_LABEL[side]}
-                    title={MOVE_LABEL[side]}
-                    onClick={() => onMovePane?.(side)}
-                  >
-                    <Icon className="size-3.5" strokeWidth={1.75} />
-                  </button>
-                );
-              })()
-            ) : moves.length > 1 ? (
-              <button
-                type="button"
-                className="aven-pane-tool"
-                aria-label="Move"
-                title="Move"
-                aria-haspopup="menu"
-                aria-expanded={Boolean(moveMenu)}
-                onClick={(event) => {
-                  const button = event.currentTarget;
-                  setTabMenu(null);
-                  setStackMenu(null);
-                  setMoveMenu((open) => (open ? null : button));
-                }}
-              >
-                <Move className="size-3.5" strokeWidth={1.75} />
               </button>
             ) : null}
             {paneZoom && onTogglePaneZoom ? (
@@ -2967,7 +3115,8 @@ function TitleBarComponent({
                 )}
               </button>
             ) : null}
-            {frontTool?.close ? (
+            {/* A row of tabs closes each from its own ×; a lone tab's is here. */}
+            {frontTool?.close && !paneTabs ? (
               <button
                 type="button"
                 className="aven-pane-tool"
@@ -3022,32 +3171,10 @@ function TitleBarComponent({
           align="start"
           gap={4}
           width={260}
-          ariaLabel="Tabs in this pane"
+          ariaLabel="More tabs in this pane"
           items={stackItems}
           onPick={pickStack}
           onClose={() => setStackMenu(null)}
-        />
-      ) : null}
-      {moveMenu && moves.length > 1 ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={moveMenu}
-          align="end"
-          gap={4}
-          width={180}
-          ariaLabel="Move pane"
-          items={moves.map((side) => ({
-            kind: "item",
-            id: side,
-            label: MOVE_LABEL[side],
-          }))}
-          onPick={(side) => {
-            setMoveMenu(null);
-            if (moves.includes(side as PaneSide))
-              onMovePane?.(side as PaneSide);
-          }}
-          onClose={() => setMoveMenu(null)}
         />
       ) : null}
       {tabMenu && contextMenuItems.length ? (

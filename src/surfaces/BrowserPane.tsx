@@ -26,7 +26,7 @@ import {
   useSyncExternalStore,
   type FormEvent,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -78,7 +78,12 @@ import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { ProjectMark } from "../chrome/ProjectMark";
-import { IS_MAC } from "../lib/platform";
+import { IS_MAC, MOD } from "../lib/platform";
+import {
+  usePaneHeaderMenuHosted,
+  usePaneHeaderSlot,
+  useProvidePaneHeaderMenu,
+} from "../hooks/usePaneHeader";
 
 export type BrowserPaneProps = {
   id: string;
@@ -99,6 +104,12 @@ export type BrowserPaneProps = {
   onToggleExpand?: () => void;
   /** The project this browser belongs to; its mark sits beside the address. */
   project?: string;
+  /**
+   * Its pane's title row draws its toolbar whenever it is shown (it is its
+   * pane's only tab), so the toolbar never sits inside the page: showing
+   * the page again then moves and resizes nothing.
+   */
+  headerLent?: boolean;
 };
 
 const BROWSER_ACTIONS_WIDTH = 224;
@@ -126,6 +137,15 @@ function browserMenuPosition(button: HTMLButtonElement) {
     x: Math.max(8, rect.right - BROWSER_ACTIONS_WIDTH),
     y: rect.bottom + 4,
   };
+}
+
+/** "example.com" for a page's address; the address itself without a host. */
+function readableHost(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "") || url;
+  } catch {
+    return url;
+  }
 }
 
 function startsWithUrl(value?: string): string {
@@ -159,10 +179,18 @@ function BrowserPaneSession({
   expanded = false,
   onToggleExpand,
   project,
+  headerLent = false,
 }: BrowserPaneProps) {
   const [url, setUrl] = useState(() => startsWithUrl(initialUrl));
   const [address, setAddress] = useState(initialUrl ?? "");
   const [title, setTitle] = useState("");
+  // One header per pane: in a workspace pane the page lends its toolbar to
+  // the pane's title row when it is the pane's only tab (`headerSlot`), and
+  // lists its secondary actions in the pane's "…" (`paneHosted`), leaving
+  // the arrows and the address at rest.
+  const headerSlot = usePaneHeaderSlot(id);
+  const paneHosted = usePaneHeaderMenuHosted(id);
+  const [addressFocused, setAddressFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number | null>(null);
   // Read when the slow-load timer fires, without restarting it.
@@ -1352,6 +1380,119 @@ function BrowserPaneSession({
   const openTools = (button: HTMLButtonElement) => {
     setToolsMenu(toolsMenu ? null : browserMenuPosition(button));
   };
+  useProvidePaneHeaderMenu(
+    id,
+    (): ExplorerMenuItem[] => [
+      ...(onAddToChat
+        ? [
+            {
+              kind: "item" as const,
+              id: "comment",
+              label: editing ? "Stop commenting" : "Comment on page",
+              shortcut: editing ? "Esc" : undefined,
+              disabled: !readyId || !url || markup.active,
+            },
+          ]
+        : []),
+      ...(markupAvailable
+        ? [
+            {
+              kind: "item" as const,
+              id: "markup",
+              label: "Mark up page",
+              checked: markup.active,
+              disabled: !readyId || !url || editing || markup.busy,
+            },
+          ]
+        : []),
+      ...(onAddToChat
+        ? [
+            {
+              kind: "item" as const,
+              id: "chat",
+              label: "Add URL to chat",
+              disabled: !url,
+            },
+          ]
+        : []),
+      {
+        kind: "item",
+        id: "external",
+        label: `Open in ${EXTERNAL_BROWSER_NAME}`,
+        disabled: !url,
+      },
+      { kind: "sep" },
+      {
+        kind: "item",
+        id: "find",
+        label: "Find in page",
+        shortcut: `${MOD}F`,
+        disabled: !readyId,
+      },
+      {
+        kind: "item",
+        id: "page:zoom",
+        label: `Zoom (${Math.round((zoomFactor ?? 1) * 100)}%)`,
+        shortcut: "›",
+        disabled: !readyId,
+      },
+      { kind: "item", id: "downloads", label: "Downloads", disabled: !readyId },
+      {
+        kind: "item",
+        id: "devtools",
+        label: "Developer tools",
+        disabled: !readyId,
+      },
+    ],
+    (choice) => {
+      if (choice === "comment") setPageEditing(!editing);
+      else if (choice === "markup")
+        if (markup.active) markup.leave();
+        else markup.start();
+      else pickToolAction(choice);
+    },
+    () => ({
+      zoom: [
+        {
+          kind: "item",
+          id: "zoom-in",
+          label: "Zoom in",
+          shortcut: `${MOD}+`,
+          disabled: !readyId,
+        },
+        {
+          kind: "item",
+          id: "zoom-out",
+          label: "Zoom out",
+          shortcut: `${MOD}−`,
+          disabled: !readyId,
+        },
+        {
+          kind: "item",
+          id: "zoom-reset",
+          label: `Reset zoom (${Math.round((zoomFactor ?? 1) * 100)}%)`,
+          shortcut: `${MOD}0`,
+          disabled: !readyId,
+        },
+      ],
+    }),
+  );
+  // Focus swaps the page's name for its address: select the address, as
+  // focusing the field always does.
+  const selectSwappedAddress = useRef(false);
+  useLayoutEffect(() => {
+    if (!selectSwappedAddress.current) return;
+    selectSwappedAddress.current = false;
+    if (addressFocused && document.activeElement === addressInput.current)
+      addressInput.current?.select();
+  }, [addressFocused]);
+  // Arc's address: at rest it names the page (when nothing else in the
+  // pane's header does); clicked or focused, it is the address to edit.
+  const addressNames =
+    !!headerSlot?.names && !addressFocused && !!url && address === url;
+  const addressShown = addressNames
+    ? title.trim() || readableHost(url)
+    : address;
   const utilityItems: ExplorerMenuItem[] = [
     ...(nativeToolsMenu
       ? [
@@ -1419,6 +1560,203 @@ function BrowserPaneSession({
     },
   ];
 
+  const toolbar = (
+    <form
+      className="browser-toolbar"
+      data-pane-header={paneHosted || undefined}
+      data-in-slot={headerSlot ? true : undefined}
+      onSubmit={submit}
+    >
+      <div className="browser-navigation">
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label="Go back"
+          title="Go back"
+          disabled={!readyId || !history.back}
+          onClick={() => action("back")}
+        >
+          <ChevronLeft size={15} />
+        </button>
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label="Go forward"
+          title="Go forward"
+          disabled={!readyId || !history.forward}
+          onClick={() => action("forward")}
+        >
+          <ChevronRight size={15} />
+        </button>
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label={loading && !error ? "Stop loading" : "Reload preview"}
+          title={loading && !error ? "Stop loading" : "Reload preview"}
+          disabled={!url || (loading && !readyId)}
+          onClick={() =>
+            loading && !error
+              ? action("stop")
+              : error
+                ? navigate(url)
+                : action("reload")
+          }
+        >
+          {loading && !error ? <X size={14} /> : <RefreshCw size={14} />}
+        </button>
+      </div>
+      <BrowserProjectMark project={project} />
+      <input
+        ref={addressInput}
+        className="browser-address"
+        aria-label="Preview address"
+        placeholder="Search or enter a web address"
+        value={addressShown}
+        title={addressNames ? url : undefined}
+        onChange={(event) => setAddress(event.target.value)}
+        onFocus={(event) => {
+          // Only a field that names the page swaps what it shows.
+          selectSwappedAddress.current = addressNames;
+          if (headerSlot?.names) setAddressFocused(true);
+          event.currentTarget.select();
+        }}
+        onBlur={() => {
+          if (addressFocused) setAddressFocused(false);
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          if (browserPageHasNativeFocus.current) {
+            // WK can retain the address as its DOM activeElement while CEF
+            // owns native focus, so another click won't fire onFocus again.
+            event.preventDefault();
+            event.currentTarget.focus({ preventScroll: true });
+            event.currentTarget.select();
+          }
+          focusShellForToolbar(event.currentTarget);
+        }}
+        spellCheck={false}
+        autoCapitalize="none"
+        autoCorrect="off"
+      />
+      {captureLabel ? (
+        <span
+          className="browser-capture"
+          role="img"
+          aria-label={captureLabel}
+          title={captureLabel}
+        >
+          {capture.camera ? <Video size={14} /> : null}
+          {capture.microphone ? <Mic size={14} /> : null}
+        </span>
+      ) : null}
+      {/* In a pane's header only Done shows here; the rest is in its "…". */}
+      {onAddToChat && (!paneHosted || editing) ? (
+        <button
+          type="button"
+          className={`browser-icon-button${editing ? " browser-edit-done" : ""}`}
+          aria-label={editing ? "Stop commenting" : "Comment on page"}
+          title={
+            editing
+              ? "Stop commenting (Esc)"
+              : "Click part of the page and leave a comment for the agent"
+          }
+          aria-pressed={editing}
+          disabled={!readyId || !url || markup.active}
+          onClick={() => setPageEditing(!editing)}
+        >
+          {editing ? (
+            <>
+              <X size={13} />
+              <span>Done</span>
+            </>
+          ) : (
+            <Pencil size={14} />
+          )}
+        </button>
+      ) : null}
+      {markupAvailable && !paneHosted ? (
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label="Mark up page"
+          title="Mark up page"
+          aria-pressed={markup.active}
+          disabled={!readyId || !url || editing || markup.busy}
+          onClick={() => (markup.active ? markup.leave() : markup.start())}
+        >
+          <Pen size={14} />
+        </button>
+      ) : null}
+      {paneHosted ? null : (
+        <button
+          type="button"
+          className="browser-icon-button browser-utility"
+          aria-label={`Open preview in ${EXTERNAL_BROWSER_NAME}`}
+          title={`Open in ${EXTERNAL_BROWSER_NAME}`}
+          disabled={!url}
+          onClick={openExternal}
+        >
+          <ExternalLink size={14} />
+        </button>
+      )}
+      {paneHosted ? null : (
+        <button
+          ref={toolsButton}
+          type="button"
+          className="browser-icon-button browser-toolbar-more"
+          aria-label="More browser actions"
+          title="More browser actions"
+          aria-haspopup="menu"
+          aria-expanded={Boolean(toolsMenu)}
+          onClick={(event) => openTools(event.currentTarget)}
+        >
+          <MoreHorizontal size={14} />
+        </button>
+      )}
+      {onToggleExpand && !paneHosted ? (
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label={expanded ? "Restore split" : "Expand preview"}
+          aria-pressed={expanded}
+          title={expanded ? "Restore split" : "Expand preview"}
+          onClick={onToggleExpand}
+        >
+          <Maximize2 size={14} />
+        </button>
+      ) : null}
+      {onClose && !paneHosted ? (
+        <button
+          type="button"
+          className="browser-icon-button"
+          aria-label="Close browser preview"
+          title="Close preview"
+          onClick={onClose}
+        >
+          <X size={14} />
+        </button>
+      ) : null}
+      {loading && !error ? (
+        <span
+          className={`browser-load-indicator${loadProgress == null ? " is-indeterminate" : ""}`}
+          role="progressbar"
+          aria-label="Loading preview"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={
+            loadProgress == null ? undefined : Math.round(loadProgress * 100)
+          }
+          style={
+            loadProgress == null
+              ? undefined
+              : { width: `${loadProgress * 100}%` }
+          }
+        >
+          <span className="browser-loading-label">Loading preview…</span>
+        </span>
+      ) : null}
+    </form>
+  );
   return (
     <section
       className="browser-pane"
@@ -1453,182 +1791,11 @@ function BrowserPaneSession({
         }
       }}
     >
-      <form className="browser-toolbar" onSubmit={submit}>
-        <div className="browser-navigation">
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label="Go back"
-            title="Go back"
-            disabled={!readyId || !history.back}
-            onClick={() => action("back")}
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label="Go forward"
-            title="Go forward"
-            disabled={!readyId || !history.forward}
-            onClick={() => action("forward")}
-          >
-            <ChevronRight size={15} />
-          </button>
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label={loading && !error ? "Stop loading" : "Reload preview"}
-            title={loading && !error ? "Stop loading" : "Reload preview"}
-            disabled={!url || (loading && !readyId)}
-            onClick={() =>
-              loading && !error
-                ? action("stop")
-                : error
-                  ? navigate(url)
-                  : action("reload")
-            }
-          >
-            {loading && !error ? <X size={14} /> : <RefreshCw size={14} />}
-          </button>
-        </div>
-        <BrowserProjectMark project={project} />
-        <input
-          ref={addressInput}
-          className="browser-address"
-          aria-label="Preview address"
-          placeholder="Search or enter a web address"
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-          onFocus={(event) => event.currentTarget.select()}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            if (browserPageHasNativeFocus.current) {
-              // WK can retain the address as its DOM activeElement while CEF
-              // owns native focus, so another click won't fire onFocus again.
-              event.preventDefault();
-              event.currentTarget.focus({ preventScroll: true });
-              event.currentTarget.select();
-            }
-            focusShellForToolbar(event.currentTarget);
-          }}
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect="off"
-        />
-        {captureLabel ? (
-          <span
-            className="browser-capture"
-            role="img"
-            aria-label={captureLabel}
-            title={captureLabel}
-          >
-            {capture.camera ? <Video size={14} /> : null}
-            {capture.microphone ? <Mic size={14} /> : null}
-          </span>
-        ) : null}
-        {onAddToChat ? (
-          <button
-            type="button"
-            className={`browser-icon-button${editing ? " browser-edit-done" : ""}`}
-            aria-label={editing ? "Stop commenting" : "Comment on page"}
-            title={
-              editing
-                ? "Stop commenting (Esc)"
-                : "Click part of the page and leave a comment for the agent"
-            }
-            aria-pressed={editing}
-            disabled={!readyId || !url || markup.active}
-            onClick={() => setPageEditing(!editing)}
-          >
-            {editing ? (
-              <>
-                <X size={13} />
-                <span>Done</span>
-              </>
-            ) : (
-              <Pencil size={14} />
-            )}
-          </button>
-        ) : null}
-        {markupAvailable ? (
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label="Mark up page"
-            title="Mark up page"
-            aria-pressed={markup.active}
-            disabled={!readyId || !url || editing || markup.busy}
-            onClick={() => (markup.active ? markup.leave() : markup.start())}
-          >
-            <Pen size={14} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="browser-icon-button browser-utility"
-          aria-label={`Open preview in ${EXTERNAL_BROWSER_NAME}`}
-          title={`Open in ${EXTERNAL_BROWSER_NAME}`}
-          disabled={!url}
-          onClick={openExternal}
-        >
-          <ExternalLink size={14} />
-        </button>
-        <button
-          ref={toolsButton}
-          type="button"
-          className="browser-icon-button browser-toolbar-more"
-          aria-label="More browser actions"
-          title="More browser actions"
-          aria-haspopup="menu"
-          aria-expanded={Boolean(toolsMenu)}
-          onClick={(event) => openTools(event.currentTarget)}
-        >
-          <MoreHorizontal size={14} />
-        </button>
-        {onToggleExpand ? (
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label={expanded ? "Restore split" : "Expand preview"}
-            aria-pressed={expanded}
-            title={expanded ? "Restore split" : "Expand preview"}
-            onClick={onToggleExpand}
-          >
-            <Maximize2 size={14} />
-          </button>
-        ) : null}
-        {onClose ? (
-          <button
-            type="button"
-            className="browser-icon-button"
-            aria-label="Close browser preview"
-            title="Close preview"
-            onClick={onClose}
-          >
-            <X size={14} />
-          </button>
-        ) : null}
-        {loading && !error ? (
-          <span
-            className={`browser-load-indicator${loadProgress == null ? " is-indeterminate" : ""}`}
-            role="progressbar"
-            aria-label="Loading preview"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={
-              loadProgress == null ? undefined : Math.round(loadProgress * 100)
-            }
-            style={
-              loadProgress == null
-                ? undefined
-                : { width: `${loadProgress * 100}%` }
-            }
-          >
-            <span className="browser-loading-label">Loading preview…</span>
-          </span>
-        ) : null}
-      </form>
+      {headerSlot
+        ? createPortal(toolbar, headerSlot.element)
+        : headerLent
+          ? null
+          : toolbar}
       {editing && (
         <div className="browser-edit-hint" role="status">
           <Pencil size={13} />

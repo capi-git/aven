@@ -7,14 +7,13 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
-  Camera,
   ChevronDown,
-  Home,
-  Lock,
+  MoreHorizontal,
   Play,
-  ScreenRotation,
   Smartphone,
   Stop,
 } from "../chrome/icons";
@@ -51,16 +50,37 @@ import {
   type IosSimSupport,
 } from "../lib/iosSimulator";
 import { projectKey } from "../lib/paths";
+import {
+  usePaneHeaderMenuHosted,
+  useProvidePaneHeaderMenu,
+} from "../hooks/usePaneHeader";
 import "./IosSimulatorPane.css";
+
+/**
+ * Where the pickers and Run sit, so its pane has one header row. `slot`: a
+ * workspace pane's title row lends them its row. `tools`: the iPhone is
+ * its pane's only tab, so this toolbar is the pane's header row and ends
+ * with the pane's own tools (`onDragStart` moves the pane by its empty
+ * space). `menuId`: the workspace pane whose "…" lists Home, Lock, Rotate
+ * and the screenshot while its title row hosts them; otherwise the toolbar
+ * has its own "…".
+ */
+export type IosSimHeader = {
+  slot?: HTMLElement | null;
+  tools?: ReactNode;
+  onDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
+  menuId?: string;
+};
 
 type Props = {
   project: string;
   /** The tab is the one shown in its pane and the pane is on screen. */
   visible: boolean;
   onOpenFile: (path: string) => void;
+  header?: IosSimHeader;
 };
 
-type Menu = "device" | "scheme" | null;
+type Menu = "device" | "scheme" | "actions" | null;
 
 /** A basic-mode frame: polled screenshot, in pixels. */
 type Frame = { src: string; width: number; height: number };
@@ -78,7 +98,12 @@ function failed(label: string, error: unknown): string {
  * press Run to build, install and open the app; click, scroll and type on
  * the live screen. Agents in this chat use the same simulator.
  */
-export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
+export function IosSimulatorPane({
+  project,
+  visible,
+  onOpenFile,
+  header,
+}: Props) {
   const [support, setSupport] = useState<IosSimSupport | null>(null);
   const [devices, setDevices] = useState<IosSimDevice[]>([]);
   const [info, setInfo] = useState<IosSimProject | null>(null);
@@ -108,6 +133,7 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   const stage = useRef<HTMLDivElement | null>(null);
   const deviceButton = useRef<HTMLButtonElement | null>(null);
   const schemeButton = useRef<HTMLButtonElement | null>(null);
+  const actionsButton = useRef<HTMLButtonElement | null>(null);
   const logList = useRef<HTMLPreElement | null>(null);
   const udidRef = useRef<string | null>(null);
   udidRef.current = udid;
@@ -373,8 +399,62 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
     return items;
   }, [info, scheme, container]);
 
+  // Home, Lock, Rotate and the screenshot: in the pane's "…" (its title
+  // row's, or the toolbar's own), so the pickers and Run stand alone.
+  const deviceActions: ExplorerMenuItem[] = [
+    {
+      kind: "item",
+      id: "home",
+      label: "Home",
+      disabled: !udid || !deviceReady,
+    },
+    ...(live
+      ? [
+          {
+            kind: "item" as const,
+            id: "lock",
+            label: "Lock",
+            disabled: !udid || !deviceReady,
+          },
+        ]
+      : []),
+    {
+      kind: "item",
+      id: "rotate",
+      label: "Rotate",
+      disabled: !udid || !deviceReady,
+    },
+    {
+      kind: "item",
+      id: "screenshot",
+      label: "Copy a screenshot",
+      disabled: !udid || !deviceReady,
+    },
+  ];
+  const pickAction = (id: string) => {
+    if (!udid || !deviceReady) return;
+    if (id === "home")
+      act("Could not press Home", () => iosSim.button(udid, "home"));
+    else if (id === "lock")
+      act("Could not press Lock", () => iosSim.button(udid, "lock"));
+    else if (id === "rotate")
+      act("Could not rotate", () => iosSim.rotate(udid));
+    else if (id === "screenshot")
+      act("Could not take a screenshot", async () => {
+        await iosSim.screenshot(udid);
+        flash("Screenshot copied");
+      });
+  };
+  const menuId = visible ? header?.menuId : undefined;
+  const actionsHosted = usePaneHeaderMenuHosted(menuId);
+  useProvidePaneHeaderMenu(menuId, () => deviceActions, pickAction);
+
   const pickMenu = (id: string) => {
     setMenu(null);
+    if (menu === "actions") {
+      pickAction(id);
+      return;
+    }
     if (menu === "device") {
       pickedRef.current = true;
       // Picking the shown device again re-checks it (and can fix its input).
@@ -458,111 +538,83 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
           : "Pick a device");
   const showBasicFrame = !live && frame;
 
-  return (
-    <section className="ios-sim-pane" data-ios-sim={viewId}>
-      <div className="ios-sim-toolbar">
+  const toolbar = (
+    <div
+      className="ios-sim-toolbar"
+      data-in-slot={header?.slot ? true : undefined}
+    >
+      <button
+        ref={deviceButton}
+        type="button"
+        className="ios-sim-chip"
+        aria-haspopup="menu"
+        aria-expanded={menu === "device"}
+        disabled={!devices.length}
+        onClick={() => setMenu(menu === "device" ? null : "device")}
+      >
+        <Smartphone className="size-3.5 shrink-0" />
+        <span className="truncate">{device?.name ?? "No simulators"}</span>
+        <ChevronDown className="size-3 shrink-0 opacity-60" />
+      </button>
+      {(info?.schemes.length ?? 0) > 1 || (info?.containers.length ?? 0) > 1 ? (
         <button
-          ref={deviceButton}
+          ref={schemeButton}
           type="button"
           className="ios-sim-chip"
           aria-haspopup="menu"
-          aria-expanded={menu === "device"}
-          disabled={!devices.length}
-          onClick={() => setMenu(menu === "device" ? null : "device")}
+          aria-expanded={menu === "scheme"}
+          onClick={() => setMenu(menu === "scheme" ? null : "scheme")}
         >
-          <Smartphone className="size-3.5 shrink-0" />
-          <span className="truncate">{device?.name ?? "No simulators"}</span>
+          <span className="truncate">{scheme ?? "Scheme"}</span>
           <ChevronDown className="size-3 shrink-0 opacity-60" />
         </button>
-        {(info?.schemes.length ?? 0) > 1 ||
-        (info?.containers.length ?? 0) > 1 ? (
-          <button
-            ref={schemeButton}
-            type="button"
-            className="ios-sim-chip"
-            aria-haspopup="menu"
-            aria-expanded={menu === "scheme"}
-            onClick={() => setMenu(menu === "scheme" ? null : "scheme")}
-          >
-            <span className="truncate">{scheme ?? "Scheme"}</span>
-            <ChevronDown className="size-3 shrink-0 opacity-60" />
-          </button>
-        ) : null}
-        <span className="flex-1" />
+      ) : null}
+      <span
+        className="flex-1 self-stretch"
+        data-pane-drag={header?.onDragStart ? true : undefined}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || !header?.onDragStart) return;
+          event.preventDefault();
+          header.onDragStart(event);
+        }}
+      />
+      <button
+        type="button"
+        className="ios-sim-run"
+        data-active={active || undefined}
+        disabled={!active && !canRun}
+        title={
+          active
+            ? "Stop"
+            : info?.error && !container
+              ? info.error
+              : "Build and run on the simulator"
+        }
+        onClick={run}
+      >
+        {active ? <Stop className="size-3" /> : <Play className="size-3" />}
+        {active ? "Stop" : "Run"}
+      </button>
+      {actionsHosted ? null : (
         <button
+          ref={actionsButton}
           type="button"
           className="ios-sim-icon"
-          title="Home"
-          aria-label="Home"
-          disabled={!udid || !deviceReady}
-          onClick={() =>
-            udid &&
-            act("Could not press Home", () => iosSim.button(udid, "home"))
-          }
+          title="iPhone actions"
+          aria-label="iPhone actions"
+          aria-haspopup="menu"
+          aria-expanded={menu === "actions"}
+          onClick={() => setMenu(menu === "actions" ? null : "actions")}
         >
-          <Home className="size-3.5" />
+          <MoreHorizontal className="size-3.5" />
         </button>
-        {live ? (
-          <button
-            type="button"
-            className="ios-sim-icon"
-            title="Lock"
-            aria-label="Lock"
-            disabled={!udid || !deviceReady}
-            onClick={() =>
-              udid &&
-              act("Could not press Lock", () => iosSim.button(udid, "lock"))
-            }
-          >
-            <Lock className="size-3.5" />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="ios-sim-icon"
-          title="Rotate"
-          aria-label="Rotate"
-          disabled={!udid || !deviceReady}
-          onClick={() =>
-            udid && act("Could not rotate", () => iosSim.rotate(udid))
-          }
-        >
-          <ScreenRotation className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className="ios-sim-icon"
-          title="Copy a screenshot"
-          aria-label="Copy a screenshot"
-          disabled={!udid || !deviceReady}
-          onClick={() =>
-            udid &&
-            act("Could not take a screenshot", async () => {
-              await iosSim.screenshot(udid);
-              flash("Screenshot copied");
-            })
-          }
-        >
-          <Camera className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className="ios-sim-run"
-          data-active={active || undefined}
-          disabled={!active && !canRun}
-          title={
-            active
-              ? "Stop"
-              : info?.error && !container
-                ? info.error
-                : "Build and run on the simulator"
-          }
-          onClick={run}
-        >
-          {active ? <Stop className="size-3" /> : <Play className="size-3" />}
-          {active ? "Stop" : "Run"}
-        </button>
-      </div>
+      )}
+      {header?.tools}
+    </div>
+  );
+  return (
+    <section className="ios-sim-pane" data-ios-sim={viewId}>
+      {header?.slot ? createPortal(toolbar, header.slot) : toolbar}
 
       <div
         ref={stage}
@@ -666,15 +718,36 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
 
       {menu ? (
         <ExplorerMenu
-          native
+          // The pickers' lists are native panels; the actions menu is a page
+          // menu like its pane's "…" (the screen holds still behind it), so
+          // checks can press its items.
+          native={menu !== "actions"}
           x={0}
           y={0}
-          anchor={menu === "device" ? deviceButton : schemeButton}
-          align="start"
+          anchor={
+            menu === "device"
+              ? deviceButton
+              : menu === "actions"
+                ? actionsButton
+                : schemeButton
+          }
+          align={menu === "actions" ? "end" : "start"}
           gap={4}
-          width={menu === "device" ? 280 : 240}
-          ariaLabel={menu === "device" ? "Simulators" : "Schemes"}
-          items={menu === "device" ? deviceItems : schemeItems}
+          width={menu === "device" ? 280 : menu === "actions" ? 200 : 240}
+          ariaLabel={
+            menu === "device"
+              ? "Simulators"
+              : menu === "actions"
+                ? "iPhone actions"
+                : "Schemes"
+          }
+          items={
+            menu === "device"
+              ? deviceItems
+              : menu === "actions"
+                ? deviceActions
+                : schemeItems
+          }
           onPick={pickMenu}
           onClose={() => setMenu(null)}
         />

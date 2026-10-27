@@ -1300,6 +1300,63 @@ describe("workspace stage", () => {
     expect(browserHeader.dataset.dropTarget).toBeUndefined();
   });
 
+  it("takes a tab at the slot it is over in a title row of tabs, and into the pane over a lone title", async () => {
+    const titleRow = (layout: "tabs" | "lone", ids: string[]) =>
+      createElement(
+        "header",
+        { "data-variant": "title", "data-title-layout": layout },
+        createElement(
+          "div",
+          { "data-surface-order": JSON.stringify(["browser", "docs", "more"]) },
+          ...ids.map((id) =>
+            createElement("div", { key: id, "data-surface-tab-id": id }, id),
+          ),
+        ),
+      );
+    await render({
+      layout: columns(),
+      headers: [
+        { id: "browser", content: titleRow("tabs", ["browser", "docs"]) },
+      ],
+    });
+    const place = () => {
+      vi.spyOn(header("browser")!, "getBoundingClientRect").mockReturnValue(
+        rectangle(600, 50, 500, 32),
+      );
+      const tabs = header("browser")!.querySelectorAll<HTMLElement>(
+        "[data-surface-tab-id]",
+      );
+      tabs.forEach((tab, index) =>
+        vi
+          .spyOn(tab, "getBoundingClientRect")
+          .mockReturnValue(rectangle(600 + index * 100, 50, 100, 32)),
+      );
+      vi.spyOn(body("browser"), "getBoundingClientRect").mockReturnValue(
+        rectangle(600, 82, 500, 568),
+      );
+    };
+    place();
+    expect(workspaceSurfaceDropAt(stage(), 690, 60, "chat")).toEqual({
+      id: "browser",
+      edge: "tab",
+      index: 1,
+    });
+    // Past the last tab shown, before the tabs folded into the +N.
+    expect(workspaceSurfaceDropAt(stage(), 900, 60, "chat")).toEqual({
+      id: "browser",
+      edge: "tab",
+      index: 2,
+    });
+    await render({
+      headers: [{ id: "browser", content: titleRow("lone", ["browser"]) }],
+    });
+    place();
+    expect(workspaceSurfaceDropAt(stage(), 690, 60, "chat")).toEqual({
+      id: "browser",
+      edge: "tab",
+    });
+  });
+
   it("maps visible drop slots around hidden Recent tabs without moving the indicator", async () => {
     const visible = ["browser", "preview", "kept"];
     const order = [

@@ -12,7 +12,7 @@ import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
-import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
+import type { SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
@@ -494,10 +494,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           >
             <ChevronLeft size={14} aria-hidden />
           </button>
+          {/* The page below names its section (and the sidebar marks it),
+              so the window names only Settings. */}
           <div className="workspace-status-settings-path">
-            <span>Settings</span>
-            <ChevronRight size={11} aria-hidden />
-            <strong>{settingsSectionLabel(settingsView.section)}</strong>
+            <strong>Settings</strong>
           </div>
         </div>
       ) : null}

@@ -73,6 +73,45 @@ function button(selector: string): HTMLButtonElement {
   return found;
 }
 
+/**
+ * Presses one of the iPhone's actions (Home, Lock, Rotate, Copy a
+ * screenshot). They sit in a "…": the iPhone toolbar's own, or its
+ * workspace pane's when the pane's title row lists them.
+ */
+async function iphoneAction(label: string): Promise<void> {
+  const toolbar = document.querySelector<HTMLElement>(".ios-sim-toolbar");
+  const own = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="iPhone actions"]',
+  );
+  const surface = document
+    .querySelector<HTMLElement>("[data-ios-sim]")
+    ?.closest<HTMLElement>("[data-workspace-surface]")
+    ?.dataset.workspaceSurface;
+  const titleRow =
+    toolbar?.closest<HTMLElement>(".personal-titlebar") ??
+    (surface
+      ? document.querySelector<HTMLElement>(
+          `[data-workspace-header="${surface}"]`,
+        )
+      : null);
+  const opener =
+    own ??
+    titleRow?.querySelector<HTMLButtonElement>(
+      '.aven-pane-tool[aria-label="More actions"]',
+    );
+  if (!opener) throw new Error("No menu with the iPhone's actions");
+  opener.click();
+  const item = await waitFor(
+    () =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (entry) => entry.textContent?.trim() === label,
+      ),
+    5_000,
+    `${label} in the iPhone's actions`,
+  );
+  item.click();
+}
+
 export async function runDevIphoneCheck(
   config: DevSmokeConfig,
   get: () => IphoneCheckOptions,
@@ -156,7 +195,7 @@ export async function runDevIphoneCheck(
     sessionId = task.id;
   });
   const opened = await step(
-    "the pane header's iPhone button opens the pane beside the chat",
+    "the iPhone button opens the pane beside the chat",
     async () => {
       const open = await waitFor(
         () =>
@@ -273,7 +312,7 @@ export async function runDevIphoneCheck(
   );
 
   await step("Rotate turns the screen and taps follow it", async () => {
-    button('button[aria-label="Rotate"]').click();
+    await iphoneAction("Rotate");
     await poll(
       async () => {
         const screen = await invoke<{ width: number; height: number }>(
@@ -294,7 +333,7 @@ export async function runDevIphoneCheck(
       `"Taps: 2" (was "${before}")`,
     );
     await shot("4-landscape");
-    button('button[aria-label="Rotate"]').click();
+    await iphoneAction("Rotate");
     await poll(
       async () => {
         const screen = await invoke<{ width: number; height: number }>(
@@ -309,7 +348,7 @@ export async function runDevIphoneCheck(
   });
 
   await step("Home leaves the app for the home screen", async () => {
-    button('button[aria-label="Home"]').click();
+    await iphoneAction("Home");
     await poll(
       async () =>
         (await snapshot(null)).some((entry) => entry.label === "SpikeApp"),

@@ -53,6 +53,7 @@ import {
   ChevronRight,
   ChevronUp,
 } from "../chrome/icons";
+import { paneMinimizeControls, type PaneMinimize } from "../lib/paneMinimize";
 import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
@@ -78,6 +79,11 @@ export type WorkspaceStageProps = {
     index: number,
     side: "before" | "after",
   ) => void;
+  /**
+   * Each pane offers Hide in its own "…" (paneMinimizeControls), so the
+   * headers draw no hide arrows; dragging a divider to the edge still hides.
+   */
+  hideInMenu?: boolean;
   onRestoreSplit?: () => void;
   restoreEdge?: "left" | "right" | "up" | "down";
   restoreStatus?: "working" | "attention";
@@ -152,10 +158,11 @@ function headerMembers(header: HTMLElement): string[] | null {
 
 /**
  * Where a tab dragged to (x, y) docks, in client coordinates so native
- * browser stacking never matters. As in Cydonia: a pane's title row, or the
- * middle of its body, stacks the tab in that pane; within a quarter of an
- * edge it splits that side (see paneDock.ts). A header that is a strip of
- * tabs (a detached window's) still takes the tab at the slot it is over.
+ * browser stacking never matters. As in Cydonia: a pane's lone title row,
+ * or the middle of its body, stacks the tab in that pane; within a quarter
+ * of an edge it splits that side (see paneDock.ts). A header that lays out
+ * tabs (a title row with several, a detached window's strip) takes the tab
+ * at the slot it is over.
  */
 export function workspaceSurfaceDropAt(
   container: HTMLElement,
@@ -187,7 +194,7 @@ export function workspaceSurfaceDropAt(
     const tabs = header
       ? [...header.querySelectorAll<HTMLElement>("[data-surface-tab-id]")]
       : [];
-    // A title row shows only the tab in front; its strip still lists them all.
+    // A title row may show only some of its tabs; its strip lists them all.
     const members =
       (header && headerMembers(header)) ??
       tabs.map((tab) => tab.dataset.surfaceTabId ?? "");
@@ -211,8 +218,14 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
-        // A title row stacks the tab behind the one in front.
-        if (header.querySelector('[data-variant="title"]'))
+        // A lone title row takes the tab into its pane; a row of tabs (a
+        // title row with several, or a detached window's strip) takes it at
+        // the slot it is over.
+        if (
+          header.querySelector(
+            '[data-variant="title"]:not([data-title-layout="tabs"])',
+          )
+        )
           return { id, edge: "tab" };
         const measuredTabs = tabs
           .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))
@@ -440,6 +453,7 @@ export function WorkspaceStage({
   onFocus,
   onLayoutChange,
   onMinimizeSide,
+  hideInMenu = false,
   onRestoreSplit,
   restoreEdge = "left",
   restoreStatus,
@@ -523,55 +537,25 @@ export function WorkspaceStage({
   }
   // Keep controls inside the header's reserved 32px strip. Chromium draws above
   // the web app, so a floating control over a pane body cannot be relied on.
+  // With `hideInMenu` each pane offers them in its own "…" instead.
+  const paneMinimizes = paneMinimizeControls(layout);
+  const minimizeControls =
+    onMinimizeSide && !hideInMenu
+      ? paneMinimizes
+      : new Map<string, PaneMinimize[]>();
+  /** The pane beside a divider's side, for the drag's cue. */
   function adjacentHeader(sash: LayoutSash, side: "before" | "after") {
-    const index = sash.index + (side === "after" ? 1 : 0);
-    const start = sash.sizes
-      .slice(0, index)
-      .reduce((sum, size) => sum + size, 0);
-    const end = start + sash.sizes[index];
-    const row = sash.dir === "right";
-    const child = row
-      ? {
-          x: sash.group.x + start * sash.group.w,
-          y: sash.group.y,
-          w: (end - start) * sash.group.w,
-          h: sash.group.h,
-        }
-      : {
-          x: sash.group.x,
-          y: sash.group.y + start * sash.group.h,
-          w: sash.group.w,
-          h: (end - start) * sash.group.h,
-        };
-    return leaves
-      .filter(
-        ({ rect }) =>
-          rect.x >= child.x - 1e-6 &&
-          rect.y >= child.y - 1e-6 &&
-          rect.x + rect.w <= child.x + child.w + 1e-6 &&
-          rect.y + rect.h <= child.y + child.h + 1e-6,
+    for (const [id, controls] of paneMinimizes)
+      if (
+        controls.some(
+          (control) =>
+            control.side === side &&
+            control.sash.splitId === sash.splitId &&
+            control.sash.index === sash.index,
+        )
       )
-      .sort(
-        (a, b) =>
-          a.rect.y - b.rect.y ||
-          (row && side === "after" ? a.rect.x - b.rect.x : b.rect.x - a.rect.x),
-      )[0]?.id;
-  }
-  const minimizeControls = new Map<
-    string,
-    Array<{ sash: LayoutSash; side: "before" | "after" }>
-  >();
-  if (onMinimizeSide) {
-    for (const sash of sashes) {
-      for (const side of ["before", "after"] as const) {
-        const id = adjacentHeader(sash, side);
-        if (id)
-          minimizeControls.set(id, [
-            ...(minimizeControls.get(id) ?? []),
-            { sash, side },
-          ]);
-      }
-    }
+        return id;
+    return undefined;
   }
   const restoreHeaderId = onRestoreSplit
     ? [...leaves].sort((a, b) => {

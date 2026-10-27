@@ -525,9 +525,9 @@ function ScheduleManager({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <h1 className="text-ui-heading font-semibold leading-tight text-content">
-            Automations
-          </h1>
+          {/* The view's header names Automations right above; the heading
+              stays for the page's outline only. */}
+          <h1 className="sr-only">Automations</h1>
           <p className="text-ui-label text-content/50">
             Runs while your {IS_MAC ? "Mac" : "computer"} is awake and Aven is
             open. If a run is missed, it runs once when you’re back.

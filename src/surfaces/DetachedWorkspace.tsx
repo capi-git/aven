@@ -1086,7 +1086,8 @@ export function DetachedWorkspace() {
           initialUrl={browser.url}
           agentRequested={agentRequestedBrowsers.has(browser.id)}
           visible={active.has(browser.id) && !frozen}
-          onClose={() => void closeSurface(browser.id).catch(report)}
+          // Its tab on the pane's strip closes it; the page's toolbar draws
+          // no second Close.
           onFocus={() =>
             change((s) => ({
               ...s,

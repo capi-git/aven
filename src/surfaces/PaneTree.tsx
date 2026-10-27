@@ -130,7 +130,16 @@ type Shared = {
   discussion?: ComponentProps<typeof SessionPane>["discussion"];
 };
 
-type Props = Shared & { layout: LayoutNode };
+type Props = Shared & {
+  layout: LayoutNode;
+  /**
+   * The workspace tab this tree draws. A tree of one file pane draws its
+   * header where that tab's pane header lends it a row (one header per
+   * pane); `namedAbove`: a tab row above already names the tab.
+   */
+  paneHeaderId?: string;
+  namedAbove?: boolean;
+};
 
 type PaneDrag = {
   fromId: string;
@@ -192,6 +201,8 @@ function PaneTreeComponent({
   onNewTerminal,
   onTerminalMetaChange,
   discussion,
+  paneHeaderId,
+  namedAbove = false,
 }: Props) {
   const treeRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef(layout);
@@ -387,6 +398,11 @@ function PaneTreeComponent({
                 editorNavigation={editorNavigation}
                 onPaneDragStart={onPaneDragStart}
                 onTerminalMetaChange={onTerminalMetaChange}
+                header={
+                  paneHeaderId && !inSplit
+                    ? { surfaceId: paneHeaderId, namedAbove }
+                    : undefined
+                }
               />
             ) : session ? (
               <SessionPane
