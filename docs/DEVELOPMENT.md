@@ -149,3 +149,21 @@ a local WKWebView page (no network) and a pause refusal. A passive listen-only
 tap confirms that the test posted no pointer events; the fixture reports that it
 never became active or key. The fixture quits afterwards (60-second failsafe). The
 terminal running the test needs Accessibility access.
+
+## iPhone pane
+
+The iPhone pane's native bridge (`src-tauri/macos/ios_simulator.m`) is built
+into every macOS build by `build.rs`; it loads Xcode's simulator frameworks at
+runtime, so nothing links against Xcode. Unit tests cover Xcode project and
+build-output parsing, point mapping, keys and the agent command's scoping. An
+opt-in live test creates a throwaway simulator ("Aven Dev iPhone Test …"),
+boots it, runs the input fix, builds and runs `tests/fixtures/ios-sample`,
+taps, types, pastes, rotates and presses Home, then deletes the simulator:
+
+```sh
+AVEN_IOS_SIM_LIVE=1 ./scripts/with-dev-env.sh cargo test -p aven --lib ios_sim_live -- --ignored --nocapture
+```
+
+It needs Xcode with an iOS simulator runtime and takes about a minute and a
+half; it never touches other simulators. `AVEN_IOS_SIM_FORCE_BASIC=1` makes
+Aven Dev use the pane's basic mode, to check the fallback.

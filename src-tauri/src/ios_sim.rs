@@ -1677,6 +1677,10 @@ pub async fn ios_sim_view_layout(
         }
     };
     let ns_window = window.ns_window().map_err(|error| error.to_string())? as usize;
+    // Checked here, off the main thread (the first check runs Xcode's tools).
+    let live = tauri::async_runtime::spawn_blocking(|| support().live)
+        .await
+        .unwrap_or(false);
     let app = caller.app_handle().clone();
     on_main(&app, move || {
         let content: *mut objc2::runtime::AnyObject =
@@ -1685,7 +1689,7 @@ pub async fn ios_sim_view_layout(
             return Err("The window has no content".into());
         }
         unsafe { native::view_attach(&id, content.cast(), webview as *mut std::ffi::c_void)? };
-        if support().live {
+        if live {
             native::view_set_device(&id, udid.as_deref())?;
         }
         native::view_layout(&id, &layout)

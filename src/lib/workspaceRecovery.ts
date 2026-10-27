@@ -102,6 +102,7 @@ function fileMetadata(raw: unknown): unknown {
     sessionChanges,
     commit,
     terminal,
+    simulator,
   } = file;
   return {
     id,
@@ -116,6 +117,7 @@ function fileMetadata(raw: unknown): unknown {
     sessionChanges,
     commit,
     terminal,
+    simulator,
   };
 }
 function paneMetadata(raw: unknown): unknown {

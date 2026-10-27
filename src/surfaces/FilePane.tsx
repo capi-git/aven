@@ -17,6 +17,7 @@ import {
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
+  isSimulatorTab,
   isTerminalTab,
   type EditorPane,
   type FilePaneTab,
@@ -59,6 +60,9 @@ const WorkingTreeDiff = retryableLazy(() =>
 );
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
+);
+const IosSimulatorPane = retryableLazy(() =>
+  import("./IosSimulatorPane").then((module) => module.IosSimulatorPane),
 );
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
@@ -255,6 +259,12 @@ function FilePaneComponent({
                         {BOARD_STAYS_MESSAGE}
                       </p>
                     )
+                  ) : isSimulatorTab(file) ? (
+                    <IosSimulatorPane
+                      project={file.simulator.project}
+                      visible={presented && file.id === pane.activeFileId}
+                      onOpenFile={onOpenFile}
+                    />
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}

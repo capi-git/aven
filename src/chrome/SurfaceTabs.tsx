@@ -1,4 +1,11 @@
-import { GitCompare, GripVertical, Kanban, Terminal, X } from "./icons";
+import {
+  GitCompare,
+  GripVertical,
+  Kanban,
+  Smartphone,
+  Terminal,
+  X,
+} from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
@@ -15,7 +22,9 @@ import {
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
+  isSimulatorTab,
   isTerminalTab,
+  SIMULATOR_TAB_TITLE,
   type FilePaneTab,
 } from "../lib/layout";
 import { REVEAL_LABEL } from "../lib/platform";
@@ -111,6 +120,15 @@ export function surfaceTabPresentation(
       label: BOARD_TAB_TITLE,
       iconName: "BOARD",
       tooltip: `Board · ${file.board.project}`,
+    };
+  }
+
+  if (isSimulatorTab(file)) {
+    return {
+      name: SIMULATOR_TAB_TITLE,
+      label: SIMULATOR_TAB_TITLE,
+      iconName: "IPHONE",
+      tooltip: `iPhone simulator · ${file.simulator.project}`,
     };
   }
 
@@ -309,6 +327,7 @@ export function SurfaceTabs({
           const terminal = isTerminalTab(file);
           const agent = isAgentTab(file) ? file.agent : null;
           const board = isBoardTab(file);
+          const simulator = isSimulatorTab(file);
           const { label, iconName, tooltip } = surfaceTabPresentation(file);
           const onDisk = isDiskFileTab(file);
           const showStart =
@@ -415,6 +434,11 @@ export function SurfaceTabs({
                     />
                   ) : board ? (
                     <Kanban className="size-3.5 shrink-0" strokeWidth={1.75} />
+                  ) : simulator ? (
+                    <Smartphone
+                      className="size-3.5 shrink-0"
+                      strokeWidth={1.75}
+                    />
                   ) : changes || commit ? (
                     <GitCompare
                       className="size-3.5 shrink-0"

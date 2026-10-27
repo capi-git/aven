@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   tabs: vi.fn(),
   memory: vi.fn(),
   cards: vi.fn(),
+  iphone: vi.fn(),
 }));
 vi.mock("./sessionStore", () => ({ listProjectSessionIds: mocks.list }));
 vi.mock("./projectLogos", () => ({ clearProjectLogo: mocks.logo }));
@@ -21,6 +22,7 @@ vi.mock("./projectChatBackground", () => ({
 vi.mock("./tabGroups", () => ({ clearTabGroupSettings: mocks.tabs }));
 vi.mock("./projectMemory", () => ({ clearProjectMemory: mocks.memory }));
 vi.mock("./featureCards", () => ({ clearFeatureCards: mocks.cards }));
+vi.mock("./iosSimulator", () => ({ clearIosSimProject: mocks.iphone }));
 
 describe("project data removal", () => {
   beforeEach(() => {
@@ -30,6 +32,7 @@ describe("project data removal", () => {
     mocks.background.mockResolvedValue(undefined);
     mocks.memory.mockResolvedValue(undefined);
     mocks.cards.mockResolvedValue(undefined);
+    mocks.iphone.mockResolvedValue(undefined);
   });
 
   function options() {
@@ -111,6 +114,8 @@ describe("project data removal", () => {
       ["inbox"],
     ]);
     expect(stored.size).toBe(0);
+    // The iPhone pane's builds and remembered device go with the project.
+    expect(mocks.iphone).toHaveBeenCalledWith("/project");
   });
 
   it("retains the project on the first failed delete without claiming progress", async () => {

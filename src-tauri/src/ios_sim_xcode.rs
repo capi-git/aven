@@ -255,10 +255,7 @@ type Diagnostic = (Option<String>, Option<u32>, Option<u32>, String);
 
 /// `path:line:col: error: message`, `path:line: error: message` or
 /// `error: message` (linker and tool errors).
-fn parse_diagnostic(
-    line: &str,
-    kind: &str,
-) -> Option<Diagnostic> {
+fn parse_diagnostic(line: &str, kind: &str) -> Option<Diagnostic> {
     let marker = format!("{kind}: ");
     let at = line.find(&marker)?;
     let message = line[at + marker.len()..].trim().to_owned();

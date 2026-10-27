@@ -84,9 +84,10 @@ Optional environment settings:
 ## Development and focused checks
 
 The packaged executable accepts `--help` / `-h` and `--version` / `-V` without
-opening a desktop window. Use `control --help` for orchestration commands or
-`--aven-browser --help` for scoped browser commands or `--aven-desktop --help`
-for native Mac desktop control over the same scoped connection. Unsupported arguments
+opening a desktop window. Use `control --help` for orchestration commands,
+`--aven-browser --help` for scoped browser commands, `--aven-desktop --help`
+for native Mac desktop control, or `--aven-simulator --help` for the iPhone
+simulator, all over the same scoped connection. Unsupported arguments
 exit with a usage error rather than starting another copy of Aven. Launch with
 no arguments to open the desktop app normally.
 
