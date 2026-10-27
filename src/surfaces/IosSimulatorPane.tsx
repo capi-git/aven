@@ -95,6 +95,11 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   const [frame, setFrame] = useState<Frame | null>(null);
   const [backing, setBacking] = useState<string | null>(null);
   const [deviceReady, setDeviceReady] = useState(false);
+  /** The person chose the shown device in the menu (not remembered or suggested). */
+  const pickedRef = useRef(false);
+  /** Reading the project takes long the first time packages resolve. */
+  const [slowProject, setSlowProject] = useState(false);
+  const [pickCount, setPickCount] = useState(0);
   const viewId = useMemo(
     () => `iphone-${crypto.randomUUID().replaceAll("-", "")}`,
     [],
@@ -127,6 +132,7 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
     if (!platform) return;
     let cancelled = false;
     const choice = loadIosSimChoice(project);
+    const slow = window.setTimeout(() => setSlowProject(true), 5000);
     void loadIosSimSupport()
       .then(async (found) => {
         if (cancelled) return;
@@ -138,6 +144,8 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
           iosSim.state(project),
         ]);
         if (cancelled) return;
+        window.clearTimeout(slow);
+        setSlowProject(false);
         setDevices(list.devices);
         setInfo(projectInfo);
         setStatus(current.status);
@@ -148,9 +156,11 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
       })
       .catch((error) => {
         if (!cancelled) setNotice(failed("Could not reach Xcode", error));
-      });
+      })
+      .finally(() => window.clearTimeout(slow));
     return () => {
       cancelled = true;
+      window.clearTimeout(slow);
     };
   }, [platform, project]);
 
@@ -204,8 +214,10 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
     setDeviceReady(false);
     setScreenError(null);
     setFrame(null);
+    const picked = pickedRef.current;
+    pickedRef.current = false;
     void iosSim
-      .useDevice(project, udid)
+      .useDevice(project, udid, picked)
       .then(async () => {
         if (cancelled) return;
         setDeviceReady(true);
@@ -218,7 +230,7 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [support, project, udid]);
+  }, [support, project, udid, pickCount]);
 
   // Agents see this pane's simulator while it is open.
   useEffect(() => {
@@ -364,6 +376,9 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   const pickMenu = (id: string) => {
     setMenu(null);
     if (menu === "device") {
+      pickedRef.current = true;
+      // Picking the shown device again re-checks it (and can fix its input).
+      if (id === udid) setPickCount((count) => count + 1);
       setUdid(id);
       return;
     }
@@ -381,14 +396,13 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   };
 
   // Basic mode input: click to tap, drag to swipe, keys typed as text.
-  const press = useRef<{ x: number; y: number } | null>(null);
+  const press = useRef<{ fx: number; fy: number } | null>(null);
   const basicPointAt = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!frame || !device) return null;
+    if (!frame) return null;
     const box = event.currentTarget.getBoundingClientRect();
     return basicPoint(
       box,
       frame,
-      device.family === "ipad" ? 2 : 3,
       event.clientX - box.left,
       event.clientY - box.top,
     );
@@ -435,7 +449,13 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
   const tone = statusTone(status.phase);
   const message =
     status.message ||
-    (udid && !deviceReady ? "Starting…" : udid ? "Ready" : "Pick a device");
+    (!info && slowProject
+      ? "Resolving packages…"
+      : udid && !deviceReady
+        ? "Starting…"
+        : udid
+          ? "Ready"
+          : "Pick a device");
   const showBasicFrame = !live && frame;
 
   return (
@@ -559,14 +579,21 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
           press.current = null;
           const to = basicPointAt(event);
           if (live || !from || !to || !udid) return;
-          const moved = Math.hypot(to.x - from.x, to.y - from.y) > 8;
+          // A press that moved more than 2% of the screen is a swipe.
+          const moved = Math.hypot(to.fx - from.fx, to.fy - from.fy) > 0.02;
           act("Could not reach the simulator", () =>
             iosSim.basicInput(
               project,
               udid,
               moved
-                ? { kind: "swipe", x1: from.x, y1: from.y, x2: to.x, y2: to.y }
-                : { kind: "tap", x: to.x, y: to.y },
+                ? {
+                    kind: "swipe",
+                    fx1: from.fx,
+                    fy1: from.fy,
+                    fx2: to.fx,
+                    fy2: to.fy,
+                  }
+                : { kind: "tap", fx: to.fx, fy: to.fy },
             ),
           );
         }}

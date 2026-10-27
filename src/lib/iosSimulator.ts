@@ -103,8 +103,11 @@ export function iosSimPlatform(): boolean {
 }
 
 let supportRequest: Promise<IosSimSupport> | null = null;
+let supportAt = 0;
+/** Asked again after this, so a newly installed or selected Xcode shows. */
+const SUPPORT_REFRESH_MS = 30_000;
 
-/** Xcode and live-view support, checked once per launch when found. */
+/** Xcode and live-view support. */
 export function loadIosSimSupport(): Promise<IosSimSupport> {
   if (!iosSimPlatform())
     return Promise.resolve({
@@ -113,7 +116,8 @@ export function loadIosSimSupport(): Promise<IosSimSupport> {
       developerDir: null,
       reason: null,
     });
-  if (!supportRequest) {
+  if (!supportRequest || Date.now() - supportAt > SUPPORT_REFRESH_MS) {
+    supportAt = Date.now();
     supportRequest = invoke<IosSimSupport>("ios_sim_support").then(
       (support) => {
         // Xcode may be installed later; ask again next time.
@@ -214,7 +218,11 @@ export async function clearIosSimProject(project: string): Promise<void> {
   if (iosSimPlatform()) await invoke("ios_sim_forget_project", { project });
 }
 
-/** The device the pane should show: the remembered one if it still exists. */
+/**
+ * The device the pane opens on: the project's remembered one if it still
+ * exists, else Aven's suggestion (which never names a simulator someone
+ * else is already running), else none and the person picks.
+ */
 export function pickDevice(
   devices: readonly IosSimDevice[],
   remembered: string | undefined,
@@ -224,7 +232,7 @@ export function pickDevice(
     udid
       ? devices.find((d) => d.udid.toLowerCase() === udid.toLowerCase())
       : undefined;
-  return match(remembered) ?? match(suggested) ?? devices[0] ?? null;
+  return match(remembered) ?? match(suggested) ?? null;
 }
 
 /** The scheme to build: the remembered one if the project still has it. */
@@ -263,8 +271,9 @@ export const iosSim = {
       project,
       container: container ?? null,
     }),
-  useDevice: (project: string, udid: string) =>
-    invoke<void>("ios_sim_use_device", { project, udid }),
+  /** `picked`: the person chose it in the menu just now. */
+  useDevice: (project: string, udid: string, picked: boolean) =>
+    invoke<void>("ios_sim_use_device", { project, udid, picked }),
   choose: (project: string, choice: IosSimChoice) =>
     invoke<void>("ios_sim_pane_choice", {
       project,
@@ -294,12 +303,13 @@ export const iosSim = {
       "ios_sim_basic_frame",
       { udid },
     ),
+  /** Basic-mode input in fractions (0 to 1) of the upright screenshot. */
   basicInput: (
     project: string,
     udid: string,
     input:
-      | { kind: "tap"; x: number; y: number }
-      | { kind: "swipe"; x1: number; y1: number; x2: number; y2: number }
+      | { kind: "tap"; fx: number; fy: number }
+      | { kind: "swipe"; fx1: number; fy1: number; fx2: number; fy2: number }
       | { kind: "type"; text: string },
   ) => invoke<void>("ios_sim_basic_input", { project, udid, input }),
   focus: (id: string) => invoke<boolean>("ios_sim_view_focus", { id }),
@@ -387,22 +397,22 @@ export function iosSimPresentationAdapter(
 }
 
 /**
- * A click on a basic-mode screenshot as upright screen points: the picture
- * is drawn aspect-fit (`object-fit: contain`) in `box`.
+ * A click on a basic-mode screenshot as fractions (0 to 1) of the upright
+ * screen: the picture is drawn aspect-fit (`object-fit: contain`) in `box`.
+ * Aven turns them into points with the screen size its agent reports, so no
+ * screen scale is assumed here.
  */
 export function basicPoint(
   box: { width: number; height: number },
   image: { width: number; height: number },
-  scale: number,
   clientX: number,
   clientY: number,
-): { x: number; y: number } | null {
+): { fx: number; fy: number } | null {
   if (
     box.width <= 0 ||
     box.height <= 0 ||
     image.width <= 0 ||
-    image.height <= 0 ||
-    scale <= 0
+    image.height <= 0
   )
     return null;
   const fit = Math.min(box.width / image.width, box.height / image.height);
@@ -410,11 +420,8 @@ export function basicPoint(
   const height = image.height * fit;
   const left = (box.width - width) / 2;
   const top = (box.height - height) / 2;
-  const u = (clientX - left) / width;
-  const v = (clientY - top) / height;
-  if (u < 0 || u > 1 || v < 0 || v > 1) return null;
-  return {
-    x: (u * image.width) / scale,
-    y: (v * image.height) / scale,
-  };
+  const fx = (clientX - left) / width;
+  const fy = (clientY - top) / height;
+  if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null;
+  return { fx, fy };
 }

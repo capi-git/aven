@@ -133,10 +133,17 @@ fn strings(value: Option<&serde_json::Value>) -> Vec<String> {
 }
 
 /// The JSON object starts at the first `{`; `xcodebuild` can print notices first.
+/// The JSON starts on the first line that begins with `{` or `[`; notices
+/// before it can contain brackets of their own (paths, "[MT]" tags).
 fn json_start(text: &str) -> &str {
-    text.find(['{', '['])
-        .map(|index| &text[index..])
-        .unwrap_or(text)
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        if line.trim_start().starts_with(['{', '[']) {
+            return &text[offset..];
+        }
+        offset += line.len();
+    }
+    text
 }
 
 /// Parses `xcodebuild -list -json`. CocoaPods' `Pods-*` schemes are dropped
@@ -372,7 +379,8 @@ mod tests {
 }"#;
 
     const WORKSPACE_LIST: &str = r#"Command line invocation:
-    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -list -json
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -list -json -workspace /Users/me/[work]/Pom.xcworkspace
+2026-10-27 10:00:00.000 xcodebuild[1:2] [MT] IDERunDestination: Supported platforms {iphoneos} are empty.
 {
   "workspace" : {
     "name" : "Pom",
@@ -567,19 +575,17 @@ The following build commands failed:
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
         let found = find_containers(&root);
-        let names: Vec<_> = found
+        let names: Vec<PathBuf> = found
             .iter()
-            .map(|c| {
-                c.path
-                    .strip_prefix(&root)
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned()
-            })
+            .map(|c| c.path.strip_prefix(&root).unwrap().to_path_buf())
             .collect();
         assert_eq!(
             names,
-            ["App.xcworkspace", "App.xcodeproj", "ios/Mobile.xcodeproj"]
+            [
+                PathBuf::from("App.xcworkspace"),
+                PathBuf::from("App.xcodeproj"),
+                Path::new("ios").join("Mobile.xcodeproj"),
+            ]
         );
         assert_eq!(found[0].kind, ContainerKind::Workspace);
         assert_eq!(found[0].args()[0], "-workspace");

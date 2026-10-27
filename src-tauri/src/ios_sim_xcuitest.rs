@@ -55,6 +55,20 @@ struct Server {
 }
 
 static SERVERS: OnceLock<Mutex<HashMap<String, Server>>> = OnceLock::new();
+/// Each device's screen size in points, as its agent server reported it.
+static SCREENS: OnceLock<Mutex<HashMap<String, (f64, f64)>>> = OnceLock::new();
+
+fn screens() -> std::sync::MutexGuard<'static, HashMap<String, (f64, f64)>> {
+    SCREENS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+}
+
+/// The screen's size in points, once a device's agent server has said.
+pub(crate) fn screen_points(udid: &str) -> Option<(f64, f64)> {
+    screens().get(&udid.to_uppercase()).copied()
+}
 static BUILD_LOCK: Mutex<()> = Mutex::new(());
 
 fn servers() -> std::sync::MutexGuard<'static, HashMap<String, Server>> {
@@ -90,9 +104,25 @@ fn find_xctestrun(products: &Path) -> Option<PathBuf> {
 }
 
 /// Builds the runner once; later calls reuse it.
+/// Removes runners built for other Xcode versions or older sources.
+fn prune_old_builds(root: &Path) {
+    let (Some(parent), Some(current)) = (root.parent(), root.file_name()) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name() != current && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn ensure_built() -> Result<PathBuf, String> {
     let _guard = BUILD_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let root = agent_root()?;
+    prune_old_builds(&root);
     let products = root.join("DerivedData/Build/Products");
     if let Some(found) = find_xctestrun(&products) {
         return Ok(found);
@@ -145,14 +175,6 @@ fn ensure_built() -> Result<PathBuf, String> {
     find_xctestrun(&products).ok_or_else(|| "The simulator agent build produced no test run".into())
 }
 
-fn free_port() -> Result<u16, String> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
-    listener
-        .local_addr()
-        .map(|address| address.port())
-        .map_err(|error| error.to_string())
-}
-
 fn alive(server: &Server) -> bool {
     matches!(
         server
@@ -165,15 +187,22 @@ fn alive(server: &Server) -> bool {
 }
 
 /// Starts the agent server on `udid` and waits until it listens.
+/// The port in the server's ready line: `AVEN_AGENT_READY port=<n>`.
+fn ready_port(line: &str) -> Option<u16> {
+    let rest = &line[line.find("AVEN_AGENT_READY port=")? + "AVEN_AGENT_READY port=".len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|port| *port > 0)
+}
+
+/// Starts the agent server on `udid` and waits until it listens. The server
+/// picks its own port and reports it, so nothing else can take it between.
 fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
     let xctestrun = ensure_built()?;
     // Test results and logs stay in Aven's agent folder, not the person's
-    // own DerivedData.
-    let derived = agent_root()?
-        .join("DerivedData")
-        .to_string_lossy()
-        .into_owned();
-    let port = free_port()?;
+    // own DerivedData; each run's results replace the last ones.
+    let derived = agent_root()?.join("DerivedData");
+    let _ = std::fs::remove_dir_all(derived.join("Logs/Test"));
+    let derived = derived.to_string_lossy().into_owned();
     let token = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -195,7 +224,6 @@ fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
         ],
     );
     command
-        .env("TEST_RUNNER_AVEN_AGENT_PORT", port.to_string())
         .env("TEST_RUNNER_AVEN_AGENT_TOKEN", &token)
         .env("TEST_RUNNER_AVEN_AGENT_BUNDLE_ID", bundle.unwrap_or(""))
         .stdout(Stdio::piped())
@@ -213,18 +241,26 @@ fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
         let Some(stdout) = stdout else { return };
         let mut sent = false;
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if !sent && line.contains("AVEN_AGENT_READY") {
-                let _ = ready.send(());
+            if sent {
+                continue;
+            }
+            if let Some(port) = ready_port(&line) {
+                let _ = ready.send(Ok(port));
+                sent = true;
+            } else if line.contains("AVEN_AGENT_FAILED") {
+                let _ = ready.send(Err(()));
                 sent = true;
             }
         }
     });
     let child = Arc::new(Mutex::new(child));
-    let started = ready_rx.recv_timeout(Duration::from_secs(180));
-    if started.is_err() {
-        stop_child(&child);
-        return Err("The simulator agent did not start".into());
-    }
+    let port = match ready_rx.recv_timeout(Duration::from_secs(180)) {
+        Ok(Ok(port)) => port,
+        _ => {
+            stop_child(&child);
+            return Err("The simulator agent did not start".into());
+        }
+    };
     servers().insert(
         udid.to_uppercase(),
         Server {
@@ -237,12 +273,8 @@ fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
 }
 
 fn stop_child(child: &Arc<Mutex<Child>>) {
-    let mut child = child.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGTERM);
-    }
-    let _ = child.kill();
-    let _ = child.wait();
+    // Signals its process group only while the child is unreaped.
+    crate::ios_sim::kill_child(child);
 }
 
 /// Stops every agent server (Aven quitting).
@@ -257,9 +289,23 @@ pub(crate) struct Connection {
     stream: TcpStream,
     reader: BufReader<TcpStream>,
     token: String,
+    udid: String,
 }
 
 impl Connection {
+    /// The screen's size in points (also kept for `screen_points`).
+    pub fn screen(&mut self) -> Result<(f64, f64), String> {
+        let reply = self.request(json!({ "action": "screen" }))?;
+        let size = reply
+            .get("screen")
+            .and_then(Value::as_array)
+            .and_then(|s| Some((s.first()?.as_f64()?, s.get(1)?.as_f64()?)))
+            .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+            .ok_or("The simulator agent did not report the screen")?;
+        screens().insert(self.udid.to_uppercase(), size);
+        Ok(size)
+    }
+
     pub fn request(&mut self, mut request: Value) -> Result<Value, String> {
         request["token"] = json!(self.token);
         let mut line = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
@@ -319,6 +365,7 @@ pub(crate) fn connect(udid: &str, bundle: Option<&str>) -> Result<Connection, St
         stream,
         reader,
         token,
+        udid: udid.to_owned(),
     };
     connection.request(json!({
         "action": "activate",
@@ -412,11 +459,27 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_port_from_the_ready_line_only() {
+        assert_eq!(ready_port("AVEN_AGENT_READY port=53122"), Some(53122));
+        assert_eq!(
+            ready_port("2026-10-27 10:00:01.123 AvenSimAgentUITests-Runner[12:34] AVEN_AGENT_READY port=8765"),
+            Some(8765)
+        );
+        assert_eq!(ready_port("AVEN_AGENT_READY port=0"), None);
+        assert_eq!(ready_port("AVEN_AGENT_READY port="), None);
+        assert_eq!(ready_port("Test Case started"), None);
+    }
+
+    #[test]
     fn embeds_the_runner_sources() {
         for (path, text) in SOURCES {
             assert!(!text.is_empty(), "{path}");
         }
-        assert!(SOURCES[3].1.contains("AVEN_AGENT_TOKEN"));
+        let server = SOURCES[3].1;
+        assert!(server.contains("AVEN_AGENT_TOKEN"));
+        // It listens on a port the system picks and announces it when ready.
+        assert!(server.contains("port: .any") && server.contains("case .ready:"));
+        assert!(!server.contains("AVEN_AGENT_PORT"));
         assert_ne!(sources_hash(), 0);
     }
 }

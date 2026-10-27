@@ -304,12 +304,20 @@ to touch, scroll to swipe, and type while the screen has the keyboard: keys go
 to the device by position with their modifiers, so Option-E then E types é;
 Paste (Command-V) copies the Mac's clipboard text into the device first.
 Aven uses Xcode's private simulator frameworks for this, loaded when the pane
-first opens and checked before use. Right after Aven starts a device it fixes
+first opens, only for the framework versions Aven was tested with, and checked
+before use. Right after Aven starts a device it fixes
 the device's input once ("Getting the iPhone ready…"), which restarts its home
 screen (about ten seconds). Picking a simulator that is already running does
-the same once when its input needs it. If Xcode changes and the check fails, the pane falls back to
-**Basic mode**: screenshots a few times a second, with taps, swipes and typing
-through Aven's XCUITest agent.
+the same once when its input needs it. The pane opens on the device the project
+last used, else on one Aven started or one that is shut down; it never takes
+over a simulator that is already running until you pick it. A running one the
+project used before shows without the fix and says to pick it again if its
+touches need it. With an Xcode whose simulator frameworks Aven has not been
+tested with, or when the check fails, the pane falls back to **Basic mode**:
+screenshots a few times a second, with taps, swipes and typing anywhere on the
+screen through Aven's XCUITest agent (`AVEN_IOS_SIM_ALLOW_UNTESTED=1` tries
+the live view on an untested Xcode). When only Xcode's command line tools are
+selected, the pane says how to select Xcode instead.
 
 Agents use the same simulator with `--aven-simulator`, over the chat's scoped
 connection, only while an iPhone pane is open beside that chat, and only on
@@ -329,10 +337,11 @@ Each such turn carries a short `<aven-iphone>` note with the command.
   orientation, and the app's run status.
 - `launch` builds, installs and opens the app like Run and waits for the
   result, including build errors; `"build":false` reopens the last build.
-- `snapshot` returns the foreground app's accessibility outline (role, label,
-  identifier, value, frame) from Aven's XCUITest agent, which Aven builds into
-  its app data the first time (about a minute) and starts per device (about
-  ten seconds). Secure fields read `<redacted>`.
+- `snapshot` returns the accessibility outline (role, label, identifier,
+  value, frame) of the project's app when it is in front, otherwise of the
+  home screen, with the screen's size in points. It comes from Aven's XCUITest
+  agent, which Aven builds into its app data the first time (about a minute)
+  and starts per device (about ten seconds). Secure fields read `<redacted>`.
 - `tap`, `swipe`, `type`, `press` (Enter, Tab, Backspace, arrows…), `button`
   (home, lock) and `rotate` act on the device. Coordinates are the screen's
   upright points from its top-left corner, the same as snapshot frames and

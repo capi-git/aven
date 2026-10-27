@@ -26,6 +26,7 @@ const LOG_LINES: usize = 4000;
 /// How long CoreDevice may take to announce its HID daemon after a boot.
 const HID_ANNOUNCE_WAIT: Duration = Duration::from_secs(60);
 const DTUHIDD_FLAG: &str = "com.apple.coredevice.dtuhidd.active";
+const DTUHIDD_JOB: &str = "com.apple.coredevice.dtuhidd";
 
 // ---------------------------------------------------------------------------
 // Shared state
@@ -99,6 +100,9 @@ struct State {
     view_devices: HashMap<String, String>,
     /// What each project's pane has chosen, for agents' launches.
     choices: HashMap<String, PaneChoice>,
+    /// Simulators `simctl list` named recently, to refuse anything else
+    /// (a real device's identifier is a UUID too) without listing each time.
+    known: Option<(Instant, BTreeSet<String>)>,
 }
 
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -332,9 +336,37 @@ pub(crate) struct Support {
     pub reason: Option<String>,
 }
 
-static SUPPORT: OnceLock<Support> = OnceLock::new();
+/// (CoreSimulator, SimulatorKit) bundle versions the live path was tested
+/// with. Other versions use basic mode unless `AVEN_IOS_SIM_ALLOW_UNTESTED=1`.
+const TESTED_FRAMEWORKS: &[(&str, &str)] = &[("1174.9.2", "1005.3")];
 
-fn developer_dir() -> Option<String> {
+/// Whether live mode may load these framework versions.
+pub(crate) fn live_allowed(core: &str, kit: &str, allow_untested: bool) -> Result<(), String> {
+    if allow_untested
+        || TESTED_FRAMEWORKS
+            .iter()
+            .any(|(c, k)| *c == core && *k == kit)
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "Aven has not been tested with this Xcode's simulator (CoreSimulator {core}, SimulatorKit {kit}), so it shows screenshots"
+        ))
+    }
+}
+
+/// What `xcode-select` points at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DeveloperDir {
+    /// Xcode with the iOS simulator.
+    Xcode(String),
+    /// Only the command line tools are selected; `Some` names an installed
+    /// Xcode that could be selected instead.
+    CommandLineTools(Option<String>),
+    Missing,
+}
+
+fn selected_developer_dir() -> DeveloperDir {
     let dir = std::env::var("DEVELOPER_DIR")
         .ok()
         .filter(|d| !d.is_empty())
@@ -347,34 +379,78 @@ fn developer_dir() -> Option<String> {
             .ok()
             .filter(|o| o.success)
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-        })?;
-    Path::new(&dir)
+        });
+    let Some(dir) = dir else {
+        return DeveloperDir::Missing;
+    };
+    if Path::new(&dir)
         .join("Platforms/iPhoneSimulator.platform")
         .is_dir()
-        .then_some(dir)
+    {
+        return DeveloperDir::Xcode(dir);
+    }
+    if dir.contains("CommandLineTools") {
+        let xcode = ["/Applications/Xcode.app", "/Applications/Xcode-beta.app"]
+            .into_iter()
+            .find(|app| {
+                Path::new(app)
+                    .join("Contents/Developer/Platforms/iPhoneSimulator.platform")
+                    .is_dir()
+            })
+            .map(str::to_owned);
+        return DeveloperDir::CommandLineTools(xcode);
+    }
+    DeveloperDir::Missing
 }
 
-pub(crate) fn support() -> Support {
-    if let Some(support) = SUPPORT.get() {
-        return support.clone();
+/// What the pane and its menu say when there is no usable Xcode.
+pub(crate) fn no_xcode_reason(dir: &DeveloperDir) -> String {
+    match dir {
+        DeveloperDir::CommandLineTools(Some(xcode)) => format!(
+            "The command line tools are selected instead of Xcode. To run iPhone apps, run this in Terminal: sudo xcode-select -s {xcode}"
+        ),
+        DeveloperDir::CommandLineTools(None) => {
+            "Install Xcode to run iPhone apps (only its command line tools are installed)".into()
+        }
+        _ => "Install Xcode to run iPhone apps".into(),
     }
-    let Some(dir) = developer_dir() else {
-        // Not cached: Xcode may be installed while Aven runs.
-        return Support {
+}
+
+/// Rechecked this often, so a newly installed or selected Xcode is noticed.
+const SUPPORT_REFRESH: Duration = Duration::from_secs(10);
+static SUPPORT: Mutex<Option<(Instant, Support)>> = Mutex::new(None);
+
+pub(crate) fn support() -> Support {
+    let mut cached = SUPPORT.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((at, support)) = cached.as_ref() {
+        if at.elapsed() < SUPPORT_REFRESH {
+            return support.clone();
+        }
+    }
+    let selected = selected_developer_dir();
+    let support = match &selected {
+        DeveloperDir::Xcode(dir) => {
+            let allow_untested = std::env::var_os("AVEN_IOS_SIM_ALLOW_UNTESTED").is_some();
+            let live = native::framework_versions(dir)
+                .ok_or_else(|| "Xcode's simulator frameworks are missing".to_string())
+                .and_then(|(core, kit)| live_allowed(&core, &kit, allow_untested))
+                .and_then(|()| native::probe(dir));
+            Support {
+                xcode: true,
+                live: live.is_ok(),
+                developer_dir: Some(dir.clone()),
+                reason: live.err(),
+            }
+        }
+        other => Support {
             xcode: false,
             live: false,
             developer_dir: None,
-            reason: Some("Install Xcode to run iPhone apps".into()),
-        };
+            reason: Some(no_xcode_reason(other)),
+        },
     };
-    let probe = native::probe(&dir);
-    let support = Support {
-        xcode: true,
-        live: probe.is_ok(),
-        developer_dir: Some(dir),
-        reason: probe.err(),
-    };
-    SUPPORT.get_or_init(|| support).clone()
+    *cached = Some((Instant::now(), support.clone()));
+    support
 }
 
 #[tauri::command]
@@ -437,7 +513,9 @@ pub(crate) fn project_info(project: &str, container: Option<&str>) -> ProjectInf
         ));
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let listed = run(tool(XCODEBUILD, &args), Duration::from_secs(60), None)
+    // The first read of a project with Swift packages resolves them, which
+    // can take minutes.
+    let listed = run(tool(XCODEBUILD, &args), Duration::from_secs(900), None)
         .and_then(|output| checked(output, "Reading the schemes"))
         .and_then(|stdout| ios_sim_xcode::parse_list_json(&String::from_utf8_lossy(&stdout)));
     match listed {
@@ -491,6 +569,14 @@ fn project_dir(project: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn ios_sim_forget_project(project: String) -> Result<(), String> {
     let dir = project_dir(&project)?;
+    // End its build or app console first: nothing may keep writing into the
+    // folder this removes, or outlive the project.
+    {
+        let project = project.clone();
+        tauri::async_runtime::spawn_blocking(move || stop(&project))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
     {
         let mut state = state();
         let key = project_key(&project);
@@ -522,10 +608,38 @@ pub(crate) fn list_devices() -> Result<Vec<SimDeviceInfo>, String> {
 }
 
 fn device(udid: &str) -> Result<SimDeviceInfo, String> {
-    list_devices()?
+    let devices = list_devices()?;
+    remember_known(&devices);
+    devices
         .into_iter()
         .find(|d| d.udid.eq_ignore_ascii_case(udid))
         .ok_or_else(|| "That simulator is no longer available".to_string())
+}
+
+fn remember_known(devices: &[SimDeviceInfo]) {
+    state().known = Some((
+        Instant::now(),
+        devices.iter().map(|d| d.udid.to_uppercase()).collect(),
+    ));
+}
+
+/// Refuses anything `simctl list` does not name as a simulator, such as a
+/// real device's UUID, before it reaches devicectl or the agent scope.
+pub(crate) fn require_simulator(udid: &str) -> Result<String, String> {
+    if !ios_sim_devices::valid_udid(udid) {
+        return Err("Not a simulator".into());
+    }
+    let key = udid.to_uppercase();
+    let fresh = state()
+        .known
+        .as_ref()
+        .is_some_and(|(at, known)| at.elapsed() < Duration::from_secs(30) && known.contains(&key));
+    if fresh {
+        return Ok(key);
+    }
+    let devices = list_devices()?;
+    remember_known(&devices);
+    ios_sim_devices::known_simulator(udid, &devices).ok_or_else(|| "Not a simulator".to_string())
 }
 
 #[derive(Serialize)]
@@ -540,11 +654,31 @@ pub(crate) struct DeviceList {
 pub async fn ios_sim_devices() -> Result<DeviceList, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let devices = list_devices()?;
-        let suggested = ios_sim_devices::default_device(&devices).map(|d| d.udid.clone());
+        remember_known(&devices);
+        let ours: BTreeSet<String> = state().booted_at.keys().cloned().collect();
+        let suggested = ios_sim_devices::default_device(&devices, &ours).map(|d| d.udid.clone());
         Ok(DeviceList { devices, suggested })
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// CoreDevice's HID daemon runs in this simulator (Xcode 27 and later). Older
+/// runtimes have none, and their input needs no fix.
+fn has_dtuhidd(udid: &str) -> bool {
+    simctl(
+        &["spawn", udid, "launchctl", "list"],
+        Duration::from_secs(10),
+    )
+    .map(|o| launchctl_lists(&String::from_utf8_lossy(&o.stdout), DTUHIDD_JOB))
+    .unwrap_or(false)
+}
+
+/// Whether `launchctl list` output names a job.
+fn launchctl_lists(listed: &str, label: &str) -> bool {
+    listed
+        .lines()
+        .any(|line| line.split_whitespace().nth(2) == Some(label))
 }
 
 fn notify_flag(udid: &str) -> Option<u64> {
@@ -562,6 +696,9 @@ fn notify_flag(udid: &str) -> Option<u64> {
 /// backboardd so the input services start fresh (the home screen restarts
 /// once, about 11 seconds). Returns whether the device was restarted.
 fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
+    if !has_dtuhidd(udid) {
+        return Ok(false);
+    }
     let deadline = Instant::now() + wait;
     loop {
         match notify_flag(udid) {
@@ -615,13 +752,27 @@ fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Boots `udid` if needed and makes its input ready. `project` gets status
-/// updates while this runs.
+/// Whether a device's touches and keys reach it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Readiness {
+    Ready,
+    /// A simulator that was already running needs its input fixed, which
+    /// restarts its home screen: done only when the person picks it.
+    NeedsPick,
+}
+
+const NEEDS_PICK: &str =
+    "Pick this iPhone again in the device menu to make touches work (its home screen restarts once)";
+
+/// Boots `udid` if needed and makes its input ready. The input fix (which
+/// restarts the home screen) runs only on a device Aven booted, or one the
+/// person picked in the pane (`picked`). `project` gets status updates.
 pub(crate) fn ensure_device(
     project: &str,
     udid: &str,
     generation: Option<u64>,
-) -> Result<(), String> {
+    picked: bool,
+) -> Result<Readiness, String> {
     if !ios_sim_devices::valid_udid(udid) {
         return Err("Not a simulator".into());
     }
@@ -645,11 +796,21 @@ pub(crate) fn ensure_device(
         native::reset(udid);
     }
     if state().ready.contains(&key) {
-        return Ok(());
+        return Ok(Readiness::Ready);
     }
     if !support().live {
         state().ready.insert(key);
-        return Ok(());
+        return Ok(Readiness::Ready);
+    }
+    let booted_by_aven = state().booted_at.contains_key(&key);
+    if !booted_by_aven && !picked {
+        // Someone else's running simulator: never restart its home screen
+        // unless the person picks it here.
+        if has_dtuhidd(udid) && notify_flag(udid) == Some(1) {
+            return Ok(Readiness::NeedsPick);
+        }
+        state().ready.insert(key);
+        return Ok(Readiness::Ready);
     }
     // A device Aven just booted: wait for CoreDevice's announcement. One
     // that was already running: fix it only if the announcement happened.
@@ -665,11 +826,17 @@ pub(crate) fn ensure_device(
     });
     prepare_input(udid, wait)?;
     state().ready.insert(key);
-    Ok(())
+    Ok(Readiness::Ready)
 }
 
+/// The pane shows `udid`: boot it if needed. `picked` is true when the person
+/// chose it in the device menu just now (not a remembered or suggested one).
 #[tauri::command]
-pub async fn ios_sim_use_device(project: String, udid: String) -> Result<(), String> {
+pub async fn ios_sim_use_device(
+    project: String,
+    udid: String,
+    picked: Option<bool>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let generation = state()
             .projects
@@ -677,19 +844,20 @@ pub async fn ios_sim_use_device(project: String, udid: String) -> Result<(), Str
             .or_default()
             .generation;
         let busy = status_of(&project).phase.busy();
-        let result = ensure_device(&project, &udid, Some(generation));
+        let result = ensure_device(&project, &udid, Some(generation), picked.unwrap_or(false));
         if !busy {
             set_status(&project, Some(generation), |s| {
-                if matches!(s.phase, Phase::Booting | Phase::Preparing) {
+                if matches!(s.phase, Phase::Booting | Phase::Preparing | Phase::Idle) {
                     s.phase = Phase::Idle;
                     s.message = match &result {
-                        Ok(()) => String::new(),
+                        Ok(Readiness::Ready) => String::new(),
+                        Ok(Readiness::NeedsPick) => NEEDS_PICK.into(),
                         Err(error) => error.clone(),
                     };
                 }
             });
         }
-        result
+        result.map(|_| ())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -704,14 +872,13 @@ pub(crate) struct PaneChoice {
     pub scheme: Option<String>,
 }
 
-#[tauri::command]
-pub fn ios_sim_pane_choice(project: String, mut choice: PaneChoice) {
-    let key = project_key(&project);
-    // Only a simulator's UDID counts as a pick; anything else is dropped.
+/// Records the pane's choice. A device counts only when `simctl list` names
+/// it as a simulator; it then joins the project's agent scope.
+pub(crate) fn record_choice(project: &str, mut choice: PaneChoice, devices: &[SimDeviceInfo]) {
+    let key = project_key(project);
     choice.udid = choice
         .udid
-        .filter(|u| ios_sim_devices::valid_udid(u))
-        .map(|u| u.to_uppercase());
+        .and_then(|udid| ios_sim_devices::known_simulator(&udid, devices));
     let mut state = state();
     if let Some(udid) = &choice.udid {
         state
@@ -721,6 +888,22 @@ pub fn ios_sim_pane_choice(project: String, mut choice: PaneChoice) {
             .insert(udid.clone());
     }
     state.choices.insert(key, choice);
+}
+
+#[tauri::command]
+pub async fn ios_sim_pane_choice(project: String, choice: PaneChoice) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let devices = if choice.udid.is_some() {
+            list_devices()?
+        } else {
+            Vec::new()
+        };
+        remember_known(&devices);
+        record_choice(&project, choice, &devices);
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub(crate) fn pane_scheme(project: &str) -> Option<String> {
@@ -764,14 +947,18 @@ pub(crate) struct RunRequest {
     pub scheme: String,
 }
 
-fn kill_child(child: &Arc<Mutex<Child>>) {
+pub(crate) fn kill_child(child: &Arc<Mutex<Child>>) {
     let mut child = child.lock().unwrap_or_else(|p| p.into_inner());
-    let pid = child.id() as i32;
-    // Builds run in their own process group; end the whole group.
-    unsafe {
-        libc::kill(-pid, libc::SIGTERM);
+    // Builds run in their own process group; end the whole group, but only
+    // while the child is unreaped: after `wait`, its PID (and group) may
+    // belong to another process.
+    if matches!(child.try_wait(), Ok(None)) {
+        let pid = child.id() as i32;
+        unsafe {
+            libc::kill(-pid, libc::SIGTERM);
+        }
+        let _ = child.kill();
     }
-    let _ = child.kill();
     let _ = child.wait();
 }
 
@@ -887,7 +1074,7 @@ fn run_pipeline(
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Could not prepare the build folder: {error}"))?;
     let derived = dir.join("DerivedData");
-    ensure_device(project, udid, Some(generation))?;
+    let readiness = ensure_device(project, udid, Some(generation), false)?;
     if !current(project, generation) {
         return Ok(());
     }
@@ -980,19 +1167,22 @@ fn run_pipeline(
         });
         return Ok(());
     }
-    set_status(project, Some(generation), |s| {
-        s.phase = Phase::Installing;
-        s.message = "Installing…".into();
-        s.log_path = Some(log_path.to_string_lossy().into_owned());
-        s.built_ms = Some(built_ms);
-        s.bundle_id = Some(product.bundle_id.clone());
-    });
     if !product.app_path.is_dir() {
         state()
             .products
             .remove(&(container.path.clone(), request.scheme.clone()));
         return Err("The build did not produce the app; press Run again".into());
     }
+    // The settings were cached; the identifier may have changed since. Read
+    // it from the app just built.
+    let bundle_id = built_bundle_id(&product.app_path).unwrap_or_else(|| product.bundle_id.clone());
+    set_status(project, Some(generation), |s| {
+        s.phase = Phase::Installing;
+        s.message = "Installing…".into();
+        s.log_path = Some(log_path.to_string_lossy().into_owned());
+        s.built_ms = Some(built_ms);
+        s.bundle_id = Some(bundle_id.clone());
+    });
     let app = product.app_path.to_string_lossy().into_owned();
     checked(
         simctl(&["install", udid, &app], Duration::from_secs(300))?,
@@ -1001,13 +1191,33 @@ fn run_pipeline(
     if !current(project, generation) {
         return Ok(());
     }
-    launch(
-        project,
-        udid,
-        &product.bundle_id,
-        generation,
-        Some(built_ms),
+    launch(project, udid, &bundle_id, generation, Some(built_ms))?;
+    if readiness == Readiness::NeedsPick {
+        set_status(project, Some(generation), |s| {
+            if s.phase == Phase::Running {
+                s.message = format!("{} · {NEEDS_PICK}", s.message);
+            }
+        });
+    }
+    Ok(())
+}
+
+/// CFBundleIdentifier from a built app's Info.plist.
+fn built_bundle_id(app: &Path) -> Option<String> {
+    let plist = app.join("Info.plist");
+    let plist = plist.to_string_lossy().into_owned();
+    let output = run(
+        tool(
+            "/usr/bin/plutil",
+            &["-extract", "CFBundleIdentifier", "raw", "-o", "-", &plist],
+        ),
+        Duration::from_secs(10),
+        None,
     )
+    .ok()
+    .filter(|o| o.success)?;
+    let id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
 }
 
 /// The saved log: errors first, so "Show errors" opens on them.
@@ -1146,7 +1356,7 @@ pub(crate) fn relaunch(project: &str, udid: &str, bundle_id: &str) -> Result<u64
     if let Some(child) = previous {
         kill_child(&child);
     }
-    ensure_device(project, udid, Some(generation))?;
+    ensure_device(project, udid, Some(generation), false)?;
     launch(project, udid, bundle_id, generation, None)?;
     Ok(generation)
 }
@@ -1267,9 +1477,11 @@ pub(crate) fn screen(udid: &str) -> Result<Screen, String> {
 }
 
 pub(crate) fn tap(udid: &str, x: f64, y: f64) -> Result<(), String> {
-    native::touch(udid, native::TouchPhase::Down, x, y)?;
+    let down = native::touch(udid, native::TouchPhase::Down, x, y);
     std::thread::sleep(Duration::from_millis(60));
-    native::touch(udid, native::TouchPhase::Up, x, y)
+    // Lift the finger even when the press failed, so none stays down.
+    let up = native::touch(udid, native::TouchPhase::Up, x, y);
+    down.and(up)
 }
 
 pub(crate) fn swipe(
@@ -1279,35 +1491,43 @@ pub(crate) fn swipe(
     duration: Duration,
 ) -> Result<(), String> {
     let steps = (duration.as_millis() as u64 / 17).max(2);
-    native::touch(udid, native::TouchPhase::Down, from.0, from.1)?;
-    for step in 1..=steps {
-        std::thread::sleep(Duration::from_millis(17));
-        let t = step as f64 / steps as f64;
-        native::touch(
-            udid,
-            native::TouchPhase::Moved,
-            from.0 + (to.0 - from.0) * t,
-            from.1 + (to.1 - from.1) * t,
-        )?;
+    let mut result = native::touch(udid, native::TouchPhase::Down, from.0, from.1);
+    let mut last = from;
+    if result.is_ok() {
+        for step in 1..=steps {
+            std::thread::sleep(Duration::from_millis(17));
+            let t = step as f64 / steps as f64;
+            last = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+            if let Err(error) = native::touch(udid, native::TouchPhase::Moved, last.0, last.1) {
+                result = Err(error);
+                break;
+            }
+        }
     }
-    native::touch(udid, native::TouchPhase::Up, to.0, to.1)
+    let up = native::touch(udid, native::TouchPhase::Up, last.0, last.1);
+    result.and(up)
 }
 
 pub(crate) fn press_button(udid: &str, button: native::Button) -> Result<(), String> {
-    native::button(udid, button, true)?;
+    let down = native::button(udid, button, true);
     std::thread::sleep(Duration::from_millis(80));
-    native::button(udid, button, false)
+    let up = native::button(udid, button, false);
+    down.and(up)
 }
 
 fn press_key(udid: &str, usage: u32, shift: bool, command_key: bool) -> Result<(), String> {
     use crate::ios_sim_keys::{COMMAND, SHIFT};
+    // Modifiers and the key are always released, even after a failure.
+    let mut pressed = Ok(());
     if command_key {
-        native::key(udid, COMMAND, true)?;
+        pressed = pressed.and(native::key(udid, COMMAND, true));
     }
     if shift {
-        native::key(udid, SHIFT, true)?;
+        pressed = pressed.and(native::key(udid, SHIFT, true));
     }
-    let pressed = native::key(udid, usage, true).and_then(|_| native::key(udid, usage, false));
+    let down = native::key(udid, usage, true);
+    let up = native::key(udid, usage, false);
+    let pressed = pressed.and(down).and(up);
     if shift {
         let _ = native::key(udid, SHIFT, false);
     }
@@ -1327,6 +1547,8 @@ pub(crate) fn press_named_key(udid: &str, name: &str) -> Result<(), String> {
 /// (`simctl pbcopy` no longer reaches the device on Xcode 27; CoreDevice's
 /// pasteboard command does, and leaves SimulatorKit input working.)
 pub(crate) fn paste_text(udid: &str, text: &str) -> Result<(), String> {
+    // devicectl reaches real devices too: only a listed simulator gets here.
+    let udid = &require_simulator(udid)?;
     let output = run(
         tool(
             XCRUN,
@@ -1381,6 +1603,8 @@ pub(crate) fn set_orientation(udid: &str, orientation: &str) -> Result<(), Strin
             return Err("Use portrait, portraitUpsideDown, landscapeLeft or landscapeRight".into())
         }
     };
+    // devicectl reaches real devices too: only a listed simulator gets here.
+    let udid = &require_simulator(udid)?;
     let output = run(
         tool(
             XCRUN,
@@ -1415,11 +1639,19 @@ pub(crate) fn screenshot_png(udid: &str) -> Result<(Vec<u8>, f64), String> {
         Duration::from_secs(20),
     )?;
     let png = checked(output, "Taking a screenshot")?;
-    if !png.starts_with(b"\x89PNG") {
-        return Err("The simulator returned no picture".into());
-    }
-    // simctl reports no scale; phones are @3x except the smallest.
-    Ok((png, 3.0))
+    let (width, _) = png_size(&png).ok_or("The simulator returned no picture")?;
+    // simctl reports pixels; the agent server knows the screen in points.
+    let scale = crate::ios_sim_xcuitest::screen_points(udid)
+        .filter(|(w, _)| *w > 0.0)
+        .map(|(w, _)| (width as f64 / w).round().clamp(1.0, 4.0))
+        .unwrap_or_else(|| {
+            // Until the agent has answered: iPads are @2x, iPhones @3x.
+            match device(udid).map(|d| d.family) {
+                Ok(ios_sim_devices::DeviceFamily::Ipad) => 2.0,
+                _ => 3.0,
+            }
+        });
+    Ok((png, scale))
 }
 
 fn checked_udid(udid: &str) -> Result<(), String> {
@@ -1505,13 +1737,54 @@ fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
-/// Basic-mode input from the pane, in upright screen points.
+/// Basic-mode input from the pane, as fractions (0 to 1) of the upright
+/// screenshot, so the pane needs no screen scale. Aven turns them into the
+/// screen's points with the size the XCUITest agent reports.
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum BasicInput {
-    Tap { x: f64, y: f64 },
-    Swipe { x1: f64, y1: f64, x2: f64, y2: f64 },
-    Type { text: String },
+    Tap {
+        fx: f64,
+        fy: f64,
+    },
+    Swipe {
+        fx1: f64,
+        fy1: f64,
+        fx2: f64,
+        fy2: f64,
+    },
+    Type {
+        text: String,
+    },
+}
+
+fn fraction(value: f64) -> Result<f64, String> {
+    if value.is_finite() && (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err("Invalid point".into())
+    }
+}
+
+/// A basic-mode action as an agent-server request in screen points.
+pub(crate) fn basic_request(input: &BasicInput, screen: (f64, f64)) -> Result<Value, String> {
+    let (w, h) = screen;
+    Ok(match input {
+        BasicInput::Tap { fx, fy } => {
+            json!({ "action": "tap", "x": fraction(*fx)? * w, "y": fraction(*fy)? * h })
+        }
+        BasicInput::Swipe { fx1, fy1, fx2, fy2 } => json!({
+            "action": "swipe",
+            "x1": fraction(*fx1)? * w, "y1": fraction(*fy1)? * h,
+            "x2": fraction(*fx2)? * w, "y2": fraction(*fy2)? * h,
+        }),
+        BasicInput::Type { text } => {
+            if text.is_empty() || text.len() > 4000 {
+                return Err("Nothing to type".into());
+            }
+            json!({ "action": "type", "text": text })
+        }
+    })
 }
 
 #[tauri::command]
@@ -1522,16 +1795,11 @@ pub async fn ios_sim_basic_input(
 ) -> Result<(), String> {
     checked_udid(&udid)?;
     tauri::async_runtime::spawn_blocking(move || {
+        let udid = require_simulator(&udid)?;
         let bundle = status_of(&project).bundle_id;
         let mut agent = crate::ios_sim_xcuitest::connect(&udid, bundle.as_deref())?;
-        match input {
-            BasicInput::Tap { x, y } => agent.request(json!({ "action": "tap", "x": x, "y": y })),
-            BasicInput::Swipe { x1, y1, x2, y2 } => {
-                agent.request(json!({ "action": "swipe", "x1": x1, "y1": y1, "x2": x2, "y2": y2 }))
-            }
-            BasicInput::Type { text } => agent.request(json!({ "action": "type", "text": text })),
-        }
-        .map(|_| ())
+        let screen = agent.screen()?;
+        agent.request(basic_request(&input, screen)?).map(|_| ())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1883,24 +2151,29 @@ mod tests {
     fn scopes_devices_to_the_project_whose_pane_picked_or_booted_them() {
         let project = "/scope-test/pom/";
         let picked = "11111111-2222-3333-4444-555555555555";
-        ios_sim_pane_choice(
-            project.into(),
-            PaneChoice {
-                udid: Some(picked.to_lowercase()),
-                container: None,
-                scheme: None,
-            },
-        );
+        let listed = ios_sim_devices::parse_device_list(&format!(
+            r#"{{"devices":{{"com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+              {{"udid":"{picked}","isAvailable":true,"state":"Shutdown","name":"iPhone 18",
+                "deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-18"}}]}}}}"#
+        ))
+        .unwrap();
+        let choice = |udid: &str| PaneChoice {
+            udid: Some(udid.into()),
+            container: None,
+            scheme: None,
+        };
+        record_choice(project, choice(&picked.to_lowercase()), &listed);
         // Booting for a project (ensure_device) records the same way.
         add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
-        ios_sim_pane_choice(
-            project.into(),
-            PaneChoice {
-                udid: Some("booted".into()),
-                container: None,
-                scheme: None,
-            },
+        assert_eq!(pane_device(project).as_deref(), Some(picked));
+        // A UUID simctl does not list (a real device's CoreDevice identifier)
+        // and anything that is not a UUID never join the scope.
+        record_choice(
+            project,
+            choice("6D1B1E5A-2F44-4C1B-9E5A-0E4D1C2B3A49"),
+            &listed,
         );
+        record_choice(project, choice("booted"), &listed);
         let scope = scoped_devices("/scope-test/pom");
         assert_eq!(
             scope.into_iter().collect::<Vec<_>>(),
@@ -1912,6 +2185,66 @@ mod tests {
         assert!(scoped_devices("/scope-test/other").is_empty());
         // Not a simulator: no pick, and no device for agents to default to.
         assert_eq!(pane_device(project), None);
+    }
+
+    #[test]
+    fn allows_live_mode_only_on_tested_frameworks() {
+        assert!(live_allowed("1174.9.2", "1005.3", false).is_ok());
+        let newer = live_allowed("1175.1", "1006", false).unwrap_err();
+        assert!(newer.contains("CoreSimulator 1175.1") && newer.contains("SimulatorKit 1006"));
+        assert!(live_allowed("1175.1", "1006", true).is_ok());
+    }
+
+    #[test]
+    fn explains_a_missing_or_unselected_xcode() {
+        let tools = no_xcode_reason(&DeveloperDir::CommandLineTools(Some(
+            "/Applications/Xcode.app".into(),
+        )));
+        assert!(tools.contains("sudo xcode-select -s /Applications/Xcode.app"));
+        assert!(
+            no_xcode_reason(&DeveloperDir::CommandLineTools(None)).contains("command line tools")
+        );
+        assert_eq!(
+            no_xcode_reason(&DeveloperDir::Missing),
+            "Install Xcode to run iPhone apps"
+        );
+    }
+
+    #[test]
+    fn finds_the_hid_daemon_in_launchctl_output() {
+        let listed = "PID\tStatus\tLabel\n88812\t0\tcom.apple.coredevice.dtuhidd\n-\t0\tcom.apple.coredevice.dthidd\n";
+        assert!(launchctl_lists(listed, DTUHIDD_JOB));
+        assert!(!launchctl_lists(
+            "-\t0\tcom.apple.coredevice.dtuhidd.helper\n",
+            DTUHIDD_JOB
+        ));
+        assert!(!launchctl_lists("", DTUHIDD_JOB));
+    }
+
+    #[test]
+    fn maps_basic_mode_fractions_to_screen_points() {
+        let tap = basic_request(&BasicInput::Tap { fx: 0.5, fy: 0.25 }, (402.0, 874.0)).unwrap();
+        assert_eq!(tap, json!({ "action": "tap", "x": 201.0, "y": 218.5 }));
+        let swipe = basic_request(
+            &BasicInput::Swipe {
+                fx1: 0.0,
+                fy1: 1.0,
+                fx2: 1.0,
+                fy2: 0.0,
+            },
+            (1024.0, 1366.0),
+        )
+        .unwrap();
+        assert_eq!(swipe["x2"], 1024.0);
+        assert_eq!(swipe["y1"], 1366.0);
+        assert!(basic_request(&BasicInput::Tap { fx: 1.5, fy: 0.0 }, (402.0, 874.0)).is_err());
+        assert!(basic_request(
+            &BasicInput::Type {
+                text: String::new()
+            },
+            (1.0, 1.0)
+        )
+        .is_err());
     }
 
     #[test]

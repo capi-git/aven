@@ -3,9 +3,12 @@
 //
 // PRIVATE API. Recovered on Xcode 27.1 (CoreSimulator 1174.9.2, SimulatorKit
 // 1005.3); any Xcode release may change it. Nothing links against the
-// frameworks: they are loaded with dlopen and every class, selector and
-// symbol is checked by aven_sim_probe before use. Aven falls back to its
-// basic mode (simctl screenshots, XCUITest input) when the check fails.
+// frameworks: Rust allows live mode only for framework versions it was tested
+// with (aven_sim_framework_versions), then they are loaded with dlopen and
+// every class, selector and symbol is checked by aven_sim_probe before use.
+// Every exported function catches Objective-C exceptions and reports them as
+// errors, so a changed interface can never unwind into Rust. Aven falls back
+// to its basic mode (simctl screenshots, XCUITest input) when a check fails.
 //
 // Only two IndigoHID targets are ever sent: 0x32 (the touch screen) and 0x33
 // (hardware buttons). Any other target trips an assertion in the guest's
@@ -132,6 +135,49 @@ static id Send0(id target, NSString *selector) {
   return ((id(*)(id, SEL))objc_msgSend)(target, sel);
 }
 
+static NSString *ExceptionText(NSException *exception) {
+  return [NSString stringWithFormat:@"The simulator's interface failed (%@)", exception.reason ?: exception.name];
+}
+
+// Exported functions run their body in a @try; an exception becomes an error.
+#define AVEN_TRY @try {
+#define AVEN_CATCH(failure)                                     \
+  }                                                             \
+  @catch (NSException * exception) {                            \
+    SetError(error, error_len, ExceptionText(exception));       \
+    return failure;                                             \
+  }
+
+#pragma mark - Framework versions
+
+static NSString *FrameworkVersion(NSString *framework) {
+  NSDictionary *info =
+      [NSDictionary dictionaryWithContentsOfFile:[framework stringByAppendingPathComponent:@"Resources/Info.plist"]];
+  id version = info[@"CFBundleVersion"];
+  return [version isKindOfClass:NSString.class] ? version : nil;
+}
+
+static NSString *KitFramework(NSString *developerDir) {
+  return [[developerDir stringByDeletingLastPathComponent]
+      stringByAppendingPathComponent:@"SharedFrameworks/SimulatorKit.framework"];
+}
+
+int aven_sim_framework_versions(const char *developer_dir, char *core, size_t core_len, char *kit, size_t kit_len) {
+  @autoreleasepool {
+    @try {
+      if (!developer_dir || !core || !kit || !core_len || !kit_len) return 1;
+      NSString *coreVersion =
+          FrameworkVersion([kCoreSimulator stringByDeletingLastPathComponent]);
+      NSString *kitVersion = FrameworkVersion(KitFramework(@(developer_dir)));
+      strlcpy(core, coreVersion.UTF8String ?: "", core_len);
+      strlcpy(kit, kitVersion.UTF8String ?: "", kit_len);
+      return coreVersion && kitVersion ? 0 : 1;
+    } @catch (NSException *exception) {
+      return 1;
+    }
+  }
+}
+
 #pragma mark - Probe
 
 static BOOL ProtocolHas(Protocol *protocol, SEL selector) {
@@ -142,8 +188,30 @@ static BOOL ProtocolHas(Protocol *protocol, SEL selector) {
   return d.name != NULL;
 }
 
+static BOOL InstancesRespond(Class cls, NSString *selector, NSString **missing) {
+  if (cls && [cls instancesRespondToSelector:NSSelectorFromString(selector)]) return YES;
+  *missing = [NSString stringWithFormat:@"%@ lacks %@", cls ? NSStringFromClass(cls) : @"a class", selector];
+  return NO;
+}
+
+static BOOL ProtocolDeclares(NSString *protocol, NSString *selector, NSString **missing) {
+  if (ProtocolHas(NSProtocolFromString(protocol), NSSelectorFromString(selector))) return YES;
+  *missing = [NSString stringWithFormat:@"%@ lacks %@", protocol, selector];
+  return NO;
+}
+
+// Builds one message of each kind and checks its shape: a header of 0x20
+// bytes whose byte 0x1c counts the payloads that follow.
+static BOOL MessageLooksRight(void *message) {
+  if (!message) return NO;
+  uint8_t count = ((uint8_t *)message)[0x1c];
+  free(message);
+  return count >= 1 && count <= 8;
+}
+
 int aven_sim_probe(const char *developer_dir, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     if (getenv("AVEN_IOS_SIM_FORCE_BASIC")) {
       SetError(error, error_len, @"Basic mode was requested (AVEN_IOS_SIM_FORCE_BASIC)");
       return 1;
@@ -153,12 +221,18 @@ int aven_sim_probe(const char *developer_dir, char *error, size_t error_len) {
       return 1;
     }
     NSString *dir = @(developer_dir);
+    @synchronized([NSObject class]) {
+      if (gReady && ![gDeveloperDir isEqualToString:dir]) {
+        SetError(error, error_len, @"Another Xcode was selected; quit and reopen Aven to use it");
+        return 1;
+      }
+      if (gReady) return 0;
+    }
     if (!dlopen(kCoreSimulator.UTF8String, RTLD_NOW | RTLD_GLOBAL)) {
       SetError(error, error_len, [NSString stringWithFormat:@"CoreSimulator did not load: %s", dlerror() ?: ""]);
       return 1;
     }
-    NSString *kitPath = [[dir stringByDeletingLastPathComponent]
-        stringByAppendingPathComponent:@"SharedFrameworks/SimulatorKit.framework/SimulatorKit"];
+    NSString *kitPath = [KitFramework(dir) stringByAppendingPathComponent:@"SimulatorKit"];
     void *kit = dlopen(kitPath.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL);
     if (!kit) {
       SetError(error, error_len, [NSString stringWithFormat:@"SimulatorKit did not load: %s", dlerror() ?: ""]);
@@ -177,39 +251,44 @@ int aven_sim_probe(const char *developer_dir, char *error, size_t error_len) {
       SetError(error, error_len, @"CoreSimulator or SimulatorKit classes are missing");
       return 1;
     }
-    struct {
-      Class cls;
-      SEL sel;
-      BOOL meta;
-    } methods[] = {
-        {context, @selector(sharedServiceContextForDeveloperDir:error:), YES},
-        {context, @selector(defaultDeviceSetWithError:), NO},
-        {hid, @selector(initWithDevice:error:), NO},
-        {hid, @selector(sendWithMessage:freeWhenDone:completionQueue:completion:), NO},
-    };
-    for (size_t i = 0; i < sizeof methods / sizeof methods[0]; i++) {
-      BOOL found = methods[i].meta ? [methods[i].cls respondsToSelector:methods[i].sel]
-                                   : [methods[i].cls instancesRespondToSelector:methods[i].sel];
-      if (!found) {
-        SetError(error, error_len,
-                 [NSString stringWithFormat:@"%@ lacks %@", methods[i].cls, NSStringFromSelector(methods[i].sel)]);
-        return 1;
-      }
+    NSString *missing = nil;
+    // Every selector Aven sends, on the class or protocol that declares it.
+    BOOL complete =
+        [context respondsToSelector:@selector(sharedServiceContextForDeveloperDir:error:)] &&
+        InstancesRespond(context, @"defaultDeviceSetWithError:", &missing) &&
+        InstancesRespond(NSClassFromString(@"SimDeviceSet"), @"devices", &missing) &&
+        InstancesRespond(NSClassFromString(@"SimDevice"), @"UDID", &missing) &&
+        InstancesRespond(NSClassFromString(@"SimDevice"), @"stateString", &missing) &&
+        InstancesRespond(NSClassFromString(@"SimDevice"), @"io", &missing) &&
+        InstancesRespond(NSClassFromString(@"SimDeviceIOPort"), @"descriptor", &missing) &&
+        InstancesRespond(hid, @"initWithDevice:error:", &missing) &&
+        InstancesRespond(hid, @"sendWithMessage:freeWhenDone:completionQueue:completion:", &missing) &&
+        ProtocolDeclares(@"SimDeviceIOProtocol", @"ioPorts", &missing) &&
+        ProtocolDeclares(@"SimDeviceIOPortDescriptorInterface", @"state", &missing) &&
+        ProtocolDeclares(@"SimDisplayDescriptorState", @"displayClass", &missing) &&
+        ProtocolDeclares(@"SimDisplayIOSurfaceRenderable", @"framebufferSurface", &missing) &&
+        ProtocolDeclares(@"SimDisplayIOSurfaceRenderable", @"registerCallbackWithUUID:ioSurfacesChangeCallback:",
+                         &missing) &&
+        ProtocolDeclares(@"SimDisplayIOSurfaceRenderable", @"unregisterIOSurfacesChangeCallbackWithUUID:", &missing) &&
+        ProtocolDeclares(@"SimDisplayRenderable", @"registerCallbackWithUUID:damageRectanglesCallback:", &missing) &&
+        ProtocolDeclares(@"SimDisplayRenderable", @"unregisterDamageRectanglesCallbackWithUUID:", &missing) &&
+        ProtocolDeclares(@"SimScreen", @"screenProperties", &missing) &&
+        ProtocolDeclares(@"SimScreen",
+                         @"registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:"
+                         @"propertiesChangedCallback:",
+                         &missing) &&
+        ProtocolDeclares(@"SimScreen", @"unregisterScreenCallbacksWithUUID:", &missing) &&
+        ProtocolDeclares(@"SimScreenProperties", @"uiOrientation", &missing) &&
+        ProtocolDeclares(@"SimScreenProperties", @"currentMode", &missing) &&
+        ProtocolDeclares(@"SimScreenMode", @"preferredUIScale", &missing);
+    if (!complete) {
+      SetError(error, error_len, missing ?: @"The simulator interfaces changed");
+      return 1;
     }
-    Protocol *surface = NSProtocolFromString(@"SimDisplayIOSurfaceRenderable");
-    Protocol *renderable = NSProtocolFromString(@"SimDisplayRenderable");
-    Protocol *screen = NSProtocolFromString(@"SimScreen");
-    Protocol *properties = NSProtocolFromString(@"SimScreenProperties");
-    if (!ProtocolHas(surface, @selector(framebufferSurface)) ||
-        !ProtocolHas(surface, @selector(registerCallbackWithUUID:ioSurfacesChangeCallback:)) ||
-        !ProtocolHas(renderable, @selector(registerCallbackWithUUID:damageRectanglesCallback:)) ||
-        !ProtocolHas(renderable, @selector(unregisterDamageRectanglesCallbackWithUUID:)) ||
-        !ProtocolHas(screen, @selector(screenProperties)) ||
-        !ProtocolHas(screen, @selector(registerScreenCallbacksWithUUID:
-                                                      callbackQueue:frameCallback:surfacesChangedCallback
-                                                                   :propertiesChangedCallback:)) ||
-        !ProtocolHas(properties, @selector(uiOrientation))) {
-      SetError(error, error_len, @"The simulator display interfaces changed");
+    CGPoint point = CGPointMake(0.5, 0.5);
+    if (!MessageLooksRight(mouse(&point, NULL, kTouchTarget, 1, CGSizeMake(1, 1), 0)) ||
+        !MessageLooksRight(button(0, 1, kButtonTarget)) || !MessageLooksRight(key(4, 1))) {
+      SetError(error, error_len, @"SimulatorKit builds input messages differently");
       return 1;
     }
     @synchronized([NSObject class]) {
@@ -220,6 +299,7 @@ int aven_sim_probe(const char *developer_dir, char *error, size_t error_len) {
       gReady = YES;
     }
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
@@ -229,7 +309,10 @@ int aven_sim_probe(const char *developer_dir, char *error, size_t error_len) {
 @property(nonatomic, strong) id<AvenSimDevice> device;
 @property(nonatomic, strong) id<AvenSimDisplay> display;
 @property(nonatomic, strong) id<AvenSimHIDClient> hid;
+// Input messages go out one at a time, in order, on this queue; SimulatorKit
+// reports each send on the completion queue.
 @property(nonatomic, strong) dispatch_queue_t queue;
+@property(nonatomic, strong) dispatch_queue_t completions;
 @end
 @implementation AvenSimDevice
 @end
@@ -268,11 +351,16 @@ static AvenSimDevice *DeviceRecord(NSString *udid, NSString **message) {
     if (message) *message = error.localizedDescription ?: @"No simulator device set";
     return nil;
   }
-  for (id<AvenSimDevice> device in [set devices]) {
-    if ([[device UDID].UUIDString caseInsensitiveCompare:udid] != NSOrderedSame) continue;
+  NSArray *devices = Send0(set, @"devices");
+  for (id<AvenSimDevice> device in [devices isKindOfClass:NSArray.class] ? devices : @[]) {
+    NSUUID *identifier = Send0(device, @"UDID");
+    if (![identifier isKindOfClass:NSUUID.class] ||
+        [identifier.UUIDString caseInsensitiveCompare:udid] != NSOrderedSame)
+      continue;
     AvenSimDevice *record = [AvenSimDevice new];
     record.device = device;
     record.queue = dispatch_queue_create("aven.ios-sim.hid", DISPATCH_QUEUE_SERIAL);
+    record.completions = dispatch_queue_create("aven.ios-sim.hid-done", DISPATCH_QUEUE_SERIAL);
     @synchronized([AvenSimDevice class]) {
       AvenSimDevice *existing = gDevices[udid.uppercaseString];
       if (existing) return existing;
@@ -290,14 +378,16 @@ static id<AvenSimDisplay> MainDisplay(AvenSimDevice *record, NSString **message)
     if (record.display && [record.display framebufferSurface]) return record.display;
     record.display = nil;
   }
-  if (![[record.device stateString] isEqualToString:@"Booted"]) {
+  NSString *state = Send0(record.device, @"stateString");
+  if (![state isKindOfClass:NSString.class] || ![state isEqualToString:@"Booted"]) {
     if (message) *message = @"The simulator is not running";
     return nil;
   }
   Protocol *surface = NSProtocolFromString(@"SimDisplayIOSurfaceRenderable");
   Protocol *screen = NSProtocolFromString(@"SimScreen");
   id<AvenSimDisplay> found = nil;
-  for (id port in [[record.device io] ioPorts]) {
+  NSArray *ports = Send0(Send0(record.device, @"io"), @"ioPorts");
+  for (id port in [ports isKindOfClass:NSArray.class] ? ports : @[]) {
     id<AvenSimDisplay> descriptor = Send0(port, @"descriptor");
     if (!descriptor || ![descriptor conformsToProtocol:surface] || ![descriptor conformsToProtocol:screen]) continue;
     id<AvenSimDescriptorState> state = Send0(descriptor, @"state");
@@ -319,7 +409,8 @@ static id<AvenSimDisplay> MainDisplay(AvenSimDevice *record, NSString **message)
 static BOOL DisplayInfo(id<AvenSimDisplay> display, AvenSimDisplayInfo *info) {
   IOSurface *fb = [display framebufferSurface];
   id<AvenSimScreenProperties> properties = [display screenProperties];
-  double scale = [[properties currentMode] preferredUIScale];
+  id<AvenSimScreenMode> mode = Send0(properties, @"currentMode");
+  double scale = [mode respondsToSelector:@selector(preferredUIScale)] ? [mode preferredUIScale] : 0;
   if (!fb || fb.width <= 0 || fb.height <= 0) return NO;
   if (!(scale > 0)) scale = fb.width > 1000 ? 3 : 2;
   info->scale = scale;
@@ -347,39 +438,71 @@ static id<AvenSimHIDClient> HIDClient(AvenSimDevice *record, NSString **message)
   }
 }
 
-// Sends one IndigoHID message, waiting for SimulatorKit's completion.
-static BOOL SendMessage(AvenSimDevice *record, void *message, NSString **failure) {
-  if (!message) return NO;
-  id<AvenSimHIDClient> client = HIDClient(record, failure);
+// Sends one IndigoHID message on the device's queue and waits (there, never
+// on the caller's thread) for SimulatorKit's completion. Returns why it failed.
+static NSString *SendNow(AvenSimDevice *record, void *message) {
+  NSString *failure = nil;
+  id<AvenSimHIDClient> client = HIDClient(record, &failure);
   if (!client) {
     free(message);
-    return NO;
+    return failure ?: @"Could not connect to the simulator's input";
   }
   dispatch_semaphore_t done = dispatch_semaphore_create(0);
   __block NSError *sendError = nil;
   [client sendWithMessage:message
              freeWhenDone:YES
-          completionQueue:record.queue
+          completionQueue:record.completions
                completion:^(NSError *error) {
                  sendError = error;
                  dispatch_semaphore_signal(done);
                }];
-  if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC))) {
-    if (failure) *failure = @"The simulator did not take the input in time";
-    return NO;
-  }
+  if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)))
+    return @"The simulator did not take the input in time";
   if (sendError) {
     @synchronized(record) {
       record.hid = nil;
     }
-    if (failure) *failure = sendError.localizedDescription;
+    return sendError.localizedDescription ?: @"The input was not delivered";
+  }
+  return nil;
+}
+
+// Queues a message behind earlier ones; `done` (optional) gets the outcome.
+static void EnqueueInput(AvenSimDevice *record, void *message, void (^done)(NSString *failure)) {
+  if (!message) {
+    if (done) done(@"The input could not be built");
+    return;
+  }
+  dispatch_async(record.queue, ^{
+    NSString *failure = nil;
+    @try {
+      failure = SendNow(record, message);
+    } @catch (NSException *exception) {
+      failure = ExceptionText(exception);
+    }
+    if (done) done(failure);
+  });
+}
+
+// For Rust's worker threads: queues the message and waits for its outcome.
+static BOOL SendMessage(AvenSimDevice *record, void *message, NSString **failure) {
+  dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+  __block NSString *outcome = nil;
+  EnqueueInput(record, message, ^(NSString *result) {
+    outcome = result;
+    dispatch_semaphore_signal(finished);
+  });
+  if (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) {
+    if (failure) *failure = @"The simulator did not take the input in time";
     return NO;
   }
-  return YES;
+  if (outcome && failure) *failure = outcome;
+  return outcome == nil;
 }
 
 int aven_sim_display_info(const char *udid, AvenSimDisplayInfo *info, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     NSString *message = nil;
     AvenSimDevice *record = udid ? DeviceRecord(@(udid), &message) : nil;
     id<AvenSimDisplay> display = record ? MainDisplay(record, &message) : nil;
@@ -388,12 +511,14 @@ int aven_sim_display_info(const char *udid, AvenSimDisplayInfo *info, char *erro
       return 1;
     }
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
 int aven_sim_screenshot_png(const char *udid, uint32_t quarter_turns, uint8_t **png, size_t *png_len, char *error,
                             size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     NSString *message = nil;
     AvenSimDevice *record = udid ? DeviceRecord(@(udid), &message) : nil;
     id<AvenSimDisplay> display = record ? MainDisplay(record, &message) : nil;
@@ -441,6 +566,7 @@ int aven_sim_screenshot_png(const char *udid, uint32_t quarter_turns, uint8_t **
     *png = bytes;
     *png_len = data.length;
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
@@ -448,6 +574,7 @@ void aven_sim_free(void *pointer) { free(pointer); }
 
 int aven_sim_touch(const char *udid, int phase, double x, double y, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     if (phase != 1 && phase != 2 && phase != 6) {
       SetError(error, error_len, @"Unknown touch phase");
       return -1;
@@ -472,11 +599,13 @@ int aven_sim_touch(const char *udid, int phase, double x, double y, char *error,
       return -1;
     }
     return 0;
+    AVEN_CATCH(-1)
   }
 }
 
 int aven_sim_button(const char *udid, int button, int phase, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     if ((button != 0 && button != 1) || (phase != 1 && phase != 2)) {
       SetError(error, error_len, @"Unknown button");
       return 1;
@@ -488,11 +617,13 @@ int aven_sim_button(const char *udid, int button, int phase, char *error, size_t
       return 1;
     }
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
 int aven_sim_key(const char *udid, uint32_t usage, int phase, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     if (usage == 0 || usage > 0xE7 || (phase != 1 && phase != 2)) {
       SetError(error, error_len, @"Unknown key");
       return 1;
@@ -504,14 +635,23 @@ int aven_sim_key(const char *udid, uint32_t usage, int phase, char *error, size_
       return 1;
     }
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
+static void RestartViewsShowing(NSString *udid);
+
 void aven_sim_reset(const char *udid) {
   if (!udid) return;
+  NSString *key = @(udid).uppercaseString;
   @synchronized([AvenSimDevice class]) {
-    [gDevices removeObjectForKey:@(udid).uppercaseString];
+    [gDevices removeObjectForKey:key];
   }
+  // A reboot or a restarted backboardd replaces the screen: views showing
+  // this device connect again instead of freezing on the old one.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    RestartViewsShowing(key);
+  });
 }
 
 void aven_sim_set_event_callback(AvenSimEventCallback callback, void *context) {
@@ -521,6 +661,7 @@ void aven_sim_set_event_callback(AvenSimEventCallback callback, void *context) {
 
 int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     if (!png || !png_len) {
       SetError(error, error_len, @"Nothing to copy");
       return 1;
@@ -533,6 +674,7 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
       return 1;
     }
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
@@ -550,6 +692,8 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 }
 @end
 
+@class AvenSimFrameSink;
+
 @interface AvenSimView : NSView
 @property(nonatomic, copy) NSString *viewId;
 @property(nonatomic, copy) NSString *udid;
@@ -559,6 +703,7 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic, strong) CAShapeLayer *maskLayer;
 @property(nonatomic, strong) NSView<AvenAgentMarker> *marker;
 @property(nonatomic, strong) NSUUID *callbackId;
+@property(nonatomic, strong) AvenSimFrameSink *sink;
 @property(nonatomic, strong) id<AvenSimDisplay> display;
 @property(nonatomic) AvenSimDisplayInfo info;
 @property(nonatomic) BOOL live;
@@ -574,13 +719,33 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic) CGPoint scrollStart;
 @property(nonatomic) CGPoint scrollPoint;
 @property(nonatomic, strong) NSTimer *scrollEnd;
+- (void)presentFrame;
+- (void)restartFrames;
 @end
 
 static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 
-@implementation AvenSimView {
-  _Atomic(BOOL) _framePending;
+// Receives damage callbacks on CoreSimulator's queue and posts at most one
+// main-thread update at a time. Only the main thread touches the view, so the
+// view is never retained, or released, on CoreSimulator's queue.
+@interface AvenSimFrameSink : NSObject
+@property(nonatomic, weak) AvenSimView *view;
+@end
+
+@implementation AvenSimFrameSink {
+  _Atomic(BOOL) _pending;
 }
+- (void)frameArrived {
+  BOOL expected = NO;
+  if (!atomic_compare_exchange_strong(&_pending, &expected, YES)) return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    atomic_store(&self->_pending, NO);
+    [self.view presentFrame];
+  });
+}
+@end
+
+@implementation AvenSimView
 
 - (instancetype)initWithFrame:(NSRect)frame {
   if (!(self = [super initWithFrame:frame])) return nil;
@@ -643,10 +808,31 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   return CGPointMake(p.x, p.y);
 }
 
+// The pane's input goes out asynchronously and in order on the device's
+// queue, so the main thread never waits for the simulator.
+- (AvenSimDevice *)record {
+  if (!self.udid) return nil;
+  NSString *message = nil;
+  @try {
+    return DeviceRecord(self.udid, &message);
+  } @catch (NSException *exception) {
+    return nil;
+  }
+}
+
 - (void)touch:(int)phase at:(CGPoint)point {
-  if (!self.udid) return;
-  char error[256] = {0};
-  aven_sim_touch(self.udid.UTF8String, phase, point.x, point.y, error, sizeof error);
+  AvenSimDisplayInfo info = self.info;
+  AvenSimDevice *record = [self record];
+  if (!record || !gMouse || info.width <= 0 || info.height <= 0) return;
+  CGPoint clamped = CGPointMake(fmin(fmax(point.x, 0), info.width), fmin(fmax(point.y, 0), info.height));
+  void *built = NULL;
+  @try {
+    built = gMouse(&clamped, NULL, kTouchTarget, (uint64_t)phase, CGSizeMake(info.width, info.height), 0);
+  } @catch (NSException *exception) {
+    built = NULL;
+  }
+  // A move SimulatorKit throttles (closer than 16 ms) builds nothing.
+  if (built) EnqueueInput(record, built, nil);
 }
 
 - (void)mouseDown:(NSEvent *)event {
@@ -718,11 +904,20 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   [self touch:2 at:[self devicePoint:self.scrollPoint inside:NULL]];
 }
 
+- (void)key:(uint32_t)usage down:(BOOL)down record:(AvenSimDevice *)record {
+  void *built = NULL;
+  @try {
+    built = gKey ? gKey(usage, down ? 1 : 2) : NULL;
+  } @catch (NSException *exception) {
+    built = NULL;
+  }
+  if (built) EnqueueInput(record, built, nil);
+}
+
 // Presses a key with its modifiers held, like a USB keyboard would.
 - (void)sendKey:(uint32_t)usage modifiers:(NSEventModifierFlags)flags {
-  if (!self.udid || !usage) return;
-  const char *udid = self.udid.UTF8String;
-  char error[256] = {0};
+  AvenSimDevice *record = [self record];
+  if (!record || !usage) return;
   const struct {
     NSEventModifierFlags flag;
     uint32_t usage;
@@ -732,11 +927,11 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
                    {NSEventModifierFlagCommand, 0xE3}};
   const size_t count = sizeof modifiers / sizeof modifiers[0];
   for (size_t i = 0; i < count; i++)
-    if (flags & modifiers[i].flag) aven_sim_key(udid, modifiers[i].usage, 1, error, sizeof error);
-  aven_sim_key(udid, usage, 1, error, sizeof error);
-  aven_sim_key(udid, usage, 2, error, sizeof error);
+    if (flags & modifiers[i].flag) [self key:modifiers[i].usage down:YES record:record];
+  [self key:usage down:YES record:record];
+  [self key:usage down:NO record:record];
   for (size_t i = count; i-- > 0;)
-    if (flags & modifiers[i].flag) aven_sim_key(udid, modifiers[i].usage, 2, error, sizeof error);
+    if (flags & modifiers[i].flag) [self key:modifiers[i].usage down:NO record:record];
 }
 
 // Keys travel by position with their modifiers, so iOS composes characters
@@ -793,87 +988,111 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 
 #pragma mark Frames
 
-- (void)frameArrived {
-  // Damage callbacks arrive per presented frame on CoreSimulator's queue;
-  // post at most one main-thread update at a time.
-  BOOL expected = NO;
-  if (!atomic_compare_exchange_strong(&_framePending, &expected, YES)) return;
-  __weak AvenSimView *weakSelf = self;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    AvenSimView *view = weakSelf;
-    if (!view) return;
-    atomic_store(&view->_framePending, NO);
-    if (!view.live) return;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    [view.screenLayer setContentsChanged];
-    [CATransaction commit];
-  });
+- (void)presentFrame {
+  if (!self.live) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  [self.screenLayer setContentsChanged];
+  [CATransaction commit];
 }
 
 - (void)stopFrames {
-  if (self.display && self.callbackId) {
+  id<AvenSimDisplay> display = self.display;
+  NSUUID *callbackId = self.callbackId;
+  if (display && callbackId) {
+    // Each one alone: a failure must not leave the others registered.
     @try {
-      [self.display unregisterDamageRectanglesCallbackWithUUID:self.callbackId];
-      [self.display unregisterIOSurfacesChangeCallbackWithUUID:self.callbackId];
-      [self.display unregisterScreenCallbacksWithUUID:self.callbackId];
+      [display unregisterDamageRectanglesCallbackWithUUID:callbackId];
+    } @catch (NSException *exception) {
+    }
+    @try {
+      [display unregisterIOSurfacesChangeCallbackWithUUID:callbackId];
+    } @catch (NSException *exception) {
+    }
+    @try {
+      [display unregisterScreenCallbacksWithUUID:callbackId];
     } @catch (NSException *exception) {
     }
   }
+  self.sink.view = nil;
+  self.sink = nil;
   self.callbackId = nil;
   self.display = nil;
   self.live = NO;
 }
 
+// Connects again to the device's current screen (after a reboot or a
+// restarted backboardd).
+- (void)restartFrames {
+  [self stopFrames];
+  [self startFrames];
+}
+
+- (void)reportNoScreen:(NSString *)message {
+  if (self.reportedScreen != 0) {
+    self.reportedScreen = 0;
+    Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @NO, @"error" : message ?: @"No screen"});
+  }
+  // The device may still be starting; try again shortly.
+  __weak AvenSimView *weakSelf = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 2)), dispatch_get_main_queue(), ^{
+    AvenSimView *view = weakSelf;
+    if (view && view.shown && !view.live) [view startFrames];
+  });
+}
+
 - (void)startFrames {
   if (self.live || !self.udid || !self.shown) return;
   NSString *message = nil;
-  AvenSimDevice *record = DeviceRecord(self.udid, &message);
-  id<AvenSimDisplay> display = record ? MainDisplay(record, &message) : nil;
-  AvenSimDisplayInfo info = {0};
-  if (!display || !DisplayInfo(display, &info)) {
-    if (self.reportedScreen != 0) {
-      self.reportedScreen = 0;
-      Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @NO, @"error" : message ?: @"No screen"});
+  @try {
+    AvenSimDevice *record = DeviceRecord(self.udid, &message);
+    id<AvenSimDisplay> display = record ? MainDisplay(record, &message) : nil;
+    AvenSimDisplayInfo info = {0};
+    if (!display || !DisplayInfo(display, &info)) {
+      [self reportNoScreen:message];
+      return;
     }
-    // The device may still be starting; try again shortly.
+    self.display = display;
+    self.info = info;
+    self.callbackId = [NSUUID UUID];
+    self.sink = [AvenSimFrameSink new];
+    self.sink.view = self;
+    self.live = YES;
+    AvenSimFrameSink *sink = self.sink;
+    [display registerCallbackWithUUID:self.callbackId
+             damageRectanglesCallback:^(NSArray *rects) {
+               [sink frameArrived];
+             }];
     __weak AvenSimView *weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 2)), dispatch_get_main_queue(), ^{
-      AvenSimView *view = weakSelf;
-      if (view && view.shown && !view.live) [view startFrames];
-    });
-    return;
+    [display registerCallbackWithUUID:self.callbackId
+             ioSurfacesChangeCallback:^(IOSurface *framebuffer, IOSurface *masked) {
+               dispatch_async(dispatch_get_main_queue(), ^{
+                 AvenSimView *view = weakSelf;
+                 if (!view || !view.live) return;
+                 // No framebuffer: the device stopped; wait for it again.
+                 if (framebuffer)
+                   [view refreshDisplay];
+                 else
+                   [view restartFrames];
+               });
+             }];
+    [display registerScreenCallbacksWithUUID:self.callbackId
+                               callbackQueue:dispatch_get_main_queue()
+                               frameCallback:^{
+                               }
+                     surfacesChangedCallback:^(IOSurface *framebuffer, IOSurface *masked) {
+                     }
+                   propertiesChangedCallback:^(id properties) {
+                     AvenSimView *view = weakSelf;
+                     if (view && view.live) [view refreshDisplay];
+                   }];
+    [self refreshDisplay];
+    self.reportedScreen = 1;
+    Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @YES});
+  } @catch (NSException *exception) {
+    [self stopFrames];
+    [self reportNoScreen:ExceptionText(exception)];
   }
-  self.display = display;
-  self.info = info;
-  self.callbackId = [NSUUID UUID];
-  self.live = YES;
-  __weak AvenSimView *weakSelf = self;
-  [display registerCallbackWithUUID:self.callbackId
-           damageRectanglesCallback:^(NSArray *rects) {
-             [weakSelf frameArrived];
-           }];
-  [display registerCallbackWithUUID:self.callbackId
-           ioSurfacesChangeCallback:^(IOSurface *framebuffer, IOSurface *masked) {
-             dispatch_async(dispatch_get_main_queue(), ^{
-               AvenSimView *view = weakSelf;
-               if (!view || !view.live || !framebuffer) return;
-               [view refreshDisplay];
-             });
-           }];
-  [display registerScreenCallbacksWithUUID:self.callbackId
-                             callbackQueue:dispatch_get_main_queue()
-                             frameCallback:^{
-                             }
-                   surfacesChangedCallback:^(IOSurface *framebuffer, IOSurface *masked) {
-                   }
-                 propertiesChangedCallback:^(id properties) {
-                   AvenSimView *view = weakSelf;
-                   if (view && view.live) [view refreshDisplay];
-                 }];
-  [self refreshDisplay];
-  self.reportedScreen = 1;
-  Emit(@{@"type" : @"screen", @"view" : self.viewId, @"ok" : @YES});
 }
 
 // Reads the screen's size, scale and orientation and places the layer.
@@ -881,10 +1100,17 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   if (!self.display) return;
   AvenSimDisplayInfo info = self.info;
   uint32_t previous = info.orientation;
-  if (DisplayInfo(self.display, &info)) self.info = info;
+  IOSurface *surface = nil;
+  @try {
+    if (DisplayInfo(self.display, &info)) self.info = info;
+    surface = [self.display framebufferSurface];
+  } @catch (NSException *exception) {
+    [self restartFrames];
+    return;
+  }
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
-  self.screenLayer.contents = [self.display framebufferSurface];
+  self.screenLayer.contents = surface;
   [CATransaction commit];
   [self placeScreen];
   if (previous != info.orientation)
@@ -938,7 +1164,10 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 }
 
 - (void)setDevice:(NSString *)udid {
-  if ((udid == self.udid) || [udid isEqualToString:self.udid]) return;
+  if ((udid == self.udid) || [udid isEqualToString:self.udid]) {
+    if (!self.live) [self startFrames];
+    return;
+  }
   [self stopFrames];
   [self.marker clear];
   self.udid = udid;
@@ -974,6 +1203,11 @@ static AvenSimView *ViewFor(const char *view_id) {
   return gViews[@(view_id)];
 }
 
+static void RestartViewsShowing(NSString *udid) {
+  for (AvenSimView *view in gViews.allValues)
+    if (view.shown && [view.udid caseInsensitiveCompare:udid] == NSOrderedSame) [view restartFrames];
+}
+
 // Keeps the view directly above the workspace webview's branch of the content
 // view and below the floating sidebar, which stays above every live page.
 static void PlaceInHierarchy(AvenSimView *view, NSView *parent, NSView *webview) {
@@ -1001,6 +1235,7 @@ static void PlaceInHierarchy(AvenSimView *view, NSView *parent, NSView *webview)
 
 int aven_sim_view_attach(const char *view_id, void *content_view, void *webview, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     NSView *parent = (__bridge NSView *)content_view;
     NSView *web = (__bridge NSView *)webview;
     if (!view_id || !parent || !web) {
@@ -1018,10 +1253,12 @@ int aven_sim_view_attach(const char *view_id, void *content_view, void *webview,
     parent.wantsLayer = YES;
     PlaceInHierarchy(view, parent, web);
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
 int aven_sim_view_set_device(const char *view_id, const char *udid, char *error, size_t error_len) {
+  AVEN_TRY
   AvenSimView *view = ViewFor(view_id);
   if (!view) {
     SetError(error, error_len, @"The iPhone pane is not attached");
@@ -1033,12 +1270,14 @@ int aven_sim_view_set_device(const char *view_id, const char *udid, char *error,
   }
   [view setDevice:udid ? @(udid) : nil];
   return 0;
+  AVEN_CATCH(1)
 }
 
 int aven_sim_view_layout(const char *view_id, double x, double y, double width, double height, int visible,
                          double viewport_height, double clip_left, double clip_right, const double *holes,
                          int hole_count, char *error, size_t error_len) {
   @autoreleasepool {
+    AVEN_TRY
     AvenSimView *view = ViewFor(view_id);
     if (!view || !view.superview) {
       SetError(error, error_len, @"The iPhone pane is not attached");
@@ -1077,12 +1316,14 @@ int aven_sim_view_layout(const char *view_id, double x, double y, double width, 
     }
     view.shown = visible && width >= 1 && height >= 1;
     return 0;
+    AVEN_CATCH(1)
   }
 }
 
 int aven_sim_view_marker(const char *view_id, double x, double y, const char *name, double red, double green,
                          double blue, int action) {
   @autoreleasepool {
+    @try {
     AvenSimView *view = ViewFor(view_id);
     if (!view || !view.shown || !view.live) return 1;
     if (!view.marker) {
@@ -1096,17 +1337,25 @@ int aven_sim_view_marker(const char *view_id, double x, double y, const char *na
     AvenSimPoint p = aven_ios_sim_device_to_view(view.bounds.size.width, view.bounds.size.height, info.width,
                                                  info.height, aven_ios_sim_quarter_turns(info.orientation), x, y);
     return [view.marker showAction:action at:NSMakePoint(p.x, p.y)] ? 0 : 1;
+    } @catch (NSException *exception) {
+      return 1;
+    }
   }
 }
 
 int aven_sim_view_focus(const char *view_id) {
-  AvenSimView *view = ViewFor(view_id);
-  if (!view || !view.shown || !view.udid || !view.window) return 1;
-  return [view.window makeFirstResponder:view] ? 0 : 1;
+  @try {
+    AvenSimView *view = ViewFor(view_id);
+    if (!view || !view.shown || !view.udid || !view.window) return 1;
+    return [view.window makeFirstResponder:view] ? 0 : 1;
+  } @catch (NSException *exception) {
+    return 1;
+  }
 }
 
 int aven_sim_view_debug_click(const char *view_id, double x, double y) {
   @autoreleasepool {
+    @try {
     AvenSimView *view = ViewFor(view_id);
     if (!view || !view.shown || !view.live || !view.window) return 1;
     AvenSimDisplayInfo info = view.info;
@@ -1133,12 +1382,16 @@ int aven_sim_view_debug_click(const char *view_id, double x, double y) {
       [view mouseUp:mouse(NSEventTypeLeftMouseUp)];
     });
     return 0;
+    } @catch (NSException *exception) {
+      return 1;
+    }
   }
 }
 
 int aven_sim_view_debug_key(const char *view_id, unsigned short key_code, const char *characters,
                             unsigned long modifiers) {
   @autoreleasepool {
+    @try {
     AvenSimView *view = ViewFor(view_id);
     if (!view || !view.shown || !view.udid || !view.window) return 1;
     NSString *text = characters ? @(characters) : @"";
@@ -1154,18 +1407,24 @@ int aven_sim_view_debug_key(const char *view_id, unsigned short key_code, const 
                                        keyCode:key_code];
     [view keyDown:event];
     return 0;
+    } @catch (NSException *exception) {
+      return 1;
+    }
   }
 }
 
 void aven_sim_view_detach(const char *view_id) {
   @autoreleasepool {
-    AvenSimView *view = ViewFor(view_id);
-    if (!view) return;
-    [gViews removeObjectForKey:view.viewId];
-    view.shown = NO;
-    [view setDevice:nil];
-    [view.marker clear];
-    if (view.window.firstResponder == view && view.webview) [view.window makeFirstResponder:view.webview];
-    [view removeFromSuperview];
+    @try {
+      AvenSimView *view = ViewFor(view_id);
+      if (!view) return;
+      [gViews removeObjectForKey:view.viewId];
+      view.shown = NO;
+      [view setDevice:nil];
+      [view.marker clear];
+      if (view.window.firstResponder == view && view.webview) [view.window makeFirstResponder:view.webview];
+      [view removeFromSuperview];
+    } @catch (NSException *exception) {
+    }
   }
 }

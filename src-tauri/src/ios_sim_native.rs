@@ -18,6 +18,13 @@ pub(crate) struct DisplayInfo {
 type EventCallback = unsafe extern "C" fn(json: *const c_char, context: *mut c_void);
 
 extern "C" {
+    fn aven_sim_framework_versions(
+        developer_dir: *const c_char,
+        core: *mut c_char,
+        core_len: usize,
+        kit: *mut c_char,
+        kit_len: usize,
+    ) -> i32;
     fn aven_sim_probe(developer_dir: *const c_char, error: *mut c_char, error_len: usize) -> i32;
     fn aven_sim_display_info(
         udid: *const c_char,
@@ -139,6 +146,32 @@ fn call(
     } else {
         message
     })
+}
+
+/// The CFBundleVersion of CoreSimulator and of this Xcode's SimulatorKit,
+/// read without loading either.
+pub(crate) fn framework_versions(developer_dir: &str) -> Option<(String, String)> {
+    let dir = c(developer_dir).ok()?;
+    let mut core = vec![0 as c_char; 64];
+    let mut kit = vec![0 as c_char; 64];
+    let code = unsafe {
+        aven_sim_framework_versions(
+            dir.as_ptr(),
+            core.as_mut_ptr(),
+            core.len(),
+            kit.as_mut_ptr(),
+            kit.len(),
+        )
+    };
+    if code != 0 {
+        return None;
+    }
+    let read = |buffer: &[c_char]| {
+        unsafe { CStr::from_ptr(buffer.as_ptr()) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    Some((read(&core), read(&kit)))
 }
 
 /// Loads Xcode's simulator frameworks and checks the private interfaces.

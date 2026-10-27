@@ -16,6 +16,10 @@
 extern "C" {
 #endif
 
+// The CFBundleVersion of CoreSimulator and of `developer_dir`'s SimulatorKit,
+// read from their Info.plist files without loading them. 0 when both exist.
+int aven_sim_framework_versions(const char *developer_dir, char *core, size_t core_len, char *kit, size_t kit_len);
+
 // Loads the frameworks for `developer_dir` (Xcode's Contents/Developer) and
 // checks the private interfaces. 0 when the live screen and input can be used.
 int aven_sim_probe(const char *developer_dir, char *error, size_t error_len);

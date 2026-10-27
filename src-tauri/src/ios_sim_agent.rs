@@ -138,6 +138,50 @@ impl Request {
     }
 }
 
+/// Replies must fit the scoped connection's limit (300 KB) with room to spare.
+pub(crate) const MAX_TEXT_BYTES: usize = 200 * 1024;
+/// A single console line longer than this is cut.
+const MAX_LINE_BYTES: usize = 2000;
+
+fn cut(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// The newest console lines that fit in `max_bytes`, oldest first, each cut
+/// to a sane length.
+pub(crate) fn cap_lines(lines: &[String], max_bytes: usize) -> (Vec<String>, bool) {
+    let mut kept = Vec::new();
+    let mut used = 0;
+    for line in lines.iter().rev() {
+        let line = cut(line, MAX_LINE_BYTES);
+        if used + line.len() + 1 > max_bytes {
+            kept.reverse();
+            return (kept, true);
+        }
+        used += line.len() + 1;
+        kept.push(line.to_owned());
+    }
+    kept.reverse();
+    (kept, false)
+}
+
+/// Text cut to `max_bytes` at a line boundary when it is longer.
+pub(crate) fn cap_text(text: &str, max_bytes: usize) -> (String, bool) {
+    if text.len() <= max_bytes {
+        return (text.to_owned(), false);
+    }
+    let head = cut(text, max_bytes);
+    let end = head.rfind('\n').unwrap_or(head.len());
+    (head[..end].to_owned(), true)
+}
+
 /// Picks the device a request is for among the ones this chat may use.
 pub(crate) fn resolve_udid(
     requested: Option<&str>,
@@ -152,11 +196,14 @@ pub(crate) fn resolve_udid(
             Err("That simulator is not one this chat's iPhone pane uses. Use a udid from the list action.".into())
         };
     }
-    if let Some(device) = pane_device
-        .map(str::to_uppercase)
-        .filter(|d| allowed.contains(d))
-    {
-        return Ok(device);
+    // The device on screen in the pane decides; never another one in its
+    // place, even when it is the only one in scope.
+    if let Some(device) = pane_device.map(str::to_uppercase) {
+        return if allowed.contains(&device) {
+            Ok(device)
+        } else {
+            Err("The iPhone pane shows a simulator this chat may not use; pass udid from the list action.".into())
+        };
     }
     match allowed.len() {
         0 => Err(
@@ -181,7 +228,8 @@ optional when the pane uses one simulator.
 
 Actions:
   {"action":"list"}                      devices, screen size, orientation, the app's run status
-  {"action":"snapshot"}                  the foreground app's accessibility tree with frames
+  {"action":"snapshot"}                  accessibility tree with frames: the project's app when it is
+                                         in front, otherwise the home screen; also the screen size
   {"action":"screenshot","label":"after"}  JPEG at point size: {path,width,height,markdown}
   {"action":"tap","x":201,"y":420}
   {"action":"swipe","x1":200,"y1":700,"x2":200,"y2":250,"durationMs":300}
@@ -246,7 +294,8 @@ mod macos {
         }
         if let Request::Logs { lines } = request {
             let lines = ios_sim::recent_logs(project, lines.unwrap_or(200) as usize);
-            return Ok(json!({ "lines": lines, "status": status.message }));
+            let (lines, truncated) = super::cap_lines(&lines, super::MAX_TEXT_BYTES);
+            return Ok(json!({ "lines": lines, "truncated": truncated, "status": status.message }));
         }
         let pane = ios_sim::pane_device(project).or_else(|| status.udid.clone());
         let udid = resolve_udid(request.udid(), &allowed, pane.as_deref())?;
@@ -262,11 +311,18 @@ mod macos {
                 let snapshot = agent.request(
                     json!({ "action": "snapshot", "maxNodes": max_nodes.unwrap_or(400) }),
                 )?;
+                let (outline, cut) = super::cap_text(
+                    &crate::ios_sim_xcuitest::outline(&snapshot),
+                    super::MAX_TEXT_BYTES,
+                );
+                let truncated =
+                    cut || snapshot.get("truncated").and_then(Value::as_bool) == Some(true);
                 Ok(json!({
                     "udid": udid,
-                    "app": status.bundle_id,
-                    "outline": crate::ios_sim_xcuitest::outline(&snapshot),
-                    "truncated": snapshot.get("truncated").cloned().unwrap_or(Value::Bool(false)),
+                    "app": snapshot.get("app").cloned().unwrap_or(Value::Null),
+                    "screen": snapshot.get("screen").cloned().unwrap_or(Value::Null),
+                    "outline": outline,
+                    "truncated": truncated,
                 }))
             }
             Request::Tap { x, y, .. } => {
@@ -358,10 +414,16 @@ mod macos {
                     "name": d.name,
                     "runtime": d.runtime,
                     "booted": d.booted,
-                    "screen": screen.map(|s| {
-                        let (w, h) = s.size();
-                        json!({ "width": w, "height": h, "scale": s.info.scale })
-                    }),
+                    // Basic mode knows the size once the agent server said it.
+                    "screen": screen
+                        .map(|s| {
+                            let (w, h) = s.size();
+                            json!({ "width": w, "height": h, "scale": s.info.scale })
+                        })
+                        .or_else(|| {
+                            crate::ios_sim_xcuitest::screen_points(&d.udid)
+                                .map(|(w, h)| json!({ "width": w, "height": h }))
+                        }),
                     // Named as the rotate action takes them (device
                     // orientation; UIKit's interface orientation is mirrored).
                     "orientation": screen.map(|s| match s.info.orientation {
@@ -528,9 +590,31 @@ mod tests {
         assert!(resolve_udid(Some(B), &one, None).is_err());
         assert!(resolve_udid(None, &two, None).is_err());
         assert_eq!(resolve_udid(None, &two, Some(B)).unwrap(), B);
-        // The pane's device counts only when it is in scope.
-        assert_eq!(resolve_udid(None, &one, Some(B)).unwrap(), A);
+        // The pane's device decides; one out of scope is refused rather than
+        // replaced by the only device in scope.
+        assert!(resolve_udid(None, &one, Some(B)).is_err());
         assert!(resolve_udid(None, &BTreeSet::new(), None).is_err());
+    }
+
+    #[test]
+    fn caps_console_lines_and_outlines_by_bytes() {
+        let lines: Vec<String> = (0..10_000)
+            .map(|i| format!("line {i} {}", "x".repeat(90)))
+            .collect();
+        let (kept, truncated) = cap_lines(&lines, MAX_TEXT_BYTES);
+        assert!(truncated);
+        assert!(kept.iter().map(|l| l.len() + 1).sum::<usize>() <= MAX_TEXT_BYTES);
+        assert_eq!(kept.last(), lines.last());
+        let huge = vec!["é".repeat(5000)];
+        let (kept, truncated) = cap_lines(&huge, MAX_TEXT_BYTES);
+        assert!(!truncated);
+        assert!(kept[0].len() <= 2000);
+        let (short, cut) = cap_lines(&["a".into(), "b".into()], MAX_TEXT_BYTES);
+        assert_eq!((short, cut), (vec!["a".to_owned(), "b".to_owned()], false));
+        let outline = "Button \"Tap\" @1,2 3x4\n".repeat(20_000);
+        let (capped, cut) = cap_text(&outline, MAX_TEXT_BYTES);
+        assert!(cut && capped.len() <= MAX_TEXT_BYTES && !capped.ends_with('\n'));
+        assert!(capped.ends_with("3x4"));
     }
 
     #[test]

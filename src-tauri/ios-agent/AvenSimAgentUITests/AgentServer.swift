@@ -6,31 +6,35 @@ import Network
 /// accessibility snapshots, and for input when its native path is
 /// unavailable. Every request carries the token Aven passed at launch.
 ///
-/// Requests: {"action":"activate","bundleId":..} {"action":"snapshot"}
+/// Requests: {"action":"activate","bundleId":..} {"action":"snapshot"} {"action":"screen"}
 ///           {"action":"tap","x":..,"y":..} {"action":"swipe","x1":..,"y1":..,"x2":..,"y2":..}
 ///           {"action":"type","text":..} {"action":"press","button":"home"}
 ///           {"action":"orientation","value":"landscapeLeft"} {"action":"quit"}
-/// Points are the screen's upright points, from its top-left corner.
+/// Points are the screen's upright points, from its top-left corner, whatever
+/// app is in front. The server listens on a port the system picks and prints
+/// it once listening: `AVEN_AGENT_READY port=<n>`.
 final class AgentServer: XCTestCase {
+    /// The project's app; the home screen when it is not in front.
     var app = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    var token = ""
+    var appBundle = "com.apple.springboard"
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    var token: [UInt8] = []
+    /// Requests waiting for the main loop; more are refused.
+    let maxQueued = 64
 
     func testServe() throws {
         let env = ProcessInfo.processInfo.environment
-        guard let raw = UInt16(env["AVEN_AGENT_PORT"] ?? ""), let port = NWEndpoint.Port(rawValue: raw) else {
-            XCTFail("AVEN_AGENT_PORT is missing")
-            return
-        }
-        token = env["AVEN_AGENT_TOKEN"] ?? ""
-        if token.isEmpty {
+        token = Array((env["AVEN_AGENT_TOKEN"] ?? "").utf8)
+        if token.count < 32 {
             XCTFail("AVEN_AGENT_TOKEN is missing")
             return
         }
         if let bundle = env["AVEN_AGENT_BUNDLE_ID"], !bundle.isEmpty {
             app = XCUIApplication(bundleIdentifier: bundle)
+            appBundle = bundle
         }
         let params = NWParameters.tcp
-        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         let listener = try NWListener(using: params)
         var quit = false
         // XCTest is not thread safe: the network side only queues lines and
@@ -49,15 +53,33 @@ final class AgentServer: XCTestCase {
                     while let newline = pending.firstIndex(of: 0x0a) {
                         let line = String(decoding: pending[pending.startIndex..<newline], as: UTF8.self)
                         pending = Data(pending[pending.index(after: newline)...])
-                        lock.lock(); queue.append((line, connection)); lock.unlock()
+                        lock.lock()
+                        let full = queue.count >= self.maxQueued
+                        if !full { queue.append((line, connection)) }
+                        lock.unlock()
+                        if full {
+                            connection.cancel()
+                            return
+                        }
                     }
                     if !done && error == nil { receive(pending) }
                 }
             }
             receive(Data())
         }
+        // Announce the port only once the listener really holds it.
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                if let port = listener.port { print("AVEN_AGENT_READY port=\(port.rawValue)") }
+            case .failed(let error):
+                // Aven stops waiting for the ready line and ends this run.
+                print("AVEN_AGENT_FAILED \(error)")
+            default:
+                break
+            }
+        }
         listener.start(queue: .global())
-        print("AVEN_AGENT_READY port=\(port.rawValue)")
         while !quit {
             lock.lock(); let batch = queue; queue.removeAll(); lock.unlock()
             for (line, connection) in batch {
@@ -84,7 +106,7 @@ final class AgentServer: XCTestCase {
     private func handle(_ line: String, _ quit: inout Bool) throws -> [String: Any] {
         guard let request = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
               let action = request["action"] as? String else { throw failure("Malformed request") }
-        guard (request["token"] as? String) == token else { throw failure("Not allowed") }
+        guard sameToken(request["token"] as? String) else { throw failure("Not allowed") }
         func number(_ key: String) throws -> Double {
             guard let value = (request[key] as? NSNumber)?.doubleValue, value.isFinite else {
                 throw failure("\(key) is required")
@@ -92,19 +114,24 @@ final class AgentServer: XCTestCase {
             return value
         }
         func point(_ kx: String, _ ky: String) throws -> XCUICoordinate {
-            let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            // The home screen spans the screen: its corner is the screen's.
+            let origin = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
             return origin.withOffset(CGVector(dx: try number(kx), dy: try number(ky)))
         }
         switch action {
         case "activate":
             let bundle = request["bundleId"] as? String ?? "com.apple.springboard"
             app = XCUIApplication(bundleIdentifier: bundle)
+            appBundle = bundle
         case "tap":
             try point("x", "y").tap()
         case "swipe":
             try point("x1", "y1").press(forDuration: 0.05, thenDragTo: try point("x2", "y2"))
         case "type":
-            app.typeText(request["text"] as? String ?? "")
+            foreground().typeText(request["text"] as? String ?? "")
+        case "screen":
+            let size = springboard.frame.size
+            return ["screen": [Double(size.width), Double(size.height)]]
         case "press":
             guard request["button"] as? String == "home" else { throw failure("Only the home button is available") }
             XCUIDevice.shared.press(.home)
@@ -125,9 +152,25 @@ final class AgentServer: XCTestCase {
         return [:]
     }
 
-    /// The foreground app's accessibility tree, depth first.
+    /// The project's app when it is in front, otherwise the home screen.
+    private func foreground() -> XCUIApplication {
+        appBundle != "com.apple.springboard" && app.state == .runningForeground ? app : springboard
+    }
+
+    private func sameToken(_ given: String?) -> Bool {
+        let bytes = Array((given ?? "").utf8)
+        var difference = UInt8(bytes.count == token.count ? 0 : 1)
+        for index in 0..<token.count {
+            difference |= token[index] ^ (index < bytes.count ? bytes[index] : 0)
+        }
+        return difference == 0
+    }
+
+    /// The front app's accessibility tree, depth first.
     private func snapshot(limit: Int) throws -> [String: Any] {
-        let root = try app.snapshot()
+        let front = foreground()
+        let frontBundle = front === springboard ? "com.apple.springboard" : appBundle
+        let root = try front.snapshot()
         var nodes: [[String: Any]] = []
         var truncated = false
         func walk(_ element: XCUIElementSnapshot, _ depth: Int) {
@@ -150,7 +193,9 @@ final class AgentServer: XCTestCase {
             for child in element.children { walk(child, depth + 1) }
         }
         walk(root, 0)
-        return ["nodes": nodes, "truncated": truncated]
+        let size = springboard.frame.size
+        return ["nodes": nodes, "truncated": truncated, "app": frontBundle,
+                "screen": [Double(size.width), Double(size.height)]]
     }
 
     private func typeName(_ type: XCUIElement.ElementType) -> String {

@@ -70,8 +70,13 @@ describe("iPhone pane choices", () => {
     const all = [PHONE, MAX, PAD];
     expect(pickDevice(all, "bbbb", "AAAA")).toBe(MAX);
     expect(pickDevice(all, "gone", "CCCC")).toBe(PAD);
-    expect(pickDevice(all, undefined, null)).toBe(PHONE);
     expect(pickDevice([], "AAAA", "AAAA")).toBeNull();
+  });
+
+  it("never opens on a device nobody chose: no suggestion means no device", () => {
+    // The running iPhone 18 Pro is someone else's; Aven suggested nothing.
+    expect(pickDevice([PHONE, MAX, PAD], undefined, null)).toBeNull();
+    expect(pickDevice([PHONE], "gone", null)).toBeNull();
   });
 
   it("keeps the remembered scheme while the project has it", () => {
@@ -162,24 +167,33 @@ describe("iPhone pane status", () => {
 });
 
 describe("basic mode clicks", () => {
-  // A 1206 × 2622 px @3x screenshot drawn aspect-fit in a 600 × 600 box.
+  // A 1206 × 2622 px screenshot drawn aspect-fit in a 600 × 600 box.
   const image = { width: 1206, height: 2622 };
   const box = { width: 600, height: 600 };
   const fit = 600 / 2622;
   const left = (600 - 1206 * fit) / 2;
 
-  it("maps a click through the letterbox to screen points", () => {
-    const centre = basicPoint(box, image, 3, 300, 300)!;
-    expect(centre.x).toBeCloseTo(201);
-    expect(centre.y).toBeCloseTo(437);
-    const corner = basicPoint(box, image, 3, left, 0)!;
-    expect(corner.x).toBeCloseTo(0);
-    expect(corner.y).toBeCloseTo(0);
+  it("maps a click through the letterbox to fractions of the screen", () => {
+    const centre = basicPoint(box, image, 300, 300)!;
+    expect(centre.fx).toBeCloseTo(0.5);
+    expect(centre.fy).toBeCloseTo(0.5);
+    const corner = basicPoint(box, image, left, 0)!;
+    expect(corner.fx).toBeCloseTo(0);
+    expect(corner.fy).toBeCloseTo(0);
+    // An @2x iPad's picture maps the same way: no scale is assumed.
+    const pad = basicPoint(
+      { width: 1032, height: 1376 },
+      { width: 2064, height: 2752 },
+      516,
+      344,
+    )!;
+    expect(pad.fx).toBeCloseTo(0.5);
+    expect(pad.fy).toBeCloseTo(0.25);
   });
 
   it("ignores clicks in the letterbox and empty pictures", () => {
-    expect(basicPoint(box, image, 3, left - 2, 300)).toBeNull();
-    expect(basicPoint(box, { width: 0, height: 0 }, 3, 1, 1)).toBeNull();
-    expect(basicPoint({ width: 0, height: 0 }, image, 3, 1, 1)).toBeNull();
+    expect(basicPoint(box, image, left - 2, 300)).toBeNull();
+    expect(basicPoint(box, { width: 0, height: 0 }, 1, 1)).toBeNull();
+    expect(basicPoint({ width: 0, height: 0 }, image, 1, 1)).toBeNull();
   });
 });

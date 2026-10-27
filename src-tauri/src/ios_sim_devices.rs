@@ -101,8 +101,10 @@ pub(crate) fn parse_device_list(text: &str) -> Result<Vec<SimDeviceInfo>, String
     Ok(indexed.into_iter().map(|(_, device)| device).collect())
 }
 
-/// A simulator UDID is a UUID. Anything else (a real device's identifier,
-/// `booted`, a name) is refused before it reaches a tool.
+/// Shaped like a simulator's UDID (a UUID). Anything else (a real device's
+/// ECID-style identifier, `booted`, a name) is refused before it reaches a
+/// tool. CoreDevice also gives real devices UUIDs, so a UUID is a simulator
+/// only once `simctl list` names it (`known_simulator`).
 pub(crate) fn valid_udid(udid: &str) -> bool {
     let parts: Vec<&str> = udid.split('-').collect();
     parts.len() == 5
@@ -112,14 +114,38 @@ pub(crate) fn valid_udid(udid: &str) -> bool {
             .all(|(len, part)| part.len() == *len && part.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// The pane's choice when nothing is remembered: a booted iPhone, else the
-/// newest iPhone, else whatever is first.
-pub(crate) fn default_device(devices: &[SimDeviceInfo]) -> Option<&SimDeviceInfo> {
+/// A UUID that `simctl list` names: a simulator, never a real device (whose
+/// CoreDevice identifier is also a UUID). Returns its canonical form.
+pub(crate) fn known_simulator(udid: &str, devices: &[SimDeviceInfo]) -> Option<String> {
+    if !valid_udid(udid) {
+        return None;
+    }
     devices
         .iter()
-        .find(|d| d.booted && d.family == DeviceFamily::Iphone)
-        .or_else(|| devices.iter().find(|d| d.family == DeviceFamily::Iphone))
-        .or_else(|| devices.first())
+        .find(|d| d.udid.eq_ignore_ascii_case(udid))
+        .map(|d| d.udid.to_uppercase())
+}
+
+/// The pane's choice when nothing is remembered. It never takes over a
+/// simulator that is already running unless Aven started it (`aven_booted`,
+/// upper-case UDIDs): first one of those, else the newest iPhone that is shut
+/// down, else any shut-down device; otherwise nothing, and the person picks.
+pub(crate) fn default_device<'a>(
+    devices: &'a [SimDeviceInfo],
+    aven_booted: &std::collections::BTreeSet<String>,
+) -> Option<&'a SimDeviceInfo> {
+    let ours = |d: &&SimDeviceInfo| d.booted && aven_booted.contains(&d.udid.to_uppercase());
+    devices
+        .iter()
+        .filter(ours)
+        .find(|d| d.family == DeviceFamily::Iphone)
+        .or_else(|| devices.iter().find(ours))
+        .or_else(|| {
+            devices
+                .iter()
+                .find(|d| !d.booted && d.family == DeviceFamily::Iphone)
+        })
+        .or_else(|| devices.iter().find(|d| !d.booted))
 }
 
 #[cfg(test)]
@@ -169,16 +195,52 @@ mod tests {
         );
         assert!(devices[0].booted);
         assert_eq!(devices[2].family, DeviceFamily::Ipad);
-        assert_eq!(default_device(&devices).unwrap().name, "iPhone 18 Pro");
+        // The running iPhone 18 Pro is someone else's: never taken over.
+        let none = std::collections::BTreeSet::new();
+        assert_eq!(
+            default_device(&devices, &none).unwrap().name,
+            "iPhone 18 Pro Max"
+        );
     }
 
     #[test]
-    fn defaults_to_an_iphone_when_none_is_booted() {
+    fn suggests_a_running_device_only_when_aven_started_it() {
+        let devices = parse_device_list(LIST).unwrap();
+        let ours: std::collections::BTreeSet<String> =
+            ["E5B294CF-EC79-4FE6-B919-D3175705B784".to_owned()].into();
+        assert_eq!(
+            default_device(&devices, &ours).unwrap().name,
+            "iPhone 18 Pro"
+        );
+    }
+
+    #[test]
+    fn defaults_to_a_shut_down_iphone_and_otherwise_to_nothing() {
+        let none = std::collections::BTreeSet::new();
         let mut devices = parse_device_list(LIST).unwrap();
         devices.iter_mut().for_each(|d| d.booted = false);
         devices.rotate_left(2);
-        assert_eq!(default_device(&devices).unwrap().name, "iPhone 17");
-        assert!(default_device(&[]).is_none());
+        assert_eq!(default_device(&devices, &none).unwrap().name, "iPhone 17");
+        assert!(default_device(&[], &none).is_none());
+        // Everything is running and none of it is Aven's: the person picks.
+        devices.iter_mut().for_each(|d| d.booted = true);
+        assert!(default_device(&devices, &none).is_none());
+    }
+
+    #[test]
+    fn only_listed_simulators_count_as_known() {
+        let devices = parse_device_list(LIST).unwrap();
+        assert_eq!(
+            known_simulator("e5b294cf-ec79-4fe6-b919-d3175705b784", &devices).as_deref(),
+            Some("E5B294CF-EC79-4FE6-B919-D3175705B784")
+        );
+        // A real device's CoreDevice identifier is UUID-shaped too.
+        assert!(valid_udid("6D1B1E5A-2F44-4C1B-9E5A-0E4D1C2B3A49"));
+        assert_eq!(
+            known_simulator("6D1B1E5A-2F44-4C1B-9E5A-0E4D1C2B3A49", &devices),
+            None
+        );
+        assert_eq!(known_simulator("00008120-001A2B3C4D5E6F70", &devices), None);
     }
 
     #[test]

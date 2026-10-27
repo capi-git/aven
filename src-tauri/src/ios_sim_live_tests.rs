@@ -139,7 +139,10 @@ fn ios_sim_live_round_trip() {
     let project = project.to_string_lossy().into_owned();
 
     let started = Instant::now();
-    ensure_device(&project, &udid, None).unwrap();
+    assert_eq!(
+        ensure_device(&project, &udid, None, false).unwrap(),
+        Readiness::Ready
+    );
     eprintln!("boot + input fix: {:.1} s", started.elapsed().as_secs_f64());
     assert!(scoped_devices(&project).contains(&udid.to_uppercase()));
     assert_eq!(
@@ -325,17 +328,43 @@ fn ios_sim_live_round_trip() {
         matches!(native::display_info(&udid).map(|i| i.orientation), Ok(1))
     });
 
-    // Home leaves the app.
+    // Home leaves the app: the agent then reads and taps the home screen, in
+    // screen points, with the project's app not in front.
     press_button(&udid, native::Button::Home).unwrap();
     std::thread::sleep(Duration::from_secs(2));
-    let home = crate::ios_sim_xcuitest::connect(&udid, None)
-        .unwrap()
-        .request(json!({ "action": "snapshot" }))
-        .unwrap();
-    assert!(
-        crate::ios_sim_xcuitest::outline(&home).contains("SpikeApp"),
-        "the home screen shows the app's icon"
+    let mut agent = crate::ios_sim_xcuitest::connect(&udid, Some(&bundle)).unwrap();
+    assert_eq!(agent.screen().unwrap(), (info.width, info.height));
+    assert_eq!(
+        crate::ios_sim_xcuitest::screen_points(&udid),
+        Some((info.width, info.height))
     );
+    let home = agent.request(json!({ "action": "snapshot" })).unwrap();
+    assert_eq!(
+        home["app"], "com.apple.springboard",
+        "the home screen is in front"
+    );
+    let icon = home["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["label"] == "SpikeApp")
+        .expect("the home screen shows the app's icon")
+        .clone();
+    let (x, y) = centre(&icon);
+    agent
+        .request(json!({ "action": "tap", "x": x, "y": y }))
+        .unwrap();
+    wait_for(
+        "the app to come back in front",
+        Duration::from_secs(15),
+        || {
+            crate::ios_sim_xcuitest::connect(&udid, Some(&bundle))
+                .and_then(|mut a| a.request(json!({ "action": "snapshot" })))
+                .is_ok_and(|s| s["app"] == bundle.as_str())
+        },
+    );
+    // A pick that is not a listed simulator never reaches devicectl.
+    assert!(set_orientation("6D1B1E5A-2F44-4C1B-9E5A-0E4D1C2B3A49", "portrait").is_err());
 
     stop(&project);
     assert_eq!(status_of(&project).phase, Phase::Stopped);

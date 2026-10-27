@@ -144,9 +144,12 @@ describe("the iPhone pane", () => {
     expect(pane.querySelectorAll(".ios-sim-chip")).toHaveLength(1);
     expect(pane.querySelector(".ios-sim-run")?.textContent).toBe("Run");
     expect(pane.textContent).toContain("Basic mode");
+    // Suggested, not picked: Aven may boot it but never restarts the home
+    // screen of one someone else is running.
     expect(host.invoke).toHaveBeenCalledWith("ios_sim_use_device", {
       project: "/work/pom",
       udid: "AAAA",
+      picked: false,
     });
   });
 });
