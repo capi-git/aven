@@ -18,6 +18,7 @@ import { LAYER } from "../lib/layers";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { settingSearchAnchor as settingAnchor } from "../lib/settingsSearch";
 export { settingSearchAnchor as settingAnchor } from "../lib/settingsSearch";
+import "../chrome/Menu.css";
 import "./SettingsControls.css";
 
 const RowDescription = createContext<string | undefined>(undefined);
@@ -494,7 +495,7 @@ export function Select({
               role="listbox"
               aria-label={label}
               aria-describedby={descriptionId}
-              className="settings-select-options"
+              className="aven-menu"
             >
               {options.map((option, index) => (
                 <button
@@ -506,23 +507,25 @@ export function Select({
                   aria-selected={option.value === value}
                   disabled={option.disabled}
                   data-active={option.value === activeValue || undefined}
-                  className="toolbar-panel-row settings-select-option"
+                  className={`aven-menu-item${option.description ? " aven-menu-item-rich" : ""}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseEnter={() => {
                     if (!option.disabled) setActive(option.value);
                   }}
                   onClick={() => choose(option.value)}
                 >
-                  <span className="settings-select-option-copy">
-                    <span>{option.label}</span>
-                    {option.description ? (
-                      <small className="toolbar-panel-secondary">
+                  {option.description ? (
+                    <span className="aven-menu-text">
+                      <span>{option.label}</span>
+                      <small className="aven-menu-description">
                         {option.description}
                       </small>
-                    ) : null}
-                  </span>
+                    </span>
+                  ) : (
+                    <span className="aven-menu-label">{option.label}</span>
+                  )}
                   {option.value === value ? (
-                    <Check aria-hidden="true" size={14} />
+                    <Check aria-hidden="true" className="aven-menu-check" />
                   ) : null}
                 </button>
               ))}

@@ -645,11 +645,10 @@ const findTheme = EditorView.theme(
       alignItems: "stretch",
       gap: "4px",
       padding: "6px",
-      border:
-        "1px solid color-mix(in srgb, var(--color-content) 12%, transparent)",
-      borderRadius: "10px",
-      backgroundColor: "var(--color-background-base)",
-      boxShadow: "0 10px 28px hsl(0 0% 0% / 0.28)",
+      border: "1px solid var(--aven-glass-overlay-edge)",
+      borderRadius: "var(--aven-radius-overlay)",
+      backgroundColor: "var(--aven-popup)",
+      boxShadow: "var(--aven-specular), var(--aven-shadow)",
       color: "var(--color-content)",
     },
     ".cm-find-expand, .cm-find-step, .cm-find-close, .cm-find-toggle, .cm-find-text":

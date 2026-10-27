@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -75,7 +76,7 @@ describe("the pro look's shapes", () => {
       );
     expect(
       rule("src/surfaces/SettingsControls.css", ".settings-group-scope"),
-    ).toContain("border-radius: 999px;");
+    ).toContain("border-radius: var(--aven-radius-capsule);");
   });
 
   it("draws every segmented control on the track and thumb corners", () => {
@@ -146,12 +147,11 @@ describe("the pro look's shapes", () => {
     expect(
       rule("src/chrome/SettingsRail.css", ".settings-nav__item"),
     ).toContain("min-height: 28px;");
-    expect(
-      rule(
-        "src/chrome/WorkspaceMenuPanel.css",
-        ".workspace-menu-panel-compact .workspace-menu-panel-item",
-      ),
-    ).toContain("min-height: 26px;");
+    // Every menu's rows (Menu.css): 26px.
+    expect(rule("src/chrome/Menu.css", ".aven-menu-item")).toContain(
+      "min-height: var(--aven-menu-row);",
+    );
+    expect(theme).toContain("--aven-menu-row: 26px;");
     // File tree and Changes rows: 26px.
     expect(read("src/chrome/FileTree.tsx")).toContain(
       "flex h-6.5 w-full cursor-default items-center",
@@ -172,10 +172,7 @@ describe("the pro look's shapes", () => {
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
       ["src/chrome/Composer.css", ".composer-recent-skill"],
-      [
-        "src/chrome/WorkspaceMenuPanel.css",
-        ".workspace-menu-panel-search-field",
-      ],
+      ["src/chrome/Menu.css", ".aven-menu-search"],
       ["src/chrome/WorkspaceThemePopover.css", ".workspace-theme-schemes"],
       ["src/surfaces/ScheduledInbox.css", ".scheduled-days"],
       [
@@ -246,8 +243,17 @@ describe("the pro look's shapes", () => {
   });
 
   it("gives Tailwind fields and buttons the shared tokens and contrast edge", () => {
-    const field =
-      "border border-(color:--aven-control-edge) bg-(--aven-field-bg)";
+    // Fields share one class: the field fill, the control corner, the
+    // Increase contrast edge and the shared focus ring.
+    const field = rule("src/macos-theme.css", ".aven-field");
+    expect(field).toContain(
+      "border: 1px solid var(--aven-control-edge, transparent);",
+    );
+    expect(field).toContain("border-radius: var(--aven-radius-sm);");
+    expect(field).toContain("background: var(--aven-field-bg);");
+    expect(theme).toMatch(
+      /\.aven-field:focus-visible,[^{]*\{\s*outline: 2px solid var\(--aven-field-focus\);/,
+    );
     const button =
       "border border-(color:--aven-control-edge) bg-(--aven-control-bg)";
     for (const file of [
@@ -256,8 +262,14 @@ describe("the pro look's shapes", () => {
       "src/chrome/ColorPickerPopover.tsx",
       "src/chrome/ProjectCustomizePopover.tsx",
       "src/chrome/PersonalWorkspaceSwitcher.tsx",
+      "src/chrome/ProjectMemoryDialog.tsx",
+      "src/chrome/AddSkillDialog.tsx",
+      "src/chrome/SwitchBranchDialog.tsx",
+      "src/chrome/RememberButton.tsx",
+      "src/chrome/SkillPicker.tsx",
+      "src/surfaces/DiffCommentComposer.tsx",
     ])
-      expect(read(file)).toContain(field);
+      expect(read(file)).toMatch(/className="aven-field[ "]/);
     for (const file of [
       "src/surfaces/RaceView.tsx",
       "src/chrome/CommandPalette.tsx",
@@ -311,6 +323,30 @@ describe("the pro look's shapes", () => {
     expect(rule("src/chrome/TeamCard.css", ".team-card")).toContain(
       "border: 1px solid var(--aven-glass-card-edge",
     );
+  });
+
+  it("writes capsules with the token, and no corner fallback that disagrees with it", () => {
+    const files = execFileSync("git", ["ls-files", "src/*.css"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    const literal: string[] = [];
+    const disagree: string[] = [];
+    for (const file of files) {
+      const css = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [declaration] of css.matchAll(/radius:\s*(?:999|99)px/g))
+        literal.push(`${file}: ${declaration}`);
+      for (const [, name, fallback] of css.matchAll(
+        /var\((--aven-radius-[a-z]+), (\d+px)\)/g,
+      )) {
+        const value = token(name);
+        if (/^\d+px$/.test(value) && value !== fallback)
+          disagree.push(`${file}: ${name} ${value} ≠ ${fallback}`);
+      }
+    }
+    expect(literal).toEqual([]);
+    expect(disagree).toEqual([]);
   });
 
   it("presses subtly and grows popups a little from their control", () => {

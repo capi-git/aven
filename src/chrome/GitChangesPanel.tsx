@@ -968,7 +968,7 @@ function GitSyncActions({
     : "View pull request";
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-3 text-ui-label font-medium disabled:opacity-40";
-  const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
+  const secondary = `${btn} bg-(--aven-control-bg) text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)`;
   const showPublish = canPublish;
   const showSync = canSync;
   const showCreatePr = !hasOpenPr && !onDefault && !dirty;
@@ -1347,7 +1347,7 @@ function ChangeDirRow({
         aria-expanded={open}
         onClick={toggle}
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-6.5 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
+        className="flex h-6.5 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-(--aven-hover)"
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {open ? (
@@ -1480,8 +1480,8 @@ function ChangeRow({
           tree ? "" : "pl-2"
         } ${
           active
-            ? "bg-content/10 text-content"
-            : "text-content hover:bg-content/5"
+            ? "bg-(--aven-selected) text-content"
+            : "text-content hover:bg-(--aven-hover)"
         }`}
       >
         <button

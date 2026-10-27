@@ -31,7 +31,7 @@ export function UpdateNoticeDialog() {
         <div className="flex justify-end">
           <button
             type="button"
-            className="rounded-md bg-accent px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90"
+            className="rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover)"
             autoFocus
             onClick={dismissUpdateNotice}
           >

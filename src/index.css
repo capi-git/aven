@@ -16,13 +16,16 @@
   --text-ui-body: 13px;
   --text-ui-reading: 14px;
   --text-ui-heading: 20px;
+  /* Sheet titles and a palette's search. */
+  --text-ui-sheet: 15px;
   /* Page titles: Home, Settings and other top-level pages. */
   --text-ui-title: 20px;
 
   /* Corners for utility classes follow the shared shape scale
      (macos-theme.css): small corners on controls and rows, larger ones on
-     cards. Full rounding is unchanged. */
-  --radius: 5px;
+     cards. Full rounding is unchanged. A bare `rounded` is the control
+     corner. */
+  --radius: 6px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -85,10 +88,18 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --color-markdown-heading: #f9a8c9;
+  /* The shell's own values (personal-shell.css), so menus, popovers and
+     dialogs, which open on the body outside the shell, match it. */
   --aven-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
-  --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
-  --aven-hover: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 9%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
   --aven-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
+  /* The shell's names for the same fills, for anything on the body that
+     borrows them. */
+  --personal-muted: var(--aven-muted);
+  --personal-line: var(--aven-line);
+  --personal-hover: var(--aven-hover);
+  --personal-selected: var(--aven-selected);
   --aven-raised: color-mix(
     in srgb,
     var(--color-background-base) 94%,
@@ -159,7 +170,13 @@ html.theme-light {
   --color-violet-400: #af52de;
   --background-lightness: 97%;
   --content-lightness: 18%;
-  --aven-popup: var(--color-background-base);
+  /* The light shell lifts its pale frame toward white for its surfaces;
+     menus on the body take that same surface. */
+  --aven-popup: var(--theme-light-surface-color, var(--color-background-base));
+  --aven-muted: color-mix(in srgb, var(--color-content) 58%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --aven-selected: color-mix(in srgb, var(--color-content) 5%, transparent);
   --link-color: hsl(211 92% 40%);
   --color-skill: #a07c10;
   --color-mention: #0284c7;
@@ -437,7 +454,7 @@ html.theme-light .composer-send:not(:disabled) {
 }
 
 html.theme-light .composer-send:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-content) 90%, transparent);
+  background: var(--aven-inverse-hover);
 }
 
 html.theme-light .composer-send:disabled {
@@ -514,7 +531,7 @@ header[data-tauri-drag-region] button {
 .sidebar-opacity-slider {
   appearance: none;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: color-mix(in srgb, var(--color-content) 15%, transparent);
   outline: none;
 }
@@ -523,7 +540,7 @@ header[data-tauri-drag-region] button {
   appearance: none;
   width: 12px;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--color-content);
   cursor: pointer;
 }
@@ -580,7 +597,7 @@ header[data-tauri-drag-region] button {
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   outline: none;
   background: transparent;
   box-shadow: none;
@@ -591,7 +608,7 @@ header[data-tauri-drag-region] button {
 }
 
 .agent-markdown .markdown-code-copy:hover {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 

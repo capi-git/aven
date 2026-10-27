@@ -61,7 +61,27 @@ export function BotSettingsSheet({
   return (
     <Modal
       onClose={onClose}
-      title={name}
+      // The name is the sheet's title and its field: a Name row below would
+      // only say it twice.
+      title={
+        <input
+          id={nameId}
+          aria-label="Name"
+          className="bot-sheet-title-field"
+          defaultValue={name}
+          placeholder={fallbackName}
+          maxLength={40}
+          spellCheck={false}
+          onChange={(event) => {
+            const next = event.target.value.trim();
+            // The default name is never stored, so it can follow the
+            // project's mascot.
+            saveBotSettings(path, {
+              name: next && next !== fallbackName ? next : undefined,
+            });
+          }}
+        />
+      }
       description={`${project}'s teammate`}
       size="sm"
       className="bot-sheet"
@@ -100,22 +120,6 @@ export function BotSettingsSheet({
         </div>
       ) : (
         <div className="bot-sheet-body">
-          <label className="bot-sheet-row" htmlFor={nameId}>
-            <span>Name</span>
-            <input
-              id={nameId}
-              className="bot-sheet-name"
-              defaultValue={bot.name ?? ""}
-              placeholder={fallbackName}
-              maxLength={40}
-              spellCheck={false}
-              onChange={(event) =>
-                saveBotSettings(path, {
-                  name: event.target.value.trim() || undefined,
-                })
-              }
-            />
-          </label>
           {BOT_WAKE_KINDS.map((info) => (
             <div key={info.kind} className="bot-sheet-row">
               <span>{info.label}</span>

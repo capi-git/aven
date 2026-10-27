@@ -205,7 +205,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
           <button
             type="submit"
             disabled={busy || !ready}
-            className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {busy ? "Sending…" : "Continue"}
           </button>
@@ -301,7 +301,7 @@ function QuestionFields({
           disabled={disabled}
           onChange={(event) => onCustom(event.target.value)}
           placeholder="Type your answer"
-          className="mt-1.5 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"
+          className="aven-field mt-1.5 w-full px-2 py-1 text-ui-label"
         />
       ) : (
         <div
@@ -337,7 +337,7 @@ function QuestionFields({
                   className={`flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                     active
                       ? "border-content/35 bg-content/10"
-                      : "border-content/10 hover:bg-content/5"
+                      : "border-content/10 hover:bg-(--aven-hover)"
                   }`}
                 >
                   <span
@@ -371,7 +371,7 @@ function QuestionFields({
                     disabled={disabled}
                     onChange={(event) => onCustom(event.target.value)}
                     placeholder="Type your answer"
-                    className="mt-1 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"
+                    className="aven-field mt-1 w-full px-2 py-1 text-ui-label"
                     onClick={(event) => event.stopPropagation()}
                     onFocus={() => {
                       if (!customSelected) onSelect(customId);

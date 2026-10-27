@@ -20,7 +20,10 @@ vi.mock("../lib/accessPanel", () => ({
 }));
 afterEach(() => {
   document.documentElement.classList.remove("access-panel-window");
-  document.documentElement.style.removeProperty("--access-window-bg");
+  document.documentElement.classList.remove("theme-light");
+  document.documentElement.style.removeProperty("color-scheme");
+  document.documentElement.style.removeProperty("--theme-content-color");
+  document.documentElement.style.removeProperty("--theme-accent-color");
   vi.unstubAllGlobals();
   vi.resetAllMocks();
 });
@@ -51,9 +54,10 @@ it("paints the workspace theme before showing, follows live state and sends expl
   });
   vi.mocked(nativeAccessPanel.ready).mockImplementation(
     async (_openId, revision) => {
-      expect(
-        document.documentElement.style.getPropertyValue("--access-window-bg"),
-      ).toBe(revision === 1 ? "#0b121a" : "#faf4e6");
+      // The owner's palette is in place before the panel is shown.
+      expect(document.documentElement.style.colorScheme).toBe(
+        revision === 1 ? "dark" : "light",
+      );
     },
   );
   vi.mocked(nativeAccessPanel.action).mockResolvedValue(undefined);
@@ -76,9 +80,9 @@ it("paints the workspace theme before showing, follows live state and sends expl
         },
       }),
     );
-    expect(
-      document.documentElement.style.getPropertyValue("--access-window-bg"),
-    ).toBe("#faf4e6");
+    expect(document.documentElement.classList.contains("theme-light")).toBe(
+      true,
+    );
     expect(host.textContent).toContain("Applies from your next message");
     expect(host.querySelector('[aria-checked="true"]')?.textContent).toContain(
       "Auto",

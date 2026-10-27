@@ -177,9 +177,34 @@
   --aven-radius-card: 10px;
   /* Menus, popovers and floating panels. */
   --aven-radius-overlay: 10px;
+  /* Every menu, picker and switcher (chrome/Menu.css): rows inset 4px in a
+     10px menu, so a row's 6px corner nests concentrically; one line of
+     12px text in a 26px row; 14px glyphs, 16px beside a two-line row. */
+  --aven-menu-inset: 4px;
+  --aven-menu-row: 26px;
+  --aven-menu-row-x: 8px;
+  --aven-menu-gap: 8px;
+  --aven-menu-icon: 14px;
+  --aven-menu-icon-rich: 16px;
+  /* The row the pointer or the arrow keys are on, in a menu or a palette. */
+  --aven-menu-highlight: color-mix(
+    in srgb,
+    var(--color-content) 9%,
+    transparent
+  );
   --aven-radius-control: var(--aven-radius-sm);
+  /* One height for a single-line field or pop-up button. */
+  --aven-field-height: 28px;
+  /* The default button in a sheet or card: the text colour as its fill,
+     a little lighter under the pointer. */
+  --aven-inverse-hover: color-mix(
+    in srgb,
+    var(--color-content) 88%,
+    transparent
+  );
   /* Secondary buttons: a fill alone, a step stronger on hover and another
-     while pressed. */
+     while pressed. A borderless (ghost) button takes the resting fill under
+     the pointer. Rows in a list lift by --aven-hover. */
   --aven-control-bg: var(--aven-fill-tertiary);
   --aven-control-hover: var(--aven-fill-secondary);
   --aven-control-pressed: var(--aven-fill);
@@ -197,7 +222,26 @@
     var(--color-accent) 85%,
     var(--color-content)
   );
+  --aven-field-focus: color-mix(
+    in srgb,
+    var(--aven-focus-ring) 50%,
+    transparent
+  );
   --aven-shadow: 0 22px 60px -12px #0009, 0 2px 8px #0003;
+  /* Destructive choices, in the system red: their words (a menu's Delete,
+     an error in a dialog) and a destructive button's wash, a step
+     stronger under the pointer. */
+  --aven-danger-text: var(--color-red-400, #ff453a);
+  --aven-danger-fill: color-mix(
+    in srgb,
+    var(--color-red-400, #ff453a) 14%,
+    transparent
+  );
+  --aven-danger-fill-hover: color-mix(
+    in srgb,
+    var(--color-red-400, #ff453a) 20%,
+    transparent
+  );
 }
 
 /* The window's own corner. macOS 26 draws Aven's titled window with a 16pt
@@ -310,6 +354,13 @@ html.theme-light .personal-shell {
   --aven-control-pressed: var(--aven-fill);
   --aven-field-bg: var(--aven-fill-tertiary);
   --aven-shadow: 0 22px 60px -14px #00000033, 0 2px 8px #00000014;
+  /* The light red is too pale for text on its own wash; the deeper one, a
+     touch darker still, reads at 5:1. */
+  --aven-danger-text: color-mix(
+    in srgb,
+    var(--color-content) 15%,
+    var(--color-red-600, #d70015)
+  );
 }
 
 /* A hairline is one device pixel at every display scale and interface zoom:
@@ -421,6 +472,73 @@ textarea {
   background: var(--aven-inset-card);
 }
 
+/* Fields: filled, as iOS's are, with the control corner, the Increase
+   contrast edge and the shared focus ring hugging the field. Size and
+   type stay with each field. */
+.aven-field {
+  border: 1px solid var(--aven-control-edge, transparent);
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-field-bg);
+  color: var(--color-content);
+  outline: none;
+}
+.aven-field::placeholder {
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+/* A field holds focus for as long as you type in it, so its ring is the
+   shared ring at half strength, as a Mac text field's is softer than a
+   button's. */
+.aven-field:focus-visible,
+.aven-field:not(input, textarea, select):focus-within {
+  outline: 2px solid var(--aven-field-focus);
+  outline-offset: 0;
+}
+.aven-field:disabled {
+  opacity: 0.5;
+}
+
+/* The mini switch, for a compact row in a panel (the agent panel, project
+   memory's keeper): the Settings switch's colours at a smaller size. A
+   capsule track, the system fill when off and the accent when on, with a
+   white knob; it reads on any accent, including Aven's near-white one. */
+.aven-switch-mini {
+  position: relative;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 15px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-content) 12%, transparent);
+  transition: background-color 140ms ease-out;
+}
+.aven-switch-mini::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--aven-radius-capsule);
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px #0000000f,
+    0 1px 2px #00000033;
+  content: "";
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[aria-checked="true"] > .aven-switch-mini {
+  background: var(--color-accent);
+}
+[aria-checked="true"] > .aven-switch-mini::after {
+  transform: translateX(11px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-switch-mini,
+  .aven-switch-mini::after {
+    transition: none;
+  }
+}
+
 /* Popups, dialogs and toasts sit over text, so they are solid: a see-through
    tint let the chat show through, and a backdrop blur redrew (flickered)
    whenever the content behind changed. Panels resting on the window keep the
@@ -428,6 +546,16 @@ textarea {
 .aven-glass-overlay {
   border: 1px solid var(--aven-glass-overlay-edge);
   border-radius: var(--aven-radius-overlay);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
+}
+
+/* Sheets: a dialog centred over the workspace (Modal's panel, the command
+   palette, project memory, confirmations) is the popup's solid material
+   with the larger sheet corner, over the shared 40% scrim. */
+.aven-sheet {
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-sheet);
   background: var(--aven-popup);
   box-shadow: var(--aven-specular), var(--aven-shadow);
 }

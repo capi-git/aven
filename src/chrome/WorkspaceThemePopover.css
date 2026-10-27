@@ -1,10 +1,10 @@
 .workspace-theme-popover {
   padding: 12px;
   color: var(--color-content);
-  background: var(--color-background-base);
+  background: var(--aven-popup);
   border: 1px solid var(--aven-glass-overlay-edge);
   border-radius: var(--aven-radius-overlay);
-  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
   overflow-y: auto;
 }
 /* Editing window glass must not also composite a blurred, animated popup.
@@ -46,7 +46,7 @@
 }
 .workspace-theme-close:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-control-bg);
 }
 .workspace-theme-schemes {
   display: flex;
@@ -54,7 +54,7 @@
   border: 1px solid var(--aven-control-edge, transparent);
   padding: 2px;
   border-radius: var(--aven-radius-track);
-  background: var(--aven-fill-quaternary);
+  background: var(--aven-fill-tertiary);
 }
 .workspace-theme-schemes > button {
   flex: 1;
@@ -63,9 +63,11 @@
   font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
+/* The chosen scheme is the segmented control's raised thumb. */
 .workspace-theme-schemes > button[aria-pressed="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
 }
 .workspace-theme-presets {
   display: grid;
@@ -159,7 +161,7 @@
 }
 .workspace-theme-popover button:focus-visible,
 .workspace-theme-popover input:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 2px;
 }
 .workspace-theme-targets {
@@ -181,7 +183,7 @@
 }
 .workspace-theme-targets button[aria-pressed="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-control-bg);
 }
 .workspace-theme-targets button > span {
   width: 7px;
@@ -203,7 +205,7 @@
     linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
 }
 .workspace-color-spectrum:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
 }
 .workspace-color-thumb {
   position: absolute;

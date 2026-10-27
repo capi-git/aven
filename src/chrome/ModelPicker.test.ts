@@ -35,7 +35,7 @@ vi.mock("./Popover", async (importOriginal) => {
             ?.getAttribute("title") ?? null;
         const rows = document.querySelector('[role="listbox"]')?.children;
         firstFrame.highlighted = [...(rows ?? [])]
-          .filter((row) => row.classList.contains("bg-content/10"))
+          .filter((row) => row.getAttribute("data-active") === "true")
           .map((row) => row.textContent ?? "");
         firstFrame.scrolled = [...scrolled];
       }, []);

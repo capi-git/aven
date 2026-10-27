@@ -96,3 +96,23 @@ it("asks before turning a bot off, saying its copy goes, then turns it off", asy
   expect(actions.turnOffProjectBot).toHaveBeenCalledWith(PATH);
   expect(onClose).toHaveBeenCalled();
 });
+
+it("names the bot once: its title is the name field", async () => {
+  updateProjectBot(PATH, (bot) => ({ ...bot, on: true, name: "Jelly" }));
+  await act(async () =>
+    root.render(
+      createElement(BotSettingsSheet, { path: PATH, onClose: vi.fn() }),
+    ),
+  );
+  const fields = dialog().querySelectorAll<HTMLInputElement>("input");
+  expect(fields).toHaveLength(1);
+  const title = dialog().querySelector<HTMLInputElement>("h2 input")!;
+  expect(title.getAttribute("aria-label")).toBe("Name");
+  expect(title.value).toBe("Jelly");
+  // No row below repeats it.
+  expect(
+    [...dialog().querySelectorAll(".bot-sheet-row > span")].map(
+      (label) => label.textContent,
+    ),
+  ).not.toContain("Name");
+});

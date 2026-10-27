@@ -9,6 +9,7 @@ import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 import { Check, Trash2 } from "./icons";
 import { WorkspaceProfileIcon } from "./PersonalWorkspaceSwitcher";
 import { Popover } from "./Popover";
+import "./Menu.css";
 
 type Props = {
   profiles: readonly WorkspaceProfile[];
@@ -138,7 +139,7 @@ export function WorkspaceProfileMenu({
         }
       }}
       onKeyDown={navigate}
-      className="overflow-y-auto overscroll-none p-1 text-content"
+      className="aven-menu overflow-y-auto overscroll-none"
     >
       {profiles.map((profile) => {
         const selected = profile.id === activeProfileId;
@@ -149,7 +150,7 @@ export function WorkspaceProfileMenu({
             role="menuitemradio"
             aria-checked={selected}
             tabIndex={profile.id === focusedId ? 0 : -1}
-            className="flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-content/8 focus:bg-content/10 focus:outline-none"
+            className="aven-menu-item"
             onFocus={() => setFocusedId(profile.id)}
             onClick={() => {
               onSelect(profile.id);
@@ -165,15 +166,12 @@ export function WorkspaceProfileMenu({
                 : undefined
             }
           >
-            <span aria-hidden="true" className="shrink-0 text-content/65">
-              <WorkspaceProfileIcon profile={profile} />
+            <span aria-hidden="true" className="aven-menu-icon">
+              <WorkspaceProfileIcon profile={profile} className="" />
             </span>
-            <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+            <span className="aven-menu-label">{profile.name}</span>
             {selected ? (
-              <Check
-                aria-hidden="true"
-                className="size-3.5 shrink-0 text-content"
-              />
+              <Check aria-hidden="true" className="aven-menu-check" />
             ) : null}
           </button>
         );
@@ -182,13 +180,13 @@ export function WorkspaceProfileMenu({
       activeProfileId !== "personal" &&
       profiles.some((profile) => profile.id === activeProfileId) ? (
         <>
-          <div role="separator" className="my-1 border-t border-content/10" />
+          <div role="separator" className="aven-menu-separator" />
           <button
             type="button"
             role="menuitem"
             tabIndex={focusedId === "delete" ? 0 : -1}
             onFocus={() => setFocusedId("delete")}
-            className="flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-red-600 dark:text-red-400 hover:bg-content/8 focus:bg-content/10 focus:outline-none"
+            className="aven-menu-item aven-menu-item-danger"
             onClick={() => {
               const profile = profiles.find(
                 (item) => item.id === activeProfileId,
@@ -197,8 +195,10 @@ export function WorkspaceProfileMenu({
               if (profile) onDelete(profile);
             }}
           >
-            <Trash2 aria-hidden="true" className="size-3.5 shrink-0" />
-            <span>Delete workspace…</span>
+            <span aria-hidden="true" className="aven-menu-icon">
+              <Trash2 />
+            </span>
+            <span className="aven-menu-label">Delete workspace…</span>
           </button>
         </>
       ) : null}

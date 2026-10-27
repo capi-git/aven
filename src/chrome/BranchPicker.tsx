@@ -18,6 +18,7 @@ import {
 } from "../lib/fs";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useProjectBranchesState } from "../hooks/useProjectBranches";
+import "./Menu.css";
 import { Popover } from "./Popover";
 import { SwitchBranchDialog } from "./SwitchBranchDialog";
 
@@ -355,30 +356,32 @@ export function BranchPicker({
             role="dialog"
             aria-label="Branch picker"
             data-branch-picker
-            className="flex flex-col overflow-hidden"
+            className="aven-menu-picker"
           >
-            <label className="flex shrink-0 items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
-              <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
-              <input
-                ref={search}
-                type="text"
-                value={query}
-                placeholder="Search or create a branch…"
-                aria-label="Search or create a branch"
-                spellCheck={false}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                disabled={busy}
-                className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 disabled:opacity-60 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setActive(0);
-                  setError(null);
-                }}
-                onKeyDown={onSearchKey}
-              />
-            </label>
+            <div className="aven-menu aven-menu-search-bar">
+              <label className="aven-menu-search">
+                <Search aria-hidden="true" strokeWidth={1.75} />
+                <input
+                  ref={search}
+                  type="text"
+                  value={query}
+                  placeholder="Search or create a branch…"
+                  aria-label="Search or create a branch"
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  disabled={busy}
+                  className="disabled:opacity-60"
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setActive(0);
+                    setError(null);
+                  }}
+                  onKeyDown={onSearchKey}
+                />
+              </label>
+            </div>
             <BranchList
               rows={rows}
               active={active}
@@ -388,7 +391,7 @@ export function BranchPicker({
               onPick={pick}
             />
             {error ? (
-              <p className="max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap border-t border-content/10 px-2.5 py-2 text-ui-caption leading-4 text-red-400/90">
+              <p className="aven-menu-note aven-menu-error max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap">
                 {error}
               </p>
             ) : null}
@@ -423,8 +426,8 @@ function BranchList({
 
   if (rows.length === 0) {
     return (
-      <div className="px-3 py-4 text-ui-label text-content/50">
-        {emptyLabel}
+      <div className="aven-menu">
+        <p className="aven-menu-note">{emptyLabel}</p>
       </div>
     );
   }
@@ -434,7 +437,7 @@ function BranchList({
       ref={lockOverscroll}
       role="listbox"
       aria-label="Branches"
-      className="min-h-0 flex-1 overflow-y-auto overscroll-none px-1.5 py-1.5"
+      className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
     >
       {rows.map((row, index) => {
         const highlighted = index === active;
@@ -454,44 +457,31 @@ function BranchList({
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onActive(index)}
             onClick={() => onPick(row)}
-            className={
-              row.kind === "create"
-                ? `mb-1 flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left disabled:opacity-60 ${
-                    highlighted
-                      ? "bg-content/15 text-content"
-                      : "bg-content/10 text-content hover:bg-content/15"
-                  }`
-                : `flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left disabled:opacity-60 ${
-                    highlighted || selected
-                      ? "bg-content/10 text-content"
-                      : "text-content hover:bg-content/5"
-                  }`
-            }
+            data-active={highlighted}
+            className="aven-menu-item"
           >
             {row.kind === "create" ? (
               <>
-                <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
-                <span className="min-w-0 truncate text-ui-label">
+                <span aria-hidden="true" className="aven-menu-icon">
+                  <Plus strokeWidth={1.75} />
+                </span>
+                <span className="aven-menu-label">
                   Create and checkout {row.name}
                 </span>
               </>
             ) : (
               <>
-                {selected ? (
-                  <Check className="size-3.5 shrink-0" strokeWidth={1.75} />
-                ) : (
-                  <GitBranch
-                    className="size-3.5 shrink-0 text-content/50"
-                    strokeWidth={1.75}
-                  />
-                )}
-                <span className="min-w-0 flex-1 truncate font-mono text-ui-label">
+                <span aria-hidden="true" className="aven-menu-icon">
+                  <GitBranch strokeWidth={1.75} />
+                </span>
+                <span className="aven-menu-label font-mono">
                   {row.branch.name}
                 </span>
                 {row.branch.remote ? (
-                  <span className="shrink-0 text-ui-micro text-content/40">
-                    {row.branch.remote}
-                  </span>
+                  <span className="aven-menu-detail">{row.branch.remote}</span>
+                ) : null}
+                {selected ? (
+                  <Check aria-hidden="true" className="aven-menu-check" />
                 ) : null}
               </>
             )}

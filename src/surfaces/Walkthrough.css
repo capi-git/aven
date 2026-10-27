@@ -128,7 +128,7 @@
   gap: 3px;
   padding: 11px 12px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   background: var(--aven-inset-card);
   color: var(--aven-muted);
   font-size: var(--text-ui-caption);
@@ -192,7 +192,7 @@
   gap: 6px;
   min-height: 30px;
   padding: 0 12px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-label);
   font-weight: 500;
   cursor: pointer;

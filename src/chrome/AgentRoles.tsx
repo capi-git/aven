@@ -16,7 +16,7 @@ export function RoleBadge({
   const { name, instruction } = agentRole(role);
   return (
     <span
-      className={`inline-flex h-4 shrink-0 items-center rounded px-1 text-ui-micro font-medium leading-none tracking-wide text-content/70 bg-content/10 ${className}`}
+      className={`inline-flex h-4 shrink-0 items-center rounded-full px-1.5 text-ui-micro font-medium leading-none tracking-wide text-content/70 bg-(--aven-fill-tertiary) ${className}`}
       title={`${name}: ${instruction}`}
       data-agent-role={role}
     >

@@ -231,7 +231,7 @@ export function SessionChangesDiff({
             <button
               type="button"
               onClick={onClose}
-              className="mt-3 h-7 rounded-md bg-content/10 px-3 text-ui-label text-content/80 hover:bg-content/15 hover:text-content"
+              className="mt-3 h-7 rounded-md bg-(--aven-control-bg) px-3 text-ui-label text-content/80 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content"
             >
               Close
             </button>

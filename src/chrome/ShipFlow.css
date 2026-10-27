@@ -63,7 +63,7 @@ html.theme-light .ship-flow {
 }
 .ship-flow-close:hover:enabled {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-control-bg);
 }
 
 /* Segmented choices: files to ship, and how far to go. */
@@ -202,7 +202,7 @@ html.theme-light .ship-flow {
   font-size: var(--text-ui-caption);
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-control-bg);
 }
 /* "Writing with Claude Haiku 4.5…" shortens before it covers the message;
    its tooltip names the model in full. */
@@ -217,7 +217,7 @@ html.theme-light .ship-flow {
 }
 .ship-flow-generate:hover:enabled {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  background: var(--aven-control-hover);
 }
 .ship-flow-generate:disabled {
   opacity: 0.4;
@@ -242,7 +242,7 @@ html.theme-light .ship-flow {
   background: var(--color-content);
 }
 .ship-flow-primary:hover:enabled {
-  background: color-mix(in srgb, var(--color-content) 88%, transparent);
+  background: var(--aven-inverse-hover);
 }
 .ship-flow-primary:disabled {
   opacity: 0.4;
@@ -250,10 +250,10 @@ html.theme-light .ship-flow {
 .ship-flow-secondary {
   font-weight: 500;
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
 }
 .ship-flow-secondary:hover {
-  background: color-mix(in srgb, var(--color-content) 15%, transparent);
+  background: var(--aven-control-hover);
 }
 .ship-flow-link {
   height: 28px;
@@ -363,7 +363,7 @@ html.theme-light .ship-flow {
   color: var(--color-content);
 }
 .ship-flow-pr-link:hover {
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-control-bg);
 }
 .ship-flow-checks {
   --ship-tone: color-mix(in srgb, var(--color-content) 35%, transparent);
@@ -395,7 +395,7 @@ html.theme-light .ship-flow {
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .ship-flow-checks-head:hover:enabled {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-hover);
 }
 .ship-flow-checks-dot {
   width: 7px;
@@ -415,7 +415,7 @@ html.theme-light .ship-flow {
 }
 .ship-flow-checks-refresh:hover:enabled {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-control-bg);
 }
 .ship-flow-check-list {
   display: flex;

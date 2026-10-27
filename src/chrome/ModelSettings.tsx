@@ -358,7 +358,7 @@ function ToggleSetting({
       >
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
         <span className="min-w-0 flex-1 truncate">{setting.label}</span>
-        <span className="agent-switch" aria-hidden="true" />
+        <span className="aven-switch-mini" aria-hidden="true" />
       </button>
     </div>
   );

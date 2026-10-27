@@ -10,7 +10,7 @@
   margin-top: 2px;
   padding: 11px 14px 12px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   background: var(
     --aven-glass-card,
     color-mix(in srgb, var(--color-content) 4%, transparent)
@@ -163,7 +163,7 @@
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  border-radius: 4px;
+  border-radius: var(--aven-radius-xs);
   font-size: var(--text-ui-caption);
   line-height: 16px;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);

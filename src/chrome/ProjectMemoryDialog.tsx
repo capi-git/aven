@@ -141,14 +141,17 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
       onKeyDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}
     >
-      <div className="absolute inset-0 bg-black/30" onMouseDown={onClose} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Project memory for ${name}`}
         aria-busy={loading || saving}
         onMouseDown={(event) => event.stopPropagation()}
-        className="project-memory-dialog absolute left-1/2 top-[12%] flex max-h-[80vh] w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
+        className="project-memory-dialog absolute left-1/2 top-[12%] flex max-h-[80vh] w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-sheet p-4"
       >
         <header className="flex items-center gap-2.5">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/5">
@@ -158,7 +161,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-ui-body font-medium leading-tight text-content">
+            <h2 className="truncate text-ui-sheet font-semibold leading-tight tracking-[-0.01em] text-content">
               Project memory
             </h2>
             <p className="truncate text-ui-caption leading-tight text-content/50">
@@ -194,14 +197,14 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
               void save();
             }
           }}
-          className="min-h-56 w-full flex-1 resize-none rounded-md bg-content/8 px-2.5 py-2 text-ui-body leading-relaxed text-content outline-none placeholder:text-content/30 disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field min-h-56 w-full flex-1 resize-none px-2.5 py-2 text-ui-body leading-relaxed"
         />
 
         <p
           id="project-memory-status"
           className="flex flex-wrap items-center gap-x-2 text-ui-caption text-content/45"
         >
-          <span className={over ? "text-red-300" : undefined}>
+          <span className={over ? "text-(--aven-danger-text)" : undefined}>
             {projectMemorySize(text.length)}
           </span>
           {edited ? (
@@ -220,12 +223,18 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
         </p>
 
         {error ? (
-          <p role="alert" className="text-ui-label leading-snug text-red-300">
+          <p
+            role="alert"
+            className="text-ui-label leading-snug text-(--aven-danger-text)"
+          >
             Could not load this project's memory. {error}
           </p>
         ) : null}
         {saveError ? (
-          <p role="alert" className="text-ui-label leading-snug text-red-300">
+          <p
+            role="alert"
+            className="text-ui-label leading-snug text-(--aven-danger-text)"
+          >
             {saveError}
           </p>
         ) : null}
@@ -248,7 +257,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             <button
               type="button"
               onClick={() => void save(true)}
-              className="rounded-md bg-content/10 px-2 py-1 text-content hover:bg-content/15"
+              className="rounded-md bg-(--aven-control-bg) px-2 py-1 text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
             >
               Keep mine
             </button>
@@ -293,7 +302,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             onClick={() => void save()}
             title={saveHint || `Save (${MOD}↩)`}
             aria-describedby={saveHint ? "project-memory-save-hint" : undefined}
-            className="rounded-md bg-content/12 px-3 py-1.5 text-ui-label font-medium text-content hover:bg-content/18 disabled:opacity-40"
+            className="rounded-md bg-(--aven-control-bg) px-3 py-1.5 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:opacity-40"
           >
             Save
           </button>

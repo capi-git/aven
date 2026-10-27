@@ -487,7 +487,7 @@ function PlanSurface({
               type="button"
               disabled={buildDisabled}
               onClick={() => onBuildPlan(plan.sessionId, block.id)}
-              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-not-allowed disabled:opacity-40 ${
                 session ? "rounded-l-md" : "rounded-md"
               }`}
             >
@@ -519,7 +519,7 @@ function PlanSurface({
             onChange={(event) =>
               onUpdatePlan(plan.sessionId, block.id, event.currentTarget.value)
             }
-            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-ui-body leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-ui-body leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
           />
         }
       />

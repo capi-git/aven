@@ -314,7 +314,7 @@ function DiscussionMenu({
     `flex ${twoLines ? "min-h-10 py-1" : "h-8"} w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body ${
       selected
         ? "bg-content/10 text-content"
-        : "text-content/85 hover:bg-content/5 hover:text-content"
+        : "text-content/85 hover:bg-(--aven-hover) hover:text-content"
     }`;
   return (
     <div>

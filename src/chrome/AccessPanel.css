@@ -21,48 +21,15 @@ html.access-panel-window #root {
   line-height: 1.5;
   color: var(--toolbar-panel-muted);
 }
+/* Rows are the shared menu's (Menu.css). The chosen mode's glyph turns to
+   full ink, and every row keeps room for the check so labels stay put. */
 .access-panel-options {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 8px 8px;
+  padding-top: 0;
 }
-.access-panel-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px;
-  text-align: left;
-  cursor: pointer;
-}
-.access-panel-icon {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--toolbar-panel-muted);
-}
-.access-panel-option[aria-checked="true"] .access-panel-icon {
-  color: var(--toolbar-panel-text);
-}
-.access-panel-copy {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.access-panel-copy strong {
-  font-size: var(--text-ui-body);
-  font-weight: 500;
-}
-.access-panel-copy > span {
-  font-size: var(--text-ui-label);
-  line-height: 1.45;
-  color: var(--toolbar-panel-muted);
+.access-panel-option[aria-checked="true"] .aven-menu-icon {
+  color: inherit;
 }
 .access-panel-check {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--toolbar-panel-text);
   visibility: hidden;
 }
 .access-panel-option[aria-checked="true"] .access-panel-check {

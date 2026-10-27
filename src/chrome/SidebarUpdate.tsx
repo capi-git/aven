@@ -99,7 +99,7 @@ export function SidebarUpdateWaiting({
           <button
             type="button"
             onClick={() => void restartUpdateNow()}
-            className="rounded px-1 py-0.5 font-medium text-content hover:bg-content/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded px-1 py-0.5 font-medium text-content hover:bg-content/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring)"
           >
             Restart now
           </button>
@@ -109,7 +109,7 @@ export function SidebarUpdateWaiting({
           <button
             type="button"
             onClick={() => void cancelUpdateWait()}
-            className="rounded px-1 py-0.5 text-content/70 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded px-1 py-0.5 text-content/70 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring)"
           >
             Cancel
           </button>
@@ -165,7 +165,7 @@ export function SidebarUpdate({
       }
       onClick={onClick}
       disabled={busy}
-      className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors ${
         busy
           ? "bg-content/5 text-content/75 hover:bg-content/10 hover:text-content"
           : "bg-content/8 text-content hover:bg-content/12"
