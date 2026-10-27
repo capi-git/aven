@@ -194,9 +194,10 @@ describe("one grid for every sidebar row", () => {
     ).toBe("28px");
   });
 
-  it("starts every label 8px + 16px + 8px in, so names line up down the sidebar", () => {
-    // Padding, then the 16px mark, then the gap: Search, workspace,
-    // project and chat rows all put their text at 32px.
+  it("puts every 16px icon in one column and every label 8px after it", () => {
+    // Each box spans the sidebar's column; its icon sits 8px in and its
+    // text 8px after the icon, so the workspace row, Search, project and
+    // chat rows all start their icons, and their text, at the same x.
     const search = ruleFor(nav, ".personal-shell .personal-search-field");
     expect(search.get("padding")).toBe("0 8px");
     expect(search.get("gap")).toBe("8px");
@@ -204,16 +205,59 @@ describe("one grid for every sidebar row", () => {
     expect(name.get("padding-inline")).toBe("8px");
     expect(name.get("gap")).toBe("8px");
     const project = ruleFor(nav, `${ROW} .personal-project-open`);
-    expect(project.get("padding")).toBe("0 8px");
+    expect(project.get("padding")).toBe("0 6px 0 8px");
     expect(project.get("gap")).toBe("8px");
+    // A chat row draws a 1px border of its own, so 1px less padding.
     expect(ruleFor(nav, `${ROW} .personal-task-card`).get("padding")).toBe(
-      "5px 8px",
+      "4px 7px",
     );
     expect(ruleFor(nav, `${ROW} .personal-other-task`).get("gap")).toBe("8px");
     // Quiet lines under a project start with the chat titles.
     expect(ruleFor(nav, `${ROW} .personal-tasks-empty`).get("padding")).toBe(
       "4px 8px 4px 32px",
     );
+  });
+
+  it("ends the last glyph on the right 8px short of the column, under Search's keys", () => {
+    // Search's keys end at its 8px padding. The workspace row's + (16px in a
+    // 28px button) stands 2px in; a project row's last action (a 12px
+    // chevron in 24px) has 2px of row padding after it; its status ends at
+    // the name button's 6px; a chat row's time at 7px plus its border.
+    expect(
+      ruleFor(nav, ".personal-shell .personal-profile-new").get("margin-right"),
+    ).toBe("2px");
+    expect(
+      ruleFor(nav, ".personal-shell .personal-profile-new").get("width"),
+    ).toBe("28px");
+    expect(ruleFor(nav, `${ROW} .personal-project-row`).get("padding")).toBe(
+      "0 2px 0 0",
+    );
+    expect(
+      ruleFor(nav, ".personal-shell .personal-projects-heading > button").get(
+        "width",
+      ),
+    ).toBe("24px");
+    expect(
+      ruleFor(nav, `${ROW} .personal-projects-heading`).get("padding"),
+    ).toBe("0 2px 0 8px");
+  });
+
+  it("spaces the workspace row, Search and the tiles 8px apart, Search a row high", () => {
+    expect(ruleFor(nav, `${ROW} .personal-profile-header`).get("margin")).toBe(
+      "0 0 8px",
+    );
+    const search = ruleFor(nav, ".personal-shell .personal-search-field");
+    expect(search.get("margin")).toBe("0 0 8px");
+    expect(search.get("height")).toBe("28px");
+    expect(
+      ruleFor(nav, ".personal-shell .personal-library-nav").get("margin"),
+    ).toBe("0 0 8px");
+    // Its keys are a quiet hint.
+    expect(
+      Number(
+        ruleFor(nav, ".personal-shell .personal-search-keys").get("opacity"),
+      ),
+    ).toBeLessThanOrEqual(0.45);
   });
 });
 
