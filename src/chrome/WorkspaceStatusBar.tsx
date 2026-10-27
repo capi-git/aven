@@ -10,6 +10,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
+import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
 import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
@@ -275,7 +276,7 @@ export function WorkspaceNavigation({
               type="button"
               className="workspace-navigation-secondary"
               aria-label="Search workspace"
-              title="Search workspace"
+              title={`Search workspace (${SEARCH_KEYS})`}
               onClick={onSearch}
             >
               <Search size={14} />

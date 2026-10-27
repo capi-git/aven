@@ -178,3 +178,42 @@ it("closes the working agents menu when its button is pressed again", async () =
   host.remove();
   vi.unstubAllGlobals();
 });
+
+it("names every footer control in its tooltip, saying what pressing it does", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      createElement(PersonalWorkspaceSwitcher, {
+        profiles: DEFAULT_WORKSPACE_PROFILES,
+        activeProfileId: "personal",
+        onSelectProfile: vi.fn(),
+        onCreateProfile: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onAddProject: vi.fn(),
+      }),
+    ),
+  );
+  const titles = [...host.querySelectorAll<HTMLButtonElement>("button")].map(
+    (button) => [button.getAttribute("aria-label"), button.title],
+  );
+  expect(titles).toEqual([
+    [
+      expect.stringMatching(/^Settings \(/),
+      expect.stringMatching(/^Settings \(/),
+    ],
+    ["Add project", "Add project"],
+    ["Personal workspace", "Personal workspace"],
+    ["Work workspace", "Switch to Work"],
+    ["Add workspace", "New workspace"],
+  ]);
+  // New workspace waits for the pointer or focus (the stylesheet), but is
+  // still a button in the Tab order.
+  const add = host.querySelector<HTMLButtonElement>(".personal-workspace-add")!;
+  expect(add.tabIndex).toBe(0);
+  await act(async () => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});

@@ -261,6 +261,26 @@ describe("the workspace row and section headings", () => {
   });
 });
 
+describe("the footer", () => {
+  it("keeps Settings, Add project and the workspaces at rest, New workspace on hover or focus", () => {
+    expect(ruleFor(nav, `${ROW} .personal-workspace-add`).get("opacity")).toBe(
+      "0",
+    );
+    const shown = nav.find((rule) =>
+      rule.selectors.some(
+        (selector) =>
+          selector.includes(
+            ".personal-workspace-switcher:is(:hover, :focus-within)",
+          ) && selector.endsWith(".personal-workspace-add"),
+      ),
+    );
+    expect(shown?.body.get("opacity")).toBe("1");
+    expect(ruleFor(nav, `${ROW} .personal-workspace-tool`).has("opacity")).toBe(
+      false,
+    );
+  });
+});
+
 describe("Home's project cards", () => {
   const home = rules("src/surfaces/WorkspaceHome.css");
   it("show their tools only on hover, keyboard focus or an open menu", () => {

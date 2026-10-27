@@ -172,7 +172,7 @@ export function PersonalWorkspaceSwitcher({
         <button
           ref={addRef}
           type="button"
-          className="personal-workspace-tool"
+          className="personal-workspace-tool personal-workspace-add"
           aria-label="Add workspace"
           title="New workspace"
           aria-haspopup="dialog"

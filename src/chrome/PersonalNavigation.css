@@ -511,6 +511,20 @@
   background: transparent;
   color: var(--personal-muted);
 }
+/* New workspace is rare: it shows with the footer's other controls under
+   the pointer or keyboard focus, and while its form is open. */
+.personal-shell .personal-navigation .personal-workspace-add {
+  opacity: 0;
+}
+.personal-shell
+  .personal-navigation
+  .personal-workspace-switcher:is(:hover, :focus-within)
+  .personal-workspace-add,
+.personal-shell
+  .personal-navigation
+  .personal-workspace-add[aria-expanded="true"] {
+  opacity: 1;
+}
 .personal-shell
   .personal-navigation
   .personal-workspace-tool[aria-pressed="true"] {
