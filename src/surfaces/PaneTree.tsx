@@ -471,20 +471,20 @@ export const PaneTree = memo(
 function PaneDropHint({ edge }: { edge: PaneEdge }) {
   const wash =
     edge === "left"
-      ? "absolute inset-y-0 left-0 w-1/2 bg-accent/15"
+      ? "absolute inset-y-0 left-0 w-1/2 aven-pane-drop-wash"
       : edge === "right"
-        ? "absolute inset-y-0 right-0 w-1/2 bg-accent/15"
+        ? "absolute inset-y-0 right-0 w-1/2 aven-pane-drop-wash"
         : edge === "top"
-          ? "absolute inset-x-0 top-0 h-1/2 bg-accent/15"
-          : "absolute inset-x-0 bottom-0 h-1/2 bg-accent/15";
+          ? "absolute inset-x-0 top-0 h-1/2 aven-pane-drop-wash"
+          : "absolute inset-x-0 bottom-0 h-1/2 aven-pane-drop-wash";
   const line =
     edge === "left"
-      ? "absolute inset-y-0 left-0 w-0.5 bg-accent"
+      ? "absolute inset-y-0 left-0 w-0.5 aven-pane-drop-line"
       : edge === "right"
-        ? "absolute inset-y-0 right-0 w-0.5 bg-accent"
+        ? "absolute inset-y-0 right-0 w-0.5 aven-pane-drop-line"
         : edge === "top"
-          ? "absolute inset-x-0 top-0 h-0.5 bg-accent"
-          : "absolute inset-x-0 bottom-0 h-0.5 bg-accent";
+          ? "absolute inset-x-0 top-0 h-0.5 aven-pane-drop-line"
+          : "absolute inset-x-0 bottom-0 h-0.5 aven-pane-drop-line";
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
       <div className={wash} />

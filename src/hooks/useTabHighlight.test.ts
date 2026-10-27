@@ -119,6 +119,24 @@ describe("the sliding tab highlight", () => {
     );
   });
 
+  it("ends the slide at its duration even if WebKit never runs it", async () => {
+    vi.useFakeTimers();
+    try {
+      await render({ ids: ["a", "b", "c"], front: "a" });
+      await render({ ids: ["a", "b", "c"], front: "c" });
+      const slide = animate.mock.results[0].value as {
+        cancel: ReturnType<typeof vi.fn>;
+      };
+      expect(slide.cancel).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTime(TAB_SLIDE_MS + 60));
+      // Stopped, so the highlight shows at its own place under the front tab.
+      expect(slide.cancel).toHaveBeenCalled();
+      expect(highlight().style.transform).toBe("translateX(404px)");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("moves without sliding when only the strip changes shape", async () => {
     await render({ ids: ["a", "b", "c"], front: "b" });
     boxes.b = { left: 250, width: 150 };

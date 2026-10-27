@@ -828,12 +828,17 @@ html.theme-light.is-mac
   .personal-sidebar-divider:not(:focus-visible)::after {
   background: transparent;
 }
+/* The same seam as between panes: 2px in the muted text colour while
+   pointed at or dragged; keyboard focus shows the focus ring's colour. */
 .personal-shell .personal-panel-resizer:hover::after,
 .personal-shell .personal-panel-resizer:focus-visible::after,
 .personal-shell .personal-panel-resizer[data-resizing="true"]::after {
-  left: 3px;
-  width: 3px;
-  background: var(--personal-accent);
+  left: 3.5px;
+  width: 2px;
+  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
+}
+.personal-shell .personal-panel-resizer:focus-visible::after {
+  background: var(--aven-focus-ring, var(--color-accent));
 }
 .personal-shell .personal-panel-resizer:hover,
 .personal-shell .personal-panel-resizer:focus-visible {
@@ -841,8 +846,7 @@ html.theme-light.is-mac
   outline: none;
 }
 /* Docked panels meet the workspace edge to edge: the resizer's resting line
-   is the hairline between them, and pointing at it, focusing or dragging
-   widens it to the accent. */
+   is the hairline between them, and pointing at it or dragging widens it. */
 
 /* Design A: a single window toolbar over the workspace. The native window
    supplies the outer curve; panes meet flush between hairlines
@@ -939,11 +943,13 @@ html
    The tint is an inset shadow, painted over each region's own background
    without another layer or blur. */
 .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+  /* As opaque as the 0.1.152 panels, so a wallpaper's colour does not show
+     through the chrome any more than it did. */
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 5%, transparent);
   --aven-panel-tint: inset 0 0 0 100vmax var(--aven-panel-card);
 }
 html.theme-light .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, var(--color-content) 3%, transparent);
+  --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
 }
 /* On a Mac the toolbar cancels the interface zoom (zoom below), which would
    scale its hairline off one device pixel; dividing by that zoom keeps it. */

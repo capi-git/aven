@@ -1,3 +1,9 @@
+:root,
+.personal-shell {
+  /* Drag and drop feedback: grey, as everything in the workspace is. */
+  --aven-drop-line: var(--aven-label-secondary);
+  --aven-drop-wash: color-mix(in srgb, var(--color-content) 6%, transparent);
+}
 .workspace-stage {
   /* Wallpaper coordinates follow this workspace, including nested splits.
      Container units resize with the window without layout observers. */
@@ -209,9 +215,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   inset: 0;
   z-index: 40;
   pointer-events: none;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  border-bottom: 1px solid var(--aven-drop-line);
+  background: var(--aven-drop-wash);
 }
 .workspace-stage-body {
   position: relative;
@@ -289,6 +294,13 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - 1px);
   height: 2px;
 }
+/* A split inside a tab: where a dropped pane will go. */
+.aven-pane-drop-wash {
+  background: var(--aven-drop-wash);
+}
+.aven-pane-drop-line {
+  background: var(--aven-drop-line);
+}
 /* A split inside a tab has the same seam: a hairline in a 9px target that
    thickens to 2px in the muted text colour while pointed at or dragged. */
 .aven-pane-seam {
@@ -306,20 +318,22 @@ html.has-chat-background:not(.chat-background-empty-only)
   box-shadow: 0 0 0 0.5px var(--aven-seam-used);
 }
 /* Where a drop lands in the target pane's body: half of it, or all of it to
-   stack, inset 4px. Native browser feedback samples these resolved sRGB
-   colors once per drag; the workspace palette supplies both the line and
-   its contrasting halo. The preview below draws it over HTML panes. */
+   stack, inset 4px. Drop feedback is neutral grey, never a colour: a line in
+   the secondary label colour over a faint wash of the text colour. Native
+   browser feedback samples these resolved sRGB colours once per drag; the
+   workspace palette supplies both the line and its contrasting halo. The
+   preview below draws it over HTML panes. */
 .workspace-stage-drop-hint,
 .workspace-stage-drop-preview {
   position: absolute;
   z-index: 41;
   box-sizing: border-box;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  border: 1px solid var(--aven-drop-line);
   border-radius: var(--aven-radius-sm);
   outline: 0.5px solid
     color-mix(in srgb, var(--color-background-base) 90%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  background: var(--aven-drop-wash);
 }
 .workspace-stage-drop-hint {
   visibility: hidden;
@@ -340,7 +354,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   bottom: 4px;
   width: 1px;
   z-index: 42;
-  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: var(--aven-drop-line);
   border-radius: 2px;
   pointer-events: none;
 }

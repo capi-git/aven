@@ -1,5 +1,5 @@
 import { effectiveCssZoom } from "./drag";
-import { motionReduced } from "./motion";
+import { motionReduced, playBounded } from "./motion";
 import { DOCK_EASE, DOCK_TWEEN_MS } from "./paneDock";
 
 /**
@@ -52,13 +52,14 @@ export function captureDropGhost(
         shell.remove();
         return;
       }
-      const fade = shell.animate([{ opacity: 1 }, { opacity: 0 }], {
-        duration: DOCK_TWEEN_MS,
-        easing: DOCK_EASE,
-        fill: "forwards",
-      });
-      fade.onfinish = () => shell.remove();
-      fade.oncancel = () => shell.remove();
+      // Removed when the fade ends, or at its duration if WebKit holds the
+      // animation back: the ghost is never left behind.
+      playBounded(
+        shell,
+        [{ opacity: 1 }, { opacity: 0 }],
+        { duration: DOCK_TWEEN_MS, easing: DOCK_EASE, fill: "forwards" },
+        () => shell.remove(),
+      );
     },
   };
 }

@@ -30,7 +30,7 @@ beforeEach(() => {
     y: 180,
     toJSON() {},
   } as DOMRect);
-  animate = vi.fn(() => ({ onfinish: null, oncancel: null }));
+  animate = vi.fn(() => ({ onfinish: null, cancel: vi.fn() }));
   Object.defineProperty(HTMLElement.prototype, "animate", {
     configurable: true,
     value: animate,
@@ -74,6 +74,21 @@ describe("the drop ghost", () => {
     const fade = animate.mock.results[0].value as { onfinish: () => void };
     fade.onfinish();
     expect(shell.querySelector("[data-drop-ghost]")).toBeNull();
+  });
+
+  it("is removed at its duration even if WebKit never runs the fade", () => {
+    vi.useFakeTimers();
+    try {
+      captureDropGhost(item)!.fade();
+      expect(shell.querySelector("[data-drop-ghost]")).not.toBeNull();
+      // The fade never finishes on its own here.
+      vi.advanceTimersByTime(DOCK_TWEEN_MS + 60);
+      expect(shell.querySelector("[data-drop-ghost]")).toBeNull();
+      const fade = animate.mock.results[0].value as { cancel: () => void };
+      expect(fade.cancel).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("draws nothing with reduced motion or for a tab that is not laid out", () => {

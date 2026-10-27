@@ -24,7 +24,13 @@ import {
   restoreScrollOffsets,
   type ScrollOffsets,
 } from "../lib/hiddenSurfaces";
-import { MOTION_ATTRIBUTE, motionReduced, playMotion } from "../lib/motion";
+import {
+  MOTION_ATTRIBUTE,
+  motionReduced,
+  playBounded,
+  playMotion,
+  type BoundedMotion,
+} from "../lib/motion";
 import { subscribeMemoryPressure } from "../lib/memoryPressure";
 import {
   browserHandoffPending,
@@ -661,6 +667,9 @@ export function WorkspaceStage({
     // A pane expanding: the panes it covers fade out beneath it.
     if (zoomEntering && !motionReduced()) {
       setHeldOut(new Set(held));
+      // The hold ends on a timer, which is what removes these panes; each
+      // fade only dims them on the way and is dropped with the hold, so a
+      // timeline WebKit holds back cannot leave a pane half faded.
       const fades = [...held].flatMap((id) => {
         const node = surfaceNodes.current.get(id);
         return node && typeof node.animate === "function"
@@ -673,17 +682,11 @@ export function WorkspaceStage({
             ]
           : [];
       });
-      let cancelled = false;
-      // A native page coming forward still gets its handoff (see below).
-      const timer = window.setTimeout(() => {
-        void (
-          browserHandoffPending() ? waitForBrowserHandoff() : Promise.resolve()
-        ).then(() => {
-          if (!cancelled) setHeldOut(new Set());
-        });
-      }, ZOOM_GLIDE_MS);
+      const timer = window.setTimeout(
+        () => setHeldOut(new Set()),
+        ZOOM_GLIDE_MS,
+      );
       return () => {
-        cancelled = true;
         window.clearTimeout(timer);
         for (const fade of fades) fade.cancel();
       };
@@ -803,7 +806,8 @@ export function WorkspaceStage({
       ] as const) {
         if (!node || typeof node.animate !== "function") continue;
         if (end.width <= 0 || end.height <= 0) continue;
-        node.animate(
+        play(
+          node,
           grow
             ? [
                 { clipPath: dockClip(start, end, 0) },
@@ -850,15 +854,55 @@ export function WorkspaceStage({
   const previewNode = useRef<HTMLDivElement>(null);
   const previewState = useRef<{
     box: DockRect | null;
-    animation: Animation | null;
+    glide: BoundedMotion | null;
+    fade: BoundedMotion | null;
     split: boolean;
     dragLayout: LayoutNode | null;
-  }>({ box: null, animation: null, split: false, dragLayout: null });
+  }>({ box: null, glide: null, fade: null, split: false, dragLayout: null });
   const dropReveal = useRef<{
     box: DockRect;
     until: number;
     from: LayoutNode | null;
   } | null>(null);
+  // Every animation this stage starts is bounded (see playBounded), so a
+  // timeline WebKit holds back under a native page never leaves a preview,
+  // a clip or a fading pane on screen. Unmounting stops them all.
+  const stageMotions = useRef(new Set<BoundedMotion>());
+  const play = (
+    element: Element,
+    keyframes: Keyframe[],
+    options: { duration: number; easing?: string; fill?: FillMode },
+    onEnd?: () => void,
+  ) => {
+    const motions = stageMotions.current;
+    const motion: BoundedMotion = playBounded(
+      element,
+      keyframes,
+      options,
+      () => {
+        motions.delete(motion);
+        onEnd?.();
+      },
+    );
+    motions.add(motion);
+    return {
+      animation: motion.animation,
+      stop() {
+        motions.delete(motion);
+        motion.stop();
+      },
+    } satisfies BoundedMotion;
+  };
+  useLayoutEffect(() => {
+    const motions = stageMotions.current;
+    const preview = previewState.current;
+    return () => {
+      for (const motion of motions) motion.stop();
+      motions.clear();
+      preview.glide = null;
+      preview.fade = null;
+    };
+  }, []);
   const revealDrop = (box: DockRect) => {
     const container = stage.current;
     if (!container || motionReduced()) return;
@@ -886,7 +930,8 @@ export function WorkspaceStage({
         node.removeAttribute(MOTION_ATTRIBUTE);
       const to = stageBox(container, node.getBoundingClientRect());
       if (to.width <= 0 || to.height <= 0) continue;
-      node.animate(
+      play(
+        node,
         [
           { clipPath: dockClip(box, to) },
           { clipPath: "inset(0px 0px 0px 0px round 0px)" },
@@ -917,41 +962,40 @@ export function WorkspaceStage({
           until: performance.now() + DROP_REVEAL_WINDOW_MS,
           from: state.dragLayout,
         };
-      if (state.box) {
-        state.animation?.cancel();
-        state.animation = null;
-        if (animate) {
-          const fade = element.animate([{ opacity: 1 }, { opacity: 0 }], {
-            duration: DOCK_TWEEN_MS,
-            easing: DOCK_EASE,
-            fill: "forwards",
-          });
-          state.animation = fade;
-          fade.onfinish = () => {
-            if (state.animation !== fade) return;
-            state.animation = null;
+      state.glide?.stop();
+      state.glide = null;
+      if (state.box && animate && !state.fade) {
+        // Fade where it was; it is gone when the fade ends, run or not.
+        state.fade = play(
+          element,
+          [{ opacity: 1 }, { opacity: 0 }],
+          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE, fill: "forwards" },
+          () => {
+            state.fade = null;
             element.dataset.shown = "false";
-            fade.cancel();
-          };
-        } else element.dataset.shown = "false";
-      }
+          },
+        );
+      } else if (!state.fade) element.dataset.shown = "false";
       state.box = null;
       state.split = false;
     } else {
       // Glide from wherever the preview is drawn, even part way along.
       const drawn =
-        state.box && state.animation?.playState === "running"
+        state.box && state.glide
           ? stageBox(container, element.getBoundingClientRect())
           : state.box;
-      state.animation?.cancel();
-      state.animation = null;
+      state.glide?.stop();
+      state.glide = null;
+      state.fade?.stop();
+      state.fade = null;
       element.style.left = `${target.left}px`;
       element.style.top = `${target.top}px`;
       element.style.width = `${target.width}px`;
       element.style.height = `${target.height}px`;
       element.dataset.shown = "true";
-      if (drawn && animate && !sameBox(drawn, target))
-        state.animation = element.animate(
+      if (drawn && animate && !sameBox(drawn, target)) {
+        const glide = play(
+          element,
           [
             {
               transform: `translate(${drawn.left - target.left}px, ${drawn.top - target.top}px) scale(${drawn.width / target.width}, ${drawn.height / target.height})`,
@@ -959,7 +1003,12 @@ export function WorkspaceStage({
             { transform: "translate(0px, 0px) scale(1, 1)" },
           ],
           { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
+          () => {
+            if (state.glide === glide) state.glide = null;
+          },
         );
+        state.glide = glide;
+      }
       state.box = target;
       state.split = hintZone !== null && hintZone !== "join";
     }

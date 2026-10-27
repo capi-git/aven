@@ -313,7 +313,7 @@
 }
 .personal-tab-insertion {
   width: 1px;
-  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: var(--aven-drop-line, var(--aven-label-secondary));
 }
 /* Pointer dragging has its own insertion feedback. A keyboard-focus ring
    retained from an earlier selection must not wrap the moving tab. */

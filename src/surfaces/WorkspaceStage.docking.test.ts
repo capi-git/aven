@@ -42,6 +42,7 @@ let animations: Array<{
   element: Element;
   keyframes: Keyframe[];
   options: KeyframeAnimationOptions;
+  cancel?: ReturnType<typeof vi.fn>;
 }>;
 
 /** What each element measures: the stage, a pane's body, the drop hint. */
@@ -72,10 +73,11 @@ beforeEach(() => {
       keyframes: Keyframe[],
       options: KeyframeAnimationOptions,
     ) {
-      animations.push({ element: this, keyframes, options });
+      const cancel = vi.fn();
+      animations.push({ element: this, keyframes, options, cancel });
       return {
         playState: "running",
-        cancel: vi.fn(),
+        cancel,
         onfinish: null,
       } as unknown as Animation;
     },
@@ -303,5 +305,87 @@ describe("zoom", () => {
     await render({ layout: columns, zoomedId: null });
     await render({ layout: leaf("chat"), zoomedId: "chat" });
     expect(animations).toEqual([]);
+  });
+});
+
+describe("when WebKit holds the animation timeline back", () => {
+  // The mock's animations never finish on their own, as under a native page.
+  const preview = () =>
+    container.querySelector<HTMLElement>(".workspace-stage-drop-preview")!;
+  const shown = () => preview().dataset.shown;
+  async function dragOver(edge: "left" | "right") {
+    boxes.set(
+      "hint",
+      edge === "right"
+        ? { left: 504, top: 36, width: 492, height: 560 }
+        : { left: 4, top: 36, width: 492, height: 560 },
+    );
+    await render({ dragging: true, dragTarget: { id: "chat", edge } });
+    expect(shown()).toBe("true");
+  }
+
+  beforeEach(() => vi.useFakeTimers());
+
+  it("still removes the preview after a drop", async () => {
+    await render();
+    await dragOver("right");
+    await render({ dragging: false, dragTarget: null, layout: columns });
+    expect(shown()).toBe("true");
+    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    expect(shown()).toBe("false");
+    // Its fade is stopped too, so it holds no opacity of its own.
+    const fade = animationsOf(preview()).at(-1)!;
+    expect(fade.keyframes).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(fade.cancel).toHaveBeenCalled();
+  });
+
+  it("removes it when the drag is cancelled (Escape, blur, pointercancel)", async () => {
+    await render();
+    await dragOver("left");
+    // Every cancel reaches the stage as the drag ending with no target.
+    await render({ dragging: false, dragTarget: null });
+    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    expect(shown()).toBe("false");
+  });
+
+  it("removes it when the pointer leaves every pane mid-drag", async () => {
+    await render();
+    await dragOver("left");
+    await render({ dragging: true, dragTarget: null });
+    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    expect(shown()).toBe("false");
+  });
+
+  it("removes it when the workspace is hidden mid-drag", async () => {
+    await render();
+    await dragOver("left");
+    await render({ visible: false });
+    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    expect(shown()).toBe("false");
+  });
+
+  it("stops every animation and timer when the stage goes away", async () => {
+    await render();
+    await dragOver("left");
+    await render({ dragging: false, dragTarget: null });
+    const pending = vi.getTimerCount();
+    expect(pending).toBeGreaterThan(0);
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBeLessThan(pending);
+    expect(animationsOf(preview() ?? document.body).length).toBe(0);
+    expect(animations.at(-1)!.cancel).toHaveBeenCalled();
+    root = createRoot(container);
+  });
+
+  it("ends a pane's reveal and a zoom's clip at their durations", async () => {
+    await render({ layout: columns, focusedId: "browser" });
+    await render({ layout: leaf("browser"), zoomedId: "browser" });
+    const [grow] = animationsOf(surface("browser"));
+    // The held chat goes when the glide's time is up, run or not.
+    expect(surface("chat").dataset.handoff).toBe("out");
+    await act(async () => vi.advanceTimersByTime(ZOOM_GLIDE_MS + 60));
+    expect(surface("chat").dataset.handoff).toBeUndefined();
+    // And the expanding pane's clip is stopped, so none of it stays hidden.
+    expect(grow.cancel).toHaveBeenCalled();
   });
 });

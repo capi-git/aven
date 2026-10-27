@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
 import { effectiveCssZoom } from "../lib/drag";
-import { motionReduced } from "../lib/motion";
+import { motionReduced, playBounded, type BoundedMotion } from "../lib/motion";
 import {
   TAB_SLIDE_EASE,
   TAB_SLIDE_MS,
@@ -54,8 +54,8 @@ export function useTabHighlight(
     front: string | null;
     box: TrackBox | null;
     from: TrackBox | null;
-    animation: Animation | null;
-  }>({ front: null, box: null, from: null, animation: null });
+    slide: BoundedMotion | null;
+  }>({ front: null, box: null, from: null, slide: null });
   const current = useRef({ frontId, enabled });
   current.current = { frontId, enabled };
 
@@ -75,10 +75,7 @@ export function useTabHighlight(
     // A strip that is not laid out (hidden) keeps what it had until shown.
     if (slot && rect && rect.width <= 0 && rect.height <= 0) return;
     const target = slot && rect ? boxIn(root, rect) : null;
-    const running =
-      state.current.animation?.playState === "running"
-        ? state.current.animation
-        : null;
+    const running = state.current.slide?.animation ?? null;
     const drawn = running
       ? boxIn(root, element.getBoundingClientRect())
       : state.current.box;
@@ -93,8 +90,8 @@ export function useTabHighlight(
     const show = plan.to ? "on" : "off";
     if (root.dataset.tabHighlight !== show) root.dataset.tabHighlight = show;
     if (!plan.to) {
-      state.current.animation?.cancel();
-      state.current.animation = null;
+      state.current.slide?.stop();
+      state.current.slide = null;
       state.current.box = null;
       state.current.from = null;
       return;
@@ -106,19 +103,22 @@ export function useTabHighlight(
     }
     state.current.box = to;
     if (plan.from && typeof element.animate === "function") {
-      state.current.animation?.cancel();
+      state.current.slide?.stop();
       const from = plan.from;
       state.current.from = from;
-      const animation = element.animate(highlightKeyframes(from, to), {
-        duration: TAB_SLIDE_MS,
-        easing: TAB_SLIDE_EASE,
-      });
-      state.current.animation = animation;
-      animation.onfinish = () => {
-        if (state.current.animation !== animation) return;
-        state.current.animation = null;
-        state.current.from = null;
-      };
+      // Bounded: if WebKit holds the timeline back, the highlight still
+      // ends up under the front tab.
+      const slide = playBounded(
+        element,
+        highlightKeyframes(from, to),
+        { duration: TAB_SLIDE_MS, easing: TAB_SLIDE_EASE },
+        () => {
+          if (state.current.slide !== slide) return;
+          state.current.slide = null;
+          state.current.from = null;
+        },
+      );
+      state.current.slide = slide;
     } else if (running && state.current.from) {
       // The strip changed shape mid-slide (a tab growing in): keep sliding,
       // towards where the front tab is now.
@@ -146,8 +146,8 @@ export function useTabHighlight(
 
   useLayoutEffect(
     () => () => {
-      state.current.animation?.cancel();
-      state.current.animation = null;
+      state.current.slide?.stop();
+      state.current.slide = null;
     },
     [],
   );
