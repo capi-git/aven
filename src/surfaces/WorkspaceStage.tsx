@@ -779,14 +779,18 @@ export function WorkspaceStage({
       zoomPlaces.current = new Map(positions);
     }
     if (!container || !visible || motionReduced()) return;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    const px = (rect: LayoutRect): DockRect => ({
-      left: rect.x * width,
-      top: rect.y * height,
-      width: rect.w * width,
-      height: rect.h * height,
-    });
+    // Measured only when a pane does glide: reading the stage's size forces
+    // a layout, which an ordinary tab switch must not pay.
+    const px = (rect: LayoutRect): DockRect => {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      return {
+        left: rect.x * width,
+        top: rect.y * height,
+        width: rect.w * width,
+        height: rect.h * height,
+      };
+    };
     const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
       const surface = surfaceNodes.current.get(id);
       if (!surface || surface.querySelector(".browser-native-host")) return;
