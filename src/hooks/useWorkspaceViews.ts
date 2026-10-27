@@ -61,15 +61,29 @@ function loadStore(): Store {
   };
 }
 
+/** How long a + on the strip waits for its new tab to arrive. */
+const STRIP_NEWCOMER_MS = 3000;
+
 function resolveStrip(
   store: Store,
   key: string,
   ids: readonly string[],
   requestedFocus: string,
   initialLayout?: LayoutNode,
+  newcomersOnStrip = false,
 ): WorkspaceStrip {
-  return resolveWorkspaceStrip(store.strips[key], ids, requestedFocus, () =>
-    resolveWorkspaceView(store.legacy[key], ids, requestedFocus, initialLayout),
+  return resolveWorkspaceStrip(
+    store.strips[key],
+    ids,
+    requestedFocus,
+    () =>
+      resolveWorkspaceView(
+        store.legacy[key],
+        ids,
+        requestedFocus,
+        initialLayout,
+      ),
+    { newcomersOnStrip },
   );
 }
 
@@ -87,8 +101,20 @@ export function useWorkspaceViews(
   const storeRef = useRef(store);
   storeRef.current = store;
   const idsKey = ids.join("\0");
+  // A + on the strip asked for its next new tab to stand on the strip.
+  const stripNext = useRef(0);
+  const newcomersOnStrip = () =>
+    Date.now() - stripNext.current < STRIP_NEWCOMER_MS;
   const strip = useMemo(
-    () => resolveStrip(store, key, ids, requestedFocus, initialLayout),
+    () =>
+      resolveStrip(
+        store,
+        key,
+        ids,
+        requestedFocus,
+        initialLayout,
+        newcomersOnStrip(),
+      ),
     // `ids` is compared by content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [store, key, idsKey, requestedFocus],
@@ -106,6 +132,7 @@ export function useWorkspaceViews(
       update: (strip: WorkspaceStrip) => WorkspaceStrip,
       extraIds: readonly string[] = [],
     ) => {
+      const onStrip = Date.now() - stripNext.current < STRIP_NEWCOMER_MS;
       setStore((all) => {
         const context = current.current;
         const here = target === context.key;
@@ -120,6 +147,7 @@ export function useWorkspaceViews(
           [...new Set([...known, ...extraIds])],
           here ? context.requestedFocus : "",
           here ? context.initialLayout : undefined,
+          here && onStrip,
         );
         const next = update(before);
         if (JSON.stringify(next) === JSON.stringify(all.strips[target]))
@@ -179,6 +207,10 @@ export function useWorkspaceViews(
       mutate(current.current.key, (strip) => reorderStripEntries(strip, keys)),
     [mutate],
   );
+  /** The next new tab stands on the strip, even with a space in front. */
+  const openOnStrip = useCallback(() => {
+    stripNext.current = Date.now();
+  }, []);
   /** The view in front with tabs from other entries brought into it. */
   const viewWith = useCallback(
     (ids: readonly string[]) => stripViewWith(stripRef.current, ids),
@@ -205,10 +237,21 @@ export function useWorkspaceViews(
     )
       mutate(key, (strip) => focusStripTab(strip, requestedFocus));
   }, [key, requestedFocus, view.focusedId, mutate]);
-  // Migrate a project the first time it opens: its strip is written once.
+  // Write a project's strip the first time it opens (migrating it), and
+  // whenever new tabs join it, so where they went holds steady.
   useEffect(() => {
-    if (!store.strips[key]) mutate(key, (strip) => strip);
-  }, [key, store, mutate]);
+    const stored = store.strips[key];
+    const recorded = new Set(stored ? recordedStripIds(stored) : []);
+    const fresh = strip.entries.some((entry) =>
+      (entry.kind === "item" ? [entry.id] : viewMembers(entry.view)).some(
+        (id) => !recorded.has(id),
+      ),
+    );
+    if (!stored || fresh) {
+      mutate(key, (resolved) => resolved);
+      if (fresh) stripNext.current = 0;
+    }
+  }, [key, store, strip, mutate]);
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -233,5 +276,6 @@ export function useWorkspaceViews(
     get,
     reorderEntries,
     viewWith,
+    openOnStrip,
   };
 }

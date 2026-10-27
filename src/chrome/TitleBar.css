@@ -708,3 +708,14 @@ button.aven-tab-deck:focus-visible {
     transition: none;
   }
 }
+
+/* A space on the window's strip: its panes in miniature where a tab has its
+   icon, in the label's grey. */
+.aven-space-glyph {
+  flex-shrink: 0;
+  fill: currentColor;
+  opacity: 0.75;
+}
+.aven-space-tab[data-active="true"] .aven-space-glyph {
+  opacity: 1;
+}

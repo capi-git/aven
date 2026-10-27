@@ -132,7 +132,6 @@ import {
 } from "./surfaces/WorkspaceStage";
 import {
   revealBesideWorkspaceView,
-  selectWorkspaceView,
   closeWorkspaceViews,
   toggleWorkspaceExpansion,
   resolveWorkspaceView,
@@ -146,8 +145,16 @@ import {
   applyWorkspaceIntent,
   hiddenSplitStatus,
   neighborCombineTargets,
+  workspaceIntentIds,
   type WorkspaceIntent,
 } from "./lib/workspaceIntents";
+import {
+  entryKey,
+  stepStripEntry,
+  stripEntryAt,
+  stripEntryFocus,
+  stripItems,
+} from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
   loadWorkspaceRecovery,
@@ -287,7 +294,9 @@ import {
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
 import {
+  tabCopy,
   TitleBar,
+  type StripSpaceTab,
   type Tab as TitleTab,
   type TitleBarProps,
 } from "./chrome/TitleBar";
@@ -1656,7 +1665,12 @@ export default function App({
   }, []);
   const onWorkspaceIntent = useCallback(
     (intent: WorkspaceIntent) => {
-      const result = applyWorkspaceIntent(viewRef.current.view, intent);
+      // A tab from elsewhere on the strip (a single tab dropped into the
+      // space in front, say) joins the view in front for the move.
+      const result = applyWorkspaceIntent(
+        viewRef.current.viewWith(workspaceIntentIds(intent)),
+        intent,
+      );
       result.keep.forEach(onKeepBrowser);
       changeLayout(() => result.view);
     },
@@ -1771,9 +1785,7 @@ export default function App({
           },
         };
       });
-      viewRef.current.change((view) =>
-        selectWorkspaceView(view, browserIdForTab(projectCwd, target.id)),
-      );
+      viewRef.current.select(browserIdForTab(projectCwd, target.id));
       setComposerFocused(false);
     },
     [browserState, projectCwd, onNewBrowserTab, setHomeViewOpen],
@@ -4515,25 +4527,31 @@ export default function App({
       if (browserSurfaces.some((tab) => tab.surfaceId === id))
         onSelectBrowserTab(id);
       else {
-        viewRef.current.change((view) => selectWorkspaceView(view, id));
+        viewRef.current.select(id);
         activateTab(id);
       }
     },
     [browserSurfaces, onSelectBrowserTab, activateTab],
   );
-  const onNext = useCallback(() => {
-    const { groups, focusedId } = viewRef.current.view;
-    const order = groups[focusedId] ?? [];
-    const index = order.indexOf(focusedId);
-    if (order.length) onSelectSurface(order[(index + 1) % order.length]);
-  }, [onSelectSurface]);
-  const onPrev = useCallback(() => {
-    const { groups, focusedId } = viewRef.current.view;
-    const order = groups[focusedId] ?? [];
-    const index = order.indexOf(focusedId);
-    if (order.length)
-      onSelectSurface(order[(index - 1 + order.length) % order.length]);
-  }, [onSelectSurface]);
+  // ⌃⇥ as in Cydonia: through the focused pane's stack when a space is in
+  // front and the pane holds two tabs or more; otherwise along the strip,
+  // single tabs and spaces alike.
+  const cycleSurface = useCallback(
+    (step: number) => {
+      const { view, strip } = viewRef.current;
+      const stack = view.groups[view.focusedId] ?? [];
+      if (workspaceIsSpace(view) && stack.length >= 2) {
+        const index = stack.indexOf(view.focusedId);
+        onSelectSurface(stack[(index + step + stack.length) % stack.length]);
+        return;
+      }
+      const id = stripEntryFocus(strip, stepStripEntry(strip, step));
+      if (id) onSelectSurface(id);
+    },
+    [onSelectSurface],
+  );
+  const onNext = useCallback(() => cycleSurface(1), [cycleSurface]);
+  const onPrev = useCallback(() => cycleSurface(-1), [cycleSurface]);
   // Cydonia's pane keys: the next or previous pane in layout order (left to
   // right, each column top to bottom), and expanding the focused pane.
   const onStepPane = useCallback(
@@ -4628,11 +4646,12 @@ export default function App({
     [navigateHistory],
   );
 
+  // ⌘1 to ⌘8 pick the strip's entries by place, ⌘9 the last.
   const onActivate = useCallback(
     (slot: number) => {
-      const { groups, focusedId } = viewRef.current.view;
-      const order = groups[focusedId] ?? [];
-      const id = order[slot < 0 ? order.length - 1 : slot];
+      const { strip } = viewRef.current;
+      const key = stripEntryAt(strip, slot);
+      const id = key ? stripEntryFocus(strip, key) : undefined;
       if (id) onSelectSurface(id);
     },
     [onSelectSurface],
@@ -4875,9 +4894,7 @@ export default function App({
       );
       if (!target) return;
       if (target.tabId !== tab?.id) {
-        viewRef.current.change((view) =>
-          selectWorkspaceView(view, target.tabId),
-        );
+        viewRef.current.select(target.tabId);
         activateTab(target.tabId, false, target.session.id);
       }
       // After the chat's tab shows, so its message box can take focus.
@@ -9639,7 +9656,7 @@ export default function App({
       if (project !== projectCwd) return;
       const tab = { id: crypto.randomUUID(), url };
       // Like the pane's own new-tab button: the link's page owns the new tab.
-      workspaceViews.change((view) => selectWorkspaceView(view, id));
+      workspaceViews.select(id);
       if (!background) setHomeViewOpen(false);
       setBrowserWorkspaces((all) => {
         const current = all[project] ?? EMPTY_BROWSER;
@@ -9652,7 +9669,7 @@ export default function App({
       });
     },
     addToChat: (text, attachments) => {
-      workspaceViews.change((view) => selectWorkspaceView(view, activeTabId));
+      workspaceViews.select(activeTabId);
       activateTab(activeTabId);
       requestAnimationFrame(() => requestAddToChat(text, "plain", attachments));
     },
@@ -10697,6 +10714,24 @@ export default function App({
       },
     };
   };
+  const browserTabsFor = (ids: readonly string[]) =>
+    browserSurfaces
+      .filter((tab) => ids.includes(tab.surfaceId))
+      .map((tab) => ({
+        id: tab.surfaceId,
+        favicon: tab.favicon,
+        kept: tab.kept,
+        url: tab.url,
+        // A race agent's page says whose
+        // version it shows.
+        title: racePreviewTitle(
+          tab.title ||
+            (tab.url
+              ? tab.url.replace(/^https?:\/\//, "").split("/")[0]
+              : "New browser tab"),
+          racePreviewLabelFor(tab.url),
+        ),
+      }));
   const paneBar = (owner: string, extra: Partial<TitleBarProps>) => {
     const members = view.groups[owner] ?? [owner];
     return (
@@ -10712,23 +10747,7 @@ export default function App({
         sidebarOpen={sidebarOpen}
         inspectorOpen={inspector.open && workspaceVisible}
         onToggleInspector={onToggleInspector}
-        browserTabs={browserSurfaces
-          .filter((tab) => members.includes(tab.surfaceId))
-          .map((tab) => ({
-            id: tab.surfaceId,
-            favicon: tab.favicon,
-            kept: tab.kept,
-            url: tab.url,
-            // A race agent's page says whose
-            // version it shows.
-            title: racePreviewTitle(
-              tab.title ||
-                (tab.url
-                  ? tab.url.replace(/^https?:\/\//, "").split("/")[0]
-                  : "New browser tab"),
-              racePreviewLabelFor(tab.url),
-            ),
-          }))}
+        browserTabs={browserTabsFor(members)}
         browserOpen={browserState.open}
         browserActive={browserFocused}
         visibleIds={visibleSurfaceIds}
@@ -10782,15 +10801,13 @@ export default function App({
         onSurfaceDragMove={onSurfaceDragMove}
         onSurfaceDragEnd={onSurfaceDragEnd}
         onNewBrowser={() => {
-          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          workspaceViews.select(owner);
           onNewBrowserTab();
         }}
         onOpenBoard={
           looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
             ? () => {
-                workspaceViews.change((view) =>
-                  selectWorkspaceView(view, owner),
-                );
+                workspaceViews.select(owner);
                 onOpenBoard();
               }
             : undefined
@@ -10816,11 +10833,11 @@ export default function App({
         onCloseBrowser={onCloseBrowserTab}
         onToggleSidebar={onToggleSidebar}
         onSelect={(id) => {
-          workspaceViews.change((view) => selectWorkspaceView(view, id));
+          workspaceViews.select(id);
           activateTab(id);
         }}
         onNew={() => {
-          workspaceViews.change((view) => selectWorkspaceView(view, owner));
+          workspaceViews.select(owner);
           onNew();
         }}
         onShowTerminal={undefined}
@@ -10853,15 +10870,65 @@ export default function App({
   const splitTabIds = new Set(
     tabs.filter((tab) => tab.layout?.type === "split").map((tab) => tab.id),
   );
+  // The window's strip, as in Cydonia: each single tab, and each space (an
+  // arrangement of panes) named by the tab in front of it. Switching entries
+  // changes the whole arrangement.
+  const strip = workspaceViews.strip;
+  const stripItemIds = stripItems(strip);
+  const surfaceLabel = (id: string) => {
+    const tab = titleTabs.find((candidate) => candidate.id === id);
+    if (tab) return tabCopy(tab, isProjectlessCwd(projectCwd)).headline;
+    return browserTabsFor([id])[0]?.title ?? "";
+  };
+  const stripSpaces: StripSpaceTab[] = strip.entries.flatMap((entry) => {
+    if (entry.kind !== "space" || !entry.view.layout) return [];
+    // An expanded pane's space still draws its whole arrangement.
+    const layout = entry.view.restoreView?.layout ?? entry.view.layout;
+    const rects = layoutLeaves(layout).map(({ rect }) => rect);
+    return [
+      {
+        id: entryKey(entry),
+        title: surfaceLabel(entry.view.focusedId),
+        panes: rects.length,
+        rects,
+      },
+    ];
+  });
   const windowStrip =
     workspaceVisible && !settingsOpen && view.layout && windowStripOwner
       ? paneBar(windowStripOwner, {
           variant: "strip",
           hideLoneTab: true,
           windowTitle: false,
-          // A space is one tab of the strip, and one tab shows none: only
-          // the strip's New chat, browser and board buttons remain.
-          ...(spaceMode ? { tabs: [], browserTabs: [] } : {}),
+          tabs: titleTabs.filter((tab) => stripItemIds.includes(tab.id)),
+          browserTabs: browserTabsFor(stripItemIds),
+          spaces: stripSpaces,
+          surfaceOrder: strip.entries.map(entryKey),
+          activeId: strip.front,
+          visibleIds: [strip.front],
+          onSelectSpace: (key) => {
+            const id = stripEntryFocus(strip, key);
+            if (id) onSelectSurface(id);
+          },
+          onReorderSurfaces: (ids, movedId) => {
+            workspaceViews.reorderEntries(ids);
+            onReorderTabs(
+              ids.filter((id) => tabs.some((tab) => tab.id === id)),
+              movedId && tabs.some((tab) => tab.id === movedId)
+                ? movedId
+                : undefined,
+            );
+          },
+          // The strip's + opens a single tab on the strip, even while a
+          // space is in front.
+          onNew: () => {
+            workspaceViews.openOnStrip();
+            onNew();
+          },
+          onNewBrowser: () => {
+            workspaceViews.openOnStrip();
+            onNewBrowserTab();
+          },
         })
       : null;
 
@@ -11119,9 +11186,7 @@ export default function App({
                                 )
                                   onSelectBrowserTab(id);
                                 else {
-                                  workspaceViews.change((view) =>
-                                    selectWorkspaceView(view, id),
-                                  );
+                                  workspaceViews.select(id);
                                   activateTab(id);
                                 }
                               }}

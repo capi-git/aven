@@ -160,6 +160,8 @@ export function resolveWorkspaceStrip(
   ids: readonly string[],
   requestedFocus: string,
   fallback: () => WorkspaceView,
+  /** New tabs go on the strip even with a space in front (its + button). */
+  { newcomersOnStrip = false }: { newcomersOnStrip?: boolean } = {},
 ): WorkspaceStrip {
   const parsed = parseEntries(value);
   if (!parsed)
@@ -168,6 +170,7 @@ export function resolveWorkspaceStrip(
       ids,
       requestedFocus,
       fallback,
+      { newcomersOnStrip },
     );
   const allowed = new Set(ids);
   const claimed = new Set<string>();
@@ -203,7 +206,7 @@ export function resolveWorkspaceStrip(
   if (newcomers.length) {
     const at = entries.findIndex((entry) => entryKey(entry) === front);
     const host = entries[at];
-    if (host?.kind === "space") {
+    if (host?.kind === "space" && !newcomersOnStrip) {
       const view = resolveWorkspaceView(
         host.view,
         [...viewMembers(host.view), ...newcomers],

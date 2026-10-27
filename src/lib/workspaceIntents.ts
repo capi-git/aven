@@ -50,6 +50,14 @@ export type WorkspaceIntentResult = {
   keep: string[];
 };
 
+/** Tabs an intent moves, which may come from elsewhere on the strip. */
+export function workspaceIntentIds(intent: WorkspaceIntent): string[] {
+  if (intent.type === "drop") return [intent.id];
+  if (intent.type === "split")
+    return intent.beside ? [intent.id, intent.beside] : [intent.id];
+  return [];
+}
+
 export function applyWorkspaceIntent(
   view: WorkspaceView,
   intent: WorkspaceIntent,

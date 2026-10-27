@@ -245,6 +245,12 @@ export type TitleBarProps = {
     pointer?: SortablePointerPosition,
   ) => boolean;
   onSelectBrowser?: (id?: string) => void;
+  /**
+   * The window strip's spaces (Cydonia's window tabs that hold an
+   * arrangement of panes), in `surfaceOrder` beside the single tabs.
+   */
+  spaces?: StripSpaceTab[];
+  onSelectSpace?: (id: string) => void;
   onCloseBrowser?: (id?: string) => void;
   onBrowserModeChange?: (mode: "tab" | "split") => void;
   inspectorOpen?: boolean;
@@ -662,6 +668,128 @@ function TitleTabItem({
             <X className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A space on the window's strip: the tab in front of it names it, and a
+ * small glyph draws its panes.
+ */
+export type StripSpaceTab = {
+  id: string;
+  title: string;
+  panes: number;
+  /** Each pane's place, as shares of the space. */
+  rects: Array<{ x: number; y: number; w: number; h: number }>;
+};
+
+/** A space's panes in miniature, in place of a tab's icon. */
+function SpaceGlyph({ rects }: { rects: StripSpaceTab["rects"] }) {
+  const width = 14;
+  const height = 11;
+  const gap = 0.75;
+  return (
+    <svg
+      className="aven-space-glyph"
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-hidden
+    >
+      {rects.map((rect, index) => (
+        <rect
+          key={index}
+          x={rect.x * width + gap}
+          y={rect.y * height + gap}
+          width={Math.max(1, rect.w * width - gap * 2)}
+          height={Math.max(1, rect.h * height - gap * 2)}
+          rx={1.25}
+        />
+      ))}
+    </svg>
+  );
+}
+
+function SpaceTitleTabItem({
+  space,
+  index,
+  active,
+  tabStop,
+  canDrag,
+  sortable,
+  onSelect,
+  opening = false,
+  itemRef,
+  separator = false,
+}: {
+  space: StripSpaceTab;
+  index: number;
+  active: boolean;
+  tabStop: boolean;
+  canDrag: boolean;
+  sortable: SortableApi;
+  onSelect: () => void;
+  opening?: boolean;
+  itemRef?: (element: HTMLDivElement | null) => void;
+  separator?: boolean;
+}) {
+  const panes = `${space.panes} panes`;
+  const label = space.title.trim() || panes;
+  const dropBefore =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index < sortable.fromIndex;
+  const dropAfter =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index > sortable.fromIndex;
+  return (
+    <div
+      ref={(element) => {
+        sortable.setItemRef(space.id, element);
+        itemRef?.(element);
+      }}
+      className="personal-title-tab aven-tab aven-tab-slot aven-space-tab group relative flex h-full min-w-0 touch-none items-center"
+      data-active={active}
+      data-space-tab
+      data-surface-tab-id={space.id}
+      data-draggable={canDrag || undefined}
+      data-motion-slot={space.id}
+      data-tab-opening={opening || undefined}
+      {...{ [TAB_TRACK_ID_ATTRIBUTE]: space.id }}
+      data-tab-separator={separator || undefined}
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => {
+        if (canDrag) sortable.onItemPointerDown(space.id, event);
+      }}
+      onClick={() => {
+        if (!sortable.consumeClick()) onSelect();
+      }}
+    >
+      {dropBefore ? (
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
+      ) : null}
+      {dropAfter ? (
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
+      ) : null}
+      <div className="aven-tab-motion" data-sortable-motion>
+        <button
+          type="button"
+          role="tab"
+          tabIndex={tabStop ? 0 : -1}
+          aria-selected={active}
+          aria-label={`Space: ${label}, ${panes}`}
+          data-sortable-glass
+          title={label === panes ? label : `${label} · ${panes}`}
+          className="personal-title-tab-button aven-tab-button flex min-w-0 flex-1 items-center"
+        >
+          <SpaceGlyph rects={space.rects} />
+          <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
+            {label}
+          </span>
+        </button>
       </div>
     </div>
   );
@@ -1229,6 +1357,8 @@ function TitleBarComponent({
   onKeepBrowser,
   browserPreviewId,
   surfaceOrder,
+  spaces,
+  onSelectSpace,
   visibleIds,
   onReorderSurfaces,
   onSplitTab,
@@ -1294,9 +1424,13 @@ function TitleBarComponent({
     (browserOpen
       ? [{ id: LEGACY_BROWSER_ID, title: browserTitle ?? "Browser" }]
       : []);
+  const spaceTabs = useMemo(
+    () => new Map((spaces ?? []).map((space) => [space.id, space])),
+    [spaces],
+  );
   const allOrderedIds = titleSurfaceOrder(
     tabIds,
-    browserEntries.map((tab) => tab.id),
+    [...browserEntries.map((tab) => tab.id), ...spaceTabs.keys()],
     surfaceOrder,
   );
   const focusedId = unified
@@ -1316,6 +1450,7 @@ function TitleBarComponent({
   const previewEnabled = Boolean(onKeepBrowser);
   const keptIds = new Set([
     ...tabIds,
+    ...spaceTabs.keys(),
     ...browserEntries
       .filter((tab) => tab.kept || (shown.has(tab.id) && tab.id !== focusedId))
       .map((tab) => tab.id),
@@ -1433,12 +1568,14 @@ function TitleBarComponent({
     {
       animate: true,
       onDragMove: (id, x, y, pointer) => {
-        if (!chipGroupId(id)) onSurfaceDragMove?.(id, x, y, pointer);
+        if (!chipGroupId(id) && !spaceTabs.has(id))
+          onSurfaceDragMove?.(id, x, y, pointer);
       },
       onDragEnd: (id, x, y, cancelled, pointer) => {
         const dragged = chipGroupId(id);
-        // Group labels reorder within this strip; leaving the window cancels.
-        if (dragged) return false;
+        // Group labels and spaces reorder within this strip; leaving the
+        // window cancels.
+        if (dragged || spaceTabs.has(id)) return false;
         const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
         // A tab that left this strip for another pane or window leaves its group.
         if (consumed && !cancelled && groupState.members[id])
@@ -2288,6 +2425,23 @@ function TitleBarComponent({
           />
         </div>
       );
+    const space = spaceTabs.get(id);
+    if (space)
+      return (
+        <SpaceTitleTabItem
+          key={id}
+          space={space}
+          index={index}
+          active={id === focusedId}
+          tabStop={id === tabStopId}
+          canDrag={canDrag}
+          sortable={sortable}
+          onSelect={() => onSelectSpace?.(id)}
+          opening={slotMotion.opening.has(id)}
+          itemRef={itemRef}
+          separator={separators.has(id)}
+        />
+      );
     if (!browser) return null;
     return (
       <BrowserTitleTabItem
@@ -2574,6 +2728,7 @@ function TitleBarComponent({
               )?.dataset.surfaceTabId;
               nextButton?.focus();
               if (id && sessionTabs.has(id)) onSelect(id);
+              else if (id && spaceTabs.has(id)) onSelectSpace?.(id);
               else if (id && browsers.has(id))
                 onSelectBrowser?.(unified ? id : undefined);
             }}
@@ -2923,6 +3078,7 @@ const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "tabs",
   "browserTabs",
   "surfaceOrder",
+  "spaces",
   "visibleIds",
   "combineTargets",
   "recents",
