@@ -69,7 +69,9 @@
   outline: none;
 }
 
-.aven-menu-item:focus-visible {
+/* Keyboard focus: the row's grey and a hairline ring, inside a ToolbarPanel
+   too (whose own buttons take a 2px ring). */
+.aven-menu .aven-menu-item:focus-visible {
   outline: 1px solid var(--aven-menu-focus);
   outline-offset: -1px;
 }

@@ -14,7 +14,9 @@
   background: var(--aven-popup);
   box-shadow: var(--aven-specular);
 }
-.aven-popover-frame :is(button, [role="menuitem"]):focus-visible {
+/* Menu rows draw their own keyboard ring (Menu.css). */
+.aven-popover-frame
+  :is(button, [role="menuitem"]):not(.aven-menu-item):focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
 }
