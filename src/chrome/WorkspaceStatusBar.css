@@ -183,7 +183,7 @@
 }
 .workspace-status-task:hover,
 .workspace-status-task[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-quaternary);
   color: var(--color-content);
 }
 
@@ -296,7 +296,7 @@
 .workspace-status-navigation button:hover,
 .workspace-status-history button:hover:not(:disabled),
 .workspace-status-layout button:hover {
-  background: var(--personal-hover);
+  background: var(--aven-hover);
   color: var(--color-content);
 }
 .workspace-status-navigation button[aria-pressed="true"],
@@ -345,7 +345,7 @@
 .workspace-status-unread {
   min-width: 15px;
   padding: 1px 4px;
-  border-radius: 8px;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-micro);
   line-height: 13px;
   background: var(--color-content);
@@ -425,7 +425,7 @@
 }
 .workspace-navigation-more:hover,
 .workspace-navigation-more[aria-expanded="true"] {
-  background: var(--personal-hover);
+  background: var(--aven-hover);
   color: var(--color-content);
 }
 .workspace-navigation button:focus-visible {

@@ -85,7 +85,7 @@
 .browser-icon-button:hover:not(:disabled),
 .browser-icon-button[aria-pressed="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-quaternary);
 }
 .browser-icon-button[aria-pressed="true"] {
   background: var(
@@ -164,7 +164,7 @@
   color: color-mix(in srgb, var(--color-content) 38%, transparent);
 }
 .browser-address:focus {
-  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline: 2px solid var(--aven-field-focus);
   outline-offset: 0;
 }
 .browser-edit-hint {
@@ -191,7 +191,7 @@
   display: inline-flex;
 }
 .browser-toolbar-more[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 @container browser-pane (max-width: 360px) {
@@ -256,7 +256,7 @@
   cursor: pointer;
 }
 .browser-notice > button:hover {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-quaternary);
 }
 .browser-notice > .browser-notice-action {
   flex: 0 0 auto;

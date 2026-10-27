@@ -958,7 +958,7 @@ function BrowserTitleTabItem({
             aria-expanded={menuOpen}
             data-no-drag
             onPointerDown={(event) => event.stopPropagation()}
-            className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
+            className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-(--aven-control-bg) hover:text-content"
             onClick={(event) => {
               event.stopPropagation();
               onMenu(event.currentTarget);
@@ -1141,7 +1141,7 @@ function TabStripChevron({
       data-tauri-drag-region="false"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-content/10 backdrop-blur-xl text-content/70 hover:bg-content/15 hover:text-content ${
+      className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-(--aven-control-bg) backdrop-blur-xl text-content/70 hover:bg-(--aven-control-hover) hover:text-content ${
         side === "left" ? "left-1" : "right-1"
       }`}
     >
@@ -1184,10 +1184,10 @@ export function IconButton({
         disabled
           ? "text-content/25"
           : accent
-            ? "text-content hover:bg-content/10"
+            ? "text-content hover:bg-(--aven-control-bg)"
             : active
-              ? "text-content hover:bg-content/10"
-              : "text-content/50 hover:bg-content/10 hover:text-content"
+              ? "text-content hover:bg-(--aven-control-bg)"
+              : "text-content/50 hover:bg-(--aven-control-bg) hover:text-content"
       }`}
     >
       {children}

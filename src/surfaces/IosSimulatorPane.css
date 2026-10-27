@@ -102,7 +102,7 @@
 }
 .ios-sim-icon:hover:not(:disabled),
 .ios-sim-link:hover {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-quaternary);
   color: var(--color-content);
 }
 .ios-sim-chip:hover:not(:disabled),

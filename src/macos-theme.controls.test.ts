@@ -79,16 +79,13 @@ describe("shared controls", () => {
   });
 
   it("lifts buttons and rows by the shared steps, not literal greys", () => {
-    // Pane headers and toolbars are being rebuilt in their own work.
+    // Toolbars whose buttons still hover at an 8% grey, which no shared
+    // step matches, and the detached window's and the stage's own controls.
     const toolbars = new Set([
-      "src/chrome/TitleBar.css",
       "src/chrome/WorkspaceStatusBar.css",
-      "src/chrome/WorkspaceFooter.css",
       "src/chrome/FooterUsage.css",
       "src/surfaces/BrowserPane.css",
       "src/surfaces/DetachedWorkspace.css",
-      "src/surfaces/IosSimulatorPane.css",
-      "src/surfaces/PdfViewer.css",
       "src/surfaces/WorkspaceStage.css",
     ]);
     const literal: string[] = [];

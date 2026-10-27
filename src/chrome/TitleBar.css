@@ -114,7 +114,7 @@
   transform: translateY(-50%);
 }
 .aven-tab-close:hover {
-  background: var(--aven-fill-secondary);
+  background: var(--aven-control-hover);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-close {
@@ -286,7 +286,7 @@
 }
 .personal-shell .personal-titlebar .personal-titlebar-tool:hover {
   color: var(--color-content);
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
 }
 .personal-shell .personal-titlebar[data-pane-local="true"] {
   height: 32px;
@@ -416,10 +416,10 @@
 .personal-tab-preview-action:hover,
 .personal-tab-preview-action[aria-expanded="true"] {
   color: var(--color-content);
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
 }
 .personal-tab-preview-action:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: -2px;
 }
 
@@ -714,7 +714,7 @@
 }
 .aven-pane-tool:hover,
 .aven-pane-tool[aria-expanded="true"] {
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 .aven-pane-tool:focus-visible {
