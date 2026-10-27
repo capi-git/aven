@@ -6,6 +6,7 @@
 //! runs in basic mode (polled `simctl` screenshots, XCUITest input).
 #![cfg(target_os = "macos")]
 
+use crate::ios_sim_boot::{self, BootFacts, BootId, InputStep};
 use crate::ios_sim_devices::{self, SimDeviceInfo};
 use crate::ios_sim_native as native;
 use crate::ios_sim_xcode::{self, AppProduct, BuildIssue, XcodeContainer};
@@ -88,10 +89,14 @@ struct State {
     /// Devices Aven booted or the person picked in each project's pane: the
     /// only ones that project's agents may drive.
     scope: HashMap<String, BTreeSet<String>>,
-    /// Devices whose input Aven made ready since their last boot.
-    ready: BTreeSet<String>,
-    /// When Aven booted a device, for the post-boot input workaround.
-    booted_at: HashMap<String, Instant>,
+    /// The boot of each device whose input Aven made (or found) ready.
+    ready: HashMap<String, BootId>,
+    /// Boots Aven started, and when if it was in this session (for the wait
+    /// for CoreDevice's announcement). Kept in `boots.json` across restarts.
+    aven_boots: HashMap<String, (BootId, Option<Instant>)>,
+    aven_boots_loaded: bool,
+    /// The device each project's pane shows.
+    pane_devices: HashMap<String, String>,
     /// Build settings per (container, scheme).
     products: HashMap<(PathBuf, String), AppProduct>,
     /// The webview each live view sits above, as a pointer.
@@ -655,7 +660,13 @@ pub async fn ios_sim_devices() -> Result<DeviceList, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let devices = list_devices()?;
         remember_known(&devices);
-        let ours: BTreeSet<String> = state().booted_at.keys().cloned().collect();
+        // Simulators Aven started, in this session or before a restart, come
+        // first, so a pane never boots another one while Aven's still runs.
+        let ours: BTreeSet<String> = devices
+            .iter()
+            .filter(|d| d.booted && boot_facts(&d.udid, d.data_path.as_deref()).aven_booted())
+            .map(|d| d.udid.to_uppercase())
+            .collect();
         let suggested = ios_sim_devices::default_device(&devices, &ours).map(|d| d.udid.clone());
         Ok(DeviceList { devices, suggested })
     })
@@ -694,7 +705,7 @@ fn notify_flag(udid: &str) -> Option<u64> {
 /// Xcode 27.1's CoreDevice HID daemon makes the simulator ignore SimulatorKit
 /// input once it announces itself after a boot. Mark it inactive and restart
 /// backboardd so the input services start fresh (the home screen restarts
-/// once, about 11 seconds). Returns whether the device was restarted.
+/// once). Returns whether the device was restarted.
 fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
     if !has_dtuhidd(udid) {
         return Ok(false);
@@ -704,16 +715,25 @@ fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
         match notify_flag(udid) {
             Some(1) => break,
             _ if Instant::now() >= deadline => return Ok(false),
-            _ => std::thread::sleep(Duration::from_millis(500)),
+            _ => std::thread::sleep(Duration::from_millis(100)),
         }
     }
-    simctl(
-        &["spawn", udid, "notifyutil", "-s", DTUHIDD_FLAG, "0"],
-        Duration::from_secs(10),
-    )?;
-    simctl(
-        &["spawn", udid, "notifyutil", "-p", DTUHIDD_FLAG],
-        Duration::from_secs(10),
+    // Clear the flag and tell its listeners in one call.
+    checked(
+        simctl(
+            &[
+                "spawn",
+                udid,
+                "notifyutil",
+                "-s",
+                DTUHIDD_FLAG,
+                "0",
+                "-p",
+                DTUHIDD_FLAG,
+            ],
+            Duration::from_secs(10),
+        )?,
+        "Preparing the simulator's input",
     )?;
     let _ = simctl(
         &[
@@ -727,7 +747,9 @@ fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
         Duration::from_secs(20),
     );
     native::reset(udid);
-    // SpringBoard is back once its job has a process again.
+    // SpringBoard is back once its job has a process again. Waiting longer,
+    // until it takes app launches, measured slower overall: an install
+    // started while it comes back finishes sooner than one started after.
     let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         let listed = simctl(
@@ -764,14 +786,77 @@ pub(crate) enum Readiness {
 const NEEDS_PICK: &str =
     "Pick this iPhone again in the device menu to make touches work (its home screen restarts once)";
 
-/// Boots `udid` if needed and makes its input ready. The input fix (which
-/// restarts the home screen) runs only on a device Aven booted, or one the
-/// person picked in the pane (`picked`). `project` gets status updates.
-pub(crate) fn ensure_device(
+/// Stands in for a boot that cannot be named (no data folder): the record
+/// then holds until a boot can be read.
+const UNKNOWN_BOOT: BootId = 0;
+
+fn boots_file() -> Option<PathBuf> {
+    data_root().ok().map(|root| root.join("boots.json"))
+}
+
+/// Boots Aven started, read once from `boots.json` (an earlier session's
+/// boots that are still running stay Aven's).
+fn load_aven_boots(state: &mut State) {
+    if state.aven_boots_loaded {
+        return;
+    }
+    state.aven_boots_loaded = true;
+    let saved: HashMap<String, BootId> = boots_file()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    for (udid, boot) in saved {
+        state.aven_boots.entry(udid).or_insert((boot, None));
+    }
+}
+
+fn save_aven_boots(state: &State) {
+    let Some(path) = boots_file() else { return };
+    let boots: HashMap<&String, BootId> = state
+        .aven_boots
+        .iter()
+        .filter(|(_, (boot, _))| *boot != UNKNOWN_BOOT)
+        .map(|(udid, (boot, _))| (udid, *boot))
+        .collect();
+    if let Ok(json) = serde_json::to_vec(&boots) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// What Aven knows about a device's current boot.
+fn boot_facts(udid: &str, data_path: Option<&Path>) -> BootFacts {
+    let key = udid.to_uppercase();
+    let current = data_path.and_then(ios_sim_boot::boot_id);
+    let mut state = state();
+    load_aven_boots(&mut state);
+    BootFacts {
+        current,
+        ready: state.ready.get(&key).copied(),
+        started_by_aven: state
+            .aven_boots
+            .get(&key)
+            .map(|(boot, at)| (*boot, at.map(|at| at.elapsed()))),
+    }
+}
+
+fn mark_ready(udid: &str, facts: &BootFacts) {
+    state()
+        .ready
+        .insert(udid.to_uppercase(), facts.current.unwrap_or(UNKNOWN_BOOT));
+}
+
+/// Boots `udid` if needed and makes its input ready, once per boot. The input
+/// fix (which restarts the home screen) runs only on a boot Aven started, or
+/// on a device the person picked in the pane (`picked`). Progress goes to
+/// `report` (phase and message).
+pub(crate) fn prepare_device(
     project: &str,
     udid: &str,
-    generation: Option<u64>,
     picked: bool,
+    report: &dyn Fn(Phase, String),
 ) -> Result<Readiness, String> {
     if !ios_sim_devices::valid_udid(udid) {
         return Err("Not a simulator".into());
@@ -782,51 +867,116 @@ pub(crate) fn ensure_device(
     add_to_scope(project, udid);
     let key = udid.to_uppercase();
     if !info.booted {
-        set_status(project, generation, |s| {
-            s.phase = Phase::Booting;
-            s.message = format!("Starting {}…", info.name);
-            s.udid = Some(key.clone());
-        });
+        report(Phase::Booting, format!("Starting {}…", info.name));
         let output = simctl(&["bootstatus", udid, "-b"], Duration::from_secs(300))?;
         checked(output, "Starting the simulator")?;
+    }
+    // Only a boot Aven started from shut down is Aven's; one already
+    // starting belongs to whoever started it.
+    if info.state == "Shutdown" {
+        let boot = info
+            .data_path
+            .as_deref()
+            .and_then(ios_sim_boot::boot_id)
+            .unwrap_or(UNKNOWN_BOOT);
         let mut state = state();
+        load_aven_boots(&mut state);
         state.ready.remove(&key);
-        state.booted_at.insert(key.clone(), Instant::now());
+        state
+            .aven_boots
+            .insert(key.clone(), (boot, Some(Instant::now())));
+        save_aven_boots(&state);
         drop(state);
         native::reset(udid);
     }
-    if state().ready.contains(&key) {
-        return Ok(Readiness::Ready);
-    }
-    if !support().live {
-        state().ready.insert(key);
-        return Ok(Readiness::Ready);
-    }
-    let booted_by_aven = state().booted_at.contains_key(&key);
-    if !booted_by_aven && !picked {
+    let facts = boot_facts(&key, info.data_path.as_deref());
+    match ios_sim_boot::input_step(&facts, picked, support().live, HID_ANNOUNCE_WAIT) {
+        InputStep::Ready => {}
         // Someone else's running simulator: never restart its home screen
         // unless the person picks it here.
-        if has_dtuhidd(udid) && notify_flag(udid) == Some(1) {
-            return Ok(Readiness::NeedsPick);
+        InputStep::Check => {
+            if has_dtuhidd(udid) && notify_flag(udid) == Some(1) {
+                return Ok(Readiness::NeedsPick);
+            }
         }
-        state().ready.insert(key);
-        return Ok(Readiness::Ready);
+        // A boot Aven just started waits for CoreDevice's announcement; any
+        // other is fixed only if the announcement happened.
+        InputStep::Fix { wait } => {
+            report(Phase::Preparing, "Getting the iPhone ready…".into());
+            prepare_input(udid, wait)?;
+        }
     }
-    // A device Aven just booted: wait for CoreDevice's announcement. One
-    // that was already running: fix it only if the announcement happened.
-    let wait = state()
-        .booted_at
-        .get(&key)
-        .map(|at| HID_ANNOUNCE_WAIT.saturating_sub(at.elapsed()))
-        .unwrap_or_default();
-    set_status(project, generation, |s| {
-        s.phase = Phase::Preparing;
-        s.message = "Getting the iPhone ready…".into();
-        s.udid = Some(key.clone());
-    });
-    prepare_input(udid, wait)?;
-    state().ready.insert(key);
+    mark_ready(&key, &facts);
     Ok(Readiness::Ready)
+}
+
+/// `prepare_device` with progress in the project's status strip.
+pub(crate) fn ensure_device(
+    project: &str,
+    udid: &str,
+    generation: Option<u64>,
+    picked: bool,
+) -> Result<Readiness, String> {
+    let key = udid.to_uppercase();
+    prepare_device(project, udid, picked, &|phase, message| {
+        set_status(project, generation, |s| {
+            s.phase = phase;
+            s.message = message;
+            s.udid = Some(key.clone());
+        });
+    })
+}
+
+/// How long a simulator Aven started keeps running after its pane moves to
+/// another one, in case the person moves back.
+const RELEASE_GRACE: Duration = Duration::from_secs(8);
+
+/// A pane moved from `udid` to another device: shut `udid` down shortly if
+/// Aven started it and nothing else uses it. Simulators someone else started
+/// keep running.
+fn release_later(project: &str, udid: &str) {
+    let (project, udid) = (project_key(project), udid.to_uppercase());
+    let _ = std::thread::Builder::new()
+        .name("ios-sim-release".into())
+        .spawn(move || {
+            std::thread::sleep(RELEASE_GRACE);
+            let lock = device_lock(&udid);
+            let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
+            let Ok(info) = device(&udid) else { return };
+            if !info.booted {
+                return;
+            }
+            let facts = boot_facts(&udid, info.data_path.as_deref());
+            let (shown, used, ours_running) = {
+                let state = state();
+                let shown = state.pane_devices.values().any(|d| *d == udid);
+                let on_device = |run: &ProjectRun| {
+                    run.status.udid.as_deref() == Some(udid.as_str())
+                        && (run.status.phase.busy() || run.status.phase == Phase::Running)
+                };
+                // Another project's run, or this project's build for it.
+                let used = state.projects.iter().any(|(owner, run)| {
+                    on_device(run) && (*owner != project || run.status.phase.busy())
+                });
+                let ours_running = state.projects.get(&project).is_some_and(on_device);
+                (shown, used, ours_running)
+            };
+            if !ios_sim_boot::may_release(&facts, shown, used) {
+                return;
+            }
+            // This project's app on it ends with it.
+            if ours_running {
+                stop(&project);
+            }
+            if simctl(&["shutdown", &udid], Duration::from_secs(120)).is_ok_and(|o| o.success) {
+                let mut state = state();
+                state.ready.remove(&udid);
+                state.aven_boots.remove(&udid);
+                save_aven_boots(&state);
+                drop(state);
+                native::reset(&udid);
+            }
+        });
 }
 
 /// The pane shows `udid`: boot it if needed. `picked` is true when the person
@@ -838,6 +988,14 @@ pub async fn ios_sim_use_device(
     picked: Option<bool>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        if ios_sim_devices::valid_udid(&udid) {
+            let previous = state()
+                .pane_devices
+                .insert(project_key(&project), udid.to_uppercase());
+            if let Some(previous) = previous.filter(|p| *p != udid.to_uppercase()) {
+                release_later(&project, &previous);
+            }
+        }
         let generation = state()
             .projects
             .entry(project_key(&project))
@@ -1063,6 +1221,68 @@ fn register_child(project: &str, generation: u64, child: Child) -> Option<Arc<Mu
     Some(child)
 }
 
+/// A Run's build: the scheme for this simulator's architecture only, into
+/// the project's own DerivedData in Aven's data, so every later Run builds
+/// incrementally. No index store: nothing reads one there, and writing it
+/// slows every compile.
+pub(crate) fn build_args(
+    container: &XcodeContainer,
+    scheme: &str,
+    udid: &str,
+    derived: &Path,
+) -> Vec<String> {
+    let mut args: Vec<String> = container.args().to_vec();
+    args.extend([
+        "-scheme".into(),
+        scheme.into(),
+        "-configuration".into(),
+        "Debug".into(),
+        "-destination".into(),
+        format!("id={udid}"),
+        "-derivedDataPath".into(),
+        derived.to_string_lossy().into_owned(),
+        "ONLY_ACTIVE_ARCH=YES".into(),
+        "COMPILER_INDEX_STORE_ENABLE=NO".into(),
+        "build".into(),
+    ]);
+    args
+}
+
+/// The device's progress while a Run builds: kept quiet until the build is
+/// done, then shown while the Run waits for the device.
+#[derive(Default)]
+struct DeviceProgress {
+    latest: Option<(Phase, String)>,
+    shown: bool,
+}
+
+/// Boots the device and makes its input ready beside the build.
+fn prepare_beside_build(
+    project: &str,
+    udid: &str,
+    generation: u64,
+    progress: Arc<Mutex<DeviceProgress>>,
+) -> Result<std::thread::JoinHandle<Result<Readiness, String>>, String> {
+    let (project, udid) = (project.to_owned(), udid.to_owned());
+    std::thread::Builder::new()
+        .name("ios-sim-device".into())
+        .spawn(move || {
+            let key = udid.to_uppercase();
+            prepare_device(&project, &udid, false, &|phase, message| {
+                let mut progress = progress.lock().unwrap_or_else(|p| p.into_inner());
+                progress.latest = Some((phase, message.clone()));
+                if progress.shown {
+                    set_status(&project, Some(generation), |s| {
+                        s.phase = phase;
+                        s.message = message;
+                        s.udid = Some(key.clone());
+                    });
+                }
+            })
+        })
+        .map_err(|error| error.to_string())
+}
+
 fn run_pipeline(
     request: &RunRequest,
     container: &XcodeContainer,
@@ -1074,33 +1294,21 @@ fn run_pipeline(
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Could not prepare the build folder: {error}"))?;
     let derived = dir.join("DerivedData");
-    let readiness = ensure_device(project, udid, Some(generation), false)?;
-    if !current(project, generation) {
-        return Ok(());
-    }
+    // Building needs no running device: the device starts (and its input is
+    // fixed) while the app builds, and its build settings are read beside it.
+    let progress = Arc::new(Mutex::new(DeviceProgress::default()));
+    let device = prepare_beside_build(project, udid, generation, progress.clone())?;
+    let product = {
+        let (container, scheme, derived) =
+            (container.clone(), request.scheme.clone(), derived.clone());
+        std::thread::spawn(move || product_for(&container, &scheme, &derived))
+    };
     set_status(project, Some(generation), |s| {
         s.phase = Phase::Building;
         s.message = "Building…".into();
     });
-    let product = product_for(container, &request.scheme, &derived)?;
     let started = Instant::now();
-    let destination = format!("id={udid}");
-    let derived_text = derived.to_string_lossy().into_owned();
-    let mut args: Vec<String> = container.args().to_vec();
-    args.extend(
-        [
-            "-scheme",
-            &request.scheme,
-            "-configuration",
-            "Debug",
-            "-destination",
-            &destination,
-            "-derivedDataPath",
-            &derived_text,
-            "build",
-        ]
-        .map(String::from),
-    );
+    let args = build_args(container, &request.scheme, udid, &derived);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let mut build = tool(XCODEBUILD, &args);
     if let Some(parent) = container.path.parent() {
@@ -1167,6 +1375,13 @@ fn run_pipeline(
         });
         return Ok(());
     }
+    let product = product
+        .join()
+        .map_err(|_| "Could not read the build settings".to_string())??;
+    let readiness = wait_for_device(project, generation, device, &progress)?;
+    if !current(project, generation) {
+        return Ok(());
+    }
     if !product.app_path.is_dir() {
         state()
             .products
@@ -1200,6 +1415,34 @@ fn run_pipeline(
         });
     }
     Ok(())
+}
+
+/// Waits for the device a Run prepared beside its build, showing its
+/// progress from now on.
+fn wait_for_device(
+    project: &str,
+    generation: u64,
+    device: std::thread::JoinHandle<Result<Readiness, String>>,
+    progress: &Mutex<DeviceProgress>,
+) -> Result<Readiness, String> {
+    if !device.is_finished() {
+        let latest = {
+            let mut progress = progress.lock().unwrap_or_else(|p| p.into_inner());
+            progress.shown = true;
+            progress.latest.clone()
+        };
+        // Still waiting for another preparation of the same device (the
+        // pane's) when there is no progress of its own.
+        let (phase, message) =
+            latest.unwrap_or((Phase::Preparing, "Getting the iPhone ready…".into()));
+        set_status(project, Some(generation), |s| {
+            s.phase = phase;
+            s.message = message;
+        });
+    }
+    device
+        .join()
+        .map_err(|_| "The simulator did not start".to_string())?
 }
 
 /// CFBundleIdentifier from a built app's Info.plist.
@@ -1634,11 +1877,7 @@ pub(crate) fn screenshot_png(udid: &str) -> Result<(Vec<u8>, f64), String> {
             return Ok((png, screen.info.scale));
         }
     }
-    let output = simctl(
-        &["io", udid, "screenshot", "--type=png", "-"],
-        Duration::from_secs(20),
-    )?;
-    let png = checked(output, "Taking a screenshot")?;
+    let png = simctl_screenshot(udid)?;
     let (width, _) = png_size(&png).ok_or("The simulator returned no picture")?;
     // simctl reports pixels; the agent server knows the screen in points.
     let scale = crate::ios_sim_xcuitest::screen_points(udid)
@@ -1706,17 +1945,26 @@ pub async fn ios_sim_screenshot(udid: String) -> Result<(), String> {
     .map_err(|error| error.to_string())?
 }
 
-/// One basic-mode frame as base64 PNG.
+/// One frame as base64 PNG: a basic-mode frame, or the still the live view
+/// leaves under a dialog. Live, it comes straight from the framebuffer
+/// (about a third of a `simctl` screenshot's time).
 #[tauri::command]
 pub async fn ios_sim_basic_frame(udid: String) -> Result<Value, String> {
     use base64::Engine;
     checked_udid(&udid)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let output = simctl(
-            &["io", &udid, "screenshot", "--type=png", "-"],
-            Duration::from_secs(20),
-        )?;
-        let png = checked(output, "Taking a screenshot")?;
+        let live = support()
+            .live
+            .then(|| {
+                screen(&udid)
+                    .and_then(|s| native::screenshot_png(&udid, s.turns))
+                    .ok()
+            })
+            .flatten();
+        let png = match live {
+            Some(png) => png,
+            None => simctl_screenshot(&udid)?,
+        };
         let (width, height) = png_size(&png).ok_or("The simulator returned no picture")?;
         Ok(json!({
             "png": base64::engine::general_purpose::STANDARD.encode(&png),
@@ -1726,6 +1974,25 @@ pub async fn ios_sim_basic_frame(udid: String) -> Result<Value, String> {
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// A PNG of the screen from `simctl`. It writes to a file: on Xcode 27, "-"
+/// names a file in the current folder rather than standard output.
+fn simctl_screenshot(udid: &str) -> Result<Vec<u8>, String> {
+    let path = std::env::temp_dir().join(format!(
+        "aven-ios-sim-{}.png",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let target = path.to_string_lossy().into_owned();
+    let output = simctl(
+        &["io", udid, "screenshot", "--type=png", &target],
+        Duration::from_secs(20),
+    );
+    let png = output
+        .and_then(|output| checked(output, "Taking a screenshot"))
+        .and_then(|_| std::fs::read(&path).map_err(|error| error.to_string()));
+    let _ = std::fs::remove_file(&path);
+    png
 }
 
 fn png_size(png: &[u8]) -> Option<(u32, u32)> {
@@ -2261,6 +2528,48 @@ mod tests {
         png.extend(2622u32.to_be_bytes());
         assert_eq!(png_size(&png), Some((1206, 2622)));
         assert_eq!(png_size(b"nope"), None);
+    }
+
+    #[test]
+    fn builds_incrementally_into_the_projects_own_derived_data() {
+        let container = XcodeContainer {
+            kind: ios_sim_xcode::ContainerKind::Project,
+            path: PathBuf::from("/work/pom/Pom.xcodeproj"),
+        };
+        // The same folder in Aven's data for every Run of a project.
+        let derived = project_dir("/work/pom/").unwrap().join("DerivedData");
+        assert_eq!(
+            derived,
+            project_dir("/work/pom").unwrap().join("DerivedData")
+        );
+        assert!(derived.starts_with(data_root().unwrap()));
+        assert_ne!(
+            derived,
+            project_dir("/work/other").unwrap().join("DerivedData")
+        );
+        let udid = "84E140A9-1897-4F93-B3F6-ACC0ECF7974F";
+        let args = build_args(&container, "Pom", udid, &derived);
+        let after = |flag: &str| {
+            args.iter()
+                .position(|a| a == flag)
+                .and_then(|i| args.get(i + 1))
+                .cloned()
+        };
+        assert_eq!(
+            after("-project").as_deref(),
+            Some("/work/pom/Pom.xcodeproj")
+        );
+        assert_eq!(after("-scheme").as_deref(), Some("Pom"));
+        assert_eq!(
+            after("-derivedDataPath"),
+            Some(derived.to_string_lossy().into_owned())
+        );
+        // Only this simulator's architecture, never a clean build.
+        assert_eq!(after("-destination"), Some(format!("id={udid}")));
+        assert!(args.contains(&"ONLY_ACTIVE_ARCH=YES".to_owned()));
+        assert!(args.contains(&"COMPILER_INDEX_STORE_ENABLE=NO".to_owned()));
+        assert_eq!(args.last().map(String::as_str), Some("build"));
+        assert!(!args.iter().any(|a| a == "clean"));
     }
 
     #[test]

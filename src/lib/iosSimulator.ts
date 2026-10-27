@@ -220,8 +220,8 @@ export async function clearIosSimProject(project: string): Promise<void> {
 
 /**
  * The device the pane opens on: the project's remembered one if it still
- * exists, else Aven's suggestion (which never names a simulator someone
- * else is already running), else none and the person picks.
+ * exists, else Aven's suggestion (a running simulator before starting
+ * another one), else none and the person picks.
  */
 export function pickDevice(
   devices: readonly IosSimDevice[],

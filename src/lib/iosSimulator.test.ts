@@ -74,7 +74,7 @@ describe("iPhone pane choices", () => {
   });
 
   it("never opens on a device nobody chose: no suggestion means no device", () => {
-    // The running iPhone 18 Pro is someone else's; Aven suggested nothing.
+    // Aven suggested nothing (no simulator to show): the person picks.
     expect(pickDevice([PHONE, MAX, PAD], undefined, null)).toBeNull();
     expect(pickDevice([PHONE], "gone", null)).toBeNull();
   });

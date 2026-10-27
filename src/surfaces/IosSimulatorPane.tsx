@@ -138,20 +138,25 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
         if (cancelled) return;
         setSupport(found);
         if (!found.xcode) return;
-        const [list, projectInfo, current] = await Promise.all([
+        // The device starts and its screen goes live while Xcode reads the
+        // project's schemes, which can take a while with Swift packages.
+        const reading = iosSim.project(project, choice.container);
+        reading.catch(() => {});
+        const [list, current] = await Promise.all([
           iosSim.devices(),
-          iosSim.project(project, choice.container),
           iosSim.state(project),
         ]);
         if (cancelled) return;
-        window.clearTimeout(slow);
-        setSlowProject(false);
         setDevices(list.devices);
-        setInfo(projectInfo);
         setStatus(current.status);
         setLogs(current.logs);
         const picked = pickDevice(list.devices, choice.udid, list.suggested);
         setUdid(picked?.udid ?? null);
+        const projectInfo = await reading;
+        if (cancelled) return;
+        window.clearTimeout(slow);
+        setSlowProject(false);
+        setInfo(projectInfo);
         setScheme(pickScheme(projectInfo.schemes, choice.scheme));
       })
       .catch((error) => {
@@ -315,7 +320,8 @@ export function IosSimulatorPane({ project, visible, onOpenFile }: Props) {
 
   const active = isRunActive(status.phase);
   const starting = isDeviceStarting(status.phase);
-  const canRun = !!udid && !!container && !!scheme && !starting;
+  // Run may start while the device is still starting: it builds meanwhile.
+  const canRun = !!udid && !!container && !!scheme;
 
   const run = () => {
     if (active) {

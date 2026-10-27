@@ -45,6 +45,7 @@ mod inbox_media;
 #[cfg(target_os = "macos")]
 mod ios_sim;
 mod ios_sim_agent;
+mod ios_sim_boot;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod ios_sim_dev;
 mod ios_sim_devices;

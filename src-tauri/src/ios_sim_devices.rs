@@ -24,6 +24,9 @@ pub(crate) struct SimDeviceInfo {
     pub booted: bool,
     /// "Booted", "Shutdown", "Booting", "Shutting Down"
     pub state: String,
+    /// The device's data folder, where each boot leaves its mark.
+    #[serde(skip)]
+    pub data_path: Option<std::path::PathBuf>,
 }
 
 /// `com.apple.CoreSimulator.SimRuntime.iOS-27-0` → `iOS 27.0`. Other platforms
@@ -78,6 +81,9 @@ pub(crate) fn parse_device_list(text: &str) -> Result<Vec<SimDeviceInfo>, String
                 continue;
             };
             let state = get("state").to_owned();
+            let data_path = Some(get("dataPath"))
+                .filter(|path| path.starts_with('/'))
+                .map(std::path::PathBuf::from);
             order.push(version.clone());
             devices.push(SimDeviceInfo {
                 udid: udid.to_owned(),
@@ -86,6 +92,7 @@ pub(crate) fn parse_device_list(text: &str) -> Result<Vec<SimDeviceInfo>, String
                 runtime: runtime.clone(),
                 booted: state == "Booted",
                 state,
+                data_path,
             });
         }
     }
@@ -126,26 +133,29 @@ pub(crate) fn known_simulator(udid: &str, devices: &[SimDeviceInfo]) -> Option<S
         .map(|d| d.udid.to_uppercase())
 }
 
-/// The pane's choice when nothing is remembered. It never takes over a
-/// simulator that is already running unless Aven started it (`aven_booted`,
-/// upper-case UDIDs): first one of those, else the newest iPhone that is shut
-/// down, else any shut-down device; otherwise nothing, and the person picks.
+/// The pane's choice when nothing is remembered. It never starts another
+/// simulator while one is running: first one Aven started (`aven_booted`,
+/// upper-case UDIDs), then any running one (shown at once; its home screen is
+/// restarted for touches only when the person picks it), iPhones before
+/// iPads; only when none runs, the newest iPhone that is shut down, else any
+/// device; otherwise nothing, and the person picks.
 pub(crate) fn default_device<'a>(
     devices: &'a [SimDeviceInfo],
     aven_booted: &std::collections::BTreeSet<String>,
 ) -> Option<&'a SimDeviceInfo> {
     let ours = |d: &&SimDeviceInfo| d.booted && aven_booted.contains(&d.udid.to_uppercase());
-    devices
-        .iter()
-        .filter(ours)
-        .find(|d| d.family == DeviceFamily::Iphone)
-        .or_else(|| devices.iter().find(ours))
-        .or_else(|| {
-            devices
-                .iter()
-                .find(|d| !d.booted && d.family == DeviceFamily::Iphone)
-        })
-        .or_else(|| devices.iter().find(|d| !d.booted))
+    let running = |d: &&SimDeviceInfo| d.booted;
+    let iphone = |d: &&SimDeviceInfo| d.family == DeviceFamily::Iphone;
+    let first = |keep: &dyn Fn(&&SimDeviceInfo) -> bool| {
+        devices
+            .iter()
+            .filter(|d| keep(d))
+            .find(|d| iphone(d))
+            .or_else(|| devices.iter().find(|d| keep(d)))
+    };
+    first(&ours)
+        .or_else(|| first(&running))
+        .or_else(|| first(&|_| true))
 }
 
 #[cfg(test)]
@@ -195,19 +205,27 @@ mod tests {
         );
         assert!(devices[0].booted);
         assert_eq!(devices[2].family, DeviceFamily::Ipad);
-        // The running iPhone 18 Pro is someone else's: never taken over.
+        // The person's running iPhone 18 Pro is shown rather than starting a
+        // second simulator beside it.
         let none = std::collections::BTreeSet::new();
         assert_eq!(
             default_device(&devices, &none).unwrap().name,
-            "iPhone 18 Pro Max"
+            "iPhone 18 Pro"
         );
     }
 
     #[test]
-    fn suggests_a_running_device_only_when_aven_started_it() {
-        let devices = parse_device_list(LIST).unwrap();
+    fn prefers_a_running_device_aven_started() {
+        let mut devices = parse_device_list(LIST).unwrap();
+        devices[1].booted = true;
         let ours: std::collections::BTreeSet<String> =
-            ["E5B294CF-EC79-4FE6-B919-D3175705B784".to_owned()].into();
+            ["32BA9274-974F-481F-BEAF-D565EEFDE4F0".to_owned()].into();
+        assert_eq!(
+            default_device(&devices, &ours).unwrap().name,
+            "iPhone 18 Pro Max"
+        );
+        // Aven's boot no longer running: the running device, not a new boot.
+        devices[1].booted = false;
         assert_eq!(
             default_device(&devices, &ours).unwrap().name,
             "iPhone 18 Pro"
@@ -215,16 +233,23 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_a_shut_down_iphone_and_otherwise_to_nothing() {
+    fn starts_a_shut_down_iphone_only_when_none_runs() {
         let none = std::collections::BTreeSet::new();
         let mut devices = parse_device_list(LIST).unwrap();
         devices.iter_mut().for_each(|d| d.booted = false);
         devices.rotate_left(2);
         assert_eq!(default_device(&devices, &none).unwrap().name, "iPhone 17");
         assert!(default_device(&[], &none).is_none());
-        // Everything is running and none of it is Aven's: the person picks.
-        devices.iter_mut().for_each(|d| d.booted = true);
-        assert!(default_device(&devices, &none).is_none());
+        // Only an iPad runs: it is shown, and no iPhone is started beside it.
+        let ipad = devices
+            .iter()
+            .position(|d| d.family == DeviceFamily::Ipad)
+            .unwrap();
+        devices[ipad].booted = true;
+        assert_eq!(
+            default_device(&devices, &none).unwrap().name,
+            "iPad Pro 13-inch (M5)"
+        );
     }
 
     #[test]
