@@ -746,7 +746,7 @@ pub fn run() {
             tauri::RunEvent::Exit => {
                 browser_agent::shutdown();
                 #[cfg(target_os = "macos")]
-                ios_sim_xcuitest::shutdown();
+                ios_sim::shutdown();
                 #[cfg(all(feature = "chromium", target_os = "macos"))]
                 browser::shutdown();
                 reap_harness_children(handle);

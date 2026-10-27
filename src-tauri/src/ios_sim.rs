@@ -1175,6 +1175,23 @@ pub(crate) fn stop(project: &str) {
     });
 }
 
+/// Aven is quitting: end builds and app consoles it started (the apps keep
+/// running in their simulators) and the XCUITest agents.
+pub(crate) fn shutdown() {
+    let children: Vec<Arc<Mutex<Child>>> = state()
+        .projects
+        .values_mut()
+        .filter_map(|run| {
+            run.generation += 1;
+            run.child.take()
+        })
+        .collect();
+    for child in children {
+        kill_child(&child);
+    }
+    crate::ios_sim_xcuitest::shutdown();
+}
+
 #[tauri::command]
 pub async fn ios_sim_stop(project: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || stop(&project))
