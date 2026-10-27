@@ -96,7 +96,7 @@ function ApprovalToastCard({
           </button>
           <button
             type="button"
-            className="flex-1 rounded-md bg-content/10 px-2.5 py-1 text-ui-caption font-medium text-content/70 hover:bg-content/20"
+            className="flex-1 rounded-md bg-(--aven-control-bg) px-2.5 py-1 text-ui-caption font-medium text-content/70 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
             onClick={() => onApproval(session.id, requestId, "deny")}
           >
             Deny

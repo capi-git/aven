@@ -80,7 +80,7 @@ export function DiffCommentComposer({
             }
           }}
           placeholder="Leave a comment…"
-          className="max-h-40 min-h-18 w-full resize-y rounded-lg border border-content/10 bg-background-base/70 px-2.5 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/20"
+          className="aven-field max-h-40 min-h-18 w-full resize-y px-2.5 py-2 text-ui-body leading-5"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-ui-micro text-content/35">{MOD}↩ to add</span>

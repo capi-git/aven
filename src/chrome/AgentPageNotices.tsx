@@ -58,7 +58,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
           <button
             type="button"
             onClick={() => onShow(notice)}
-            className="shrink-0 rounded-md bg-content/10 px-3 py-0.5 text-ui-label font-medium text-content hover:bg-content/15"
+            className="shrink-0 rounded-md bg-(--aven-control-bg) px-3 py-0.5 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
           >
             Show
           </button>

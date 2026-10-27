@@ -149,7 +149,7 @@ function RememberPopover({
               void save();
             }
           }}
-          className="max-h-48 w-full resize-none rounded-md bg-content/8 px-2 py-1.5 text-ui-label leading-relaxed text-content outline-none placeholder:text-content/30 disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field max-h-48 w-full resize-none px-2 py-1.5 text-ui-label leading-relaxed"
         />
         <p className="mt-1.5 text-ui-caption leading-snug text-content/40">
           Added to the project memory every agent here receives, from their next
@@ -178,7 +178,7 @@ function RememberPopover({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => void save()}
             title={`Remember (${MOD}↩)`}
-            className="h-7 rounded-md bg-content/12 px-3 text-ui-label font-medium text-content hover:bg-content/18 disabled:opacity-40"
+            className="h-7 rounded-md bg-(--aven-control-bg) px-3 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:opacity-40"
           >
             Remember
           </button>

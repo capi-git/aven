@@ -6,8 +6,13 @@
   border-radius: var(--aven-radius-overlay);
   box-shadow: var(--aven-specular), var(--aven-shadow);
 }
+/* The surface is the backdrop, which covers the frame's own inset light;
+   it carries that light itself, so a popover catches the same top edge as
+   a ToolbarPanel menu. */
 .aven-popover-frame .popover-backdrop {
+  border-radius: inherit;
   background: var(--aven-popup);
+  box-shadow: var(--aven-specular);
 }
 .aven-popover-frame :is(button, [role="menuitem"]):focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
@@ -46,9 +51,14 @@
   border-color: var(--aven-control-edge, transparent);
   background-color: var(--aven-field-bg, var(--aven-raised));
 }
-.modal-panel[role="dialog"] :is(button, input, textarea, select):focus-visible {
+.modal-panel[role="dialog"] button:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
+}
+/* Fields take the shared field ring (.aven-field), hugging the field. */
+.modal-panel[role="dialog"] :is(input, textarea, select):focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 0;
 }
 @media (prefers-reduced-transparency: reduce) {
   .modal-panel[role="dialog"],

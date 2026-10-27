@@ -57,7 +57,7 @@ export function ContextMeter({
           aria-label={`${headline}, ${detail}. Open context actions`}
           aria-expanded={actionsOpen}
           onClick={() => setOpen((value) => !value)}
-          className="-m-1 grid rounded-sm p-1 outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          className="-m-1 grid rounded-sm p-1 outline-none focus-visible:ring-1 focus-visible:ring-(--aven-focus-ring)"
         >
           <MeterRing ratio={ratio} />
         </button>
@@ -90,7 +90,7 @@ export function ContextMeter({
                 setOpen(false);
                 onCompact?.();
               }}
-              className="mt-1.5 w-full rounded-md bg-content/10 px-2 py-1 text-ui-caption text-content hover:bg-content/15 disabled:cursor-not-allowed disabled:opacity-40"
+              className="mt-1.5 w-full rounded-md bg-(--aven-control-bg) px-2 py-1 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:cursor-not-allowed disabled:opacity-40"
             >
               Free up space
             </button>

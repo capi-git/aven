@@ -607,7 +607,7 @@ export function PromptOutline({
             }}
             onClick={() => jumpTo(prompt.id)}
             style={{ height: BAR_HEIGHT_PX + stack.gap }}
-            className="flex w-full shrink-0 items-center justify-end outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="flex w-full shrink-0 items-center justify-end outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
           >
             <span
               aria-hidden="true"

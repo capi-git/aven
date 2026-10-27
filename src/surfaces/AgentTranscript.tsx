@@ -764,7 +764,7 @@ function AgentTranscriptComponent({
             <div className="flex justify-center px-4 py-3">
               <button
                 type="button"
-                className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-content/12 hover:text-content"
+                className="rounded-md bg-(--aven-control-bg) px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content"
                 onClick={loadEarlier}
               >
                 Load earlier messages
@@ -2805,7 +2805,7 @@ function ToolCall({
           aria-expanded={open}
           aria-label={`${stateLabel} tool call: ${displayAppData(label)}`}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
+          className="flex w-full min-w-0 items-center gap-2 rounded-md py-1.5 text-left"
         >
           <ToolCallIcon state={state} />
           <ToolCallSummary
@@ -3018,7 +3018,7 @@ function ApprovalControls({
       </button>
       <button
         type="button"
-        className="rounded-md bg-content/10 px-2.5 py-0.5 text-ui-caption text-content/70 hover:bg-content/20"
+        className="rounded-md bg-(--aven-control-bg) px-2.5 py-0.5 text-ui-caption text-content/70 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
         onClick={() => onApproval?.(approval.requestId, "deny")}
       >
         {words.deny}

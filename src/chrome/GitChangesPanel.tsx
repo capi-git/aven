@@ -968,7 +968,7 @@ function GitSyncActions({
     : "View pull request";
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-3 text-ui-label font-medium disabled:opacity-40";
-  const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
+  const secondary = `${btn} bg-(--aven-control-bg) text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)`;
   const showPublish = canPublish;
   const showSync = canSync;
   const showCreatePr = !hasOpenPr && !onDefault && !dirty;

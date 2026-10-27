@@ -493,7 +493,7 @@ function MessageQueue({
                           saveEdit(message);
                         }
                       }}
-                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
+                      className="aven-field min-h-6 min-w-0 flex-1 resize-none px-1.5 py-0.5 text-ui-label"
                     />
                     <button
                       type="button"
@@ -2336,7 +2336,7 @@ function ComposerComponent({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-content/10 px-1.5 text-ui-caption text-content hover:bg-content/15"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-1.5 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
               >
                 <Share className="size-3.5" />
                 {fit === "narrow" ? null : "Orchestrator"}

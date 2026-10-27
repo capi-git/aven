@@ -197,7 +197,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
               void save();
             }
           }}
-          className="min-h-56 w-full flex-1 resize-none rounded-md bg-content/8 px-2.5 py-2 text-ui-body leading-relaxed text-content outline-none placeholder:text-content/30 disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field min-h-56 w-full flex-1 resize-none px-2.5 py-2 text-ui-body leading-relaxed"
         />
 
         <p
@@ -251,7 +251,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             <button
               type="button"
               onClick={() => void save(true)}
-              className="rounded-md bg-content/10 px-2 py-1 text-content hover:bg-content/15"
+              className="rounded-md bg-(--aven-control-bg) px-2 py-1 text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
             >
               Keep mine
             </button>
@@ -296,7 +296,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
             onClick={() => void save()}
             title={saveHint || `Save (${MOD}↩)`}
             aria-describedby={saveHint ? "project-memory-save-hint" : undefined}
-            className="rounded-md bg-content/12 px-3 py-1.5 text-ui-label font-medium text-content hover:bg-content/18 disabled:opacity-40"
+            className="rounded-md bg-(--aven-control-bg) px-3 py-1.5 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:opacity-40"
           >
             Save
           </button>

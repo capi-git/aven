@@ -177,7 +177,7 @@ export function InboxCommentForm({
           }
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
-          className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
         />
         <div className="flex items-center justify-end px-2 pb-2">
           <button

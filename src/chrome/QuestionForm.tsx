@@ -301,7 +301,7 @@ function QuestionFields({
           disabled={disabled}
           onChange={(event) => onCustom(event.target.value)}
           placeholder="Type your answer"
-          className="mt-1.5 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"
+          className="aven-field mt-1.5 w-full px-2 py-1 text-ui-label"
         />
       ) : (
         <div
@@ -371,7 +371,7 @@ function QuestionFields({
                     disabled={disabled}
                     onChange={(event) => onCustom(event.target.value)}
                     placeholder="Type your answer"
-                    className="mt-1 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"
+                    className="aven-field mt-1 w-full px-2 py-1 text-ui-label"
                     onClick={(event) => event.stopPropagation()}
                     onFocus={() => {
                       if (!customSelected) onSelect(customId);

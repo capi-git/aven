@@ -312,7 +312,7 @@ function CreateSkillForm({
           e.preventDefault();
           onCancel();
         }}
-        className="mb-2 w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="aven-field mb-2 w-full px-2 py-1.5 font-mono text-ui-body"
       />
       <div className="mb-2 flex gap-1">
         <ScopeButton

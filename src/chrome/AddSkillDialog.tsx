@@ -285,7 +285,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
             aria-label="owner/repo or a GitHub link"
             disabled={running}
             onChange={(event) => edit(event.target.value)}
-            className="w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60 disabled:opacity-60"
+            className="aven-field w-full px-2 py-1.5 font-mono text-ui-body"
           />
           {hint ? (
             <span className="text-ui-caption text-content/50">{hint}</span>

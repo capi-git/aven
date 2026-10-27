@@ -135,7 +135,7 @@ export function SwitchBranchDialog({
             placeholder={`Message (${MOD}↩ to commit)`}
             disabled={Boolean(busy) || generating}
             aria-label="Commit message"
-            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="aven-field max-h-40 w-full resize-none overflow-y-auto py-1 pr-8 pl-2 text-ui-body leading-5"
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={(event) => {
               if (
@@ -162,7 +162,7 @@ export function SwitchBranchDialog({
             }
             disabled={Boolean(busy)}
             onClick={() => (generating ? cancelGenerate() : void generate())}
-            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-content/10 text-content hover:bg-content/20 hover:text-content disabled:opacity-40"
+            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-(--aven-control-bg) text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content disabled:opacity-40"
           >
             {generating ? (
               <>
@@ -200,7 +200,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={!canCommit}
             onClick={() => onCommit(trimmed)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-content/10 px-3 py-1.5 text-ui-label font-medium text-content hover:bg-content/15 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-(--aven-control-bg) px-3 py-1.5 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:opacity-40"
           >
             {busy === "commit" ? (
               <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />

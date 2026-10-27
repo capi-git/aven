@@ -242,8 +242,17 @@ describe("the pro look's shapes", () => {
   });
 
   it("gives Tailwind fields and buttons the shared tokens and contrast edge", () => {
-    const field =
-      "border border-(color:--aven-control-edge) bg-(--aven-field-bg)";
+    // Fields share one class: the field fill, the control corner, the
+    // Increase contrast edge and the shared focus ring.
+    const field = rule("src/macos-theme.css", ".aven-field");
+    expect(field).toContain(
+      "border: 1px solid var(--aven-control-edge, transparent);",
+    );
+    expect(field).toContain("border-radius: var(--aven-radius-sm);");
+    expect(field).toContain("background: var(--aven-field-bg);");
+    expect(theme).toMatch(
+      /\.aven-field:focus-visible,[^{]*\{\s*outline: 2px solid var\(--aven-focus-ring\);/,
+    );
     const button =
       "border border-(color:--aven-control-edge) bg-(--aven-control-bg)";
     for (const file of [
@@ -252,8 +261,14 @@ describe("the pro look's shapes", () => {
       "src/chrome/ColorPickerPopover.tsx",
       "src/chrome/ProjectCustomizePopover.tsx",
       "src/chrome/PersonalWorkspaceSwitcher.tsx",
+      "src/chrome/ProjectMemoryDialog.tsx",
+      "src/chrome/AddSkillDialog.tsx",
+      "src/chrome/SwitchBranchDialog.tsx",
+      "src/chrome/RememberButton.tsx",
+      "src/chrome/SkillPicker.tsx",
+      "src/surfaces/DiffCommentComposer.tsx",
     ])
-      expect(read(file)).toContain(field);
+      expect(read(file)).toMatch(/className="aven-field[ "]/);
     for (const file of [
       "src/surfaces/RaceView.tsx",
       "src/chrome/CommandPalette.tsx",

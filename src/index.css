@@ -23,8 +23,9 @@
 
   /* Corners for utility classes follow the shared shape scale
      (macos-theme.css): small corners on controls and rows, larger ones on
-     cards. Full rounding is unchanged. */
-  --radius: 5px;
+     cards. Full rounding is unchanged. A bare `rounded` is the control
+     corner. */
+  --radius: 6px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;

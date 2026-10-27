@@ -1544,7 +1544,7 @@ function SidebarComponent({
           setTaskSearchOpen(false);
         }
       }}
-      className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+      className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
     />
   );
 
@@ -2818,7 +2818,7 @@ function FolderRenameRow({
             finish(false);
           }
         }}
-        className="relative min-w-0 flex-1 rounded bg-content/10 px-2 py-0.5 text-ui-body font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="aven-field relative min-w-0 flex-1 px-2 py-0.5 text-ui-body font-semibold leading-snug"
       />
       <span className="relative shrink-0 text-ui-caption tabular-nums text-content/45">
         {memberCount}
@@ -3136,7 +3136,7 @@ function SessionCard({
             aria-current={isActive ? "true" : undefined}
             aria-pressed={isSelected}
             title={`${title}\n${model}${gitLabel ? ` · ${gitLabel}` : ""}`}
-            className="flex w-full touch-none flex-col gap-1 rounded text-left outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            className="flex w-full touch-none flex-col gap-1 rounded text-left outline-none focus-visible:ring-1 focus-visible:ring-(--aven-focus-ring)"
             onPointerDown={onPointerDown}
             onPointerEnter={() => onPrefetch?.(session.id)}
             onContextMenu={onContextMenu}
@@ -3425,7 +3425,7 @@ function SessionRenameRow({
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={onKeyDown}
-        className="w-full rounded bg-content/10 px-2 py-1 text-ui-body font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="aven-field w-full px-2 py-1 text-ui-body font-semibold leading-snug"
       />
     </div>
   );

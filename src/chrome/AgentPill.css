@@ -299,33 +299,6 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   cursor: default;
   opacity: 0.45;
 }
-.agent-switch {
-  position: relative;
-  width: 26px;
-  height: 15px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-content) 18%, transparent);
-  transition: background-color 140ms ease-out;
-}
-.agent-switch::after {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  background: var(--color-content);
-  content: "";
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.agent-switch-row[aria-checked="true"] .agent-switch {
-  background: var(--toolbar-panel-accent);
-}
-.agent-switch-row[aria-checked="true"] .agent-switch::after {
-  transform: translateX(11px);
-}
-
 /* Access, from the shared access options: menu rows set flush in the
    section. Full access keeps its warning glyph. */
 .agent-panel .access-panel-options {
@@ -357,11 +330,4 @@ html.theme-light
   overflow: visible;
   border-top: 1px solid var(--agent-panel-line);
   border-left: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-switch,
-  .agent-switch::after {
-    transition: none;
-  }
 }

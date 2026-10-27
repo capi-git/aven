@@ -1758,7 +1758,7 @@ function ProviderRow({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Filter models"
-                  className="min-w-0 flex-1 bg-transparent text-ui-label outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                  className="min-w-0 flex-1 bg-transparent text-ui-label outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
                 />
                 <SecondaryButton
                   onClick={() => showAllPickerModels(harness)}

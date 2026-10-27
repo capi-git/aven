@@ -125,7 +125,7 @@ export function MemoryKeeperSwitch({
       className="memory-keeper-switch"
       data-memory-keeper-switch
     >
-      <span className="memory-keeper-track" aria-hidden="true" />
+      <span className="aven-switch-mini" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">Kept up to date by Aven</span>
     </button>
   );

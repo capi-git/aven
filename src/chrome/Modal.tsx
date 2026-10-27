@@ -252,7 +252,7 @@ export function ModalPanel({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring)"
           >
             <X className="size-3.5" strokeWidth={1.75} />
           </button>

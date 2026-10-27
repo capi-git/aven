@@ -8,9 +8,9 @@ import {
 import { Modal } from "./Modal";
 
 const SECONDARY =
-  "rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-content/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-content/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring)";
 const PRIMARY =
-  "rounded-md bg-accent px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1";
+  "rounded-md bg-accent px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--aven-focus-ring) focus-visible:ring-offset-1";
 const STOP =
   "rounded-md bg-red-500/15 px-3 py-1.5 text-ui-label font-medium text-red-600 hover:bg-red-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400";
 
