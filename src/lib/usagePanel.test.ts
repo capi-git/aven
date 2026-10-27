@@ -125,65 +125,21 @@ describe("usage panel workspace palette", () => {
   });
 });
 
-describe("usage panel native glass", () => {
-  it("carries the workspace opacity when the window shows native glass", () => {
-    glassWorkspace();
-    expect(usagePanelTheme()).toMatchObject({
-      mode: "dark",
-      glass: true,
-      opacity: 0.52,
-    });
-  });
-
-  it("stays opaque in light appearance, without native glass, at full opacity or with workspace glass off", () => {
-    const opaque = () => {
+describe("usage panel native surface", () => {
+  it("keeps native panels solid, like in-window menus, even over a glass workspace", () => {
+    const solid = () => {
       const theme = usagePanelTheme();
       expect(theme.glass).toBe(false);
       expect(theme).not.toHaveProperty("opacity");
     };
-    opaque();
+    solid();
     glassWorkspace();
-    document.documentElement.classList.add("theme-light");
-    opaque();
-    document.documentElement.classList.remove("theme-light");
-    document.documentElement.classList.remove("has-native-glass");
-    opaque();
-    glassWorkspace("1");
-    opaque();
-    glassWorkspace();
-    document.documentElement.classList.remove("glass-body");
-    opaque();
-  });
-
-  it("respects Reduce transparency and Increase contrast", () => {
-    glassWorkspace();
+    solid();
     stubMedia(["(prefers-reduced-transparency: reduce)"]);
-    expect(usagePanelTheme().glass).toBe(false);
-    stubMedia(["(prefers-contrast: more)"]);
-    expect(usagePanelTheme().glass).toBe(false);
+    solid();
     stubMedia([]);
-    expect(usagePanelTheme().glass).toBe(true);
-  });
-
-  it("follows opacity, workspace and accessibility changes while open", async () => {
-    glassWorkspace();
-    const setMedia = stubMedia([]);
-    await act(async () => root.render(createElement(Probe, { open: true })));
-    expect(themes.at(-1)).toMatchObject({ glass: true, opacity: 0.52 });
-    await mutate(() =>
-      document.documentElement.style.setProperty("--sidebar-opacity", "0.3"),
-    );
-    expect(themes.at(-1)).toMatchObject({ glass: true, opacity: 0.3 });
-    await mutate(() =>
-      setMedia("(prefers-reduced-transparency: reduce)", true),
-    );
-    expect(themes.at(-1)?.glass).toBe(false);
-    await mutate(() =>
-      setMedia("(prefers-reduced-transparency: reduce)", false),
-    );
-    expect(themes.at(-1)?.glass).toBe(true);
-    await mutate(() => document.documentElement.classList.add("theme-light"));
-    expect(themes.at(-1)?.glass).toBe(false);
+    document.documentElement.classList.add("theme-light");
+    solid();
   });
 
   it("uses the accent the active workspace paints on the document root", () => {

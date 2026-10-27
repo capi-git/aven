@@ -45,8 +45,11 @@ function useWindowTheme(
     set("--theme-accent-color", theme.accent);
     set("--personal-accent", theme.accent);
     set("--theme-content-color", theme.text);
-    // The workspace's own background, so light cards and badges match it.
+    // The snapshot's background is the owner's popup surface, which the
+    // panel sits on in its window. Cards and badges match it, and the popup
+    // token stays that surface rather than mixing a step lighter again.
     set("--theme-background-color", theme.background);
+    set("--aven-popup", theme.background);
     set("--team-watch-window-bg", theme.background);
   }, [theme]);
 }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ToolbarPanel, ToolbarPanelHeader } from "../chrome/ToolbarPanel";
 import { UsagePanelContent } from "../chrome/UsagePanel";
 import { afterPopupGlass, usePopupGlass } from "../lib/popupGlass";
+import { usePanelWindowTheme } from "../hooks/usePanelWindowTheme";
 import { nativeUsagePanel, type UsagePanelState } from "../lib/usagePanel";
 
 /** Retained presentation only. The owning workspace remains the state owner. */
@@ -61,16 +62,7 @@ export function UsagePanelWindow() {
     };
   }, []);
   const snapshot = state?.snapshot;
-  useLayoutEffect(() => {
-    if (!snapshot) return;
-    document.documentElement.style.setProperty(
-      "--usage-window-bg",
-      snapshot.theme.background ??
-        (snapshot.theme.mode === "dark" ? "#101416" : "#edf5f7"),
-    );
-    document.documentElement.classList.add("usage-panel-window");
-    document.getElementById("boot-splash")?.remove();
-  }, [snapshot?.theme.background, snapshot?.theme.mode]);
+  usePanelWindowTheme("usage-panel-window", snapshot?.theme);
   usePopupGlass(snapshot?.theme, state && `${state.openId}:${state.revision}`);
   useLayoutEffect(() => {
     if (!state) return;

@@ -22,7 +22,10 @@ vi.mock("../lib/usagePanel", () => ({
 
 afterEach(() => {
   document.documentElement.classList.remove("usage-panel-window");
-  document.documentElement.style.removeProperty("--usage-window-bg");
+  document.documentElement.classList.remove("theme-light");
+  document.documentElement.style.removeProperty("color-scheme");
+  document.documentElement.style.removeProperty("--theme-content-color");
+  document.documentElement.style.removeProperty("--theme-accent-color");
   vi.unstubAllGlobals();
 });
 
@@ -54,9 +57,10 @@ it("paints the native panel backdrop from the owner palette before showing, and 
   });
   vi.mocked(nativeUsagePanel.ready).mockImplementation(
     async (_openId, revision) => {
-      expect(
-        document.documentElement.style.getPropertyValue("--usage-window-bg"),
-      ).toBe(revision === 1 ? "#575757" : "#faf4e6");
+      // The owner's palette is in place before the panel is shown.
+      expect(document.documentElement.style.colorScheme).toBe(
+        revision === 1 ? "dark" : "light",
+      );
     },
   );
   const host = document.createElement("div");
@@ -80,9 +84,9 @@ it("paints the native panel backdrop from the owner palette before showing, and 
         },
       }),
     );
-    expect(
-      document.documentElement.style.getPropertyValue("--usage-window-bg"),
-    ).toBe("#faf4e6");
+    expect(document.documentElement.classList.contains("theme-light")).toBe(
+      true,
+    );
     expect(
       host
         .querySelector<HTMLElement>(".usage-panel")!

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ToolbarPanel, ToolbarPanelHeader } from "../chrome/ToolbarPanel";
 import { AccessPanelContent } from "../chrome/AccessPanel";
 import { afterPopupGlass, usePopupGlass } from "../lib/popupGlass";
+import { usePanelWindowTheme } from "../hooks/usePanelWindowTheme";
 import { nativeAccessPanel, type AccessPanelState } from "../lib/accessPanel";
 import type { RuntimeMode } from "../lib/session";
 
@@ -62,16 +63,7 @@ export function AccessPanelWindow() {
     };
   }, []);
   const snapshot = state?.snapshot;
-  useLayoutEffect(() => {
-    if (!snapshot) return;
-    document.documentElement.style.setProperty(
-      "--access-window-bg",
-      snapshot.theme.background ??
-        (snapshot.theme.mode === "dark" ? "#101416" : "#edf5f7"),
-    );
-    document.documentElement.classList.add("access-panel-window");
-    document.getElementById("boot-splash")?.remove();
-  }, [snapshot?.theme.background, snapshot?.theme.mode]);
+  usePanelWindowTheme("access-panel-window", snapshot?.theme);
   usePopupGlass(snapshot?.theme, state && `${state.openId}:${state.revision}`);
   useLayoutEffect(() => {
     if (!state) return;
