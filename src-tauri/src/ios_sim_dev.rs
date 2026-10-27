@@ -104,6 +104,19 @@ pub async fn ios_sim_dev_keys(
     Ok(())
 }
 
+/// Frames the simulator drew and a pane's live view showed so far, and
+/// whether its window is on screen (hidden windows show none).
+#[tauri::command]
+pub async fn ios_sim_dev_frames(caller: Webview, id: String) -> Result<Value, String> {
+    check_folder()?;
+    let app = caller.app_handle().clone();
+    let (drawn, shown, visible) = ios_sim::on_main(&app, move || {
+        native::view_frames(&id).ok_or_else(|| "That iPhone pane is gone".to_string())
+    })
+    .await?;
+    Ok(json!({ "drawn": drawn, "shown": shown, "visible": visible }))
+}
+
 /// Saves the screen (upright PNG) into the check's `shots` folder.
 #[tauri::command]
 pub async fn ios_sim_dev_shot(udid: String, name: String) -> Result<String, String> {

@@ -32,7 +32,9 @@ struct ContentView: View {
                 .onChange(of: text) { _, new in print("SPIKE text \(new)") }
             Text("Echo: \(text)").accessibilityIdentifier("echo")
 
-            Toggle("Animate (FPS test)", isOn: $spinning).padding(.horizontal, 32)
+            Toggle("Animate (FPS test)", isOn: $spinning)
+                .accessibilityIdentifier("animate")
+                .padding(.horizontal, 32)
             if spinning {
                 TimelineView(.animation) { ctx in
                     let t = ctx.date.timeIntervalSinceReferenceDate

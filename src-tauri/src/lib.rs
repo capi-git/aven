@@ -429,6 +429,8 @@ pub fn run() {
             ios_sim_dev::ios_sim_dev_keys,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             ios_sim_dev::ios_sim_dev_shot,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            ios_sim_dev::ios_sim_dev_frames,
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,
             browser_agent::browser_agent_open_file_result,
