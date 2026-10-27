@@ -43,7 +43,13 @@ vi.mock("./Popover", () => ({
   }: ComponentProps<"div"> & Record<string, unknown>) =>
     createElement(
       "div",
-      { role, onKeyDown, tabIndex, "aria-label": props["aria-label"] },
+      {
+        role,
+        onKeyDown,
+        tabIndex,
+        "aria-label": props["aria-label"],
+        className: props.className as string | undefined,
+      },
       children,
     ),
 }));
@@ -622,6 +628,13 @@ describe("workspace status data and actions", () => {
       "Back",
       "Forward",
     ]);
+    // The shared menu's rows: a muted glyph and a label in each.
+    expect(menu.classList.contains("aven-menu")).toBe(true);
+    for (const item of items) {
+      expect(item.classList.contains("aven-menu-item")).toBe(true);
+      expect(item.querySelector(".aven-menu-icon svg")).not.toBeNull();
+      expect(item.querySelector(".aven-menu-label")).not.toBeNull();
+    }
     expect(items[3].disabled).toBe(true);
     expect(items[4].disabled).toBe(false);
     await act(async () => items[3].click());
