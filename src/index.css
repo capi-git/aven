@@ -85,10 +85,18 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --color-markdown-heading: #f9a8c9;
+  /* The shell's own values (personal-shell.css), so menus, popovers and
+     dialogs, which open on the body outside the shell, match it. */
   --aven-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
-  --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
-  --aven-hover: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 9%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
   --aven-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
+  /* The shell's names for the same fills, for anything on the body that
+     borrows them. */
+  --personal-muted: var(--aven-muted);
+  --personal-line: var(--aven-line);
+  --personal-hover: var(--aven-hover);
+  --personal-selected: var(--aven-selected);
   --aven-raised: color-mix(
     in srgb,
     var(--color-background-base) 94%,
@@ -159,7 +167,13 @@ html.theme-light {
   --color-violet-400: #af52de;
   --background-lightness: 97%;
   --content-lightness: 18%;
-  --aven-popup: var(--color-background-base);
+  /* The light shell lifts its pale frame toward white for its surfaces;
+     menus on the body take that same surface. */
+  --aven-popup: var(--theme-light-surface-color, var(--color-background-base));
+  --aven-muted: color-mix(in srgb, var(--color-content) 58%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --aven-selected: color-mix(in srgb, var(--color-content) 5%, transparent);
   --link-color: hsl(211 92% 40%);
   --color-skill: #a07c10;
   --color-mention: #0284c7;

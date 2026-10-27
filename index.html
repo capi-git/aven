@@ -111,8 +111,15 @@
         --sidebar-opacity: 1;
         --boot-background: #000000;
         --background-lightness: 9%;
-        --color-background-base: hsl(
-          var(--theme-hue) var(--theme-saturation) var(--background-lightness)
+        /* Unlayered, so this wins over Tailwind's layered @theme for the
+           whole document. It follows the workspace palette as that does, or
+           everything that opens on the body instead of inside the shell
+           (menus, popovers, dialogs) draws on a lighter, unrelated grey. */
+        --color-background-base: var(
+          --theme-background-color,
+          hsl(
+            var(--theme-hue) var(--theme-saturation) var(--background-lightness)
+          )
         );
       }
 
