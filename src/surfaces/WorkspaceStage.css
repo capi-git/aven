@@ -125,6 +125,11 @@ html.has-chat-background:not(.chat-background-empty-only)
   box-sizing: border-box;
   box-shadow: inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator);
 }
+/* One line under a pane's whole header: a row of tabs whose tab in front
+   draws its toolbar under it leaves the line to that toolbar. */
+.workspace-stage-header:has(> .personal-titlebar[data-header-continues]) {
+  box-shadow: none;
+}
 .workspace-pane-minimize-controls {
   position: absolute;
   top: 4px;

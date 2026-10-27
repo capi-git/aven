@@ -402,11 +402,12 @@ describe("a pane's title row", () => {
     }
   });
 
-  it("offers More, Move, Expand and Close, with their shortcuts", async () => {
+  it("offers More, Expand and a lone tab's Close at rest, each once, with their shortcuts", async () => {
     const onToggle = vi.fn();
     const onMove = vi.fn();
     await render({
       variant: "title",
+      tabs: [tab("a", "First task")],
       paneZoom: "expand",
       onTogglePaneZoom: onToggle,
       paneMoves: ["right"],
@@ -415,23 +416,44 @@ describe("a pane's title row", () => {
     const labels = [
       ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),
     ].map((button) => button.getAttribute("aria-label"));
-    expect(labels).toEqual([
-      "More actions",
-      "Move right",
-      "Expand",
-      "Close tab",
-    ]);
+    expect(labels).toEqual(["More actions", "Expand", "Close tab"]);
+    // Expand and Close once in the pane: the lone title draws no × of its own.
+    expect(
+      container.querySelectorAll(
+        '[aria-label="Expand"], [aria-label="Restore"]',
+      ),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-label^="Close"]')).toHaveLength(1);
     expect(tool("Expand")!.title).toMatch(/^Expand \((⌃⌥|Ctrl\+Alt\+)Z\)$/);
     expect(tool("Close tab")!.title).toMatch(/^Close tab \((⌘|Ctrl\+)W\)$/);
-    await act(async () => tool("Move right")!.click());
-    expect(onMove).toHaveBeenCalledWith("right");
     await act(async () => tool("Expand")!.click());
     expect(onToggle).toHaveBeenCalled();
     await act(async () => tool("Close tab")!.click());
     expect(props.onClose).toHaveBeenCalledWith("a");
+    // Moving the pane is in its "…".
+    await act(async () => tool("More actions")!.click());
+    await act(async () => menuItem("Move right").click());
+    expect(onMove).toHaveBeenCalledWith("right");
   });
 
-  it("reads Restore while expanded and lists several moves in a menu", async () => {
+  it("leaves Close to each tab in a row of tabs, so the pane has one per tab", async () => {
+    await render({
+      variant: "title",
+      activeId: "b",
+      paneZoom: "expand",
+      onTogglePaneZoom: vi.fn(),
+    });
+    const labels = [
+      ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),
+    ].map((button) => button.getAttribute("aria-label"));
+    expect(labels).toEqual(["More actions", "Expand"]);
+    for (const name of ["First task", "Second task", "Third"])
+      expect(
+        container.querySelectorAll(`[aria-label="Close ${name}"]`),
+      ).toHaveLength(1);
+  });
+
+  it("reads Restore while expanded and lists several moves on a page of its \u2026", async () => {
     const onMove = vi.fn();
     await render({
       variant: "title",
@@ -442,10 +464,51 @@ describe("a pane's title row", () => {
     });
     // Its name says what it does; it is not also a toggle.
     expect(tool("Restore")!.hasAttribute("aria-pressed")).toBe(false);
-    await act(async () => tool("Move")!.click());
-    expect(menuItems()).toEqual(["Move left", "Move down"]);
+    expect(tool("Move")).toBeNull();
+    await act(async () => tool("More actions")!.click());
+    await act(async () => menuItem("Move").click());
+    expect(menuItems()).toEqual([
+      "‹ Back",
+      "Move left",
+      "Move down",
+      "Move to a pane of its own",
+    ]);
     await act(async () => menuItem("Move down").click());
     expect(onMove).toHaveBeenCalledWith("down");
+  });
+
+  it("hides the pane, opens the iPhone and lists Recent pages from its \u2026", async () => {
+    const onHide = vi.fn();
+    const onIphone = vi.fn();
+    const onSelectBrowser = vi.fn();
+    await render({
+      variant: "title",
+      tabs: [tab("a", "First task")],
+      browserTabs: [{ id: "page", title: "Docs", url: "https://docs.example" }],
+      surfaceOrder: ["a"],
+      onKeepBrowser: vi.fn(),
+      onSelectBrowser,
+      paneHides: [{ key: "root:0:before", label: "Hide left pane" }],
+      onHidePane: onHide,
+      onOpenIphone: onIphone,
+    });
+    // None of them is a button at rest.
+    expect(container.querySelector('[aria-label="iPhone"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Recent browser tabs"]'),
+    ).toBeNull();
+    await act(async () => tool("More actions")!.click());
+    expect(menuItems()).toContain("Hide left pane");
+    expect(menuItems()).toContain("iPhone");
+    await act(async () => menuItem("Hide left pane").click());
+    expect(onHide).toHaveBeenCalledWith("root:0:before");
+    await act(async () => tool("More actions")!.click());
+    await act(async () => menuItem("iPhone").click());
+    expect(onIphone).toHaveBeenCalled();
+    await act(async () => tool("More actions")!.click());
+    await act(async () => menuItem("Recent pages").click());
+    await act(async () => menuItem("Docs").click());
+    expect(onSelectBrowser).toHaveBeenCalledWith("page");
   });
 
   it("has no Expand while the pane is alone, and More opens the tab's menu", async () => {
@@ -468,7 +531,7 @@ describe("a pane's title row", () => {
     );
     // A lone title sits on the lit chip only on the focused pane.
     expect(css).toMatch(
-      /\.personal-titlebar\[data-title-layout="lone"\]\[data-pane-focused="true"\]\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
+      /\.personal-titlebar\[data-title-layout="lone"\]\[data-pane-focused="true"\]\s*\.personal-tab-strip\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
     );
     // A row of tabs lights its highlight on the focused pane; elsewhere the
     // tab in front keeps the quieter fill, as on any strip.
@@ -477,7 +540,7 @@ describe("a pane's title row", () => {
     );
     // Its tabs go down to 96px in a pane before they fold into the +N.
     expect(css).toMatch(
-      /\.personal-titlebar\[data-title-layout="tabs"\] \.aven-tab-slot \{\s*min-width: 96px;/,
+      /\.personal-titlebar\[data-title-layout="tabs"\]\s*\.personal-tab-strip\s*\.aven-tab-slot \{\s*min-width: 96px;/,
     );
   });
 });
@@ -500,16 +563,11 @@ describe("a title row over a tab split into panes", () => {
     const labels = [
       ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),
     ].map((button) => button.getAttribute("aria-label"));
-    expect(labels).toEqual([
-      "More actions",
-      "Move right",
-      "Expand",
-      "Close tab",
-    ]);
-    await act(async () => tool("Move right")!.click());
-    expect(onMove).toHaveBeenCalledWith("right");
+    expect(labels).toEqual(["More actions", "Expand", "Close tab"]);
     await act(async () => tool("More actions")!.click());
     expect(menuItem("Close tab")).toBeDefined();
+    await act(async () => menuItem("Move right").click());
+    expect(onMove).toHaveBeenCalledWith("right");
   });
 
   it("lays out the tabs when others share its pane", async () => {

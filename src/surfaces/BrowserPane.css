@@ -32,6 +32,36 @@
     var(--aven-separator, var(--aven-line));
   background: var(--aven-toolbar-surface, transparent);
 }
+/* In a workspace pane's header (one header per pane): one 32px row with
+   the arrows and the address; the rest is in the pane's "…". Lent to the
+   pane's title row it draws no line of its own (the header's is the one
+   line); under a row of tabs its line is the header's one line. */
+.browser-toolbar[data-pane-header] {
+  min-height: 32px;
+  height: 32px;
+  gap: 4px;
+  padding: 0 6px;
+  background: transparent;
+}
+.browser-toolbar[data-in-slot] {
+  flex: 1 1 auto;
+  height: 100%;
+  padding-inline: 2px 4px;
+  border-bottom: 0;
+}
+.browser-toolbar[data-pane-header] .browser-icon-button {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+.browser-toolbar[data-pane-header] .browser-address,
+.browser-toolbar[data-pane-header] .browser-project-mark,
+.browser-toolbar[data-pane-header] .browser-capture {
+  height: 26px;
+}
+.browser-toolbar[data-in-slot] .browser-load-indicator {
+  bottom: 0;
+}
 .browser-navigation {
   display: flex;
   gap: 1px;

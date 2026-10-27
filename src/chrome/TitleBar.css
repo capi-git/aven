@@ -311,6 +311,11 @@
   border-bottom: 0;
   background: transparent;
 }
+/* File tabs with a toolbar under them (an iPhone's) leave the one line to
+   the toolbar. */
+[data-header-continues] > .aven-surface-tabs {
+  box-shadow: none;
+}
 .personal-tab-insertion {
   width: 1px;
   background: var(--aven-drop-line, var(--aven-label-secondary));
@@ -568,48 +573,59 @@
 .personal-titlebar[data-variant="title"] .aven-tab-strip {
   padding-inline: 4px;
 }
-.personal-titlebar[data-title-layout="lone"] .aven-tab-slot {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab-slot {
   flex: 0 1 auto;
   width: auto;
   min-width: 0;
   max-width: 100%;
 }
-.personal-titlebar[data-title-layout="lone"] .aven-tab > .aven-tab-motion {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  > .aven-tab-motion {
   align-self: center;
   height: 26px;
   padding-left: 3px;
   border-radius: var(--aven-radius-sm);
   transition: background-color var(--aven-motion-fast) var(--aven-tab-ease);
 }
-.personal-titlebar[data-title-layout="lone"] .aven-tab .aven-tab-button,
-.personal-titlebar[data-title-layout="lone"] .aven-tab .aven-tab-button:hover {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  .aven-tab-button,
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  .aven-tab-button:hover {
   padding: 0 10px 0 6px;
   background: transparent;
   box-shadow: none;
 }
 .personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
   .aven-tab:hover
   > .aven-tab-motion {
   background: var(--aven-fill-quaternary);
 }
 .personal-titlebar[data-title-layout="lone"][data-pane-focused="true"]
+  .personal-tab-strip
   .aven-tab[data-active="true"]
   > .aven-tab-motion {
   background: var(--aven-tab-selected);
   box-shadow: var(--aven-tab-selected-edge);
 }
-.personal-titlebar[data-title-layout="lone"] .aven-tab-label {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab-label {
   font-weight: 500;
-}
-/* The lone title's own × and the browser's layout menu are tools at the
-   row's end. */
-.personal-titlebar[data-title-layout="lone"] .aven-tab-close,
-.personal-titlebar[data-title-layout="lone"] .personal-title-browser-menu {
-  display: none;
 }
 /* A pane is a share of the window, so its tabs go narrower than the
    window strip's before they fold into the "+N" (tabTrack.ts). */
-.personal-titlebar[data-title-layout="tabs"] .aven-tab-slot {
+.personal-titlebar[data-title-layout="tabs"]
+  .personal-tab-strip
+  .aven-tab-slot {
   min-width: 96px;
 }
 /* The "+N": the pane's tabs that do not fit, listed in a menu. */
@@ -708,7 +724,26 @@
 @media (prefers-reduced-motion: reduce) {
   .aven-pane-tools,
   .aven-title-more,
-  .personal-titlebar[data-title-layout="lone"] .aven-tab > .aven-tab-motion {
+  .personal-titlebar[data-title-layout="lone"]
+    .personal-tab-strip
+    .aven-tab
+    > .aven-tab-motion {
     transition: none;
   }
+}
+
+/* A lone title row lends its row to its tab's own toolbar (a page's
+   address, an iPhone's pickers, a tab's files), in place of its name. */
+.aven-pane-header-slot {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+/* A tab of files lent the row: its file tabs are the row. */
+.aven-pane-header-slot > .aven-surface-tabs {
+  flex: 1 1 auto;
+  height: 100%;
+  box-shadow: none;
 }

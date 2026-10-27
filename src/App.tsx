@@ -391,6 +391,12 @@ import {
   type SplitDir,
   type WorkspaceTab,
 } from "./lib/layout";
+import { paneTitleRow, workspaceTabOwnHeader } from "./lib/filePaneHeader";
+import {
+  paneMinimizeControls,
+  paneMinimizeKey,
+  paneMinimizeLabel,
+} from "./lib/paneMinimize";
 import {
   loadBundledChangelog,
   releaseNotesForVersion,
@@ -10727,9 +10733,27 @@ export default function App({
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
+  // Each pane offers to hide itself beside its divider in its own "…".
+  const paneMinimizes = paneMinimizeControls(view.layout);
   const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
     const across = seamNeighbours(paneLeaves, owner);
     return {
+      paneHides: (paneMinimizes.get(owner) ?? []).map((control) => ({
+        key: paneMinimizeKey(control),
+        label: paneMinimizeLabel(control),
+      })),
+      onHidePane: (key: string) => {
+        const control = paneMinimizeControls(viewRef.current.view.layout)
+          .get(owner)
+          ?.find((entry) => paneMinimizeKey(entry) === key);
+        if (control)
+          onWorkspaceIntent({
+            type: "minimize",
+            split: control.sash.splitId,
+            index: control.sash.index,
+            side: control.side,
+          });
+      },
       paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
       onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
       paneMoves: (["left", "right", "up", "down"] as const).filter(
@@ -10916,12 +10940,40 @@ export default function App({
   const splitTabIds = new Set(
     tabs.filter((tab) => tab.layout?.type === "split").map((tab) => tab.id),
   );
+  // One header per pane, naming its tab once. A tab draws a header row of
+  // its own when it is a browser page (its address and arrows) or holds
+  // only files (their tabs, or an iPhone's pickers); a pane's title row
+  // then lends it the row. `namedAbove`: a tab row above already names it.
+  const browserSurfaceIds = new Set(
+    browserSurfaces.map((tab) => tab.surfaceId),
+  );
+  const ownHeader = (id: string, namedAbove: boolean) => {
+    if (browserSurfaceIds.has(id)) return true;
+    const tab = tabs.find((entry) => entry.id === id);
+    return !!tab && workspaceTabOwnHeader(tab, namedAbove);
+  };
+  const paneMembers = (owner: string) => view.groups[owner] ?? [owner];
+  const titleRowOf = (owner: string) =>
+    paneTitleRow({
+      space: spaceMode,
+      tabs: paneMembers(owner).length,
+      split: splitTabIds.has(owner),
+      ownHeader: (namedAbove) => ownHeader(owner, namedAbove),
+    });
+  // Tabs that a tab row (a pane's, or the window's strip) already names.
+  const namedAboveIds = new Set(
+    Object.values(view.groups)
+      .filter((members) => members.length > 1)
+      .flat(),
+  );
   const windowStrip =
     workspaceVisible && !settingsOpen && view.layout && windowStripOwner
       ? paneBar(windowStripOwner, {
           variant: "strip",
           hideLoneTab: true,
           windowTitle: false,
+          // A page in front lists Recent and Keep open in its pane's "…".
+          previewActionsInPane: browserSurfaceIds.has(windowStripOwner),
           // A space is one tab of the strip, and one tab shows none: only
           // the strip's New chat, browser and board buttons remain.
           ...(spaceMode ? { tabs: [], browserTabs: [] } : {}),
@@ -11156,10 +11208,9 @@ export default function App({
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage
                               headers={visibleSurfaceIds
-                                .filter(
-                                  (owner) =>
-                                    spaceMode || !splitTabIds.has(owner),
-                                )
+                                // One header per pane, naming its tab once
+                                // (paneTitleRow).
+                                .filter((owner) => titleRowOf(owner).row)
                                 .map((owner) => ({
                                   id: owner,
                                   key: workspaceHeaderKeys[owner],
@@ -11167,6 +11218,7 @@ export default function App({
                                     variant: "title",
                                     stackOnStrip: !spaceMode,
                                     frontNamedBelow: splitTabIds.has(owner),
+                                    frontOwnHeader: titleRowOf(owner).lend,
                                     ...paneTitleTools(owner),
                                   }),
                                 }))}
@@ -11199,6 +11251,7 @@ export default function App({
                                   side,
                                 })
                               }
+                              hideInMenu
                               onRestoreSplit={
                                 view.restoreView
                                   ? () => onWorkspaceIntent({ type: "restore" })
@@ -11227,6 +11280,8 @@ export default function App({
                                           workspaceVisible
                                         }
                                         layout={tab.layout}
+                                        paneHeaderId={tab.id}
+                                        namedAbove={namedAboveIds.has(tab.id)}
                                         sessions={sessions}
                                         editorPanes={[
                                           ...tab.editorPanes,

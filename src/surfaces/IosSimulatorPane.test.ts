@@ -30,7 +30,7 @@ vi.mock("../lib/platform", async (importOriginal) => ({
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-async function render() {
+async function render(extra: Record<string, unknown> = {}) {
   const { IosSimulatorPane } = await import("./IosSimulatorPane");
   container = document.createElement("div");
   document.body.append(container);
@@ -41,6 +41,7 @@ async function render() {
         project: "/work/pom",
         visible: true,
         onOpenFile: () => {},
+        ...extra,
       }),
     );
   });
@@ -63,6 +64,49 @@ afterEach(() => {
   container?.remove();
   container = null;
 });
+
+const answer = async (command: string) => {
+  switch (command) {
+    case "ios_sim_support":
+      return { xcode: true, live: false, developerDir: "/X", reason: "x" };
+    case "ios_sim_devices":
+      return {
+        devices: [
+          {
+            udid: "AAAA",
+            name: "iPhone 18 Pro",
+            family: "iphone",
+            runtime: "iOS 27.0",
+            booted: true,
+            state: "Booted",
+          },
+        ],
+        suggested: "AAAA",
+      };
+    case "ios_sim_project":
+      return {
+        containers: [{ kind: "project", path: "/work/pom/Pom.xcodeproj" }],
+        container: { kind: "project", path: "/work/pom/Pom.xcodeproj" },
+        schemes: ["Pom"],
+        error: null,
+      };
+    case "ios_sim_state":
+      return {
+        status: {
+          phase: "idle",
+          message: "",
+          udid: null,
+          bundleId: null,
+          builtMs: null,
+          errors: [],
+          logPath: null,
+        },
+        logs: [],
+      };
+    default:
+      return null;
+  }
+};
 
 describe("the iPhone pane", () => {
   it("only says where iPhone apps run when this is not a Mac", async () => {
@@ -91,48 +135,7 @@ describe("the iPhone pane", () => {
   });
 
   it("offers the remembered device and Run once Xcode answers", async () => {
-    host.invoke.mockImplementation(async (command: string) => {
-      switch (command) {
-        case "ios_sim_support":
-          return { xcode: true, live: false, developerDir: "/X", reason: "x" };
-        case "ios_sim_devices":
-          return {
-            devices: [
-              {
-                udid: "AAAA",
-                name: "iPhone 18 Pro",
-                family: "iphone",
-                runtime: "iOS 27.0",
-                booted: true,
-                state: "Booted",
-              },
-            ],
-            suggested: "AAAA",
-          };
-        case "ios_sim_project":
-          return {
-            containers: [{ kind: "project", path: "/work/pom/Pom.xcodeproj" }],
-            container: { kind: "project", path: "/work/pom/Pom.xcodeproj" },
-            schemes: ["Pom"],
-            error: null,
-          };
-        case "ios_sim_state":
-          return {
-            status: {
-              phase: "idle",
-              message: "",
-              udid: null,
-              bundleId: null,
-              builtMs: null,
-              errors: [],
-              logPath: null,
-            },
-            logs: [],
-          };
-        default:
-          return null;
-      }
-    });
+    host.invoke.mockImplementation(answer);
     const pane = await render();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -151,5 +154,44 @@ describe("the iPhone pane", () => {
       udid: "AAAA",
       picked: false,
     });
+  });
+
+  it("is its pane's one header row: pickers and Run, with the rest in its \u2026 and the pane's tools at its end", async () => {
+    host.invoke.mockImplementation(answer);
+    const pane = await render({
+      header: {
+        tools: createElement("button", { "aria-label": "Close iPhone" }),
+      },
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const rows = pane.querySelectorAll(".ios-sim-toolbar");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('[aria-label="Close iPhone"]')).not.toBeNull();
+    for (const label of ["Home", "Lock", "Rotate", "Copy a screenshot"])
+      expect(pane.querySelector(`[aria-label="${label}"]`)).toBeNull();
+    expect(pane.querySelector('[aria-label="iPhone actions"]')).not.toBeNull();
+  });
+
+  it("lists Home, Rotate and the screenshot in its workspace pane's \u2026 while that hosts them", async () => {
+    const { hostPaneHeaderMenu, paneHeaderMenu } =
+      await import("../lib/paneHeader");
+    const release = hostPaneHeaderMenu("tab");
+    try {
+      host.invoke.mockImplementation(answer);
+      const pane = await render({ header: { menuId: "tab" } });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(pane.querySelector('[aria-label="iPhone actions"]')).toBeNull();
+      expect(
+        paneHeaderMenu("tab")!
+          .items()
+          .flatMap((item) => (item.kind === "item" ? [item.label] : [])),
+      ).toEqual(["Home", "Rotate", "Copy a screenshot"]);
+    } finally {
+      release();
+    }
   });
 });

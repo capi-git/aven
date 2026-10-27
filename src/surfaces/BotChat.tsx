@@ -40,7 +40,10 @@ function useBotName(path: string): { name: string; project: string } {
   };
 }
 
-/** Critter, name, whose teammate it is and its job, Pause and Settings. */
+/**
+ * Critter, whose teammate it is and its job, Pause and Settings. Its name is
+ * the tab's (one header per pane), so the chat does not repeat it.
+ */
 export const BotChatHeader = memo(function BotChatHeader({
   path,
   working,
@@ -49,7 +52,7 @@ export const BotChatHeader = memo(function BotChatHeader({
   working: boolean;
 }) {
   const bot = useProjectBot(path);
-  const { name, project } = useBotName(path);
+  const { project } = useBotName(path);
   const workspace = useBotWorkspace();
   const paused = !!bot?.paused;
   // Why it isn't watching, when it isn't: in place of its job.
@@ -58,7 +61,6 @@ export const BotChatHeader = memo(function BotChatHeader({
     <header className="bot-chat-header" data-bot-header={path}>
       <BotCritter path={path} active={working} className="bot-chat-critter" />
       <div className="bot-chat-heading">
-        <span className="bot-chat-name">{name}</span>
         <span className="bot-chat-whose" title={reason ?? undefined}>
           {`${project}'s teammate · ${reason ?? (bot ? botJobLine(bot) : "")}`}
         </span>
