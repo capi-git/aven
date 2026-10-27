@@ -189,6 +189,12 @@ export type TitleBarProps = {
    * and the title row leaves the line under both to it.
    */
   frontOwnHeader?: boolean;
+  /**
+   * A tab row above (the window's strip) already names the tab in front,
+   * so a toolbar lent this row does not name it again. Defaults to the
+   * strip holding this pane's tabs and showing more than one.
+   */
+  frontNamed?: boolean;
   /** Hiding this pane beside its divider, offered in the pane's "…". */
   paneHides?: readonly { key: string; label: string }[];
   onHidePane?: (key: string) => void;
@@ -1184,6 +1190,7 @@ function TitleBarComponent({
   stackOnStrip = false,
   frontNamedBelow = false,
   frontOwnHeader = false,
+  frontNamed,
   paneHides,
   onHidePane,
   previewActionsInPane = false,
@@ -1368,7 +1375,7 @@ function TitleBarComponent({
   const paneHeader = useHostPaneHeader(titleRow ? frontId : null, {
     host: titleRow,
     offer: hostsHeader,
-    names: !(stackOnStrip && orderedIds.length > 1),
+    names: !(frontNamed ?? (stackOnStrip && orderedIds.length > 1)),
   });
   const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
   // On a track (two tabs or more) the tabs share the strip's width and one
@@ -2573,8 +2580,15 @@ function TitleBarComponent({
       data-pane-local={paneLocal || undefined}
       data-variant={variant}
       data-title-layout={titleRow ? (paneTabs ? "tabs" : "lone") : undefined}
+      // The line under the pane's whole header is drawn below this row when
+      // the tab in front draws its own row under it, or (a tab split into
+      // panes) its panes' strips do.
       data-header-continues={
-        (titleRow && paneTabs && frontOwnHeader) || undefined
+        (titleRow &&
+          (paneTabs
+            ? frontOwnHeader
+            : frontNamedBelow && orderedIds.length <= 1)) ||
+        undefined
       }
       data-pane-focused={paneFocused}
       data-tauri-drag-region={paneLocal ? "false" : "deep"}

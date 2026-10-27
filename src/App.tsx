@@ -10953,10 +10953,13 @@ export default function App({
     return !!tab && workspaceTabOwnHeader(tab, namedAbove);
   };
   const paneMembers = (owner: string) => view.groups[owner] ?? [owner];
+  // A tab row above names the pane's tab in front: its own row of tabs in a
+  // space, the window's strip for a single pane.
+  const frontNamed = (owner: string) => paneMembers(owner).length > 1;
   const titleRowOf = (owner: string) =>
     paneTitleRow({
       space: spaceMode,
-      tabs: paneMembers(owner).length,
+      named: frontNamed(owner),
       split: splitTabIds.has(owner),
       ownHeader: (namedAbove) => ownHeader(owner, namedAbove),
     });
@@ -11229,6 +11232,7 @@ export default function App({
                                     stackOnStrip: !spaceMode,
                                     frontNamedBelow: splitTabIds.has(owner),
                                     frontOwnHeader: titleRowOf(owner).lend,
+                                    frontNamed: frontNamed(owner),
                                     ...paneTitleTools(owner),
                                   }),
                                 }))}

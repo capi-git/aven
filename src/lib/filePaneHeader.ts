@@ -58,25 +58,28 @@ export function workspaceTabOwnHeader(
 /**
  * A pane's title row, naming its tab once. In a space (several panes) every
  * pane has one: a row of its tabs, or its lone tab's name. A single pane's
- * tabs are already on the window's strip, so its title row stays only to
- * name a lone tab (the strip shows none) or to lend its row to a tab that
- * draws a header of its own (`ownHeader`, told whether a tab row above
- * names that tab). A tab split into panes, alone, names itself in each.
- * `lend`: the tab in front draws its own header row (in the title row when
- * the pane holds it alone, under the row of tabs otherwise).
+ * tabs are on the window's strip, so its title row stays only to name a tab
+ * the strip does not show or to lend its row to a tab that draws a header
+ * of its own (`ownHeader`, told whether a tab row above names that tab). A
+ * tab split into panes, alone, names itself in each.
+ *
+ * `named`: a tab row above already names the tab in front (the pane's own
+ * row of tabs in a space, the window's strip for a single pane). `lend`:
+ * the tab in front draws its own header row (in the title row when the
+ * pane holds it alone, under the row of tabs otherwise).
  */
 export function paneTitleRow({
   space,
-  tabs,
+  named,
   split,
   ownHeader,
 }: {
   space: boolean;
-  tabs: number;
+  named: boolean;
   split: boolean;
   ownHeader: (namedAbove: boolean) => boolean;
 }): { row: boolean; lend: boolean } {
-  const lend = ownHeader(tabs > 1);
+  const lend = ownHeader(named);
   if (space) return { row: true, lend };
-  return { row: !split && (tabs <= 1 || ownHeader(true)), lend };
+  return { row: !split && (!named || lend), lend };
 }

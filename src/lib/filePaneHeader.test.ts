@@ -90,11 +90,21 @@ describe("a pane's title row names its tab once", () => {
     // Three chats: the strip names them; a title row would name the front
     // one again.
     expect(
-      paneTitleRow({ space: false, tabs: 3, split: false, ownHeader: chat }),
+      paneTitleRow({
+        space: false,
+        named: true,
+        split: false,
+        ownHeader: chat,
+      }),
     ).toEqual({ row: false, lend: false });
     // One chat: the strip shows no lone tab, so the title row names it.
     expect(
-      paneTitleRow({ space: false, tabs: 1, split: false, ownHeader: chat }),
+      paneTitleRow({
+        space: false,
+        named: false,
+        split: false,
+        ownHeader: chat,
+      }),
     ).toEqual({ row: true, lend: false });
   });
 
@@ -105,7 +115,7 @@ describe("a pane's title row names its tab once", () => {
       return page();
     };
     expect(
-      paneTitleRow({ space: false, tabs: 3, split: false, ownHeader }),
+      paneTitleRow({ space: false, named: true, split: false, ownHeader }),
     ).toEqual({ row: true, lend: true });
     // Told that the window strip names it.
     expect(asked).toContain(true);
@@ -113,10 +123,12 @@ describe("a pane's title row names its tab once", () => {
 
   it("is always there in a space, and never above a single pane's split tab", () => {
     expect(
-      paneTitleRow({ space: true, tabs: 3, split: false, ownHeader: chat }).row,
+      paneTitleRow({ space: true, named: true, split: false, ownHeader: chat })
+        .row,
     ).toBe(true);
     expect(
-      paneTitleRow({ space: false, tabs: 1, split: true, ownHeader: chat }).row,
+      paneTitleRow({ space: false, named: false, split: true, ownHeader: chat })
+        .row,
     ).toBe(false);
   });
 });

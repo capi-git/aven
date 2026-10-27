@@ -559,6 +559,11 @@ describe("a title row over a tab split into panes", () => {
     });
     // No chip: the chat's own strip below names it once.
     expect(tabIds()).toEqual([]);
+    // Its panes' strips draw the one line under the header.
+    expect(
+      container.querySelector<HTMLElement>(".personal-titlebar")!.dataset
+        .headerContinues,
+    ).toBe("true");
     expect(container.textContent).not.toContain("First task");
     const labels = [
       ...container.querySelectorAll<HTMLButtonElement>(".aven-pane-tool"),

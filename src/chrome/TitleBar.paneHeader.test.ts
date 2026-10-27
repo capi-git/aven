@@ -184,6 +184,15 @@ describe("one header per pane", () => {
     expect(header().querySelector(".aven-tab")).toBeNull();
   });
 
+  it("does not name the tab where a strip of entries names it, whatever the pane holds", async () => {
+    // A single tab among spaces on the window's strip: one tab in the pane,
+    // yet the strip names it.
+    await render({ stackOnStrip: true, frontNamed: true });
+    const form = container.querySelector('form[aria-label="Toolbar"]')!;
+    expect(header().contains(form)).toBe(true);
+    expect(form.hasAttribute("data-names")).toBe(false);
+  });
+
   it("names a tab without a toolbar of its own, as today", async () => {
     await render({ frontOwnHeader: false });
     expect(header().querySelector("[data-pane-header-slot]")).toBeNull();
