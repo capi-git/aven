@@ -45,6 +45,7 @@ const MENUS = [
   "src/chrome/SkillPicker.tsx",
   "src/chrome/WorkspaceMenuPanel.tsx",
   "src/chrome/WorkspaceProfileMenu.tsx",
+  "src/chrome/WorkspaceStatusBar.tsx",
   "src/chrome/AccessPanel.tsx",
   "src/surfaces/RaceReviewerPicker.tsx",
   "src/surfaces/SettingsControls.tsx",
@@ -98,10 +99,8 @@ describe("one menu", () => {
   });
 
   it("leaves no popover menu with rows of its own", () => {
-    // The window toolbar's overflow menu belongs to the pane-header work.
-    const allowed = new Set(["src/chrome/WorkspaceStatusBar.tsx"]);
     const own = tracked("src/*.tsx")
-      .filter((file) => !file.includes(".test.") && !allowed.has(file))
+      .filter((file) => !file.includes(".test."))
       .filter((file) => {
         const source = read(file);
         return (

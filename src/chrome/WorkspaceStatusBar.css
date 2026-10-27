@@ -116,38 +116,6 @@
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
   line-height: 1.5;
 }
-.workspace-status-menu-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: var(--aven-radius-row);
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.workspace-status-menu-item > span {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-status-menu-item small {
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-}
-.workspace-status-menu-item:hover:not(:disabled),
-.workspace-status-menu-item:focus-visible {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-}
-.workspace-status-menu-item:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
 .workspace-status-usage {
   padding: 0;
   line-height: 1.5;
@@ -463,61 +431,6 @@
 .workspace-navigation button:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
-}
-/* The navigation overflow menu draws the shared menu rows (the aven-menu
-   classes): 26px rows inset 4px in the 10px popover frame, 4px 8px row
-   padding, an 8px gap, 12px text, 14px glyphs in the muted ink and 6px row
-   corners. These rules stand in for the shared Menu.css until it lands. */
-.workspace-navigation-menu.aven-menu {
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  color: var(--color-content);
-  font-size: var(--text-ui-label);
-  line-height: 18px;
-}
-.workspace-navigation-menu .aven-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  min-height: 26px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: var(--aven-radius-row);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: default;
-}
-.workspace-navigation-menu .aven-menu-item:hover:not(:disabled),
-.workspace-navigation-menu .aven-menu-item:focus-visible {
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
-}
-.workspace-navigation-menu.aven-menu .aven-menu-item:focus-visible {
-  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
-  outline-offset: -1px;
-}
-.workspace-navigation-menu .aven-menu-item:disabled {
-  opacity: 0.45;
-}
-.workspace-navigation-menu .aven-menu-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  color: color-mix(in srgb, var(--color-content) 70%, var(--aven-popup));
-}
-.workspace-navigation-menu .aven-menu-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 @container workspace-navigation (max-width: 183px) {
   .workspace-status-nav-group .workspace-status-history {

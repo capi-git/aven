@@ -35,6 +35,7 @@ import {
   sessionDisplayTitle,
   type Session,
 } from "../lib/session";
+import "./Menu.css";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
@@ -358,7 +359,7 @@ export function WorkspaceNavigation({
           width={208}
           role="menu"
           aria-label="More navigation"
-          className="aven-menu workspace-navigation-menu"
+          className="aven-menu"
           tabIndex={-1}
           autoFocus
           onDismiss={(reason) => closeMenu(reason === "escape")}
