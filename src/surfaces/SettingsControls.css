@@ -547,10 +547,11 @@ html.theme-light .settings-button-danger:not(:disabled):hover {
   background: var(--swatch);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 22%, transparent);
   cursor: pointer;
-  transition: transform 0.25s cubic-bezier(0.2, 1.3, 0.3, 1);
+  transition: transform var(--aven-motion-base, 150ms)
+    var(--aven-ease-out, ease-out);
 }
 .settings-swatch:hover {
-  transform: scale(1.12);
+  transform: scale(1.1);
 }
 .settings-swatch[aria-checked="true"]::after,
 .settings-swatch[data-checked]::after {
