@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.1.154] - 2026-10-27
+
+### Added
+
+- **iPhone apps run inside Aven.** In a project with an Xcode app, the **iPhone** button beside the browser opens a simulator next to your chat: pick a device, press **Run** to build and open your app, and click, scroll and type right in it. Build errors and the app's logs show at the bottom. Agents can see and tap through the app too, but only the simulators of that project, never a real iPhone. Needs Xcode; not on Windows.
+- **Tabs and panes like Cydonia.** Tabs share the width with their names centred, and one highlight slides to the tab you pick. Every pane in a split has a title row whose tools (More, Move, Expand, Close) show on hover; Move swaps a pane with its neighbour. Drag a tab to a pane's edge to split it (the preview glides between sides and the new pane opens out of it), or to its middle to stack it. **⌃⌥⇥** moves to the next pane, **⌃⌥Z** enlarges or restores it with a glide, and **⌃⌥W** closes it.
+
+### Changed
+
+- **Grey, not blue.** Aven's default colour is a near-white grey instead of blue, and selected rows, dots, progress bars, borders, drag previews and cards are grey; colour stays only on small things that mean something (status words, added/removed lines, errors, agent logos and critters). The old blue is still in Appearance as **Blue**, and colours you chose yourself are kept. The window's glass keeps a little more grey so colourful wallpapers don't tint Aven.
+- **A calmer sidebar and toolbar.** Your workspace name is Home, with **+** for a new chat; Search is a field under it (⇧⌘K) and Notes, Inbox and Automations stay as pinned tiles. Project rows show just their critter and name until you hover. The toolbar keeps only the sidebar button, back and forward, Activity and your tabs.
+- In light mode the sidebar that slides out over a page is a drawer flush with the window's edge, with nothing dark behind it.
+
+### Fixed
+
+- A drag preview no longer stays on screen after a drop over a web page.
+
 ## [0.1.153] - 2026-10-26
 
 ### Added
