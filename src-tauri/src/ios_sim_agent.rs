@@ -5,6 +5,8 @@
 //! only while that pane is open beside it; real devices are never reachable.
 //! Coordinates are the screen's upright points from its top-left corner,
 //! matching screenshots and snapshots.
+// The iPhone pane runs on macOS only; other builds keep the shared parts.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use serde::Deserialize;
 

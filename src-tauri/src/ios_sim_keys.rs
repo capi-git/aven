@@ -1,6 +1,8 @@
 //! Typing on the simulator: characters and Mac keys as USB HID keyboard
 //! usages (page 7) on a US layout. Characters a US keyboard cannot type
 //! (accents, emoji, other scripts) go through the device's pasteboard instead.
+// The iPhone pane runs on macOS only; other builds keep the shared parts.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 /// Left Shift and Left Command (GUI).
 pub(crate) const SHIFT: u32 = 0xE1;

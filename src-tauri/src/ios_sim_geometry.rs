@@ -8,6 +8,8 @@
 //! pane with letterboxing. The native view calls these functions for every
 //! pointer event and for the agent's ring, so the arithmetic lives in one
 //! tested place.
+// The iPhone pane runs on macOS only; other builds keep the shared parts.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 /// Counterclockwise quarter turns that show the framebuffer upright for the
 /// simulator's `uiOrientation` (UIKit's interface orientation: 1 portrait,

@@ -1,5 +1,7 @@
 //! Simulator device lists from `simctl list devices -j`, and the pure decisions
 //! about which devices the iPhone pane offers.
+// The iPhone pane runs on macOS only; other builds keep the shared parts.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use serde::Serialize;
 

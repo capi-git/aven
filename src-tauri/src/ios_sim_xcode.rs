@@ -2,6 +2,8 @@
 //!
 //! Everything here is pure (no processes) so it can be tested with fixtures on
 //! any platform. `ios_sim.rs` runs the tools and feeds their output in here.
+// The iPhone pane runs on macOS only; other builds keep the shared parts.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
