@@ -89,7 +89,7 @@
   background: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .discussion-wrapup-list[data-discussion-list="agreed"] li::before {
-  background: var(--personal-accent, var(--color-accent));
+  background: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 .discussion-wrapup-actions {
   display: flex;

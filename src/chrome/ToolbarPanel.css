@@ -18,7 +18,7 @@
     var(--toolbar-panel-text) 12%,
     transparent
   );
-  /* Pointing at a row lifts it in grey; the accent marks only what is
+  /* Pointing at a row lifts it in grey; a stronger grey marks what is
      chosen. */
   --toolbar-panel-hover: color-mix(
     in srgb,
@@ -27,7 +27,7 @@
   );
   --toolbar-panel-selected: color-mix(
     in srgb,
-    var(--toolbar-panel-accent) 16%,
+    var(--toolbar-panel-text) 14%,
     transparent
   );
   --toolbar-panel-track: color-mix(

@@ -172,7 +172,7 @@ export function WorkspaceProfileMenu({
             {selected ? (
               <Check
                 aria-hidden="true"
-                className="size-3.5 shrink-0 text-accent"
+                className="size-3.5 shrink-0 text-content"
               />
             ) : null}
           </button>

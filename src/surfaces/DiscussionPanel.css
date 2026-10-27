@@ -305,11 +305,7 @@ button.discussion-side:focus-visible {
 }
 .discussion-new::before,
 .discussion-new::after {
-  background: color-mix(
-    in srgb,
-    var(--personal-accent, var(--color-accent)) 45%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--color-content) 30%, transparent);
 }
 
 /* Shrunk: a pill with both mascots, the round and what is happening. */
@@ -464,16 +460,11 @@ button.discussion-side:focus-visible {
   max-width: 100%;
   margin: 0;
   padding: 7px 13px;
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--personal-accent, var(--color-accent)) 30%,
-      var(--aven-glass-card-edge, var(--aven-line))
-    );
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: var(--aven-radius-bubble);
   background: color-mix(
     in srgb,
-    var(--personal-accent, var(--color-accent)) 10%,
+    var(--color-content) 6%,
     var(
       --aven-glass-card,
       color-mix(in srgb, var(--color-content) 4%, transparent)
@@ -525,7 +516,7 @@ button.discussion-side:focus-visible {
   );
 }
 .discussion-jump-box:focus-within {
-  border-color: var(--aven-focus-ring, var(--personal-accent));
+  border-color: color-mix(in srgb, var(--color-content) 24%, transparent);
 }
 .discussion-jump-field {
   flex: 1;

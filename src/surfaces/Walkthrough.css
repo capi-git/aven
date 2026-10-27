@@ -155,8 +155,8 @@
 }
 
 .walkthrough-choice[aria-checked="true"] {
-  border-color: color-mix(in srgb, var(--color-accent) 65%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  background: var(--aven-selected);
 }
 
 .walkthrough-choice:disabled {

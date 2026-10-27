@@ -42,7 +42,8 @@
 /* Typing here shows in the focus ring's colour; under Increase contrast at
    full strength, never fainter than the resting edge. */
 .personal-shell .personal-composer [data-composer-box]:focus-within {
-  border-color: color-mix(in srgb, var(--aven-focus-ring) 70%, transparent);
+  /* A neutral lift while typing; Increase Contrast draws the focus ring. */
+  border-color: color-mix(in srgb, var(--color-content) 24%, transparent);
   box-shadow: var(--composer-shadow), var(--aven-specular);
 }
 @media (prefers-contrast: more) {
@@ -56,7 +57,7 @@
   }
 }
 .personal-shell .personal-composer [data-composer-box][data-file-drag="true"] {
-  outline: 2px dashed var(--personal-accent);
+  outline: 2px dashed var(--aven-label-secondary, var(--personal-muted));
   outline-offset: -4px;
 }
 /* Reference highlighting overlays the textarea: metrics must be identical. */
@@ -151,7 +152,7 @@
 .personal-shell
   .personal-composer-context
   svg:not(.text-amber-400):not(.text-red-400) {
-  color: var(--personal-accent);
+  color: var(--personal-muted);
 }
 .personal-shell .personal-composer-actions {
   order: 3;
@@ -210,7 +211,7 @@
   /* Rides on the composer's own glass rather than as an opaque tab. */
   background: color-mix(
     in srgb,
-    var(--personal-accent) 9%,
+    var(--color-content) 6%,
     var(--composer-glass)
   );
 }
@@ -223,7 +224,7 @@
   border-radius: var(--aven-radius-sm);
 }
 .personal-shell .personal-composer [data-message-queue-card] > div > svg {
-  color: var(--personal-accent);
+  color: var(--personal-muted);
 }
 .personal-shell .personal-composer [data-session-review-shell] {
   margin: 0 14px 12px;

@@ -34,9 +34,10 @@
   --personal-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --personal-line: color-mix(in srgb, var(--color-content) 9%, transparent);
   --personal-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
+  /* Selected rows are a neutral fill: colour stays for meaning, not state. */
   --personal-selected: color-mix(
     in srgb,
-    var(--personal-highlight) 11%,
+    var(--color-content) 10%,
     transparent
   );
   --aven-muted: var(--personal-muted);
@@ -102,7 +103,9 @@ html.theme-light .personal-shell {
 /* The window owns the base translucency; navigation adds a light foreground tint.
    Floating panels stay solid unless workspace matching is explicitly enabled. */
 html.has-native-glass:not(.theme-light) .personal-shell {
-  --personal-window-opacity: var(--sidebar-opacity, 1);
+  /* Never thinner than a fifth of the shell colour, so a colourful wallpaper
+     reads as grey rather than tinting the window (GLASS_TINT_FLOOR). */
+  --personal-window-opacity: calc(0.2 + 0.8 * var(--sidebar-opacity, 1));
 }
 
 /* macOS paints this same shell tint on the window itself once it confirms
@@ -420,7 +423,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 
 .personal-shell .personal-browser-divider:hover,
 .personal-shell .personal-inspector-divider:hover {
-  background: color-mix(in srgb, var(--personal-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
 }
 
 .personal-shell .personal-browser-divider:focus-visible,

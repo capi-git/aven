@@ -88,7 +88,7 @@
   --aven-muted: color-mix(in srgb, var(--color-content) 60%, transparent);
   --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
   --aven-hover: color-mix(in srgb, var(--color-content) 7%, transparent);
-  --aven-selected: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --aven-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
   --aven-raised: color-mix(
     in srgb,
     var(--color-background-base) 94%,

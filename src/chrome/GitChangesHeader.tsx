@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { basename, type GitDiffIndex, type GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo, upstreamLabel } from "../lib/gitChangesView";
@@ -36,15 +35,7 @@ export function ChangesHeader({
   const synced =
     !!index?.upstream && ahead === 0 && behind === 0 && !!index.branch;
   return (
-    <header
-      aria-label="Change summary"
-      className="git-hero"
-      style={
-        appearance
-          ? ({ "--git-project-color": appearance.color } as CSSProperties)
-          : undefined
-      }
-    >
+    <header aria-label="Change summary" className="git-hero">
       <div className="git-hero-top">
         <ProjectMark
           path={projectCwd || cwd}

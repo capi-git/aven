@@ -233,7 +233,7 @@
   height: 4px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: var(--personal-tab-accent, var(--color-accent));
+  background: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 /* A chat in this tab waits on you: the amber the sidebar uses for it. */
 .personal-title-tab-needs-you {

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useLayoutEffect, useState } from "react";
+import { AVEN_THEME_COLORS } from "./appearance";
 import type { ProviderRateLimits, RateLimitProvider } from "./rateLimits";
 import type { UsagePace, UsageWindowKind } from "./usageForecast";
 
@@ -71,7 +72,7 @@ export function usagePanelTheme(): UsagePanelSnapshot["theme"] {
   const opacity = popupGlassOpacity(mode);
   return {
     mode,
-    accent: accent || (mode === "dark" ? "#5ed9d0" : "#157d82"),
+    accent: accent || AVEN_THEME_COLORS[mode].accent,
     background:
       style.getPropertyValue("--aven-popup").trim() ||
       style.getPropertyValue("--personal-main-surface").trim() ||

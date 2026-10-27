@@ -270,7 +270,7 @@ describe("workspace appearance settings", () => {
         '[role="radiogroup"][aria-label="Accent colour"] [role="radio"]',
       ),
     ).map((swatch) => swatch.getAttribute("aria-label"));
-    expect(swatches[0]).toBe("Aven blue");
+    expect(swatches.slice(0, 2)).toEqual(["Neutral", "Blue"]);
     expect(swatches).toContain("Forest");
     // #446688 is no preset, so the custom choice is the selected one.
     expect(checkedAccent()).toBeUndefined();
@@ -300,14 +300,13 @@ describe("workspace appearance settings", () => {
       document.documentElement.style.getPropertyValue("--theme-accent-color"),
     ).toBe("#a2c7aa");
 
-    await click(
-      container.querySelector('[role="radio"][aria-label="Aven blue"]'),
-    );
+    await click(container.querySelector('[role="radio"][aria-label="Blue"]'));
     expect(loadWorkspaceTheme("work").colors?.dark).toEqual({
       background: "#112233",
       accent: "#57b5ff",
-      highlight: "#57b5ff",
+      highlight: "#8ccbff",
     });
+    expect(checkedAccent()).toBe("Blue");
   });
 
   it("opens an accent-only picker from Custom… and uses one colour in both modes", async () => {
@@ -399,7 +398,7 @@ describe("workspace appearance settings", () => {
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
     expect(loadChatBackgroundScope()).toBe("all");
     expect(glass().value).toBe("48");
-    expect(checkedAccent()).toBe("Aven blue");
+    expect(checkedAccent()).toBe("Neutral");
   });
 
   it("turns every animation off with Reduce motion, and keeps it through Restore defaults", async () => {

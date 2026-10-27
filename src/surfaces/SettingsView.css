@@ -235,7 +235,7 @@
   height: 6px;
   width: 6px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 .settings-scope-line > span:nth-child(2) {
   font-weight: 550;
@@ -380,7 +380,7 @@
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  background: var(--aven-fill, var(--aven-hover));
   color: var(--color-content);
   font-size: 10.5px;
   font-weight: 600;

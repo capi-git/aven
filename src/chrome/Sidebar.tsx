@@ -1630,10 +1630,10 @@ function SidebarComponent({
                           } ${draggingFolder ? "opacity-40" : ""}`}
                         >
                           {showFolderDropStart ? (
-                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
+                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-content/60" />
                           ) : null}
                           {showFolderDropEnd ? (
-                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
+                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-content/60" />
                           ) : null}
                           <div
                             className={`overflow-hidden rounded-md ${
@@ -2694,7 +2694,7 @@ function FolderRow({
       }`}
     >
       {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
       ) : null}
       <span
         className={`relative grid size-4 shrink-0 place-items-center ${
@@ -2781,7 +2781,7 @@ function FolderRenameRow({
       }`}
     >
       {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
       ) : null}
       <span className="relative grid size-4 shrink-0 place-items-center text-content/50">
         <ChevronDown className="size-3.5" strokeWidth={1.75} />
@@ -3098,7 +3098,7 @@ function SessionCard({
           aria-current={isActive ? "true" : undefined}
           className={`personal-task-card relative border rounded-md text-left ${dragging ? "opacity-40" : ""} ${
             isSelected
-              ? "bg-accent/15 text-content border-transparent"
+              ? "bg-content/12 text-content border-transparent"
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
@@ -3110,7 +3110,7 @@ function SessionCard({
             <span
               aria-hidden
               data-session-insert={dropEdge}
-              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-accent ${dropEdge === "after" ? "bottom-0" : "top-0"}`}
+              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-content/60 ${dropEdge === "after" ? "bottom-0" : "top-0"}`}
             />
           ) : null}
           <button
@@ -3211,7 +3211,7 @@ function SessionCard({
           dropTarget
             ? "text-content border-transparent"
             : isSelected
-              ? "bg-accent/15 text-content border-transparent"
+              ? "bg-content/12 text-content border-transparent"
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
@@ -3224,12 +3224,12 @@ function SessionCard({
             <span
               data-session-insert={dropEdge}
               aria-hidden
-              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-accent ${
+              className={`pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-content/60 ${
                 dropEdge === "before" ? "top-0" : "bottom-0"
               }`}
             />
           ) : (
-            <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+            <div className="pointer-events-none absolute inset-0 rounded-md bg-content/10" />
           )
         ) : null}
         {compact ? null : (

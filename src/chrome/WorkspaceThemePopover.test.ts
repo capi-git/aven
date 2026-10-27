@@ -170,8 +170,9 @@ describe("workspace appearance dismissal", () => {
     await render();
     expect(
       dialog()!.querySelectorAll('button[aria-label$=" palette"]'),
-    ).toHaveLength(21);
+    ).toHaveLength(22);
     expect(control("Mono palette")).not.toBeNull();
+    expect(control("Blue palette")).not.toBeNull();
     await act(async () => control("Black palette").click());
     expect(themeApi.save).toHaveBeenCalledExactlyOnceWith("work", {
       preference: "dark",

@@ -20,7 +20,7 @@
 }
 .agent-pill:hover,
 .agent-pill[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--agent-pill-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
   color: var(--color-content);
 }
 .agent-pill-mark {
@@ -250,7 +250,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  color: var(--toolbar-panel-accent);
+  color: var(--toolbar-panel-text);
 }
 
 .agent-segmented {

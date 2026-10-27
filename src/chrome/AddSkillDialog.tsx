@@ -345,7 +345,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
             role="status"
             className="flex items-center gap-1.5 text-ui-label text-content"
           >
-            <Check className="size-3.5 shrink-0 text-accent" />
+            <Check className="size-3.5 shrink-0 text-content" />
             <span>{done}. Find it in the / list.</span>
           </p>
         ) : null}

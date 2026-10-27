@@ -53,7 +53,7 @@ export function RaceChip({
   };
   return (
     <div
-      className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
+      className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-content/10 text-ui-caption text-content"
       data-race-chip
       data-full-label={full}
     >
@@ -71,7 +71,7 @@ export function RaceChip({
         aria-expanded={open}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => onOpenChange(!open)}
-        className="flex h-full min-w-0 items-center gap-1 rounded-l-md pl-1.5 pr-1 hover:bg-accent/15"
+        className="flex h-full min-w-0 items-center gap-1 rounded-l-md pl-1.5 pr-1 hover:bg-content/15"
       >
         <Race className="size-3.5 shrink-0" strokeWidth={1.75} />
         <span className="min-w-0 truncate" data-race-chip-label>
@@ -85,7 +85,7 @@ export function RaceChip({
         aria-label="Turn off Race"
         onMouseDown={(event) => event.preventDefault()}
         onClick={onTurnOff}
-        className="grid h-full shrink-0 place-items-center rounded-r-md px-1 hover:bg-accent/15"
+        className="grid h-full shrink-0 place-items-center rounded-r-md px-1 hover:bg-content/15"
       >
         <X className="size-3" />
       </button>

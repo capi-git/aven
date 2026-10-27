@@ -365,7 +365,7 @@ function ScheduledRunCard({
             </span>
           ) : null}
           {unread ? (
-            <span aria-hidden className="size-1.5 rounded-full bg-accent" />
+            <span aria-hidden className="size-1.5 rounded-full bg-content" />
           ) : null}
         </span>
       </span>

@@ -1074,7 +1074,7 @@ export function IconButton({
         disabled
           ? "text-content/25"
           : accent
-            ? "text-accent hover:bg-content/10"
+            ? "text-content hover:bg-content/10"
             : active
               ? "text-content hover:bg-content/10"
               : "text-content/50 hover:bg-content/10 hover:text-content"

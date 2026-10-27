@@ -79,7 +79,7 @@ describe("Solid window colour", () => {
     expect(root.style.getPropertyValue("--theme-content-color")).toBe(
       "#ffffff",
     );
-    expect(root.style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
+    expect(root.style.getPropertyValue("--theme-accent-color")).toBe("#e8e8ea");
     await appearance.activateWindowAppearance();
     expect(windowColors()).toEqual([GREY]);
     // Solid has no glass, so no tint goes to the window.
@@ -93,7 +93,10 @@ describe("Solid window colour", () => {
       expect(background()).toBe("#000000");
       await appearance.activateWindowAppearance();
       expect(glassCalls()).toEqual([
-        { enabled: true, tint: { r: 0, g: 0, b: 0, alpha: opacity } },
+        {
+          enabled: true,
+          tint: { r: 0, g: 0, b: 0, alpha: appearance.glassTintAlpha(opacity) },
+        },
       ]);
       expect(windowColors()).toEqual([]);
     },
@@ -148,7 +151,8 @@ describe("Solid window colour", () => {
     await settle();
     expect(glassCalls()).toEqual([
       { enabled: false },
-      { enabled: true, tint: { r: 0, g: 0, b: 0, alpha: 0.6 } },
+      // The slider's 0.6, above the glass floor.
+      { enabled: true, tint: { r: 0, g: 0, b: 0, alpha: 0.68 } },
     ]);
 
     appearance.applySidebarOpacity(1);

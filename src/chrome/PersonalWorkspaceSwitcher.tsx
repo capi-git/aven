@@ -220,7 +220,7 @@ export function PersonalWorkspaceSwitcher({
               maxLength={40}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="mt-2 h-8 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-xs text-content outline-none focus:border-accent/60"
+              className="mt-2 h-8 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-xs text-content outline-none focus:border-content/35"
               placeholder="Name"
             />
             <button

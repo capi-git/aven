@@ -198,7 +198,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--personal-accent);
+  background: var(--color-content);
 }
 .personal-shell
   .personal-navigation
@@ -209,7 +209,7 @@
 }
 .personal-shell .personal-navigation .personal-project-memory {
   flex-shrink: 0;
-  color: color-mix(in srgb, var(--personal-accent) 80%, var(--color-content));
+  color: var(--personal-muted);
 }
 .personal-shell .personal-navigation .personal-project-waiting {
   width: 6px;
@@ -250,7 +250,7 @@
   height: 15px;
   padding: 0 4px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--personal-accent) 26%, transparent);
+  background: var(--aven-fill, var(--personal-selected));
   color: var(--color-content);
   font-weight: 600;
 }
@@ -307,11 +307,11 @@
   padding: 5px 8px 5px 10px;
   border-radius: var(--aven-radius-row);
 }
-/* The chat in front is unmistakable: a stronger fill, a short accent bar at
-   its leading edge and a heavier title. */
+/* The chat in front is unmistakable: a stronger fill, a short bar at its
+   leading edge and a heavier title. */
 .personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
   border-color: transparent;
-  background: color-mix(in srgb, var(--personal-highlight) 18%, transparent);
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
   box-shadow: none;
 }
 .personal-shell
@@ -324,7 +324,7 @@
   left: 3px;
   width: 2px;
   border-radius: var(--aven-radius-capsule);
-  background: var(--personal-accent);
+  background: var(--color-content);
   pointer-events: none;
 }
 .personal-shell
@@ -377,7 +377,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--personal-accent);
+  background: var(--color-content);
 }
 .personal-shell .personal-navigation .personal-task-indent {
   width: 5px;
@@ -619,15 +619,15 @@
 .personal-shell
   .personal-navigation
   .personal-task-card[data-session-selected="true"] {
-  background: color-mix(in srgb, var(--personal-accent) 21%, transparent);
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
   box-shadow: none;
 }
 .personal-shell
   .personal-navigation
   .personal-task-card[data-needs-approval="true"] {
-  border-color: color-mix(in srgb, var(--personal-accent) 60%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 35%, transparent);
   border-style: dashed;
-  background: color-mix(in srgb, var(--personal-accent) 9%, transparent);
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .personal-shell .personal-navigation .personal-sidebar-footer {
   padding-top: 6px;

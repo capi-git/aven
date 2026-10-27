@@ -132,7 +132,7 @@
   width: 2px;
   height: 12px;
   border-radius: var(--aven-radius-capsule);
-  background: var(--color-accent);
+  background: var(--color-content);
   transform: translateY(-50%);
 }
 
@@ -191,7 +191,7 @@
   font-weight: 550;
 }
 .settings-nav__item[aria-current="page"] .settings-nav__icon-tile {
-  color: var(--color-accent);
+  color: var(--color-content);
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-nav__item {

@@ -185,7 +185,7 @@
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--color-accent);
+  background: color-mix(in srgb, var(--color-content) 70%, transparent);
   pointer-events: none;
 }
 .browser-loading-label {

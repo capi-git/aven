@@ -398,8 +398,8 @@
   border-radius: 8px;
   font-size: var(--text-ui-micro);
   line-height: 13px;
-  background: var(--color-accent);
-  color: var(--aven-on-accent, var(--color-background-base));
+  background: var(--color-content);
+  color: var(--color-background-base);
   font-variant-numeric: tabular-nums;
 }
 

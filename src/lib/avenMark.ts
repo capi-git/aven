@@ -1,4 +1,4 @@
-import { AVEN_THEME_COLORS } from "./appearance";
+import { AVEN_BLUE_THEME_COLORS } from "./appearance";
 import { mascotPath } from "./projectMascots";
 
 /**
@@ -28,5 +28,5 @@ export const AVEN_MARK_SUMMIT_PATH = mascotPath(
   AVEN_MARK_ROWS.map((row) => row.replace(/[^B]/g, ".").replace(/B/g, "#")),
 );
 
-/** The summit is always Aven's blue accent, as on the app icon. */
-export const AVEN_MARK_SUMMIT_COLOR = AVEN_THEME_COLORS.dark.accent;
+/** The summit is always Aven's blue, as on the app icon, whatever the accent. */
+export const AVEN_MARK_SUMMIT_COLOR = AVEN_BLUE_THEME_COLORS.dark.accent;

@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -1047,11 +1046,6 @@ const AgentTile = memo(
         className="workspace-home-agent"
         data-project-path={project.path}
         data-state={state}
-        style={
-          appearance
-            ? ({ "--project-color": appearance.color } as CSSProperties)
-            : undefined
-        }
         onContextMenu={(event) => {
           event.preventDefault();
           setCustomize({ x: event.clientX, y: event.clientY });

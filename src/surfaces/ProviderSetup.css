@@ -75,8 +75,8 @@
   background: var(--aven-control-hover, var(--aven-hover));
 }
 .provider-setup-choice[aria-checked="true"] {
-  border-color: color-mix(in srgb, var(--color-accent) 65%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  background: var(--aven-selected);
 }
 .provider-setup-provider-mark {
   display: grid;
@@ -246,8 +246,8 @@
   margin-top: 16px;
   padding: 16px;
   border-radius: var(--aven-radius-card);
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  border: 1px solid var(--aven-separator, var(--aven-line));
 }
 .provider-setup-plan details {
   margin: 12px 0;
@@ -292,8 +292,8 @@
   border-radius: var(--aven-radius-card);
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
-  color: var(--color-accent);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
+  color: var(--color-content);
   margin-bottom: 18px;
 }
 .settings-content > .provider-setup {

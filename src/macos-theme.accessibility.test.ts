@@ -201,13 +201,18 @@ describe("switches, focus and hit targets", () => {
     );
   });
 
-  it("shows typing in the message box in the focus ring's colour", () => {
+  it("shows typing in the message box with a neutral lift, and the focus ring with Increase Contrast", () => {
+    const typing = rule(
+      "src/chrome/Composer.css",
+      ".personal-shell .personal-composer [data-composer-box]:focus-within",
+    );
+    expect(typing).toContain(
+      "border-color: color-mix(in srgb, var(--color-content) 24%, transparent);",
+    );
+    expect(typing).not.toContain("accent");
     expect(
-      rule(
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer [data-composer-box]:focus-within",
-      ),
-    ).toContain("var(--aven-focus-ring)");
+      media(read("src/chrome/Composer.css"), "(prefers-contrast: more)"),
+    ).toContain("border-color: var(--aven-focus-ring);");
     expect(
       rule("src/chrome/SettingsRail.css", ".settings-nav__search:focus-within"),
     ).toContain("var(--aven-focus-ring)");

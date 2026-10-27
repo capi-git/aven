@@ -147,20 +147,20 @@ function PreviewLine({
 }) {
   const bg =
     line.kind === "add"
-      ? "bg-teal-800/20"
+      ? "bg-emerald-500/15"
       : line.kind === "del"
         ? "bg-rose-800/20"
         : "";
   const bar =
     line.kind === "add"
-      ? "bg-teal-400"
+      ? "bg-emerald-400"
       : line.kind === "del"
         ? "bg-rose-400"
         : "bg-transparent";
   const mark = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   const markColor =
     line.kind === "add"
-      ? "text-teal-400"
+      ? "text-emerald-400"
       : line.kind === "del"
         ? "text-rose-400"
         : "text-transparent";

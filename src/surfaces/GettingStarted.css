@@ -56,7 +56,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--aven-git-add);
+  background: color-mix(in srgb, var(--color-content) 70%, transparent);
   transform-origin: left center;
   transition: transform var(--aven-motion-glide) var(--aven-ease-out);
 }

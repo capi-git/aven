@@ -706,7 +706,7 @@ function InboxCard({
               </span>
             ) : null}
             {unseen ? (
-              <span aria-hidden className="size-1.5 rounded-full bg-accent" />
+              <span aria-hidden className="size-1.5 rounded-full bg-content" />
             ) : null}
           </span>
         ) : null}

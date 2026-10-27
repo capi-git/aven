@@ -182,7 +182,7 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-pulse > [data-tone="running"] .workspace-home-pulse-dot,
 .workspace-home-pulse > [data-tone="accent"] .workspace-home-pulse-dot {
-  background: var(--color-accent);
+  background: var(--color-content);
 }
 
 .workspace-home-pulse > [data-tone="amber"] .workspace-home-pulse-dot {
@@ -437,7 +437,6 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-agent {
-  --project-color: var(--color-accent);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -464,7 +463,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-agent[data-state="running"] {
   border-color: color-mix(
     in srgb,
-    var(--project-color) 42%,
+    var(--color-content) 28%,
     var(--aven-glass-card-edge, transparent)
   );
 }
@@ -493,7 +492,7 @@ html.has-chat-background .workspace-home::before {
   border-radius: 50%;
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--project-color) 20%, transparent),
+    color-mix(in srgb, var(--color-content) 7%, transparent),
     transparent
   );
 }
@@ -501,7 +500,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-agent[data-state="running"] .workspace-home-agent-figure {
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--project-color) 36%, transparent),
+    color-mix(in srgb, var(--color-content) 13%, transparent),
     transparent
   );
 }
@@ -510,7 +509,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-agent[data-state="resting"] .workspace-home-agent-figure {
   background: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--project-color) 9%, transparent),
+    color-mix(in srgb, var(--color-content) 3%, transparent),
     transparent
   );
 }
@@ -653,7 +652,7 @@ html.has-chat-background .workspace-home::before {
   border-radius: 9px;
   background: color-mix(
     in srgb,
-    var(--color-accent) 45%,
+    var(--color-content) 24%,
     var(--color-background-base)
   );
   color: var(--color-content);
@@ -918,7 +917,7 @@ html.has-chat-background .workspace-home::before {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-content);
 }
 
 /* Waiting reads amber, unread replies the accent, as in the sidebar. */

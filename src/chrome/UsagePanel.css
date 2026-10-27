@@ -92,7 +92,7 @@ html.usage-panel-window .usage-panel {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--toolbar-panel-accent);
+  background: color-mix(in srgb, var(--toolbar-panel-text) 72%, transparent);
 }
 
 .usage-panel-track[data-low] .usage-panel-fill {
