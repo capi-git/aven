@@ -114,6 +114,7 @@
 .scheduled-examples .scheduled-preset {
   background: var(--aven-fill-quaternary);
 }
+.scheduled-examples .scheduled-preset:hover,
 .scheduled-examples .scheduled-preset[aria-pressed="true"] {
   background: var(--aven-control-hover, var(--aven-raised));
 }

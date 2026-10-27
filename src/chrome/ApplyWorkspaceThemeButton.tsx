@@ -24,7 +24,7 @@ export function ApplyWorkspaceThemeButton({
     <div className={compact ? "my-2" : "flex flex-col items-end gap-1"}>
       <button
         type="button"
-        className={`inline-flex items-center justify-center gap-1.5 rounded-md bg-content/8 px-3 py-2 text-content hover:bg-content/12 ${compact ? "w-full text-ui-caption" : "text-xs"}`}
+        className={`inline-flex items-center justify-center gap-1.5 rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-3 py-2 text-content hover:bg-(--aven-control-hover) ${compact ? "w-full text-ui-caption" : "text-xs"}`}
         onClick={() => {
           const ids = loadWorkspaceProfiles().profiles.map(
             (profile) => profile.id,

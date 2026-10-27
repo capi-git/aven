@@ -164,7 +164,7 @@
   padding: 0 6px;
   border-radius: var(--aven-radius-row);
   text-align: left;
-  font-size: 12.5px;
+  font-size: var(--text-ui-row);
   font-weight: 600;
   color: var(--color-content);
 }
@@ -339,7 +339,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--text-ui-row);
   font-weight: 400;
 }
 .personal-shell .personal-navigation .personal-task-status {

@@ -11,6 +11,8 @@
   --text-ui-micro: 10px;
   --text-ui-caption: 11px;
   --text-ui-label: 12px;
+  /* Sidebar rows: projects and chats. */
+  --text-ui-row: 12.5px;
   --text-ui-body: 13px;
   --text-ui-reading: 14px;
   --text-ui-heading: 20px;

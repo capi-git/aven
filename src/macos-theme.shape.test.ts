@@ -223,6 +223,78 @@ describe("the pro look's shapes", () => {
     );
   });
 
+  it("keeps three solid steps when Reduce transparency or Increase contrast makes controls solid", () => {
+    const solid = theme.slice(
+      theme.indexOf(
+        "@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {",
+      ),
+    );
+    const block = solid.slice(0, solid.indexOf("\n}\n"));
+    expect(block).toContain("--aven-control-bg: var(--aven-elevated-2);");
+    expect(block).toMatch(
+      /--aven-control-hover: color-mix\(\s*in srgb,\s*var\(--color-content\) 20%,/,
+    );
+    expect(block).toContain("--aven-control-pressed: var(--aven-elevated-3);");
+    // Light mode's steps are 4%, 6% and 8%.
+    expect(block).toMatch(
+      /html\.theme-light \.personal-shell \{\s*--aven-control-hover: color-mix\(\s*in srgb,\s*var\(--color-content\) 6%,/,
+    );
+    // Engines without backdrop filters get solid steps too.
+    const fallback = theme.slice(theme.indexOf("@supports not ("));
+    expect(fallback).toMatch(/--aven-control-hover: color-mix\(/);
+    expect(fallback).toMatch(/--aven-control-pressed: color-mix\(/);
+  });
+
+  it("gives Tailwind fields and buttons the shared tokens and contrast edge", () => {
+    const field =
+      "border border-(color:--aven-control-edge) bg-(--aven-field-bg)";
+    const button =
+      "border border-(color:--aven-control-edge) bg-(--aven-control-bg)";
+    for (const file of [
+      "src/chrome/ProjectSearch.tsx",
+      "src/chrome/QuestionForm.tsx",
+      "src/chrome/ColorPickerPopover.tsx",
+      "src/chrome/ProjectCustomizePopover.tsx",
+      "src/chrome/PersonalWorkspaceSwitcher.tsx",
+    ])
+      expect(read(file)).toContain(field);
+    for (const file of [
+      "src/surfaces/RaceView.tsx",
+      "src/chrome/CommandPalette.tsx",
+      "src/chrome/ApplyWorkspaceThemeButton.tsx",
+    ]) {
+      expect(read(file)).toContain(button);
+      expect(read(file)).toContain("hover:bg-(--aven-control-hover)");
+    }
+  });
+
+  it("keeps a hover fill on the automation example presets", () => {
+    expect(read("src/surfaces/ScheduledInbox.css")).toMatch(
+      /\.scheduled-examples \.scheduled-preset:hover,\s*\.scheduled-examples \.scheduled-preset\[aria-pressed="true"\] \{\s*background: var\(--aven-control-hover/,
+    );
+  });
+
+  it("draws a hairline one device pixel thick at every display scale", () => {
+    for (const [dppx, width] of [
+      ["1.25", "0.8px"],
+      ["1.5", "0.6667px"],
+      ["1.75", "0.5715px"],
+      ["2", "0.5px"],
+      ["2.5", "0.4px"],
+      ["3", "0.3334px"],
+    ]) {
+      const at = theme.indexOf(`@media (min-resolution: ${dppx}dppx) {`);
+      expect(at).toBeGreaterThan(0);
+      expect(theme.slice(at, theme.indexOf("\n}\n", at))).toContain(
+        `--aven-hairline: ${width};`,
+      );
+    }
+    // The Mac toolbar cancels the interface zoom; its hairline does not.
+    expect(read("src/personal-shell.css")).toMatch(
+      /calc\(-1 \* var\(--aven-hairline\) \/ var\(--aven-toolbar-zoom, 1\)\)/,
+    );
+  });
+
   it("fills Settings groups and Home's cards, edged only in light mode", () => {
     expect(token("--aven-resting-card-edge")).toBe("var(--aven-control-edge)");
     expect(

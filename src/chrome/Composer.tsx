@@ -492,7 +492,7 @@ function MessageQueue({
                           saveEdit(message);
                         }
                       }}
-                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-transparent bg-content/8 px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
+                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
                     />
                     <button
                       type="button"

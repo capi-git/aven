@@ -109,10 +109,10 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
     );
   });
 
-  it("draws card edges and the glass rim at full strength under Increase contrast", () => {
+  it("draws card and overlay edges at full strength under Increase contrast", () => {
     const more = media(theme, "(prefers-contrast: more)");
     expect(more).toContain("--aven-glass-card-edge: var(--aven-line);");
-    expect(more).toContain("--aven-rim: inset 0 0 0 1px var(--aven-line);");
+    expect(more).toContain("--aven-glass-overlay-edge: var(--aven-line);");
   });
 });
 

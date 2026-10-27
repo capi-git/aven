@@ -845,8 +845,8 @@ html.theme-light.is-mac
    widens it to the accent. */
 
 /* Design A: a single window toolbar over the workspace. The native window
-   supplies the outer curve; panes rest on the workspace as rounded cards
-   (WorkspaceStage.css), and controls and floating panels are round. */
+   supplies the outer curve; panes meet flush between hairlines
+   (WorkspaceStage.css), and overlays float as rounded cards. */
 .personal-shell[data-unified-toolbar] {
   flex-direction: column;
 }
@@ -878,6 +878,7 @@ html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
      whole frame row in native points while the workspace follows UI zoom.
      Stretch, rather than 100% width, lets flex layout account for CSS zoom. */
   zoom: var(--aven-titlebar-scale, 1);
+  --aven-toolbar-zoom: var(--aven-titlebar-scale, 1);
   width: auto;
   align-self: stretch;
   padding-left: 88px;
@@ -944,9 +945,12 @@ html
 html.theme-light .personal-shell[data-unified-toolbar] {
   --aven-panel-card: color-mix(in srgb, var(--color-content) 3%, transparent);
 }
+/* On a Mac the toolbar cancels the interface zoom (zoom below), which would
+   scale its hairline off one device pixel; dividing by that zoom keeps it. */
 html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   box-shadow:
-    inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator),
+    inset 0 calc(-1 * var(--aven-hairline) / var(--aven-toolbar-zoom, 1)) 0
+      var(--aven-separator),
     var(--aven-panel-tint);
 }
 .personal-shell[data-unified-toolbar]

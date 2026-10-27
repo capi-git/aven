@@ -2,11 +2,11 @@
    workspace's custom palette remains the source of every control color. */
 :root,
 .personal-shell {
-  /* The iOS look. Every value is a mix of the workspace's own background,
-     text and accent, so a custom palette, the Glass slider and Solid keep
-     working; only the proportions follow iOS.
+  /* The pro look's materials. Every value is a mix of the workspace's own
+     background, text and accent, so a custom palette, the Glass slider and
+     Solid keep working.
 
-     Secondary text: iOS's secondary label, 60% of the text colour. */
+     Secondary text: 60% of the text colour. */
   --aven-label-secondary: color-mix(
     in srgb,
     var(--color-content) 60%,
@@ -50,11 +50,9 @@
   /* A hairline: one device pixel. iOS separators are hairlines. */
   --aven-hairline: 1px;
   --aven-separator: color-mix(in srgb, var(--color-content) 12%, transparent);
-  /* Light catching the top edge of the material, and its rim. */
+  /* Light catching the top edge of a floating material. */
   --aven-specular: inset 0 var(--aven-hairline) 0
     color-mix(in srgb, #fff 13%, transparent);
-  --aven-rim: inset 0 0 0 var(--aven-hairline)
-    color-mix(in srgb, #fff 7%, transparent);
   /* The chosen segment's thumb in a segmented control: a raised grey with
      light along its top edge and a short shadow, no glow. */
   --aven-thumb: var(--aven-elevated-3);
@@ -223,15 +221,6 @@ html.is-mac.is-macos-legacy {
   --aven-window-radius: 10px;
 }
 
-/* A hairline is one device pixel on a Retina screen. */
-@media (min-resolution: 2dppx) {
-  :root,
-  .personal-shell {
-    --aven-hairline: 0.5px;
-    --aven-separator: color-mix(in srgb, var(--color-content) 20%, transparent);
-  }
-}
-
 html.theme-light,
 html.theme-light .personal-shell {
   /* iOS light: secondary text at 60% of a blue-grey, fills of a lighter
@@ -271,8 +260,6 @@ html.theme-light .personal-shell {
   );
   --aven-separator: color-mix(in srgb, var(--color-content) 13%, transparent);
   --aven-specular: inset 0 var(--aven-hairline) 0 #ffffff;
-  --aven-rim: inset 0 0 0 var(--aven-hairline)
-    color-mix(in srgb, var(--color-content) 8%, transparent);
   --aven-thumb: var(--color-background-base);
   --aven-thumb-shadow:
     0 0 0 var(--aven-hairline)
@@ -320,14 +307,64 @@ html.theme-light .personal-shell {
   --aven-glass-card-shadow: 0 1px 2px #0000000d, 0 12px 28px -22px #0000002e;
   --aven-resting-card-edge: var(--aven-glass-card-edge);
   --aven-control-hover: var(--aven-fill-secondary);
+  --aven-control-pressed: var(--aven-fill);
   --aven-field-bg: var(--aven-fill-tertiary);
   --aven-shadow: 0 22px 60px -14px #00000033, 0 2px 8px #00000014;
 }
 
-@media (min-resolution: 2dppx) {
+/* A hairline is one device pixel at every display scale and interface zoom:
+   1px at 100%, 0.8px at 125%, 0.67px at 150%, 0.5px on Retina. The thinner
+   the line, the stronger its colour, so it reads the same. Increase contrast
+   draws full 1px lines (below). */
+@media (min-resolution: 1.25dppx) {
+  :root,
+  .personal-shell,
   html.theme-light,
   html.theme-light .personal-shell {
+    --aven-hairline: 0.8px;
+    --aven-separator: color-mix(in srgb, var(--color-content) 16%, transparent);
+  }
+}
+@media (min-resolution: 1.5dppx) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-hairline: 0.6667px;
+    --aven-separator: color-mix(in srgb, var(--color-content) 18%, transparent);
+  }
+}
+@media (min-resolution: 1.75dppx) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-hairline: 0.5715px;
+  }
+}
+@media (min-resolution: 2dppx) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-hairline: 0.5px;
     --aven-separator: color-mix(in srgb, var(--color-content) 20%, transparent);
+  }
+}
+@media (min-resolution: 2.5dppx) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-hairline: 0.4px;
+  }
+}
+@media (min-resolution: 3dppx) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-hairline: 0.3334px;
   }
 }
 
@@ -630,10 +667,9 @@ html:not(.theme-light)
     --aven-hairline: 1px;
     --aven-separator: var(--aven-line);
     --aven-label-secondary: var(--aven-muted);
-    /* Card and panel edges, and the glass rim, at the same strength. */
+    /* Card and panel edges at the same strength. */
     --aven-glass-card-edge: var(--aven-line);
     --aven-glass-overlay-edge: var(--aven-line);
-    --aven-rim: inset 0 0 0 1px var(--aven-line);
   }
 }
 
@@ -643,8 +679,14 @@ html:not(.theme-light)
   html.theme-light,
   html.theme-light .personal-shell {
     /* Solid, but still a step off the page: in light mode the control and
-       field solids are the page's own white. */
+       field solids are the page's own white. Buttons keep three distinct
+       solid steps: rest, hover between, pressed. */
     --aven-control-bg: var(--aven-elevated-2);
+    --aven-control-hover: color-mix(
+      in srgb,
+      var(--color-content) 20%,
+      var(--color-background-base)
+    );
     --aven-control-pressed: var(--aven-elevated-3);
     --aven-toolbar-surface: var(--aven-toolbar-solid);
     --aven-grouped-surface: var(--aven-grouped-solid);
@@ -658,6 +700,15 @@ html:not(.theme-light)
       in srgb,
       var(--color-content) 4%,
       var(--aven-grouped-solid)
+    );
+  }
+  /* Light: rest 4%, hover 6%, pressed 8% of the text over the page. */
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-control-hover: color-mix(
+      in srgb,
+      var(--color-content) 6%,
+      var(--color-background-base)
     );
   }
 
@@ -712,6 +763,16 @@ html:not(.theme-light)
   :root,
   .personal-shell {
     --aven-control-bg: var(--aven-control-solid);
+    --aven-control-hover: color-mix(
+      in srgb,
+      var(--color-content) 16%,
+      var(--color-background-base)
+    );
+    --aven-control-pressed: color-mix(
+      in srgb,
+      var(--color-content) 20%,
+      var(--color-background-base)
+    );
     --aven-toolbar-surface: var(--aven-toolbar-solid);
     --aven-grouped-surface: var(--aven-grouped-solid);
     --aven-field-bg: var(--aven-field-solid);

@@ -11,10 +11,6 @@
   --aven-tab-selected-edge: inset 0 0 0 1px
     var(--aven-control-edge, transparent);
 }
-html.theme-light,
-html.theme-light .personal-shell {
-  --aven-tab-selected: var(--aven-fill-secondary);
-}
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
 .personal-shell .personal-titlebar {

@@ -255,8 +255,8 @@
   overflow: hidden;
   /* Panes are square and flush, so the page is square too, on macOS and
      Windows. Native Chromium reads this measured radius (CSS cannot clip its
-     sibling view); at 0 it rounds nothing. The toolbar above and the status
-     row below keep the page clear of the window's own corners. */
+     sibling view); at 0 it rounds nothing. Where a page reaches the window's
+     edge, the window's own rounded corner clips it. */
   border-radius: 0;
 }
 .browser-page-snapshot {

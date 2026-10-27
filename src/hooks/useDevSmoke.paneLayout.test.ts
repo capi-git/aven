@@ -6,7 +6,11 @@ vi.mock("../lib/floatingSidebar", () => ({
   nativeFloatingSidebar: { send: vi.fn(), listen: vi.fn() },
 }));
 
-import { paneLayoutProblem, singlePaneProblem } from "./useDevSmoke";
+import {
+  hasHairlineBelow,
+  paneLayoutProblem,
+  singlePaneProblem,
+} from "./useDevSmoke";
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -181,6 +185,41 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ fileTabHeight: 32 })).problem).toBe(
       "the tab is 26px tall, 6px corners and the file's is 32px tall, 6px corners",
     );
+  });
+});
+
+describe("hasHairlineBelow", () => {
+  const bar = (style: string) => {
+    document.body.innerHTML = `<div style="${style}"></div>`;
+    return document.querySelector<HTMLElement>("div")!;
+  };
+
+  it("counts a bottom border or an inset shadow pushed up from the bottom", () => {
+    expect(hasHairlineBelow(bar("border-bottom: 1px solid red"))).toBe(true);
+    expect(
+      hasHairlineBelow(
+        bar("box-shadow: inset 0 -0.5px 0 rgba(255, 255, 255, 0.2)"),
+      ),
+    ).toBe(true);
+    // As WebKit reports it: the colour first, then the lengths.
+    expect(
+      hasHairlineBelow(
+        bar(
+          "box-shadow: rgba(0, 0, 0, 0.2) 0px 1px 2px 0px, color(srgb 1 1 1 / 0.12) 0px -1px 0px 0px inset",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("ignores a top highlight, a drop shadow and no shadow", () => {
+    expect(
+      hasHairlineBelow(
+        bar("box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13)"),
+      ),
+    ).toBe(false);
+    expect(hasHairlineBelow(bar("box-shadow: 0 -1px 2px black"))).toBe(false);
+    expect(hasHairlineBelow(bar("box-shadow: none"))).toBe(false);
+    expect(hasHairlineBelow(bar(""))).toBe(false);
   });
 });
 

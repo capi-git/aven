@@ -453,7 +453,7 @@ function RaceBody({
                 : "Ask the cheapest model which result to keep, from the agents' last replies and changes"
             }
             onClick={suggest}
-            className="rounded-md bg-content/8 px-2.5 py-1 text-content hover:bg-content/12 disabled:opacity-40"
+            className="rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2.5 py-1 text-content hover:bg-(--aven-control-hover) disabled:opacity-40"
           >
             {suggesting ? "Suggesting…" : "Suggest a winner"}
           </button>
@@ -470,7 +470,7 @@ function RaceBody({
                   .map(({ lane }) => lane.sessionId),
               )
             }
-            className="rounded-md bg-content/8 px-2.5 py-1 text-content hover:bg-content/12 disabled:opacity-40"
+            className="rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2.5 py-1 text-content hover:bg-(--aven-control-hover) disabled:opacity-40"
           >
             Stop race
           </button>
@@ -491,7 +491,7 @@ function RaceBody({
                 () => void finish("Discarding…", null),
               )
             }
-            className="rounded-md bg-content/8 px-2.5 py-1 text-content hover:bg-content/12 disabled:opacity-40"
+            className="rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2.5 py-1 text-content hover:bg-(--aven-control-hover) disabled:opacity-40"
           >
             Discard race
           </button>
@@ -593,7 +593,7 @@ function RaceBody({
                 <button
                   type="button"
                   onClick={() => raceWorkspace()?.openChat(lane.sessionId)}
-                  className="rounded-md bg-content/8 px-2 py-0.5 text-ui-label text-content hover:bg-content/12"
+                  className="rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2 py-0.5 text-ui-label text-content hover:bg-(--aven-control-hover)"
                 >
                   Open chat
                 </button>
@@ -621,7 +621,7 @@ function RaceBody({
                         },
                       );
                     }}
-                    className="flex items-center gap-1 rounded-md bg-content/8 px-2 py-0.5 text-ui-label text-content hover:bg-content/12 disabled:opacity-40"
+                    className="flex items-center gap-1 rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2 py-0.5 text-ui-label text-content hover:bg-(--aven-control-hover) disabled:opacity-40"
                   >
                     <RotateCcw className="size-3" />
                     {retrying === index ? "Retrying…" : "Retry"}
@@ -802,7 +802,7 @@ function RaceBody({
               <button
                 type="button"
                 onClick={() => teamWorkspace()?.reviewChanges(race.project)}
-                className="rounded-md bg-content/8 px-2.5 py-1 text-ui-label text-content hover:bg-content/12"
+                className="rounded-md border border-(color:--aven-control-edge) bg-(--aven-control-bg) px-2.5 py-1 text-ui-label text-content hover:bg-(--aven-control-hover)"
               >
                 Review changes
               </button>

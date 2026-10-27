@@ -1931,13 +1931,29 @@ function paneStrips(pane: Element): HTMLElement[] {
   );
 }
 
-/** A hairline drawn under a bar: an inset shadow or a bottom border. */
-function hasHairlineBelow(element: HTMLElement) {
+/**
+ * A hairline drawn under a bar: a bottom border, or an inset shadow pushed up
+ * from the bottom edge (a negative vertical offset).
+ */
+export function hasHairlineBelow(element: HTMLElement) {
   const style = getComputedStyle(element);
-  return (
-    (style.boxShadow !== "" && style.boxShadow !== "none") ||
-    parseFloat(style.borderBottomWidth) > 0
-  );
+  if (
+    parseFloat(style.borderBottomWidth) > 0 &&
+    style.borderBottomStyle !== "none"
+  )
+    return true;
+  // Colours may be functions with commas of their own; drop them first.
+  const shadows = (style.boxShadow || "")
+    .replace(/[a-z-]+\([^()]*\)/gi, "")
+    .split(",");
+  return shadows.some((shadow) => {
+    const tokens = shadow.trim().split(/\s+/);
+    if (!tokens.includes("inset")) return false;
+    const lengths = tokens
+      .filter((token) => /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(token))
+      .map(parseFloat);
+    return lengths.length >= 2 && lengths[1] < 0;
+  });
 }
 
 /**

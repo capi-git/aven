@@ -23,9 +23,6 @@
   background: color-mix(in srgb, var(--agent-pill-accent) 14%, transparent);
   color: var(--color-content);
 }
-.agent-pill[aria-expanded="true"] {
-  border-color: var(--aven-control-edge, transparent);
-}
 .agent-pill-mark {
   width: 15px;
   height: 15px;
