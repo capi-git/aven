@@ -2360,6 +2360,10 @@ fn on_native_event(json: String) {
 mod live_tests;
 
 #[cfg(test)]
+#[path = "ios_sim_perf_tests.rs"]
+mod perf_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

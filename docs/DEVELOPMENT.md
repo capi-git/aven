@@ -168,6 +168,24 @@ It needs Xcode with an iOS simulator runtime and takes about a minute and a
 half; it never touches other simulators. `AVEN_IOS_SIM_FORCE_BASIC=1` makes
 Aven Dev use the pane's basic mode, to check the fallback.
 
+To time the pane's phases (picking a device, the input fix, Run with a clean,
+unchanged and edited build, input, screenshots, the XCUITest agent), create a
+throwaway simulator whose name starts with "Aven Perf" and run the opt-in
+timing tests against it, before and after a change; they erase, boot and shut
+down only that simulator:
+
+```sh
+U=$(xcrun simctl create "Aven Perf iPhone" com.apple.CoreSimulator.SimDeviceType.iPhone-17 com.apple.CoreSimulator.SimRuntime.iOS-27-0)
+AVEN_IOS_SIM_PERF=1 AVEN_IOS_SIM_PERF_UDID=$U AVEN_IOS_SIM_PERF_APP=$PWD/tests/fixtures/ios-sample \
+  ./scripts/with-dev-env.sh cargo test -p aven --lib ios_sim_perf -- --ignored --nocapture --test-threads=1
+xcrun simctl delete $U
+```
+
+`ios_sim_perf_repeat` repeats the slow paths (`AVEN_IOS_SIM_PERF_REPEAT`
+times). Other agents' builds skew these numbers; alternate before and after
+runs. `AVEN_IOS_SIM_STATS=1` makes Aven Dev log each live view's frame rate,
+main-thread wait and click-to-frame time every five seconds.
+
 `npm run check:iphone` checks the real pane in Aven Dev, in a throwaway
 profile with the stand-in `claude`, on a throwaway simulator ("Aven Dev
 iPhone") it creates and deletes afterwards. The sample app is the project. It
@@ -175,8 +193,8 @@ opens the pane from the header's iPhone button, waits for the device to start
 and its screen to go live, presses Run, and reads the console under Logs.
 Clicks and keys reach the pane's native view through debug-only hooks (its own
 hit test and handlers, never system input), and Aven's XCUITest agent reads
-the results back: a tap, typing including Option-E then E, a tap in
-landscape after Rotate, and Home. Last, the stand-in agent in the chat uses
+the results back: a tap, the frames shown while the app animates, typing
+including Option-E then E, a tap in landscape after Rotate, and Home. Last, the stand-in agent in the chat uses
 the simulator through `--aven-simulator` (list, launch, snapshot, tap,
 screenshot, logs, and a refused request for another simulator). Pass
 `-- --iphone-shots <folder>` to keep its framebuffer screenshots. Quit Aven
