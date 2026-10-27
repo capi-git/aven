@@ -54,15 +54,13 @@ const render = (onOpenBoard?: () => void) =>
     ),
   );
 
-it("opens the project's board from its hover icon and from its menu", async () => {
+it("opens the project's board from its menu, with no icon of its own on the row", async () => {
   const onOpenBoard = vi.fn();
   await render(onOpenBoard);
-  const icon = host.querySelector<HTMLButtonElement>(
-    ".personal-project-board",
-  )!;
-  expect(icon.getAttribute("aria-label")).toBe("Open site board");
-  await act(async () => icon.click());
-  expect(onOpenBoard).toHaveBeenCalledTimes(1);
+  // The row's hover actions are fold, New chat and ···; the board is in ···
+  // (and on the toolbar's strip), so its name keeps the room.
+  expect(host.querySelector(".personal-project-board")).toBeNull();
+  expect(host.querySelector('[aria-label="Open site board"]')).toBeNull();
 
   await act(async () =>
     host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
@@ -72,7 +70,7 @@ it("opens the project's board from its hover icon and from its menu", async () =
   ].find((entry) => entry.textContent?.includes("Open board"))!;
   expect(item).toBeTruthy();
   await act(async () => item.click());
-  expect(onOpenBoard).toHaveBeenCalledTimes(2);
+  expect(onOpenBoard).toHaveBeenCalledTimes(1);
 });
 
 it("offers no board where the sidebar cannot open one", async () => {

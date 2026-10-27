@@ -8,7 +8,6 @@ import {
   type MouseEvent,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ProviderMarks } from "./ProviderMarks";
 import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { IS_MAC } from "../lib/platform";
@@ -17,7 +16,6 @@ import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
 import { useActivity } from "../lib/activity";
-import { sessionModelIdentity } from "../lib/sessionLabels";
 import {
   Check,
   ListBullet,
@@ -34,14 +32,12 @@ import {
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
-  sessionIsWaitingForInput,
   type Session,
 } from "../lib/session";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
   sessions: readonly Session[];
-  session?: Session;
   onSelectSession: (id: string) => boolean | Promise<boolean>;
   onToggleSidebar?: () => void;
   sidebarOpen?: boolean;
@@ -393,7 +389,6 @@ export function WorkspaceNavigation({
 
 export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   sessions,
-  session,
   onSelectSession,
   onToggleSidebar,
   sidebarOpen,
@@ -445,13 +440,16 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <WorkspaceNavigation
           onToggleSidebar={onToggleSidebar}
           sidebarOpen={sidebarOpen}
-          onSearch={onSearch}
-          onNewBrowser={onNewBrowser}
+          // The pinned sidebar has Search and Home as rows (Home is the
+          // workspace's own row), so the toolbar keeps them only while the
+          // sidebar is hidden. Home has its own Open browser.
+          onSearch={sidebarOpen ? undefined : onSearch}
+          onNewBrowser={homeOpen ? undefined : onNewBrowser}
           onGoBack={onGoBack}
           onGoForward={onGoForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          onHome={onHome}
+          onHome={sidebarOpen ? undefined : onHome}
           homeOpen={homeOpen}
         />
       ) : null}
@@ -468,21 +466,9 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         aria-expanded={menu === "queue"}
         onClick={() => setMenu(menu === "queue" ? null : "queue")}
       >
-        {/* The composer's agent pill names the model. Here the provider's
-            mark only shows whether the chat in front is working. */}
-        {!showingSettings && session ? (
-          <span className="workspace-status-context">
-            <ProviderMarks
-              harnesses={[sessionModelIdentity(session).harness]}
-              busyHarnesses={
-                session.busy && !sessionIsWaitingForInput(session)
-                  ? [sessionModelIdentity(session).harness]
-                  : []
-              }
-            />
-          </span>
-        ) : null}
-        <QueueIcon size={12} aria-hidden />
+        {/* Only Activity's state: the chat in front shows its agent in its
+            tab and the message box's agent pill, not again here. */}
+        <QueueIcon size={14} aria-hidden />
         <span className="sr-only">{summary.label}</span>
         {unreadActivity > 0 ? (
           <span className="workspace-status-unread">

@@ -133,7 +133,11 @@ export function PersonalWorkspaceSwitcher({
             className="personal-workspace-tool personal-profile-switch"
             data-profile-index={index}
             aria-label={`${profile.name} workspace`}
-            title={profile.name}
+            title={
+              profile.id === activeProfileId
+                ? `${profile.name} workspace`
+                : `Switch to ${profile.name}`
+            }
             aria-pressed={profile.id === activeProfileId}
             onClick={() => {
               onSelectProfile?.(profile.id);

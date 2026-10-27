@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef } from "react";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
-import { ChevronDown, Plus } from "./icons";
+import { ChevronDown } from "./icons";
 import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 import { ProjectMark } from "./ProjectMark";
 
@@ -172,13 +172,8 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
         showNotes={showNotes}
         showInbox={showInbox}
         showAutomations={showAutomations}
+        showNewSession={showNewSession}
       />
-      {showNewSession ? (
-        <div className="personal-new-session">
-          <Plus className="size-3.5" />
-          <span>New chat</span>
-        </div>
-      ) : null}
       <div className="personal-projects-scroll min-h-0 flex-1 overflow-hidden">
         {!!preview?.standaloneTasks.length && (
           <section className="personal-standalone-group">

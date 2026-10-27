@@ -155,7 +155,7 @@ it("spells out what is happening in the tooltip and keeps the marks quiet", asyn
   await render(undefined);
   expect(host.querySelector(".personal-project-status")).toBeNull();
   expect(open.title).toBe(PATH);
-  // Disclosure, new-task and more actions stay in place.
+  // The fold and ··· actions stay in place (New chat when the row has one).
   expect(host.querySelectorAll(".personal-project-row-action")).toHaveLength(2);
 });
 
@@ -355,7 +355,7 @@ it("notes Aven's memory update in the tooltip, marked until the memory is opened
   resetMemoryKeeperCache();
 });
 
-it("shows changed files as a small dot, with the count on hover or focus", async () => {
+it("keeps changed files out of the row at rest: in the tooltip, and counted on hover or focus", async () => {
   await render({ running: 0, waiting: 0, unread: 0, files: 128 });
   const files = host.querySelector<HTMLElement>(".personal-project-files")!;
   expect(files.dataset.count).toBe("128");
@@ -367,10 +367,62 @@ it("shows changed files as a small dot, with the count on hover or focus", async
   expect(open.getAttribute("aria-label")).toContain("128 files changed");
   expect(open.title).toContain("128 files changed");
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
-  expect(css).toMatch(/\.personal-project-files-count \{\s*display: none;/);
+  expect(css).toMatch(/\.personal-project-files \{\s*display: none;/);
   expect(css).toMatch(
     /\.personal-project-row:is\(:hover, :focus-within\)\s+\.personal-project-files-count \{\s*display: inline;/,
   );
+});
+
+it("puts its actions in the Tab order right after the name: fold, New chat, then ···", async () => {
+  const onNew = vi.fn();
+  const onToggle = vi.fn();
+  await act(async () =>
+    root.render(
+      createElement(PersonalProjectRow, {
+        path: PATH,
+        active: false,
+        expanded: false,
+        status: { running: 0, waiting: 1, unread: 2 },
+        profiles: DEFAULT_WORKSPACE_PROFILES,
+        activeProfileId: "personal",
+        onSelect: vi.fn(),
+        onToggle,
+        onNew,
+        onOpenBoard: vi.fn(),
+      }),
+    ),
+  );
+  const row = host.querySelector<HTMLElement>(".personal-project-row")!;
+  const buttons = [...row.querySelectorAll<HTMLButtonElement>("button")];
+  expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+    "Open aven-project project, 1 needs you · 2 unread",
+    "Expand aven-project chats",
+    "New chat in aven-project",
+    "Actions for aven-project",
+  ]);
+  for (const button of buttons) {
+    // Hidden only by the stylesheet's width and opacity, never removed from
+    // the Tab order; focus inside the row shows them all.
+    expect(button.tabIndex).toBe(0);
+    expect(button.hidden).toBe(false);
+    expect(button.getAttribute("aria-hidden")).toBeNull();
+    await act(async () => button.focus());
+    expect(document.activeElement).toBe(button);
+    expect(row.contains(document.activeElement)).toBe(true);
+  }
+  // Keyboard presses reach them as clicks.
+  await act(async () => buttons[1].click());
+  await act(async () => buttons[2].click());
+  expect(onToggle).toHaveBeenCalledOnce();
+  expect(onNew).toHaveBeenCalledOnce();
+  // What needs the person stays in the name's button at rest.
+  const status = buttons[0].querySelector(".personal-project-status")!;
+  expect(status.querySelector(".personal-project-waiting")).not.toBeNull();
+  expect(status.querySelector(".personal-project-unread")?.textContent).toBe(
+    "2",
+  );
+  // The board is in the ··· menu, not a row icon.
+  expect(row.querySelector(".personal-project-board")).toBeNull();
 });
 
 it("names a cut-off project in its tooltip", async () => {

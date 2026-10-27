@@ -534,7 +534,7 @@ it("keeps live heading and library callbacks current after returning from anothe
   await act(async () => {
     body()
       .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
+        '.personal-library-nav button[data-library="search"]',
       )!
       .click();
     const controls = [
@@ -577,7 +577,15 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   expect(
     container.querySelector(".personal-profile-header")?.textContent,
   ).toContain("Personal");
-  expect(container.querySelector(".personal-library-nav")).toBeNull();
+  // Settings keeps only the Search row; Notes, Inbox and Automations wait
+  // for the workspace.
+  expect(
+    [
+      ...container.querySelectorAll<HTMLElement>(
+        ".personal-library-nav [data-library]",
+      ),
+    ].map((row) => row.dataset.library),
+  ).toEqual(["search"]);
   const settings = container.querySelector<HTMLElement>(
     '[aria-label="Settings sections"]',
   )!;
@@ -591,7 +599,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   await act(async () => {
     container
       .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
+        '.personal-library-nav button[data-library="search"]',
       )!
       .click();
     settings
@@ -614,7 +622,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
   await act(async () => {
     body()
       .querySelector<HTMLButtonElement>(
-        '.personal-profile-header button[aria-label^="Search"]',
+        '.personal-library-nav button[data-library="search"]',
       )!
       .click();
     [

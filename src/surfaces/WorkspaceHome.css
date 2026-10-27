@@ -724,6 +724,8 @@ html.has-chat-background .workspace-home::before {
   font-variant-numeric: tabular-nums;
 }
 
+/* As on the sidebar's project rows: a card is its critter, name and state
+   at rest, and its tools show on hover, keyboard focus or an open menu. */
 .workspace-home-agent-tools {
   position: absolute;
   top: 5px;
@@ -731,13 +733,19 @@ html.has-chat-background .workspace-home::before {
   z-index: 1;
   display: flex;
   gap: 1px;
-  opacity: 0.5;
+  opacity: 0;
   transition: opacity 120ms ease;
 }
 
-.workspace-home-agent:hover .workspace-home-agent-tools,
-.workspace-home-agent-tools:focus-within {
+.workspace-home-agent:is(:hover, :focus-within) .workspace-home-agent-tools,
+.workspace-home-agent-tools:has([aria-expanded="true"]) {
   opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-home-agent-tools {
+    transition: none;
+  }
 }
 
 .workspace-home-agent-tools button {

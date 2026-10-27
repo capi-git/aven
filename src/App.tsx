@@ -108,6 +108,7 @@ import {
   useAutomationsKeepAwake,
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
+import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
@@ -10445,6 +10446,7 @@ export default function App({
       if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
   }, [botStore, releaseBotChat]);
 
+  const automationsUnread = useUnreadAutomationRuns();
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -10558,6 +10560,10 @@ export default function App({
     inboxActive: inboxViewOpen,
     automationsActive: automationsViewOpen,
     notesActive: notesViewOpen,
+    // The workspace's row is its Home.
+    onOpenHome,
+    homeActive: homeShown,
+    automationsUnread,
     notesEnabled,
     projectRailOpen,
     onToggleProjectRail,
@@ -10867,7 +10873,6 @@ export default function App({
                   : undefined
               }
               sessions={profileSessions}
-              session={profileHome ? undefined : active}
               onSelectSession={onOpenApprovalSession}
               onToggleSidebar={onToggleSidebar}
               sidebarOpen={sidebarOpen}
@@ -11265,9 +11270,10 @@ export default function App({
                             (session) => !session.inboxAsk,
                           )}
                           focusToken={searchViewFocusToken}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveSearch}
-                          onToggleSidebar={onToggleSidebar}
                           onOpenFile={onOpenFile}
                           onOpenSession={onSelectHistorySession}
                           onOpenProject={onSelectProject}
@@ -11303,9 +11309,10 @@ export default function App({
                         <InboxView
                           cwd={sidebarCwd}
                           recents={recents}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveInbox}
-                          onToggleSidebar={onToggleSidebar}
                           onStart={onStartInboxItem}
                           onAsk={onAskInboxItem}
                           onAskRestart={onRestartInboxAsk}
@@ -11318,9 +11325,10 @@ export default function App({
                         <AutomationsView
                           cwd={sidebarCwd}
                           recents={recents}
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           onClose={onLeaveAutomations}
-                          onToggleSidebar={onToggleSidebar}
                           onRunAutomation={(agent) =>
                             startScheduledAgentRef.current(agent)
                           }
@@ -11331,10 +11339,11 @@ export default function App({
                     {notesViewOpen ? (
                       <LazyViewSlot label="notes">
                         <NotesView
-                          besideRail={sidebarOpen}
+                          // The window toolbar above holds the traffic
+                          // lights and the sidebar toggle.
+                          besideRail
                           cwd={projectCwd}
                           onClose={onLeaveNotes}
-                          onToggleSidebar={onToggleSidebar}
                         />
                       </LazyViewSlot>
                     ) : null}

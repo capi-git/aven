@@ -413,6 +413,87 @@ describe("sidebar workspace navigation", () => {
     );
   });
 
+  it("opens Home from the workspace row, New chat from its +, and counts new automation runs", async () => {
+    const home = vi.fn();
+    const newChat = vi.fn();
+    const live = {
+      ...props,
+      onOpenHome: home,
+      onNewStandalone: newChat,
+      onSearch: noop,
+      onOpenInbox: noop,
+      onOpenAutomations: noop,
+      onOpenNotes: noop,
+      automationsUnread: 2,
+    };
+    await act(async () => root.render(createElement(Sidebar, live)));
+    const visible = (selector: string) =>
+      [...container.querySelectorAll<HTMLElement>(selector)].filter(
+        (node) => !node.closest('[inert],[aria-hidden="true"]'),
+      );
+    // One New chat, beside the workspace's name; no separate button below.
+    expect(
+      visible('button[aria-label="New chat without a project"]'),
+    ).toHaveLength(1);
+    expect(visible(".personal-new-session")).toHaveLength(0);
+    await click(button("Home, Personal workspace"));
+    await click(button("New chat without a project"));
+    expect(home).toHaveBeenCalledOnce();
+    expect(newChat).toHaveBeenCalledOnce();
+    const rows = visible('nav[aria-label="Library"] > button');
+    expect(rows.map((row) => row.dataset.library)).toEqual([
+      "search",
+      "notes",
+      "inbox",
+      "automations",
+    ]);
+    expect(rows[3].querySelector(".personal-library-count")?.textContent).toBe(
+      "2",
+    );
+
+    await act(async () =>
+      root.render(createElement(Sidebar, { ...live, homeActive: true })),
+    );
+    expect(
+      button("Home, Personal workspace").getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it("leaves Settings for Home from the workspace row and keeps only Search there", async () => {
+    const order: string[] = [];
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, {
+          ...props,
+          settingsOpen: true,
+          homeActive: true,
+          onSelectSettingsSection: noop,
+          onCloseSettings: () => order.push("close settings"),
+          onOpenHome: () => order.push("home"),
+          onSearch: noop,
+          onOpenInbox: noop,
+          onOpenAutomations: noop,
+          onOpenNotes: noop,
+          onNewStandalone: noop,
+        }),
+      ),
+    );
+    // Settings is on screen, so Home is not current there.
+    expect(
+      button("Home, Personal workspace").hasAttribute("aria-current"),
+    ).toBe(false);
+    expect(
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          'nav[aria-label="Library"] [data-library]',
+        ),
+      ].map((row) => row.dataset.library),
+    ).toEqual(["search"]);
+    expect(button("New chat without a project")).toBeNull();
+    await click(button("Home, Personal workspace"));
+    expect(order).toEqual(["close settings", "home"]);
+  });
+
   it("keeps appearance in Settings and clears the switcher when the sidebar hides", async () => {
     const section = vi.fn();
     await act(async () => root.render(createElement(Sidebar, props)));

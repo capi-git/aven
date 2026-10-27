@@ -782,9 +782,6 @@ html.theme-light.is-mac
   visibility: hidden;
   pointer-events: none;
 }
-.personal-shell .workspace-status-context {
-  display: flex;
-}
 
 .personal-shell
   .personal-sidebar[data-navigation-header="true"]

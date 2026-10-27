@@ -81,6 +81,7 @@ const WORKSPACE_ACTIONS = new Set([
   "onOpenInbox",
   "onOpenAutomations",
   "onOpenNotes",
+  "onOpenHome",
   "onGoToFile",
   "onOpenSettings",
   "onSelectSettingsSection",
