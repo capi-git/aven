@@ -128,7 +128,7 @@ describe("FileTree render isolation", () => {
     });
     expect(invoke).not.toHaveBeenCalled();
     expect(row("first.ts")).toBe(original);
-    expect(original.className).toContain("bg-content/10");
+    expect(original.className).toContain("bg-(--aven-selected)");
     expect(row("src/old.ts")).not.toBeNull();
     expect(scroll.scrollTop).toBe(80);
 

@@ -3118,8 +3118,8 @@ function SessionCard({
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
-                  ? "bg-content/10 text-content border-transparent"
-                  : "text-content/80 hover:bg-content/5 border-transparent"
+                  ? "bg-(--aven-selected) text-content border-transparent"
+                  : "text-content/80 hover:bg-(--aven-hover) border-transparent"
           }`}
         >
           {dropTarget ? (
@@ -3231,8 +3231,8 @@ function SessionCard({
               : needsApproval
                 ? "bg-content/20 text-content border-content/30 border-dashed"
                 : isActive
-                  ? "bg-content/10 text-content border-transparent"
-                  : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+                  ? "bg-(--aven-selected) text-content border-transparent"
+                  : "text-content/80 hover:bg-(--aven-hover) hover:text-content border-transparent"
         }`}
       >
         {dropTarget ? (

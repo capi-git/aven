@@ -62,7 +62,7 @@ export function GitHistoryGraph({
         onClick={onToggleExpanded}
         aria-expanded={expanded}
         aria-label={expanded ? "Collapse graph" : "Expand graph"}
-        className={`flex w-full shrink-0 items-center gap-1.5 px-3 text-left leading-none hover:bg-content/5 ${
+        className={`flex w-full shrink-0 items-center gap-1.5 px-3 text-left leading-none hover:bg-(--aven-hover) ${
           expanded ? "h-7" : "h-full"
         }`}
       >
@@ -224,8 +224,8 @@ function HistoryRow({
           row.kind === "HEAD" ? "is-head" : ""
         } ${
           active
-            ? "is-selected bg-content/10 text-content"
-            : "text-content hover:bg-content/5"
+            ? "is-selected bg-(--aven-selected) text-content"
+            : "text-content hover:bg-(--aven-hover)"
         }`}
         style={{ height: HISTORY_ROW_PX }}
       >

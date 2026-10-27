@@ -282,7 +282,7 @@ export function ProjectSearch({
                   <button
                     type="button"
                     onClick={() => openMatch(match)}
-                    className="flex w-full items-start gap-2 px-2 py-1 text-left hover:bg-content/5"
+                    className="flex w-full items-start gap-2 px-2 py-1 text-left hover:bg-(--aven-hover)"
                   >
                     <span className="w-7 shrink-0 pt-px text-right font-mono text-ui-caption text-content/35 tabular-nums">
                       {match.line}

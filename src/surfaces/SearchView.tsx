@@ -396,8 +396,8 @@ export function SearchView({
               onClick={() => setScope(item.id)}
               className={`rounded-md px-2 py-1 text-ui-label ${
                 selected
-                  ? "bg-content/10 text-content"
-                  : "text-content/50 hover:bg-content/5 hover:text-content"
+                  ? "bg-(--aven-selected) text-content"
+                  : "text-content/50 hover:bg-(--aven-hover) hover:text-content"
               }`}
             >
               {item.label}
@@ -537,7 +537,7 @@ function ResultList({
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onOpen(hit)}
             className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui-body leading-none ${
-              highlighted ? "bg-content/10 text-content" : "text-content"
+              highlighted ? "bg-(--aven-selected) text-content" : "text-content"
             }`}
           >
             <span className="grid size-4 shrink-0 place-items-center">

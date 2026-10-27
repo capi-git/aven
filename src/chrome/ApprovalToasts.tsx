@@ -68,7 +68,7 @@ function ApprovalToastCard({
       <button
         type="button"
         onClick={openSession}
-        className="flex w-full flex-col gap-2 px-3.5 py-3 text-left hover:bg-content/5"
+        className="flex w-full flex-col gap-2 px-3.5 py-3 text-left hover:bg-(--aven-hover)"
       >
         <span className="flex items-center gap-2">
           <HarnessIcon harness={session.harness} className="size-4 shrink-0" />

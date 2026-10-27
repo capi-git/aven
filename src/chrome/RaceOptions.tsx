@@ -85,7 +85,7 @@ export function RaceOptions({
           return (
             <div key={`${lane.harness}:${lane.model}`}>
               <div
-                className="flex h-8 min-w-0 items-center gap-2 rounded-md pl-2 pr-0.5 text-ui-body text-content/85 hover:bg-content/5"
+                className="flex h-8 min-w-0 items-center gap-2 rounded-md pl-2 pr-0.5 text-ui-body text-content/85 hover:bg-(--aven-hover)"
                 data-race-lane-choice={index}
                 data-race-lane-label={lane.label}
               >
@@ -192,7 +192,7 @@ export function RaceOptions({
                         className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-label disabled:cursor-default disabled:opacity-40 ${
                           selected
                             ? "bg-content/8 text-content"
-                            : "text-content/80 hover:bg-content/5 hover:text-content disabled:hover:bg-transparent"
+                            : "text-content/80 hover:bg-(--aven-hover) hover:text-content disabled:hover:bg-transparent"
                         }`}
                       >
                         <span className="min-w-0 flex-1 truncate">

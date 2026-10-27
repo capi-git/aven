@@ -110,6 +110,17 @@ describe("shared controls", () => {
     );
   });
 
+  it("lifts list rows by the shared row fills", () => {
+    // Tabs are being rebuilt with the pane headers.
+    const rows = classStrings()
+      .filter(({ file }) => file !== "src/chrome/SurfaceTabs.tsx")
+      .filter(({ classes }) =>
+        /(?<![\w:/-])hover:bg-content\/5\b/.test(classes),
+      )
+      .map(({ file, classes }) => `${file}: ${classes}`);
+    expect(rows).toEqual([]);
+  });
+
   it("gives a bare `rounded` the control corner", () => {
     expect(read("src/index.css")).toContain("--radius: 6px;");
     expect(theme).toContain("--aven-radius-sm: 6px;");

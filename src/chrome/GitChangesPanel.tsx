@@ -1347,7 +1347,7 @@ function ChangeDirRow({
         aria-expanded={open}
         onClick={toggle}
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-6.5 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
+        className="flex h-6.5 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-(--aven-hover)"
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {open ? (
@@ -1480,8 +1480,8 @@ function ChangeRow({
           tree ? "" : "pl-2"
         } ${
           active
-            ? "bg-content/10 text-content"
-            : "text-content hover:bg-content/5"
+            ? "bg-(--aven-selected) text-content"
+            : "text-content hover:bg-(--aven-hover)"
         }`}
       >
         <button

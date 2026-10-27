@@ -518,7 +518,7 @@ function ProviderTabButton({
           ? "cursor-not-allowed text-content/25"
           : selected
             ? "bg-content/10 text-content"
-            : "text-content/50 hover:bg-content/5 hover:text-content"
+            : "text-content/50 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       <span className="shrink-0">{children}</span>

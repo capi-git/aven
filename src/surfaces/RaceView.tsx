@@ -686,7 +686,7 @@ function RaceBody({
                           : row.lanes[0],
                     })
                   }
-                  className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-content/10 text-content" : "text-content/70 hover:bg-content/5"}`}
+                  className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-(--aven-selected) text-content" : "text-content/70 hover:bg-(--aven-hover)"}`}
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-ui-label">
                     {row.path}
@@ -758,7 +758,7 @@ function RaceBody({
                       onClick={() =>
                         setFocus({ path: current.path, lane: index })
                       }
-                      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-ui-label ${current.lane === index ? "bg-content/10 text-content" : "text-content/55 hover:bg-content/5"}`}
+                      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-ui-label ${current.lane === index ? "bg-(--aven-selected) text-content" : "text-content/55 hover:bg-(--aven-hover)"}`}
                     >
                       <HarnessIcon
                         harness={lane.harness}

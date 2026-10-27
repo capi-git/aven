@@ -986,7 +986,9 @@ describe("one list of changes", () => {
       [`${cwd}/b.ts`, "unstaged"],
     ]);
     // The open file's row stays selected whichever side it shows.
-    expect(row("a.ts").closest("div")!.className).toContain("bg-content/10");
+    expect(row("a.ts").closest("div")!.className).toContain(
+      "bg-(--aven-selected)",
+    );
   });
 
   it("brings back Staged and Changes with a toggle it remembers", async () => {

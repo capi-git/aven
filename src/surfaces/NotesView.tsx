@@ -454,8 +454,8 @@ function NoteCard({
       onClick={onSelect}
       className={`utility-list-card flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "border-transparent bg-(--aven-selected) text-content"
+          : "border-transparent text-content/80 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">

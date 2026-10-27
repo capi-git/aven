@@ -447,7 +447,7 @@ function SkillChoices({
           ) : (
             <label
               key={skill.name}
-              className="flex cursor-default items-start gap-2 rounded px-1.5 py-1 hover:bg-content/5"
+              className="flex cursor-default items-start gap-2 rounded px-1.5 py-1 hover:bg-(--aven-hover)"
             >
               <input
                 type="checkbox"

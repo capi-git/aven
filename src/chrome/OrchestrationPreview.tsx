@@ -503,7 +503,7 @@ export function OrchestrationPreview({
             const open = expanded.includes(task.id);
             return (
               <li key={task.id}>
-                <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 hover:bg-content/5">
+                <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 hover:bg-(--aven-hover)">
                   <button
                     type="button"
                     aria-label={`Details for ${task.title}`}
@@ -672,7 +672,7 @@ export function OrchestrationPreview({
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(!showAll)}
-          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-ui-caption text-content/45 hover:bg-content/5 hover:text-content/70"
+          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-ui-caption text-content/45 hover:bg-(--aven-hover) hover:text-content/70"
         >
           {showAll ? (
             <ChevronDown className="size-3.5" />
