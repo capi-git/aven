@@ -252,7 +252,7 @@ describe("the pro look's shapes", () => {
     expect(field).toContain("border-radius: var(--aven-radius-sm);");
     expect(field).toContain("background: var(--aven-field-bg);");
     expect(theme).toMatch(
-      /\.aven-field:focus-visible,[^{]*\{\s*outline: 2px solid var\(--aven-focus-ring\);/,
+      /\.aven-field:focus-visible,[^{]*\{\s*outline: 2px solid var\(--aven-field-focus\);/,
     );
     const button =
       "border border-(color:--aven-control-edge) bg-(--aven-control-bg)";

@@ -461,7 +461,7 @@ function CommandPaletteBody({
                       data-palette-index={position}
                       onMouseMove={() => setActive(position)}
                       onClick={race}
-                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-md px-3 py-1.5 text-ui-body ${selected ? "bg-(--aven-selected)" : ""}`}
+                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-md px-3 py-1.5 text-ui-body ${selected ? "bg-(--aven-menu-highlight)" : ""}`}
                     >
                       <Race className="size-4 shrink-0 text-content/60" />
                       <span className="min-w-0 flex-1 truncate text-content">
@@ -533,7 +533,7 @@ function CommandPaletteBody({
                     data-palette-index={position}
                     onMouseMove={() => setActive(position)}
                     onClick={() => activate(item)}
-                    className={`flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui-body ${selected ? "bg-(--aven-selected)" : ""}`}
+                    className={`flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui-body ${selected ? "bg-(--aven-menu-highlight)" : ""}`}
                   >
                     <Row item={item} project={project} />
                   </div>

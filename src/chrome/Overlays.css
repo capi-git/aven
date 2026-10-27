@@ -59,7 +59,7 @@
 }
 /* Fields take the shared field ring (.aven-field), hugging the field. */
 .modal-panel[role="dialog"] :is(input, textarea, select):focus-visible {
-  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline: 2px solid var(--aven-field-focus, var(--color-accent));
   outline-offset: 0;
 }
 @media (prefers-reduced-transparency: reduce) {

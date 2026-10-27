@@ -186,6 +186,12 @@
   --aven-menu-gap: 8px;
   --aven-menu-icon: 14px;
   --aven-menu-icon-rich: 16px;
+  /* The row the pointer or the arrow keys are on, in a menu or a palette. */
+  --aven-menu-highlight: color-mix(
+    in srgb,
+    var(--color-content) 9%,
+    transparent
+  );
   --aven-radius-control: var(--aven-radius-sm);
   /* One height for a single-line field or pop-up button. */
   --aven-field-height: 28px;
@@ -215,6 +221,11 @@
     in srgb,
     var(--color-accent) 85%,
     var(--color-content)
+  );
+  --aven-field-focus: color-mix(
+    in srgb,
+    var(--aven-focus-ring) 50%,
+    transparent
   );
   --aven-shadow: 0 22px 60px -12px #0009, 0 2px 8px #0003;
   /* Destructive choices, in the system red: their words (a menu's Delete,
@@ -474,9 +485,12 @@ textarea {
 .aven-field::placeholder {
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
+/* A field holds focus for as long as you type in it, so its ring is the
+   shared ring at half strength, as a Mac text field's is softer than a
+   button's. */
 .aven-field:focus-visible,
 .aven-field:not(input, textarea, select):focus-within {
-  outline: 2px solid var(--aven-focus-ring);
+  outline: 2px solid var(--aven-field-focus);
   outline-offset: 0;
 }
 .aven-field:disabled {

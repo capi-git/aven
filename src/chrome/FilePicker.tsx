@@ -304,7 +304,7 @@ function FileList({
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onPick(file)}
             className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui-body leading-none text-content ${
-              highlighted ? "bg-(--aven-selected)" : ""
+              highlighted ? "bg-(--aven-menu-highlight)" : ""
             }`}
           >
             <span className="shrink-0">
