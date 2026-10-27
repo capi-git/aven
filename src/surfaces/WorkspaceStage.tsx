@@ -289,6 +289,8 @@ const DROP_REVEAL_WINDOW_MS = 1000;
 export const ZOOM_GLIDE_MS = 200;
 /** Switching strip entries crossfades the arrangements in 180ms. */
 export const SWITCH_MS = 180;
+/** The outgoing arrangement is gone within the switch's first 60%. */
+const SWITCH_OUT_MS = Math.round(SWITCH_MS * 0.6);
 /** How far the incoming arrangement slides in from the side it comes from. */
 const SWITCH_SHIFT_PX = 24;
 
@@ -749,8 +751,10 @@ export function WorkspaceStage({
         const node = surfaceNodes.current.get(id);
         return node && typeof node.animate === "function"
           ? [
+              // Gone in the first part of the switch, so the two
+              // arrangements are not read over each other.
               node.animate([{ opacity: 1 }, { opacity: 0 }], {
-                duration: SWITCH_MS,
+                duration: SWITCH_OUT_MS,
                 easing: DOCK_EASE,
                 fill: "forwards",
               }),
@@ -898,38 +902,45 @@ export function WorkspaceStage({
     const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
       const surface = surfaceNodes.current.get(id);
       const kind = surface ? paneCanGlide(surface) : null;
-      if (!surface || !kind) return;
+      if (!surface || !kind || typeof surface.animate !== "function") return;
+      if (to.width <= 0 || to.height <= 0) return;
+      const timing = { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE };
       // A page held as a picture scales with its pane either way.
-      if (kind === "pictured") grow = false;
+      play(
+        surface,
+        grow && kind === "html"
+          ? [
+              { clipPath: dockClip(from, to, 0) },
+              { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+            ]
+          : paneGlideKeyframes(from, to, true),
+        timing,
+      );
+      // The title row never scales its text: growing, its clip opens with
+      // the pane; shrinking, it moves to its place at its new width.
       const header = headerNodes.current.get(id);
-      const headerFrom = { ...from, height: 32 };
-      const headerTo = { ...to, height: 32 };
-      for (const [node, start, end] of [
-        [surface, from, to],
-        [header, headerFrom, headerTo],
-      ] as const) {
-        if (!node || typeof node.animate !== "function") continue;
-        if (end.width <= 0 || end.height <= 0) continue;
-        play(
-          node,
-          grow
-            ? [
-                { clipPath: dockClip(start, end, 0) },
-                { clipPath: "inset(0px 0px 0px 0px round 0px)" },
-              ]
-            : [
-                {
-                  transformOrigin: "0 0",
-                  transform: `translate(${start.left - end.left}px, ${start.top - end.top}px) scale(${start.width / end.width}, ${start.height / end.height})`,
-                },
-                {
-                  transformOrigin: "0 0",
-                  transform: "translate(0px, 0px) scale(1, 1)",
-                },
-              ],
-          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
-        );
-      }
+      if (!header || typeof header.animate !== "function") return;
+      play(
+        header,
+        grow
+          ? [
+              {
+                clipPath: dockClip(
+                  { ...from, height: 32 },
+                  { ...to, height: 32 },
+                  0,
+                ),
+              },
+              { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+            ]
+          : [
+              {
+                transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`,
+              },
+              { transform: "translate(0px, 0px)" },
+            ],
+        timing,
+      );
     };
     if (
       zoomedId &&
