@@ -84,11 +84,10 @@ html.has-chat-background:not(.chat-background-empty-only)
   z-index: 1;
 }
 
-/* Each pane is a card resting on the workspace, as in Arc: a hairline edge,
-   a faint lift and a small gap (GUTTER and EDGE in WorkspaceStage.tsx). It
-   has no fill or backdrop filter of its own; the window already provides the
-   glass, so the pane inside looks as it did. The 1px border is the inset that
-   native pane geometry and the wallpaper offsets already assume. */
+/* Panes meet edge to edge, as in an IDE: square, flush with the workspace's
+   edges, one pixel apart (GUTTER and EDGE in WorkspaceStage.tsx) with the
+   divider's hairline in that gap. A pane has no fill, edge or backdrop
+   filter of its own; the window already provides the glass. */
 .workspace-stage-surface {
   --workspace-background-width: 100cqw;
   --workspace-background-height: 100cqh;
@@ -100,14 +99,15 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid var(--aven-glass-card-edge);
-  border-radius: var(--aven-radius-pane);
-  box-shadow: var(--aven-control-shadow);
+  border: 0;
+  border-radius: 0;
 }
 .workspace-stage-surface[data-has-header="true"] {
   --workspace-background-header-offset: 32px;
   padding-top: 32px;
 }
+/* The pane's tab bar: one row with a hairline beneath it, like every tab
+   strip in a pane. */
 .workspace-stage-header {
   position: absolute;
   z-index: 20;
@@ -115,9 +115,9 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 32px;
   min-width: 0;
   overflow: hidden;
-  border-radius: calc(var(--aven-radius-pane) - 1px)
-    calc(var(--aven-radius-pane) - 1px) 0 0;
+  border-radius: 0;
   box-sizing: border-box;
+  box-shadow: inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator);
 }
 .workspace-pane-minimize-controls {
   position: absolute;
@@ -134,7 +134,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   flex: none;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--aven-radius-thumb);
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 54%, transparent);
   cursor: pointer;
@@ -232,30 +232,47 @@ html.has-chat-background:not(.chat-background-empty-only)
   transform: translateY(-50%);
   cursor: row-resize;
 }
-/* The gap between two cards is the divider: nothing is drawn there until the
-   pointer or keyboard is on it, or it is being dragged. */
+/* The divider is a hairline in the gap between two panes, the same line as
+   the sidebar's and side panel's edges; pointing at it, focusing or
+   dragging it turns it to the accent. */
 .workspace-stage-sash::after {
   content: "";
   position: absolute;
-  background: transparent;
+  background: var(--aven-separator);
 }
 .workspace-stage-sash[data-direction="right"]::after {
   top: 0;
   bottom: 0;
-  left: calc(50% - 0.5px);
-  width: 1px;
+  left: calc(50% - var(--aven-hairline) / 2);
+  width: var(--aven-hairline);
 }
 .workspace-stage-sash[data-direction="down"]::after {
   left: 0;
   right: 0;
-  top: calc(50% - 0.5px);
-  height: 1px;
+  top: calc(50% - var(--aven-hairline) / 2);
+  height: var(--aven-hairline);
 }
 .workspace-stage-sash:hover::after,
 .workspace-stage-sash:focus-visible::after,
 .workspace-stage-sash:active::after {
   background: var(--color-accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+.workspace-stage-sash[data-direction="right"]:is(
+    :hover,
+    :focus-visible,
+    :active
+  )::after {
+  left: calc(50% - 0.5px);
+  width: 1px;
+}
+.workspace-stage-sash[data-direction="down"]:is(
+    :hover,
+    :focus-visible,
+    :active
+  )::after {
+  top: calc(50% - 0.5px);
+  height: 1px;
 }
 /* Native browser feedback samples these resolved sRGB colors once per drag.
    The workspace palette supplies both the line and its contrasting halo. */
@@ -264,7 +281,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   z-index: 41;
   pointer-events: none;
   border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
-  border-radius: 8px;
+  border-radius: var(--aven-radius-md);
   outline: 0.5px solid
     color-mix(in srgb, var(--color-background-base) 90%, transparent);
   background: color-mix(in srgb, var(--color-accent) 6%, transparent);

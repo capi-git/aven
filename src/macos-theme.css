@@ -55,24 +55,34 @@
     color-mix(in srgb, #fff 13%, transparent);
   --aven-rim: inset 0 0 0 var(--aven-hairline)
     color-mix(in srgb, #fff 7%, transparent);
-  /* The chosen segment's lifted thumb in a segmented control. */
+  /* The chosen segment's thumb in a segmented control: a raised grey with
+     light along its top edge and a short shadow, no glow. */
   --aven-thumb: var(--aven-elevated-3);
-  --aven-thumb-shadow:
-    var(--aven-specular), 0 1px 3px #00000033, 0 3px 8px -2px #0000001f;
-  /* Shape: continuous corners on one scale, nested concentrically (an inner
-     corner is its frame's corner less the padding between them). */
-  --aven-radius-xs: 6px;
-  --aven-radius-sm: 8px;
-  --aven-radius-row: 10px;
-  --aven-radius-md: 12px;
-  --aven-radius-lg: 14px;
+  --aven-thumb-shadow: var(--aven-specular), 0 1px 2px #00000040;
+  /* Shape: one scale, nested concentrically (an inner corner is its frame's
+     corner less the padding between them). The workspace's structure (panes,
+     sidebar, side panel, editor, terminal) is square and flush; controls take
+     a small corner; the conversation (messages, the message box, cards in a
+     chat, Home) is round; tags and switches are capsules. */
+  --aven-radius-xs: 4px;
+  /* Buttons, icon buttons, tabs, fields. */
+  --aven-radius-sm: 6px;
+  /* Rows in lists and menus: a 10px menu less its 4px padding. */
+  --aven-radius-row: 6px;
+  /* Code blocks and small cards inside a card. */
+  --aven-radius-md: 8px;
+  /* Cards in a chat: tool work, approvals, run status, teams. */
+  --aven-radius-lg: 10px;
   /* Messages, toasts and one-line banners. */
-  --aven-radius-bubble: 20px;
-  /* The message box and Fix ready: their 32px and 26px capsules inset
-     6px and 8px from the corner, nested concentrically. */
-  --aven-radius-xl: 22px;
+  --aven-radius-bubble: 12px;
+  /* The message box; its 6px controls inset 6px from the corner. */
+  --aven-radius-xl: 12px;
+  /* Tags, counts, status chips and switches. */
   --aven-radius-capsule: 999px;
-  --aven-radius-sheet: 24px;
+  --aven-radius-sheet: 12px;
+  /* Segmented controls: a 7px track around a 5px thumb, 2px in. */
+  --aven-radius-track: 7px;
+  --aven-radius-thumb: calc(var(--aven-radius-track) - 2px);
 
   --aven-control-solid: color-mix(
     in srgb,
@@ -160,9 +170,11 @@
   --aven-glass-card-shadow: 0 1px 2px #0000001a, 0 18px 40px -28px #000000a0;
   /* Cards inside a panel that already owns the glass (composer, inspector). */
   --aven-inset-card: var(--aven-fill-quaternary);
-  --aven-radius-card: 16px;
-  --aven-radius-overlay: 16px;
-  --aven-radius-control: 10px;
+  /* Grouped settings, Home's lists and other resting cards. */
+  --aven-radius-card: 10px;
+  /* Menus, popovers and floating panels. */
+  --aven-radius-overlay: 10px;
+  --aven-radius-control: var(--aven-radius-sm);
   /* Grey buttons: iOS's tertiary fill. */
   --aven-control-bg: var(--aven-fill-tertiary);
   --aven-control-hover: var(--aven-fill-secondary);
@@ -185,7 +197,9 @@
 
 /* The window's own corner. macOS 26 draws Aven's titled window with a 16pt
    continuous corner (measured from a capture of the window); Windows draws
-   the shell's 12px. Panels inset from the window edge by the gutter nest
+   the shell's 12px. The workspace's regions meet the window edge flush and
+   its corner clips them. Overlays that float over the workspace (the hover
+   sidebar, a floating side panel) inset by the gutter and nest
    concentrically inside it: their corner is the window's less the gutter. */
 :root {
   --aven-window-radius: 16px;
@@ -255,8 +269,8 @@ html.theme-light .personal-shell {
   --aven-thumb: var(--color-background-base);
   --aven-thumb-shadow:
     0 0 0 var(--aven-hairline)
-      color-mix(in srgb, var(--color-content) 6%, transparent),
-    0 1px 3px #0000001f, 0 3px 8px -2px #00000014;
+      color-mix(in srgb, var(--color-content) 10%, transparent),
+    0 1px 2px #0000001a;
 
   --aven-control-solid: var(--color-background-base);
   --aven-control-bg: var(--aven-fill-tertiary);

@@ -34,37 +34,47 @@ function layout({
   floating = false,
   chip = false,
   stripHeight = 32,
-  radius = "12px",
-  inset = 5,
+  radius = "0px",
+  edge = "0px",
+  inset = 0,
+  divider = 0.5,
+  hairlines = true,
   fileTabHeight = 26,
 } = {}) {
+  const hairline = hairlines
+    ? "box-shadow:inset 0 -0.5px 0 rgba(255,255,255,0.2)"
+    : "";
   const strip = `
     <div class="aven-tab-bar" data-pane-strip
-      style="position:${floating ? "absolute" : "relative"}">
+      style="position:${floating ? "absolute" : "relative"};${hairline}">
       <div class="aven-tab"><div class="aven-tab-button" data-chat-tab
         style="border-top-left-radius:6px"></div></div>
     </div>`;
   document.body.innerHTML = `
     <div data-workspace-stage>
       <div class="workspace-stage-surface" data-workspace-surface="tab"
-        style="border-top-left-radius:${radius};border-top-width:1px">
-        <div data-pane-id="chat">
-          <div data-session-drop="chat">
-            ${chip ? "<div data-session-pane-controls></div>" : ""}
-            ${strip.repeat(chatStrips)}
-            <div data-chat-content></div>
+        style="border-top-left-radius:${radius};border-top-width:${edge}">
+        <div data-tree>
+          <div data-pane-id="chat">
+            <div data-session-drop="chat">
+              ${chip ? "<div data-session-pane-controls></div>" : ""}
+              ${strip.repeat(chatStrips)}
+              <div data-chat-content></div>
+            </div>
           </div>
-        </div>
-        <div data-pane-id="files">
-          ${fileNameStrip ? '<div class="aven-tab-bar" data-file-name-strip></div>' : ""}
-          <div class="aven-surface-tabs aven-tab-bar"><button
-            class="aven-tab-button" data-file-tab
-            style="border-top-left-radius:6px"></button></div>
-          <div data-file-body></div>
+          <div data-pane-id="files">
+            ${fileNameStrip ? '<div class="aven-tab-bar" data-file-name-strip></div>' : ""}
+            <div class="aven-surface-tabs aven-tab-bar" style="${hairline}"><button
+              class="aven-tab-button" data-file-tab
+              style="border-top-left-radius:6px"></button></div>
+            <div data-file-body></div>
+          </div>
+          <div role="separator" aria-orientation="vertical" data-divider></div>
         </div>
       </div>
-      <div data-workspace-header="tab"><button class="aven-tab-button"
-        data-header-tab style="border-top-left-radius:6px"></button></div>
+      <div data-workspace-header="tab" style="${hairline}"><button
+        class="aven-tab-button" data-header-tab
+        style="border-top-left-radius:6px"></button></div>
     </div>`;
   boxes.clear();
   at("[data-workspace-stage]", { left: 0, top: 0, width: 1000, height: 600 });
@@ -74,12 +84,12 @@ function layout({
     width: 1000 - 2 * inset,
     height: 600 - 2 * inset,
   });
-  at("[data-workspace-header]", { left: 6, top: 6, width: 988, height: 32 });
-  at("[data-header-tab]", { left: 12, top: 9, width: 200, height: 26 });
+  at("[data-workspace-header]", { left: 0, top: 0, width: 1000, height: 32 });
+  at("[data-header-tab]", { left: 6, top: 3, width: 200, height: 26 });
   document.querySelectorAll("[data-pane-strip]").forEach((element, index) =>
     boxes.set(element, {
-      left: 6,
-      top: 38 + index * stripHeight,
+      left: 0,
+      top: 32 + index * stripHeight,
       width: 500,
       height: stripHeight,
     }),
@@ -87,23 +97,24 @@ function layout({
   document
     .querySelectorAll("[data-chat-tab]")
     .forEach((tab) =>
-      boxes.set(tab, { left: 12, top: 41, width: 200, height: 26 }),
+      boxes.set(tab, { left: 6, top: 35, width: 200, height: 26 }),
     );
   // A floating strip lies over the content, which starts at the pane's top.
   at("[data-chat-content]", {
-    left: 6,
-    top: floating ? 38 : 38 + chatStrips * stripHeight,
+    left: 0,
+    top: floating ? 32 : 32 + chatStrips * stripHeight,
     width: 500,
     height: 400,
   });
-  at(".aven-surface-tabs", { left: 507, top: 38, width: 488, height: 32 });
+  at(".aven-surface-tabs", { left: 500, top: 32, width: 500, height: 32 });
   at("[data-file-tab]", {
-    left: 513,
-    top: 41,
+    left: 506,
+    top: 35,
     width: 200,
     height: fileTabHeight,
   });
-  at("[data-file-body]", { left: 507, top: 70, width: 488, height: 520 });
+  at("[data-file-body]", { left: 500, top: 64, width: 500, height: 536 });
+  at("[data-divider]", { left: 500, top: 32, width: divider, height: 568 });
   measure();
   return document.querySelector<HTMLElement>("[data-file-body]")!;
 }
@@ -114,12 +125,14 @@ afterEach(() => {
 });
 
 describe("paneLayoutProblem", () => {
-  it("passes one strip per pane above its content, cards and matching tabs", () => {
+  it("passes one strip per pane above its content, flush panes and matching tabs", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content; cards with 12px corners 5px from the edge; tab, chat and file tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content, each over a hairline; square panes flush with the workspace, divided by a 0.5px hairline; tab, chat and file tabs 26px tall, 6px corners",
     );
+    // Under Increase contrast, or on a 1x screen, the hairline is a full pixel.
+    expect(paneLayoutProblem(layout({ divider: 1 })).problem).toBeNull();
   });
 
   it("names a missing, doubled or floating strip and the old chip", () => {
@@ -140,19 +153,27 @@ describe("paneLayoutProblem", () => {
     );
   });
 
-  it("names a strip over content, square or edge-to-edge panes and mismatched tabs", () => {
+  it("names a strip over content, the old cards, missing hairlines and mismatched tabs", () => {
     const file = layout();
-    at("[data-chat-content]", { left: 6, top: 50, width: 500, height: 400 });
+    at("[data-chat-content]", { left: 0, top: 44, width: 500, height: 400 });
     expect(paneLayoutProblem(file).problem).toBe(
       "the chat's strip covers 20px of its content",
     );
-    expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
-      "the pane's corners are 0px",
+    // The iOS look's floating cards: rounded, edged and inset.
+    expect(paneLayoutProblem(layout({ radius: "11px" })).problem).toBe(
+      "the pane's corners are 11px",
     );
-    // Older macOS windows round to 10pt, so panes there have 5px corners.
-    expect(paneLayoutProblem(layout({ radius: "5px" })).problem).toBeNull();
-    expect(paneLayoutProblem(layout({ inset: 0 })).problem).toBe(
-      "the card is 0px from the workspace edge",
+    expect(paneLayoutProblem(layout({ edge: "1px" })).problem).toBe(
+      "the pane has a 1px edge of its own",
+    );
+    expect(paneLayoutProblem(layout({ inset: 5 })).problem).toBe(
+      "the pane is 5px from the workspace edge",
+    );
+    expect(paneLayoutProblem(layout({ divider: 8 })).problem).toBe(
+      "the divider between the panes is 8px thick",
+    );
+    expect(paneLayoutProblem(layout({ hairlines: false })).problem).toBe(
+      "the chat's strip has no hairline under it",
     );
     expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
       "the tab's bar is 32px, the chat's strip 24px and the file's 32px",

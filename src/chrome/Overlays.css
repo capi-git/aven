@@ -21,28 +21,28 @@
   box-shadow: var(--aven-specular), var(--aven-shadow);
 }
 .modal-panel[role="dialog"] > header {
-  padding: 20px 20px 14px 22px;
+  padding: 14px 12px 10px 18px;
   gap: 12px;
 }
 .modal-panel[role="dialog"] > header h2 {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
-/* Close is iOS's grey circle. */
+/* Close is a quiet icon button that fills when pointed at. */
 .modal-panel[role="dialog"] > header button {
   width: 28px;
   height: 28px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-label-secondary);
-  background: var(--aven-fill-tertiary, var(--aven-hover));
+  background: transparent;
 }
 .modal-panel[role="dialog"] > header button:hover {
   color: var(--color-content);
   background: var(--aven-fill-secondary, var(--aven-hover));
 }
 .modal-panel[role="dialog"] :is(input, textarea, select) {
-  border-radius: var(--aven-radius-row);
+  border-radius: var(--aven-radius-sm);
   border-color: var(--aven-control-edge, transparent);
   background-color: var(--aven-field-bg, var(--aven-raised));
 }

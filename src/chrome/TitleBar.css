@@ -5,35 +5,31 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
-  /* The tab in front is a capsule thumb, as in an iOS segmented control:
-     a lifted grey with light along its top edge. */
-  --aven-tab-selected: var(--aven-fill-secondary);
-  --aven-tab-selected-edge: var(--aven-specular), 0 1px 2px #00000033;
+  /* The tab in front: a quiet neutral fill inside a hairline edge, the same
+     grey in every project. */
+  --aven-tab-selected: var(--aven-fill-tertiary);
+  --aven-tab-selected-edge: inset 0 0 0 var(--aven-hairline)
+    var(--aven-separator);
 }
 html.theme-light,
 html.theme-light .personal-shell {
-  --aven-tab-selected: var(--color-background-base);
-  --aven-tab-selected-edge:
-    0 0 0 var(--aven-hairline)
-      color-mix(in srgb, var(--color-content) 10%, transparent),
-    0 1px 3px #0000001a;
+  --aven-tab-selected: var(--aven-fill-secondary);
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
 .personal-shell .personal-titlebar {
-  background: linear-gradient(
-    110deg,
-    color-mix(in srgb, var(--color-accent) 5%, transparent),
-    transparent 55%
-  );
+  background: transparent;
 }
 /* One tab style for chat, browser, file and terminal tabs: the same height,
    radius, padding, hover and active fills, and close-button behaviour. Each
    family adds only what is its own (a browser's layout menu, a project's
    underline, a group's colour). */
+/* Every tab bar in a pane (a chat's name strip, a file's or a terminal's
+   tabs, like the tab's own row) ends in the same hairline. */
 .aven-tab-bar {
   height: 32px;
   min-height: 32px;
+  box-shadow: inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator);
 }
 .aven-tab-strip {
   gap: 2px;
@@ -61,10 +57,10 @@ html.theme-light .personal-shell {
   height: 26px;
   min-height: 26px;
   gap: 6px;
-  padding-inline: 9px 11px;
+  padding-inline: 8px 10px;
   border: 0;
   outline: none;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   box-shadow: none;
   color: var(--aven-label-secondary);
@@ -116,7 +112,7 @@ html.theme-light .personal-shell {
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-xs);
   color: var(--aven-label-secondary);
   opacity: 0;
   transform: translateY(-50%);
@@ -192,7 +188,7 @@ html.theme-light .personal-shell {
   flex-shrink: 0;
 }
 .personal-shell .personal-title-browser-menu {
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-xs);
 }
 .personal-shell .personal-title-browser-menu:focus-visible,
 .personal-shell .personal-title-browser-new:focus-visible,
@@ -222,7 +218,7 @@ html.theme-light .personal-shell {
 .personal-shell .personal-titlebar .personal-titlebar-tool {
   width: 26px;
   height: 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-label-secondary);
 }
 .personal-shell .personal-titlebar .personal-titlebar-tool:hover {
@@ -248,8 +244,6 @@ html.theme-light .personal-shell {
   left: 18px;
 }
 
-/* File and terminal tab bars sit at the top of their pane like the tab strip
-   above a chat, without a rule of their own. */
 .aven-surface-tabs {
   border-bottom: 0;
   background: transparent;
@@ -344,7 +338,7 @@ html.theme-light .personal-shell {
   gap: 4px;
   height: 24px;
   padding: 0 8px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-label-secondary);
   font-size: var(--text-ui-micro);
   white-space: nowrap;
@@ -421,7 +415,7 @@ html.theme-light .personal-shell {
   max-width: 160px;
   padding: 0 9px;
   border: 1px solid var(--tab-group-color);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   outline: 0;
   background: color-mix(in srgb, var(--tab-group-color) 14%, transparent);
   color: var(--color-content);

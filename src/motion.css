@@ -16,12 +16,13 @@
   --aven-motion-base: 150ms;
   --aven-motion-glide: 160ms;
   --aven-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  /* A critically damped spring already moving, as iOS's are when a press
-     hands them its speed: it settles without overshooting. */
+  /* A critically damped spring already moving, as when a press hands it
+     its speed: it settles without overshooting. */
   --aven-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
-  --aven-press-scale: 0.97;
+  /* A press dips a control just enough to feel, not to see it move. */
+  --aven-press-scale: 0.98;
   /* How small a popup starts as it grows out of the control that opened it. */
-  --aven-pop-scale: 0.94;
+  --aven-pop-scale: 0.97;
 }
 
 :root[data-motion="reduce"] {

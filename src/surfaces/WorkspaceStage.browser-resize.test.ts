@@ -251,7 +251,7 @@ describe("workspace divider and native page presentation", () => {
     expect(
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!
         .style.height,
-    ).toBe("calc(70% - 7.5px)");
+    ).toBe("calc(70% - 0.5px)");
     await act(async () => window.dispatchEvent(pointer("pointerup", 500, 422)));
     await flushFrames();
     expect(native.create).toHaveBeenCalledOnce();

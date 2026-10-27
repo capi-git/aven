@@ -2180,7 +2180,7 @@ describe("shared tab style", () => {
 
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(
-      /height: 26px;[\s\S]*padding-inline: 9px 11px;[\s\S]*border-radius: var\(--aven-radius-capsule\);/,
+      /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: var\(--aven-radius-sm\);/,
     );
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
       "background: var(--aven-tab-selected);",
@@ -2193,6 +2193,10 @@ describe("shared tab style", () => {
     // The active tab is the same grey as every selected control; a project's
     // colour no longer tints it.
     expect(css).not.toContain("--aven-tab-active-fill");
+    // A quiet fill inside a hairline edge, not a lifted capsule.
+    expect(css).toMatch(
+      /--aven-tab-selected-edge: inset 0 0 0 var\(--aven-hairline\)\s+var\(--aven-separator\);/,
+    );
   });
 
   it("leaves no per-family copy of the tab's size or fills", () => {

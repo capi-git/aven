@@ -3,8 +3,8 @@
 .personal-shell .personal-composer {
   /* Keep the theme tint quiet so the frost carries the surface; foreground
      text stays fully opaque, including custom palettes. */
-  /* iOS's regular material over the transcript: a lifted grey tint, so the
-     box reads as glass floating on the chat rather than a hole in it. */
+  /* A lifted grey tint over the transcript, so the box reads as a surface
+     resting on the chat rather than a hole in it. */
   --composer-surface: color-mix(
     in srgb,
     var(--personal-main-surface) 88%,
@@ -13,8 +13,8 @@
   --composer-control: var(--aven-fill-tertiary);
   --composer-glass-opacity: 78%;
   --composer-edge: color-mix(in srgb, var(--color-content) 9%, transparent);
-  --composer-shadow: 0 12px 32px -10px #00000066, 0 1px 3px #00000026;
-  /* Concentric with the 32px capsule buttons inset 6px from its corner. */
+  --composer-shadow: 0 8px 24px -12px #00000066, 0 1px 2px #00000026;
+  /* Concentric with its 6px buttons, inset 6px from its corner. */
   --composer-radius: var(--aven-radius-xl);
   width: 100%;
   max-width: 800px;
@@ -117,8 +117,8 @@
 }
 .personal-shell .personal-composer-controls {
   flex-wrap: nowrap;
-  gap: 7px;
-  padding: 0 8px 8px 10px;
+  gap: 6px;
+  padding: 0 6px 6px 8px;
 }
 .personal-shell .personal-composer-agent {
   order: 1;
@@ -130,9 +130,9 @@
   order: 0;
 }
 .personal-shell .personal-composer-add > button {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--aven-radius-capsule);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 68%, var(--composer-surface));
 }
@@ -158,10 +158,10 @@
   gap: 6px;
 }
 .personal-shell .personal-composer-actions > button {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--composer-control);
   box-shadow: none;
   color: var(--color-content);
@@ -179,7 +179,7 @@
   color: var(--aven-on-accent, var(--personal-main-surface));
   box-shadow:
     inset 0 var(--aven-hairline) 0 color-mix(in srgb, #fff 30%, transparent),
-    0 1px 3px #00000040;
+    0 1px 2px #00000040;
 }
 .personal-shell
   .personal-composer-actions
@@ -208,7 +208,7 @@
 .personal-shell .personal-composer [data-message-queue-card] {
   padding: 5px 12px 7px;
   border: 0;
-  border-radius: var(--aven-radius-card) var(--aven-radius-card) 0 0;
+  border-radius: var(--aven-radius-xl) var(--aven-radius-xl) 0 0;
   /* Rides on the composer's own glass rather than as an opaque tab. */
   background: color-mix(
     in srgb,
@@ -222,7 +222,7 @@
 }
 .personal-shell .personal-composer [data-message-queue-card] button {
   min-height: 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
 }
 .personal-shell .personal-composer [data-message-queue-card] > div > svg {
   color: var(--personal-accent);
@@ -240,7 +240,7 @@
 html.theme-light .personal-shell .personal-composer {
   --composer-surface: var(--personal-main-surface);
   --composer-control: var(--aven-control-bg, var(--aven-hover));
-  --composer-shadow: 0 10px 30px -12px #17304233, 0 1px 3px #0000000f;
+  --composer-shadow: 0 8px 24px -12px #17304229, 0 1px 2px #0000000f;
 }
 html.theme-light .personal-shell .personal-composer {
   --composer-glass-opacity: 94%;

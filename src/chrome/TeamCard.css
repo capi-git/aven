@@ -11,9 +11,9 @@
   flex-direction: column;
   gap: 10px;
   max-width: 680px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-lg, 10px);
   background: var(
     --aven-glass-card,
     color-mix(in srgb, var(--color-content) 4%, transparent)
@@ -147,7 +147,7 @@
   width: 100%;
   min-width: 0;
   padding: 4px 6px;
-  border-radius: var(--aven-radius-control, 8px);
+  border-radius: var(--aven-radius-control, 6px);
   text-align: left;
   color: inherit;
 }
@@ -248,17 +248,17 @@ button.team-card-member-open:hover {
   gap: 6px;
 }
 /* The one button of the team family: the card, the message-box bar, the
-   floating panel and the board all use it. An iOS capsule: grey-tinted by
-   default, filled for the one primary action. */
+   floating panel and the board all use it. Grey-filled by default with the
+   control corner, filled in the text colour for the one primary action. */
 .team-card-button {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   gap: 5px;
   height: 26px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(
     --aven-control-bg,
     color-mix(in srgb, var(--color-content) 7%, transparent)
@@ -273,8 +273,8 @@ button.team-card-member-open:hover {
 }
 .team-card-button[data-size="compact"] {
   height: 22px;
-  padding: 0 9px;
-  border-radius: var(--aven-radius-capsule);
+  padding: 0 8px;
+  border-radius: var(--aven-radius-xs);
 }
 .team-card-button:hover:not(:disabled) {
   background: var(--aven-control-hover, var(--aven-hover));

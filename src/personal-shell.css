@@ -325,7 +325,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   height: 100%;
   min-height: 0;
   flex-shrink: 0;
-  padding: 0 6px 0 0;
+  padding: 0;
   background: transparent;
   opacity: 1;
   transform: translateX(0);
@@ -614,7 +614,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   margin-top: 20px;
   padding: 0 14px;
   border: 1px solid var(--aven-control-border);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
   font-size: var(--text-ui-label);
@@ -642,17 +642,18 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
 .personal-project-menu {
   display: flex;
   flex-direction: column;
-  padding: 5px;
+  padding: 4px;
 }
 .personal-project-menu button {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px;
-  border-radius: var(--aven-radius-sm);
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: var(--aven-radius-row);
   text-align: left;
-  font-size: var(--text-ui-caption);
+  font-size: var(--text-ui-label);
   color: var(--color-content);
 }
 .personal-project-menu button:hover,
@@ -695,9 +696,6 @@ html.theme-light .personal-shell .workspace-footer {
   max-height: 38px;
   padding-left: 20px;
   font-size: var(--text-ui-caption);
-}
-html.theme-light .personal-shell .personal-inspector-dock {
-  padding: 0 8px 0 0;
 }
 html.theme-light .personal-shell .workspace-inspector {
   background: var(--personal-docked-panel-surface, transparent);
@@ -766,7 +764,7 @@ html.theme-light.is-mac
 .personal-shell .workspace-status-access > div > button {
   height: 26px;
   min-height: 26px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
@@ -812,8 +810,8 @@ html.theme-light.is-mac
   top: 0;
   bottom: 0;
   left: 4px;
-  width: 1px;
-  background: var(--personal-sidebar-edge);
+  width: var(--aven-hairline, 1px);
+  background: var(--aven-separator, var(--personal-sidebar-edge));
   pointer-events: none;
 }
 .personal-shell
@@ -842,20 +840,9 @@ html.theme-light.is-mac
   background: transparent;
   outline: none;
 }
-/* Docked panels meet the pane cards across the workspace gap, so their edge
-   needs no resting line; pointing at it, focusing or dragging still shows the
-   divider. The status bar likewise sits below the cards without a rule. */
-.personal-shell[data-unified-toolbar]
-  .personal-panel-resizer:not(
-    :hover,
-    :focus-visible,
-    [data-resizing="true"]
-  )::after {
-  background: transparent;
-}
-.personal-shell[data-unified-toolbar] .workspace-footer {
-  box-shadow: none;
-}
+/* Docked panels meet the workspace edge to edge: the resizer's resting line
+   is the hairline between them, and pointing at it, focusing or dragging
+   widens it to the accent. */
 
 /* Design A: a single window toolbar over the workspace. The native window
    supplies the outer curve; panes rest on the workspace as rounded cards
@@ -903,43 +890,37 @@ html .personal-shell[data-unified-toolbar] .personal-main.body-glass {
   border: 0;
   border-radius: 0;
 }
-/* The project terminal is a card too, on the same gap. The side that faces
-   the workspace takes its gap from the panes' outer edge. */
+/* The project terminal docks flush against the panes, with the same hairline
+   on the side that faces them. */
 html .personal-shell[data-unified-toolbar] [data-project-terminal-dock] {
-  height: calc(100% - 10px);
-  margin: 5px;
-  border: 1px solid var(--aven-glass-card-edge);
-  border-radius: var(--aven-radius-pane);
-  box-shadow: var(--aven-control-shadow);
-  overflow: hidden;
+  border-width: 0;
+  border-color: var(--aven-separator);
 }
 html
   .personal-shell[data-unified-toolbar]
   [data-project-terminal-dock][data-dock-side="bottom"] {
-  height: calc(100% - 5px);
-  margin-top: 0;
+  border-top-width: var(--aven-hairline);
 }
 html
   .personal-shell[data-unified-toolbar]
   [data-project-terminal-dock][data-dock-side="top"] {
-  height: calc(100% - 5px);
-  margin-bottom: 0;
+  border-bottom-width: var(--aven-hairline);
 }
 html
   .personal-shell[data-unified-toolbar]
   [data-project-terminal-dock][data-dock-side="left"] {
-  margin-right: 0;
+  border-right-width: var(--aven-hairline);
 }
 html
   .personal-shell[data-unified-toolbar]
   [data-project-terminal-dock][data-dock-side="right"] {
-  margin-left: 0;
+  border-left-width: var(--aven-hairline);
 }
 .personal-shell[data-unified-toolbar] .personal-titlebar {
   background: transparent;
 }
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
-  border-radius: var(--composer-radius, 22px);
+  border-radius: var(--composer-radius, var(--aven-radius-xl));
 }
 @media (prefers-contrast: more) {
   .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
@@ -947,66 +928,59 @@ html
   }
 }
 
-/* The iOS look: the pinned sidebar and side panel float as glass panels
-   inset from the window's edge, as macOS 26's sidebars do, on the same
-   gutter as the pane cards. Each is a tint over the frame (no blur of its
-   own) with light along its edge, so the Glass slider, Solid and the
-   sidebar colour show through unchanged. */
+/* The pro look: the workspace's regions meet edge to edge, as in an IDE.
+   The toolbar, the pinned sidebar, the docked side panel and the status row
+   are the window's chrome and share one faint tint over whatever surface
+   the theme gives them (glass, Solid, a sidebar colour); the panes between
+   them keep the workspace's own. Hairlines divide them (full lines under
+   Increase contrast) and the window's own corner clips the outer corners.
+   Overlays (the hover sidebar, menus, sheets, toasts) still float as cards.
+   The tint is an inset shadow, painted over each region's own background
+   without another layer or blur. */
 .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+  --aven-panel-tint: inset 0 0 0 100vmax var(--aven-panel-card);
 }
 html.theme-light .personal-shell[data-unified-toolbar] {
-  --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
+  --aven-panel-card: color-mix(in srgb, var(--color-content) 3%, transparent);
+}
+html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  box-shadow:
+    inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator),
+    var(--aven-panel-tint);
 }
 .personal-shell[data-unified-toolbar]
   .personal-sidebar-slot:not([data-floating="true"])
   > .personal-sidebar.personal-navigation {
-  padding: 5px 6px 10px 9px;
-}
-.personal-shell[data-unified-toolbar]
-  .personal-sidebar-slot:not([data-floating="true"])
-  > .personal-sidebar.personal-navigation::before {
-  content: "";
-  position: absolute;
-  /* The same gutter above, beside and below, so its corners sit
-     concentrically inside the window's. */
-  inset: var(--aven-window-gutter) 0 var(--aven-window-gutter)
-    var(--aven-window-gutter);
-  z-index: -1;
-  border-radius: var(--aven-radius-pane);
-  background: var(--aven-panel-card);
-  box-shadow: var(--aven-specular), var(--aven-rim);
-  pointer-events: none;
-}
-.personal-shell[data-unified-toolbar]
-  .personal-sidebar-slot:not([data-floating="true"])
-  > .personal-sidebar.personal-navigation {
-  isolation: isolate;
+  padding: 4px 6px 6px;
+  box-shadow: var(--aven-panel-tint);
 }
 .personal-shell[data-unified-toolbar]
   .personal-inspector-slot:not([data-floating="true"])
   .workspace-inspector {
-  height: calc(100% - 2 * var(--aven-window-gutter));
-  margin-block: var(--aven-window-gutter);
-  border-radius: var(--aven-radius-pane);
-  background: var(--aven-panel-card);
-  box-shadow: var(--aven-specular), var(--aven-rim);
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: var(--aven-panel-tint);
 }
 .personal-shell[data-unified-toolbar]
   .personal-inspector-slot:not([data-floating="true"])
   .workspace-inspector-header {
   background: transparent;
 }
-html
-  .personal-shell[data-unified-toolbar]
-  .personal-inspector-slot:not([data-floating="true"])
-  > .personal-inspector-dock {
-  padding-right: var(--aven-window-gutter);
+.personal-shell[data-unified-toolbar] .workspace-footer {
+  box-shadow:
+    inset 0 var(--aven-hairline) 0 var(--aven-separator),
+    var(--aven-panel-tint);
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   /* As specific as the light rule above, so light mode is solid too. */
   html .personal-shell[data-unified-toolbar],
   html.theme-light .personal-shell[data-unified-toolbar] {
-    --aven-panel-card: var(--aven-elevated-1);
+    --aven-panel-card: color-mix(
+      in srgb,
+      var(--color-content) 5%,
+      var(--color-background-base)
+    );
   }
 }

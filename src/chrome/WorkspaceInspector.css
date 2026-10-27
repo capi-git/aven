@@ -22,23 +22,24 @@
   background: var(--aven-toolbar-surface, transparent);
 }
 
-/* Files and Changes: an iOS segmented control, a capsule track with a
-   lifted capsule thumb. */
+/* Files and Changes: a segmented control, a quiet track with a raised
+   thumb on the shared track and thumb corners. */
 .workspace-inspector-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: 1;
   padding: 2px;
-  border-radius: var(--aven-radius-capsule);
-  background: var(--aven-fill-tertiary);
+  border-radius: var(--aven-radius-track);
+  background: var(--aven-fill-quaternary);
   box-shadow: inset 0 0 0 1px var(--aven-control-edge, transparent);
 }
 
 .workspace-inspector-tab {
+  flex: 1 1 0;
   min-height: 28px;
-  padding: 3px 12px;
-  border-radius: var(--aven-radius-capsule);
+  padding: 3px 10px;
+  border-radius: var(--aven-radius-thumb);
   font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--aven-label-secondary);
@@ -46,7 +47,7 @@
 
 .workspace-inspector-tab[aria-selected="true"] {
   color: var(--color-content);
-  font-weight: 600;
+  font-weight: 550;
   background: var(--aven-thumb);
   box-shadow: var(--aven-thumb-shadow);
 }
@@ -56,7 +57,7 @@
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   color: var(--aven-label-secondary);
 }
 

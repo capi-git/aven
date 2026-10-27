@@ -117,10 +117,11 @@
   padding: 4px 16px 10px;
   font-family: var(--font-sans);
 }
+/* Its 6px buttons sit 4px in from the card's 10px corner. */
 .bot-fix-card {
   gap: 8px;
-  padding: 8px 8px 8px 16px;
-  border-radius: var(--aven-radius-xl);
+  padding: 4px 4px 4px 14px;
+  border-radius: var(--aven-radius-lg);
 }
 .bot-fix-card[data-state="ready"] {
   border-color: color-mix(

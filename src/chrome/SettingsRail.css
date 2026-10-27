@@ -13,9 +13,9 @@
   flex-shrink: 0;
   align-items: center;
   gap: 7px;
-  height: 32px;
-  margin: 0 2px 8px;
-  padding: 0 10px;
+  height: 28px;
+  margin: 0 2px 6px;
+  padding: 0 8px;
   border: 1px solid var(--aven-control-edge, transparent);
   border-radius: var(--aven-radius-row);
   background: var(--aven-field-bg, var(--aven-control-bg));
@@ -69,7 +69,7 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   overflow-y: auto;
   overscroll-behavior: none;
   padding: 2px;
@@ -77,10 +77,10 @@
 
 .settings-nav__footer {
   flex-shrink: 0;
-  padding: 10px 2px 0;
+  padding: 6px 2px 0;
   border-top: var(--aven-hairline, 1px) solid
     var(--aven-separator, var(--aven-line));
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .settings-nav--embedded,
@@ -96,13 +96,13 @@
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 32px;
+  min-height: 28px;
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
   border: 1px solid transparent;
   border-radius: var(--aven-radius-row);
-  padding: 5px 8px;
+  padding: 3px 8px;
   background: transparent;
   color: var(--color-content);
   text-align: left;
@@ -123,14 +123,14 @@
   box-shadow: var(--aven-specular, none);
   color: var(--color-content);
 }
-/* A short accent capsule marks the open page. */
+/* A short accent bar marks the open page. */
 .settings-nav__item[aria-current="page"]::before {
   content: "";
   position: absolute;
   left: 3px;
   top: 50%;
-  width: 3px;
-  height: 14px;
+  width: 2px;
+  height: 12px;
   border-radius: var(--aven-radius-capsule);
   background: var(--color-accent);
   transform: translateY(-50%);
@@ -144,8 +144,8 @@
 .settings-nav__icon-tile {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   color: var(--personal-muted, var(--aven-muted));
 }
@@ -160,11 +160,11 @@
    becomes a horizontal category strip in narrow panes, where they hide. */
 .settings-nav__group {
   flex-shrink: 0;
-  padding: 18px 10px 5px;
+  padding: 14px 9px 4px;
   color: var(--aven-label-secondary, var(--aven-muted));
-  font-size: var(--text-ui-label);
-  font-weight: 650;
-  letter-spacing: -0.005em;
+  font-size: var(--text-ui-caption);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 16px;
 }
 
@@ -185,7 +185,6 @@
   font-size: var(--text-ui-body);
   font-weight: 400;
   line-height: 20px;
-  letter-spacing: -0.01em;
 }
 
 .settings-nav__item[aria-current="page"] .settings-nav__label {

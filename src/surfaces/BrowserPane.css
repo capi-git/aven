@@ -44,7 +44,7 @@
   height: 28px;
   flex: 0 0 28px;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -122,10 +122,10 @@
   width: 0;
   flex: 1 1 0;
   min-width: 0;
-  height: 30px;
-  padding: 0 13px;
+  height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: var(
     --aven-field-bg,
     color-mix(in srgb, var(--color-content) 5%, transparent)
@@ -225,7 +225,7 @@
   flex: 0 0 20px;
   height: 20px;
   border: 0;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -262,18 +262,10 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* Match the card's curve inside its 1px border. Native Chromium receives
-     this measured radius because CSS cannot clip its sibling view, and on
-     macOS rounds its own bottom corners to it. */
-  border-radius: 0 0 calc(var(--aven-radius-pane) - 1px)
-    calc(var(--aven-radius-pane) - 1px);
-}
-/* Windows draws the page square, so it sits just inside the card's curve
-   instead of crossing it. A square corner clears a curve of radius r once
-   it is inset r(1 - 1/√2) ≈ 0.3r; the 6px inner radius on Windows' 12px
-   window needs 2px. */
-html:not(.is-mac) .browser-native-host {
-  margin: 0 2px 2px;
+  /* Panes are square and flush, so the page is square too, on macOS and
+     Windows. Native Chromium reads this measured radius (CSS cannot clip its
+     sibling view); at 0 it rounds nothing. The toolbar above and the status
+     row below keep the page clear of the window's own corners. */
   border-radius: 0;
 }
 .browser-page-snapshot {
@@ -322,7 +314,7 @@ html:not(.is-mac) .browser-native-host {
     color-mix(in srgb, var(--color-content) 5%, transparent)
   );
   border: 1px solid var(--aven-control-border, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   padding: 8px 12px;
   font: inherit;
@@ -377,7 +369,7 @@ html:not(.is-mac) .browser-native-host {
   height: 25px;
   min-width: 25px;
   border: 0;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--color-content);
   font: inherit;
@@ -486,7 +478,7 @@ html:not(.is-mac) .browser-native-host {
   );
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   padding: 5px 7px;
   font: inherit;
   font-size: var(--text-ui-micro);

@@ -14,18 +14,19 @@
   --text-ui-body: 13px;
   --text-ui-reading: 14px;
   --text-ui-heading: 20px;
-  /* The iOS look's large title: Home, Settings and other top-level pages. */
-  --text-ui-title: 26px;
+  /* Page titles: Home, Settings and other top-level pages. */
+  --text-ui-title: 20px;
 
-  /* Corners for utility classes follow the iOS look's larger, continuous
-     curves (rounded, rounded-md, …). Full rounding is unchanged. */
-  --radius: 6px;
-  --radius-sm: 5px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
-  --radius-2xl: 18px;
-  --radius-3xl: 24px;
+  /* Corners for utility classes follow the shared shape scale
+     (macos-theme.css): small corners on controls and rows, larger ones on
+     cards. Full rounding is unchanged. */
+  --radius: 5px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 16px;
 
   /* Tailwind's status colours map onto iOS's system colours (dark here;
      light mode below). */
@@ -530,7 +531,7 @@ header[data-tauri-drag-region] button {
   gap: 0;
   padding: 0;
   border-color: color-mix(in srgb, var(--color-content) 10%, transparent);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-md, 8px);
   background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 

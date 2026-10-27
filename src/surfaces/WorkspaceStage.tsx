@@ -233,13 +233,15 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
       element.style.setProperty(name, String(value));
   }
 }
-/** Half of the gap between panes. Each pane is a card, and native browser
- * children need a real gutter too: CSS stacking cannot cover them. */
-const GUTTER = 2.5;
-/** Space between the cards and the workspace's outer edges, matching the
- * floating sidebar card's inset so their edges line up. The stylesheet's
- * `--aven-window-gutter` is the same distance; a test keeps them equal. */
-export const WORKSPACE_EDGE = 5;
+/** Half of the gap between panes. Panes meet flush, and the hairline that
+ * divides them is drawn in this one-pixel gap: native browser children need
+ * a real gap, because CSS stacking cannot draw over them. */
+export const PANE_GUTTER = 0.5;
+const GUTTER = PANE_GUTTER;
+/** Space between the panes and the workspace's outer edges: none. The
+ * workspace's own regions (sidebar, side panel, toolbar) draw the hairline
+ * on that edge. */
+export const WORKSPACE_EDGE = 0;
 const EDGE = WORKSPACE_EDGE;
 function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const epsilon = 0.000001;
@@ -260,15 +262,15 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
 }
 /** A shared wallpaper canvas, clipped by each pane's existing bounds. */
 function surfaceBackgroundStyle(rect: LayoutRect) {
-  const left = (rect.x > 0.000001 ? GUTTER : EDGE) + 1;
-  const top = (rect.y > 0.000001 ? GUTTER : EDGE) + 1;
+  const left = rect.x > 0.000001 ? GUTTER : EDGE;
+  const top = rect.y > 0.000001 ? GUTTER : EDGE;
   return {
     "--workspace-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
 const headerStyle = (rect: LayoutRect): CSSProperties => ({
-  ...surfaceStyle(rect, 1),
+  ...surfaceStyle(rect),
   height: "32px",
 });
 const sashKey = (sash: LayoutSash) => `${sash.splitId}:${sash.index}`;

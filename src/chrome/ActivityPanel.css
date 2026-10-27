@@ -18,7 +18,7 @@
   min-height: 28px;
   background: var(--aven-fill-tertiary, transparent);
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   padding: 3px 12px;
   color: inherit;
   font: inherit;
@@ -128,7 +128,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   background: none;
   cursor: pointer;
 }

@@ -71,9 +71,8 @@
 .personal-shell .personal-user-message[data-message-layout="chat"] {
   padding-left: 64px;
 }
-/* Your message is a Messages-style bubble: a pre-tinted grey with a hint
-   of the accent, no blur of its own (it scrolls), and a tighter corner
-   where a tail would be. */
+/* Your message is a rounded bubble: a pre-tinted grey with a hint of the
+   accent and no blur of its own (it scrolls). */
 .personal-shell .personal-user-bubble {
   border: 0;
   border-radius: var(--aven-radius-bubble);
@@ -89,7 +88,6 @@
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
   max-width: min(580px, 100%);
-  border-bottom-right-radius: var(--aven-radius-xs);
 }
 .personal-shell .personal-user-bubble > pre {
   font-size: var(--text-ui-reading);
@@ -101,7 +99,7 @@
   align-items: center;
 }
 .personal-shell .personal-message-attachments img {
-  border-radius: var(--aven-radius-lg);
+  border-radius: var(--aven-radius-md);
 }
 /* Completed work stays discoverable without competing with the answer. */
 .personal-shell .personal-work-fold {
@@ -141,7 +139,7 @@
 .personal-shell .personal-work-fold:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: -4px;
-  border-radius: 7px;
+  border-radius: var(--aven-radius-sm);
 }
 /* Tool groups use a quiet surface; the original disclosure and live scroller
    remain unchanged, including always-open pending approvals. */
@@ -194,9 +192,9 @@
   padding-block: 4px;
 }
 .personal-shell .personal-tool-approval > button {
-  min-height: 29px;
-  padding: 5px 13px;
-  border-radius: var(--aven-radius-capsule);
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-label);
   font-weight: 500;
 }

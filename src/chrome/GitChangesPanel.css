@@ -16,9 +16,9 @@
   flex-direction: column;
   gap: 5px;
   margin: 8px 8px 0;
-  padding: 9px 11px 9px;
+  padding: 8px 10px;
   border: 1px solid var(--aven-glass-card-edge);
-  border-radius: var(--aven-radius-lg);
+  border-radius: var(--aven-radius-md);
   box-shadow: var(--aven-specular);
   background:
     radial-gradient(
@@ -72,7 +72,7 @@
   height: 22px;
   margin-left: -5px;
   padding: 0 6px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-label);
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
 }
@@ -115,7 +115,7 @@
   height: 20px;
   margin: 0 -5px;
   padding: 0 6px;
-  border-radius: var(--aven-radius-capsule);
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
   text-align: left;
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
@@ -172,9 +172,9 @@
   flex-shrink: 0;
   align-items: center;
   gap: 5px;
-  height: 28px;
-  padding: 0 13px;
-  border-radius: var(--aven-radius-capsule);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-label);
   font-weight: 600;
   color: var(--color-background-base);
@@ -347,8 +347,8 @@
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 11px;
-  border-radius: var(--aven-radius-capsule);
+  padding: 0 10px;
+  border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 82%, transparent);
