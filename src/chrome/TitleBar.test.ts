@@ -2183,13 +2183,16 @@ describe("shared tab style", () => {
       /height: 26px;[\s\S]*padding-inline: 9px 11px;[\s\S]*border-radius: var\(--aven-radius-capsule\);/,
     );
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
-      "background: var(--aven-tab-active-fill, var(--aven-tab-selected));",
+      "background: var(--aven-tab-selected);",
     );
     expect(block(".aven-tab-close")).toContain("opacity: 0;");
     expect(block('.aven-tab[data-active="true"] .aven-tab-close')).toContain(
       "opacity: 0.65;",
     );
     expect(block(".aven-tab-slot")).toContain("flex: 0 1 224px;");
+    // The active tab is the same grey as every selected control; a project's
+    // colour no longer tints it.
+    expect(css).not.toContain("--aven-tab-active-fill");
   });
 
   it("leaves no per-family copy of the tab's size or fills", () => {
