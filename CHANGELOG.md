@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.1.153] - 2026-10-26
+
+### Added
+
+- Projects that don't use Git yet can still have a bot: **New bot** shows them with **Set up Git**, which turns Git on for that project on your Mac (nothing is uploaded), saves its files once while leaving out secrets like `.env` files and keys, and adds the bot. **Add a bot** on such a project does the same.
+
+### Changed
+
+- Aven looks like a tool again instead of a phone: the sidebar, panes, side panel, editor and terminal sit square and edge to edge with thin dividers, rows are tighter, and tabs and buttons have small corners, while the message box, your messages, the cards in a chat, menus and Home stay softly rounded. Buttons and small controls are plain fills without outlines (with Increase contrast on, they keep an edge), and Home and Settings use normal-size titles.
+- The active tab is plain grey like every other selected control, instead of tinted with its project's colour.
+
+### Fixed
+
+- The divider between two panes is easy to grab beside a web page.
+- On Windows, two web pages side by side always keep a divider between them, and hovering the left edge shows the sidebar over a web page.
+
 ## [0.1.152] - 2026-10-26
 
 ### Added
