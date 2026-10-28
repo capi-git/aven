@@ -1,0 +1,330 @@
+import { invoke } from "@tauri-apps/api/core";
+import { waitFor } from "./devSmoke";
+import { loadUiScale } from "./uiScale";
+
+/**
+ * Aven Dev's real-app check of a lone tab's header (0.1.155 left a page
+ * alone in a pane of a split with nothing to move it by): a page alone in
+ * one pane of two is clicked and dragged by its title, as a person would.
+ *
+ * The mouse is the Mac's own: the workspace's web view gets AppKit mouse
+ * events (`dev_smoke_pointer`, debug builds only), so WebKit makes trusted
+ * pointer and mouse events with their default actions, a press focusing a
+ * field unless the page prevents it. Events made by script are never
+ * trusted and have no default actions, so they could not show that the
+ * address keeps its focus behaviour.
+ */
+export type SmokeLoneTab = {
+  /** Bring a tab to the front, as its strip tab does. */
+  select: (id: string) => void;
+  /** Split the tab `id` off beside the pane `beside`, at its `edge`. */
+  split: (id: string, edge: "left" | "right", beside: string) => void;
+  /** The panes on screen, each as the tabs it holds. */
+  panes: () => string[][];
+  /** The window strip's entries: a single tab, or a split's tabs. */
+  strip: () => Array<{ id: string } | { split: string[] }>;
+  /** Close a page. */
+  closePage: (id: string) => void;
+};
+
+type LoneTabOptions = {
+  newProjectTask: (path: string) => void;
+  openWebLink?: (url: string) => void | Promise<void>;
+  focusedSurfaceId?: string;
+  loneTab?: SmokeLoneTab;
+};
+
+type Point = { x: number; y: number };
+
+/** The middle of an element, in the page's client pixels. */
+function centre(element: Element): Point {
+  const rect = element.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+/**
+ * The points a hand passes through from `from` to `to`: a first step past
+ * the drag threshold, then even steps, ending on `to`.
+ */
+export function dragPath(from: Point, to: Point, steps = 10): Point[] {
+  const points: Point[] = [{ x: from.x + 8, y: from.y + 2 }];
+  for (let step = 1; step <= steps; step += 1) {
+    const share = step / steps;
+    points.push({
+      x: from.x + (to.x - from.x) * share,
+      y: from.y + (to.y - from.y) * share,
+    });
+  }
+  return points;
+}
+
+/** Why `page` is not in the pane that holds `chat`, or null. */
+export function joinedProblem(
+  panes: readonly (readonly string[])[],
+  chat: string,
+  page: string,
+): string | null {
+  const holder = panes.find((pane) => pane.includes(chat));
+  if (!holder) return "the chat's pane is gone";
+  if (!holder.includes(page))
+    return `the page is not in the chat's pane (panes: ${JSON.stringify(panes)})`;
+  return null;
+}
+
+/** Why `page` does not stand alone on the window strip, or null. */
+export function strippedProblem(
+  strip: ReturnType<SmokeLoneTab["strip"]>,
+  page: string,
+): string | null {
+  if (strip.some((entry) => "id" in entry && entry.id === page)) return null;
+  if (strip.some((entry) => "split" in entry && entry.split.includes(page)))
+    return "the page is still in a split on the strip";
+  return "the page is not on the strip";
+}
+
+const pause = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+/**
+ * A painted frame, or 100 ms: WebKit paints none for a window that is
+ * hidden, covered or on another Space, and the check must not wait forever.
+ */
+export const frame = () =>
+  Promise.race([
+    new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    pause(100),
+  ]);
+
+async function mouse(kind: "down" | "drag" | "up", at: Point) {
+  await invoke("dev_smoke_pointer", {
+    kind,
+    x: at.x,
+    y: at.y,
+    zoom: loadUiScale(),
+  });
+  // Let WebKit deliver it and the drag's frame run.
+  await frame();
+  await frame();
+}
+
+/**
+ * Press at `from`, move through `path`, and let go at its end; let go
+ * wherever it got to if a move fails, so no press is left held.
+ */
+async function drag(from: Point, path: readonly Point[]) {
+  await mouse("down", from);
+  let at = from;
+  try {
+    for (const point of path) {
+      await mouse("drag", point);
+      at = point;
+    }
+    await pause(80);
+  } finally {
+    await mouse("up", at);
+  }
+}
+
+/** The address field in the page's header while it names the page. */
+function titleField(page: string): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>(
+    `[data-workspace-header="${CSS.escape(page)}"] [data-pane-header-slot] input[data-pane-grab="face"]`,
+  );
+}
+
+/** Why `page` is not alone in a pane left of `chat`'s, or null. */
+export function splitLeftProblem(
+  panes: readonly (readonly string[])[],
+  chat: string,
+  page: string,
+): string | null {
+  const own = panes.findIndex((pane) => pane.length === 1 && pane[0] === page);
+  const other = panes.findIndex((pane) => pane.includes(chat));
+  if (own < 0)
+    return `the page is not alone in a pane (panes: ${JSON.stringify(panes)})`;
+  if (other < 0) return "the chat's pane is gone";
+  return own < other ? null : "the page's pane is not left of the chat's";
+}
+
+export async function checkLoneTabDrag(
+  projectPath: string,
+  pageUrl: string,
+  get: () => LoneTabOptions,
+): Promise<string> {
+  const { loneTab, openWebLink } = get();
+  if (!loneTab || !openWebLink)
+    throw new Error("the workspace offers no pages to move");
+  const panes = () => get().loneTab?.panes() ?? [];
+  // Trusted presses on the headers prove the Mac's own mouse reached them.
+  const presses: boolean[] = [];
+  const onPress = (event: PointerEvent) => {
+    if ((event.target as Element | null)?.closest?.("[data-workspace-header]"))
+      presses.push(event.isTrusted);
+  };
+  // The address must never take focus from a drag.
+  let focusedByDrag = false;
+  let dragging = false;
+  const onFocus = (event: FocusEvent) => {
+    if (
+      dragging &&
+      (event.target as Element | null)?.getAttribute?.("aria-label") ===
+        "Preview address"
+    )
+      focusedByDrag = true;
+  };
+  window.addEventListener("pointerdown", onPress, true);
+  document.addEventListener("focusin", onFocus, true);
+  let page: string | null = null;
+  try {
+    // A page, then a chat, each in front in turn.
+    await openWebLink(pageUrl);
+    page = await waitFor(
+      () => {
+        const id = get().focusedSurfaceId;
+        return id &&
+          document.querySelector(`[data-browser-pane="${CSS.escape(id)}"]`)
+          ? id
+          : null;
+      },
+      15_000,
+      "the check's page in front",
+    );
+    const pageId = page;
+    get().newProjectTask(projectPath);
+    const chat = await waitFor(
+      () => {
+        const id = get().focusedSurfaceId;
+        return id && id !== pageId ? id : null;
+      },
+      10_000,
+      "a new chat in front",
+    );
+    const chatBody = () =>
+      document.querySelector(
+        `[data-workspace-surface="${CSS.escape(chat)}"] > [data-workspace-body]`,
+      );
+    /** The page alone in a pane right of the chat: its header is its toolbar. */
+    const splitRight = async () => {
+      // From the chat in front, as its pane's "…" splits it.
+      get().loneTab?.select(chat);
+      await waitFor(
+        () => get().focusedSurfaceId === chat,
+        5_000,
+        "the chat in front",
+      );
+      get().loneTab?.split(pageId, "right", chat);
+      await waitFor(
+        () => !splitLeftProblem([...panes()].reverse(), chat, pageId),
+        10_000,
+        "the page alone in a pane right of the chat",
+      );
+      const field = await waitFor(
+        () => titleField(pageId),
+        15_000,
+        "the page's title in its pane's header",
+      );
+      await pause(400);
+      return titleField(pageId) ?? field;
+    };
+    /** Drag the page by its title to `to`; the address never takes focus. */
+    const dragTitle = async (to: Point) => {
+      const field = await waitFor(
+        () => titleField(pageId),
+        5_000,
+        "the page's title in its pane's header",
+      );
+      const from = centre(field);
+      dragging = true;
+      try {
+        await drag(from, dragPath(from, to));
+        await pause(400);
+      } finally {
+        dragging = false;
+      }
+      if (focusedByDrag)
+        throw new Error("dragging the page's title focused its address");
+    };
+
+    let field = await splitRight();
+    // Its own title once loaded; its host until then names it as well.
+    await waitFor(
+      () => titleField(pageId)?.value === "Aven check page",
+      10_000,
+      "the page's title",
+    ).catch(() => {});
+
+    // A click that never moves edits the address, as before.
+    field = titleField(pageId) ?? field;
+    const atTitle = centre(field);
+    await drag(atTitle, []);
+    await waitFor(
+      () =>
+        document.activeElement instanceof HTMLInputElement &&
+        document.activeElement.getAttribute("aria-label") ===
+          "Preview address" &&
+        document.activeElement.closest(
+          `[data-workspace-header="${CSS.escape(pageId)}"]`,
+        ),
+      5_000,
+      "a click on the page's title to focus its address",
+    );
+    (document.activeElement as HTMLElement).blur();
+    await waitFor(() => titleField(pageId), 5_000, "the page's title again");
+    await pause(300);
+
+    // By its title to the chat's left edge: a pane of its own, now left.
+    let body = chatBody();
+    if (!body) throw new Error("the chat's pane is not on screen");
+    let box = body.getBoundingClientRect();
+    await dragTitle({ x: box.left + 12, y: box.top + box.height / 2 });
+    await waitFor(
+      () => !splitLeftProblem(panes(), chat, pageId),
+      5_000,
+      "the page to split the chat's pane on its left",
+    ).catch(() => {
+      throw new Error(splitLeftProblem(panes(), chat, pageId) ?? "no split");
+    });
+
+    // By its title into the middle of the chat's pane: they share it.
+    body = chatBody();
+    if (!body) throw new Error("the chat's pane is not on screen");
+    await dragTitle(centre(body));
+    await waitFor(
+      () => !joinedProblem(panes(), chat, pageId),
+      5_000,
+      "the page to join the chat's pane",
+    ).catch(() => {
+      throw new Error(joinedProblem(panes(), chat, pageId) ?? "no join");
+    });
+
+    // Split again, then by its title onto the window's strip: it stands
+    // there alone.
+    await splitRight();
+    const strip = document.querySelector<HTMLElement>(
+      '.workspace-status-strip-content [aria-label="Workspace tabs"]',
+    );
+    if (!strip) throw new Error("the window's strip is not on screen");
+    box = strip.getBoundingClientRect();
+    await dragTitle({
+      x: box.right - Math.min(40, box.width / 4),
+      y: box.top + box.height / 2,
+    });
+    await waitFor(
+      () => !strippedProblem(get().loneTab?.strip() ?? [], pageId),
+      5_000,
+      "the page on the strip",
+    ).catch(() => {
+      throw new Error(
+        strippedProblem(get().loneTab?.strip() ?? [], pageId) ?? "not moved",
+      );
+    });
+    if (presses.length < 4 || presses.some((trusted) => !trusted))
+      throw new Error(
+        `the presses on the headers were not the Mac's own (${JSON.stringify(presses)})`,
+      );
+    return `${presses.length} presses with the Mac's own mouse on the page's header: a click on its title focused the address; dragged by its title, the page split the chat's pane, joined it and stood alone on the strip, and the address never took focus`;
+  } finally {
+    window.removeEventListener("pointerdown", onPress, true);
+    document.removeEventListener("focusin", onFocus, true);
+    if (page) get().loneTab?.closePage(page);
+  }
+}

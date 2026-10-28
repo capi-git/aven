@@ -352,6 +352,13 @@ class RealAppCheck(unittest.TestCase):
         self.assertNotIn('homebrew', zshrc)
         self.assertNotIn(str(Path.home()), zshrc)
 
+    def test_check_page_is_a_local_page_the_check_is_told_about(self):
+        site = runner.add_check_page(self.root)
+        self.assertIn('<title>Aven check page</title>', (site / 'index.html').read_text())
+        runner.offer_check_page(self.root, 'http://127.0.0.1:8123/index.html')
+        self.assertEqual(json.loads((self.root / 'page.json').read_text()),
+                         {'pageUrl': 'http://127.0.0.1:8123/index.html'})
+
     def test_stand_in_answers_one_turn_with_the_smoke_word(self):
         stand_in = self.root / 'home/.local/bin/claude'
         version = subprocess.run([str(stand_in), '--version'], capture_output=True, text=True, timeout=10)

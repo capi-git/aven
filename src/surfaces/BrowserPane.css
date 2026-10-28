@@ -167,6 +167,17 @@
   outline: 2px solid var(--aven-field-focus);
   outline-offset: 0;
 }
+/* Naming the page in its pane's header, the title is also the tab's
+   handle (TitleBar's header grab): a click edits the address, a drag moves
+   the tab. It keeps the default cursor and lights as a tab does. */
+.browser-address[data-pane-grab] {
+  cursor: default;
+  user-select: none;
+}
+/* The tabs' hover fill, laid over the field's own. */
+.browser-address[data-pane-grab]:hover {
+  background-image: linear-gradient(var(--aven-hover), var(--aven-hover));
+}
 .browser-edit-hint {
   display: flex;
   flex-shrink: 0;

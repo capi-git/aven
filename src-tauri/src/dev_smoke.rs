@@ -34,6 +34,9 @@ pub struct SmokeConfig {
     /// The iPhone check's throwaway simulator, when this run is that check.
     #[serde(skip_serializing_if = "Option::is_none")]
     iphone: Option<Value>,
+    /// A local web page the runner serves for the check (`page.json`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_url: Option<String>,
 }
 
 pub(crate) fn smoke_dir() -> Option<PathBuf> {
@@ -60,11 +63,17 @@ pub fn dev_smoke_config() -> Option<SmokeConfig> {
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_else(|| Value::Object(Default::default()))
     });
+    let page_url = std::fs::read_to_string(dir.join("page.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|page| Some(page.get("pageUrl")?.as_str()?.to_owned()))
+        .filter(|url| url.starts_with("http://127.0.0.1:"));
     Some(SmokeConfig {
         project_path: dir.join("project").to_string_lossy().into_owned(),
         bin_dir: dir.join("home/.local/bin").to_string_lossy().into_owned(),
         perf,
         iphone,
+        page_url,
     })
 }
 
@@ -332,6 +341,23 @@ mod tests {
             let config = dev_smoke_config().unwrap();
             assert!(config.project_path.ends_with("project"));
             assert!(config.bin_dir.ends_with("home/.local/bin"));
+            assert!(config.page_url.is_none());
+            // Only a page on this Mac is opened.
+            std::fs::write(
+                dir.join("page.json"),
+                r#"{"pageUrl":"https://example.com/"}"#,
+            )
+            .unwrap();
+            assert!(dev_smoke_config().unwrap().page_url.is_none());
+            std::fs::write(
+                dir.join("page.json"),
+                r#"{"pageUrl":"http://127.0.0.1:8123/index.html"}"#,
+            )
+            .unwrap();
+            assert_eq!(
+                dev_smoke_config().unwrap().page_url.as_deref(),
+                Some("http://127.0.0.1:8123/index.html")
+            );
         } else {
             // Release builds (the Windows release runs its tests as one) never
             // enable the check, even with the marked folder in place.

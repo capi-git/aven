@@ -263,6 +263,25 @@ def add_parallel_copy(root):
     git('worktree', 'add', '-q', '-b', 'aven-check-copy', str(root / 'copies/project-copy'))
 
 
+CHECK_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Aven check page</title>
+<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px}</style>
+</head><body><h1>Aven check page</h1>
+<p>Aven's real-app check opens this local page in its built-in browser and moves its tab between panes.</p>
+</body></html>"""
+
+
+def add_check_page(root):
+    """A local web page for the check to open; served by `static_page_server`."""
+    (root / 'site').mkdir(exist_ok=True)
+    (root / 'site/index.html').write_text(CHECK_PAGE)
+    return root / 'site'
+
+
+def offer_check_page(root, page_url):
+    """Tell the check where its local page is served."""
+    (root / 'page.json').write_text(json.dumps({'pageUrl': page_url}))
+
+
 def remove_smoke_folder(root):
     # Only a folder this runner created and marked.
     if root.is_dir() and (root / SMOKE_MARKER).is_file():
@@ -286,10 +305,12 @@ def smoke(keep=False):
     root = prepare_smoke_folder()
     add_parallel_copy(root)
     add_race_stand_in(root)
+    site = add_check_page(root)
     passed = False
     try:
         child_env = host_scoped_environment()
-        with development_server(child_env):
+        with development_server(child_env), static_page_server(site) as page_url:
+            offer_check_page(root, page_url)
             ensure_not_running()
             print('Running the real-app check in a throwaway profile...', flush=True)
             app_env = {

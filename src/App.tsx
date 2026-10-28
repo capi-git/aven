@@ -10861,6 +10861,24 @@ export default function App({
     sidebarOpen,
     openWebLink: onOpenWebLink,
     board: true,
+    loneTab: {
+      select: onSelectSurface,
+      split: (id, edge, beside) =>
+        onWorkspaceIntent({ type: "split", id, edge, beside }),
+      panes: () => {
+        const current = viewRef.current.view;
+        return (current.layout ? leafIds(current.layout) : []).map(
+          (owner) => current.groups[owner] ?? [owner],
+        );
+      },
+      strip: () =>
+        viewRef.current.strip.entries.map((entry) =>
+          entry.kind === "item"
+            ? { id: entry.id }
+            : { split: viewMembers(entry.view) },
+        ),
+      closePage: (id) => onCloseBrowserTab(id),
+    },
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),
@@ -11140,6 +11158,30 @@ export default function App({
     }
     for (const page of pages) onCloseBrowserTab(page);
   };
+  /**
+   * A pane's tab let go over the window's strip stands there on its own,
+   * before the entry `before` (or at the end): out of its split, or moved
+   * along the strip if it is a single tab already.
+   */
+  const onDropOnStrip = (id: string, before: string | null) => {
+    const inSplit = strip.entries.some(
+      (entry) => entry.kind === "space" && viewMembers(entry.view).includes(id),
+    );
+    if (inSplit) {
+      workspaceViews.detach(id, before);
+      return;
+    }
+    const keys = strip.entries.map(entryKey);
+    if (!keys.includes(id) || before === id) return;
+    const rest = keys.filter((key) => key !== id);
+    const at = before === null ? -1 : rest.indexOf(before);
+    rest.splice(at < 0 ? rest.length : at, 0, id);
+    workspaceViews.reorderEntries(rest);
+    onReorderTabs(
+      rest.filter((key) => tabs.some((tab) => tab.id === key)),
+      tabs.some((tab) => tab.id === id) ? id : undefined,
+    );
+  };
   // Which way the strip moved to reach the entry in front, for the stage's
   // switch. 0 when this is no switch: another project, the entry in front
   // itself became a space or came apart, or one single tab to another, which
@@ -11209,6 +11251,7 @@ export default function App({
       ? paneBar(windowStripOwner, {
           variant: "strip",
           hideLoneTab: true,
+          acceptsPaneDrops: true,
           windowTitle: false,
           // A page in front lists Recent and Keep open in its pane's "…".
           previewActionsInPane: browserSurfaceIds.has(windowStripOwner),
@@ -11494,6 +11537,7 @@ export default function App({
                                     frontNamedBelow: splitTabIds.has(owner),
                                     frontOwnHeader: titleRowOf(owner).lend,
                                     frontNamed: frontNamed(owner),
+                                    onDropOnStrip,
                                     ...paneTitleTools(owner),
                                   }),
                                 }))}

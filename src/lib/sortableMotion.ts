@@ -330,6 +330,11 @@ export class SortableMotion {
   private pressed: HTMLElement | null = null;
   /** The part torn off the dragged item, faded in its place. */
   private torn: HTMLElement | null = null;
+  /**
+   * What stands for the item elsewhere on the page (a page's title in its
+   * pane's header): hidden with it while the copy is away.
+   */
+  private stands: readonly HTMLElement[] = [];
   private velocity = new PointerVelocity(TAB_VELOCITY_WINDOW_MS);
   private landing: SortableLanding | null = null;
   /** Tabs kept hidden while the copy is away from them, and how to show them. */
@@ -350,6 +355,7 @@ export class SortableMotion {
   /**
    * A press on `id`. `pressed` is the part of it pressed (a split's
    * segment): its icon and name stand for the item in the compact chip.
+   * `stands` stand for the item elsewhere and hide with it once it lifts.
    */
   begin(
     nodes: ReadonlyMap<string, HTMLElement>,
@@ -357,9 +363,11 @@ export class SortableMotion {
     point: Point,
     axis: Axis,
     pressed?: HTMLElement,
+    stands: readonly HTMLElement[] = [],
   ) {
     this.cancel();
     this.pressed = pressed ?? null;
+    this.stands = stands;
     const outer = nodes.get(id);
     const visual = visualOf(outer);
     if (!outer || !visual) return;
@@ -394,6 +402,7 @@ export class SortableMotion {
     this.showPreview(entry.visual, entry.zoom, point);
     // Keep the real focused tab mounted and focusable throughout pickup.
     this.hide(entry.visual);
+    for (const element of this.stands) this.hide(element);
     const preview = this.preview as Preview | null;
     if (!preview) return;
     // The copy starts exactly over the tab (the pointer has moved past the
@@ -1013,8 +1022,12 @@ export class SortableMotion {
     // The dragged tab's own visual, if it is still in the strip and is not
     // where the copy lands, shows again as the copy goes.
     const original = this.entries.get(id)?.visual;
+    const stands = this.stands;
+    this.stands = [];
     if (!target) {
       if (original && original.isConnected) this.reveal(original, !reduced);
+      for (const element of stands)
+        if (element.isConnected) this.reveal(element, !reduced);
       preview.springs.to({ fade: 0, lift: 0 }, { instant: reduced });
       preview.springs.onSettle(() => {
         remove();
@@ -1152,6 +1165,7 @@ export class SortableMotion {
     }
     if (this.torn) delete this.torn.dataset.sortableTornPart;
     this.torn = null;
+    this.stands = [];
     this.entries.clear();
     this.source = null;
     this.landing = null;

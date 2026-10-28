@@ -115,8 +115,17 @@ export type BrowserPaneProps = {
 const BROWSER_ACTIONS_WIDTH = 224;
 const NO_CAPTURE = { microphone: false, camera: false };
 
-/** The owning project's mark, named in its tooltip. Projectless pages show none. */
-function BrowserProjectMark({ project }: { project?: string }) {
+/**
+ * The owning project's mark, named in its tooltip. Projectless pages show
+ * none. In its pane's header it is also a handle for the tab (`grab`).
+ */
+function BrowserProjectMark({
+  project,
+  grab,
+}: {
+  project?: string;
+  grab?: boolean;
+}) {
   const appearance = useProjectAppearance(project);
   if (!appearance) return null;
   return (
@@ -125,6 +134,7 @@ function BrowserProjectMark({ project }: { project?: string }) {
       role="img"
       aria-label={`Project ${appearance.label}`}
       title={appearance.label}
+      data-pane-grab={grab ? "" : undefined}
     >
       <ProjectMark appearance={appearance} />
     </span>
@@ -1490,6 +1500,12 @@ function BrowserPaneSession({
   // pane's header does); clicked or focused, it is the address to edit.
   const addressNames =
     !!headerSlot?.names && !addressFocused && !!url && address === url;
+  // Naming the page in its pane's header, the title is the tab's handle
+  // there (TitleBar's header grab): a press that moves past the drag
+  // threshold moves the tab, and one that does not edits the address once
+  // let go. The header keeps it from taking focus on the press.
+  const addressGrabs = addressNames && !!headerSlot;
+  const addressPressed = useRef(false);
   const addressShown = addressNames
     ? title.trim() || readableHost(url)
     : address;
@@ -1605,7 +1621,7 @@ function BrowserPaneSession({
           {loading && !error ? <X size={14} /> : <RefreshCw size={14} />}
         </button>
       </div>
-      <BrowserProjectMark project={project} />
+      <BrowserProjectMark project={project} grab={!!headerSlot} />
       <input
         ref={addressInput}
         className="browser-address"
@@ -1613,6 +1629,7 @@ function BrowserPaneSession({
         placeholder="Search or enter a web address"
         value={addressShown}
         title={addressNames ? url : undefined}
+        data-pane-grab={addressGrabs ? "face" : undefined}
         onChange={(event) => setAddress(event.target.value)}
         onFocus={(event) => {
           // Only a field that names the page swaps what it shows.
@@ -1624,7 +1641,12 @@ function BrowserPaneSession({
           if (addressFocused) setAddressFocused(false);
         }}
         onPointerDown={(event) => {
+          addressPressed.current = false;
           if (event.button !== 0) return;
+          if (addressGrabs) {
+            addressPressed.current = true;
+            return;
+          }
           if (browserPageHasNativeFocus.current) {
             // WK can retain the address as its DOM activeElement while CEF
             // owns native focus, so another click won't fire onFocus again.
@@ -1633,6 +1655,21 @@ function BrowserPaneSession({
             event.currentTarget.select();
           }
           focusShellForToolbar(event.currentTarget);
+        }}
+        onClick={(event) => {
+          // A press on the page's title that never moved: edit the address,
+          // as a click on the field always has.
+          if (!addressPressed.current) return;
+          addressPressed.current = false;
+          const input = event.currentTarget;
+          if (
+            document.activeElement !== input ||
+            browserPageHasNativeFocus.current
+          ) {
+            input.focus({ preventScroll: true });
+            input.select();
+          }
+          focusShellForToolbar(input);
         }}
         spellCheck={false}
         autoCapitalize="none"

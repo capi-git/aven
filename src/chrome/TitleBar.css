@@ -1151,3 +1151,18 @@ html.theme-light .personal-shell {
   height: 100%;
   box-shadow: none;
 }
+/* A stand-in for a lone pane's tab while its header is held (TitleBar's
+   header grab). Never seen itself: the drag lifts a copy of it into the
+   tab's chip and flies the copy home to it. */
+.aven-header-grab {
+  position: fixed;
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
+}
+.aven-header-grab > .aven-tab {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}

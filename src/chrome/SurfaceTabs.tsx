@@ -375,6 +375,11 @@ export function SurfaceTabs({
               data-active={active}
               data-closable
               data-draggable={canDrag || undefined}
+              // A lone file names its pane's tab: lent its pane's header,
+              // it moves that tab, as the tab's own chip would.
+              data-pane-grab={files.length === 1 ? "face" : undefined}
+              // Its right-click opens the file's menu, not its pane's.
+              data-own-menu={onDisk || undefined}
               {...{ [TAB_TRACK_ID_ATTRIBUTE]: file.id }}
               data-tab-separator={separators?.has(file.id) || undefined}
               onFocusCapture={(event) => {
