@@ -23,8 +23,13 @@ const OVERLAY_SNAPSHOT_DEADLINE_MS = 80;
 const SNAPSHOT_PAINT_DEADLINE_MS = 16;
 const ZOOM_SNAPSHOT_DELAY_MS = 60;
 /** A moving surface's still image is retried this often, this long apart. */
-const STILL_RETRIES = 5;
+/**
+ * A moving surface's still image is tried again after a failure, at most
+ * one at a time, first after this long and twice as long each time, and no
+ * new try starts this long after the surface reached the page.
+ */
 const STILL_RETRY_MS = 120;
+const STILL_BUDGET_MS = 4000;
 /** A motion hold never waits longer than this on the native page. */
 const MOTION_HANDOFF_DEADLINE_MS = 160;
 
@@ -365,34 +370,54 @@ export function createBrowserPresentation({
   let stillGeneration = 0;
   let stillCapture: number | null = null;
   let stillRetry: number | null = null;
-  // Tries this hover: the first comes from the surface arriving, the rest
-  // only from the retry timer, never from each frame it moves.
+  // This hover: when the surface reached the page, and how long to wait
+  // before trying again. Tries never follow the frames it moves: one at a
+  // time, further apart each time, and none after the budget.
+  let stillSince: number | null = null;
   let stillTries = 0;
+  let stillAskedAt = -Infinity;
   // The moving surfaces' still image is the one mounted beneath the page.
   let stillMounted = false;
   // The layout the native page has now cuts moving surfaces out of it.
   let nativeMovingCut = false;
-  /** The surfaces left the page: nothing of their still is kept for a later one. */
-  const forgetStill = () => {
-    if (
-      stillBeneath === null &&
-      stillCapture === null &&
-      stillRetry === null &&
-      !stillTries
-    )
-      return;
+  /**
+   * No moving surface is over the page now (it may be springing across its
+   * edge): the next one starts a hover of its own and is not cut over the
+   * still painted for this one. A capture in flight may still serve it.
+   */
+  const leaveStill = () => {
     stillBeneath = null;
-    ++stillGeneration;
-    stillCapture = null;
+    stillSince = null;
     stillTries = 0;
+    stillAskedAt = -Infinity;
     if (stillRetry !== null) window.clearTimeout(stillRetry);
     stillRetry = null;
   };
   const setStill = (snapshot: BrowserSnapshot | null) => {
     stillBeneath = null;
     stillMounted = false;
-    if (!snapshot) forgetStill();
+    // A capture still in flight is kept: it is checked against what is over
+    // the page when it lands and when it has painted.
+    if (!snapshot) leaveStill();
     onSnapshot(snapshot);
+  };
+  /** Try for a still image now, if this hover may. */
+  const tryStill = (bounds: BrowserBounds) => {
+    if (stillCapture !== null || stillRetry !== null || disposed) return;
+    const now = performance.now();
+    stillSince ??= now;
+    if (now - stillSince > STILL_BUDGET_MS) return;
+    const wait =
+      stillAskedAt + STILL_RETRY_MS * 2 ** Math.max(0, stillTries - 1) - now;
+    if (wait > 0) {
+      stillRetry = window.setTimeout(() => {
+        stillRetry = null;
+        const latest = currentBounds();
+        if (latest && movingWanted()) tryStill(latest);
+      }, wait);
+      return;
+    }
+    captureStill(bounds);
   };
   /**
    * Drop the image beneath the page once nothing needs it: never while the
@@ -599,14 +624,14 @@ export function createBrowserPresentation({
     )
       return current;
     if (!current.moving.length) {
-      forgetStill();
+      if (stillSince !== null || stillBeneath !== null) leaveStill();
       return current;
     }
     const viewport = viewportKey(snapshotViewport(current.bounds));
     if (stillBeneath !== viewport) {
       // A still of another viewport (the pane resized) starts afresh.
-      if (stillBeneath !== null) forgetStill();
-      if (!stillTries) captureStill(current.bounds);
+      if (stillBeneath !== null) leaveStill();
+      tryStill(current.bounds);
       return current;
     }
     const holes = [...(current.bounds.holes ?? []), ...current.moving].slice(
@@ -623,6 +648,7 @@ export function createBrowserPresentation({
     if (stillCapture !== null || disposed) return;
     const generation = ++stillGeneration;
     stillCapture = generation;
+    stillAskedAt = performance.now();
     stillTries += 1;
     const { url, navigation } = readState();
     const zoom = readState().zoom.factor;
@@ -675,17 +701,9 @@ export function createBrowserPresentation({
         // Discarded (the page loaded or the pane moved meanwhile) or
         // failed while the surface is still over the page: try again
         // shortly, a few times, rather than wait for it to move.
-        if (
-          stillBeneath === null &&
-          stillRetry === null &&
-          stillTries <= STILL_RETRIES &&
-          movingWanted()
-        )
-          stillRetry = window.setTimeout(() => {
-            stillRetry = null;
-            const latest = currentBounds();
-            if (latest && movingWanted()) captureStill(latest);
-          }, STILL_RETRY_MS);
+        if (stillBeneath !== null) return;
+        const latest = currentBounds();
+        if (latest && movingWanted()) tryStill(latest);
       });
   };
   const refreshZoomSnapshot = (refresh: boolean) => {

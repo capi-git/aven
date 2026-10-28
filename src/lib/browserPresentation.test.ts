@@ -788,6 +788,26 @@ describe("browser presentation", () => {
       expect(releases).toEqual([0]);
     });
 
+    it("keeps a slow still image in flight while the copy springs off the page and back", async () => {
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      const copy = movingCopy();
+      await settle();
+      // Off the page for a frame, as its spring pops it out of the strip,
+      // and the page is given back meanwhile.
+      copy.move(new DOMRect(5, 5, 110, 30));
+      await settle();
+      await paint();
+      copy.move(new DOMRect(400, 300, 110, 30));
+      await settle();
+      pending.resolve("data:image/png;base64,slow");
+      await settle();
+      await paint();
+      expect(native.captures).toHaveLength(1);
+      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,slow");
+      expect(native.page.bounds.holes).toHaveLength(1);
+    });
+
     it("takes the overlay still-image path on an engine without cut-outs", async () => {
       state.holesSupported = false;
       const copy = movingCopy();
