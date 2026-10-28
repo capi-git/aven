@@ -24,6 +24,7 @@ import {
   X,
 } from "./icons";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -74,6 +75,7 @@ import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import { useHostPaneHeader } from "../hooks/usePaneHeader";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
+import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getName } from "@tauri-apps/api/app";
 import { WindowControls } from "./WindowControls";
@@ -264,11 +266,19 @@ export type TitleBarProps = {
   ) => boolean;
   onSelectBrowser?: (id?: string) => void;
   /**
-   * The window strip's spaces (Cydonia's window tabs that hold an
+   * The window strip's splits (Cydonia's window tabs that hold an
    * arrangement of panes), in `surfaceOrder` beside the single tabs.
    */
-  spaces?: StripSpaceTab[];
-  onSelectSpace?: (id: string) => void;
+  splits?: StripSplit[];
+  /** Bring a tab in a split forward: the split, its pane and the tab. */
+  onSelectSplitTab?: (id: string) => void;
+  /** A tab let go on a split's entry joins it as a pane at its right. */
+  onAddToSplit?: (splitId: string, id: string) => void;
+  /** A tab pulled out of its split, let go on the strip before `before`. */
+  onDetachFromSplit?: (id: string, before: string | null) => void;
+  /** The split's tabs stand on the strip as single tabs again. */
+  onSeparateSplit?: (splitId: string) => void;
+  onCloseSplit?: (splitId: string) => void;
   onCloseBrowser?: (id?: string) => void;
   onBrowserModeChange?: (mode: "tab" | "split") => void;
   inspectorOpen?: boolean;
@@ -421,43 +431,10 @@ function TabDeck({ children }: { children: ReactNode }) {
   );
 }
 
-function TitleTabItem({
-  tab,
-  projectless,
-  index,
-  active,
-  tabStop,
-  visible,
-  closable,
-  canDrag,
-  sortable,
-  onSelect,
-  onClose,
-  onContextMenu,
-  itemRef,
-  deck,
-}: {
-  tab: Tab;
-  projectless: boolean;
-  index: number;
-  active: boolean;
-  tabStop: boolean;
-  visible: boolean;
-  closable: boolean;
-  canDrag: boolean;
-  sortable: SortableApi;
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  onContextMenu: (id: string, event: MenuPoint) => void;
-  itemRef?: (el: HTMLDivElement | null) => void;
-  /** A lone title row draws the tab's icon on a deck. */
-  deck?: boolean;
-}) {
-  const { headline, tooltip } = tabCopy(tab, projectless);
-  const tabRef = useRef<HTMLDivElement | null>(null);
-  useTurnEndFlash(tabRef, tab.sessionIds);
+/** A tab's kind at a glance: a bot's critter, its agents, or its file. */
+function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];
-  const identity = (
+  return (
     <span
       className="personal-title-tab-identity"
       data-busy={tab.busyHarnesses.length > 0}
@@ -503,6 +480,44 @@ function TitleTabItem({
       )}
     </span>
   );
+}
+
+function TitleTabItem({
+  tab,
+  projectless,
+  index,
+  active,
+  tabStop,
+  visible,
+  closable,
+  canDrag,
+  sortable,
+  onSelect,
+  onClose,
+  onContextMenu,
+  itemRef,
+  deck,
+}: {
+  tab: Tab;
+  projectless: boolean;
+  index: number;
+  active: boolean;
+  tabStop: boolean;
+  visible: boolean;
+  closable: boolean;
+  canDrag: boolean;
+  sortable: SortableApi;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu: (id: string, event: MenuPoint) => void;
+  itemRef?: (el: HTMLDivElement | null) => void;
+  /** A lone title row draws the tab's icon on a deck. */
+  deck?: boolean;
+}) {
+  const { headline, tooltip } = tabCopy(tab, projectless);
+  const tabRef = useRef<HTMLDivElement | null>(null);
+  useTurnEndFlash(tabRef, tab.sessionIds);
+  const identity = <TabIdentity tab={tab} active={active} />;
   const showStart =
     canDrag &&
     sortable.draggingId &&
@@ -649,70 +664,153 @@ function TitleTabItem({
   );
 }
 
-/**
- * A space on the window's strip: the tab in front of it names it, and a
- * small glyph draws its panes.
- */
-export type StripSpaceTab = {
+/** One pane of a split on the window's strip: the tab in front of it. */
+export type StripSplitSegment = {
+  /** The pane's tab in front, which the segment names and brings forward. */
   id: string;
-  title: string;
-  panes: number;
-  /** Each pane's place, as shares of the space. */
-  rects: Array<{ x: number; y: number; w: number; h: number }>;
+  /** A chat, file or terminal tab, drawn as a strip tab draws it. */
+  tab?: Tab;
+  /** Or a page. */
+  page?: { title: string; favicon?: string };
 };
 
-/** A space's panes in miniature, in place of a tab's icon. */
-function SpaceGlyph({ rects }: { rects: StripSpaceTab["rects"] }) {
-  const width = 14;
-  const height = 11;
-  const gap = 0.75;
+/**
+ * A split on the window's strip, after Arc's split tabs: one entry divided
+ * into a segment per pane, each showing its pane's tab in front, so any of
+ * them is one click away.
+ */
+export type StripSplit = {
+  /** The strip entry's key. */
+  id: string;
+  segments: StripSplitSegment[];
+  /** The tab whose pane has focus, lit while the split is in front. */
+  focusedId: string;
+  /** Closing it would leave a chat to show (its menu's Close split). */
+  closable?: boolean;
+};
+
+export function splitSegmentLabel(
+  segment: StripSplitSegment,
+  projectless = false,
+): string {
+  if (segment.tab) return tabCopy(segment.tab, projectless).headline;
+  return segment.page?.title.trim() || "Browser";
+}
+
+/** The words for a segment of a split that is not in front. */
+export function splitSegmentHint(label: string): string {
+  return `Go to ${label} in the split`;
+}
+
+function SplitSegment({
+  segment,
+  label,
+  lit,
+  front,
+  tabStop,
+  onHover,
+}: {
+  segment: StripSplitSegment;
+  label: string;
+  /** The pane with focus in the split in front. */
+  lit: boolean;
+  /** The split is in front. */
+  front: boolean;
+  tabStop: boolean;
+  /** The pointer came to the segment (its label) or left it (null). */
+  onHover: (anchor: HTMLElement | null, label?: string) => void;
+}) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  useTurnEndFlash(ref, segment.tab?.sessionIds);
+  const hint = front ? undefined : splitSegmentHint(label);
+  const tooltip = segment.tab ? tabCopy(segment.tab).tooltip : label;
   return (
-    <svg
-      className="aven-space-glyph"
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      aria-hidden
+    <button
+      ref={ref}
+      type="button"
+      role="tab"
+      tabIndex={tabStop ? 0 : -1}
+      aria-selected={lit}
+      aria-label={label}
+      aria-description={hint ?? "In the split"}
+      // The split in front names each pane as a tab does; elsewhere the
+      // segment's own hint says where a click goes (drawn by the strip).
+      title={front ? tooltip : undefined}
+      className="aven-split-segment"
+      data-split-segment={segment.id}
+      data-lit={lit || undefined}
+      data-tauri-drag-region="false"
+      onPointerEnter={(event) => {
+        if (hint && event.pointerType !== "touch")
+          onHover(event.currentTarget, label);
+      }}
+      onPointerLeave={() => onHover(null)}
     >
-      {rects.map((rect, index) => (
-        <rect
-          key={index}
-          x={rect.x * width + gap}
-          y={rect.y * height + gap}
-          width={Math.max(1, rect.w * width - gap * 2)}
-          height={Math.max(1, rect.h * height - gap * 2)}
-          rx={1.25}
+      {segment.tab ? (
+        <TabIdentity tab={segment.tab} active={front} />
+      ) : (
+        <BrowserTabIcon favicon={segment.page?.favicon} />
+      )}
+      <span className="aven-split-label">{label}</span>
+      {segment.tab?.needsInput ? (
+        <span
+          className="personal-title-tab-needs-you"
+          data-tab-needs-you
+          title="Needs you"
+          aria-hidden
         />
-      ))}
-    </svg>
+      ) : null}
+    </button>
   );
 }
 
-function SpaceTitleTabItem({
-  space,
+/**
+ * A split's entry on the window's strip. Pressing a segment and moving
+ * along the strip moves the whole split; pulling a segment out of the strip
+ * takes that tab out of the split (see `SortablePart`). Clicking a segment
+ * brings the split forward with that pane focused.
+ */
+function SplitEntryItem({
+  split,
+  projectless,
   index,
   active,
   tabStop,
   canDrag,
   sortable,
-  onSelect,
+  onSelectTab,
+  onContextMenu,
+  onHover,
+  dropInto = false,
   opening = false,
   itemRef,
-  separator = false,
 }: {
-  space: StripSpaceTab;
+  split: StripSplit;
+  projectless: boolean;
   index: number;
   active: boolean;
   tabStop: boolean;
   canDrag: boolean;
   sortable: SortableApi;
-  onSelect: () => void;
+  onSelectTab: (id: string) => void;
+  onContextMenu: (event: MenuPoint, anchor: HTMLElement) => void;
+  onHover: (anchor: HTMLElement | null, label?: string) => void;
+  /** A tab held over the entry joins the split as a new pane. */
+  dropInto?: boolean;
   opening?: boolean;
   itemRef?: (element: HTMLDivElement | null) => void;
-  separator?: boolean;
 }) {
-  const panes = `${space.panes} panes`;
-  const label = space.title.trim() || panes;
+  // A press captures the pointer on the entry, so its click lands here;
+  // remember which segment was pressed.
+  const pressed = useRef<string | null>(null);
+  const segmentOf = (target: EventTarget | null) =>
+    (target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-split-segment]",
+    ) ?? null;
+  const lit = active ? split.focusedId : null;
+  const stop =
+    split.segments.find((segment) => segment.id === lit)?.id ??
+    split.segments[0]?.id;
   const dropBefore =
     sortable.toIndex === index &&
     sortable.fromIndex !== null &&
@@ -724,24 +822,62 @@ function SpaceTitleTabItem({
   return (
     <div
       ref={(element) => {
-        sortable.setItemRef(space.id, element);
+        sortable.setItemRef(split.id, element);
         itemRef?.(element);
       }}
-      className="personal-title-tab aven-tab aven-tab-slot aven-space-tab group relative flex h-full min-w-0 touch-none items-center"
+      className="personal-title-tab aven-tab aven-tab-slot aven-split-entry group relative flex h-full min-w-0 touch-none items-center"
+      style={{ "--aven-split-panes": split.segments.length } as CSSProperties}
       data-active={active}
-      data-space-tab
-      data-surface-tab-id={space.id}
+      data-split-entry
+      data-surface-tab-id={split.id}
       data-draggable={canDrag || undefined}
-      data-motion-slot={space.id}
+      data-drop-into={dropInto || undefined}
+      data-motion-slot={split.id}
       data-tab-opening={opening || undefined}
-      {...{ [TAB_TRACK_ID_ATTRIBUTE]: space.id }}
-      data-tab-separator={separator || undefined}
+      {...{ [TAB_TRACK_ID_ATTRIBUTE]: split.id }}
       data-tauri-drag-region="false"
       onPointerDown={(event) => {
-        if (canDrag) sortable.onItemPointerDown(space.id, event);
+        if (event.button !== 0) return;
+        const segment = segmentOf(event.target);
+        pressed.current = segment?.dataset.splitSegment ?? null;
+        onHover(null);
+        if (!canDrag) return;
+        sortable.onItemPointerDown(
+          split.id,
+          event,
+          segment && pressed.current
+            ? { id: pressed.current, element: segment }
+            : undefined,
+        );
       }}
-      onClick={() => {
-        if (!sortable.consumeClick()) onSelect();
+      onClick={(event) => {
+        if (sortable.consumeClick()) return;
+        const id =
+          segmentOf(event.target)?.dataset.splitSegment ?? pressed.current;
+        pressed.current = null;
+        if (id) onSelectTab(id);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onHover(null);
+        onContextMenu(event, event.currentTarget);
+      }}
+      onKeyDown={(event) => {
+        if ((event.target as HTMLElement).getAttribute("role") !== "tab")
+          return;
+        if (
+          event.key !== "ContextMenu" &&
+          !(event.shiftKey && event.key === "F10")
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onContextMenu(
+          { clientX: rect.left, clientY: rect.bottom },
+          event.currentTarget,
+        );
       }}
     >
       {dropBefore ? (
@@ -751,25 +887,84 @@ function SpaceTitleTabItem({
         <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
-        <button
-          type="button"
-          role="tab"
-          tabIndex={tabStop ? 0 : -1}
-          aria-selected={active}
-          aria-label={`Space: ${label}, ${panes}`}
+        <div
+          className="aven-split"
           data-sortable-glass
-          title={label === panes ? label : `${label} · ${panes}`}
-          className="personal-title-tab-button aven-tab-button flex min-w-0 flex-1 items-center"
+          data-panes={split.segments.length}
         >
-          <SpaceGlyph rects={space.rects} />
-          <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
-            {label}
-          </span>
-        </button>
+          {split.segments.map((segment, at) => (
+            <Fragment key={segment.id}>
+              {at > 0 ? (
+                <span className="aven-split-divider" aria-hidden />
+              ) : null}
+              <SplitSegment
+                segment={segment}
+                label={splitSegmentLabel(segment, projectless)}
+                lit={segment.id === lit}
+                front={active}
+                tabStop={tabStop && segment.id === stop}
+                onHover={onHover}
+              />
+            </Fragment>
+          ))}
+          {dropInto ? (
+            <span className="aven-split-incoming" aria-hidden>
+              <Plus className="size-3" strokeWidth={1.75} />
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
+
+/**
+ * The hint under a segment of a split that is not in front, after a short
+ * rest, as the pointer comes to it. Drawn over the workspace (and over a
+ * page's native view) rather than clipped by the strip.
+ */
+function SplitSegmentTip({
+  tip,
+}: {
+  tip: { anchor: HTMLElement; label: string } | null;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    if (!tip || !tip.anchor.isConnected) {
+      setPlace(null);
+      return;
+    }
+    const anchor = tip.anchor.getBoundingClientRect();
+    const width = ref.current?.offsetWidth ?? 0;
+    const margin = 8;
+    const centre = anchor.left + anchor.width / 2;
+    const left = Math.max(
+      margin,
+      Math.min(window.innerWidth - margin - width, centre - width / 2),
+    );
+    setPlace({ left, top: anchor.bottom + 6 });
+  }, [tip]);
+  if (!tip) return null;
+  return createPortal(
+    <div
+      ref={ref}
+      role="tooltip"
+      className="aven-split-tip"
+      data-native-browser-occluded="true"
+      data-placed={place ? "true" : undefined}
+      style={place ? { left: place.left, top: place.top } : undefined}
+    >
+      Go to <strong>{tip.label}</strong> in the split
+    </div>,
+    document.body,
+  );
+}
+
+/** How long the pointer rests on a segment before its hint shows. */
+const SPLIT_TIP_DELAY_MS = 450;
 
 function BrowserTitleTabItem({
   id,
@@ -1340,8 +1535,12 @@ function TitleBarComponent({
   onKeepBrowser,
   browserPreviewId,
   surfaceOrder,
-  spaces,
-  onSelectSpace,
+  splits,
+  onSelectSplitTab,
+  onAddToSplit,
+  onDetachFromSplit,
+  onSeparateSplit,
+  onCloseSplit,
   visibleIds,
   onReorderSurfaces,
   onSplitTab,
@@ -1409,13 +1608,13 @@ function TitleBarComponent({
     (browserOpen
       ? [{ id: LEGACY_BROWSER_ID, title: browserTitle ?? "Browser" }]
       : []);
-  const spaceTabs = useMemo(
-    () => new Map((spaces ?? []).map((space) => [space.id, space])),
-    [spaces],
+  const splitEntries = useMemo(
+    () => new Map((splits ?? []).map((split) => [split.id, split])),
+    [splits],
   );
   const allOrderedIds = titleSurfaceOrder(
     tabIds,
-    [...browserEntries.map((tab) => tab.id), ...spaceTabs.keys()],
+    [...browserEntries.map((tab) => tab.id), ...splitEntries.keys()],
     surfaceOrder,
   );
   const focusedId = unified
@@ -1435,7 +1634,7 @@ function TitleBarComponent({
   const previewEnabled = Boolean(onKeepBrowser);
   const keptIds = new Set([
     ...tabIds,
-    ...spaceTabs.keys(),
+    ...splitEntries.keys(),
     ...browserEntries
       .filter((tab) => tab.kept || (shown.has(tab.id) && tab.id !== focusedId))
       .map((tab) => tab.id),
@@ -1517,9 +1716,13 @@ function TitleBarComponent({
   // highlight slides under them. The window's strip shows no lone tab.
   const track = titleRow ? paneTabs : displayedTabIds.length >= 2;
   const loneHidden = !titleRow && hideLoneTab && !track;
+  // A split carries its own fill, so no hairline parts it from a neighbour.
   const separators = track
     ? trackSeparators(
-        displayIds.map((id) => ({ id, tab: !chipGroupId(id) })),
+        displayIds.map((id) => ({
+          id,
+          tab: !chipGroupId(id) && !splitEntries.has(id),
+        })),
         focusedId,
       )
     : NO_SEPARATORS;
@@ -1568,6 +1771,32 @@ function TitleBarComponent({
     // Only a change of focus should unfold; the fold click itself does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  // Where a segment pulled out of its split would stand if let go on the
+  // strip: before the first entry whose middle is past the pointer, or at
+  // the end. `x` places the insertion line along the strip's content.
+  const [tearSlot, setTearSlot] = useState<{
+    before: string | null;
+    x: number;
+  } | null>(null);
+  const tearSlotAt = (pointerX: number) => {
+    const strip = tabStripRef.current;
+    if (!strip) return null;
+    const origin = strip.getBoundingClientRect().left - strip.scrollLeft;
+    const slots = [
+      ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
+    ].filter((slot) => !chipGroupId(slot.dataset.motionSlot ?? ""));
+    for (const slot of slots) {
+      const rect = slot.getBoundingClientRect();
+      if (pointerX < rect.left + rect.width / 2)
+        return {
+          before: slot.dataset.motionSlot ?? null,
+          x: rect.left - origin - 1,
+        };
+    }
+    const last = slots[slots.length - 1]?.getBoundingClientRect();
+    return { before: null, x: last ? last.right - origin + 1 : 0 };
+  };
   const sortable = useSortable(
     displayIds,
     (ids, movedId) => {
@@ -1598,15 +1827,49 @@ function TitleBarComponent({
     },
     {
       animate: true,
-      onDragMove: (id, x, y, pointer) => {
-        if (!chipGroupId(id) && !spaceTabs.has(id))
+      // A tab let go on a split's entry joins the split as a pane.
+      isDropTarget: (dragged, target) =>
+        Boolean(onAddToSplit) &&
+        splitEntries.has(target) &&
+        !splitEntries.has(dragged) &&
+        !chipGroupId(dragged),
+      onDropOnItem: (dragged, target) => {
+        if (splitEntries.has(target) && !splitEntries.has(dragged))
+          onAddToSplit?.(target, dragged);
+      },
+      onDragMove: (id, x, y, pointer, part) => {
+        // A segment pulled out of its split drags as its own tab.
+        if (part?.torn) {
+          onSurfaceDragMove?.(part.part, x, y, pointer);
+          const slot = part.inStrip ? tearSlotAt(x) : null;
+          setTearSlot((previous) =>
+            previous?.before === slot?.before &&
+            Math.abs((previous?.x ?? 0) - (slot?.x ?? 0)) < 0.5
+              ? previous
+              : slot,
+          );
+          return;
+        }
+        if (!chipGroupId(id) && !splitEntries.has(id))
           onSurfaceDragMove?.(id, x, y, pointer);
       },
-      onDragEnd: (id, x, y, cancelled, pointer) => {
+      onDragEnd: (id, x, y, cancelled, pointer, part) => {
+        if (part?.torn) {
+          setTearSlot(null);
+          if (cancelled || !part.inStrip)
+            return onSurfaceDragEnd?.(part.part, x, y, cancelled, pointer)
+              ? true
+              : false;
+          // Back on the strip: it stands there alone. The stage only
+          // clears its drop hints.
+          onSurfaceDragEnd?.(part.part, x, y, true, pointer);
+          onDetachFromSplit?.(part.part, tearSlotAt(x)?.before ?? null);
+          return true;
+        }
         const dragged = chipGroupId(id);
-        // Group labels and spaces reorder within this strip; leaving the
+        // Group labels and splits reorder within this strip; leaving the
         // window cancels.
-        if (dragged || spaceTabs.has(id)) return false;
+        if (dragged || splitEntries.has(id)) return false;
         const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
         // A tab that left this strip for another pane or window leaves its group.
         if (consumed && !cancelled && groupState.members[id])
@@ -1616,7 +1879,6 @@ function TitleBarComponent({
     },
   );
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
   // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
   // changes its one tab in place, and becoming a row of tabs (or one again)
   // replaces the row rather than growing every tab in.
@@ -1629,6 +1891,35 @@ function TitleBarComponent({
     layoutKey: displayIds.join("\n"),
   });
   const [stackMenu, setStackMenu] = useState<HTMLElement | null>(null);
+  // A segment of a split not in front says where a click goes, once the
+  // pointer rests on it.
+  const [segmentTip, setSegmentTip] = useState<{
+    anchor: HTMLElement;
+    label: string;
+  } | null>(null);
+  const segmentTipTimer = useRef<number | null>(null);
+  const hideSegmentTip = useCallback(() => {
+    if (segmentTipTimer.current !== null)
+      window.clearTimeout(segmentTipTimer.current);
+    segmentTipTimer.current = null;
+    setSegmentTip(null);
+  }, []);
+  const showSegmentTip = useCallback((anchor: HTMLElement, label: string) => {
+    if (segmentTipTimer.current !== null)
+      window.clearTimeout(segmentTipTimer.current);
+    segmentTipTimer.current = window.setTimeout(() => {
+      segmentTipTimer.current = null;
+      if (anchor.isConnected) setSegmentTip({ anchor, label });
+    }, SPLIT_TIP_DELAY_MS);
+  }, []);
+  useEffect(() => hideSegmentTip, [hideSegmentTip]);
+  // A drag, or the split coming to the front, takes the hint away.
+  useEffect(() => {
+    if (sortable.draggingId) hideSegmentTip();
+  }, [sortable.draggingId, hideSegmentTip]);
+  useEffect(() => {
+    hideSegmentTip();
+  }, [focusedId, hideSegmentTip]);
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -1640,8 +1931,11 @@ function TitleBarComponent({
   );
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const [tabMenu, setTabMenu] = useState<{
-    /** A tab, a group label, or empty strip space. Defaults to a tab. */
-    kind?: "tab" | "group" | "bar";
+    /**
+     * A tab, a group label, a split's entry, or empty strip space.
+     * Defaults to a tab.
+     */
+    kind?: "tab" | "group" | "split" | "bar";
     tabId: string;
     groupId?: string;
     /** Secondary page for longer action lists. */
@@ -2171,6 +2465,33 @@ function TitleBarComponent({
         checked: menuGroup.group.color === index,
       }))
     : [];
+  // A split's entry: take it apart, or close every tab in it.
+  const menuSplit =
+    menuKind === "split" && tabMenu ? splitEntries.get(tabMenu.tabId) : null;
+  const splitRootItems: ExplorerMenuItem[] = menuSplit
+    ? [
+        ...(onSeparateSplit
+          ? [
+              {
+                kind: "item" as const,
+                id: "split-separate",
+                label: "Separate split",
+              },
+            ]
+          : []),
+        { kind: "sep" },
+        ...(onCloseSplit
+          ? [
+              {
+                kind: "item" as const,
+                id: "split-close",
+                label: "Close split",
+                disabled: menuSplit.closable === false,
+              },
+            ]
+          : []),
+      ]
+    : [];
   // Empty strip space: actions for the whole strip.
   const barItems: ExplorerMenuItem[] = [];
   barItems.push({ kind: "item", id: "bar-new-session", label: "New chat" });
@@ -2244,7 +2565,9 @@ function TitleBarComponent({
         ? barItems
         : menuKind === "group"
           ? groupRootItems
-          : tabRootItems;
+          : menuKind === "split"
+            ? splitRootItems
+            : tabRootItems;
   while (contextMenuItems[0]?.kind === "sep") contextMenuItems.shift();
   while (contextMenuItems[contextMenuItems.length - 1]?.kind === "sep")
     contextMenuItems.pop();
@@ -2310,6 +2633,12 @@ function TitleBarComponent({
     }
     if (id === "return-group-window" && groupId) {
       onReturnGroupToWindow?.(groupId);
+      return;
+    }
+    if (menuSplit) {
+      if (id === "split-separate") onSeparateSplit?.(menuSplit.id);
+      else if (id === "split-close" && menuSplit.closable !== false)
+        onCloseSplit?.(menuSplit.id);
       return;
     }
     if (menuGroup) {
@@ -2590,21 +2919,40 @@ function TitleBarComponent({
           />
         </div>
       );
-    const space = spaceTabs.get(id);
-    if (space)
+    const split = splitEntries.get(id);
+    if (split)
       return (
-        <SpaceTitleTabItem
+        <SplitEntryItem
           key={id}
-          space={space}
+          split={split}
+          projectless={projectlessWorkspace}
           index={index}
           active={id === focusedId}
           tabStop={id === tabStopId}
           canDrag={canDrag}
           sortable={sortable}
-          onSelect={() => onSelectSpace?.(id)}
+          onSelectTab={(tabId) => {
+            hideSegmentTip();
+            onSelectSplitTab?.(tabId);
+          }}
+          onContextMenu={(event, anchor) => {
+            setBrowserMenu(null);
+            setTabMenu({
+              kind: "split",
+              tabId: id,
+              x: event.clientX,
+              y: event.clientY,
+              anchor,
+            });
+          }}
+          onHover={(anchor, label) =>
+            anchor && label && !sortable.draggingId
+              ? showSegmentTip(anchor, label)
+              : hideSegmentTip()
+          }
+          dropInto={sortable.dropTarget?.id === id}
           opening={slotMotion.opening.has(id)}
           itemRef={itemRef}
-          separator={separators.has(id)}
         />
       );
     if (!browser) return null;
@@ -2902,9 +3250,12 @@ function TitleBarComponent({
                 const id = nextButton?.closest<HTMLElement>(
                   "[data-surface-tab-id]",
                 )?.dataset.surfaceTabId;
+                // A split's segments are tabs of the strip in their own
+                // right: the arrows step through them like any tab.
+                const segment = nextButton?.dataset.splitSegment;
                 nextButton?.focus();
-                if (id && sessionTabs.has(id)) onSelect(id);
-                else if (id && spaceTabs.has(id)) onSelectSpace?.(id);
+                if (segment) onSelectSplitTab?.(segment);
+                else if (id && sessionTabs.has(id)) onSelect(id);
                 else if (id && browsers.has(id))
                   onSelectBrowser?.(unified ? id : undefined);
               }}
@@ -2917,6 +3268,13 @@ function TitleBarComponent({
                 />
               ) : null}
               {slotGhosts(null)}
+              {tearSlot ? (
+                <div
+                  className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 z-20 rounded-full"
+                  data-tear-insertion
+                  style={{ left: tearSlot.x }}
+                />
+              ) : null}
               {loneHidden
                 ? null
                 : displayIds.flatMap((id, index) => [
@@ -3163,6 +3521,7 @@ function TitleBarComponent({
           onClose={() => setRecentMenu(null)}
         />
       ) : null}
+      <SplitSegmentTip tip={segmentTip} />
       {stackMenu && stackItems.length ? (
         <ExplorerMenu
           x={0}
@@ -3190,9 +3549,15 @@ function TitleBarComponent({
           ariaLabel={
             menuGroup
               ? `Group actions for ${groupName(menuGroup.group)}`
-              : contextId
-                ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
-                : "Workspace tab actions"
+              : menuSplit
+                ? `Split actions for ${menuSplit.segments
+                    .map((segment) =>
+                      splitSegmentLabel(segment, projectlessWorkspace),
+                    )
+                    .join(" and ")}`
+                : contextId
+                  ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
+                  : "Workspace tab actions"
           }
           onPick={onPickTabMenu}
           onClose={closeTabMenu}
@@ -3237,7 +3602,7 @@ const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "tabs",
   "browserTabs",
   "surfaceOrder",
-  "spaces",
+  "splits",
   "visibleIds",
   "combineTargets",
   "recents",

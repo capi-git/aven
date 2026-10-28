@@ -158,12 +158,14 @@ import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
   entryKey,
   isSpaceKey,
+  spacePanes,
   stepStripEntry,
   stripEntryAt,
   stripEntryFocus,
   stripEntryKeyOf,
   stripEntryShown,
   stripItems,
+  viewMembers,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
@@ -304,9 +306,8 @@ import {
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
 import {
-  tabCopy,
   TitleBar,
-  type StripSpaceTab,
+  type StripSplit,
   type Tab as TitleTab,
   type TitleBarProps,
 } from "./chrome/TitleBar";
@@ -11024,35 +11025,67 @@ export default function App({
   const splitTabIds = new Set(
     tabs.filter((tab) => tab.layout?.type === "split").map((tab) => tab.id),
   );
-  // The window's strip, as in Cydonia: each single tab, and each space (an
-  // arrangement of panes) named by the tab in front of it. Switching entries
-  // changes the whole arrangement.
+  // The window's strip, as in Cydonia: each single tab, and each split (an
+  // arrangement of panes) as one entry with a segment per pane, after Arc,
+  // each naming its pane's tab in front. Switching entries changes the
+  // whole arrangement; a segment goes straight to its pane.
   const strip = workspaceViews.strip;
   const stripItemIds = stripItems(strip);
-  const surfaceLabel = (id: string) => {
-    const tab = titleTabs.find((candidate) => candidate.id === id);
-    if (tab) return tabCopy(tab, isProjectlessCwd(projectCwd)).headline;
-    return browserTabsFor([id])[0]?.title ?? "";
-  };
-  const stripSpaces: StripSpaceTab[] = strip.entries.flatMap((entry) => {
+  const stripPages = new Map(
+    browserTabsFor(
+      strip.entries.flatMap((entry) =>
+        entry.kind === "space" ? viewMembers(entry.view) : [],
+      ),
+    ).map((page) => [page.id, page]),
+  );
+  const isChat = (id: string) => deckProjectTabs.some((tab) => tab.id === id);
+  /** A chat to show once a split closes: the one in front, or another. */
+  const chatOutside = (members: ReadonlySet<string>) =>
+    [
+      stripEntryFocus(strip, strip.front),
+      ...strip.entries.flatMap((entry) =>
+        entry.kind === "item" ? [entry.id] : viewMembers(entry.view),
+      ),
+    ].find((id): id is string => !!id && !members.has(id) && isChat(id));
+  const stripSplits: StripSplit[] = strip.entries.flatMap((entry) => {
     if (entry.kind !== "space" || !entry.view.layout) return [];
-    // An expanded pane's space still draws its whole arrangement.
-    const layout = entry.view.restoreView?.layout ?? entry.view.layout;
-    const rects = layoutLeaves(layout).map(({ rect }) => rect);
+    const members = new Set(viewMembers(entry.view));
     return [
       {
         id: entryKey(entry),
-        // In front, its panes' title rows name its tabs, so the strip says
-        // only how many panes it has (one header per pane, each name once).
-        title:
-          entryKey(entry) === strip.front
-            ? ""
-            : surfaceLabel(entry.view.focusedId),
-        panes: rects.length,
-        rects,
+        segments: spacePanes(entry.view).map(({ id }) => {
+          const tab = titleTabs.find((candidate) => candidate.id === id);
+          const page = stripPages.get(id);
+          return tab
+            ? { id, tab }
+            : {
+                id,
+                page: { title: page?.title ?? "", favicon: page?.favicon },
+              };
+        }),
+        focusedId: entry.view.focusedId,
+        closable: ![...members].some(isChat) || !!chatOutside(members),
       },
     ];
   });
+  /** Close every tab in a split, leaving a chat outside it in front. */
+  const onCloseSplit = (key: string) => {
+    const entry = strip.entries.find(
+      (candidate) => entryKey(candidate) === key,
+    );
+    if (entry?.kind !== "space") return;
+    const members = viewMembers(entry.view);
+    const chats = members.filter(isChat);
+    const pages = members.filter((id) =>
+      browserSurfaces.some((tab) => tab.surfaceId === id),
+    );
+    const fallback = chatOutside(new Set(members));
+    if (chats.length) {
+      if (!fallback) return;
+      onCloseTabs(chats, fallback);
+    }
+    for (const page of pages) onCloseBrowserTab(page);
+  };
   // Which way the strip moved to reach the entry in front, for the stage's
   // switch. 0 when this is no switch: another project, the entry in front
   // itself became a space or came apart, or one single tab to another, which
@@ -11127,14 +11160,16 @@ export default function App({
           previewActionsInPane: browserSurfaceIds.has(windowStripOwner),
           tabs: titleTabs.filter((tab) => stripItemIds.includes(tab.id)),
           browserTabs: browserTabsFor(stripItemIds),
-          spaces: stripSpaces,
+          splits: stripSplits,
           surfaceOrder: stripKeys,
           activeId: strip.front,
           visibleIds: [strip.front],
-          onSelectSpace: (key) => {
-            const id = stripEntryFocus(strip, key);
-            if (id) onSelectSurface(id);
-          },
+          // One click on a segment: the split, that pane and that tab.
+          onSelectSplitTab: onSelectSurface,
+          onAddToSplit: (key, id) => workspaceViews.addPane(key, id),
+          onDetachFromSplit: (id, before) => workspaceViews.detach(id, before),
+          onSeparateSplit: (key) => workspaceViews.separate(key),
+          onCloseSplit,
           onSelect: onSelectSurface,
           onSelectBrowser: (id) =>
             id ? onSelectSurface(id) : onSelectBrowserTab(),

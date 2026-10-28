@@ -732,15 +732,177 @@
   }
 }
 
-/* A space on the window's strip: its panes in miniature where a tab has its
-   icon, in the label's grey. */
-.aven-space-glyph {
-  flex-shrink: 0;
-  fill: currentColor;
-  opacity: 0.75;
+/* A split on the window's strip, after Arc's split tabs: one entry divided
+   into a segment per pane, each naming its pane's tab in front. At rest a
+   faint fill sets it apart from the single tabs beside it; in front it takes
+   the front tab's fill (the highlight lands on it) and the focused pane's
+   segment sits on the raised thumb, as in a segmented control. */
+.aven-tab-strip[data-tab-track] .aven-split-entry {
+  /* Room for each pane's icon before the strip scrolls. */
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 40px + 4px));
 }
-.aven-space-tab[data-active="true"] .aven-space-glyph {
+.aven-split {
+  display: flex;
+  flex: 1 1 auto;
+  align-self: center;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  padding: 2px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-hover);
+  transition: background-color 120ms var(--aven-tab-ease);
+}
+.aven-split-entry[data-active="true"] .aven-split {
+  background: var(--aven-tab-selected);
+  box-shadow: var(--aven-tab-selected-edge);
+}
+/* The highlight is the front split's fill. */
+.aven-tab-strip[data-tab-highlight="on"]
+  .aven-split-entry[data-active="true"]
+  .aven-split {
+  background: transparent;
+  box-shadow: none;
+}
+.aven-split-segment {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-xs);
+  outline: none;
+  background: transparent;
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-row);
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: default;
+  /* Narrow segments (three panes or more in a crowded strip) keep only
+     their icons. */
+  container-type: inline-size;
+  transition:
+    background-color 120ms var(--aven-tab-ease),
+    color 120ms var(--aven-tab-ease);
+}
+.aven-split-entry[data-draggable="true"] .aven-split-segment {
+  cursor: grab;
+}
+.aven-split-segment:hover {
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+}
+.aven-split-entry[data-active="true"] .aven-split-segment {
+  color: color-mix(in srgb, var(--color-content) 74%, transparent);
+}
+.aven-split-entry .aven-split-segment[data-lit="true"] {
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  color: var(--color-content);
+  font-weight: 500;
+}
+.aven-split-segment:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}
+.aven-split-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container (max-width: 56px) {
+  .aven-split-label {
+    display: none;
+  }
+}
+.aven-split-segment .personal-title-tab-identity {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* A hairline between two resting segments, not beside a lit or pointed-at
+   one. */
+.aven-split-divider {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--aven-separator);
+}
+.aven-split-segment[data-lit="true"] + .aven-split-divider,
+.aven-split-segment:hover + .aven-split-divider,
+.aven-split-divider:has(+ .aven-split-segment[data-lit="true"]),
+.aven-split-divider:has(+ .aven-split-segment:hover) {
+  visibility: hidden;
+}
+/* A tab held over the entry: the pane it will become, at the right. */
+.aven-split-entry[data-drop-into="true"] .aven-split {
+  background: var(--aven-control-hover);
+}
+.aven-split-incoming {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  height: 22px;
+  margin-left: 2px;
+  border-radius: var(--aven-radius-xs);
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  color: var(--color-content);
+}
+/* A segment pulled out of its split: the rest of the entry stays put, the
+   segment faded where it was. */
+.aven-tab-motion[data-sortable-dragging="true"][data-sortable-torn="true"] {
   opacity: 1;
+}
+.aven-split-segment[data-sortable-torn-part="true"] {
+  opacity: 0.32;
+}
+/* Where a click on a segment of a split not in front goes. */
+.aven-split-tip {
+  position: fixed;
+  z-index: 60;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border: 1px solid var(--aven-glass-overlay-edge, var(--aven-separator));
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  visibility: hidden;
+}
+.aven-split-tip[data-placed="true"] {
+  visibility: visible;
+}
+.aven-split-tip strong {
+  color: var(--color-content);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-split,
+  .aven-split-segment {
+    transition: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .aven-split-entry[data-active="true"] .aven-split {
+    background: color-mix(
+      in srgb,
+      var(--color-content) 17%,
+      var(--color-background-base)
+    );
+  }
+  .aven-split-segment[data-lit="true"] {
+    font-weight: 600;
+  }
 }
 
 /* A lone title row lends its row to its tab's own toolbar (a page's
