@@ -33,6 +33,8 @@ mod cursor_store;
 mod desktop_control;
 mod desktop_presence;
 mod dev_smoke;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod dev_smoke_pointer;
 mod display_rate;
 mod feature_cards;
 mod floating_sidebar;
@@ -360,6 +362,8 @@ pub fn run() {
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_smoke_pointer::dev_smoke_pointer,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,

@@ -39,6 +39,7 @@ import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
+import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
 import { providerShortName } from "../lib/discussionVoices";
@@ -107,6 +108,8 @@ type Options = DevPerfOptions & {
   race?: SmokeRace;
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
+  /** Moves tabs between panes and the strip, for the lone tab's header. */
+  loneTab?: SmokeLoneTab;
 };
 
 /** What the race check reads and sets outside the page. */
@@ -3220,6 +3223,20 @@ export async function runDevSmoke(
           throw new Error(single ?? "the lone chat did not settle");
         }
         return `${result.summary}; a chat alone in its tab has none`;
+      },
+    );
+
+  // 0.1.155 left a page alone in a pane of a split with nothing to move it
+  // by. Its header is the handle: with the Mac's own mouse, a still click on
+  // its title edits the address, and dragging by the title moves the page
+  // into the other pane, beside it and onto the strip without focusing it.
+  const pageUrl = config.pageUrl;
+  if (IS_MAC && pageUrl && get().loneTab)
+    await step(
+      "a page alone in a pane moves by its header, with the Mac's own mouse",
+      () => {
+        get().motion?.showWorkspace?.();
+        return checkLoneTabDrag(config.projectPath, pageUrl, get);
       },
     );
 

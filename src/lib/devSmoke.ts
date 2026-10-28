@@ -15,6 +15,8 @@ export type DevSmokeConfig = {
   perf?: Record<string, unknown>;
   /** Present when this run is the iPhone check (`dev-aven.py --iphone`). */
   iphone?: { udid?: string };
+  /** A local web page the runner serves, for the checks that open one. */
+  pageUrl?: string;
 };
 
 /** What the stand-in provider answers. */

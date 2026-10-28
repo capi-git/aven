@@ -1,0 +1,53 @@
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+import {
+  dragPath,
+  joinedProblem,
+  splitLeftProblem,
+  strippedProblem,
+} from "./devSmokeLoneTab";
+
+describe("the real-app check of a lone tab's header", () => {
+  it("moves the hand past the drag threshold first, then evenly to the end", () => {
+    const path = dragPath({ x: 100, y: 20 }, { x: 300, y: 220 }, 4);
+    expect(path[0]).toEqual({ x: 108, y: 22 });
+    expect(path.slice(1)).toEqual([
+      { x: 150, y: 70 },
+      { x: 200, y: 120 },
+      { x: 250, y: 170 },
+      { x: 300, y: 220 },
+    ]);
+  });
+
+  it("reads a split to the chat's left, a join and the strip from the arrangement", () => {
+    expect(splitLeftProblem([["page"], ["chat"]], "chat", "page")).toBeNull();
+    expect(splitLeftProblem([["chat"], ["page"]], "chat", "page")).toBe(
+      "the page's pane is not left of the chat's",
+    );
+    expect(splitLeftProblem([["chat", "page"]], "chat", "page")).toMatch(
+      /not alone in a pane/,
+    );
+
+    expect(joinedProblem([["chat", "page", "other"]], "chat", "page")).toBe(
+      null,
+    );
+    expect(joinedProblem([["page"], ["chat"]], "chat", "page")).toMatch(
+      /not in the chat's pane/,
+    );
+    expect(joinedProblem([["page"]], "chat", "page")).toBe(
+      "the chat's pane is gone",
+    );
+
+    expect(strippedProblem([{ id: "chat" }, { id: "page" }], "page")).toBe(
+      null,
+    );
+    expect(strippedProblem([{ split: ["chat", "page"] }], "page")).toBe(
+      "the page is still in a split on the strip",
+    );
+    expect(strippedProblem([{ id: "chat" }], "page")).toBe(
+      "the page is not on the strip",
+    );
+  });
+});

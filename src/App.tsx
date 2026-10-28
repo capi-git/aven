@@ -10861,6 +10861,24 @@ export default function App({
     sidebarOpen,
     openWebLink: onOpenWebLink,
     board: true,
+    loneTab: {
+      select: onSelectSurface,
+      split: (id, edge, beside) =>
+        onWorkspaceIntent({ type: "split", id, edge, beside }),
+      panes: () => {
+        const current = viewRef.current.view;
+        return (current.layout ? leafIds(current.layout) : []).map(
+          (owner) => current.groups[owner] ?? [owner],
+        );
+      },
+      strip: () =>
+        viewRef.current.strip.entries.map((entry) =>
+          entry.kind === "item"
+            ? { id: entry.id }
+            : { split: viewMembers(entry.view) },
+        ),
+      closePage: (id) => onCloseBrowserTab(id),
+    },
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),
