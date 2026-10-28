@@ -68,6 +68,34 @@ export type SortablePartDrag = {
   target?: string;
 };
 
+/**
+ * What a press needs from its pointer event: a React event, or a DOM one
+ * (a header lent to its tab's own toolbar listens on the DOM, since the
+ * toolbar is portalled in from elsewhere in React's tree).
+ */
+export type SortablePress = Pick<
+  PointerEvent,
+  | "button"
+  | "pointerId"
+  | "clientX"
+  | "clientY"
+  | "screenX"
+  | "screenY"
+  | "target"
+  | "currentTarget"
+>;
+
+/** How a press on something other than the item itself moves it. */
+export type SortablePressOptions = {
+  /** Keeps the pointer for the drag; the event's `currentTarget` by default. */
+  handle?: HTMLElement;
+  /**
+   * Elements on the page that stand for the item (a page's title in its
+   * pane's header): they hide with it while its copy is away.
+   */
+  stands?: readonly HTMLElement[];
+};
+
 export type SortableDropTarget = {
   kind: "tab" | "group";
   id: string;
@@ -392,13 +420,18 @@ export function useSortable(
   );
 
   const onItemPointerDown = useCallback(
-    (id: string, event: ReactPointerEvent, part?: SortablePart) => {
+    (
+      id: string,
+      event: ReactPointerEvent | SortablePress,
+      part?: SortablePart,
+      press?: SortablePressOptions,
+    ) => {
       if (event.button !== 0) return;
       if (idsRef.current.length < 2 && !onDragEndRef.current) return;
       if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
         return;
       }
-      const handle = event.currentTarget as HTMLElement;
+      const handle = (press?.handle ?? event.currentTarget) as HTMLElement;
       const from = idsRef.current.indexOf(id);
       if (from < 0) return;
       cleanupDrag.current?.();
@@ -412,6 +445,7 @@ export function useSortable(
           { x: event.clientX, y: event.clientY },
           axis,
           part?.element,
+          press?.stands,
         );
       // A new press is intentional, even immediately after a previous drag.
       suppressClickUntil.current = 0;

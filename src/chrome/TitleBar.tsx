@@ -76,7 +76,7 @@ import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import { useHostPaneHeader } from "../hooks/usePaneHeader";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getName } from "@tauri-apps/api/app";
 import { WindowControls } from "./WindowControls";
@@ -103,6 +103,8 @@ import {
   type SurfaceGroup,
 } from "../lib/surfaceGroups";
 import { BotCritter } from "./BotCritter";
+import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
+import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -166,8 +168,21 @@ export type TitleBarProps = {
    * tools, shown while the row is pointed at and always on the focused pane.
    */
   variant?: "strip" | "title";
-  /** The window's strip: with one tab it shows none; the pane names it. */
+  /**
+   * The window's strip: with one single tab it shows none (the pane names
+   * it). A split alone still shows, so its panes' tabs can be moved.
+   */
   hideLoneTab?: boolean;
+  /**
+   * The window's strip takes a tab dragged from a pane's header: let go
+   * over it, the tab stands there on its own (`onDropOnStrip`).
+   */
+  acceptsPaneDrops?: boolean;
+  /**
+   * A title row's tab let go over the window's strip, to stand there before
+   * the entry `before` (or at the end).
+   */
+  onDropOnStrip?: (id: string, before: string | null) => void;
   /**
    * A title row's Expand or Restore tool (Cydonia's zoom); absent while the
    * pane is alone.
@@ -1666,6 +1681,8 @@ function TitleBarComponent({
   paneLocal = false,
   variant = "strip",
   hideLoneTab = false,
+  acceptsPaneDrops = false,
+  onDropOnStrip,
   paneZoom,
   onTogglePaneZoom,
   paneMoves,
@@ -1872,11 +1889,26 @@ function TitleBarComponent({
     offer: hostsHeader,
     names: !(frontNamed ?? (stackOnStrip && orderedIds.length > 1)),
   });
+  const [slotElement, setSlotElement] = useState<HTMLElement | null>(null);
+  const lendSlotRef = paneHeader.slotRef;
+  const setSlotRef = useCallback(
+    (node: HTMLElement | null) => {
+      lendSlotRef(node);
+      setSlotElement(node);
+    },
+    [lendSlotRef],
+  );
   const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
   // On a track (two tabs or more) the tabs share the strip's width and one
   // highlight slides under them. The window's strip shows no lone tab.
   const track = titleRow ? paneTabs : displayedTabIds.length >= 2;
-  const loneHidden = !titleRow && hideLoneTab && !track;
+  // A split alone on the strip still shows: its segments are the only way
+  // to pull one of its tabs out onto the strip or another pane.
+  const loneHidden =
+    !titleRow &&
+    hideLoneTab &&
+    !track &&
+    !(displayIds.length === 1 && splitEntries.has(displayIds[0]));
   // A split carries its own fill, so no hairline parts it from a neighbour.
   const separators = track
     ? trackSeparators(
@@ -1961,8 +1993,24 @@ function TitleBarComponent({
   /** A single tab of the window's strip: a chat, file, iPhone or page. */
   const stripTab = (id: string) =>
     sessionTabs.has(id) || (unified && browsers.has(id));
+  // A lone title row that names nothing (its tab split into panes that name
+  // themselves) still moves its tab, by its empty space (see `grabZone`).
+  const sortableIds =
+    titleRow && !paneTabs && frontId && displayIds.length === 0
+      ? [frontId]
+      : displayIds;
+  /**
+   * A title row's tab held over the window's strip: where it would stand
+   * there, shown on the strip. Null when it is not over the strip.
+   */
+  const stripSlotFor = (x: number, y: number) => {
+    const zone = titleRow && onDropOnStrip ? windowStripZone() : null;
+    const slot = zone?.slotAt(x, y) ?? null;
+    zone?.show(slot ? x : null);
+    return slot;
+  };
   const sortable = useSortable(
-    displayIds,
+    sortableIds,
     (ids, movedId) => {
       let members = groupState.members;
       // A title row draws no group labels, so moving a tab along it leaves
@@ -2030,6 +2078,7 @@ function TitleBarComponent({
         }
         if (!chipGroupId(id) && !splitEntries.has(id))
           onSurfaceDragMove?.(id, x, y, pointer);
+        stripSlotFor(x, y);
       },
       onDragEnd: (id, x, y, cancelled, pointer, part) => {
         if (part?.torn) {
@@ -2049,6 +2098,15 @@ function TitleBarComponent({
         // Group labels and splits reorder within this strip; leaving the
         // window cancels.
         if (dragged || splitEntries.has(id)) return false;
+        // A pane's tab let go over the window's strip stands there alone.
+        const stripSlot = stripSlotFor(x, y);
+        windowStripZone()?.show(null);
+        if (stripSlot && !cancelled && onDropOnStrip) {
+          // The stage only clears its drop hints.
+          onSurfaceDragEnd?.(id, x, y, true, pointer);
+          onDropOnStrip(id, stripSlot.before);
+          return true;
+        }
         const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
         // A tab that left this strip for another pane or window leaves its group.
         if (consumed && !cancelled && groupState.members[id])
@@ -2267,6 +2325,195 @@ function TitleBarComponent({
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const canDrag = displayIds.length > 1 || Boolean(onSurfaceDragEnd);
+
+  // The window's strip takes tabs dragged from panes' headers
+  // (windowStripDrop.ts): the line a segment pulled out of its split shows
+  // marks where one would stand.
+  const tearSlotRef = useRef(tearSlotAt);
+  tearSlotRef.current = tearSlotAt;
+  useEffect(() => {
+    if (titleRow || !acceptsPaneDrops) return;
+    return setWindowStripZone({
+      slotAt: (x, y) => {
+        const rect = tabStripRef.current?.getBoundingClientRect();
+        if (
+          !rect ||
+          rect.width <= 0 ||
+          x < rect.left ||
+          x > rect.right ||
+          y < rect.top ||
+          y > rect.bottom
+        )
+          return null;
+        return { before: tearSlotRef.current(x)?.before ?? null };
+      },
+      show: (x) => {
+        const slot = x === null ? null : tearSlotRef.current(x);
+        setTearSlot((previous) =>
+          previous?.before === slot?.before &&
+          Math.abs((previous?.x ?? 0) - (slot?.x ?? 0)) < 0.5
+            ? previous
+            : slot,
+        );
+      },
+    });
+  }, [titleRow, acceptsPaneDrops]);
+
+  // One header per pane. A lone pane whose header row is lent to its tab's
+  // own toolbar (a page's address, an iPhone's pickers, a tab of files), or
+  // keeps only the pane's tools, has no chip to move the tab by. The row's
+  // empty space is the handle instead, and so is what names the tab there
+  // (a page's title, a lone file's tab: `data-pane-grab`). A stand-in for
+  // the tab's chip, drawn only while held, is what the drag lifts and flies
+  // home (`HeaderGrab`); what names the tab hides while it is away.
+  const grabZone =
+    !titleRow || paneTabs || !frontId || !canDrag
+      ? null
+      : hostsHeader
+        ? slotElement
+        : displayIds.length === 0
+          ? tabStripElement
+          : null;
+  const [grab, setGrab] = useState<HeaderGrab | null>(null);
+  const grabRef = useRef<HTMLDivElement | null>(null);
+  const grabbing = useRef(false);
+  const grabLatest = useRef({ frontId, sortable });
+  grabLatest.current = { frontId, sortable };
+  useEffect(() => {
+    const zone = grabZone;
+    if (!zone) return;
+    const onPointerDown = (event: PointerEvent) => {
+      grabbing.current = false;
+      const { frontId: id, sortable: api } = grabLatest.current;
+      // A Control-click is the Mac's right-click: the tab's menu.
+      if (event.button !== 0 || event.ctrlKey || !id) return;
+      const target = headerGrabTarget(event.target, zone);
+      if (!target) return;
+      const faces = [
+        ...zone.querySelectorAll<HTMLElement>('[data-pane-grab="face"]'),
+      ];
+      const box = headerGrabBox(faces, zone, event.clientX);
+      flushSync(() => setGrab({ id, ...box, pressing: true }));
+      // Fixed to the viewport, unless an ancestor makes another box its
+      // containing block: then place it by what was drawn.
+      const drawn = grabRef.current?.getBoundingClientRect();
+      if (
+        drawn &&
+        (Math.abs(drawn.left - box.left) > 0.5 ||
+          Math.abs(drawn.top - box.top) > 0.5)
+      )
+        flushSync(() =>
+          setGrab((current) =>
+            current
+              ? {
+                  ...current,
+                  left: 2 * box.left - drawn.left,
+                  top: 2 * box.top - drawn.top,
+                }
+              : current,
+          ),
+        );
+      grabbing.current = true;
+      api.onItemPointerDown(id, event, undefined, {
+        handle: target.handle ?? zone,
+        stands: faces,
+      });
+      // The press is over once let go, or once Escape ends the drag.
+      const released = (event: Event) => {
+        if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+        window.removeEventListener("pointerup", released);
+        window.removeEventListener("pointercancel", released);
+        window.removeEventListener("blur", released);
+        window.removeEventListener("keydown", released);
+        setGrab((current) =>
+          current?.pressing ? { ...current, pressing: false } : current,
+        );
+      };
+      window.addEventListener("pointerup", released);
+      window.addEventListener("pointercancel", released);
+      window.addEventListener("blur", released);
+      window.addEventListener("keydown", released);
+    };
+    // The handle never takes focus: pressing it moves the tab, and a click
+    // on a page's title edits its address once let go (BrowserPane).
+    const onMouseDown = (event: MouseEvent) => {
+      if (!grabbing.current) return;
+      grabbing.current = false;
+      event.preventDefault();
+    };
+    // Let go after a drag, nothing under the pointer is clicked.
+    const onClick = (event: MouseEvent) => {
+      if (!grabLatest.current.sortable.consumeClick()) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    // Right-click on the handle: the tab's own menu, as on its chip.
+    const onContextMenu = (event: MouseEvent) => {
+      const id = grabLatest.current.frontId;
+      if (!id || !headerGrabTarget(event.target, zone)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setBrowserMenu(null);
+      setTabMenu({ tabId: id, x: event.clientX, y: event.clientY });
+    };
+    zone.addEventListener("pointerdown", onPointerDown, true);
+    zone.addEventListener("mousedown", onMouseDown, true);
+    zone.addEventListener("click", onClick, true);
+    zone.addEventListener("contextmenu", onContextMenu, true);
+    return () => {
+      zone.removeEventListener("pointerdown", onPointerDown, true);
+      zone.removeEventListener("mousedown", onMouseDown, true);
+      zone.removeEventListener("click", onClick, true);
+      zone.removeEventListener("contextmenu", onContextMenu, true);
+    };
+  }, [grabZone]);
+  // The stand-in goes once the press is over and the copy has landed.
+  useEffect(() => {
+    if (!grab || grab.pressing) return;
+    if (sortable.draggingId === grab.id || sortable.landingId === grab.id)
+      return;
+    setGrab(null);
+  }, [grab, sortable.draggingId, sortable.landingId]);
+  const grabItem = (id: string) => {
+    const tab = sessionTabs.get(id);
+    if (tab)
+      return (
+        <TitleTabItem
+          tab={tab}
+          projectless={projectlessWorkspace}
+          index={0}
+          active
+          tabStop={false}
+          visible
+          closable={false}
+          canDrag
+          sortable={sortable}
+          onSelect={noop}
+          onClose={noop}
+          onContextMenu={noop}
+        />
+      );
+    const page = browsers.get(id);
+    if (page)
+      return (
+        <BrowserTitleTabItem
+          id={id}
+          title={page.title}
+          favicon={page.favicon}
+          index={0}
+          active
+          tabStop={false}
+          visible
+          legacy={!unified}
+          canDrag
+          sortable={sortable}
+          onSelect={noop}
+          onContextMenu={noop}
+          menuOpen={false}
+        />
+      );
+    return null;
+  };
   const previousSelectedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -3469,7 +3716,7 @@ function TitleBarComponent({
         {hostsHeader ? (
           // The tab's own toolbar draws here, in place of its name.
           <div
-            ref={paneHeader.slotRef}
+            ref={setSlotRef}
             className="aven-pane-header-slot"
             data-pane-header-slot={frontId}
             // The pane's tabs, as its strip lists them, for a drop's target.
@@ -3843,6 +4090,23 @@ function TitleBarComponent({
         />
       ) : null}
       <SplitSegmentTip tip={segmentTip} />
+      {grab ? (
+        <div
+          ref={grabRef}
+          className="aven-header-grab"
+          data-header-grab={grab.id}
+          aria-hidden
+          inert
+          style={{
+            left: grab.left,
+            top: grab.top,
+            width: grab.width,
+            height: grab.height,
+          }}
+        >
+          {grabItem(grab.id)}
+        </div>
+      ) : null}
       {stackMenu && stackItems.length ? (
         <ExplorerMenu
           x={0}
@@ -3916,6 +4180,98 @@ function TitleBarComponent({
       ) : null}
     </header>
   );
+}
+
+const noop = () => {};
+
+/**
+ * The stand-in for a lone pane's tab while its header is held, in client
+ * pixels; `pressing` until the pointer is let go.
+ */
+type HeaderGrab = {
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  pressing: boolean;
+};
+
+/** Controls in a header: pressing one uses it, never moves the tab. */
+const HEADER_CONTROLS = [
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "label",
+  "a[href]",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="button"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+  '[role="combobox"]',
+  '[role="slider"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="link"]',
+  "[data-no-drag]",
+  "[data-pane-drag]",
+  // A tab of the content's own (a file among several) drags on its own.
+  ".aven-tab",
+].join(", ");
+
+/**
+ * What a press at `target` in a lone pane's header (`zone`) takes hold of:
+ * something that names the tab there and opted in (`data-pane-grab`,
+ * pressed even if it is a control, such as a page's title in its address
+ * field), or the row's empty space. Null on a control. `handle` is the
+ * opted-in element, which keeps the pointer so its click (if the press
+ * never moved) lands on it.
+ */
+export function headerGrabTarget(
+  target: EventTarget | null,
+  zone: HTMLElement,
+): { handle: HTMLElement | null } | null {
+  if (!(target instanceof Element) || !zone.contains(target)) return null;
+  // A control within something that opted in (a lone file's ×) is still a
+  // control.
+  const own = target.closest("[data-no-drag]");
+  if (own && zone.contains(own)) return null;
+  const opted = target.closest<HTMLElement>("[data-pane-grab]");
+  if (opted && zone.contains(opted)) return { handle: opted };
+  const control = target.closest(HEADER_CONTROLS);
+  if (control && control !== zone && zone.contains(control)) return null;
+  return { handle: null };
+}
+
+/** How far left of the pointer a stand-in with nothing to cover starts. */
+const GRAB_REACH = 24;
+
+/**
+ * Where the stand-in for the tab is drawn when its header is pressed: over
+ * what names the tab in the row (`faces`), so the chip lifts out of it, or
+ * at the pointer.
+ */
+export function headerGrabBox(
+  faces: readonly HTMLElement[],
+  zone: HTMLElement,
+  pointerX: number,
+): { left: number; top: number; width: number; height: number } {
+  const row = zone.getBoundingClientRect();
+  const boxes = faces
+    .map((face) => face.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+  if (boxes.length) {
+    const left = Math.min(...boxes.map((rect) => rect.left));
+    const right = Math.max(...boxes.map((rect) => rect.right));
+    return { left, top: row.top, width: right - left, height: row.height };
+  }
+  const width = Math.min(TAB_CHIP_MAX_WIDTH, Math.max(0, row.width));
+  const left = Math.max(
+    row.left,
+    Math.min(pointerX - GRAB_REACH, row.right - width),
+  );
+  return { left, top: row.top, width, height: row.height };
 }
 
 /** What focus may land on in a lent header's toolbar. */

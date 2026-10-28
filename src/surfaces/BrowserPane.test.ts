@@ -1760,6 +1760,63 @@ describe("native preview lifecycle", () => {
     }
   });
 
+  it("makes its title a handle for its tab in its pane's header, and edits the address on a click", async () => {
+    const row = document.createElement("div");
+    document.body.append(row);
+    setPaneHeaderSlot("one", { element: row, names: true });
+    try {
+      await openPane();
+      await receive();
+      const address = row.querySelector<HTMLInputElement>(
+        '[aria-label="Preview address"]',
+      )!;
+      // Naming the page, the title is the tab's handle (TitleBar's header
+      // grab moves the tab by it).
+      expect(address.value).toBe("Working page");
+      expect(address.dataset.paneGrab).toBe("face");
+      // A press the header kept from focusing it, then a click that never
+      // moved: the address, selected for editing.
+      await act(async () => {
+        address.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+        address.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(document.activeElement).toBe(address);
+      expect(address.value).toBe("http://localhost:3000/");
+      // Being edited, it is a field again, not a handle.
+      expect(address.hasAttribute("data-pane-grab")).toBe(false);
+      await act(async () => address.blur());
+      expect(address.dataset.paneGrab).toBe("face");
+      // A click on the field that the header did not take (no press on the
+      // title) is the field's own.
+      await act(async () =>
+        address.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+      expect(document.activeElement).not.toBe(address);
+    } finally {
+      setPaneHeaderSlot("one", null);
+      row.remove();
+    }
+  });
+
+  it("keeps its address a plain field where its pane's header does not name the page", async () => {
+    const row = document.createElement("div");
+    document.body.append(row);
+    setPaneHeaderSlot("one", { element: row, names: false });
+    try {
+      await openPane();
+      await receive();
+      const address = row.querySelector<HTMLInputElement>(
+        '[aria-label="Preview address"]',
+      )!;
+      expect(address.hasAttribute("data-pane-grab")).toBe(false);
+    } finally {
+      setPaneHeaderSlot("one", null);
+      row.remove();
+    }
+  });
+
   it("never draws its toolbar inside the page while its pane's title row holds it, even hidden", async () => {
     await openPane({ headerLent: true, visible: false });
     await receive();
