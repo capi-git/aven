@@ -650,6 +650,47 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
       ).toEqual(["b-chat", "space"]);
     });
 
+    it("makes a split of a tab let go on a single tab, stored as any split", async () => {
+      await render({
+        project: projectB,
+        ids: ["b-chat", "b-web", "b-docs"],
+        requestedFocus: "b-chat",
+      });
+      expect(current.strip.entries.map((entry) => entry.kind)).toEqual([
+        "item",
+        "item",
+        "item",
+      ]);
+      await act(async () => current.combine("b-chat", "b-docs"));
+      const stored = spaces();
+      expect(stored.version).toBe(1);
+      const entries = stored.projects[projectB].entries;
+      expect(
+        entries.map((entry) => (entry.kind === "item" ? entry.id : "space")),
+      ).toEqual(["space", "b-web"]);
+      expect(stored.projects[projectB].front).toBe(entryKeyOf(entries[0]));
+      expect(leafIds(current.view.layout!)).toEqual(["b-chat", "b-docs"]);
+      expect(current.view.focusedId).toBe("b-docs");
+      // An older Aven still opens on the split in front.
+      const legacy = JSON.parse(storage.get(STORAGE_KEY)!) as Record<
+        string,
+        WorkspaceView
+      >;
+      expect(leafIds(legacy[projectB].layout!)).toEqual(["b-chat", "b-docs"]);
+
+      // The split let go on b-web takes it as a pane, in its place.
+      await act(async () => current.combine("b-web", entryKeyOf(entries[0])));
+      expect(current.strip.entries.map((entry) => entry.kind)).toEqual([
+        "space",
+      ]);
+      expect(leafIds(current.view.layout!)).toEqual([
+        "b-chat",
+        "b-docs",
+        "b-web",
+      ]);
+      expect(current.view.focusedId).toBe("b-docs");
+    });
+
     it("separates a split into single tabs", async () => {
       const split = await withSplit();
       await act(async () => current.select("b-docs"));

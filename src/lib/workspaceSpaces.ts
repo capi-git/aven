@@ -549,6 +549,100 @@ export function addStripPane(
 }
 
 /**
+ * A tab let go on the middle of a single tab: the two become a split in the
+ * single tab's place, it on the left and the tab let go on the right, half
+ * each. The tab let go leaves the entry it was in (a split left with one
+ * pane comes apart), and the new split comes to the front with its pane
+ * focused.
+ */
+export function combineStripTabs(
+  strip: WorkspaceStrip,
+  target: string,
+  id: string,
+): WorkspaceStrip {
+  if (target === id) return strip;
+  const host = strip.entries.find(
+    (entry) => entry.kind === "item" && entry.id === target,
+  );
+  if (!host || stripEntryKeyOf(strip, id) === undefined) return strip;
+  const space: StripSpace = {
+    kind: "space",
+    id: newSpaceId(),
+    view: {
+      layout: appendPaneRight(leaf(target), id),
+      focusedId: id,
+      order: [target, id],
+      groups: { [target]: [target], [id]: [id] },
+    },
+  };
+  const leaving = new Set([id]);
+  const entries = strip.entries.flatMap((entry): StripEntry[] =>
+    entry === host ? [space] : withoutTabs(entry, leaving),
+  );
+  return { entries, front: entryKey(space) };
+}
+
+/**
+ * Pages a drop on the strip's entry `target` brings together, to keep open
+ * as a page moved into a pane is: a deliberate move must not leave one as
+ * the preview the next opened link replaces. A tab let go on a split is
+ * kept; a tab let go on a single tab, and that tab; a split let go on a
+ * single tab, that tab (the split's own tabs are kept by it).
+ */
+export function stripDropKeeps(target: string, dragged: string): string[] {
+  if (isSpaceKey(target)) return isSpaceKey(dragged) ? [] : [dragged];
+  return isSpaceKey(dragged) ? [target] : [target, dragged];
+}
+
+/**
+ * What Undo layout needs to take a split made on the strip apart again: the
+ * single tab's view, as if in front, with the tab let go brought into it,
+ * taken in the single tab's entry. Null when the drop makes no new split (a
+ * split taking a pane, as a tab let go on a split does, is not undone).
+ */
+export function stripCombineUndo(
+  strip: WorkspaceStrip,
+  target: string,
+  id: string,
+): { view: WorkspaceView; entry: string } | null {
+  if (isSpaceKey(id) || combineStripTabs(strip, target, id) === strip)
+    return null;
+  return {
+    view: stripViewWith(focusStripTab(strip, target), [id]),
+    entry: target,
+  };
+}
+
+/**
+ * A split let go on the middle of a single tab: the tab joins it as a new
+ * pane at its right, and the split stands in the tab's place, in front,
+ * still focused where it was.
+ */
+export function joinStripSplit(
+  strip: WorkspaceStrip,
+  key: string,
+  target: string,
+): WorkspaceStrip {
+  const source = strip.entries.find((entry) => entryKey(entry) === key);
+  const host = strip.entries.find(
+    (entry) => entry.kind === "item" && entry.id === target,
+  );
+  if (source?.kind !== "space" || !host) return strip;
+  const joined = addStripPane(strip, key, target).entries.find(
+    (entry) => entryKey(entry) === key,
+  );
+  if (joined?.kind !== "space" || joined === source) return strip;
+  const entry: StripSpace = {
+    ...joined,
+    view: selectWorkspaceView(joined.view, source.view.focusedId),
+  };
+  const entries = strip.entries.flatMap((candidate): StripEntry[] =>
+    candidate === host ? [entry] : candidate === source ? [] : [candidate],
+  );
+  return { entries, front: key };
+}
+
+/**
  * A tab pulled out of its split and let go on the strip: it stands on its
  * own before the entry `before` (or at the end). Focus stays with the tab
  * that had it: a tab that had focus in the split in front comes to the

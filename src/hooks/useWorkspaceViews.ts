@@ -3,8 +3,11 @@ import type { LayoutNode } from "../lib/layout";
 import {
   addStripPane,
   applyStripView,
+  combineStripTabs,
   detachStripTab,
   focusStripTab,
+  isSpaceKey,
+  joinStripSplit,
   keepUnseenStripEntries,
   recordedStripIds,
   reorderStripEntries,
@@ -232,6 +235,20 @@ export function useWorkspaceViews(
       mutate(current.current.key, (strip) => addStripPane(strip, spaceKey, id)),
     [mutate],
   );
+  /**
+   * Something let go on the middle of a single tab `target`: a tab (single,
+   * or pulled out of a split) makes a new split with it in its place; a
+   * split takes it as a pane at its right, standing in its place.
+   */
+  const combine = useCallback(
+    (target: string, dragged: string) =>
+      mutate(current.current.key, (strip) =>
+        isSpaceKey(dragged)
+          ? joinStripSplit(strip, dragged, target)
+          : combineStripTabs(strip, target, dragged),
+      ),
+    [mutate],
+  );
   /** A tab pulled out of its split stands on the strip before `before`. */
   const detach = useCallback(
     (id: string, before: string | null) =>
@@ -330,6 +347,7 @@ export function useWorkspaceViews(
     get,
     reorderEntries,
     addPane,
+    combine,
     detach,
     separate,
     viewWith,
