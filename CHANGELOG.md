@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.1.155] - 2026-10-27
+
+### Added
+
+- **Splits are one tab in the strip.** Panes you split side by side become a single entry in the tab strip, with a part for each pane showing its tab. Click a part to go straight to that tab, even when another tab is in front. Drag the entry along the strip like a tab, pull one part out to take that tab out of the split, or drop a tab on the entry to add it as another pane. Right-click for **Separate split** or **Close split**. **⌃⇥** and **⌘1–9** move along the strip, and switching to or from a split fades smoothly.
+- **Drop a tab on another tab to combine them.** Hold a tab over the middle of another tab in the strip for a moment: the target previews the split, and letting go makes it. Near a tab's edge, or passing quickly, it still just reorders. A tab's right-click menu has **Combine with** too.
+
+### Changed
+
+- **Moving tabs feels physical.**
+  - A tab you pick up lifts and closes in to a small chip under your pointer, instead of dragging a long bar.
+  - The other tabs spring aside and turn around smoothly if you change direction.
+  - Letting go glides the tab into its place at the speed you threw it.
+  - Esc, or letting go where nothing takes it, sends it back the way it came.
+  - Combining, separating and pulling a tab out of a split flow into their new shape.
+  - The grey preview of where a pane will split glides between edges.
+  - With Reduce motion on, nothing moves.
+- **Every tab is one click away.** A split pane shows all its tabs side by side instead of stacking them behind the one in front. Only tabs that don't fit go behind a small **+N** button.
+- **One header per pane, and each name said once.**
+  - A web page alone in its pane has one row: back, forward, reload and the address.
+  - The iPhone pane is one row: device, app, **Run**.
+  - Comment, Mark up, Add URL to chat, Open in Brave, Find, Zoom, Recent pages, Move and the iPhone's Home and Rotate are in the pane's **…** menu.
+  - Expand and Close show once per pane, on the pane you're using or pointing at.
+  - Bot chats, Settings and Automations no longer repeat their name.
+- **Menus, pop-ups and dialogs match.**
+  - Every menu has the same rows, corners, icon size and checkmark, including the workspace switcher, the + menu, the model and branch pickers, and the / and @ pickers.
+  - Menus and pop-ups opened over the window use the same grey as the rest of Aven, and the Usage and Access windows are solid and follow light mode.
+  - Dialogs share one look.
+  - Text fields, buttons, switches, list rows and focus outlines use one set of greys.
+  - Delete buttons use one red.
+  - The bot settings sheet and Settings no longer show a name twice.
+- **The iPhone is much faster.**
+  - The screen in the pane now updates at the simulator's full 60 frames a second.
+  - A phone that isn't running is ready in about 5 seconds instead of over a minute.
+  - Run starts the phone while your app builds.
+  - Aven uses a simulator you already have running instead of starting a second one, and shuts down simulators it started itself shortly after you move on.
+
+### Fixed
+
+- The still picture of the iPhone under a dialog, and Basic mode's screen, work again with Xcode 27.
+
 ## [0.1.154] - 2026-10-27
 
 ### Added
