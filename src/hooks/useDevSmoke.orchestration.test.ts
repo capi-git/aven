@@ -64,6 +64,8 @@ type Flaws = {
   twoStops?: boolean;
   /** The result has no line on what each agent did. */
   noSummary?: boolean;
+  /** An earlier step left a chat working in the project. */
+  leftWorking?: boolean;
 };
 
 /**
@@ -105,17 +107,28 @@ function app(flaws: Flaws = {}) {
     }),
     submit: vi.fn((id: string) => {
       update(id, { busy: true });
-      setTimeout(
-        () =>
-          update(id, {
-            busy: false,
-            blocks: [
-              ...session(id).blocks,
-              { id: `r${id}`, role: "assistant", text: SMOKE_REPLY },
-            ],
-          }),
-        0,
-      );
+      setTimeout(() => {
+        update(id, {
+          busy: false,
+          blocks: [
+            ...session(id).blocks,
+            { id: `r${id}`, role: "assistant", text: SMOKE_REPLY },
+          ],
+        });
+        // A step before the run's left its own chat working.
+        if (flaws.leftWorking && !state.sessions.some((e) => e.id === "left"))
+          state.sessions = [
+            ...state.sessions,
+            {
+              id: "left",
+              harness: "claude",
+              cwd: PROJECT,
+              title: "Show the mock",
+              busy: true,
+              blocks: [],
+            } as unknown as Session,
+          ];
+      }, 0);
     }),
     orchestration: {
       run: (leadId: string) => runs.get(leadId),
@@ -159,6 +172,14 @@ function app(flaws: Flaws = {}) {
   }
   function confirm(leadId: string) {
     const card = cards.get(leadId)!;
+    // As the orchestrator does, never beside another chat working there.
+    if (
+      state.sessions.some(
+        (entry) =>
+          entry.id !== leadId && entry.busy && !entry.orchestrationLeadId,
+      )
+    )
+      return;
     const workers = ["a", "b"].map((name) => `${leadId}-${name}`);
     state.sessions = [
       ...state.sessions,
@@ -394,6 +415,12 @@ describe("the real-app check's orchestration steps", () => {
     );
     expect(named(steps, STALL_STEP)?.detail).toBe(
       '"project is busy with a run in “Chat 3”. Finish or stop it there."; the bar offered Finish run, which ended the run',
+    );
+  });
+
+  it("names a chat an earlier step left working, which keeps the run from starting", async () => {
+    expect(await failure({ leftWorking: true })).toBe(
+      "Timed out waiting for the run to start; still working in the project: “Show the mock”",
     );
   });
 

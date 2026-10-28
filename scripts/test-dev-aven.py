@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused stdlib checks for the isolated development runner; never launches apps."""
 import contextlib
+import importlib.machinery
 import importlib.util
 import io
 import json
@@ -499,7 +500,12 @@ class RealAppCheck(unittest.TestCase):
                               timeout=20, env={**os.environ, 'AVEN_BROWSER_EXECUTABLE': str(fake)})
         reply = json.loads(chat.stdout.splitlines()[-1])['result']
         self.assertTrue(reply.startswith('AVEN_SMOKE_OK AVEN_PAGES ['), reply)
-        self.assertEqual(len(json.loads(reply.split('AVEN_PAGES ', 1)[1])), 6)
+        opens = json.loads(reply.split('AVEN_PAGES ', 1)[1])
+        self.assertEqual(len(opens), 6)
+        # Each open says how long it took, for the check's report.
+        self.assertTrue(all(isinstance(entry['ms'], int) and entry['ms'] >= 0 for entry in opens), opens)
+        logged = [json.loads(line) for line in (stand_in.parent / 'fake-claude.log').read_text().splitlines()]
+        self.assertEqual([entry['ms'] >= 0 for entry in logged if entry.get('browser') == 'open'], [True] * 6)
         sent = [json.loads(line) for line in calls.read_text().splitlines()]
         mock = 'http://127.0.0.1:8123/index.html?mock=1'
         self.assertEqual([(c['action'], c['url'], c.get('newTab', False), c['arrange']) for c in sent], [
@@ -510,6 +516,38 @@ class RealAppCheck(unittest.TestCase):
             ('open', 'http://127.0.0.1:8123/alternative.html?mock=1', True, False),
             ('open', 'http://127.0.0.1:8123/alternative.html?mock=2', True, False),
         ])
+
+    def test_stand_in_answers_with_its_timings_when_an_open_hangs(self):
+        spec = importlib.util.spec_from_loader(
+            'fake_claude', importlib.machinery.SourceFileLoader(
+                'fake_claude', str(self.root / 'home/.local/bin/claude')))
+        stand_in = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stand_in)
+        # Aven's browser command: the first open answers, the second never does.
+        fake = self.root / 'fake-aven'
+        count = self.root / 'opens'
+        fake.write_text(
+            f'#!{sys.executable}\n'
+            'import json, sys, time\n'
+            f'count = open({str(count)!r}, "a+"); count.write("x"); count.flush(); count.seek(0)\n'
+            'if len(count.read()) > 1: time.sleep(30)\n'
+            'print(json.dumps({"ok": True, "result": {"id": "page-1"}}))\n')
+        fake.chmod(0o755)
+        started = time.monotonic()
+        with mock.patch.dict(os.environ, {'AVEN_BROWSER_EXECUTABLE': str(fake)}):
+            reply = stand_in.pages_turn('http://127.0.0.1:8123/', budget=3, each=1)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue(reply.startswith('AVEN_SMOKE_OK AVEN_PAGES FAILED open 2 got no answer in 1 s ['),
+                        reply)
+        first, second = json.loads(reply.split(' s ', 1)[1])
+        self.assertEqual(first['id'], 'page-1')
+        self.assertGreaterEqual(second['ms'], 900)
+        # The whole run stays inside its budget, however many opens hang.
+        with mock.patch.dict(os.environ, {'AVEN_BROWSER_EXECUTABLE': str(fake)}):
+            started = time.monotonic()
+            reply = stand_in.pages_turn('http://127.0.0.1:8123/', budget=1, each=5)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIn('FAILED', reply)
 
     def test_stand_in_claude_writes_into_its_folder_as_a_race_lane(self):
         stand_in = self.root / 'home/.local/bin/claude'
@@ -612,6 +650,31 @@ class RealAppCheck(unittest.TestCase):
         self.assertFalse(self.score(exit_code=1))
         (self.root / 'result.json').unlink()
         self.assertFalse(self.score())
+
+    def test_a_failed_run_prints_the_browser_calls_timings_and_aven_s_notes(self):
+        chat = {'pid': 1, 'args': ['--replay-user-messages'], 'harnessParent': True}
+        calls = [{'pid': 1, 'browser': 'open', 'url': 'http://127.0.0.1:8123/index.html?mock=1', 'ok': True, 'ms': 120},
+                 {'pid': 1, 'browser': 'open', 'url': 'http://127.0.0.1:8123/?mock=1', 'ok': None, 'ms': 20004}]
+        (self.root / 'app.log').write_text(
+            'chromium noise\n'
+            '[aven] Agent page open: 2001 ms for the page\'s running load (stopped it), then 4002 ms for its own (still loading)\n')
+        self.write_run([{'name': "an agent's opens build on one page", 'passed': False, 'detail': 'open 2 got no answer'}],
+                       [chat, {'pid': 1, 'turn': 't'}, *calls])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(runner.report_smoke(self.root, 0))
+        text = out.getvalue()
+        self.assertIn('Stand-in browser calls:\n'
+                      '    open http://127.0.0.1:8123/index.html?mock=1 - 120 ms, ok\n'
+                      '    open http://127.0.0.1:8123/?mock=1 - 20004 ms, no answer\n', text)
+        self.assertIn("From Aven's log:\n    [aven] Agent page open: 2001 ms", text)
+        self.assertNotIn('chromium noise', text)
+        # A passing run prints none of it.
+        self.write_run([{'name': 'agent turn', 'passed': True}], [chat, {'pid': 1, 'turn': 't'}, *calls])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertTrue(runner.report_smoke(self.root, 0))
+        self.assertNotIn('Stand-in browser calls', out.getvalue())
 
 
 class PerfReport(unittest.TestCase):

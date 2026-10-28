@@ -521,39 +521,67 @@ def iphone_turn(text):
 # the scoped `--aven-browser` connection Aven gave this process, as an agent
 # would: the same address twice, another query, another path on the same
 # server, then a new tab at a path of its own (an alternative), then a new
-# tab at that same path again. The reply lists what each open returned.
+# tab at that same path again. The reply lists what each open returned and
+# how long it took ("ms"), with any note.
 PAGES_PATTERN = re.compile(r"AVEN_SMOKE_PAGES (http://[^\s]+/)")
 PAGES_WORD = "AVEN_PAGES"
+# The opens together get this long, each at most PAGES_OPEN_SECONDS: the
+# turn always answers, with the timings so far, well before the check stops
+# waiting for it (60 s).
+PAGES_BUDGET_SECONDS = 40
+PAGES_OPEN_SECONDS = 20
 
 
 def browser(action, timeout=30):
     executable = os.environ.get("AVEN_BROWSER_EXECUTABLE")
     if not executable:
         raise RuntimeError("no scoped connection in this process")
-    done = subprocess.run([executable, "--aven-browser", json.dumps(action)],
-                          capture_output=True, text=True, timeout=timeout)
-    result = json.loads(done.stdout or "{}")
-    log({"pid": os.getpid(), "browser": action.get("action"), "ok": result.get("ok")})
+    started = time.monotonic()
+    try:
+        done = subprocess.run([executable, "--aven-browser", json.dumps(action)],
+                              capture_output=True, text=True, timeout=timeout)
+        result = json.loads(done.stdout or "{}")
+    except subprocess.TimeoutExpired:
+        log({"pid": os.getpid(), "browser": action.get("action"), "url": action.get("url"),
+             "ok": None, "ms": round((time.monotonic() - started) * 1000), "at": time.time()})
+        raise
+    log({"pid": os.getpid(), "browser": action.get("action"), "url": action.get("url"),
+         "ok": result.get("ok"), "ms": round((time.monotonic() - started) * 1000), "at": time.time()})
     return result
 
 
-def pages_turn(base):
+def pages_turn(base, budget=PAGES_BUDGET_SECONDS, each=PAGES_OPEN_SECONDS):
     mock = base + "index.html?mock=1"
     alternative = base + "alternative.html?mock="
     opens = [{"url": mock}, {"url": mock}, {"url": mock + "&v=2"},
              {"url": base + "?mock=1"}, {"url": alternative + "1", "newTab": True},
              {"url": alternative + "2", "newTab": True}]
     report = []
+    deadline = time.monotonic() + budget
     try:
         for request in opens:
-            # arrange:false leaves the check's panes as they are.
-            done = browser({"action": "open", "arrange": False, **request})
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise RuntimeError(f"the opens ran past {budget} s")
+            started = time.monotonic()
+            try:
+                # arrange:false leaves the check's panes as they are.
+                done = browser({"action": "open", "arrange": False, **request},
+                               timeout=min(each, left))
+            except subprocess.TimeoutExpired:
+                report.append({"ms": round((time.monotonic() - started) * 1000)})
+                raise RuntimeError(f"open {len(report)} got no answer in {min(each, left):.0f} s")
+            entry = {"ms": round((time.monotonic() - started) * 1000)}
             if not done.get("ok"):
+                report.append(entry)
                 raise RuntimeError(done.get("error") or "open failed")
             result = done.get("result") or {}
-            report.append({"id": result.get("id"), "reused": result.get("reused")})
+            entry.update({"id": result.get("id"), "reused": result.get("reused")})
+            if result.get("note"):
+                entry["note"] = result["note"]
+            report.append(entry)
         return f"{REPLY} {PAGES_WORD} {json.dumps(report)}"
-    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         return f"{REPLY} {PAGES_WORD} FAILED {error} {json.dumps(report)}"
 
 

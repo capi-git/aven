@@ -1278,10 +1278,31 @@ fn leave_for_user(refresh: Option<PageRefresh>, touched: bool) -> bool {
     touched && matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate))
 }
 
-/// How long an open waits for its page's loads: one already running when it
-/// arrives, and the reload or navigation it starts.
-const PAGE_SETTLE_WAIT: Duration = Duration::from_secs(10);
+/// How long an open lets a load already running on its page end before it
+/// stops that load. A reload or navigation never starts while the page is
+/// still loading: overlapping navigations on one page trip a Chromium
+/// observer-list reentrancy check, which opens 1.5 s apart never did.
+const PAGE_IDLE_WAIT: Duration = Duration::from_secs(2);
+/// How long a load the open stopped gets to end.
+const PAGE_STOP_WAIT: Duration = Duration::from_secs(1);
+/// How long an open waits for its own reload or navigation to land: the new
+/// document committed, or the load ended (one that failed, or stayed on the
+/// same document, commits nothing new). Images and scripts may still load.
+/// A page that never says so (a hidden page Chromium deprioritises on a busy
+/// Mac, for one) costs the agent this long at most, with a note.
+const PAGE_LAND_WAIT: Duration = Duration::from_secs(4);
+/// How long an open waits for this chat's previous open on the site.
+const OPEN_TURN_WAIT: Duration = Duration::from_secs(10);
 const PAGE_SETTLE_POLL: Duration = Duration::from_millis(25);
+/// How long an open waits for the owning window to pick or make its page.
+const WINDOW_OPEN_WAIT: Duration = Duration::from_secs(15);
+
+const PAGE_LOADING_NOTE: &str =
+    "Your page is still loading. Take a snapshot again in a moment to read the new page.";
+const OPEN_BUSY_ERROR: &str =
+    "Your last open of this site is still finishing. Try again in a moment.";
+const OPEN_ABANDONED_ERROR: &str =
+    "The browser command stopped waiting, so the page was left as it is.";
 
 /// Wait until `done` holds, checking every `poll`, for at most `limit`.
 /// Returns whether it held.
@@ -1298,19 +1319,205 @@ fn wait_until(mut done: impl FnMut() -> bool, limit: Duration, poll: Duration) -
     }
 }
 
-/// Whether the page is loading, and how many of its loads have ended.
-fn page_load(caller: &Webview, id: &str) -> (bool, u64) {
-    let state = crate::browser::agent_tab_states(caller, &[id.to_owned()]);
-    let state = state.first();
-    let loading = state
-        .and_then(|state| state.get("loading"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let settled = state
-        .and_then(|state| state.get("loadsSettled"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    (loading, settled)
+/// Take `lane`'s turn, waiting at most `limit`, and only while `waiting`
+/// holds (the agent is still there to use the page).
+fn lock_within(
+    lane: &Mutex<()>,
+    limit: Duration,
+    poll: Duration,
+    mut waiting: impl FnMut() -> bool,
+) -> Option<std::sync::MutexGuard<'_, ()>> {
+    let deadline = Instant::now() + limit;
+    loop {
+        match lane.try_lock() {
+            Ok(turn) => return Some(turn),
+            Err(std::sync::TryLockError::Poisoned(turn)) => return Some(turn.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+        if Instant::now() >= deadline || !waiting() {
+            return None;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// A page's loading as the browser reports it: whether it is loading, and
+/// how many of its loads have committed a document and have ended (`None`
+/// where the engine does not count them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PageLoad {
+    loading: bool,
+    committed: Option<u64>,
+    settled: Option<u64>,
+}
+
+impl PageLoad {
+    fn from_state(state: Option<&Value>) -> Self {
+        let count = |key| {
+            state
+                .and_then(|state| state.get(key))
+                .and_then(Value::as_u64)
+        };
+        Self {
+            loading: state
+                .and_then(|state| state.get("loading"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            committed: count("loadsCommitted"),
+            settled: count("loadsSettled"),
+        }
+    }
+
+    /// Whether the engine counts loads, so an open can see its own land.
+    fn tracked(self) -> bool {
+        self.committed.is_some() || self.settled.is_some()
+    }
+
+    /// Whether a load started after `before` has landed: it committed a new
+    /// document, or it ended.
+    fn landed_since(self, before: Self) -> bool {
+        let grew = |now: Option<u64>, then: Option<u64>| matches!((now, then), (Some(now), Some(then)) if now > then);
+        grew(self.committed, before.committed)
+            || (grew(self.settled, before.settled) && !self.loading)
+    }
+}
+
+/// What an open does to the chat's own page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoadAction {
+    Reload,
+    Navigate,
+}
+
+/// The load for an open's refresh. A reload repeats what the page last
+/// committed, so a page whose running load had to be stopped (it may never
+/// have committed this address) is navigated to the address instead.
+fn load_action(refresh: PageRefresh, stopped: bool) -> Option<LoadAction> {
+    match refresh {
+        PageRefresh::Reload if !stopped => Some(LoadAction::Reload),
+        PageRefresh::Reload | PageRefresh::Navigate => Some(LoadAction::Navigate),
+        PageRefresh::Loaded => None,
+    }
+}
+
+/// The page an open reloads or navigates, as its waits see it.
+trait OpenTarget {
+    fn load(&self) -> PageLoad;
+    fn stop(&self) -> Result<(), String>;
+    fn start(&self, action: LoadAction) -> Result<(), String>;
+}
+
+/// How long each of an open's waits may take, and how often it looks.
+#[derive(Clone, Copy)]
+struct PageWaits {
+    idle: Duration,
+    stop: Duration,
+    land: Duration,
+    poll: Duration,
+}
+
+const PAGE_WAITS: PageWaits = PageWaits {
+    idle: PAGE_IDLE_WAIT,
+    stop: PAGE_STOP_WAIT,
+    land: PAGE_LAND_WAIT,
+    poll: PAGE_SETTLE_POLL,
+};
+
+/// How an open's wait for the page's running load went.
+#[derive(Debug, PartialEq, Eq)]
+struct Settled {
+    waited: Duration,
+    stopped: bool,
+}
+
+/// Let a load still running on the page end, for at most `waits.idle`, then
+/// stop it (giving it `waits.stop` to end), so the open's own reload or
+/// navigation never overlaps it.
+fn settle_page(page: &impl OpenTarget, waits: PageWaits) -> Settled {
+    let started = Instant::now();
+    if wait_until(|| !page.load().loading, waits.idle, waits.poll) {
+        return Settled {
+            waited: started.elapsed(),
+            stopped: false,
+        };
+    }
+    // A page that closed meanwhile fails the load that follows instead.
+    let _ = page.stop();
+    wait_until(|| !page.load().loading, waits.stop, waits.poll);
+    Settled {
+        waited: started.elapsed(),
+        stopped: true,
+    }
+}
+
+/// Start `action` and wait, for at most `waits.land`, for it to land.
+/// Returns how long that took and whether it landed.
+fn load_page(
+    page: &impl OpenTarget,
+    action: LoadAction,
+    waits: PageWaits,
+) -> Result<(Duration, bool), String> {
+    let before = page.load();
+    page.start(action)?;
+    let started = Instant::now();
+    // An engine that counts no loads cannot say when this one lands.
+    if !before.tracked() {
+        return Ok((Duration::ZERO, true));
+    }
+    let landed = wait_until(|| page.load().landed_since(before), waits.land, waits.poll);
+    Ok((started.elapsed(), landed))
+}
+
+/// A slow open's line for the app log: what it waited for and how long.
+fn slow_open_line(settled: &Settled, landing: Duration, landed: bool) -> Option<String> {
+    if settled.waited + landing < Duration::from_secs(1) && !settled.stopped && landed {
+        return None;
+    }
+    Some(format!(
+        "[aven] Agent page open: {} ms for the page's running load{}, then {} ms for its own {}",
+        settled.waited.as_millis(),
+        if settled.stopped { " (stopped it)" } else { "" },
+        landing.as_millis(),
+        if landed { "to land" } else { "(still loading)" },
+    ))
+}
+
+/// The chat's own page in the window that owns it.
+struct WindowPage<'a> {
+    caller: &'a Webview,
+    id: &'a str,
+    url: &'a str,
+}
+
+impl OpenTarget for WindowPage<'_> {
+    fn load(&self) -> PageLoad {
+        PageLoad::from_state(
+            crate::browser::agent_tab_states(self.caller, &[self.id.to_owned()]).first(),
+        )
+    }
+
+    fn stop(&self) -> Result<(), String> {
+        tauri::async_runtime::block_on(crate::browser::browser_action(
+            self.caller.clone(),
+            self.id.to_owned(),
+            "stop".into(),
+        ))
+    }
+
+    fn start(&self, action: LoadAction) -> Result<(), String> {
+        let (caller, id) = (self.caller.clone(), self.id.to_owned());
+        tauri::async_runtime::block_on(async move {
+            match action {
+                // Chromium's reload keeps the page's scroll position.
+                LoadAction::Reload => {
+                    crate::browser::browser_action(caller, id, "reload".into()).await
+                }
+                LoadAction::Navigate => {
+                    crate::browser::browser_navigate(caller, id, self.url.to_owned()).await
+                }
+            }
+        })
+    }
 }
 
 /// Whether the user has clicked, typed, dropped or annotated in the page
@@ -1326,7 +1533,10 @@ fn page_touched(caller: &Webview, id: &str) -> bool {
 /// Ask the owning window to open `url` for this session and wait for the page
 /// it granted. The chat's own page is then reloaded or navigated as the window
 /// answered, unless the user has been using it: that page is left alone and a
-/// new one is opened instead. Opens from one chat on one site take turns.
+/// new one is opened instead. Opens from one chat on one site take turns, and
+/// every wait is short, so a page that never reports its load holds neither
+/// the agent nor the chat's next open for long.
+#[allow(clippy::too_many_arguments)]
 fn open_page(
     server: &Server,
     caller: &Webview,
@@ -1335,10 +1545,13 @@ fn open_page(
     url: &str,
     new_tab: bool,
     arrange: bool,
+    connected: &dyn Fn() -> bool,
 ) -> Result<OpenedPage, String> {
     let url = crate::browser::parse_url(caller, url)?.to_string();
     let lane = server.opens.lane(&grant.session_id, &url);
-    let _turn = lane.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(_turn) = lock_within(&lane, OPEN_TURN_WAIT, PAGE_SETTLE_POLL, connected) else {
+        return Err(OPEN_BUSY_ERROR.into());
+    };
     let (id, refresh) = request_page(
         server,
         caller,
@@ -1349,56 +1562,60 @@ fn open_page(
         arrange,
         false,
     )?;
-    let changes = matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate));
-    if changes {
-        // Never start a reload or navigation while the page's last load is
-        // still running (it only just opened, or the last open changed it):
-        // overlapping navigations on one page trip a Chromium observer-list
-        // reentrancy check.
-        wait_until(
-            || !page_load(caller, &id).0,
-            PAGE_SETTLE_WAIT,
-            PAGE_SETTLE_POLL,
-        );
-    }
-    if changes && leave_for_user(refresh, page_touched(caller, &id)) {
-        // The window may not have heard yet; never reload or navigate it.
-        let (fresh, _) = request_page(server, caller, grant, token, &url, true, arrange, true)?;
+    // Only the chat's own page that the window picked to reload or navigate
+    // changes; another page is only shown, and one that just loaded is fresh.
+    let Some(change) = refresh.filter(|refresh| load_action(*refresh, false).is_some()) else {
         return Ok(OpenedPage {
-            id: fresh,
+            id,
             url,
-            refresh: None,
-            note: Some(TOUCHED_PAGE_NOTE),
+            refresh,
+            note: None,
         });
+    };
+    let page = WindowPage {
+        caller,
+        id: &id,
+        url: &url,
+    };
+    // A page the user has used is theirs (the window may not have heard
+    // yet): never stop, reload or navigate it; open a new one instead.
+    let users = || leave_for_user(refresh, page_touched(caller, &id));
+    let fresh = |token| {
+        request_page(server, caller, grant, token, &url, true, arrange, true).map(|(id, _)| {
+            OpenedPage {
+                id,
+                url: url.clone(),
+                refresh: None,
+                note: Some(TOUCHED_PAGE_NOTE),
+            }
+        })
+    };
+    if users() {
+        return fresh(token);
     }
-    let settled = page_load(caller, &id).1;
-    // Chromium's reload keeps the page's scroll position.
-    match refresh {
-        Some(PageRefresh::Reload) => tauri::async_runtime::block_on(
-            crate::browser::browser_action(caller.clone(), id.clone(), "reload".into()),
-        )?,
-        Some(PageRefresh::Navigate) => tauri::async_runtime::block_on(
-            crate::browser::browser_navigate(caller.clone(), id.clone(), url.clone()),
-        )?,
-        Some(PageRefresh::Loaded) | None => {}
+    // Never start a reload or navigation while the page's last load is still
+    // running (it only just opened, or the last open changed it).
+    let settled = settle_page(&page, PAGE_WAITS);
+    if users() {
+        return fresh(token);
     }
-    if changes {
-        // Hand back (and let this chat's next open on the site in) once the
-        // page has loaded what was asked: the agent then reads the new page.
-        wait_until(
-            || {
-                let (loading, now) = page_load(caller, &id);
-                now > settled && !loading
-            },
-            PAGE_SETTLE_WAIT,
-            PAGE_SETTLE_POLL,
-        );
+    // Its command gave up on this open: a late navigation would only move
+    // the page under the agent's next one.
+    if !connected() {
+        return Err(OPEN_ABANDONED_ERROR.into());
+    }
+    let action = load_action(change, settled.stopped).unwrap_or(LoadAction::Navigate);
+    // Hand back (and let this chat's next open on the site in) once the new
+    // page has arrived: the agent then reads it.
+    let (landing, landed) = load_page(&page, action, PAGE_WAITS)?;
+    if let Some(line) = slow_open_line(&settled, landing, landed) {
+        eprintln!("{line}");
     }
     Ok(OpenedPage {
         id,
         url,
         refresh,
-        note: None,
+        note: (!landed).then_some(PAGE_LOADING_NOTE),
     })
 }
 
@@ -1437,7 +1654,7 @@ fn request_page(
     );
     let result = if emitted.is_ok() {
         receiver
-            .recv_timeout(Duration::from_secs(15))
+            .recv_timeout(WINDOW_OPEN_WAIT)
             .map_err(|_| {
                 "Opening the browser timed out. Keep the session's workspace visible and retry."
                     .to_string()
@@ -1566,6 +1783,7 @@ fn dispatch(
             &url,
             new_tab,
             arrange.unwrap_or(true),
+            connected,
         )
         .map(|page| page.result()),
         Request::OpenFile { path, line, column } => {
@@ -1610,7 +1828,17 @@ fn dispatch(
         }
         Request::Navigate { id, url } => {
             if opens_separate_page(page_url(&caller, &id).as_deref(), &url) {
-                return open_page(server, &caller, grant, envelope.token, &url, true, false).map(
+                return open_page(
+                    server,
+                    &caller,
+                    grant,
+                    envelope.token,
+                    &url,
+                    true,
+                    false,
+                    connected,
+                )
+                .map(
                     |page| json!({"id":page.id,"url":page.url,"opened":true,"note":SEPARATE_PAGE_NOTE}),
                 );
             }
@@ -1863,7 +2091,8 @@ navigates it ("reused":"navigated"). A page the user opened, kept, clicked,
 typed in or annotated is never reloaded or navigated by open: one at the same
 address is only shown, and otherwise you get a new page (with a note). Opens
 from this chat on one site take turns, and one that reloads or navigates your
-page returns once it has loaded. Sleeping pages wake as needed.
+page returns once the new page has arrived (if it is still loading a few
+seconds later, its note says so). Sleeping pages wake as needed.
 Edit a mock in place and open or reload
 it again rather than making mock-v2 files or new tabs.
 Use newTab:true only for a second page you need at the same time, such as
@@ -2162,6 +2391,7 @@ fn browser_cli_request(input: &str, kind: CliKind) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
     #[test]
     fn desktop_requests_share_the_grant_but_never_browser_action_names() {
         let value = cli_request_value(r#"{"action":"click","x":10,"y":20}"#, true).unwrap();
@@ -2823,7 +3053,242 @@ mod tests {
             Duration::from_millis(5)
         ));
         assert!(started.elapsed() >= Duration::from_millis(30));
-        assert!(PAGE_SETTLE_WAIT <= Duration::from_secs(10));
+    }
+
+    /// A page whose loads take as many looks as it is told: `ends` looks
+    /// until a running load ends (`None`: never, unless stopped) and
+    /// `commits` looks until a started one commits (`None`: never).
+    struct ScriptedPage {
+        loading: Cell<bool>,
+        ends_in: Cell<Option<u32>>,
+        commit_in: Cell<Option<u32>>,
+        ends: Option<u32>,
+        commits: Option<u32>,
+        tracked: bool,
+        committed: Cell<u64>,
+        settled: Cell<u64>,
+        stops: Cell<u32>,
+        started: RefCell<Vec<LoadAction>>,
+    }
+
+    impl ScriptedPage {
+        /// A page still loading for `running` more looks, whose next load
+        /// commits after `commits` looks and ends after `ends`.
+        fn new(running: Option<u32>, commits: Option<u32>, ends: Option<u32>) -> Self {
+            Self {
+                loading: Cell::new(running != Some(0)),
+                ends_in: Cell::new(running),
+                commit_in: Cell::new(None),
+                ends,
+                commits,
+                tracked: true,
+                committed: Cell::new(1),
+                settled: Cell::new(0),
+                stops: Cell::new(0),
+                started: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn countdown(cell: &Cell<Option<u32>>) -> bool {
+            match cell.get() {
+                Some(0) => {
+                    cell.set(None);
+                    true
+                }
+                Some(left) => {
+                    cell.set(Some(left - 1));
+                    false
+                }
+                None => false,
+            }
+        }
+    }
+
+    impl OpenTarget for ScriptedPage {
+        fn load(&self) -> PageLoad {
+            if Self::countdown(&self.commit_in) {
+                self.committed.set(self.committed.get() + 1);
+            }
+            if self.loading.get() && Self::countdown(&self.ends_in) {
+                self.loading.set(false);
+                self.settled.set(self.settled.get() + 1);
+            }
+            PageLoad {
+                loading: self.loading.get(),
+                committed: self.tracked.then(|| self.committed.get()),
+                settled: self.tracked.then(|| self.settled.get()),
+            }
+        }
+
+        fn stop(&self) -> Result<(), String> {
+            self.stops.set(self.stops.get() + 1);
+            if self.loading.replace(false) {
+                self.settled.set(self.settled.get() + 1);
+            }
+            self.ends_in.set(None);
+            Ok(())
+        }
+
+        fn start(&self, action: LoadAction) -> Result<(), String> {
+            self.started.borrow_mut().push(action);
+            self.loading.set(true);
+            self.ends_in.set(self.ends);
+            self.commit_in.set(self.commits);
+            Ok(())
+        }
+    }
+
+    const QUICK: PageWaits = PageWaits {
+        idle: Duration::from_millis(60),
+        stop: Duration::from_millis(40),
+        land: Duration::from_millis(80),
+        poll: Duration::from_millis(1),
+    };
+
+    #[test]
+    fn an_open_lets_a_running_load_end_then_hands_back_once_its_own_commits() {
+        let page = ScriptedPage::new(Some(3), Some(2), None);
+        let settled = settle_page(&page, QUICK);
+        assert!(!settled.stopped);
+        assert_eq!(page.stops.get(), 0);
+        let action = load_action(PageRefresh::Reload, settled.stopped).unwrap();
+        assert_eq!(action, LoadAction::Reload);
+        let (_, landed) = load_page(&page, action, QUICK).unwrap();
+        // Committed: the agent reads the new page, though it still loads.
+        assert!(landed);
+        assert!(page.loading.get());
+        assert_eq!(*page.started.borrow(), [LoadAction::Reload]);
+        assert_eq!(
+            slow_open_line(&settled, Duration::from_millis(5), landed),
+            None
+        );
+    }
+
+    #[test]
+    fn a_load_that_never_ends_is_stopped_and_the_page_navigated_not_reloaded() {
+        let page = ScriptedPage::new(None, Some(1), Some(2));
+        let started = Instant::now();
+        let settled = settle_page(&page, QUICK);
+        assert!(settled.stopped);
+        assert_eq!(page.stops.get(), 1);
+        assert!(!page.loading.get());
+        // Bounded by the idle wait (and the stop's), never the old ten seconds.
+        assert!(started.elapsed() >= QUICK.idle);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        // A stopped page may never have committed this address.
+        let action = load_action(PageRefresh::Reload, settled.stopped).unwrap();
+        assert_eq!(action, LoadAction::Navigate);
+        assert!(load_page(&page, action, QUICK).unwrap().1);
+        assert_eq!(*page.started.borrow(), [LoadAction::Navigate]);
+        let line = slow_open_line(&settled, Duration::from_millis(3), true).unwrap();
+        assert!(line.contains("(stopped it)"), "{line}");
+    }
+
+    #[test]
+    fn an_open_whose_page_never_reports_its_load_hands_back_after_a_short_wait() {
+        // Neither commits nor ends: no signal ever comes.
+        let page = ScriptedPage::new(Some(0), None, None);
+        let started = Instant::now();
+        let settled = settle_page(&page, QUICK);
+        let (waited, landed) = load_page(&page, LoadAction::Navigate, QUICK).unwrap();
+        assert!(!landed);
+        assert!(waited >= QUICK.land);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let line = slow_open_line(&settled, Duration::from_millis(4100), landed).unwrap();
+        assert!(
+            line.ends_with("4100 ms for its own (still loading)"),
+            "{line}"
+        );
+        // The next open on the page stops that load before starting its own.
+        assert!(settle_page(&page, QUICK).stopped);
+        // A load that fails commits nothing new but ends: it has landed.
+        let failing = ScriptedPage::new(Some(0), None, Some(2));
+        assert!(load_page(&failing, LoadAction::Navigate, QUICK).unwrap().1);
+    }
+
+    #[test]
+    fn an_engine_that_counts_no_loads_is_not_waited_for() {
+        let mut page = ScriptedPage::new(Some(0), None, None);
+        page.tracked = false;
+        let started = Instant::now();
+        assert!(!settle_page(&page, QUICK).stopped);
+        assert_eq!(
+            load_page(&page, LoadAction::Reload, QUICK).unwrap(),
+            (Duration::ZERO, true)
+        );
+        assert!(started.elapsed() < QUICK.land);
+    }
+
+    #[test]
+    fn a_page_load_reads_the_bridge_state_and_lands_on_a_commit_or_an_end() {
+        let state = json!({"loading": true, "loadsCommitted": 4, "loadsSettled": 3});
+        let before = PageLoad::from_state(Some(&state));
+        assert_eq!(
+            before,
+            PageLoad {
+                loading: true,
+                committed: Some(4),
+                settled: Some(3)
+            }
+        );
+        assert!(before.tracked());
+        assert!(!PageLoad::from_state(Some(&json!({"loading": false}))).tracked());
+        assert_eq!(PageLoad::from_state(None), PageLoad::default());
+        let at = |loading, committed, settled| PageLoad {
+            loading,
+            committed: Some(committed),
+            settled: Some(settled),
+        };
+        assert!(at(true, 5, 3).landed_since(before));
+        assert!(at(false, 4, 4).landed_since(before));
+        // Ended, but another load is already running: not this one landing.
+        assert!(!at(true, 4, 4).landed_since(before));
+        assert!(!at(false, 4, 3).landed_since(before));
+        assert_eq!(
+            load_action(PageRefresh::Navigate, false),
+            Some(LoadAction::Navigate)
+        );
+        assert_eq!(load_action(PageRefresh::Loaded, false), None);
+        assert_eq!(load_action(PageRefresh::Loaded, true), None);
+    }
+
+    #[test]
+    fn an_open_waits_its_turn_only_briefly_and_never_once_its_agent_has_gone() {
+        let lane = Mutex::new(());
+        assert!(lock_within(&lane, QUICK.idle, QUICK.poll, || true).is_some());
+        let held = lane.lock().unwrap();
+        let started = Instant::now();
+        assert!(lock_within(&lane, QUICK.idle, QUICK.poll, || true).is_none());
+        assert!(started.elapsed() >= QUICK.idle);
+        // The agent's command gave up: stop waiting at once.
+        let started = Instant::now();
+        assert!(lock_within(&lane, Duration::from_secs(5), QUICK.poll, || false).is_none());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(held);
+        // A turn whose holder panicked is still a turn.
+        let lane = Arc::new(Mutex::new(()));
+        let poisoner = lane.clone();
+        let _ = std::thread::spawn(move || {
+            let _turn = poisoner.lock().unwrap();
+            panic!("poison the lane");
+        })
+        .join();
+        assert!(lock_within(&lane, QUICK.idle, QUICK.poll, || true).is_some());
+    }
+
+    #[test]
+    fn one_open_always_answers_before_the_agents_command_gives_up() {
+        let open = json!({"action": "open", "url": "http://localhost:5173/"});
+        let gives_up = cli_reply_wait(&open, false);
+        // An open on a free lane, however slow its page.
+        let longest = WINDOW_OPEN_WAIT + PAGE_IDLE_WAIT + PAGE_STOP_WAIT + PAGE_LAND_WAIT;
+        assert!(longest < gives_up, "{longest:?}");
+        // A lane is only busy behind an open whose own command gave up; that
+        // open then leaves the page alone, and this one waits less than the
+        // agent does.
+        assert!(OPEN_TURN_WAIT < gives_up);
+        // Opens spaced this far apart never overlapped two navigations.
+        assert!(PAGE_IDLE_WAIT >= Duration::from_millis(1500));
     }
 
     #[test]
