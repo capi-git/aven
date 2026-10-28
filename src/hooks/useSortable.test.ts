@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   afterEach,
@@ -39,9 +39,15 @@ describe("useSortable external drops and cancellation", () => {
     { animate: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }
   >;
 
+  /** Origins read in the same commit, as the highlight reads them. */
+  let probeOrigin: string | null;
+  let probed: Array<{ left: number } | null>;
   function Harness() {
     renders += 1;
     sortable = useSortable(ids, onReorder, options);
+    useLayoutEffect(() => {
+      if (probeOrigin) probed.push(sortable.takeOrigin(probeOrigin));
+    });
     return createElement(
       "div",
       null,
@@ -121,6 +127,8 @@ describe("useSortable external drops and cancellation", () => {
   }
 
   beforeEach(() => {
+    probeOrigin = null;
+    probed = [];
     now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     restoreClock = () => clock.mockRestore();
@@ -765,7 +773,8 @@ describe("useSortable external drops and cancellation", () => {
       "translate3d(0px, 0, 0)",
     );
     expect(visual().style.transform).toBe("");
-    expect(visual().style.transition).toBe("");
+    // Hidden under the copy at once, whatever transitions its opacity.
+    expect(visual().style.transition).toBe("none");
     expect(item().hasAttribute("data-sortable-moving")).toBe(false);
     expect(visual().hasAttribute("data-sortable-dragging")).toBe(false);
     expect(visual().hasAttribute("data-sortable-in-strip")).toBe(false);
@@ -773,9 +782,24 @@ describe("useSortable external drops and cancellation", () => {
     await pointer(item("session-a"), "pointerdown", 50, 15);
     expect(preview()).toBeNull();
     expect(visual().style.opacity).toBe("");
+    expect(visual().style.transition).toBe("");
     expect(animations.get("session-b")!.cancel).toHaveBeenCalled();
     await pointer(window, "pointerup", 50, 15);
     expect(onReorder).toHaveBeenCalledOnce();
+  });
+
+  it("keeps where entries stood only for the commit that morphed", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    probeOrigin = "session-b";
+    await startAnimated(270);
+    probed.length = 0;
+    await pointer(window, "pointerup", 270, 15);
+    // The drop's commit could read session-b's old box (drawn at -100px)...
+    expect(probed.find(Boolean)).toMatchObject({ left: 100 });
+    // ...and once it is over, nothing is left for a later front change to
+    // glide from: it slides as usual.
+    expect(sortable.takeOrigin("session-b")).toBeNull();
+    expect(sortable.takeOrigin("session-a")).toBeNull();
   });
 
   it("brings siblings home from where they are drawn on Escape, and stops on unmount", async () => {
@@ -796,7 +820,10 @@ describe("useSortable external drops and cancellation", () => {
       { screenX: 0, screenY: 0 },
     );
     for (const id of ids) {
-      expect(visual(id).style.transition).toBe("");
+      // The dragged tab is hidden under its copy until it lands.
+      expect(visual(id).style.transition).toBe(
+        id === "browser-a" ? "none" : "",
+      );
       expect(visual(id).hasAttribute("data-sortable-dragging")).toBe(false);
       expect(item(id).hasAttribute("data-sortable-moving")).toBe(false);
     }
@@ -1078,6 +1105,32 @@ describe("useSortable external drops and cancellation", () => {
       expect(lift().style.opacity).toBe("1");
       expect(lift().style.transform).toMatch(/^translate3d\(0px, 0px, 0px\)/);
       await pointer(window, "pointerup", 290, 15);
+    });
+
+    it("never arms on a slow, steady pass, only on a rest", async () => {
+      await press();
+      // Through session-b's middle (225–275) at about 170px/s.
+      for (let x = 228; x <= 272; x += 3) {
+        now += 18;
+        await hold(x);
+        expect(sortable.dropTarget).toBeNull();
+      }
+      // Past its middle while moving, it moves aside: a reorder.
+      expect(sortable.toIndex).toBe(2);
+      // Resting there, it stays put ("about to join") until it arms: the
+      // dragged tab's slot is its own again, with no insertion line.
+      now += 60;
+      await hold(273);
+      expect(sortable.dropTarget).toBeNull();
+      expect(sortable.toIndex).toBe(sortable.fromIndex);
+      now += 140;
+      await hold(272);
+      expect(sortable.dropTarget?.id).toBe("session-b");
+      await pointer(window, "pointerup", 272, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+      );
     });
 
     it("keeps the outer quarters for reordering", async () => {

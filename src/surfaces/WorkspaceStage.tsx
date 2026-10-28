@@ -1179,7 +1179,7 @@ export function WorkspaceStage({
         t: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
         w: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
         h: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
-        o: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+        o: { spring: TAB_SPRING.fade, precision: TAB_UNIT_PRECISION },
         s: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
       },
       { l: 0, t: 0, w: 0, h: 0, o: 0, s: 1 },
@@ -1225,8 +1225,9 @@ export function WorkspaceStage({
       state.box = null;
       state.split = false;
     } else {
-      const appearing = !state.box || state.leaving;
-      const drawn = springs.state();
+      // Fresh only when nothing of it is showing: coming back while it fades
+      // out, it turns round from what is drawn.
+      const fresh = springs.state().o.value <= 0.01;
       state.leaving = false;
       state.laid = target;
       element.style.left = `${target.left}px`;
@@ -1234,18 +1235,22 @@ export function WorkspaceStage({
       element.style.width = `${target.width}px`;
       element.style.height = `${target.height}px`;
       element.dataset.shown = "true";
-      const zone = hintZone ?? "join";
-      state.pivot = {
-        x: zone === "left" ? 0 : zone === "right" ? 1 : 0.5,
-        y: zone === "up" ? 0 : zone === "down" ? 1 : 0.5,
-      };
+      // The side it grows from is set as it appears and kept until it has
+      // grown: changing it mid-growth would shift the box.
+      if (fresh) {
+        const zone = hintZone ?? "join";
+        state.pivot = {
+          x: zone === "left" ? 0 : zone === "right" ? 1 : 0.5,
+          y: zone === "up" ? 0 : zone === "down" ? 1 : 0.5,
+        };
+      }
       const box = {
         l: target.left,
         t: target.top,
         w: target.width,
         h: target.height,
       };
-      if (appearing && (!state.box || drawn.o.value <= 0.01))
+      if (fresh)
         // In from the side it splits, fading and growing a little.
         springs.to(
           { ...box, o: 1, s: 1 },

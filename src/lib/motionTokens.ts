@@ -23,6 +23,11 @@ export const TAB_SPRING = {
   lift: { damping: 1, response: 0.18 },
   /** Snapping out of the strip's rubber band, and back into it. */
   pop: { damping: 0.78, response: 0.22 },
+  /**
+   * A quick fade, as Aven's other fades (`MOTION_MS.fast`, 120ms): a pane
+   * drop preview coming and going.
+   */
+  fade: { damping: 1, response: 0.076 },
 } as const satisfies Record<string, Spring>;
 
 /**
@@ -54,8 +59,6 @@ export const TAB_SET_DOWN_PX = 3;
 export const TAB_RUBBER_BAND = 0.55;
 /** Pointer moves older than this (ms) say nothing about the release speed. */
 export const TAB_VELOCITY_WINDOW_MS = 80;
-/** A pane drop preview fades in and out this fast. */
-export const TAB_PREVIEW_FADE_MS = MOTION_MS.fast;
 /** And grows in from this scale, about the pointer. */
 export const TAB_PREVIEW_ENTER_SCALE = 0.97;
 /** With reduced motion, things that would move crossfade this fast instead. */

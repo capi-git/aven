@@ -170,6 +170,48 @@ describe("docking motion", () => {
     expect(appear.options).toMatchObject({ easing: "linear", fill: "none" });
   });
 
+  it("turns round from what is drawn when the pointer comes back while it fades", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    await render();
+    boxes.set("hint", { left: 4, top: 36, width: 492, height: 560 });
+    await render({ dragging: true, dragTarget: { id: "chat", edge: "left" } });
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
+    // Leaves every pane, then comes straight back: it was still fully drawn,
+    // so it does not blink out and grow in again.
+    await render({ dragTarget: null });
+    await render({ dragTarget: { id: "chat", edge: "left" } });
+    const back = animationsOf(preview()).at(-1)!;
+    expect(back.keyframes[0]).toMatchObject({ opacity: "1" });
+    expect(preview().dataset.shown).toBe("true");
+  });
+
+  it("keeps the side it grows from while it grows, so a quick zone change never shifts it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    await render();
+    const left = { left: 4, top: 36, width: 492, height: 560 };
+    boxes.set("hint", left);
+    await render({ dragging: true, dragTarget: { id: "chat", edge: "left" } });
+    const appear = animationsOf(preview()).at(-1)!;
+    // Two frames into growing in, the pointer moves to the top half.
+    await act(async () => vi.advanceTimersByTime(1000 / 30));
+    const top = { left: 4, top: 36, width: 992, height: 280 };
+    boxes.set("hint", top);
+    await render({ dragTarget: { id: "chat", edge: "up" } });
+    const glide = animationsOf(preview()).at(-1)!;
+    // The box on screen, from a frame and the box it is laid out in.
+    const drawn = (frame: Keyframe, laid: typeof left) => {
+      const [, x, y, sx, sy] =
+        /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([-\d.]+), ([-\d.]+)\)/
+          .exec(String(frame.transform))!
+          .map(Number);
+      return [laid.left + x, laid.top + y, laid.width * sx, laid.height * sy];
+    };
+    const was = drawn(appear.keyframes[2], left);
+    const now = drawn(glide.keyframes[0], top);
+    for (const [index, value] of now.entries())
+      expect(Math.abs(value - was[index])).toBeLessThan(0.5);
+  });
+
   it("glides between zones on a spring, with transforms only", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     await render();

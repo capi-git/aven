@@ -9,7 +9,7 @@ import {
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
 import { moveItem } from "../lib/reorder";
 import { SortableMotion } from "../lib/sortableMotion";
-import type { MorphBox } from "../lib/stripMorph";
+import type { MorphOrigin } from "../lib/stripMorph";
 
 const THRESHOLD = 5;
 /**
@@ -25,6 +25,18 @@ const DROP_ON_EDGE = 16;
  * drop and a reorder.
  */
 const DROP_ON_HOLD = 8;
+/**
+ * Arming waits for the pointer to rest: moving further than this (px) from
+ * where it started waiting starts the wait again, so a slow pass through a
+ * middle never arms.
+ */
+const DROP_ON_STILL = 4;
+/**
+ * Waiting that long still, the pointer is resting rather than passing: the
+ * entry stays where it is (it would join it, not move past it) until it
+ * arms or the pointer leaves its middle.
+ */
+const DROP_ON_REST = 60;
 const SCROLL_EDGE = 28;
 
 /** DOM screen coordinates in CSS pixels; never substitute client coordinates. */
@@ -131,8 +143,11 @@ type DragState = {
   dropTarget: SortableDropTarget | null;
   part: SortablePart | null;
   torn: boolean;
-  /** The item whose drop zone the pointer rests on, until it arms. */
-  arming: { id: string; since: number } | null;
+  /**
+   * The item whose drop zone the pointer rests on, until it arms: since
+   * when, and where the pointer was then.
+   */
+  arming: { id: string; since: number; x: number; y: number } | null;
 };
 
 type ReadBounds = (element: HTMLElement) => DOMRect;
@@ -238,6 +253,10 @@ export function useSortable(
   });
   useEffect(() => {
     morphedThisCommit.current = false;
+    // Where entries stood before a morph matters only to the commit that
+    // played it (the highlight reads it there); a later front change slides
+    // as usual.
+    motion.current.forgetOrigins();
   });
   useEffect(
     () => () => {
@@ -452,18 +471,34 @@ export function useSortable(
                 current.torn ? current.part?.id : undefined,
               );
         // A delayed zone arms once the pointer has rested on it; until then
-        // the pointer there reorders.
+        // the pointer there reorders. Moving on within the zone starts the
+        // rest again, so a slow pass never arms.
         if (target?.kind !== "tab" || delay <= 0) current.arming = null;
         else if (target.id !== armed) {
           const now = performance.now();
-          if (current.arming?.id !== target.id)
-            current.arming = { id: target.id, since: now };
+          if (
+            current.arming?.id !== target.id ||
+            Math.hypot(
+              current.x - current.arming.x,
+              current.y - current.arming.y,
+            ) > DROP_ON_STILL
+          )
+            current.arming = {
+              id: target.id,
+              since: now,
+              x: current.x,
+              y: current.y,
+            };
           const wait = current.arming.since + delay - now;
           if (wait > 0) {
             armLater(wait);
+            // Resting there, it is about to join, not to move past: the
+            // entry keeps its place (and a release now moves nothing).
+            if (now - current.arming.since >= DROP_ON_REST)
+              current.toIndex = idsRef.current.indexOf(id);
             target = null;
           }
-        }
+        } else current.arming = null;
         current.dropTarget = target;
       };
       /** A drag that started on a part reports it; others pass nothing. */
@@ -803,10 +838,12 @@ export function useSortable(
     morphing.current = true;
   }, []);
 
-  /** The box the entry `id` stood in before the last drop or morph, once. */
+  /**
+   * The box the entry `id` stood in before this commit's drop or morph,
+   * and the speed it had, once.
+   */
   const takeOrigin = useCallback(
-    (id: string): MorphBox | null =>
-      motion.current.takeOrigin(id) ?? motion.current.morphing.takeOrigin(id),
+    (id: string): MorphOrigin | null => motion.current.takeOrigin(id),
     [],
   );
 

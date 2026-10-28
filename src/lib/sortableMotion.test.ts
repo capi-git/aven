@@ -510,6 +510,8 @@ describe("letting a tab go", () => {
   it("hands over to the tab when it lands, bounded by timers even if no animation finishes", () => {
     vi.useFakeTimers();
     const { strip, nodes, visuals, lefts } = tabs(["first", "second"]);
+    // Its opacity eases (as a split's segment does on CSS).
+    visuals.get("first")!.style.transition = "opacity 238ms";
     const motion = new SortableMotion();
     const landed = vi.fn();
     motion.onLanded = landed;
@@ -522,12 +524,16 @@ describe("letting a tab go", () => {
     lefts.set("second", 0);
     motion.settle(strip, nodes);
     expect(previewOf()).not.toBeNull();
+    // Hidden at once under the copy, without fading out on its transition.
     expect(visuals.get("first")!.style.opacity).toBe("0");
+    expect(visuals.get("first")!.style.transition).toBe("none");
     expect(landed).not.toHaveBeenCalled();
     vi.advanceTimersByTime(2000);
-    // Gone, and the tab is back in its place, exactly once.
+    // Gone, and the tab is back in its place, exactly once, its own
+    // transition back only after its opacity is (so it does not fade in).
     expect(previewOf()).toBeNull();
     expect(visuals.get("first")!.style.opacity).toBe("");
+    expect(visuals.get("first")!.style.transition).toBe("opacity 238ms");
     expect(landed).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });

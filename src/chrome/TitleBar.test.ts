@@ -1637,6 +1637,29 @@ describe("browser tab integration", () => {
     expect(props.onBrowserModeChange).toHaveBeenLastCalledWith("tab");
   });
 
+  it("gives focus back to the tab's own button when its menu closes with Escape", async () => {
+    await render({ browserOpen: true });
+    const slot = container.querySelector<HTMLElement>(".personal-title-tab")!;
+    await act(async () => {
+      slot.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          clientX: 10,
+          clientY: 10,
+        }),
+      );
+    });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu).not.toBeNull();
+    await act(async () => {
+      menu.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    // WebKit does not focus the tab's box (it has no tabindex): the button.
+    expect(document.activeElement).toBe(slot.querySelector('[role="tab"]'));
+  });
+
   it("leaves browser out of task close-to-the-right actions", async () => {
     await render({ browserOpen: true });
     await act(async () => {

@@ -99,7 +99,28 @@ export function useTabSlotMotion(
     // Switching project or window replaces every tab: no motion for that.
     const replaced =
       before.length > 0 && ids.length > 0 && ids.every((id) => !was.has(id));
-    if (replaced || motionReduced() || morphed?.()) {
+    if (!replaced && !motionReduced() && morphed?.()) {
+      // A morph moves this change; a tab closed or opened just before it
+      // keeps its own motion.
+      const changed = new Set([...added, ...removed]);
+      for (const id of changed) {
+        window.clearTimeout(timers.current.get(id));
+        timers.current.delete(id);
+      }
+      setOpening((current) =>
+        [...current].some((id) => changed.has(id))
+          ? new Set([...current].filter((id) => !changed.has(id)))
+          : current,
+      );
+      setGhosts((current) =>
+        current.some((ghost) => changed.has(ghost.id))
+          ? current.filter((ghost) => !changed.has(ghost.id))
+          : current,
+      );
+      for (const id of removed) widths.current.delete(id);
+      return;
+    }
+    if (replaced || motionReduced()) {
       for (const timer of timers.current.values()) window.clearTimeout(timer);
       timers.current.clear();
       setOpening((current) => (current.size ? new Set() : current));

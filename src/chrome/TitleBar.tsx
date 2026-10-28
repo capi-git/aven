@@ -693,6 +693,23 @@ function TitleTabItem({
   );
 }
 
+/**
+ * The element of a tab or split that keyboard focus can return to: its
+ * `role="tab"` button (a split's segment in reach, or the one lit), else its
+ * first button, else the box itself.
+ */
+function focusableIn(
+  element: HTMLElement | undefined,
+): HTMLElement | undefined {
+  if (!element) return element;
+  return (
+    element.querySelector<HTMLElement>('[role="tab"][tabindex="0"]') ??
+    element.querySelector<HTMLElement>('[role="tab"]') ??
+    element.querySelector<HTMLElement>("button") ??
+    element
+  );
+}
+
 /** What a dragged tab would bring to an entry it joins. */
 export type CombineJoin = {
   /** Its icon and name, as its segment will show them. */
@@ -2971,8 +2988,11 @@ function TitleBarComponent({
     } else if (id === "group-leave") {
       setSurfaceGroupMembership({ [contextId]: null });
     } else if (id.startsWith("strip-combine:")) {
+      // Morphs into the split it makes, as a drop does.
+      sortable.captureStripMorph();
       onCombineTabs?.(id.slice("strip-combine:".length), contextId);
     } else if (id.startsWith("strip-join:")) {
+      sortable.captureStripMorph();
       onAddToSplit?.(id.slice("strip-join:".length), contextId);
     } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
@@ -2990,8 +3010,10 @@ function TitleBarComponent({
       onNewView?.(contextId);
     } else if (id.startsWith("combine:")) {
       const targetId = id.slice("combine:".length);
-      if (availableCombineTargets.some((target) => target.id === targetId))
+      if (availableCombineTargets.some((target) => target.id === targetId)) {
+        sortable.captureStripMorph();
         onCombineWith?.(targetId);
+      }
     } else if (id === "close") {
       if (contextBrowser) onCloseBrowser?.(unified ? contextId : undefined);
       else onClose(contextId);
@@ -3172,7 +3194,9 @@ function TitleBarComponent({
           ) ?? [],
         ).find((node) => node.dataset.surfaceTabId === id);
       setBrowserMenu(null);
-      setTabMenu({ tabId: id, x, y, anchor: element });
+      // Anchored on the tab's own button, which Escape gives focus back to
+      // (WebKit does not focus the tab's box).
+      setTabMenu({ tabId: id, x, y, anchor: focusableIn(element) });
     };
     if (tab)
       return (
@@ -3233,7 +3257,7 @@ function TitleBarComponent({
               tabId: id,
               x: event.clientX,
               y: event.clientY,
-              anchor,
+              anchor: focusableIn(anchor),
             });
           }}
           onHover={(anchor, label) =>

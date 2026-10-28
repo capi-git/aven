@@ -51,8 +51,10 @@ describe("planning a strip morph", () => {
       velocity: new Map([["b", 320]]),
     });
     expect(steps).toEqual([{ kind: "entry", id: "b", dx: -50, velocity: 320 }]);
+    // The highlight under b, if it is in front, glides with b's speed.
+    expect(origins.get("b")).toEqual({ ...box(150, 200), velocity: 320 });
     // Still entries need no step, but the highlight can glide from them.
-    expect(origins.get("a")).toEqual(box(0, 200));
+    expect(origins.get("a")).toEqual({ ...box(0, 200), velocity: 0 });
   });
 
   it("leaves what something else carries home to it", () => {
@@ -103,7 +105,7 @@ describe("planning a strip morph", () => {
       { kind: "content", key: "tab:fix", dx: -50, clip: 50 },
     ]);
     // The highlight under the new split glides from the tab it grew out of.
-    expect(origins.get("split")).toEqual(box(0, 200));
+    expect(origins.get("split")).toEqual({ ...box(0, 200), velocity: 0 });
   });
 
   it("separates in one motion: each segment's content glides into its own tab", () => {
@@ -203,7 +205,7 @@ describe("playing a strip morph", () => {
     expect(visual.style.transform).toBe("");
     vi.advanceTimersByTime(1000);
     expect(visual.style.transform).toBe("");
-    expect(morph.takeOrigin("a")).toEqual(box(0, 200));
+    expect(morph.takeOrigin("a")).toEqual({ ...box(0, 200), velocity: 0 });
     expect(morph.takeOrigin("a")).toBeNull();
   });
 

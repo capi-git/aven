@@ -29,6 +29,15 @@ import { SpringAnimator, applyFrame } from "./spring";
  * Only transform and opacity animate; every spring is bounded (spring.ts).
  */
 
+/** Where an entry stood before a morph, and how fast it was moving (px/s). */
+export type MorphOrigin = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  velocity: number;
+};
+
 export type MorphBox = {
   left: number;
   top: number;
@@ -159,16 +168,16 @@ export function planStripMorph(
     exclude?: ReadonlySet<string>;
     velocity?: ReadonlyMap<string, number>;
   } = {},
-): { steps: MorphStep[]; origins: Map<string, MorphBox> } {
+): { steps: MorphStep[]; origins: Map<string, MorphOrigin> } {
   const steps: MorphStep[] = [];
-  const origins = new Map<string, MorphBox>();
+  const origins = new Map<string, MorphOrigin>();
   const moved = new Map<string, number>();
   for (const [id, box] of after.entries) {
     const was = before.entries.get(id);
     if (!was || exclude.has(`entry:${id}`)) continue;
-    origins.set(id, was);
-    const dx = was.left - box.left;
     const speed = velocity.get(id) ?? 0;
+    origins.set(id, { ...was, velocity: speed });
+    const dx = was.left - box.left;
     moved.set(id, dx);
     if (Math.abs(dx) >= 0.5 || Math.abs(speed) > 1)
       steps.push({ kind: "entry", id, dx, velocity: speed });
@@ -228,7 +237,7 @@ export function planStripMorph(
       if (carried === null) steps.push({ kind: "appear", key, entry: false });
       continue;
     }
-    if (!origins.has(entry)) origins.set(entry, was);
+    if (!origins.has(entry)) origins.set(entry, { ...was, velocity: 0 });
     const dx = was.left - part.box.left - (carried ?? 0);
     const scale = part.box.width > 0 ? was.width / part.box.width : 1;
     if (Math.abs(dx) >= 0.5 || Math.abs(scale - 1) > 0.002)
@@ -258,7 +267,7 @@ export class StripMorph {
     }
   >();
   private before: MorphSnapshot | null = null;
-  private origins = new Map<string, MorphBox>();
+  private origins = new Map<string, MorphOrigin>();
 
   /**
    * The spring set of an element, made on first use. With `radius`, it also
@@ -387,10 +396,15 @@ export class StripMorph {
    * The box the entry `id` grew out of in the last morph, once: the
    * highlight under the tab in front glides from there.
    */
-  takeOrigin(id: string): MorphBox | null {
+  takeOrigin(id: string): MorphOrigin | null {
     const box = this.origins.get(id) ?? null;
     this.origins.delete(id);
     return box;
+  }
+
+  /** Drops every origin: they belong to the commit that played the morph. */
+  forgetOrigins() {
+    this.origins.clear();
   }
 
   play(

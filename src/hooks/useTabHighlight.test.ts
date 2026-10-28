@@ -15,15 +15,20 @@ function Strip({
   ids,
   front,
   enabled = true,
+  glideFrom,
 }: {
   ids: string[];
   front: string | null;
   enabled?: boolean;
+  glideFrom?: (
+    id: string,
+  ) => { left: number; width: number; velocity?: number } | null;
 }) {
   const strip = useRef<HTMLDivElement | null>(null);
   const highlight = useTabHighlight(strip, front, {
     enabled,
     layoutKey: ids.join("\n"),
+    glideFrom,
   });
   return createElement(
     "div",
@@ -114,6 +119,45 @@ describe("the sliding tab highlight", () => {
       [
         { transform: "translateX(0px) scaleX(1)" },
         { transform: "translateX(404px) scaleX(1)" },
+      ],
+      { duration: TAB_SLIDE_MS, easing: TAB_SLIDE_EASE },
+    );
+  });
+
+  it("glides from where a dropped tab stood, with its speed, then slides as usual", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await render({ ids: ["a", "b", "c"], front: "a" });
+    // A drop: the front tab now stands at c's place; it was drawn at a's,
+    // moving right at 1200px/s. The origin is there for this commit only.
+    let origin: { left: number; width: number; velocity: number } | null = {
+      left: 100,
+      width: 200,
+      velocity: 1200,
+    };
+    const glideFrom = () => {
+      const taken = origin;
+      origin = null;
+      return taken;
+    };
+    boxes.a = { left: 504, width: 200 };
+    await render({ ids: ["b", "c", "a"], front: "a", glideFrom });
+    const [glide] = animate.mock.calls.at(-1)!;
+    const xs = (glide as Keyframe[]).map((frame) =>
+      Number(/translateX\(([-\d.]+)px/.exec(String(frame.transform))![1]),
+    );
+    expect(xs[0]).toBe(0);
+    expect(xs.at(-1)).toBe(404);
+    // Thrown, it is further along after one frame than a glide from rest.
+    expect(xs[1]).toBeGreaterThan(40);
+    expect(animate.mock.calls.at(-1)![1]).toMatchObject({ easing: "linear" });
+    await act(async () => vi.advanceTimersByTime(1000));
+    vi.useRealTimers();
+    // The next front change is an ordinary 150ms slide.
+    await render({ ids: ["b", "c", "a"], front: "b", glideFrom });
+    expect(animate).toHaveBeenLastCalledWith(
+      [
+        { transform: "translateX(404px) scaleX(1)" },
+        { transform: "translateX(202px) scaleX(1)" },
       ],
       { duration: TAB_SLIDE_MS, easing: TAB_SLIDE_EASE },
     );

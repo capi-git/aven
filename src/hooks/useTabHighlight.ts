@@ -64,7 +64,9 @@ export function useTabHighlight(
      * front stood in (once): the highlight glides from there on the same
      * spring the strip morphs on, rather than appearing in place.
      */
-    glideFrom?: (id: string) => { left: number; width: number } | null;
+    glideFrom?: (
+      id: string,
+    ) => { left: number; width: number; velocity?: number } | null;
   },
 ) {
   const highlight = useRef<HTMLElement | null>(null);
@@ -131,7 +133,8 @@ export function useTabHighlight(
                 spring: TAB_SPRING.move,
                 from: boxIn(root, stood).x,
                 to: to.x,
-                velocity: 0,
+                // With the speed its tab had, so the two move as one.
+                velocity: (stood.velocity ?? 0) / (effectiveCssZoom(root) || 1),
                 precision: TAB_PX_PRECISION,
               },
               width: {

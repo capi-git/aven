@@ -20,7 +20,7 @@ import {
   rubberBand,
   springSettleTime,
 } from "./spring";
-import { StripMorph, type MorphBox } from "./stripMorph";
+import { StripMorph, type MorphOrigin } from "./stripMorph";
 
 type Axis = "x" | "y";
 type Point = { x: number; y: number };
@@ -333,7 +333,10 @@ export class SortableMotion {
   private velocity = new PointerVelocity(TAB_VELOCITY_WINDOW_MS);
   private landing: SortableLanding | null = null;
   /** Tabs kept hidden while the copy is away from them, and how to show them. */
-  private hidden = new Map<HTMLElement, string>();
+  private hidden = new Map<
+    HTMLElement,
+    { opacity: string; transition: string }
+  >();
   private morph = new StripMorph();
   /** A split making room for a tab held over it, mid-drag. */
   private hint = new StripMorph();
@@ -409,17 +412,30 @@ export class SortableMotion {
     this.velocity.add(point.x, point.y, performance.now());
   }
 
+  /**
+   * Hidden at once, whatever transitions its opacity (a split's segment
+   * fades on CSS): the copy stands in for it.
+   */
   private hide(element: HTMLElement) {
     if (!this.hidden.has(element))
-      this.hidden.set(element, element.style.opacity);
+      this.hidden.set(element, {
+        opacity: element.style.opacity,
+        transition: element.style.transition,
+      });
+    element.style.transition = "none";
     element.style.opacity = "0";
   }
 
+  /** Shown again at once (or faded in), with its own transitions back. */
   private reveal(element: HTMLElement, fade = false) {
-    const opacity = this.hidden.get(element);
-    if (opacity === undefined) return;
+    const saved = this.hidden.get(element);
+    if (saved === undefined) return;
     this.hidden.delete(element);
-    element.style.opacity = opacity;
+    element.style.opacity = saved.opacity;
+    // Let the opacity land before its transition returns, so it does not
+    // fade in again from nothing as the copy goes.
+    if (element.isConnected) void getComputedStyle(element).opacity;
+    element.style.transition = saved.transition;
     if (fade && element.isConnected && typeof element.animate === "function")
       playBounded(element, [{ opacity: 0 }, { opacity: 1 }], {
         duration: TAB_REDUCED_FADE_MS,
@@ -907,9 +923,14 @@ export class SortableMotion {
     return this.pointerVelocity;
   }
 
-  /** The box the entry `id` was drawn in before the last drop, once. */
-  takeOrigin(id: string): MorphBox | null {
+  /** The box the entry `id` was drawn in before this commit's morph, once. */
+  takeOrigin(id: string): MorphOrigin | null {
     return this.morph.takeOrigin(id);
+  }
+
+  /** Origins last only for the commit that morphed. */
+  forgetOrigins() {
+    this.morph.forgetOrigins();
   }
 
   /**

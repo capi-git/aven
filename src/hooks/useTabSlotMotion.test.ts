@@ -12,9 +12,11 @@ let root: Root;
 let container: HTMLDivElement;
 let seen: { opening: ReadonlySet<string>; ghosts: readonly TabSlotGhost[] };
 
+let morphed = false;
+
 function Strip({ ids }: { ids: string[] }) {
   const strip = useRef<HTMLDivElement | null>(null);
-  seen = useTabSlotMotion(ids, strip);
+  seen = useTabSlotMotion(ids, strip, { morphed: () => morphed });
   return createElement(
     "div",
     { ref: strip },
@@ -81,6 +83,22 @@ afterEach(async () => {
 });
 
 describe("tab slot motion", () => {
+  it("leaves a change a morph moves to it, and keeps a tab closed just before collapsing", async () => {
+    morphed = false;
+    await render(["a", "b", "c", "d"]);
+    await render(["a", "c", "d"]);
+    expect(seen.ghosts.map((ghost) => ghost.id)).toEqual(["b"]);
+    // A drop right after: the strip morphs, so nothing new grows or
+    // collapses for it, but b's space still closes.
+    morphed = true;
+    await render(["a", "e"]);
+    morphed = false;
+    expect(seen.ghosts.map((ghost) => ghost.id)).toEqual(["b"]);
+    expect([...seen.opening]).toEqual([]);
+    await act(async () => vi.advanceTimersByTime(TAB_SLOT_MOTION_MS));
+    expect(seen.ghosts).toEqual([]);
+  });
+
   it("does not animate the first render", async () => {
     await render(["a", "b"]);
     expect([...seen.opening]).toEqual([]);

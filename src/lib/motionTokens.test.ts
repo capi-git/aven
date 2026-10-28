@@ -6,7 +6,8 @@ import {
   TAB_LIFT_SCALE,
   TAB_SPRING,
 } from "./motionTokens";
-import { springCurve } from "./spring";
+import { MOTION_MS } from "./motion";
+import { springCurve, springSettleTime } from "./spring";
 
 const css = readFileSync("src/chrome/TitleBar.css", "utf8");
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -37,10 +38,19 @@ describe("tab motion tokens", () => {
     expect(TAB_SPRING.flick.damping).toBeGreaterThanOrEqual(0.8);
     expect(TAB_SPRING.flick.damping).toBeLessThan(1);
     expect(TAB_SPRING.pop.damping).toBeGreaterThanOrEqual(0.75);
-    for (const spring of Object.values(TAB_SPRING)) {
+    for (const [name, spring] of Object.entries(TAB_SPRING)) {
+      if (name === "fade") continue;
       expect(spring.response).toBeGreaterThanOrEqual(0.15);
       expect(spring.response).toBeLessThanOrEqual(0.3);
     }
+    // The fade is as quick as Aven's other fades.
+    expect(TAB_SPRING.fade.damping).toBe(1);
+    expect(
+      Math.abs(
+        springSettleTime(TAB_SPRING.fade, 0, 1, 0, 0.002) * 1000 -
+          MOTION_MS.fast,
+      ),
+    ).toBeLessThan(20);
     expect(TAB_LIFT_SCALE).toBeGreaterThan(1);
     expect(TAB_LIFT_SCALE).toBeLessThanOrEqual(1.03);
     expect(TAB_FLICK_SPEED).toBeGreaterThan(0);
