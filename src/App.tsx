@@ -164,6 +164,8 @@ import {
   stripEntryFocus,
   stripEntryKeyOf,
   stripEntryShown,
+  stripCombineUndo,
+  stripDropKeeps,
   stripItems,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
@@ -1727,6 +1729,30 @@ export default function App({
       return { ...all, [cwd]: keepBrowserTab(current, target.id) };
     });
   }, []);
+  /**
+   * Something let go on the middle of a single tab on the window's strip
+   * combines with it. A new split undoes like one made on the stage, and
+   * pages it brings together are kept, as pages combined into one pane are.
+   */
+  const onCombineOnStrip = useCallback(
+    (target: string, dragged: string) => {
+      const views = viewRef.current;
+      const undo = stripCombineUndo(views.strip, target, dragged);
+      if (undo) {
+        const next = pushWorkspaceLayoutUndo(
+          recoveryRef.current,
+          workspaceKeyRef.current,
+          undo.view,
+          undo.entry,
+        );
+        recoveryRef.current = next;
+        setRecovery(next);
+      }
+      stripDropKeeps(target, dragged).forEach(onKeepBrowser);
+      views.combine(target, dragged);
+    },
+    [onKeepBrowser],
+  );
   // A native page in an arrangement change moves as a picture of itself,
   // taken just before the change (browserMotion.ts).
   const browserIdsRef = useRef<ReadonlySet<string>>(new Set());
@@ -11194,7 +11220,12 @@ export default function App({
           visibleIds: [strip.front],
           // One click on a segment: the split, that pane and that tab.
           onSelectSplitTab: onSelectSurface,
-          onAddToSplit: (key, id) => workspaceViews.addPane(key, id),
+          // A page moved into a split's pane is kept, as on the stage.
+          onAddToSplit: (key, id) => {
+            stripDropKeeps(key, id).forEach(onKeepBrowser);
+            workspaceViews.addPane(key, id);
+          },
+          onCombineTabs: onCombineOnStrip,
           onDetachFromSplit: (id, before) => workspaceViews.detach(id, before),
           onSeparateSplit: (key) => workspaceViews.separate(key),
           onCloseSplit,

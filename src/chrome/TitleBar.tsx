@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Columns2,
   Flag,
   Globe,
   Inbox,
@@ -274,6 +275,13 @@ export type TitleBarProps = {
   onSelectSplitTab?: (id: string) => void;
   /** A tab let go on a split's entry joins it as a pane at its right. */
   onAddToSplit?: (splitId: string, id: string) => void;
+  /**
+   * Something let go on the middle of a single tab (`targetId`) joins it: a
+   * tab, or a segment pulled out of its split, makes a new split with it in
+   * its place, the target on the left; a split (`draggedId` its key) takes
+   * it as a pane at its right.
+   */
+  onCombineTabs?: (targetId: string, draggedId: string) => void;
   /** A tab pulled out of its split, let go on the strip before `before`. */
   onDetachFromSplit?: (id: string, before: string | null) => void;
   /** The split's tabs stand on the strip as single tabs again. */
@@ -497,6 +505,7 @@ function TitleTabItem({
   onContextMenu,
   itemRef,
   deck,
+  combineInto = false,
 }: {
   tab: Tab;
   projectless: boolean;
@@ -513,6 +522,8 @@ function TitleTabItem({
   itemRef?: (el: HTMLDivElement | null) => void;
   /** A lone title row draws the tab's icon on a deck. */
   deck?: boolean;
+  /** Something held over its middle combines with it into a split. */
+  combineInto?: boolean;
 }) {
   const { headline, tooltip } = tabCopy(tab, projectless);
   const tabRef = useRef<HTMLDivElement | null>(null);
@@ -546,6 +557,7 @@ function TitleTabItem({
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
       data-draggable={canDrag || undefined}
+      data-combine-into={combineInto || undefined}
       data-tauri-drag-region="false"
       onContextMenu={(event) => {
         event.preventDefault();
@@ -659,8 +671,25 @@ function TitleTabItem({
             <X className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
+        {combineInto ? <CombineIncoming /> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The pane a drop would add, drawn at the right of the entry it joins: a
+ * single tab about to become a split, or a split about to take a pane.
+ */
+function CombineIncoming({ inline = false }: { inline?: boolean }) {
+  return (
+    <span
+      className={inline ? "aven-split-incoming" : "aven-tab-combine"}
+      data-combine-incoming
+      aria-hidden
+    >
+      <Columns2 className="size-3" strokeWidth={1.75} />
+    </span>
   );
 }
 
@@ -907,11 +936,7 @@ function SplitEntryItem({
               />
             </Fragment>
           ))}
-          {dropInto ? (
-            <span className="aven-split-incoming" aria-hidden>
-              <Plus className="size-3" strokeWidth={1.75} />
-            </span>
-          ) : null}
+          {dropInto ? <CombineIncoming inline /> : null}
         </div>
       </div>
     </div>
@@ -965,6 +990,13 @@ function SplitSegmentTip({
 
 /** How long the pointer rests on a segment before its hint shows. */
 const SPLIT_TIP_DELAY_MS = 450;
+/**
+ * How long a dragged tab rests on an entry's middle before letting go there
+ * joins them. A reorder drag crosses a tab's middle (60–110px of a typical
+ * strip tab) in well under this at ordinary speed, so passing over never
+ * combines; a deliberate pause arms it before it feels slow.
+ */
+const STRIP_COMBINE_DELAY_MS = 200;
 
 function BrowserTitleTabItem({
   id,
@@ -990,6 +1022,7 @@ function BrowserTitleTabItem({
   itemRef,
   separator = false,
   deck,
+  combineInto = false,
 }: {
   id: string;
   title: string;
@@ -1018,6 +1051,8 @@ function BrowserTitleTabItem({
   separator?: boolean;
   /** A lone title row draws the page's icon on a deck. */
   deck?: boolean;
+  /** Something held over its middle combines with it into a split. */
+  combineInto?: boolean;
 }) {
   const label = title.trim() || "Browser";
   const dropBefore =
@@ -1042,6 +1077,7 @@ function BrowserTitleTabItem({
       data-surface-id={id}
       data-surface-tab-id={id}
       data-draggable={canDrag || undefined}
+      data-combine-into={combineInto || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
@@ -1162,6 +1198,7 @@ function BrowserTitleTabItem({
             <ChevronDown className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
+        {combineInto ? <CombineIncoming /> : null}
       </div>
     </div>
   );
@@ -1538,6 +1575,7 @@ function TitleBarComponent({
   splits,
   onSelectSplitTab,
   onAddToSplit,
+  onCombineTabs,
   onDetachFromSplit,
   onSeparateSplit,
   onCloseSplit,
@@ -1797,6 +1835,9 @@ function TitleBarComponent({
     const last = slots[slots.length - 1]?.getBoundingClientRect();
     return { before: null, x: last ? last.right - origin + 1 : 0 };
   };
+  /** A single tab of the window's strip: a chat, file, iPhone or page. */
+  const stripTab = (id: string) =>
+    sessionTabs.has(id) || (unified && browsers.has(id));
   const sortable = useSortable(
     displayIds,
     (ids, movedId) => {
@@ -1827,21 +1868,35 @@ function TitleBarComponent({
     },
     {
       animate: true,
-      // A tab let go on a split's entry joins the split as a pane.
-      isDropTarget: (dragged, target) =>
-        Boolean(onAddToSplit) &&
-        splitEntries.has(target) &&
-        !splitEntries.has(dragged) &&
-        !chipGroupId(dragged),
-      onDropOnItem: (dragged, target) => {
-        if (splitEntries.has(target) && !splitEntries.has(dragged))
-          onAddToSplit?.(target, dragged);
+      // Dropping onto an entry waits for the pointer to rest on its middle,
+      // so moving a tab past it never joins them by accident.
+      dropOnDelay: STRIP_COMBINE_DELAY_MS,
+      // Let go on an entry's middle, a tab (or a segment pulled out of its
+      // split) joins a split as a pane, or makes a split with a single tab;
+      // a split takes a single tab as a pane.
+      isDropTarget: (dragged, target, part) => {
+        if (chipGroupId(dragged) || chipGroupId(target)) return false;
+        const moving = part ?? dragged;
+        if (splitEntries.has(target))
+          return Boolean(onAddToSplit) && !splitEntries.has(moving);
+        return (
+          Boolean(onCombineTabs) &&
+          stripTab(target) &&
+          (part !== undefined || splitEntries.has(dragged) || stripTab(dragged))
+        );
+      },
+      onDropOnItem: (dragged, target, part) => {
+        const moving = part ?? dragged;
+        if (splitEntries.has(target)) {
+          if (!splitEntries.has(moving)) onAddToSplit?.(target, moving);
+        } else onCombineTabs?.(target, moving);
       },
       onDragMove: (id, x, y, pointer, part) => {
         // A segment pulled out of its split drags as its own tab.
         if (part?.torn) {
           onSurfaceDragMove?.(part.part, x, y, pointer);
-          const slot = part.inStrip ? tearSlotAt(x) : null;
+          // Over an entry's middle it joins that entry: no line.
+          const slot = part.inStrip && !part.target ? tearSlotAt(x) : null;
           setTearSlot((previous) =>
             previous?.before === slot?.before &&
             Math.abs((previous?.x ?? 0) - (slot?.x ?? 0)) < 0.5
@@ -1860,9 +1915,10 @@ function TitleBarComponent({
             return onSurfaceDragEnd?.(part.part, x, y, cancelled, pointer)
               ? true
               : false;
-          // Back on the strip: it stands there alone. The stage only
-          // clears its drop hints.
+          // Back on the strip: it stands there alone, or joins the entry it
+          // was let go on. The stage only clears its drop hints.
           onSurfaceDragEnd?.(part.part, x, y, true, pointer);
+          if (part.target) return false;
           onDetachFromSplit?.(part.part, tearSlotAt(x)?.before ?? null);
           return true;
         }
@@ -2265,6 +2321,40 @@ function TitleBarComponent({
       id: "return-tab-window",
       label: "Return tab to original window",
     });
+  // The keyboard's way to combine on the window's strip: the tab's menu
+  // names the entries it can join, as letting it go on their middle would.
+  const combineItems: ExplorerMenuItem[] =
+    contextId && menuKind === "tab" && onCombineTabs && stripTab(contextId)
+      ? displayIds.flatMap((id): ExplorerMenuItem[] => {
+          if (id === contextId || chipGroupId(id)) return [];
+          const split = splitEntries.get(id);
+          if (split)
+            return onAddToSplit
+              ? [
+                  {
+                    kind: "item",
+                    id: `strip-join:${id}`,
+                    label: split.segments
+                      .map((segment) =>
+                        splitSegmentLabel(segment, projectlessWorkspace),
+                      )
+                      .join(" + "),
+                  },
+                ]
+              : [];
+          if (!stripTab(id)) return [];
+          const tab = sessionTabs.get(id);
+          return [
+            {
+              kind: "item",
+              id: `strip-combine:${id}`,
+              label: tab
+                ? tabCopy(tab, projectlessWorkspace).headline
+                : browsers.get(id)?.title.trim() || "Browser",
+            },
+          ];
+        })
+      : [];
   // The pane's "…" (its More tool) adds what the pane and its content offer
   // to the tab's own actions: the content's secondary actions, Recent
   // pages, the iPhone, moving and hiding the pane.
@@ -2404,6 +2494,19 @@ function TitleBarComponent({
         kind: "item",
         id: "group-new",
         label: "Add to new group",
+      });
+    const onlyCombine = combineItems.length === 1 ? combineItems[0] : null;
+    if (onlyCombine?.kind === "item")
+      tabRootItems.push({
+        ...onlyCombine,
+        label: `Combine with ${onlyCombine.label}`,
+      });
+    else if (combineItems.length)
+      tabRootItems.push({
+        kind: "item",
+        id: "page:combine",
+        label: "Combine with",
+        shortcut: "›",
       });
     if (contextGroup)
       tabRootItems.push({
@@ -2563,6 +2666,7 @@ function TitleBarComponent({
 
   const pages: Record<string, ExplorerMenuItem[]> = {
     group: groupPageItems,
+    combine: combineItems,
     split: splitItems,
     move: paneMoveItems,
     close: closeItems,
@@ -2702,6 +2806,10 @@ function TitleBarComponent({
         setSurfaceGroupMembership({ [contextId]: target });
     } else if (id === "group-leave") {
       setSurfaceGroupMembership({ [contextId]: null });
+    } else if (id.startsWith("strip-combine:")) {
+      onCombineTabs?.(id.slice("strip-combine:".length), contextId);
+    } else if (id.startsWith("strip-join:")) {
+      onAddToSplit?.(id.slice("strip-join:".length), contextId);
     } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
     } else if (id === "own-pane") {
@@ -2933,6 +3041,7 @@ function TitleBarComponent({
             }
             itemRef={itemRef}
             deck={deck}
+            combineInto={sortable.dropTarget?.id === id}
           />
         </div>
       );
@@ -3033,6 +3142,7 @@ function TitleBarComponent({
         itemRef={itemRef}
         separator={separators.has(id)}
         deck={deck}
+        combineInto={sortable.dropTarget?.id === id}
       />
     );
   };

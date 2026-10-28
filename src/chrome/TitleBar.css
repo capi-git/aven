@@ -837,20 +837,46 @@
 .aven-split-divider:has(+ .aven-split-segment:hover) {
   visibility: hidden;
 }
-/* A tab held over the entry: the pane it will become, at the right. */
+/* Something held over an entry's middle joins it. The entry's fill rises
+   and the pane it will add shows at its right: a split's next segment, or
+   a single tab's other half as it becomes a split. */
 .aven-split-entry[data-drop-into="true"] .aven-split {
   background: var(--aven-control-hover);
 }
-.aven-split-incoming {
+.aven-tab[data-combine-into="true"] .aven-tab-button,
+.aven-tab-strip[data-tab-highlight="on"]
+  .aven-tab[data-combine-into="true"]
+  .aven-tab-button {
+  padding-right: 34px;
+  background: var(--aven-control-hover);
+  box-shadow: none;
+  color: var(--color-content);
+}
+.aven-tab[data-combine-into="true"] .aven-tab-close,
+.aven-tab[data-combine-into="true"] .personal-title-browser-menu {
+  visibility: hidden;
+}
+.aven-split-incoming,
+.aven-tab-combine {
   display: grid;
-  flex: 0 0 28px;
   place-items: center;
   height: 22px;
-  margin-left: 2px;
   border-radius: var(--aven-radius-xs);
   background: var(--aven-thumb);
   box-shadow: var(--aven-thumb-shadow);
   color: var(--color-content);
+}
+.aven-split-incoming {
+  flex: 0 0 28px;
+  margin-left: 2px;
+}
+.aven-tab-combine {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 28px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 /* A segment pulled out of its split: the rest of the entry stays put, the
    segment faded where it was. */
