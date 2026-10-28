@@ -4,6 +4,7 @@ import {
   type BrowserLayoutRecord,
 } from "./browserPresentation";
 import { waitFor } from "./devSmoke";
+import { viewportRect } from "./drag";
 import { dragPath, smokeMouse, type SmokeLoneTab } from "./devSmokeLoneTab";
 import { applyUiScale, loadUiScale, saveUiScale } from "./uiScale";
 
@@ -19,8 +20,10 @@ import { applyUiScale, loadUiScale, saveUiScale } from "./uiScale";
  * under the tab's copy, over a still image of the whole page, and the copy
  * must be under the pointer. It drags over a page alone in front and over
  * one in a split, at three zooms, across the page's own strip tab long
- * enough to arm a combine on the way; Escape and a drop each give the page
- * back whole (the unit tests cover a pointer cancel and a lost focus).
+ * enough to arm a combine on the way; Escape (also mid-move, while the
+ * still image may be painting) and a drop each give the page back whole
+ * (the unit tests cover a pointer cancel and a lost focus). Where the copy
+ * is drawn is read in the viewport's pixels on either kind of CSS zoom.
  */
 type Point = { x: number; y: number };
 type Box = { left: number; top: number; right: number; bottom: number };
@@ -48,8 +51,10 @@ export function drawnCopy(root: ParentNode = document): Box | null {
       '[data-sortable-preview] [data-sortable-layer="face"] > *',
     ),
   ]
-    .map((piece) => piece.getBoundingClientRect())
-    .filter((rect) => rect.width > 0 && rect.height > 0);
+    .map((piece) => ({ piece, rect: piece.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.width > 0 && rect.height > 0)
+    // In the viewport's pixels, as the pointer is, on either kind of engine.
+    .map(({ piece, rect }) => viewportRect(piece, rect));
   if (!rects.length) return null;
   return {
     left: Math.min(...rects.map((rect) => rect.left)),
@@ -273,14 +278,16 @@ async function dragOverPage(
     /**
      * Press `dragged`'s strip tab, carry it over the page (across the
      * page's own strip tab first, resting there, when `cross`), hold it
-     * there, then press Escape or let go.
+     * there (unless `rest` is false: then it ends mid-move, before or as a
+     * still image paints), then press Escape or let go.
      */
     const carry = async (
       dragged: string,
       end: "Escape" | "drop",
       cross: boolean,
+      rest = true,
     ) => {
-      const what = `${end}${cross ? " after crossing the page's tab" : ""}`;
+      const what = `${end}${cross ? " after crossing the page's tab" : ""}${rest ? "" : " mid-move"}`;
       // On the window's strip, or in another pane's row of tabs.
       const handle = await waitFor(
         () =>
@@ -343,23 +350,25 @@ async function dragOverPage(
           await smokeMouse("drag", { x: via.x + 1, y: via.y });
         }
         await moveThrough(dragPath(at, below, 6).slice(1));
-        await moveThrough(dragPath(below, to, 10).slice(1));
-        // About the drop zone, then still: the cut-out follows the copy.
-        for (let step = 0; step < 10; step += 1)
-          await moveThrough([
-            {
-              x: to.x + Math.sin(step) * 24,
-              y: to.y + Math.cos(step) * 40,
-            },
-          ]);
-        await smokeMouse("drag", to);
-        at = to;
-        await pause(300);
-        const until = Date.now() + 1_000;
-        while (Date.now() < until) {
-          sample(true);
-          if (!(await painted())) starved += 1;
-          await pause(40);
+        await moveThrough(dragPath(below, to, rest ? 10 : 3).slice(1));
+        if (rest) {
+          // About the drop zone, then still: the cut-out follows the copy.
+          for (let step = 0; step < 10; step += 1)
+            await moveThrough([
+              {
+                x: to.x + Math.sin(step) * 24,
+                y: to.y + Math.cos(step) * 40,
+              },
+            ]);
+          await smokeMouse("drag", to);
+          at = to;
+          await pause(300);
+          const until = Date.now() + 1_000;
+          while (Date.now() < until) {
+            sample(true);
+            if (!(await painted())) starved += 1;
+            await pause(40);
+          }
         }
       } finally {
         for (const kind of kinds) window.removeEventListener(kind, note, true);
@@ -385,6 +394,13 @@ async function dragOverPage(
     if (panes() !== before)
       throw new Error(`Escape still moved the tab (${before} to ${panes()})`);
     if (!cuts) throw new Error("the tab's copy was never cut out of the page");
+    // Let go mid-move, while its still image may be painting.
+    await carry(chat, "Escape", false, false);
+    await back("the page back whole after Escape mid-move");
+    if (panes() !== before)
+      throw new Error(
+        `Escape mid-move still moved the tab (${before} to ${panes()})`,
+      );
     // Across the page's own tab, then dropped beside it: a split.
     await carry(chat, "drop", true);
     await waitFor(
