@@ -13,6 +13,8 @@ export type BrowserSurfaceActions = {
   ): void;
   addToChat(text: string, attachments?: Attachment[]): void;
   openTab(project: string, id: string, url: string, background: boolean): void;
+  /** The user took the page over: an agent's open no longer navigates it. */
+  release(project: string, tabId: string): void;
 };
 
 /** Keep unrelated agent updates out of both visible and retained native pages. */
@@ -56,6 +58,10 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
     (url: string) => actions.current.update(project, tabId, { url }),
     [actions, project, tabId],
   );
+  const onAddressEntered = useCallback(
+    () => actions.current.release(project, tabId),
+    [actions, project, tabId],
+  );
   const onTitleChange = useCallback(
     (title: string) => actions.current.update(project, tabId, { title }),
     [actions, project, tabId],
@@ -90,6 +96,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       onClose={onClose}
       onToggleExpand={onToggleExpand}
       onUrlChange={onUrlChange}
+      onAddressEntered={onAddressEntered}
       onTitleChange={onTitleChange}
       onFaviconChange={onFaviconChange}
       onOpenTab={onOpenTab}

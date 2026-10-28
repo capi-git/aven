@@ -56,6 +56,7 @@ import {
   createAgentBrowserRouter,
   reserveAgentBrowserOpen,
   type AgentBrowserOpenOptions,
+  type AgentBrowserOpened,
 } from "./agentBrowserOpen";
 
 export type DetachedFileRequest = {
@@ -72,6 +73,8 @@ export type DetachedBrowser = {
   title?: string;
   favicon?: string;
   kept?: boolean;
+  /** The chat whose agent keeps building on this page (`BrowserTab`). */
+  agentChat?: string;
   nativeId?: string;
 };
 export type DetachedWorkspaceState = {
@@ -901,12 +904,17 @@ export function useDetachedWorkspaces(options: Options) {
     },
     [],
   );
-  const openForSession = useCallback(
+  /**
+   * An agent's open for a chat in a detached window: the page it landed on,
+   * and whether that chat's own page is reloaded or navigated. Null when the
+   * chat is in no detached window.
+   */
+  const openPageForSession = useCallback(
     async (
       id: string,
       url: string,
       options?: AgentBrowserOpenOptions,
-    ): Promise<string | null> => {
+    ): Promise<AgentBrowserOpened | null> => {
       await ready.current;
       const entry = [...entries.current.values()].find((e) =>
         detachedSessionIds(e.state).includes(id),
@@ -949,6 +957,7 @@ export function useDetachedWorkspaces(options: Options) {
               tabId,
               url,
               project,
+              ...(options?.chat ? { agentChat: options.chat } : {}),
             };
             const reservation = reserveAgentBrowserOpen(
               browser.id,
@@ -987,6 +996,15 @@ export function useDetachedWorkspaces(options: Options) {
       );
     },
     [agentBrowserRouter],
+  );
+  const openForSession = useCallback(
+    async (
+      id: string,
+      url: string,
+      options?: AgentBrowserOpenOptions,
+    ): Promise<string | null> =>
+      (await openPageForSession(id, url, options))?.id ?? null,
+    [openPageForSession],
   );
   const openBrowserForSession = useCallback(
     async (id: string, browser: DetachedBrowser) => {
@@ -1038,6 +1056,7 @@ export function useDetachedWorkspaces(options: Options) {
     focusedSessionIds: new Set(Object.values(visibility).flat()),
     showSession,
     openForSession,
+    openPageForSession,
     windows: snapshots.map((s) => ({
       id: s.id,
       label: s.state.title || "Workspace",

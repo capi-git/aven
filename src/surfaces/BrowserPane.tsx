@@ -95,6 +95,11 @@ export type BrowserPaneProps = {
   onClose?: () => void;
   onAddToChat?: (text: string, attachments?: Attachment[]) => void;
   onUrlChange?: (url: string) => void;
+  /**
+   * The user typed an address (or chose a search) for this page: it is
+   * theirs now, and an agent's next open no longer navigates it.
+   */
+  onAddressEntered?: () => void;
   onTitleChange?: (title: string) => void;
   onFaviconChange?: (favicon: string) => void;
   onFocus?: () => void;
@@ -180,6 +185,7 @@ function BrowserPaneSession({
   onClose,
   onAddToChat,
   onUrlChange,
+  onAddressEntered,
   onTitleChange,
   onFaviconChange,
   onFocus,
@@ -305,6 +311,7 @@ function BrowserPaneSession({
   const callbacks = useRef({
     onNativeReady,
     onUrlChange,
+    onAddressEntered,
     onTitleChange,
     onFaviconChange,
     onAddToChat,
@@ -314,6 +321,7 @@ function BrowserPaneSession({
   callbacks.current = {
     onNativeReady,
     onUrlChange,
+    onAddressEntered,
     onTitleChange,
     onFaviconChange,
     onAddToChat,
@@ -1331,6 +1339,7 @@ function BrowserPaneSession({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    callbacks.current.onAddressEntered?.();
     navigate(address);
     addressInput.current?.blur();
   };
@@ -2128,9 +2137,10 @@ function BrowserPaneSession({
               {browserSearchSuggestion(address || url) ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    navigate(browserSearchSuggestion(address || url)!)
-                  }
+                  onClick={() => {
+                    callbacks.current.onAddressEntered?.();
+                    navigate(browserSearchSuggestion(address || url)!);
+                  }}
                 >
                   Search for {browserSearchSuggestion(address || url)}
                 </button>

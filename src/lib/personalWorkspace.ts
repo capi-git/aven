@@ -10,6 +10,12 @@ export type BrowserTab = {
   favicon?: string;
   /** Shown as a retained tab instead of sharing the temporary preview slot. */
   kept?: boolean;
+  /**
+   * The chat whose agent opened this page and keeps building on it: that
+   * agent's next page on the same site reuses this tab. Cleared once the
+   * user keeps the page or takes it over by typing an address.
+   */
+  agentChat?: string;
 };
 
 export type BrowserWorkspace = {
@@ -49,6 +55,11 @@ function validTab(value: unknown): BrowserTab | null {
       ? { title: tab.title.trim() }
       : {}),
     ...(tab.kept === true ? { kept: true } : {}),
+    ...(typeof tab.agentChat === "string" &&
+    tab.agentChat.trim() &&
+    tab.agentChat.length <= 200
+      ? { agentChat: tab.agentChat }
+      : {}),
   };
 }
 
@@ -125,7 +136,9 @@ export function selectBrowserTab(
 export function updateBrowserTab(
   state: BrowserWorkspace,
   id: string,
-  patch: Partial<Pick<BrowserTab, "url" | "title" | "favicon" | "kept">>,
+  patch: Partial<
+    Pick<BrowserTab, "url" | "title" | "favicon" | "kept" | "agentChat">
+  >,
 ): NormalizedBrowserWorkspace {
   const current = normalizeBrowserWorkspace(state);
   const tabs = current.tabs.map((tab) => {
@@ -153,6 +166,11 @@ export function updateBrowserTab(
     }
     if (patch.kept === true) next.kept = true;
     else if (patch.kept === false) delete next.kept;
+    // Present and empty releases the page from its agent.
+    if ("agentChat" in patch) {
+      if (patch.agentChat) next.agentChat = patch.agentChat;
+      else delete next.agentChat;
+    }
     return next;
   });
   return {
@@ -168,6 +186,27 @@ export function keepBrowserTab(
   id: string,
 ): NormalizedBrowserWorkspace {
   return updateBrowserTab(state, id, { kept: true });
+}
+
+/**
+ * The page stops being its agent's page: the user kept it or is using it for
+ * something else, so the agent's next page opens in a tab of its own.
+ */
+export function releaseAgentBrowserTab(
+  state: BrowserWorkspace,
+  id: string,
+): NormalizedBrowserWorkspace {
+  const current = normalizeBrowserWorkspace(state);
+  if (!current.tabs.some((tab) => tab.id === id && tab.agentChat))
+    return current;
+  return {
+    ...current,
+    tabs: current.tabs.map((tab) => {
+      if (tab.id !== id) return tab;
+      const { agentChat: _released, ...rest } = tab;
+      return rest;
+    }),
+  };
 }
 
 /**

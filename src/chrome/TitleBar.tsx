@@ -239,9 +239,13 @@ export type TitleBarProps = {
     title: string;
     favicon?: string;
     kept?: boolean;
+    /** A chat's agent keeps building on this page (it reuses it). */
+    agentPage?: boolean;
     url?: string;
   }>;
   onKeepBrowser?: (id: string) => void;
+  /** Keep open on an agent's page: its next page opens in a new tab. */
+  onKeepAgentPage?: (id: string) => void;
   /** Last selected page in this workspace, used when its header remounts. */
   browserPreviewId?: string | null;
   surfaceOrder?: string[];
@@ -1137,6 +1141,7 @@ function BrowserTitleTabItem({
   onMenu,
   menuOpen,
   preview = false,
+  agentPage = false,
   onKeep,
   groupStyle,
   groupRun,
@@ -1163,6 +1168,8 @@ function BrowserTitleTabItem({
   onMenu?: (button: HTMLButtonElement) => void;
   menuOpen: boolean;
   preview?: boolean;
+  /** An agent's page: its next page replaces this one unless kept. */
+  agentPage?: boolean;
   onKeep?: () => void;
   /** Colour of the user tab group this page belongs to. */
   groupStyle?: CSSProperties;
@@ -1270,9 +1277,11 @@ function BrowserTitleTabItem({
           aria-description={
             preview
               ? "Preview tab. The next page you open takes its place unless you keep it open."
-              : visible && !active
-                ? "Visible in split"
-                : undefined
+              : agentPage
+                ? "Agent's page. The agent shows its next page here unless you keep this one open."
+                : visible && !active
+                  ? "Visible in split"
+                  : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
@@ -1710,6 +1719,7 @@ function TitleBarComponent({
   browserMode = "tab",
   browserTabs,
   onKeepBrowser,
+  onKeepAgentPage,
   browserPreviewId,
   surfaceOrder,
   splits,
@@ -2920,7 +2930,13 @@ function TitleBarComponent({
         id: "bar-open-iphone",
         label: "iPhone",
       });
-    if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
+    // An agent's page is kept as a tab but still the agent's to reuse:
+    // keeping it open makes it the user's.
+    if (
+      contextBrowser &&
+      ((onKeepBrowser && !contextBrowser.kept) ||
+        (onKeepAgentPage && contextBrowser.agentPage))
+    )
       tabRootItems.push(
         { kind: "item", id: "keep-open", label: "Keep open" },
         { kind: "sep" },
@@ -3260,7 +3276,9 @@ function TitleBarComponent({
       sortable.captureStripMorph();
       onAddToSplit?.(id.slice("strip-join:".length), contextId);
     } else if (id === "keep-open") {
-      if (contextBrowser) onKeepBrowser?.(contextId);
+      if (contextBrowser?.agentPage && onKeepAgentPage)
+        onKeepAgentPage(contextId);
+      else if (contextBrowser) onKeepBrowser?.(contextId);
     } else if (id === "own-pane") {
       const beside =
         contextId !== frontId
@@ -3590,6 +3608,7 @@ function TitleBarComponent({
         }
         menuOpen={tabMenu?.tabId === id || (!unified && Boolean(browserMenu))}
         preview={previewEnabled && preview.previewId === id}
+        agentPage={browser.agentPage === true}
         onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
         groupStyle={groupStyle}
         groupRun={groupRun}

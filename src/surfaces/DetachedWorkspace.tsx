@@ -129,6 +129,18 @@ function keepBrowsers(
   );
 }
 
+/** The user kept or took over the page: its agent's next page opens apart. */
+function releaseAgentBrowsers(
+  browsers: DetachedWorkspaceState["browsers"],
+  id: string,
+): DetachedWorkspaceState["browsers"] {
+  return browsers.map((browser) => {
+    if (browser.id !== id || !browser.agentChat) return browser;
+    const { agentChat: _released, ...rest } = browser;
+    return rest;
+  });
+}
+
 /** A renderer, never an App: every agent action returns to the one owner. */
 export function DetachedWorkspace() {
   const [envelope, setEnvelope] = useState<DetachedWorkspaceSnapshot | null>(
@@ -1016,6 +1028,7 @@ export function DetachedWorkspace() {
             url: b.url,
             favicon: b.favicon,
             kept: b.kept,
+            ...(b.agentChat ? { agentPage: true } : {}),
           }))}
         surfaceOrder={members}
         visibleIds={active.size > 1 ? [id] : []}
@@ -1039,6 +1052,15 @@ export function DetachedWorkspace() {
           change((s) => ({
             ...s,
             browsers: keepBrowsers(s.browsers, [selected]),
+          }))
+        }
+        onKeepAgentPage={(selected) =>
+          change((s) => ({
+            ...s,
+            browsers: releaseAgentBrowsers(
+              keepBrowsers(s.browsers, [selected]),
+              selected,
+            ),
           }))
         }
         onCloseMany={(ids) =>
@@ -1116,6 +1138,16 @@ export function DetachedWorkspace() {
                 b.id === browser.id ? { ...b, url } : b,
               ),
             }))
+          }
+          onAddressEntered={() =>
+            change((s) =>
+              s.browsers.some((b) => b.id === browser.id && b.agentChat)
+                ? {
+                    ...s,
+                    browsers: releaseAgentBrowsers(s.browsers, browser.id),
+                  }
+                : s,
+            )
           }
           onTitleChange={(title) =>
             change((s) => ({

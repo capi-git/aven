@@ -530,6 +530,54 @@ describe("browser tab integration", () => {
     expect(props.onCloseBrowser).not.toHaveBeenCalled();
   });
 
+  it("offers Keep open on an agent's page so its next page opens in a new tab", async () => {
+    const onKeepAgentPage = vi.fn();
+    await render({
+      browserTabs: [
+        { id: "web-1", title: "Mock", kept: true, agentPage: true },
+        { id: "web-2", title: "Docs", kept: true },
+      ],
+      activeId: "web-1",
+      onKeepBrowser: vi.fn(),
+      onKeepAgentPage,
+    });
+    const tabButton = (id: string) =>
+      container.querySelector<HTMLButtonElement>(
+        `[data-surface-id="${id}"] [role="tab"]`,
+      )!;
+    expect(tabButton("web-1").getAttribute("aria-description")).toBe(
+      "Agent's page. The agent shows its next page here unless you keep this one open.",
+    );
+    const menuLabels = async (id: string) => {
+      await act(async () =>
+        tabButton(id).dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+        ),
+      );
+      return [
+        ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ];
+    };
+    // A page the user already kept has nothing to keep.
+    expect(
+      (await menuLabels("web-2")).some((item) =>
+        item.textContent?.startsWith("Keep open"),
+      ),
+    ).toBe(false);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    const keep = (await menuLabels("web-1")).find((item) =>
+      item.textContent?.startsWith("Keep open"),
+    );
+    expect(keep).toBeDefined();
+    await act(async () => keep!.click());
+    expect(onKeepAgentPage).toHaveBeenCalledExactlyOnceWith("web-1");
+    expect(props.onKeepBrowser).not.toHaveBeenCalled();
+  });
+
   it("does not resurrect a hidden page after Keep and a header remount", async () => {
     const pages = [
       { id: "web-1", title: "Older page" },

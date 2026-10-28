@@ -214,6 +214,7 @@ import {
   updateBrowserTab,
   browserIdForTab,
   patchBrowserWorkspace,
+  releaseAgentBrowserTab,
 } from "./lib/personalWorkspace";
 import { resolveBrowserTabTarget } from "./lib/browserTabTarget";
 import {
@@ -223,6 +224,7 @@ import {
   agentRequesterTab,
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
+  type AgentBrowserOpened,
 } from "./lib/agentBrowserOpen";
 import {
   installDevPreviewOpener,
@@ -1324,7 +1326,7 @@ export default function App({
       sessionId: string,
       url: string,
       options?: AgentBrowserOpenOptions,
-    ) => Promise<string | null>
+    ) => Promise<AgentBrowserOpened | null>
   >(async () => null);
   const detachedFocusBrowser = useRef<
     (surfaceId: string, options?: AgentBrowserOpenOptions) => Promise<boolean>
@@ -1389,13 +1391,20 @@ export default function App({
           );
           if (!session || !sameProjectPath(sessionWorkCwd(session), cwd))
             throw new Error("The task is no longer available.");
+          // The asking chat's own page is reused for its next page on the
+          // same site; a page it creates becomes its own.
+          const chatOptions = { ...options, chat: sessionId };
           const open = async (
             existing: boolean,
             placement: AgentBrowserPlacement,
-          ) => {
+          ): Promise<AgentBrowserOpened> => {
             const detachedSurface = existing
               ? null
-              : await detachedBrowserBridge.current(sessionId, url, options);
+              : await detachedBrowserBridge.current(
+                  sessionId,
+                  url,
+                  chatOptions,
+                );
             if (detachedSurface) return detachedSurface;
             const currentSession = sessionsRef.current.find(
               (item) => item.id === sessionId,
@@ -1414,8 +1423,9 @@ export default function App({
             const {
               tab: { id },
               workspace,
+              refresh,
             } = openAgentBrowserTab(before, url, {
-              ...options,
+              ...chatOptions,
               focus: placement.activate,
             });
             const created = !normalizeBrowserWorkspace(before).tabs.some(
@@ -1426,7 +1436,7 @@ export default function App({
               // A browser can be detached without its chat. Select it in that
               // window; never add its unavailable surface to the main layout.
               if (await detachedFocusBrowser.current(surfaceId, options))
-                return surfaceId;
+                return { id: surfaceId, ...(refresh ? { refresh } : {}) };
               throw new Error("The browser tab moved. Try opening it again.");
             }
             // Commit the tab first so the workspace view knows the new surface.
@@ -1495,9 +1505,9 @@ export default function App({
                 12_000,
               );
             }
-            return surfaceId;
+            return { id: surfaceId, ...(refresh ? { refresh } : {}) };
           };
-          return agentBrowserRouter.open(session.cwd, url, options, {
+          return agentBrowserRouter.open(session.cwd, url, chatOptions, {
             tabs: () =>
               normalizeBrowserWorkspace(
                 browserWorkspacesRef.current[session.cwd] ?? EMPTY_BROWSER,
@@ -1727,6 +1737,28 @@ export default function App({
       );
       if (!target || target.kept) return all;
       return { ...all, [cwd]: keepBrowserTab(current, target.id) };
+    });
+  }, []);
+  /**
+   * Keep open on an agent's page: it stays as it is, and the agent's next
+   * page opens in a tab of its own.
+   */
+  const onKeepAgentPage = useCallback((surfaceId: string) => {
+    const cwd = projectCwdRef.current;
+    setBrowserWorkspaces((all) => {
+      const current = all[cwd];
+      if (!current) return all;
+      const target = normalizeBrowserWorkspace(current).tabs.find(
+        (tab) => browserIdForTab(cwd, tab.id) === surfaceId,
+      );
+      if (!target || (target.kept && !target.agentChat)) return all;
+      return {
+        ...all,
+        [cwd]: releaseAgentBrowserTab(
+          keepBrowserTab(current, target.id),
+          target.id,
+        ),
+      };
     });
   }, []);
   /**
@@ -9629,6 +9661,8 @@ export default function App({
                 title: page.title,
                 favicon: page.favicon,
                 kept: page.kept,
+                // Released in that window (kept, or an address typed there).
+                agentChat: page.agentChat,
               })
             : addBrowserTab(current, {
                 id: page.tabId,
@@ -9636,6 +9670,7 @@ export default function App({
                 title: page.title,
                 favicon: page.favicon,
                 kept: page.kept,
+                ...(page.agentChat ? { agentChat: page.agentChat } : {}),
               });
         }
         browserWorkspacesRef.current = next;
@@ -9722,7 +9757,7 @@ export default function App({
       void message(error, { title: "Workspace window", kind: "error" });
     },
   });
-  detachedBrowserBridge.current = detached.openForSession;
+  detachedBrowserBridge.current = detached.openPageForSession;
   detachedFocusBrowser.current = detached.focusBrowser;
   externallyRenderedSessionIds.current = new Set(detached.detachedSessionIds);
   detachedFileBridge.current = detached.openFileForSession;
@@ -9804,6 +9839,16 @@ export default function App({
         )
           return all;
         return { ...all, [project]: updateBrowserTab(current, tabId, patch) };
+      }),
+    release: (project, tabId) =>
+      setBrowserWorkspaces((all) => {
+        const current = all[project];
+        if (!current?.tabs?.some((page) => page.id === tabId && page.agentChat))
+          return all;
+        return {
+          ...all,
+          [project]: releaseAgentBrowserTab(current, tabId),
+        };
       }),
     openTab: (project, id, url, background) => {
       if (project !== projectCwd) return;
@@ -10935,6 +10980,7 @@ export default function App({
         id: tab.surfaceId,
         favicon: tab.favicon,
         kept: tab.kept,
+        ...(tab.agentChat ? { agentPage: true } : {}),
         url: tab.url,
         // A race agent's page says whose
         // version it shows.
@@ -11052,6 +11098,7 @@ export default function App({
         }
         onSelectBrowser={onSelectBrowserTab}
         onKeepBrowser={onKeepBrowser}
+        onKeepAgentPage={onKeepAgentPage}
         browserPreviewId={
           browserState.activeTabId
             ? browserIdForTab(projectCwd, browserState.activeTabId)

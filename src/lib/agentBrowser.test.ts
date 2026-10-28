@@ -88,6 +88,22 @@ describe("agent browser session connection", () => {
       "Navigating a page to a different local server opens a new page instead, so use the id it returns.",
     );
     expect(text).toContain('"newTab":true');
+    // Agents iterate on one page instead of piling up mocks and tabs.
+    expect(text).toContain(
+      "Open keeps one page per site for this chat and builds on it: opening the same address again reloads your page, and another address on the same site (another route, query string, fragment or mock file on that server) navigates it.",
+    );
+    expect(text).toContain(
+      "It never navigates a page the user opened, kept or typed an address into",
+    );
+    expect(text).toContain(
+      "keep building on that one page: edit the same file, then open or reload it again. Do not create mock-v2 or mock-v3 files or more tabs unless the user asks for alternatives side by side.",
+    );
+    expect(text).toContain(
+      'Only pass "newTab":true for a second page you need at the same time',
+    );
+    expect(text).not.toContain(
+      "Different query strings and fragments are different addresses",
+    );
     expect(text).toContain('"action":"openfile"');
     expect(text).toContain("no slash command is required");
     expect(text).toContain("<aven-desktop-tools>");
@@ -314,6 +330,116 @@ describe("agent browser session connection", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
       requestId: "copy",
       browserId: "native-page-2",
+    });
+  });
+  it("builds on one page per chat: reloads the same address, navigates another query or mock file, and opens a second tab only on request", async () => {
+    const api = await import("./agentBrowser");
+    const { openAgentBrowserTab } = await import("./agentBrowserOpen");
+    const { EMPTY_BROWSER, addRetainedBrowserTab } =
+      await import("./personalWorkspace");
+    // The user's own page, at an address the agent will also use.
+    let workspace = addRetainedBrowserTab(EMPTY_BROWSER, {
+      id: "user-page",
+      url: "http://localhost:5173/notes.html",
+    });
+    api.registerAgentBrowserPage("user-page", "native-user-page");
+    let id = 0;
+    // As App's host does: the asking chat's own page is reused.
+    const open = vi.fn(
+      async (context: { sessionId: string }, url: string, options?: object) => {
+        const result = openAgentBrowserTab(
+          workspace,
+          url,
+          { ...options, chat: context.sessionId },
+          () => `page-${++id}`,
+        );
+        workspace = result.workspace;
+        api.registerAgentBrowserPage(result.tab.id, `native-${result.tab.id}`);
+        return {
+          id: result.tab.id,
+          ...(result.refresh ? { refresh: result.refresh } : {}),
+        };
+      },
+    );
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => workspace.tabs!.map((t) => t.id),
+      open,
+    });
+    await api.prepareAgentBrowserPrompt("Make a mock", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    const event = mocks.handlers.get("browser-agent-open")!;
+    const send = (requestId: string, url: string, newTab?: boolean) =>
+      event({
+        payload: {
+          requestId,
+          sessionId: "s",
+          url,
+          ...(newTab ? { newTab } : {}),
+        },
+      });
+    const mock = "http://localhost:5173/mocks/index.html";
+    await send("first", mock);
+    await send("again", mock);
+    await send("query", `${mock}?v=2`);
+    await send("sibling", "http://localhost:5173/mocks/pricing.html");
+    expect(workspace.tabs!.map((tab) => tab.id)).toEqual([
+      "user-page",
+      "page-1",
+    ]);
+    const replies = () =>
+      mocks.invoke.mock.calls
+        .filter(([name]) => name === "browser_agent_open_result")
+        .map(([, args]) => args);
+    expect(replies()).toEqual([
+      { requestId: "first", browserId: "native-page-1" },
+      { requestId: "again", browserId: "native-page-1", refresh: "reload" },
+      { requestId: "query", browserId: "native-page-1", refresh: "navigate" },
+      { requestId: "sibling", browserId: "native-page-1", refresh: "navigate" },
+    ]);
+    // The user's page is shown at its own address, never reloaded or moved.
+    await send("user", "http://localhost:5173/notes.html");
+    expect(replies().at(-1)).toEqual({
+      requestId: "user",
+      browserId: "native-user-page",
+    });
+    expect(workspace.tabs![0].url).toBe("http://localhost:5173/notes.html");
+    // An explicit request for a new tab is honoured.
+    await send("copy", mock, true);
+    expect(workspace.tabs).toHaveLength(3);
+    expect(replies().at(-1)).toEqual({
+      requestId: "copy",
+      browserId: "native-page-2",
+    });
+  });
+  it("does not reload a page that only now wakes or loads", async () => {
+    const api = await import("./agentBrowser");
+    const pages = ["asleep"];
+    const wake = vi.fn(async () => {
+      api.registerAgentBrowserPage("asleep", "native-woken");
+    });
+    api.registerAgentBrowserWake("asleep", wake);
+    const open = vi.fn(async () => ({
+      id: "asleep",
+      refresh: "reload" as const,
+    }));
+    dispose = api.installAgentBrowserHost({ surfaces: () => pages, open });
+    await api.prepareAgentBrowserPrompt("Again", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    await mocks.handlers.get("browser-agent-open")!({
+      payload: {
+        requestId: "r",
+        sessionId: "s",
+        url: "http://localhost:3000/",
+      },
+    });
+    expect(wake).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
+      requestId: "r",
+      browserId: "native-woken",
     });
   });
   it("wakes a reused sleeping page and protects it until its binding is acknowledged", async () => {
