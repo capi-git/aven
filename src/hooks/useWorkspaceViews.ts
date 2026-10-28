@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutNode } from "../lib/layout";
 import {
+  addStripPane,
   applyStripView,
+  detachStripTab,
   focusStripTab,
   recordedStripIds,
   reorderStripEntries,
   resolveWorkspaceStrip,
+  separateStripSpace,
   stripView,
   stripViewWith,
   viewMembers,
@@ -207,6 +210,26 @@ export function useWorkspaceViews(
       mutate(current.current.key, (strip) => reorderStripEntries(strip, keys)),
     [mutate],
   );
+  /** A tab dropped on a split's entry joins it as a pane at its right. */
+  const addPane = useCallback(
+    (spaceKey: string, id: string) =>
+      mutate(current.current.key, (strip) => addStripPane(strip, spaceKey, id)),
+    [mutate],
+  );
+  /** A tab pulled out of its split stands on the strip before `before`. */
+  const detach = useCallback(
+    (id: string, before: string | null) =>
+      mutate(current.current.key, (strip) => detachStripTab(strip, id, before)),
+    [mutate],
+  );
+  /** A split's tabs stand on the strip as single tabs again. */
+  const separate = useCallback(
+    (spaceKey: string) =>
+      mutate(current.current.key, (strip) =>
+        separateStripSpace(strip, spaceKey),
+      ),
+    [mutate],
+  );
   /** The next new tab stands on the strip, even with a space in front. */
   const openOnStrip = useCallback(() => {
     stripNext.current = Date.now();
@@ -275,6 +298,9 @@ export function useWorkspaceViews(
     restore,
     get,
     reorderEntries,
+    addPane,
+    detach,
+    separate,
     viewWith,
     openOnStrip,
   };

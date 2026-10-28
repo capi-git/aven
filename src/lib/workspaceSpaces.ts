@@ -1,7 +1,8 @@
-import { leaf, leafIds } from "./layout";
+import { leaf, leafIds, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
   resolveWorkspaceView,
+  restoreWorkspaceSplit,
   selectWorkspaceView,
   workspaceGroupOwner,
   workspaceIsSpace,
@@ -451,6 +452,158 @@ export function reorderStripEntries(
     return [entry];
   });
   return { ...strip, entries: [...ordered, ...byKey.values()] };
+}
+
+/** A split's pane: the tab in front of it, then every tab it holds. */
+export type SpacePane = { id: string; tabs: string[] };
+
+/**
+ * A split's panes in arrangement order (left to right, each column top to
+ * bottom), each named by the tab in front of it. Panes tucked behind an
+ * expanded one are listed in the places they will return to.
+ */
+export function spacePanes(view: WorkspaceView): SpacePane[] {
+  const live = view.layout ? leafIds(view.layout) : [];
+  const owners = unique([...live, ...Object.keys(view.hiddenGroups ?? {})]);
+  const tabsOf = (owner: string) =>
+    view.groups[owner] ?? view.hiddenGroups?.[owner] ?? [owner];
+  const snapshot = view.restoreView;
+  const order = snapshot?.layout ? leafIds(snapshot.layout) : live;
+  // A pane's place: the place of the pane in the arrangement that held any
+  // of its tabs (its tab in front may have changed since).
+  const place = (owner: string) => {
+    const members = new Set(tabsOf(owner));
+    const at = order.findIndex((id) =>
+      (snapshot?.groups[id] ?? view.groups[id] ?? [id]).some((member) =>
+        members.has(member),
+      ),
+    );
+    return at < 0 ? order.length : at;
+  };
+  return owners
+    .map((id, index) => ({ id, tabs: tabsOf(id), at: place(id), index }))
+    .sort((a, b) => a.at - b.at || a.index - b.index)
+    .map(({ id, tabs }) => ({ id, tabs: [...tabs] }));
+}
+
+/** A new pane at the arrangement's right, as tall as the arrangement. */
+function appendPaneRight(layout: LayoutNode, id: string): LayoutNode {
+  if (layout.type === "split" && layout.dir === "right") {
+    const count = layout.children.length;
+    return {
+      ...layout,
+      children: [...layout.children, leaf(id)],
+      sizes: [
+        ...layout.sizes.map((size) => (size * count) / (count + 1)),
+        1 / (count + 1),
+      ],
+    };
+  }
+  return {
+    type: "split",
+    id: newSpaceId(),
+    dir: "right",
+    children: [layout, leaf(id)],
+    sizes: [0.5, 0.5],
+  };
+}
+
+/**
+ * A tab dropped on a split's entry: it leaves its own entry and joins the
+ * split as a new pane at its right, and the split comes to the front with
+ * that pane focused. An expanded pane gives its split back first.
+ */
+export function addStripPane(
+  strip: WorkspaceStrip,
+  key: string,
+  id: string,
+): WorkspaceStrip {
+  const target = strip.entries.find((entry) => entryKey(entry) === key);
+  if (target?.kind !== "space") return strip;
+  if (viewMembers(target.view).includes(id)) return strip;
+  if (stripEntryKeyOf(strip, id) === undefined) return strip;
+  const leaving = new Set([id]);
+  const entries = strip.entries.flatMap((entry): StripEntry[] => {
+    if (entry !== target) return withoutTabs(entry, leaving);
+    const base = restoreWorkspaceSplit(entry.view);
+    if (!base.layout) return [entry];
+    return [
+      {
+        ...entry,
+        view: {
+          ...base,
+          layout: appendPaneRight(base.layout, id),
+          focusedId: id,
+          order: unique([...base.order, id]),
+          groups: { ...base.groups, [id]: [id] },
+        },
+      },
+    ];
+  });
+  return { entries, front: key };
+}
+
+/**
+ * A tab pulled out of its split and let go on the strip: it stands on its
+ * own before the entry `before` (or at the end). Focus stays with the tab
+ * that had it: a tab that had focus in the split in front comes to the
+ * front alone; a split in front that comes apart leaves its focused tab
+ * in front.
+ */
+export function detachStripTab(
+  strip: WorkspaceStrip,
+  id: string,
+  before: string | null,
+): WorkspaceStrip {
+  const key = stripEntryKeyOf(strip, id);
+  const source = strip.entries.find((entry) => entryKey(entry) === key);
+  if (source?.kind !== "space") return strip;
+  const rest = withoutTabs(source, new Set([id]));
+  const entries = strip.entries.flatMap((entry) =>
+    entry === source ? rest : [entry],
+  );
+  const at = before
+    ? entries.findIndex((entry) => entryKey(entry) === before)
+    : -1;
+  entries.splice(at < 0 ? entries.length : at, 0, { kind: "item", id });
+  let front = strip.front;
+  if (front === key) {
+    const focus = source.view.focusedId;
+    if (focus === id) front = id;
+    else if (!rest.some((entry) => entry.kind === "space"))
+      front = rest.some((entry) => entryKey(entry) === focus)
+        ? focus
+        : rest[0]
+          ? entryKey(rest[0])
+          : id;
+  }
+  return { entries, front };
+}
+
+/**
+ * Separate a split: its tabs stand on the strip as single tabs in its place,
+ * pane by pane. A split in front leaves its focused tab in front.
+ */
+export function separateStripSpace(
+  strip: WorkspaceStrip,
+  key: string,
+): WorkspaceStrip {
+  const at = strip.entries.findIndex((entry) => entryKey(entry) === key);
+  const entry = strip.entries[at];
+  if (entry?.kind !== "space") return strip;
+  const ids = unique([
+    ...spacePanes(entry.view).flatMap((pane) => pane.tabs),
+    ...viewMembers(entry.view),
+  ]);
+  const entries = [...strip.entries];
+  entries.splice(at, 1, ...ids.map((id): StripItem => ({ kind: "item", id })));
+  const front =
+    strip.front === key
+      ? ids.includes(entry.view.focusedId)
+        ? entry.view.focusedId
+        : (ids[0] ?? "")
+      : strip.front;
+  return { entries, front };
 }
 
 /**

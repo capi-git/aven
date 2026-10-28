@@ -551,4 +551,73 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     expect(current.strip.entries.map((entry) => entry.kind)).toEqual(["space"]);
     expect(current.view.groups["b-web"]).toEqual(["b-web", "b-chat"]);
   });
+  describe("split entries", () => {
+    /** b-chat on its own, then b-web | b-docs as a split behind it. */
+    async function withSplit() {
+      await render({
+        project: projectB,
+        ids: ["b-chat", "b-web", "b-docs"],
+        requestedFocus: "b-web",
+      });
+      await act(async () =>
+        current.change((view) =>
+          splitWorkspaceView(view, "b-docs", "right", "b-web"),
+        ),
+      );
+      await act(async () => current.select("b-chat"));
+      expect(current.strip.front).toBe("b-chat");
+      return current.strip.entries.find((entry) => entry.kind === "space")!;
+    }
+    const entryKeyOf = (entry: { kind: string; id: string }) =>
+      entry.kind === "item" ? entry.id : `aven-space:${entry.id}`;
+
+    it("brings a split forward on one of its tabs in a single call", async () => {
+      const split = await withSplit();
+      // One select: the split comes forward, its pane takes focus and the
+      // tab shows, with nothing to follow up.
+      await act(async () => current.select("b-web"));
+      expect(current.strip.front).toBe(entryKeyOf(split));
+      expect(current.view.focusedId).toBe("b-web");
+      expect(leafIds(current.view.layout!)).toEqual(["b-web", "b-docs"]);
+      expect(spaces().projects[projectB].front).toBe(entryKeyOf(split));
+    });
+
+    it("adds a tab dropped on the split as a pane at its right", async () => {
+      const split = await withSplit();
+      await act(async () => current.addPane(entryKeyOf(split), "b-chat"));
+      expect(current.strip.entries.map((entry) => entry.kind)).toEqual([
+        "space",
+      ]);
+      expect(leafIds(current.view.layout!)).toEqual([
+        "b-web",
+        "b-docs",
+        "b-chat",
+      ]);
+      expect(current.view.focusedId).toBe("b-chat");
+      expect(spaces().projects[projectB].front).toBe(entryKeyOf(split));
+    });
+
+    it("takes a tab out of its split onto the strip", async () => {
+      await withSplit();
+      await act(async () => current.detach("b-docs", "b-chat"));
+      expect(
+        current.strip.entries.map((entry) =>
+          entry.kind === "item" ? entry.id : entry.kind,
+        ),
+      ).toEqual(["b-docs", "b-chat", "b-web"]);
+      expect(current.strip.front).toBe("b-chat");
+    });
+
+    it("separates a split into single tabs", async () => {
+      const split = await withSplit();
+      await act(async () => current.select("b-docs"));
+      await act(async () => current.separate(entryKeyOf(split)));
+      expect(
+        spaces().projects[projectB].entries.map((entry) =>
+          entry.kind === "item" ? entry.id : entry.kind,
+        ),
+      ).toEqual(["b-chat", "b-web", "b-docs"]);
+      expect(current.view.layout).toEqual(leaf("b-docs"));
+    });
+  });
 });
