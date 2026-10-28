@@ -1,6 +1,7 @@
 import { Check } from "./icons";
 import { type ReactNode } from "react";
 import { Popover } from "./Popover";
+import "./Menu.css";
 import {
   DEFAULT_SESSION_SIDEBAR_FILTERS,
   hasActiveSessionFilters,
@@ -71,7 +72,7 @@ export function SessionFiltersMenu({
       role="menu"
       aria-label="Filter chats"
       onContextMenu={(event) => event.preventDefault()}
-      className="overflow-y-auto overscroll-none p-1"
+      className="aven-menu overflow-y-auto overscroll-none"
     >
       <FilterItem
         label="Archived"
@@ -125,15 +126,15 @@ export function SessionFiltersMenu({
 
       {hasActiveSessionFilters(filters) ? (
         <>
-          <div role="separator" className="my-1 h-px bg-content/10" />
+          <div role="separator" className="aven-menu-separator" />
           <button
             type="button"
             role="menuitem"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onChange(DEFAULT_SESSION_SIDEBAR_FILTERS)}
-            className="flex h-7 w-full items-center rounded-lg px-2 text-left text-ui-body leading-none text-content/70 hover:bg-content/5 hover:text-content"
+            className="aven-menu-item"
           >
-            Clear filters
+            <span className="aven-menu-label">Clear filters</span>
           </button>
         </>
       ) : null}
@@ -143,7 +144,7 @@ export function SessionFiltersMenu({
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <div className="px-2 pb-0.5 pt-2 text-ui-micro font-semibold uppercase tracking-[0.08em] text-content/40">
+    <div role="presentation" className="aven-menu-section">
       {children}
     </div>
   );
@@ -167,12 +168,16 @@ function FilterItem({
       aria-checked={checked}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-ui-body leading-none text-content hover:bg-content/5"
+      className="aven-menu-item"
     >
-      {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {icon ? (
+        <span aria-hidden="true" className="aven-menu-icon">
+          {icon}
+        </span>
+      ) : null}
+      <span className="aven-menu-label">{label}</span>
       {checked ? (
-        <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
+        <Check aria-hidden="true" className="aven-menu-check" />
       ) : null}
     </button>
   );

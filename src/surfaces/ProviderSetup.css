@@ -62,7 +62,7 @@
   width: 100%;
   text-align: left;
   padding: 15px 14px;
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   border: 1px solid var(--aven-glass-card-edge);
   background: var(--aven-inset-card);
   box-shadow: var(--aven-glass-sheen, none);
@@ -183,7 +183,7 @@
 .provider-setup summary:focus-visible,
 /* Settings' own focus ring loads after this file; this one still wins there. */
 .settings-view .provider-setup :is(button, summary):focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 3px;
 }
 .provider-setup-checks {
@@ -192,7 +192,7 @@
 }
 .provider-setup-check {
   padding: 16px;
-  border-radius: var(--aven-radius-card, 12px);
+  border-radius: var(--aven-radius-card);
   border: 1px solid var(--aven-glass-card-edge);
   background: var(--aven-inset-card);
 }

@@ -30,12 +30,34 @@
   flex-shrink: 0;
   padding: 4px 8px;
 }
-/* The browser toolbar's bar, so the two panes read as one family. */
+/* A pane header row, as a page's arrows and address are (one header per
+   pane): 32px, pickers and Run at rest, the rest in its "…". Its line is the
+   header's one line; lent to a pane's title row it draws none. */
 .ios-sim-toolbar {
-  min-height: 40px;
+  height: 32px;
+  min-height: 32px;
+  gap: 4px;
+  padding: 0 4px 0 6px;
   border-bottom: var(--aven-hairline, 1px) solid
     var(--aven-separator, var(--aven-line));
-  background: var(--aven-toolbar-surface, transparent);
+  background: transparent;
+}
+.ios-sim-toolbar[data-in-slot] {
+  flex: 1 1 auto;
+  height: 100%;
+  padding-inline: 2px 4px;
+  border-bottom: 0;
+}
+.ios-sim-toolbar :is(.ios-sim-chip, .ios-sim-run) {
+  height: 26px;
+}
+.ios-sim-toolbar .ios-sim-icon {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+.ios-sim-toolbar [data-pane-drag] {
+  cursor: grab;
 }
 .ios-sim-chip,
 .ios-sim-icon,
@@ -80,7 +102,7 @@
 }
 .ios-sim-icon:hover:not(:disabled),
 .ios-sim-link:hover {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-fill-quaternary);
   color: var(--color-content);
 }
 .ios-sim-chip:hover:not(:disabled),

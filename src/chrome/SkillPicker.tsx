@@ -1,3 +1,4 @@
+import "./Menu.css";
 import { ArrowDownCircle, Plus } from "./icons";
 import {
   memo,
@@ -59,10 +60,7 @@ export function SkillPicker({
   onCreate,
 }: Props) {
   return (
-    <div
-      data-skill-picker
-      className="overflow-hidden rounded-lg border border-content/10 bg-[var(--aven-popup)] shadow-[var(--aven-shadow)]"
-    >
+    <div data-skill-picker className="aven-glass-overlay overflow-hidden">
       {creating ? (
         <CreateSkillForm
           query={query}
@@ -149,9 +147,11 @@ const SkillList = memo(function SkillList({
   return (
     <>
       {skills.length === 0 ? (
-        <p className="px-3 py-2.5 text-ui-label text-content/50">
-          {searching ? "No matching commands or skills" : "No commands yet"}
-        </p>
+        <div className="aven-menu">
+          <p className="aven-menu-note">
+            {searching ? "No matching commands or skills" : "No commands yet"}
+          </p>
+        </div>
       ) : null}
       <div
         role="listbox"
@@ -161,7 +161,7 @@ const SkillList = memo(function SkillList({
         {skills.length > 0 ? (
           <div
             ref={lockOverscroll}
-            className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-none px-1 py-1"
+            className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none"
           >
             {skills.map(({ skill, positions, descriptionPositions }, index) => {
               const highlighted = index === active;
@@ -175,81 +175,84 @@ const SkillList = memo(function SkillList({
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => onRowEnter(index)}
                   onClick={() => onPick(skill)}
-                  className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left ${
-                    highlighted ? "bg-skill/15 text-content" : "text-content"
-                  }`}
+                  data-active={highlighted}
+                  className="aven-menu-item aven-menu-item-rich"
                 >
-                  <span className="flex min-w-0 items-baseline gap-2">
-                    <span
-                      className={`truncate font-mono text-ui-body ${
-                        highlighted ? "font-medium text-skill" : ""
-                      }`}
-                    >
-                      /
-                      <MatchText
-                        text={skill.invocation}
-                        positions={positions}
-                        active={searching}
-                      />
+                  <span className="aven-menu-text">
+                    <span className="flex min-w-0 items-baseline gap-2">
+                      <span
+                        className={`truncate font-mono ${
+                          highlighted ? "text-skill" : ""
+                        }`}
+                      >
+                        /
+                        <MatchText
+                          text={skill.invocation}
+                          positions={positions}
+                          active={searching}
+                        />
+                      </span>
+                      <span className="shrink-0 text-ui-micro uppercase tracking-wide text-content/40">
+                        {scopeLabel(skill)}
+                      </span>
                     </span>
-                    <span className="shrink-0 text-ui-micro uppercase tracking-wide text-content/40">
-                      {scopeLabel(skill)}
-                    </span>
+                    {skill.description ? (
+                      <span className="aven-menu-description line-clamp-2">
+                        <MatchText
+                          text={skill.description}
+                          positions={descriptionPositions}
+                          active={searching}
+                        />
+                      </span>
+                    ) : null}
+                    {skill.kind === "native" &&
+                    (skill.inputHint || skill.subcommands?.length) ? (
+                      <span className="aven-menu-description line-clamp-2">
+                        {skill.inputHint ||
+                          skill.subcommands
+                            ?.map((sub) => sub.usage || sub.name)
+                            .join(" · ")}
+                      </span>
+                    ) : null}
                   </span>
-                  {skill.description ? (
-                    <span className="line-clamp-2 text-ui-caption leading-4 text-content/50">
-                      <MatchText
-                        text={skill.description}
-                        positions={descriptionPositions}
-                        active={searching}
-                      />
-                    </span>
-                  ) : null}
-                  {skill.kind === "native" &&
-                  (skill.inputHint || skill.subcommands?.length) ? (
-                    <span className="line-clamp-2 text-ui-caption text-content/40">
-                      {skill.inputHint ||
-                        skill.subcommands
-                          ?.map((sub) => sub.usage || sub.name)
-                          .join(" · ")}
-                    </span>
-                  ) : null}
                 </button>
               );
             })}
           </div>
         ) : null}
-        <button
-          type="button"
-          role="option"
-          aria-selected={createActive}
-          onMouseDown={(e) => e.preventDefault()}
-          onMouseEnter={() => onRowEnter(skills.length)}
-          onClick={onStartCreate}
-          className={`flex w-full items-center gap-2 border-t border-content/10 px-2.5 py-2 text-left text-ui-label hover:bg-content/10 hover:text-content ${
-            createActive ? "bg-content/10 text-content" : "text-content/70"
-          }`}
-        >
-          <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
-          <span className="min-w-0 truncate">{createSkillLabel(query)}</span>
-        </button>
-        <button
-          type="button"
-          role="option"
-          aria-selected={addActive}
-          onMouseDown={(e) => e.preventDefault()}
-          onMouseEnter={() => onRowEnter(skills.length + 1)}
-          onClick={onStartAdd}
-          className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-ui-label hover:bg-content/10 hover:text-content ${
-            addActive ? "bg-content/10 text-content" : "text-content/70"
-          }`}
-        >
-          <ArrowDownCircle className="size-3.5 shrink-0" strokeWidth={1.75} />
-          <span className="min-w-0 flex-1 truncate">{ADD_SKILL_LABEL}</span>
-          <span className="shrink-0 text-ui-caption text-content/40">
-            GitHub or skills.sh
-          </span>
-        </button>
+        <div className="aven-menu border-t border-(color:--aven-menu-line)">
+          <button
+            type="button"
+            role="option"
+            aria-selected={createActive}
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseEnter={() => onRowEnter(skills.length)}
+            onClick={onStartCreate}
+            data-active={createActive}
+            className="aven-menu-item"
+          >
+            <span aria-hidden="true" className="aven-menu-icon">
+              <Plus strokeWidth={1.75} />
+            </span>
+            <span className="aven-menu-label">{createSkillLabel(query)}</span>
+          </button>
+          <button
+            type="button"
+            role="option"
+            aria-selected={addActive}
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseEnter={() => onRowEnter(skills.length + 1)}
+            onClick={onStartAdd}
+            data-active={addActive}
+            className="aven-menu-item"
+          >
+            <span aria-hidden="true" className="aven-menu-icon">
+              <ArrowDownCircle strokeWidth={1.75} />
+            </span>
+            <span className="aven-menu-label">{ADD_SKILL_LABEL}</span>
+            <span className="aven-menu-detail">GitHub or skills.sh</span>
+          </button>
+        </div>
       </div>
     </>
   );
@@ -309,7 +312,7 @@ function CreateSkillForm({
           e.preventDefault();
           onCancel();
         }}
-        className="mb-2 w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="aven-field mb-2 w-full px-2 py-1.5 font-mono text-ui-body"
       />
       <div className="mb-2 flex gap-1">
         <ScopeButton

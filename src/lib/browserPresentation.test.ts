@@ -205,6 +205,65 @@ describe("browser presentation", () => {
     expect(native.captures).toEqual([]);
   });
 
+  it("hides the page for a layout motion and shows it again at its final bounds", async () => {
+    let held = false;
+    void controller.holdForMotion().then(() => {
+      held = true;
+    });
+    await settle();
+    expect(held).toBe(true);
+    expect(native.page.visible).toBe(false);
+    // No still image of its own: the motion supplies the picture.
+    expect(native.captures).toEqual([]);
+    expect(snapshots).toEqual([]);
+    // The pane moves while held; the page stays hidden.
+    native.measured = { ...native.measured, x: 300, width: 900 };
+    resize();
+    await vi.advanceTimersByTimeAsync(16);
+    expect(native.page.visible).toBe(false);
+    const pending = deferred<void>();
+    native.nextLayout = pending;
+    let released = false;
+    void controller.releaseFromMotion().then(() => {
+      released = true;
+    });
+    await settle();
+    expect(released).toBe(false);
+    pending.resolve();
+    await settle();
+    expect(released).toBe(true);
+    expect(native.page).toMatchObject({
+      visible: true,
+      bounds: { x: 300, width: 900 },
+    });
+  });
+
+  it("leaves a page that is no longer showing hidden when its motion ends", async () => {
+    await controller.holdForMotion();
+    state.visible = false;
+    controller.update();
+    await settle();
+    let released = false;
+    void controller.releaseFromMotion().then(() => {
+      released = true;
+    });
+    await settle();
+    expect(released).toBe(true);
+    expect(native.page.visible).toBe(false);
+  });
+
+  it("never waits on the native page past its motion deadline", async () => {
+    native.nextLayout = deferred<void>();
+    let held = false;
+    void controller.holdForMotion().then(() => {
+      held = true;
+    });
+    await settle();
+    expect(held).toBe(false);
+    await vi.advanceTimersByTimeAsync(160);
+    expect(held).toBe(true);
+  });
+
   it("serializes native layouts and sends the latest pending bounds", async () => {
     const pending = deferred<void>();
     native.nextLayout = pending;

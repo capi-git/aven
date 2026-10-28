@@ -92,10 +92,10 @@ export const SCHEDULES = "schedules";
 // Matches the Inbox detail action row.
 const ACTION =
   "aven-press inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
-const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40`;
-const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40`;
+const ACTION_FILLED = `${ACTION} h-7 bg-content text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40`;
+const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-(--aven-control-bg) hover:text-content disabled:cursor-default disabled:opacity-40`;
 const ICON_BUTTON =
-  "aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content";
+  "aven-press grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-(--aven-control-bg) hover:text-content";
 
 const DAY_FULL_NAMES = [
   "Sunday",
@@ -270,8 +270,8 @@ export function ScheduledRunList({
               onClick={() => onSelect(SCHEDULES)}
               className={`flex w-full items-center gap-2 rounded-md border border-transparent px-2.5 py-2 text-left ${
                 managerActive
-                  ? "bg-content/10 text-content"
-                  : "text-content/80 hover:bg-content/5 hover:text-content"
+                  ? "bg-(--aven-selected) text-content"
+                  : "text-content/80 hover:bg-(--aven-hover) hover:text-content"
               }`}
             >
               <Clock
@@ -344,8 +344,8 @@ function ScheduledRunCard({
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border border-transparent px-2.5 py-2 text-left ${
         active
-          ? "bg-content/10 text-content"
-          : "text-content/80 hover:bg-content/5 hover:text-content"
+          ? "bg-(--aven-selected) text-content"
+          : "text-content/80 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -525,9 +525,9 @@ function ScheduleManager({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <h1 className="text-ui-heading font-semibold leading-tight text-content">
-            Automations
-          </h1>
+          {/* The view's header names Automations right above; the heading
+              stays for the page's outline only. */}
+          <h1 className="sr-only">Automations</h1>
           <p className="text-ui-label text-content/50">
             Runs while your {IS_MAC ? "Mac" : "computer"} is awake and Aven is
             open. If a run is missed, it runs once when you’re back.

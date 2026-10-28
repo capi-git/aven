@@ -187,7 +187,7 @@ export function ProjectSearch({
         </span>
       </div>
       <div className="shrink-0 space-y-2 border-b border-content/10 p-2">
-        <div className="flex items-center gap-1 rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 pr-1">
+        <div className="aven-field flex items-center gap-1 px-2 pr-1">
           <input
             ref={inputRef}
             value={query}
@@ -196,7 +196,7 @@ export function ProjectSearch({
             placeholder="Search"
             aria-label="Search"
             spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent py-1.5 text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-ui-label text-content outline-none placeholder:text-content/40"
           />
           <Toggle
             label="Match case"
@@ -226,7 +226,7 @@ export function ProjectSearch({
           placeholder="files to include"
           aria-label="files to include"
           spellCheck={false}
-          className="w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field w-full px-2 py-1.5 text-ui-caption"
         />
         <input
           value={exclude}
@@ -234,7 +234,7 @@ export function ProjectSearch({
           placeholder="files to exclude"
           aria-label="files to exclude"
           spellCheck={false}
-          className="w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field w-full px-2 py-1.5 text-ui-caption"
         />
       </div>
 
@@ -282,7 +282,7 @@ export function ProjectSearch({
                   <button
                     type="button"
                     onClick={() => openMatch(match)}
-                    className="flex w-full items-start gap-2 px-2 py-1 text-left hover:bg-content/5"
+                    className="flex w-full items-start gap-2 px-2 py-1 text-left hover:bg-(--aven-hover)"
                   >
                     <span className="w-7 shrink-0 pt-px text-right font-mono text-ui-caption text-content/35 tabular-nums">
                       {match.line}

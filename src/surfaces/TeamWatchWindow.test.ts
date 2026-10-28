@@ -158,6 +158,10 @@ describe("a team's panel in a window of its own", () => {
     expect(
       document.documentElement.style.getPropertyValue("--team-watch-window-bg"),
     ).toBe("#edf5f7");
+    // Popups in the window sit on the same surface, not a step lighter.
+    expect(
+      document.documentElement.style.getPropertyValue("--aven-popup"),
+    ).toBe("#edf5f7");
     expect(container.querySelectorAll("[data-team-lane]")).toHaveLength(2);
     expect(words(container.querySelector(".team-watch-reply"))).toBe(
       "Fixed it.",

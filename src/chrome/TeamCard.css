@@ -112,7 +112,7 @@
   content: "";
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--team-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-accent) 22%, transparent);
 }
@@ -290,7 +290,7 @@ button.team-card-member-open:hover {
   font-weight: 600;
 }
 .team-card-button[data-variant="primary"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-content) 82%, transparent);
+  background: var(--aven-inverse-hover);
 }
 .team-card-button[data-variant="ghost"] {
   border-color: transparent;

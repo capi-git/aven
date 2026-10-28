@@ -244,7 +244,7 @@ export function NotesView({
             aria-label="Filter notes"
             spellCheck={false}
             autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40"
           />
         </div>
         <button
@@ -454,8 +454,8 @@ function NoteCard({
       onClick={onSelect}
       className={`utility-list-card flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "border-transparent bg-(--aven-selected) text-content"
+          : "border-transparent text-content/80 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -673,7 +673,7 @@ function NoteEditor({
             }}
             onKeyDown={onTitleKeyDown}
             aria-label="Note title"
-            className="w-full border-0 bg-transparent p-0 text-ui-heading font-semibold leading-tight text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="w-full border-0 bg-transparent p-0 text-ui-heading font-semibold leading-tight text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
             placeholder="Untitled"
           />
           {time ? (
@@ -684,7 +684,7 @@ function NoteEditor({
               type="button"
               disabled={!canAddToChat}
               onClick={() => onAddToChat(draft)}
-              className="inline-flex items-center gap-1 rounded-md bg-content px-3 h-6.5 text-ui-label text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-md bg-content px-3 h-6.5 text-ui-label text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40"
             >
               Add to chat
             </button>
@@ -821,7 +821,7 @@ function NoteSource({
         onChange={(event) => onChange(event.target.value)}
         spellCheck={false}
         placeholder="Write markdown…"
-        className="markdown-source-field absolute inset-0 h-full w-full resize-none overflow-hidden border-0 bg-transparent py-0 pr-0 font-mono text-ui-body leading-5 whitespace-pre-wrap wrap-break-word outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="markdown-source-field absolute inset-0 h-full w-full resize-none overflow-hidden border-0 bg-transparent py-0 pr-0 font-mono text-ui-body leading-5 whitespace-pre-wrap wrap-break-word outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
         style={{ paddingLeft: textOffset }}
       />
     </div>

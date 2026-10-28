@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { WorkspaceMenuPanelContent } from "../chrome/WorkspaceMenuPanel";
 import { afterPopupGlass, usePopupGlass } from "../lib/popupGlass";
+import { usePanelWindowTheme } from "../hooks/usePanelWindowTheme";
 import {
   nativeWorkspaceMenuPanel,
   type WorkspaceMenuPanelState,
@@ -72,11 +73,9 @@ export function WorkspaceMenuPanelWindow() {
     };
   }, []);
   usePopupGlass(state?.snapshot.theme, state?.presentation);
+  usePanelWindowTheme("workspace-menu-panel-window", state?.snapshot.theme);
   useLayoutEffect(() => {
-    document.documentElement.classList.add("workspace-menu-panel-window");
-    document.getElementById("boot-splash")?.remove();
     if (!state) return;
-    document.documentElement.style.colorScheme = state.snapshot.theme.mode;
     let disposed = false;
     const presentation = state.presentation;
     // A hidden WKWebView can throttle animation frames and passive effects.

@@ -177,13 +177,13 @@ export function InboxCommentForm({
           }
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
-          className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
         />
         <div className="flex items-center justify-end px-2 pb-2">
           <button
             type="submit"
             disabled={!canPost}
-            className="inline-flex h-7 items-center rounded-md bg-content px-3 text-ui-label text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40"
+            className="inline-flex h-7 items-center rounded-md bg-content px-3 text-ui-label text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40"
           >
             {posting ? "Posting…" : replyTo ? "Reply" : "Comment"}
           </button>

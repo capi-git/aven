@@ -76,6 +76,7 @@ import KeyboardIcon from "@hugeicons/core-free-icons/KeyboardIcon";
 import LayoutAlignRightIcon from "@hugeicons/core-free-icons/LayoutAlignRightIcon";
 import LayoutBottomIcon from "@hugeicons/core-free-icons/LayoutBottomIcon";
 import LayoutTopIcon from "@hugeicons/core-free-icons/LayoutTopIcon";
+import LayoutTwoColumnIcon from "@hugeicons/core-free-icons/LayoutTwoColumnIcon";
 import LeftToRightListBulletIcon from "@hugeicons/core-free-icons/LeftToRightListBulletIcon";
 import ListEndIcon from "@hugeicons/core-free-icons/ListEndIcon";
 import LinkSquare02Icon from "@hugeicons/core-free-icons/LinkSquare02Icon";
@@ -280,6 +281,8 @@ export const Minus = wrap(MinusSignIcon, "Minus");
 export const MoreHorizontal = wrap(MoreHorizontalIcon, "MoreHorizontal");
 export const Palette = wrap(PaintBoardIcon, "Palette");
 export const Pause = wrap(PauseIcon, "Pause");
+/** Two panes side by side: a split on the window's strip. */
+export const Columns2 = wrap(LayoutTwoColumnIcon, "Columns2");
 export const PanelBottom = wrap(LayoutBottomIcon, "PanelBottom");
 export const PanelLeft = wrap(LayoutAlignRightIcon, "PanelLeft");
 export const PanelRight = wrap(SidebarRight01Icon, "PanelRight");

@@ -645,7 +645,7 @@ function RaceBody({
                         () => void finish("Keeping…", { lane: index }),
                       );
                     }}
-                    className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
+                    className="rounded-md bg-content px-2 py-0.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-30"
                   >
                     Keep this
                   </button>
@@ -686,7 +686,7 @@ function RaceBody({
                           : row.lanes[0],
                     })
                   }
-                  className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-content/10 text-content" : "text-content/70 hover:bg-content/5"}`}
+                  className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-(--aven-selected) text-content" : "text-content/70 hover:bg-(--aven-hover)"}`}
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-ui-label">
                     {row.path}
@@ -736,7 +736,7 @@ function RaceBody({
                     () => void finish("Keeping…", { files: picked }),
                   )
                 }
-                className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-30"
+                className="w-full rounded-md bg-content px-2 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-30"
               >
                 {working ??
                   (selectedCount
@@ -758,7 +758,7 @@ function RaceBody({
                       onClick={() =>
                         setFocus({ path: current.path, lane: index })
                       }
-                      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-ui-label ${current.lane === index ? "bg-content/10 text-content" : "text-content/55 hover:bg-content/5"}`}
+                      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-ui-label ${current.lane === index ? "bg-(--aven-selected) text-content" : "text-content/55 hover:bg-(--aven-hover)"}`}
                     >
                       <HarnessIcon
                         harness={lane.harness}
@@ -816,7 +816,7 @@ function RaceBody({
                       sessions.find((entry) => entry.id === id),
                     ).then(setActionError)
                   }
-                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
+                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
                 >
                   {`Continue with ${continueWith}`}
                 </button>

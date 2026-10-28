@@ -213,7 +213,7 @@ export function PersonalWorkspaceSwitcher({
             }}
           >
             <label
-              className="block text-xs text-content/80"
+              className="block text-ui-label text-content/80"
               htmlFor="personal-new-workspace"
             >
               Workspace name
@@ -224,13 +224,13 @@ export function PersonalWorkspaceSwitcher({
               maxLength={40}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="mt-2 h-8 w-full rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-xs text-content outline-none focus:border-content/35"
+              className="aven-field mt-2 h-8 w-full px-2 text-ui-label"
               placeholder="Name"
             />
             <button
               type="submit"
               disabled={!name.trim()}
-              className="mt-3 h-7 w-full rounded-md bg-content/10 text-xs text-content hover:bg-content/15 disabled:opacity-40"
+              className="mt-3 h-7 w-full rounded-md bg-(--aven-control-bg) text-ui-label text-content hover:bg-(--aven-control-hover) disabled:opacity-40"
             >
               Create workspace
             </button>

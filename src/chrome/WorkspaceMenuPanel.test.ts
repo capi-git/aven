@@ -240,12 +240,10 @@ it("renders compact grouped choices with theme colors, checks, shortcuts, and di
         ?.getAttribute("aria-checked"),
     ).toBe("true");
     expect(host.querySelectorAll('[role="separator"]')).toHaveLength(1);
-    expect(
-      host.querySelector(".workspace-menu-panel-shortcut")?.textContent,
-    ).toBe("⌘W");
-    expect(
-      host.querySelector(".workspace-menu-panel-item-danger")?.textContent,
-    ).toBe("Close tab⌘W");
+    expect(host.querySelector(".aven-menu-shortcut")?.textContent).toBe("⌘W");
+    expect(host.querySelector(".aven-menu-item-danger")?.textContent).toBe(
+      "Close tab⌘W",
+    );
     expect(document.activeElement?.textContent).toBe("Pin tab");
     const key = async (value: string) =>
       act(async () =>
@@ -341,9 +339,7 @@ it("shows a compact row's tooltip only when its label is cut off", async () => {
     const [short, long] =
       host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
     expect(short.hasAttribute("title")).toBe(false);
-    const label = long.querySelector<HTMLElement>(
-      ".workspace-menu-panel-item-label",
-    )!;
+    const label = long.querySelector<HTMLElement>(".aven-menu-label")!;
     Object.defineProperty(label, "scrollWidth", { value: 300 });
     Object.defineProperty(label, "clientWidth", { value: 180 });
     await act(async () => {

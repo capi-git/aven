@@ -23,9 +23,10 @@
   color: var(--personal-muted, var(--aven-muted));
   cursor: text;
 }
+/* The shared field ring (.aven-field). */
 .settings-nav__search:focus-within {
-  background: var(--aven-fill-secondary, var(--aven-control-bg));
-  box-shadow: 0 0 0 2px var(--aven-focus-ring);
+  outline: 2px solid var(--aven-field-focus);
+  outline-offset: 0;
 }
 .settings-nav__search input {
   min-width: 0;

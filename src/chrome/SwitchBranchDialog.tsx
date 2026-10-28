@@ -103,7 +103,7 @@ export function SwitchBranchDialog({
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div
-        className="absolute inset-0 bg-black/30"
+        className="modal-backdrop absolute inset-0 bg-black/40"
         onMouseDown={() => {
           if (!busy && !generating) onCancel();
         }}
@@ -114,10 +114,10 @@ export function SwitchBranchDialog({
         aria-busy={Boolean(busy) || generating}
         aria-label={creating ? `Create ${branch}` : `Switch to ${branch}`}
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
+        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-sheet p-4"
       >
         <div className="flex flex-col gap-1">
-          <h2 className="text-ui-body font-medium leading-tight text-content">
+          <h2 className="text-ui-sheet font-semibold leading-tight tracking-[-0.01em] text-content">
             Uncommitted changes
           </h2>
           <p className="text-ui-label leading-snug text-content/55">
@@ -135,7 +135,7 @@ export function SwitchBranchDialog({
             placeholder={`Message (${MOD}↩ to commit)`}
             disabled={Boolean(busy) || generating}
             aria-label="Commit message"
-            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="aven-field max-h-40 w-full resize-none overflow-y-auto py-1 pr-8 pl-2 text-ui-body leading-5"
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={(event) => {
               if (
@@ -162,7 +162,7 @@ export function SwitchBranchDialog({
             }
             disabled={Boolean(busy)}
             onClick={() => (generating ? cancelGenerate() : void generate())}
-            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-content/10 text-content hover:bg-content/20 hover:text-content disabled:opacity-40"
+            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-(--aven-control-bg) text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content disabled:opacity-40"
           >
             {generating ? (
               <>
@@ -192,7 +192,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={Boolean(busy) || generating}
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content disabled:opacity-40"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content disabled:opacity-40"
           >
             Cancel
           </button>
@@ -200,7 +200,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={!canCommit}
             onClick={() => onCommit(trimmed)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-content/10 px-3 py-1.5 text-ui-label font-medium text-content hover:bg-content/15 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-(--aven-control-bg) px-3 py-1.5 text-ui-label font-medium text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) disabled:opacity-40"
           >
             {busy === "commit" ? (
               <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
@@ -211,7 +211,7 @@ export function SwitchBranchDialog({
             type="button"
             disabled={Boolean(busy) || generating}
             onClick={onStash}
-            className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {busy === "stash" ? (
               <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />

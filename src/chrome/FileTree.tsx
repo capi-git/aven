@@ -642,7 +642,7 @@ export const FileTree = memo(function FileTree({
       <div
         ref={rootRef}
         tabIndex={-1}
-        className="flex h-full min-h-0 flex-col outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="flex h-full min-h-0 flex-col outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
         onKeyDown={onKeyDown}
         onContextMenu={onBackgroundMenu}
       >
@@ -770,8 +770,8 @@ function HeaderIcon({
       onClick={onClick}
       className={`flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md ${
         active
-          ? "bg-content/10 text-content"
-          : "text-content/50 hover:bg-content/5 hover:text-content"
+          ? "bg-(--aven-selected) text-content"
+          : "text-content/50 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       {children}
@@ -922,8 +922,8 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           style={{ paddingLeft: 8 + depth * 12 }}
           className={`flex h-6.5 w-full cursor-default items-center gap-1 pr-2 text-left text-ui-body leading-none ${
             selected
-              ? "bg-content/10 text-content"
-              : "text-content hover:bg-content/5"
+              ? "bg-(--aven-selected) text-content"
+              : "text-content hover:bg-(--aven-hover)"
           } ${cutPath === entry.path ? "opacity-50" : ""}`}
         >
           <span className="grid size-4 shrink-0 place-items-center text-content/50">
@@ -1066,7 +1066,7 @@ function NameRow({
             }
           }}
           onBlur={() => finish(issue === null || issue.severity !== "error")}
-          className="h-5 min-w-0 flex-1 rounded-sm bg-content/10 px-1 text-ui-body leading-none text-content outline-none ring-1 ring-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="aven-field h-5 min-w-0 flex-1 px-1 text-ui-body leading-none"
         />
       </div>
       {showIssue ? (

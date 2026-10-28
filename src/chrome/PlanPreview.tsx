@@ -84,7 +84,7 @@ export function PlanPreview({
                   type="button"
                   title="Open in pane"
                   aria-label="Open plan in pane"
-                  className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-content/8 px-2 font-sans text-ui-caption text-content/70 hover:bg-content/12 hover:text-content"
+                  className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-2 font-sans text-ui-caption text-content/70 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content"
                   onClick={onOpen}
                 >
                   <PanelRight className="size-3" strokeWidth={1.75} />
@@ -97,7 +97,7 @@ export function PlanPreview({
                     type="button"
                     title="Build this plan"
                     disabled={buildDisabled}
-                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-ui-caption text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-ui-caption text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-not-allowed disabled:opacity-40 ${
                       harness ? "rounded-l-md" : "rounded-md"
                     }`}
                     onClick={() => onBuild()}

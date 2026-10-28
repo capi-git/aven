@@ -153,7 +153,7 @@ function ProjectAppearancePopover({
             event.preventDefault();
             close();
           }}
-          className="h-8 min-w-0 flex-1 rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-2 text-ui-label text-content outline-none focus:border-content/35"
+          className="aven-field h-8 min-w-0 flex-1 px-2 text-ui-label"
         />
       </div>
 
@@ -268,7 +268,7 @@ function ProjectAppearancePopover({
           type="button"
           onMouseDown={(event) => event.preventDefault()}
           onClick={close}
-          className="h-7 rounded-md bg-content/10 px-3 text-ui-label text-content hover:bg-content/15"
+          className="h-7 rounded-md bg-(--aven-control-bg) px-3 text-ui-label text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
         >
           Done
         </button>

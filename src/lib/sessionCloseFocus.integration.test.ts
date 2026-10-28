@@ -15,11 +15,8 @@ import {
   filterTabsForProject,
   planWorkspaceTabClose,
 } from "./workspaceTabGroups";
-import {
-  closeWorkspaceViews,
-  useWorkspaceViews,
-  type WorkspaceView,
-} from "./workspaceViews";
+import { useWorkspaceViews } from "../hooks/useWorkspaceViews";
+import { closeWorkspaceViews, type WorkspaceView } from "./workspaceViews";
 
 const project = "/projects/close-focus";
 const initialTabs: WorkspaceTab[] = [

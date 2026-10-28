@@ -26,7 +26,7 @@
 }
 .git-copies-toggle:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
 }
 .git-copies-toggle:focus-visible,
 .git-copy-line:focus-visible,
@@ -92,7 +92,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   color: var(--color-content);
 }
 .git-copy-line:hover {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-hover);
 }
 /* Room for two dots, so names line up whether or not a row has any. */
 .git-copy-dots {
@@ -140,7 +140,7 @@ html.theme-light .git-copy[data-tone="merged"] {
 }
 .git-copies-more:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-hover);
 }
 .git-copy-head {
   display: flex;
@@ -235,22 +235,22 @@ html.theme-light .git-copy[data-tone="merged"] {
   padding: 0 8px;
   border-radius: var(--aven-radius-sm);
   font-size: var(--text-ui-caption);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-control-bg);
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
 }
 .git-copy-action:hover {
-  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+  background: var(--aven-control-hover);
   color: var(--color-content);
 }
 .git-copy-action:disabled {
   opacity: 0.6;
 }
 .git-copy-action[data-tone="danger"] {
-  background: color-mix(in srgb, var(--color-danger, #e5484d) 18%, transparent);
-  color: var(--color-danger, #ff6b6b);
+  background: var(--aven-danger-fill);
+  color: var(--aven-danger-text);
 }
 .git-copy-action[data-tone="danger"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-danger, #e5484d) 28%, transparent);
+  background: var(--aven-danger-fill-hover);
 }
 .git-copy-actions,
 .git-copy-confirm > div {
@@ -267,7 +267,7 @@ html.theme-light .git-copy[data-tone="merged"] {
 }
 .git-copy-error {
   margin-top: 6px;
-  color: var(--color-danger, #ff6b6b);
+  color: var(--aven-danger-text);
 }
 /* Collapsed row holding copies whose changes are already on main. */
 .git-copies-group {
@@ -281,7 +281,7 @@ html.theme-light .git-copy[data-tone="merged"] {
   border-radius: var(--aven-radius-row);
 }
 .git-copies-group:hover {
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
 }
 .git-copies-group .git-copy-head {
   flex: 1;

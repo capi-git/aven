@@ -80,14 +80,14 @@ export function DiffCommentComposer({
             }
           }}
           placeholder="Leave a comment…"
-          className="max-h-40 min-h-18 w-full resize-y rounded-lg border border-content/10 bg-background-base/70 px-2.5 py-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/20"
+          className="aven-field max-h-40 min-h-18 w-full resize-y px-2.5 py-2 text-ui-body leading-5"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-ui-micro text-content/35">{MOD}↩ to add</span>
           <button
             type="submit"
             disabled={!comment.trim()}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-label font-medium text-background-base hover:opacity-80 disabled:cursor-default disabled:opacity-40"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-default disabled:opacity-40"
           >
             <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
             Add to chat

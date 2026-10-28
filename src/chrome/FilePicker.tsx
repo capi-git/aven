@@ -158,18 +158,21 @@ export function FilePicker({
 
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
-      <div className="absolute inset-0" onMouseDown={onClose} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Go to File"
         data-file-picker
         onMouseDown={(e) => e.stopPropagation()}
-        className="absolute left-1/2 top-[12%] flex w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden aven-glass-overlay"
+        className="absolute left-1/2 top-[12%] flex w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden aven-sheet"
       >
         <div className="pb-1.5">
-          <label className="flex items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <label className="flex items-center gap-2.5 border-b border-content/10 px-4 py-3 text-content/50">
+            <Search className="size-4 shrink-0" strokeWidth={1.75} />
             <input
               ref={search}
               type="text"
@@ -180,7 +183,7 @@ export function FilePicker({
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
-              className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+              className="min-w-0 flex-1 bg-transparent text-ui-sheet text-content outline-none placeholder:text-content/40"
               onChange={(e) => {
                 setQuery(e.target.value);
                 setActive(0);
@@ -300,8 +303,8 @@ function FileList({
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onPick(file)}
-            className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm leading-none ${
-              highlighted ? "bg-content/10 text-content" : "text-content"
+            className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui-body leading-none text-content ${
+              highlighted ? "bg-(--aven-menu-highlight)" : ""
             }`}
           >
             <span className="shrink-0">

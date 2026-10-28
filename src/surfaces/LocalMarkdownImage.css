@@ -10,20 +10,20 @@
   width: auto;
   height: auto;
   object-fit: contain;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
 }
 .markdown-local-image-open {
   display: block;
   max-width: 100%;
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   background: transparent;
   cursor: zoom-in;
 }
 .markdown-local-image-open:focus-visible,
 .markdown-local-image-actions button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 3px;
 }
 .markdown-local-image-status {
@@ -34,7 +34,7 @@
   min-height: 120px;
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
   font-size: var(--text-ui-label);
 }
 .markdown-local-image-status small {
@@ -83,12 +83,12 @@
   max-width: 100%;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--aven-radius-sm);
   background: transparent;
   vertical-align: middle;
   cursor: zoom-in;
 }
 .markdown-image-open:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 3px;
 }

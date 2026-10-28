@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { HarnessIcon } from "../chrome/HarnessIcon";
+import "../chrome/Menu.css";
 import { Popover } from "../chrome/Popover";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { moveMenuFocus } from "../lib/keyboard";
@@ -74,9 +75,9 @@ export function RaceReviewerPicker({
             if (reason === "escape") anchor.current?.focus();
           }}
           data-race-reviewers
-          className="p-1 outline-none"
+          className="aven-menu"
         >
-          <p className="px-2 pb-1 pt-1.5 text-ui-caption leading-4 text-content/50">
+          <p className="aven-menu-note aven-menu-description">
             The chat you pick gets the agents' last replies and changes, with a
             Reviewer's instruction, and suggests one to keep.
           </p>
@@ -97,19 +98,21 @@ export function RaceReviewerPicker({
                   anchor.current?.focus();
                   onPick(choice);
                 }}
-                className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content/85 hover:bg-content/5 hover:text-content focus-visible:outline-2 focus-visible:outline-[color:var(--aven-focus-ring)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+                className="aven-menu-item"
               >
-                <HarnessIcon
-                  harness={choice.harness}
-                  className="size-3.5 shrink-0"
-                />
-                <span className="min-w-0 flex-1 truncate">
+                <span aria-hidden="true" className="aven-menu-icon">
+                  <HarnessIcon
+                    harness={choice.harness}
+                    className="size-3.5 shrink-0"
+                  />
+                </span>
+                <span className="aven-menu-label">
                   {choice.sessionId === originId
                     ? "The chat you raced from"
                     : choice.title}
                 </span>
                 <span
-                  className="max-w-[50%] shrink-0 truncate text-ui-caption text-content/45"
+                  className="aven-menu-detail max-w-[50%]"
                   data-race-reviewer-detail
                 >
                   {choice.busy ??
@@ -125,7 +128,7 @@ export function RaceReviewerPicker({
               </button>
             ))
           ) : (
-            <p className="px-2 py-2 text-ui-label text-content/45">
+            <p className="aven-menu-note">
               No other chat in this project can review it.
             </p>
           )}

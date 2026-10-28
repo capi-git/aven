@@ -7,19 +7,66 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
-import { captureDropGhost } from "../lib/dropGhost";
 import { moveItem } from "../lib/reorder";
-import {
-  SortableMotion,
-  type SortableMotionPositions,
-} from "../lib/sortableMotion";
+import { SortableMotion } from "../lib/sortableMotion";
+import type { MorphOrigin } from "../lib/stripMorph";
 
 const THRESHOLD = 5;
+/**
+ * An item's drop zone is its middle half: a quarter of it at each end
+ * reorders, but never less than `DROP_ON_EDGE` pixels, so a narrow item
+ * still leaves room to move past it.
+ */
 const DROP_ON_INSET = 0.25;
+const DROP_ON_EDGE = 16;
+/**
+ * Once a delayed drop zone arms, it reaches this much further towards each
+ * end, so a pointer resting on its boundary does not flicker between a
+ * drop and a reorder.
+ */
+const DROP_ON_HOLD = 8;
+/**
+ * Arming waits for the pointer to rest: moving further than this (px) from
+ * where it started waiting starts the wait again, so a slow pass through a
+ * middle never arms.
+ */
+const DROP_ON_STILL = 4;
+/**
+ * Waiting that long still, the pointer is resting rather than passing: the
+ * entry stays where it is (it would join it, not move past it) until it
+ * arms or the pointer leaves its middle.
+ */
+const DROP_ON_REST = 60;
 const SCROLL_EDGE = 28;
 
 /** DOM screen coordinates in CSS pixels; never substitute client coordinates. */
 export type SortablePointerPosition = { screenX: number; screenY: number };
+
+/**
+ * A part of an item that a drag can pull out of the strip on its own: a
+ * split entry's segment. Moving along the strip still moves the whole
+ * item; once the pointer leaves the strip the part is torn off, the
+ * floating copy shows only it, and the drop is the consumer's to place.
+ */
+export type SortablePart = { id: string; element: HTMLElement };
+
+/**
+ * A drag that started on a part, for the consumer's move and end callbacks
+ * (others get none).
+ */
+export type SortablePartDrag = {
+  /** The part pressed. */
+  part: string;
+  /** The pointer has left the strip: the part is torn off the item. */
+  torn: boolean;
+  /** The pointer is over the strip. */
+  inStrip: boolean;
+  /**
+   * The item a torn-off part is armed to drop onto. The drop goes to
+   * `onDropOnItem` with the part; the consumer only tidies up.
+   */
+  target?: string;
+};
 
 export type SortableDropTarget = {
   kind: "tab" | "group";
@@ -39,16 +86,40 @@ export type SortableOptions = {
     x: number,
     y: number,
     pointer: SortablePointerPosition,
+    part?: SortablePartDrag,
   ) => void;
-  /** Returning true consumes the drop instead of reordering the strip. */
+  /**
+   * Returning true consumes the drop instead of reordering the strip. A
+   * torn-off part never reorders the strip.
+   */
   onDragEnd?: (
     id: string,
     x: number,
     y: number,
     cancelled: boolean,
     pointer: SortablePointerPosition,
+    part?: SortablePartDrag,
   ) => boolean;
-  onDropOnItem?: (draggedId: string, targetId: string) => void;
+  /** `part` names a torn-off part dropped onto the item. */
+  onDropOnItem?: (draggedId: string, targetId: string, part?: string) => void;
+  /**
+   * Which items take a drop onto them (with `onDropOnItem`). Others are
+   * never targets: the pointer over them reorders as usual. All items do
+   * when absent. A torn-off part is named by `part`; over the strip it can
+   * drop onto items too (never onto its own item or a group).
+   */
+  isDropTarget?: (
+    draggedId: string,
+    targetId: string,
+    part?: string,
+  ) => boolean;
+  /**
+   * How long, in milliseconds, the pointer rests on an item's drop zone
+   * before a drop onto it arms. Until then the pointer there reorders as
+   * usual, so a quick pass over an item never drops onto it; once armed,
+   * the zone holds a little past its edges. 0 (the default) arms at once.
+   */
+  dropOnDelay?: number;
   onDropOnGroup?: (draggedId: string, groupId: string) => void;
   canDropOn?: (
     draggedId: string,
@@ -70,6 +141,13 @@ type DragState = {
   inStrip: boolean;
   toIndex: number;
   dropTarget: SortableDropTarget | null;
+  part: SortablePart | null;
+  torn: boolean;
+  /**
+   * The item whose drop zone the pointer rests on, until it arms: since
+   * when, and where the pointer was then.
+   */
+  arming: { id: string; since: number; x: number; y: number } | null;
 };
 
 type ReadBounds = (element: HTMLElement) => DOMRect;
@@ -133,6 +211,10 @@ export function useSortable(
   onDragEndRef.current = options.onDragEnd;
   const canDropOnRef = useRef(options.canDropOn);
   canDropOnRef.current = options.canDropOn;
+  const isDropTargetRef = useRef(options.isDropTarget);
+  isDropTargetRef.current = options.isDropTarget;
+  const dropOnDelayRef = useRef(options.dropOnDelay ?? 0);
+  dropOnDelayRef.current = options.dropOnDelay ?? 0;
   const container = useRef<HTMLElement | null>(null);
   const nodes = useRef(new Map<string, HTMLElement>());
   const groupNodes = useRef(new Map<string, HTMLElement>());
@@ -140,25 +222,51 @@ export function useSortable(
   const suppressClickUntil = useRef(0);
   const cleanupDrag = useRef<(() => void) | null>(null);
   const motion = useRef(new SortableMotion());
-  const settling = useRef<SortableMotionPositions | null>(null);
+  // A drop waiting for React to lay out its result, and a change made
+  // outside a drag (Separate split) measured before it.
+  const settling = useRef(false);
+  const morphing = useRef(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingPartId, setDraggingPartId] = useState<string | null>(null);
+  const [toIndex, setToIndex] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
+  // The tab whose copy is flying to its place after a drop. Its tab and the
+  // highlight under it show once it lands.
+  const [landingId, setLandingId] = useState<string | null>(null);
+  motion.current.onLanded = () => setLandingId(null);
+  // True through the layout effects of a commit whose strip a morph took
+  // care of, so other strip motion (tabs growing in, closed ones
+  // collapsing) leaves that change to it.
+  const morphedThisCommit = useRef(false);
   useLayoutEffect(() => {
-    if (!settling.current) return;
-    const positions = settling.current;
-    settling.current = null;
-    motion.current.settle(positions, nodes.current);
+    motion.current.playHint(container.current, nodes.current);
+    if (settling.current) {
+      settling.current = false;
+      morphing.current = false;
+      morphedThisCommit.current = true;
+      motion.current.settle(container.current, nodes.current);
+    } else if (morphing.current) {
+      morphing.current = false;
+      morphedThisCommit.current = true;
+      motion.current.morphing.play(container.current, nodes.current);
+    }
+  });
+  useEffect(() => {
+    morphedThisCommit.current = false;
+    // Where entries stood before a morph matters only to the commit that
+    // played it (the highlight reads it there); a later front change slides
+    // as usual.
+    motion.current.forgetOrigins();
   });
   useEffect(
     () => () => {
       cleanupDrag.current?.();
-      settling.current = null;
+      settling.current = false;
+      motion.current.onLanded = null;
       motion.current.cancel();
     },
     [],
   );
-
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [toIndex, setToIndex] = useState<number | null>(null);
-  const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
 
   const setContainerRef = useCallback((element: HTMLElement | null) => {
     container.current = element;
@@ -221,6 +329,10 @@ export function useSortable(
       x: number,
       y: number,
       readBounds: ReadBounds,
+      /** An armed item, whose zone holds a little wider. */
+      held: string | null = null,
+      /** A torn-off part: it drops onto items only. */
+      part?: string,
     ): SortableDropTarget | null => {
       const target = (
         kind: "tab" | "group",
@@ -230,7 +342,9 @@ export function useSortable(
         id,
         allowed: canDropOnRef.current?.(draggedId, kind, id) ?? true,
       });
-      for (const [groupId, el] of groupNodes.current) {
+      for (const [groupId, el] of part === undefined
+        ? groupNodes.current
+        : []) {
         const rect = readBounds(el);
         if (
           x >= rect.left &&
@@ -244,13 +358,22 @@ export function useSortable(
       if (!onDropOnItemRef.current) return null;
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
+        if (
+          isDropTargetRef.current &&
+          !(part === undefined
+            ? isDropTargetRef.current(draggedId, id)
+            : isDropTargetRef.current(draggedId, id, part))
+        )
+          continue;
         const node = nodes.current.get(id);
         if (!node) continue;
         const rect = readBounds(node);
-        const inset =
-          axis === "x"
-            ? rect.width * DROP_ON_INSET
-            : rect.height * DROP_ON_INSET;
+        const size = axis === "x" ? rect.width : rect.height;
+        const edge = Math.min(
+          Math.max(size * DROP_ON_INSET, DROP_ON_EDGE),
+          size / 2,
+        );
+        const inset = id === held ? Math.max(0, edge - DROP_ON_HOLD) : edge;
         const inCenter =
           axis === "x"
             ? x >= rect.left + inset &&
@@ -269,7 +392,7 @@ export function useSortable(
   );
 
   const onItemPointerDown = useCallback(
-    (id: string, event: ReactPointerEvent) => {
+    (id: string, event: ReactPointerEvent, part?: SortablePart) => {
       if (event.button !== 0) return;
       if (idsRef.current.length < 2 && !onDragEndRef.current) return;
       if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
@@ -279,7 +402,7 @@ export function useSortable(
       const from = idsRef.current.indexOf(id);
       if (from < 0) return;
       cleanupDrag.current?.();
-      settling.current = null;
+      settling.current = false;
       motion.current.cancel();
       const animate = animateRef.current;
       if (animate)
@@ -288,6 +411,7 @@ export function useSortable(
           id,
           { x: event.clientX, y: event.clientY },
           axis,
+          part?.element,
         );
       // A new press is intentional, even immediately after a previous drag.
       suppressClickUntil.current = 0;
@@ -305,40 +429,144 @@ export function useSortable(
         inStrip: true,
         toIndex: from,
         dropTarget: null,
+        part: part ?? null,
+        torn: false,
+        arming: null,
       };
       drag.current = state;
       handle.setPointerCapture(event.pointerId);
       const restoreSelection = suppressTextSelection();
 
       let scrollFrame: number | null = null;
+      let armTimer: ReturnType<typeof setTimeout> | null = null;
+      /** Look again once a drop zone the pointer rests on has armed. */
+      const armLater = (wait: number) => {
+        if (armTimer !== null) clearTimeout(armTimer);
+        armTimer = setTimeout(() => {
+          armTimer = null;
+          if (drag.current?.active) scheduleDragFrame();
+        }, Math.ceil(wait));
+      };
+      /** Where the pointer is now; a part leaving the strip tears off. */
+      const locate = (current: DragState, readBounds: ReadBounds) => {
+        current.inStrip = inStrip(current.x, current.y, readBounds);
+        if (current.part && !current.inStrip && !current.torn) {
+          current.torn = true;
+          setDraggingPartId(current.part.id);
+          if (animate) motion.current.tearOff(current.part.element, current);
+        }
+        current.toIndex = indexAt(id, current.x, current.y, readBounds);
+        const delay = dropOnDelayRef.current;
+        const armed =
+          current.dropTarget?.kind === "tab" ? current.dropTarget.id : null;
+        let target =
+          current.torn && !current.inStrip
+            ? null
+            : dropTargetAt(
+                id,
+                current.x,
+                current.y,
+                readBounds,
+                delay > 0 ? armed : null,
+                current.torn ? current.part?.id : undefined,
+              );
+        // A delayed zone arms once the pointer has rested on it; until then
+        // the pointer there reorders. Moving on within the zone starts the
+        // rest again, so a slow pass never arms.
+        if (target?.kind !== "tab" || delay <= 0) current.arming = null;
+        else if (target.id !== armed) {
+          const now = performance.now();
+          if (
+            current.arming?.id !== target.id ||
+            Math.hypot(
+              current.x - current.arming.x,
+              current.y - current.arming.y,
+            ) > DROP_ON_STILL
+          )
+            current.arming = {
+              id: target.id,
+              since: now,
+              x: current.x,
+              y: current.y,
+            };
+          const wait = current.arming.since + delay - now;
+          if (wait > 0) {
+            armLater(wait);
+            // Resting there, it is about to join, not to move past: the
+            // entry keeps its place (and a release now moves nothing).
+            if (now - current.arming.since >= DROP_ON_REST)
+              current.toIndex = idsRef.current.indexOf(id);
+            target = null;
+          }
+        } else current.arming = null;
+        current.dropTarget = target;
+      };
+      /** A drag that started on a part reports it; others pass nothing. */
+      const partOf = (current: DragState): [SortablePartDrag] | [] =>
+        current.part
+          ? [
+              {
+                part: current.part.id,
+                torn: current.torn,
+                inStrip: current.inStrip,
+                ...(current.torn &&
+                current.dropTarget?.kind === "tab" &&
+                current.dropTarget.allowed
+                  ? { target: current.dropTarget.id }
+                  : {}),
+              },
+            ]
+          : [];
       const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
         if (!current?.active) return;
-        const previousIndex = current.inStrip ? current.toIndex : null;
+        const previousIndex =
+          current.inStrip && !current.torn ? current.toIndex : null;
         const previousTarget = current.dropTarget;
-        current.inStrip = inStrip(current.x, current.y, readBounds);
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
-        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
+        locate(current, readBounds);
         // Workspace drop callbacks read stationary pane/header geometry. Run
         // them before transform writes so that hit testing stays one read phase.
-        onDragMoveRef.current?.(id, current.x, current.y, {
-          screenX: current.screenX,
-          screenY: current.screenY,
-        });
-        if (animate)
+        onDragMoveRef.current?.(
+          id,
+          current.x,
+          current.y,
+          { screenX: current.screenX, screenY: current.screenY },
+          ...partOf(current),
+        );
+        // A torn-off part leaves the item and its neighbours where they are.
+        if (animate) {
           motion.current.move(
             idsRef.current,
             current,
             current.dropTarget ? from : current.toIndex,
-            current.inStrip,
+            current.inStrip && !current.torn,
             readBounds,
           );
-        const nextIndex = current.inStrip ? current.toIndex : null;
+          // Over an entry it would join, the copy goes into the entry's
+          // preview of the result.
+          const into =
+            current.dropTarget?.kind === "tab" && current.dropTarget.allowed
+              ? nodes.current.get(current.dropTarget.id)
+              : undefined;
+          motion.current.dropping(into ? readBounds(into) : null);
+        }
+        const nextIndex =
+          current.inStrip && !current.torn ? current.toIndex : null;
         if (nextIndex !== previousIndex) setToIndex(nextIndex);
         // Pointer motion inside the same target only moves visual children;
         // it must not re-render every tab and its contents each display frame.
-        if (!sameDropTarget(previousTarget, current.dropTarget))
+        if (!sameDropTarget(previousTarget, current.dropTarget)) {
+          // The entry it would join previews the result: measure first, so
+          // what makes room moves into it.
+          if (animate)
+            motion.current.hintChanged(
+              container.current,
+              nodes.current,
+              [previousTarget?.id, current.dropTarget?.id],
+              readBounds,
+            );
           setDropTarget(current.dropTarget);
+        }
       };
       const scrollContainerAt = (readBounds: ReadBounds) => {
         const current = drag.current;
@@ -451,10 +679,7 @@ export function useSortable(
         current.y = ev.clientY;
         current.screenX = ev.screenX;
         current.screenY = ev.screenY;
-        const readBounds = measureBounds();
-        current.inStrip = inStrip(current.x, current.y, readBounds);
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
-        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
+        if (current.active) locate(current, measureBounds());
         stop(true);
       };
       const onCancel = (event?: Event) => {
@@ -484,21 +709,18 @@ export function useSortable(
         cleanupDrag.current = null;
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
         scrollFrame = null;
+        if (armTimer !== null) clearTimeout(armTimer);
+        armTimer = null;
         const current = drag.current;
-        // A tab let go outside its strip may land in a pane; measure its
-        // look before the motion below puts it back.
-        const ghost =
-          commit && current?.active && !current.inStrip
-            ? captureDropGhost(nodes.current.get(current.id))
-            : null;
-        if (animate) {
-          settling.current = current?.active ? motion.current.capture() : null;
-          motion.current.reset();
-        }
+        const active = current?.active === true;
+        // Measure the strip as drawn before React lays out the drop.
+        if (animate && active)
+          motion.current.release(container.current, nodes.current);
         drag.current = null;
         restoreSelection();
         setGrabbing(false);
         setDraggingId(null);
+        setDraggingPartId(null);
         setToIndex(null);
         setDropTarget(null);
         try {
@@ -506,8 +728,8 @@ export function useSortable(
         } catch {
           /* already released */
         }
-        if (!current?.active) {
-          if (animate) motion.current.finishReset();
+        if (!current || !active) {
+          if (animate) motion.current.cancel();
           return;
         }
         suppressClickUntil.current = performance.now() + 400;
@@ -517,15 +739,39 @@ export function useSortable(
           current.y,
           !commit,
           { screenX: current.screenX, screenY: current.screenY },
+          ...partOf(current),
         );
-        if (consumed) ghost?.fade();
-        if (
-          consumed ||
-          !current.inStrip ||
-          (commit && current.dropTarget?.allowed)
-        ) {
-          settling.current = null;
-          if (animate) motion.current.finishReset();
+        if (animate) {
+          // Taken by the workspace from outside the strip, the copy fades
+          // where it was let go (its pane grows from the drop preview); let
+          // go onto an entry, that entry already shows it; otherwise it flies
+          // to where its tab now stands, at the pointer's speed (still, for
+          // Escape).
+          const joined =
+            commit &&
+            current.dropTarget?.kind === "tab" &&
+            current.dropTarget.allowed;
+          const fly = !(consumed && !current.inStrip) && !joined;
+          motion.current.land(
+            fly
+              ? {
+                  kind: "fly",
+                  velocity: commit
+                    ? motion.current.releaseVelocity()
+                    : { x: 0, y: 0 },
+                }
+              : consumed && !current.inStrip
+                ? { kind: "fade" }
+                : { kind: "dissolve" },
+          );
+          settling.current = true;
+          setLandingId(
+            fly
+              ? current.torn && current.part
+                ? current.part.id
+                : current.id
+              : null,
+          );
         }
         if (!commit || consumed) return;
         if (current.dropTarget) {
@@ -533,12 +779,22 @@ export function useSortable(
           // than reordering into a group it cannot join.
           if (!current.dropTarget.allowed) return;
           if (current.dropTarget.kind === "tab") {
-            onDropOnItemRef.current?.(current.id, current.dropTarget.id);
+            const part = current.torn ? current.part?.id : undefined;
+            if (part === undefined)
+              onDropOnItemRef.current?.(current.id, current.dropTarget.id);
+            else
+              onDropOnItemRef.current?.(
+                current.id,
+                current.dropTarget.id,
+                part,
+              );
           } else {
             onDropOnGroupRef.current?.(current.id, current.dropTarget.id);
           }
           return;
         }
+        // A torn-off part is the consumer's to place.
+        if (current.torn) return;
         // Outside/invalid releases must never fall back to a horizontal reorder.
         if (!current.inStrip) return;
         const list = idsRef.current;
@@ -572,8 +828,32 @@ export function useSortable(
     return suppressed;
   }, []);
 
+  /**
+   * Measures the strip before a change made outside a drag (a split coming
+   * apart from its menu), so it morphs into its new shape once laid out.
+   */
+  const captureStripMorph = useCallback(() => {
+    if (!animateRef.current || drag.current) return;
+    motion.current.morphing.capture(container.current, nodes.current);
+    morphing.current = true;
+  }, []);
+
+  /**
+   * The box the entry `id` stood in before this commit's drop or morph,
+   * and the speed it had, once.
+   */
+  const takeOrigin = useCallback(
+    (id: string): MorphOrigin | null => motion.current.takeOrigin(id),
+    [],
+  );
+
+  const morphed = useCallback(() => morphedThisCommit.current, []);
+
   return {
     draggingId,
+    /** A part torn off the dragged item (a split's segment), once torn. */
+    draggingPartId: draggingId ? draggingPartId : null,
+    landingId,
     fromIndex: draggingId ? ids.indexOf(draggingId) : null,
     toIndex: draggingId && !dropTarget ? toIndex : null,
     dropTarget: draggingId ? dropTarget : null,
@@ -582,5 +862,9 @@ export function useSortable(
     setGroupDropRef,
     onItemPointerDown,
     consumeClick,
+    captureStripMorph,
+    takeOrigin,
+    /** The strip change of this commit is being morphed (see above). */
+    morphed,
   };
 }

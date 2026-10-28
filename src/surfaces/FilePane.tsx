@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { memo, Suspense, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import {
   MarkdownViewShell,
   useMarkdownMode,
@@ -28,7 +29,9 @@ import type { EditorNavigationTarget } from "../lib/search";
 import { editorPathsEqual } from "../lib/search";
 import { getRace } from "../lib/race";
 import type { PlanBuildTarget, Session } from "../lib/session";
-import { Play } from "../chrome/icons";
+import { Play, X } from "../chrome/icons";
+import { filePaneHeader } from "../lib/filePaneHeader";
+import { usePaneHeaderSlot } from "../hooks/usePaneHeader";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
 import { retryableLazy } from "../lib/retryableLazy";
 import { loadDiffViewer, subscribeDiffViewer } from "../lib/settings";
@@ -98,6 +101,13 @@ type Props = {
    * workspace window does not, so a board there only says where it lives.
    */
   boards?: boolean;
+  /**
+   * This pane is the whole of the workspace tab `surfaceId`. Its header
+   * goes where that tab's pane header lends it a row, its iPhone's actions
+   * join that pane's "…", and with `namedAbove` (a tab row above names the
+   * tab) a lone file draws no name row of its own.
+   */
+  header?: { surfaceId: string; namedAbove: boolean };
 };
 
 function FilePaneComponent({
@@ -121,6 +131,7 @@ function FilePaneComponent({
   onPaneDragStart,
   onTerminalMetaChange,
   boards = true,
+  header,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -136,32 +147,42 @@ function FilePaneComponent({
     (isChangesTab(activeFile) ||
       (diffViewer === "unified" && isReviewTab(activeFile)));
   const commitReview = !!activeFile && isCommitTab(activeFile);
-  // A board alone in its tab is named by that tab, like a browser page, so
-  // it draws no strip of its own. Beside other panes it has one like any.
-  const bareBoard =
-    !onPaneDragStart && pane.files.length === 1 && isBoardTab(pane.files[0]);
+  // One header per pane, naming it once (filePaneHeader): a board alone in
+  // its tab is named by that tab; a lone iPhone's pickers are the pane's
+  // header row; a lone file under a tab row that names it draws no row.
+  const shape = filePaneHeader(pane.files, {
+    inner: !!onPaneDragStart,
+    namedAbove: !!header?.namedAbove,
+  });
+  const slot = usePaneHeaderSlot(header?.surfaceId);
+  const soloSimulator = shape.soloSimulator ? pane.files[0] : undefined;
+  const tabs = shape.tabs ? (
+    <SurfaceTabs
+      files={pane.files}
+      activeFileId={pane.activeFileId}
+      dirtyFileIds={dirtyFileIds}
+      fileErrorCounts={fileErrorCounts}
+      onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
+      onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
+      onReorder={(ids) => onReorderFiles(pane.id, ids)}
+      onAddToChat={
+        onAddToChat ? (fileId) => onAddToChat(pane.id, fileId) : undefined
+      }
+      onPaneDragStart={onPaneDragStart}
+      paneFocused={focused}
+    />
+  ) : null;
 
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      // The iPhone's toolbar under the file tabs: one line, under both.
+      data-header-continues={
+        (tabs && !slot && activeFile && isSimulatorTab(activeFile)) || undefined
+      }
       onMouseDown={() => onFocus(pane.id)}
     >
-      {bareBoard ? null : (
-        <SurfaceTabs
-          files={pane.files}
-          activeFileId={pane.activeFileId}
-          dirtyFileIds={dirtyFileIds}
-          fileErrorCounts={fileErrorCounts}
-          onSelectFile={(fileId) => onSelectFile(pane.id, fileId)}
-          onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
-          onReorder={(ids) => onReorderFiles(pane.id, ids)}
-          onAddToChat={
-            onAddToChat ? (fileId) => onAddToChat(pane.id, fileId) : undefined
-          }
-          onPaneDragStart={onPaneDragStart}
-          paneFocused={focused}
-        />
-      )}
+      {tabs && slot ? createPortal(tabs, slot.element) : tabs}
       <div className="relative min-h-0 flex-1">
         <SurfaceBoundary
           label="diff"
@@ -264,6 +285,35 @@ function FilePaneComponent({
                       project={file.simulator.project}
                       visible={presented && file.id === pane.activeFileId}
                       onOpenFile={onOpenFile}
+                      header={
+                        file === soloSimulator
+                          ? slot
+                            ? {
+                                slot: slot.element,
+                                menuId: header?.surfaceId,
+                              }
+                            : {
+                                menuId: header?.surfaceId,
+                                onDragStart: onPaneDragStart,
+                                tools: (
+                                  <button
+                                    type="button"
+                                    className="ios-sim-icon"
+                                    title={`Close ${file.path}`}
+                                    aria-label={`Close ${file.path}`}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onClick={() =>
+                                      onCloseFile(pane.id, file.id)
+                                    }
+                                  >
+                                    <X className="size-3.5" />
+                                  </button>
+                                ),
+                              }
+                          : { menuId: header?.surfaceId }
+                      }
                     />
                   ) : isTerminalTab(file) ? (
                     <TerminalView
@@ -344,7 +394,9 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
     previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
-    previous.boards !== next.boards
+    previous.boards !== next.boards ||
+    previous.header?.surfaceId !== next.header?.surfaceId ||
+    previous.header?.namedAbove !== next.header?.namedAbove
   ) {
     return false;
   }
@@ -435,7 +487,7 @@ function PlanSurface({
               type="button"
               disabled={buildDisabled}
               onClick={() => onBuildPlan(plan.sessionId, block.id)}
-              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:cursor-not-allowed disabled:opacity-40 ${
                 session ? "rounded-l-md" : "rounded-md"
               }`}
             >
@@ -467,7 +519,7 @@ function PlanSurface({
             onChange={(event) =>
               onUpdatePlan(plan.sessionId, block.id, event.currentTarget.value)
             }
-            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-ui-body leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-ui-body leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
           />
         }
       />

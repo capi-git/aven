@@ -18,6 +18,7 @@ import {
   Trash2,
   X,
 } from "./icons";
+import "./Menu.css";
 import "./Composer.css";
 import {
   memo,
@@ -492,7 +493,7 @@ function MessageQueue({
                           saveEdit(message);
                         }
                       }}
-                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-(color:--aven-control-edge) bg-(--aven-field-bg) px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
+                      className="aven-field min-h-6 min-w-0 flex-1 resize-none px-1.5 py-0.5 text-ui-label"
                     />
                     <button
                       type="button"
@@ -2172,11 +2173,9 @@ function ComposerComponent({
                     if (reason === "escape") ref.current?.focus();
                   }}
                   data-composer-plus
-                  className="p-1 outline-none"
+                  className="aven-menu"
                 >
-                  <p className="px-2 pb-1 pt-0.5 text-ui-micro font-medium uppercase tracking-wide text-content/40">
-                    Add to message
-                  </p>
+                  <p className="aven-menu-section">Add to message</p>
                   <button
                     type="button"
                     disabled={!attachmentsSupported}
@@ -2185,12 +2184,14 @@ function ComposerComponent({
                       setPlusOpen(false);
                       attachFromPicker();
                     }}
-                    className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="aven-menu-item aven-menu-item-rich"
                   >
-                    <FilePlus className="mt-0.5 size-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-ui-body">Upload file</span>
-                      <span className="block text-ui-caption leading-4 text-content/45">
+                    <span aria-hidden="true" className="aven-menu-icon">
+                      <FilePlus />
+                    </span>
+                    <span className="aven-menu-text">
+                      <span>Upload file</span>
+                      <span className="aven-menu-description">
                         {attachmentsSupported
                           ? "Attach files or images to this message"
                           : `${appName(harness)} can't take attachments`}
@@ -2199,7 +2200,7 @@ function ComposerComponent({
                   </button>
                   {jumpInId ? (
                     <p
-                      className="px-2 py-1.5 text-ui-caption leading-4 text-content/45"
+                      className="aven-menu-note aven-menu-description"
                       data-composer-modes-off
                     >
                       While this chat's discussion runs, what you send goes to
@@ -2219,17 +2220,19 @@ function ComposerComponent({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
+                      className="aven-menu-item aven-menu-item-rich"
                     >
-                      <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-ui-body">Plan mode</span>
-                        <span className="block text-ui-caption leading-4 text-content/45">
+                      <span aria-hidden="true" className="aven-menu-icon">
+                        <AiIdea className="text-yellow-300/80" />
+                      </span>
+                      <span className="aven-menu-text">
+                        <span>Plan mode</span>
+                        <span className="aven-menu-description">
                           Plans first; you approve before it changes anything
                         </span>
                       </span>
                       {planSelected ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
+                        <Check aria-hidden="true" className="aven-menu-check" />
                       ) : null}
                     </button>
                   )}
@@ -2247,17 +2250,19 @@ function ComposerComponent({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
+                      className="aven-menu-item aven-menu-item-rich"
                     >
-                      <Share className="mt-0.5 size-4 shrink-0 text-content" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-ui-body">Orchestrator</span>
-                        <span className="block text-ui-caption leading-4 text-content/45">
+                      <span aria-hidden="true" className="aven-menu-icon">
+                        <Share />
+                      </span>
+                      <span className="aven-menu-text">
+                        <span>Orchestrator</span>
+                        <span className="aven-menu-description">
                           Splits the job into parts and runs an agent on each
                         </span>
                       </span>
                       {orchestrationSelected ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
+                        <Check aria-hidden="true" className="aven-menu-check" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2273,18 +2278,20 @@ function ComposerComponent({
                         else startDiscussMode();
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
+                      className="aven-menu-item aven-menu-item-rich"
                     >
-                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-content" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-ui-body">Discuss</span>
-                        <span className="block text-ui-caption leading-4 text-content/45">
+                      <span aria-hidden="true" className="aven-menu-icon">
+                        <MessageMultiple />
+                      </span>
+                      <span className="aven-menu-text">
+                        <span>Discuss</span>
+                        <span className="aven-menu-description">
                           Another chat talks it over with this one for a few
                           rounds
                         </span>
                       </span>
                       {discussActive ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
+                        <Check aria-hidden="true" className="aven-menu-check" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2300,20 +2307,19 @@ function ComposerComponent({
                         else startRaceMode();
                         ref.current?.focus();
                       }}
-                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-content hover:bg-content/10"
+                      className="aven-menu-item aven-menu-item-rich"
                     >
-                      <Race
-                        className="mt-0.5 size-4 shrink-0 text-content"
-                        strokeWidth={1.75}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-ui-body">Race</span>
-                        <span className="block text-ui-caption leading-4 text-content/45">
+                      <span aria-hidden="true" className="aven-menu-icon">
+                        <Race strokeWidth={1.75} />
+                      </span>
+                      <span className="aven-menu-text">
+                        <span>Race</span>
+                        <span className="aven-menu-description">
                           Several AIs try it separately; you keep the best one
                         </span>
                       </span>
                       {raceActive ? (
-                        <Check className="mt-0.5 size-3.5 shrink-0 text-content" />
+                        <Check aria-hidden="true" className="aven-menu-check" />
                       ) : null}
                     </button>
                   ) : null}
@@ -2330,7 +2336,7 @@ function ComposerComponent({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-content/10 px-1.5 text-ui-caption text-content hover:bg-content/15"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-1.5 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
               >
                 <Share className="size-3.5" />
                 {fit === "narrow" ? null : "Orchestrator"}

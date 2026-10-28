@@ -8,8 +8,7 @@
   max-width: 56rem;
   width: 100%;
   margin: 0 auto;
-  padding: 10px 16px 8px;
-  border-bottom: var(--aven-hairline) solid var(--aven-separator);
+  padding: 8px 16px;
   font-family: var(--font-sans);
   color: var(--color-content);
 }
@@ -23,15 +22,6 @@
   flex: 1;
   flex-direction: column;
   min-width: 0;
-}
-.bot-chat-name {
-  overflow: hidden;
-  font-size: var(--text-ui-body);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .bot-chat-whose {
   overflow: hidden;

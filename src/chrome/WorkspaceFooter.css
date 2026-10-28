@@ -53,7 +53,7 @@
 
 .workspace-footer button:enabled:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  background: var(--aven-hover);
 }
 
 .workspace-footer button:disabled {

@@ -30,7 +30,7 @@
 .pdf-viewer-toolbar button:hover,
 .pdf-viewer-message button:hover,
 .pdf-viewer-render-error button:hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: var(--aven-control-bg);
 }
 .pdf-viewer-toolbar button:disabled {
   opacity: 0.35;
@@ -39,7 +39,7 @@
 .pdf-viewer-toolbar button:focus-visible,
 .pdf-viewer-message button:focus-visible,
 .pdf-viewer-render-error button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: 1px;
 }
 .pdf-viewer-page-count {
@@ -57,7 +57,7 @@
   min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  background: color-mix(in srgb, currentColor 7%, transparent);
+  background: var(--aven-fill-quaternary);
 }
 .pdf-viewer-canvas {
   display: grid;

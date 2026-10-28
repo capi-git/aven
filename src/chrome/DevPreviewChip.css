@@ -92,7 +92,7 @@ html.theme-light .dev-preview-chip {
   height: 24px;
   padding: 0 9px;
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-control-bg);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -104,7 +104,7 @@ html.theme-light .dev-preview-chip {
   white-space: pre;
 }
 .dev-preview-open:hover {
-  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  background: var(--aven-control-hover);
 }
 .dev-preview-dismiss {
   width: 24px;

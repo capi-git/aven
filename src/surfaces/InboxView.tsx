@@ -113,9 +113,9 @@ const MAX_WIDTH = 420;
 // One height for the whole detail action row; `border` is inside it, so the
 // outline variant lines up with the filled and ghost ones.
 const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
-const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80`;
-const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
-const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
+const ACTION_FILLED = `${ACTION} h-7 bg-content text-background-base hover:bg-(--aven-inverse-hover)`;
+const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-(--aven-control-bg)`;
+const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-(--aven-control-bg) hover:text-content`;
 const DEFAULT_WIDTH = 280;
 
 let rememberedWidth = DEFAULT_WIDTH;
@@ -391,7 +391,7 @@ export function InboxView({
             aria-label="Filter inbox"
             spellCheck={false}
             autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40"
           />
         </div>
         <button
@@ -683,8 +683,8 @@ function InboxCard({
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "border-transparent bg-(--aven-selected) text-content"
+          : "border-transparent text-content/80 hover:bg-(--aven-hover) hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -1211,7 +1211,7 @@ function InboxLabel({
   const color = labelColor(label.color);
   return (
     <span
-      className={`inline-flex min-w-0 items-center gap-1 rounded px-1.5 py-px text-content/50 bg-content/8 ${
+      className={`inline-flex min-w-0 items-center gap-1 rounded-full px-1.5 py-px text-content/50 bg-(--aven-fill-tertiary) ${
         compact ? "max-w-20 text-ui-micro" : "text-ui-caption"
       }`}
     >

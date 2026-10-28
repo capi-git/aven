@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Columns2,
   Flag,
   Globe,
   Inbox,
@@ -12,11 +13,6 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
-  Move,
-  MoveDown,
-  MoveLeft,
-  MoveRight,
-  MoveUp,
   PanelLeft,
   PanelRight,
   Pin,
@@ -29,6 +25,7 @@ import {
   X,
 } from "./icons";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -68,11 +65,18 @@ import {
   TAB_TRACK_ID_ATTRIBUTE,
   useTabHighlight,
 } from "../hooks/useTabHighlight";
-import { trackSeparators } from "../lib/tabTrack";
+import {
+  TAB_TRACK_GAP,
+  titleRowCapacity,
+  titleRowTabs,
+  trackSeparators,
+} from "../lib/tabTrack";
 import { focusPaneContent, workspacePane } from "../lib/paneFocus";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
+import { useHostPaneHeader } from "../hooks/usePaneHeader";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
+import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getName } from "@tauri-apps/api/app";
 import { WindowControls } from "./WindowControls";
@@ -152,12 +156,6 @@ const MOVE_LABEL: Record<PaneSide, string> = {
   up: "Move up",
   down: "Move down",
 };
-const MOVE_ICON = {
-  left: MoveLeft,
-  right: MoveRight,
-  up: MoveUp,
-  down: MoveDown,
-} as const;
 
 export type TitleBarProps = {
   paneLocal?: boolean;
@@ -187,6 +185,24 @@ export type TitleBarProps = {
    * than naming the tab twice.
    */
   frontNamedBelow?: boolean;
+  /**
+   * The tab in front draws a header row of its own (a page's toolbar, an
+   * iPhone's pickers, a tab's files). A lone title row gives it the row in
+   * place of the tab's name; under a row of tabs it draws that row itself,
+   * and the title row leaves the line under both to it.
+   */
+  frontOwnHeader?: boolean;
+  /**
+   * A tab row above (the window's strip) already names the tab in front,
+   * so a toolbar lent this row does not name it again. Defaults to the
+   * strip holding this pane's tabs and showing more than one.
+   */
+  frontNamed?: boolean;
+  /** Hiding this pane beside its divider, offered in the pane's "…". */
+  paneHides?: readonly { key: string; label: string }[];
+  onHidePane?: (key: string) => void;
+  /** The window strip leaves Recent and Keep open to the pane's "…". */
+  previewActionsInPane?: boolean;
   /** False where another bar names the window (the window's strip). */
   windowTitle?: boolean;
   paneFocused?: boolean;
@@ -250,6 +266,27 @@ export type TitleBarProps = {
     pointer?: SortablePointerPosition,
   ) => boolean;
   onSelectBrowser?: (id?: string) => void;
+  /**
+   * The window strip's splits (Cydonia's window tabs that hold an
+   * arrangement of panes), in `surfaceOrder` beside the single tabs.
+   */
+  splits?: StripSplit[];
+  /** Bring a tab in a split forward: the split, its pane and the tab. */
+  onSelectSplitTab?: (id: string) => void;
+  /** A tab let go on a split's entry joins it as a pane at its right. */
+  onAddToSplit?: (splitId: string, id: string) => void;
+  /**
+   * Something let go on the middle of a single tab (`targetId`) joins it: a
+   * tab, or a segment pulled out of its split, makes a new split with it in
+   * its place, the target on the left; a split (`draggedId` its key) takes
+   * it as a pane at its right.
+   */
+  onCombineTabs?: (targetId: string, draggedId: string) => void;
+  /** A tab pulled out of its split, let go on the strip before `before`. */
+  onDetachFromSplit?: (id: string, before: string | null) => void;
+  /** The split's tabs stand on the strip as single tabs again. */
+  onSeparateSplit?: (splitId: string) => void;
+  onCloseSplit?: (splitId: string) => void;
   onCloseBrowser?: (id?: string) => void;
   onBrowserModeChange?: (mode: "tab" | "split") => void;
   inspectorOpen?: boolean;
@@ -391,97 +428,21 @@ type SortableApi = ReturnType<typeof useSortable>;
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
 /**
- * A title row's kind icon on a tile, after Cydonia's deck: with tabs behind
- * the one in front, a card or two peeks out past the tile, and pressing it
- * lists the pane's tabs.
+ * A lone title row's kind icon on a tile, after Cydonia's deck. A pane with
+ * more than one tab lays them side by side instead (see `paneTabs`).
  */
-function TabDeck({
-  behind,
-  open,
-  onOpen,
-  children,
-}: {
-  behind: number;
-  open: boolean;
-  onOpen: (anchor: HTMLElement) => void;
-  children: ReactNode;
-}) {
-  if (behind <= 0)
-    return (
-      <span className="aven-tab-deck" data-behind="0">
-        <span className="aven-tab-deck-face">{children}</span>
-      </span>
-    );
-  const label = `${behind + 1} tabs in this pane`;
+function TabDeck({ children }: { children: ReactNode }) {
   return (
-    <button
-      type="button"
-      className="aven-tab-deck"
-      data-behind={Math.min(behind, 2)}
-      data-no-drag
-      data-tauri-drag-region="false"
-      aria-label={label}
-      title={label}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen(event.currentTarget);
-      }}
-    >
+    <span className="aven-tab-deck">
       <span className="aven-tab-deck-face">{children}</span>
-      <span className="aven-tab-deck-card" data-depth="1" aria-hidden />
-      {behind > 1 ? (
-        <span className="aven-tab-deck-card" data-depth="2" aria-hidden />
-      ) : null}
-    </button>
+    </span>
   );
 }
 
-type TabDeckProps = {
-  behind: number;
-  open: boolean;
-  onOpen: (anchor: HTMLElement) => void;
-};
-
-function TitleTabItem({
-  tab,
-  projectless,
-  index,
-  active,
-  tabStop,
-  visible,
-  closable,
-  canDrag,
-  sortable,
-  onSelect,
-  onClose,
-  onContextMenu,
-  itemRef,
-  deck,
-}: {
-  tab: Tab;
-  projectless: boolean;
-  index: number;
-  active: boolean;
-  tabStop: boolean;
-  visible: boolean;
-  closable: boolean;
-  canDrag: boolean;
-  sortable: SortableApi;
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  onContextMenu: (id: string, event: MenuPoint) => void;
-  itemRef?: (el: HTMLDivElement | null) => void;
-  /** A title row draws the tab's icon on a deck. */
-  deck?: TabDeckProps;
-}) {
-  const { headline, tooltip } = tabCopy(tab, projectless);
-  const tabRef = useRef<HTMLDivElement | null>(null);
-  useTurnEndFlash(tabRef, tab.sessionIds);
+/** A tab's kind at a glance: a bot's critter, its agents, or its file. */
+function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];
-  const identity = (
+  return (
     <span
       className="personal-title-tab-identity"
       data-busy={tab.busyHarnesses.length > 0}
@@ -527,6 +488,50 @@ function TitleTabItem({
       )}
     </span>
   );
+}
+
+function TitleTabItem({
+  tab,
+  projectless,
+  index,
+  active,
+  tabStop,
+  visible,
+  closable,
+  canDrag,
+  sortable,
+  onSelect,
+  onClose,
+  onContextMenu,
+  itemRef,
+  deck,
+  combineInto = false,
+  combine = null,
+}: {
+  tab: Tab;
+  projectless: boolean;
+  index: number;
+  active: boolean;
+  tabStop: boolean;
+  visible: boolean;
+  closable: boolean;
+  canDrag: boolean;
+  sortable: SortableApi;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu: (id: string, event: MenuPoint) => void;
+  itemRef?: (el: HTMLDivElement | null) => void;
+  /** A lone title row draws the tab's icon on a deck. */
+  deck?: boolean;
+  /** Something held over its middle combines with it into a split. */
+  combineInto?: boolean;
+  /** While a tab is dragged that could combine with this one: what joins. */
+  combine?: CombineJoin | null;
+}) {
+  const { headline, tooltip } = tabCopy(tab, projectless);
+  const tabRef = useRef<HTMLDivElement | null>(null);
+  useTurnEndFlash(tabRef, tab.sessionIds);
+  const identity = <TabIdentity tab={tab} active={active} />;
   const showStart =
     canDrag &&
     sortable.draggingId &&
@@ -555,6 +560,7 @@ function TitleTabItem({
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
       data-draggable={canDrag || undefined}
+      data-combine-into={combineInto || undefined}
       data-tauri-drag-region="false"
       onContextMenu={(event) => {
         event.preventDefault();
@@ -603,8 +609,8 @@ function TitleTabItem({
         <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
-        {deck ? <TabDeck {...deck}>{identity}</TabDeck> : null}
-        {/* A title row is a group of controls, not a list of tabs. */}
+        {deck ? <TabDeck>{identity}</TabDeck> : null}
+        {/* A lone title row is a group of controls, not a list of tabs. */}
         <button
           type="button"
           title={tooltip}
@@ -615,6 +621,7 @@ function TitleTabItem({
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-sortable-glass
           data-tauri-drag-region="false"
+          data-morph={combineInto ? undefined : `tab:${tab.id}`}
           className="personal-title-tab-button aven-tab-button relative flex min-w-0 flex-1 cursor-default items-center text-left"
         >
           <span className="personal-title-tab-number" aria-hidden>
@@ -649,7 +656,8 @@ function TitleTabItem({
             </span>
           </span>
         </button>
-        {closable ? (
+        {/* A lone title's × is its pane's Close tool. */}
+        {closable && !deck ? (
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
@@ -667,10 +675,435 @@ function TitleTabItem({
             <X className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
+        {combine ? (
+          <CombinePreview
+            id={tab.id}
+            into={combineInto}
+            join={combine}
+            here={
+              <>
+                <TabIdentity tab={tab} active={false} />
+                <span className="aven-split-label">{headline}</span>
+              </>
+            }
+          />
+        ) : null}
       </div>
     </div>
   );
 }
+
+/**
+ * The element of a tab or split that keyboard focus can return to: its
+ * `role="tab"` button (a split's segment in reach, or the one lit), else its
+ * first button, else the box itself.
+ */
+function focusableIn(
+  element: HTMLElement | undefined,
+): HTMLElement | undefined {
+  if (!element) return element;
+  return (
+    element.querySelector<HTMLElement>('[role="tab"][tabindex="0"]') ??
+    element.querySelector<HTMLElement>('[role="tab"]') ??
+    element.querySelector<HTMLElement>("button") ??
+    element
+  );
+}
+
+/** What a dragged tab would bring to an entry it joins. */
+export type CombineJoin = {
+  /** Its icon and name, as its segment will show them. */
+  incoming: ReactNode;
+  /** The dragged tab's own id: its segment grows from this preview. */
+  id: string | null;
+};
+
+/**
+ * A single tab previewing the split a held tab would make with it: the
+ * split's pill over the tab, the tab's own segment on the left, a divider,
+ * and the held tab's segment on the right, as the split will draw them. It
+ * is drawn (hidden) while a tab is dragged and shows while one rests on its
+ * middle, so it comes and goes on transitions rather than popping.
+ */
+function CombinePreview({
+  id,
+  into,
+  join,
+  here,
+}: {
+  id: string;
+  into: boolean;
+  join: CombineJoin;
+  here: ReactNode;
+}) {
+  return (
+    <span
+      className="aven-combine"
+      data-into={into || undefined}
+      // It comes and goes on its own transitions.
+      data-morph-own
+      aria-hidden
+    >
+      <span
+        className="aven-combine-fill"
+        data-morph={into ? `fill:${id}` : undefined}
+      />
+      <span
+        className="aven-combine-here"
+        data-morph={into ? `tab:${id}` : undefined}
+      >
+        {here}
+      </span>
+      <span className="aven-combine-divider" />
+      <span
+        className="aven-combine-incoming"
+        data-combine-incoming={into || undefined}
+        data-morph={into && join.id ? `tab:${join.id}` : undefined}
+      >
+        {join.incoming}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The pane a drop would add, drawn at the right of a split it joins, with
+ * the held tab's icon.
+ */
+function CombineIncoming({ join }: { join: CombineJoin | null }) {
+  return (
+    <span
+      className="aven-split-incoming"
+      data-combine-incoming
+      data-morph={join?.id ? `tab:${join.id}` : undefined}
+      aria-hidden
+    >
+      {join?.incoming ?? <Columns2 className="size-3" strokeWidth={1.75} />}
+    </span>
+  );
+}
+
+/** One pane of a split on the window's strip: the tab in front of it. */
+export type StripSplitSegment = {
+  /** The pane's tab in front, which the segment names and brings forward. */
+  id: string;
+  /** A chat, file or terminal tab, drawn as a strip tab draws it. */
+  tab?: Tab;
+  /** Or a page. */
+  page?: { title: string; favicon?: string };
+};
+
+/**
+ * A split on the window's strip, after Arc's split tabs: one entry divided
+ * into a segment per pane, each showing its pane's tab in front, so any of
+ * them is one click away.
+ */
+export type StripSplit = {
+  /** The strip entry's key. */
+  id: string;
+  segments: StripSplitSegment[];
+  /** The tab whose pane has focus, lit while the split is in front. */
+  focusedId: string;
+  /** Closing it would leave a chat to show (its menu's Close split). */
+  closable?: boolean;
+};
+
+export function splitSegmentLabel(
+  segment: StripSplitSegment,
+  projectless = false,
+): string {
+  if (segment.tab) return tabCopy(segment.tab, projectless).headline;
+  return segment.page?.title.trim() || "Browser";
+}
+
+/** The words for a segment of a split that is not in front. */
+export function splitSegmentHint(label: string): string {
+  return `Go to ${label} in the split`;
+}
+
+function SplitSegment({
+  segment,
+  label,
+  lit,
+  front,
+  tabStop,
+  chip = false,
+  onHover,
+}: {
+  segment: StripSplitSegment;
+  label: string;
+  /** The pane with focus in the split in front. */
+  lit: boolean;
+  /** The split is in front. */
+  front: boolean;
+  tabStop: boolean;
+  /** Its icon and name stand for the whole split in a dragged split's chip. */
+  chip?: boolean;
+  /** The pointer came to the segment (its label) or left it (null). */
+  onHover: (anchor: HTMLElement | null, label?: string) => void;
+}) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  useTurnEndFlash(ref, segment.tab?.sessionIds);
+  const hint = front ? undefined : splitSegmentHint(label);
+  const tooltip = segment.tab ? tabCopy(segment.tab).tooltip : label;
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="tab"
+      tabIndex={tabStop ? 0 : -1}
+      aria-selected={lit}
+      aria-label={label}
+      aria-description={hint ?? "In the split"}
+      // The split in front names each pane as a tab does; elsewhere the
+      // segment's own hint says where a click goes (drawn by the strip).
+      title={front ? tooltip : undefined}
+      className="aven-split-segment"
+      data-split-segment={segment.id}
+      data-morph={`tab:${segment.id}`}
+      data-sortable-chip={chip || undefined}
+      data-lit={lit || undefined}
+      data-tauri-drag-region="false"
+      onPointerEnter={(event) => {
+        if (hint && event.pointerType !== "touch")
+          onHover(event.currentTarget, label);
+      }}
+      onPointerLeave={() => onHover(null)}
+    >
+      {segment.tab ? (
+        <TabIdentity tab={segment.tab} active={front} />
+      ) : (
+        <BrowserTabIcon favicon={segment.page?.favicon} />
+      )}
+      <span className="aven-split-label">{label}</span>
+      {segment.tab?.needsInput ? (
+        <span
+          className="personal-title-tab-needs-you"
+          data-tab-needs-you
+          title="Needs you"
+          aria-hidden
+        />
+      ) : null}
+    </button>
+  );
+}
+
+/**
+ * A split's entry on the window's strip. Pressing a segment and moving
+ * along the strip moves the whole split; pulling a segment out of the strip
+ * takes that tab out of the split (see `SortablePart`). Clicking a segment
+ * brings the split forward with that pane focused.
+ */
+function SplitEntryItem({
+  split,
+  projectless,
+  index,
+  active,
+  tabStop,
+  canDrag,
+  sortable,
+  onSelectTab,
+  onContextMenu,
+  onHover,
+  dropInto = false,
+  join = null,
+  opening = false,
+  itemRef,
+}: {
+  split: StripSplit;
+  projectless: boolean;
+  index: number;
+  active: boolean;
+  tabStop: boolean;
+  canDrag: boolean;
+  sortable: SortableApi;
+  onSelectTab: (id: string) => void;
+  onContextMenu: (event: MenuPoint, anchor: HTMLElement) => void;
+  onHover: (anchor: HTMLElement | null, label?: string) => void;
+  /** A tab held over the entry joins the split as a new pane. */
+  dropInto?: boolean;
+  /** What a held tab would bring, while one is dragged. */
+  join?: CombineJoin | null;
+  opening?: boolean;
+  itemRef?: (element: HTMLDivElement | null) => void;
+}) {
+  // A press captures the pointer on the entry, so its click lands here;
+  // remember which segment was pressed.
+  const pressed = useRef<string | null>(null);
+  const segmentOf = (target: EventTarget | null) =>
+    (target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-split-segment]",
+    ) ?? null;
+  const lit = active ? split.focusedId : null;
+  const stop =
+    split.segments.find((segment) => segment.id === lit)?.id ??
+    split.segments[0]?.id;
+  const dropBefore =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index < sortable.fromIndex;
+  const dropAfter =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index > sortable.fromIndex;
+  return (
+    <div
+      ref={(element) => {
+        sortable.setItemRef(split.id, element);
+        itemRef?.(element);
+      }}
+      className="personal-title-tab aven-tab aven-tab-slot aven-split-entry group relative flex h-full min-w-0 touch-none items-center"
+      style={{ "--aven-split-panes": split.segments.length } as CSSProperties}
+      data-active={active}
+      data-split-entry
+      data-surface-tab-id={split.id}
+      data-draggable={canDrag || undefined}
+      data-drop-into={dropInto || undefined}
+      data-motion-slot={split.id}
+      data-tab-opening={opening || undefined}
+      {...{ [TAB_TRACK_ID_ATTRIBUTE]: split.id }}
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const segment = segmentOf(event.target);
+        pressed.current = segment?.dataset.splitSegment ?? null;
+        onHover(null);
+        if (!canDrag) return;
+        sortable.onItemPointerDown(
+          split.id,
+          event,
+          segment && pressed.current
+            ? { id: pressed.current, element: segment }
+            : undefined,
+        );
+      }}
+      onClick={(event) => {
+        if (sortable.consumeClick()) return;
+        const id =
+          segmentOf(event.target)?.dataset.splitSegment ?? pressed.current;
+        pressed.current = null;
+        if (id) onSelectTab(id);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onHover(null);
+        onContextMenu(event, event.currentTarget);
+      }}
+      onKeyDown={(event) => {
+        if ((event.target as HTMLElement).getAttribute("role") !== "tab")
+          return;
+        if (
+          event.key !== "ContextMenu" &&
+          !(event.shiftKey && event.key === "F10")
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onContextMenu(
+          { clientX: rect.left, clientY: rect.bottom },
+          event.currentTarget,
+        );
+      }}
+    >
+      {dropBefore ? (
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
+      ) : null}
+      {dropAfter ? (
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
+      ) : null}
+      <div className="aven-tab-motion" data-sortable-motion>
+        <div
+          className="aven-split"
+          data-sortable-glass
+          data-panes={split.segments.length}
+        >
+          {/* The pill's fill, a layer of its own: a morph stretches it
+              without stretching the segments' text. */}
+          <span
+            className="aven-split-fill"
+            data-sortable-fill
+            data-morph={`fill:${split.id}`}
+            aria-hidden
+          />
+          {split.segments.map((segment, at) => (
+            <Fragment key={segment.id}>
+              {at > 0 ? (
+                <span className="aven-split-divider" aria-hidden />
+              ) : null}
+              <SplitSegment
+                segment={segment}
+                label={splitSegmentLabel(segment, projectless)}
+                lit={segment.id === lit}
+                front={active}
+                tabStop={tabStop && segment.id === stop}
+                chip={segment.id === stop}
+                onHover={onHover}
+              />
+            </Fragment>
+          ))}
+          {dropInto ? <CombineIncoming join={join} /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The hint under a segment of a split that is not in front, after a short
+ * rest, as the pointer comes to it. Drawn over the workspace (and over a
+ * page's native view) rather than clipped by the strip.
+ */
+function SplitSegmentTip({
+  tip,
+}: {
+  tip: { anchor: HTMLElement; label: string } | null;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    if (!tip || !tip.anchor.isConnected) {
+      setPlace(null);
+      return;
+    }
+    const anchor = tip.anchor.getBoundingClientRect();
+    const width = ref.current?.offsetWidth ?? 0;
+    const margin = 8;
+    const centre = anchor.left + anchor.width / 2;
+    const left = Math.max(
+      margin,
+      Math.min(window.innerWidth - margin - width, centre - width / 2),
+    );
+    setPlace({ left, top: anchor.bottom + 6 });
+  }, [tip]);
+  if (!tip) return null;
+  return createPortal(
+    <div
+      ref={ref}
+      role="tooltip"
+      className="aven-split-tip"
+      data-native-browser-occluded="true"
+      data-placed={place ? "true" : undefined}
+      style={place ? { left: place.left, top: place.top } : undefined}
+    >
+      Go to <strong>{tip.label}</strong> in the split
+    </div>,
+    document.body,
+  );
+}
+
+/** How long the pointer rests on a segment before its hint shows. */
+const SPLIT_TIP_DELAY_MS = 450;
+/**
+ * How long a dragged tab rests on an entry's middle before letting go there
+ * joins them. A reorder drag crosses a tab's middle (60–110px of a typical
+ * strip tab) in well under this at ordinary speed, so passing over never
+ * combines; a deliberate pause arms it before it feels slow.
+ */
+const STRIP_COMBINE_DELAY_MS = 200;
 
 function BrowserTitleTabItem({
   id,
@@ -696,6 +1129,8 @@ function BrowserTitleTabItem({
   itemRef,
   separator = false,
   deck,
+  combineInto = false,
+  combine = null,
 }: {
   id: string;
   title: string;
@@ -722,8 +1157,12 @@ function BrowserTitleTabItem({
   itemRef?: (element: HTMLDivElement | null) => void;
   /** A hairline before it, parting it from a resting neighbour. */
   separator?: boolean;
-  /** A title row draws the page's icon on a deck. */
-  deck?: TabDeckProps;
+  /** A lone title row draws the page's icon on a deck. */
+  deck?: boolean;
+  /** Something held over its middle combines with it into a split. */
+  combineInto?: boolean;
+  /** While a tab is dragged that could combine with this one: what joins. */
+  combine?: CombineJoin | null;
 }) {
   const label = title.trim() || "Browser";
   const dropBefore =
@@ -748,6 +1187,7 @@ function BrowserTitleTabItem({
       data-surface-id={id}
       data-surface-tab-id={id}
       data-draggable={canDrag || undefined}
+      data-combine-into={combineInto || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
@@ -803,7 +1243,7 @@ function BrowserTitleTabItem({
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         {deck ? (
-          <TabDeck {...deck}>
+          <TabDeck>
             <BrowserTabIcon favicon={favicon} />
           </TabDeck>
         ) : null}
@@ -821,6 +1261,7 @@ function BrowserTitleTabItem({
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
+          data-morph={combineInto ? undefined : `tab:${id}`}
           title={label}
           className="personal-title-tab-button personal-title-browser-button aven-tab-button flex min-w-0 flex-1 items-center"
         >
@@ -832,7 +1273,7 @@ function BrowserTitleTabItem({
             <span className="personal-title-tab-visible" aria-hidden />
           ) : null}
         </button>
-        {onClose ? (
+        {onClose && !deck ? (
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
@@ -859,7 +1300,7 @@ function BrowserTitleTabItem({
             aria-expanded={menuOpen}
             data-no-drag
             onPointerDown={(event) => event.stopPropagation()}
-            className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
+            className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-(--aven-control-bg) hover:text-content"
             onClick={(event) => {
               event.stopPropagation();
               onMenu(event.currentTarget);
@@ -867,6 +1308,19 @@ function BrowserTitleTabItem({
           >
             <ChevronDown className="size-3" strokeWidth={1.75} />
           </button>
+        ) : null}
+        {combine ? (
+          <CombinePreview
+            id={id}
+            into={combineInto}
+            join={combine}
+            here={
+              <>
+                <BrowserTabIcon favicon={favicon} />
+                <span className="aven-split-label">{label}</span>
+              </>
+            }
+          />
         ) : null}
       </div>
     </div>
@@ -1042,7 +1496,7 @@ function TabStripChevron({
       data-tauri-drag-region="false"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-content/10 backdrop-blur-xl text-content/70 hover:bg-content/15 hover:text-content ${
+      className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-(--aven-control-bg) backdrop-blur-xl text-content/70 hover:bg-(--aven-control-hover) hover:text-content ${
         side === "left" ? "left-1" : "right-1"
       }`}
     >
@@ -1085,10 +1539,10 @@ export function IconButton({
         disabled
           ? "text-content/25"
           : accent
-            ? "text-content hover:bg-content/10"
+            ? "text-content hover:bg-(--aven-control-bg)"
             : active
-              ? "text-content hover:bg-content/10"
-              : "text-content/50 hover:bg-content/10 hover:text-content"
+              ? "text-content hover:bg-(--aven-control-bg)"
+              : "text-content/50 hover:bg-(--aven-control-bg) hover:text-content"
       }`}
     >
       {children}
@@ -1205,6 +1659,8 @@ export function returnFocusToPane(from: HTMLElement): boolean {
 
 const NO_IDS: readonly string[] = [];
 const NO_SEPARATORS: ReadonlySet<string> = new Set();
+/** A lone title row's one slot for the tab motion, whichever tab it names. */
+const LONE_TITLE_SLOTS: readonly string[] = ["\u0000lone-title"];
 
 function TitleBarComponent({
   paneLocal = false,
@@ -1216,6 +1672,11 @@ function TitleBarComponent({
   onMovePane,
   stackOnStrip = false,
   frontNamedBelow = false,
+  frontOwnHeader = false,
+  frontNamed,
+  paneHides,
+  onHidePane,
+  previewActionsInPane = false,
   windowTitle = true,
   paneFocused = true,
   onNewView,
@@ -1234,6 +1695,13 @@ function TitleBarComponent({
   onKeepBrowser,
   browserPreviewId,
   surfaceOrder,
+  splits,
+  onSelectSplitTab,
+  onAddToSplit,
+  onCombineTabs,
+  onDetachFromSplit,
+  onSeparateSplit,
+  onCloseSplit,
   visibleIds,
   onReorderSurfaces,
   onSplitTab,
@@ -1301,9 +1769,13 @@ function TitleBarComponent({
     (browserOpen
       ? [{ id: LEGACY_BROWSER_ID, title: browserTitle ?? "Browser" }]
       : []);
+  const splitEntries = useMemo(
+    () => new Map((splits ?? []).map((split) => [split.id, split])),
+    [splits],
+  );
   const allOrderedIds = titleSurfaceOrder(
     tabIds,
-    browserEntries.map((tab) => tab.id),
+    [...browserEntries.map((tab) => tab.id), ...splitEntries.keys()],
     surfaceOrder,
   );
   const focusedId = unified
@@ -1323,6 +1795,7 @@ function TitleBarComponent({
   const previewEnabled = Boolean(onKeepBrowser);
   const keptIds = new Set([
     ...tabIds,
+    ...splitEntries.keys(),
     ...browserEntries
       .filter((tab) => tab.kept || (shown.has(tab.id) && tab.id !== focusedId))
       .map((tab) => tab.id),
@@ -1350,22 +1823,67 @@ function TitleBarComponent({
   );
   const segments = stripSegments(orderedIds, groupState);
   const titleRow = variant === "title";
-  // A title row shows the tab in front; the rest are its deck.
   const frontId = orderedIds.includes(focusedId) ? focusedId : orderedIds[0];
+  // A title row whose pane holds two tabs or more lays them side by side on
+  // a track, as the window's strip does, so each is one click away. Those
+  // that no longer fit fold into a "+N", as do a folded group's (the row
+  // draws no group labels); the tab in front always shows. A lone tab keeps
+  // the row's single title, and a row whose tabs are on the window's strip
+  // names only the tab in front.
+  const paneTabs = titleRow && !stackOnStrip && orderedIds.length > 1;
+  const [paneRowWidth, setPaneRowWidth] = useState(0);
+  const paneFolded = paneTabs
+    ? new Set(
+        orderedIds.filter(
+          (id) =>
+            id !== frontId &&
+            groupState.groups[groupState.members[id] ?? ""]?.collapsed,
+        ),
+      )
+    : null;
+  const paneRow = paneFolded
+    ? titleRowTabs(
+        orderedIds,
+        frontId,
+        titleRowCapacity(
+          paneRowWidth,
+          orderedIds.length - paneFolded.size,
+          paneFolded.size > 0,
+        ),
+        paneFolded,
+      )
+    : null;
   // Labels sit in the sortable sequence so a group drags like a tab.
-  const displayIds = titleRow
-    ? frontId && !(frontNamedBelow && orderedIds.length <= 1)
-      ? [frontId]
-      : []
-    : stripDisplayIds(segments);
+  const displayIds = paneRow
+    ? paneRow.shown
+    : titleRow
+      ? frontId && !(frontNamedBelow && orderedIds.length <= 1)
+        ? [frontId]
+        : []
+      : stripDisplayIds(segments);
+  const paneHidden = paneRow?.hidden ?? NO_IDS;
+  // One header per pane: a lone title row whose tab draws a toolbar of its
+  // own gives it the row, and every title row lists the content's secondary
+  // actions in the pane's one "…". The toolbar names the tab only when no
+  // tab on the window's strip already does.
+  const hostsHeader = titleRow && !paneTabs && frontOwnHeader && !!frontId;
+  const paneHeader = useHostPaneHeader(titleRow ? frontId : null, {
+    host: titleRow,
+    offer: hostsHeader,
+    names: !(frontNamed ?? (stackOnStrip && orderedIds.length > 1)),
+  });
   const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
   // On a track (two tabs or more) the tabs share the strip's width and one
   // highlight slides under them. The window's strip shows no lone tab.
-  const track = !titleRow && displayedTabIds.length >= 2;
+  const track = titleRow ? paneTabs : displayedTabIds.length >= 2;
   const loneHidden = !titleRow && hideLoneTab && !track;
+  // A split carries its own fill, so no hairline parts it from a neighbour.
   const separators = track
     ? trackSeparators(
-        displayIds.map((id) => ({ id, tab: !chipGroupId(id) })),
+        displayIds.map((id) => ({
+          id,
+          tab: !chipGroupId(id) && !splitEntries.has(id),
+        })),
         focusedId,
       )
     : NO_SEPARATORS;
@@ -1414,20 +1932,54 @@ function TitleBarComponent({
     // Only a change of focus should unfold; the fold click itself does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  // Where a segment pulled out of its split would stand if let go on the
+  // strip: before the first entry whose middle is past the pointer, or at
+  // the end. `x` places the insertion line along the strip's content.
+  const [tearSlot, setTearSlot] = useState<{
+    before: string | null;
+    x: number;
+  } | null>(null);
+  const tearSlotAt = (pointerX: number) => {
+    const strip = tabStripRef.current;
+    if (!strip) return null;
+    const origin = strip.getBoundingClientRect().left - strip.scrollLeft;
+    const slots = [
+      ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
+    ].filter((slot) => !chipGroupId(slot.dataset.motionSlot ?? ""));
+    for (const slot of slots) {
+      const rect = slot.getBoundingClientRect();
+      if (pointerX < rect.left + rect.width / 2)
+        return {
+          before: slot.dataset.motionSlot ?? null,
+          x: rect.left - origin - 1,
+        };
+    }
+    const last = slots[slots.length - 1]?.getBoundingClientRect();
+    return { before: null, x: last ? last.right - origin + 1 : 0 };
+  };
+  /** A single tab of the window's strip: a chat, file, iPhone or page. */
+  const stripTab = (id: string) =>
+    sessionTabs.has(id) || (unified && browsers.has(id));
   const sortable = useSortable(
     displayIds,
     (ids, movedId) => {
       let members = groupState.members;
-      const joined = movedId
-        ? groupAfterDrop(ids, movedId, members)
-        : undefined;
+      // A title row draws no group labels, so moving a tab along it leaves
+      // its group alone, and the tabs in its "+N" keep their places.
+      const joined =
+        movedId && !paneTabs
+          ? groupAfterDrop(ids, movedId, members)
+          : undefined;
       if (movedId && joined !== undefined) {
         members = { ...members };
         if (joined) members[movedId] = joined;
         else delete members[movedId];
         setSurfaceGroupMembership({ [movedId]: joined });
       }
-      const order = orderFromDisplay(ids, members, orderedIds);
+      const order = paneTabs
+        ? mergePreviewTabOrder(orderedIds, ids)
+        : orderFromDisplay(ids, members, orderedIds);
       const moved = movedId && !chipGroupId(movedId) ? movedId : undefined;
       const complete = mergePreviewTabOrder(allOrderedIds, order);
       if (onReorderSurfaces) onReorderSurfaces(complete, moved);
@@ -1439,13 +1991,64 @@ function TitleBarComponent({
     },
     {
       animate: true,
-      onDragMove: (id, x, y, pointer) => {
-        if (!chipGroupId(id)) onSurfaceDragMove?.(id, x, y, pointer);
+      // Dropping onto an entry waits for the pointer to rest on its middle,
+      // so moving a tab past it never joins them by accident.
+      dropOnDelay: STRIP_COMBINE_DELAY_MS,
+      // Let go on an entry's middle, a tab (or a segment pulled out of its
+      // split) joins a split as a pane, or makes a split with a single tab;
+      // a split takes a single tab as a pane.
+      isDropTarget: (dragged, target, part) => {
+        if (chipGroupId(dragged) || chipGroupId(target)) return false;
+        const moving = part ?? dragged;
+        if (splitEntries.has(target))
+          return Boolean(onAddToSplit) && !splitEntries.has(moving);
+        return (
+          Boolean(onCombineTabs) &&
+          stripTab(target) &&
+          (part !== undefined || splitEntries.has(dragged) || stripTab(dragged))
+        );
       },
-      onDragEnd: (id, x, y, cancelled, pointer) => {
+      onDropOnItem: (dragged, target, part) => {
+        const moving = part ?? dragged;
+        if (splitEntries.has(target)) {
+          if (!splitEntries.has(moving)) onAddToSplit?.(target, moving);
+        } else onCombineTabs?.(target, moving);
+      },
+      onDragMove: (id, x, y, pointer, part) => {
+        // A segment pulled out of its split drags as its own tab.
+        if (part?.torn) {
+          onSurfaceDragMove?.(part.part, x, y, pointer);
+          // Over an entry's middle it joins that entry: no line.
+          const slot = part.inStrip && !part.target ? tearSlotAt(x) : null;
+          setTearSlot((previous) =>
+            previous?.before === slot?.before &&
+            Math.abs((previous?.x ?? 0) - (slot?.x ?? 0)) < 0.5
+              ? previous
+              : slot,
+          );
+          return;
+        }
+        if (!chipGroupId(id) && !splitEntries.has(id))
+          onSurfaceDragMove?.(id, x, y, pointer);
+      },
+      onDragEnd: (id, x, y, cancelled, pointer, part) => {
+        if (part?.torn) {
+          setTearSlot(null);
+          if (cancelled || !part.inStrip)
+            return onSurfaceDragEnd?.(part.part, x, y, cancelled, pointer)
+              ? true
+              : false;
+          // Back on the strip: it stands there alone, or joins the entry it
+          // was let go on. The stage only clears its drop hints.
+          onSurfaceDragEnd?.(part.part, x, y, true, pointer);
+          if (part.target) return false;
+          onDetachFromSplit?.(part.part, tearSlotAt(x)?.before ?? null);
+          return true;
+        }
         const dragged = chipGroupId(id);
-        // Group labels reorder within this strip; leaving the window cancels.
-        if (dragged) return false;
+        // Group labels and splits reorder within this strip; leaving the
+        // window cancels.
+        if (dragged || splitEntries.has(id)) return false;
         const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
         // A tab that left this strip for another pane or window leaves its group.
         if (consumed && !cancelled && groupState.members[id])
@@ -1455,23 +2058,113 @@ function TitleBarComponent({
     },
   );
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  // Tabs grow in and closed tabs collapse, as in MonoCode. A title row
-  // changes its one tab in place.
+  // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
+  // changes its one tab in place, and becoming a row of tabs (or one again)
+  // replaces the row rather than growing every tab in.
   const slotMotion = useTabSlotMotion(
-    titleRow ? NO_IDS : displayIds,
+    titleRow && !paneTabs ? LONE_TITLE_SLOTS : displayIds,
     tabStripRef,
+    { morphed: sortable.morphed },
   );
   const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
-    enabled: track && !sortable.draggingId,
+    // Off while a tab is dragged, and while the front tab's copy is still
+    // flying to its place: it shows its own fill and hands over on landing.
+    enabled: track && !sortable.draggingId && sortable.landingId !== focusedId,
     layoutKey: displayIds.join("\n"),
+    glideFrom: sortable.takeOrigin,
   });
+  // What a dragged tab (or a segment pulled out of its split) would bring to
+  // an entry it joins: its icon and name, as its segment will show them.
+  const dragContentId = sortable.draggingPartId ?? sortable.draggingId;
+  const combineJoin = ((): CombineJoin | null => {
+    if (!dragContentId) return null;
+    const tab = sessionTabs.get(dragContentId);
+    if (tab)
+      return {
+        id: dragContentId,
+        incoming: (
+          <>
+            <TabIdentity tab={tab} active />
+            <span className="aven-split-label">
+              {tabCopy(tab, projectlessWorkspace).headline}
+            </span>
+          </>
+        ),
+      };
+    const page = browsers.get(dragContentId);
+    if (page)
+      return {
+        id: dragContentId,
+        incoming: (
+          <>
+            <BrowserTabIcon favicon={page.favicon} />
+            <span className="aven-split-label">
+              {page.title.trim() || "Browser"}
+            </span>
+          </>
+        ),
+      };
+    return {
+      id: null,
+      incoming: <Columns2 className="size-3" strokeWidth={1.75} />,
+    };
+  })();
+  /** The combine preview a strip tab draws while a drag could join it. */
+  // Only the tab a held tab rests on draws the preview, and the last one it
+  // rested on keeps it (hidden) so leaving it plays the preview back out.
+  const joinTarget =
+    sortable.dropTarget?.kind === "tab" ? sortable.dropTarget.id : null;
+  const lastJoinTarget = useRef<string | null>(null);
+  if (!sortable.draggingId) lastJoinTarget.current = null;
+  else if (joinTarget) lastJoinTarget.current = joinTarget;
+  const combineJoinFor = (id: string): CombineJoin | null =>
+    combineJoin &&
+    onCombineTabs &&
+    id !== sortable.draggingId &&
+    (id === joinTarget || id === lastJoinTarget.current)
+      ? combineJoin
+      : null;
   const [stackMenu, setStackMenu] = useState<HTMLElement | null>(null);
-  const [moveMenu, setMoveMenu] = useState<HTMLElement | null>(null);
+  // A segment of a split not in front says where a click goes, once the
+  // pointer rests on it.
+  const [segmentTip, setSegmentTip] = useState<{
+    anchor: HTMLElement;
+    label: string;
+  } | null>(null);
+  const segmentTipTimer = useRef<number | null>(null);
+  const hideSegmentTip = useCallback(() => {
+    if (segmentTipTimer.current !== null)
+      window.clearTimeout(segmentTipTimer.current);
+    segmentTipTimer.current = null;
+    setSegmentTip(null);
+  }, []);
+  const showSegmentTip = useCallback((anchor: HTMLElement, label: string) => {
+    if (segmentTipTimer.current !== null)
+      window.clearTimeout(segmentTipTimer.current);
+    segmentTipTimer.current = window.setTimeout(() => {
+      segmentTipTimer.current = null;
+      if (anchor.isConnected) setSegmentTip({ anchor, label });
+    }, SPLIT_TIP_DELAY_MS);
+  }, []);
+  useEffect(() => hideSegmentTip, [hideSegmentTip]);
+  // A drag, or the split coming to the front, takes the hint away.
+  useEffect(() => {
+    if (sortable.draggingId) hideSegmentTip();
+  }, [sortable.draggingId, hideSegmentTip]);
+  useEffect(() => {
+    hideSegmentTip();
+  }, [focusedId, hideSegmentTip]);
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  // The strip mounts and unmounts as the pane lends its header, so effects
+  // that listen to it follow the element itself.
+  const [tabStripElement, setTabStripElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
       tabStripRef.current = el;
+      setTabStripElement(el);
       sortable.setContainerRef(el);
       lockOverscroll(el);
     },
@@ -1479,8 +2172,11 @@ function TitleBarComponent({
   );
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const [tabMenu, setTabMenu] = useState<{
-    /** A tab, a group label, or empty strip space. Defaults to a tab. */
-    kind?: "tab" | "group" | "bar";
+    /**
+     * A tab, a group label, a split's entry, or empty strip space.
+     * Defaults to a tab.
+     */
+    kind?: "tab" | "group" | "split" | "bar";
     tabId: string;
     groupId?: string;
     /** Secondary page for longer action lists. */
@@ -1591,16 +2287,26 @@ function TitleBarComponent({
     // Respect focus moved into an editor, menu or confirmation dialog meanwhile.
     if (document.activeElement !== document.body) return;
     const strip = tabStripRef.current;
-    const next = strip?.querySelector<HTMLButtonElement>(
-      '[role="tab"][tabindex="0"]',
-    );
-    (next ?? strip)?.focus();
+    if (strip) {
+      const next = strip.querySelector<HTMLButtonElement>(
+        '[role="tab"][tabindex="0"]',
+      );
+      (next ?? strip).focus();
+      return;
+    }
+    // A lent header has no strip: its toolbar, then the pane's "…".
+    const header = headerRef.current;
+    const slot = header?.querySelector<HTMLElement>("[data-pane-header-slot]");
+    const target =
+      slot?.querySelector<HTMLElement>(LENT_HEADER_FOCUSABLE) ??
+      header?.querySelector<HTMLElement>('[data-pane-tool="more"]');
+    target?.focus();
   });
 
   useLayoutEffect(() => {
-    const el = tabStripRef.current;
-    if (!el) return;
+    const el = tabStripElement;
     syncTabOverflow();
+    if (!el) return;
     el.addEventListener("scroll", syncTabOverflow, { passive: true });
     const ro = new ResizeObserver(syncTabOverflow);
     ro.observe(el);
@@ -1608,7 +2314,32 @@ function TitleBarComponent({
       el.removeEventListener("scroll", syncTabOverflow);
       ro.disconnect();
     };
-  }, [syncTabOverflow]);
+  }, [tabStripElement, syncTabOverflow]);
+
+  // A row of tabs in a title row fits its tabs to the strip's width, less
+  // the strip's own buttons after them (the "+N" keeps its room in
+  // titleRowCapacity). The strip's width never depends on how many tabs it
+  // shows, so this settles in one pass.
+  const hasStripTools = Boolean(onOpenIphone);
+  useLayoutEffect(() => {
+    const el = tabStripElement;
+    if (!paneTabs || !el) return;
+    const measure = () => {
+      let width = el.clientWidth;
+      for (const tool of el.querySelectorAll<HTMLElement>(
+        ":scope > [data-strip-tool]",
+      ))
+        width -= tool.offsetWidth + TAB_TRACK_GAP;
+      setPaneRowWidth((previous) =>
+        Math.abs(previous - width) < 0.5 ? previous : width,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tabStripElement, paneTabs, hasStripTools]);
 
   const overflowSignature = JSON.stringify(
     orderedIds.map((id) => {
@@ -1754,12 +2485,109 @@ function TitleBarComponent({
       },
     );
   const moveItems: ExplorerMenuItem[] = [];
+  // A pane's tab can leave for a pane of its own beside it (Cydonia's deck
+  // offered this; it is here now that the tabs sit side by side).
+  if (contextId && paneTabs && onSplitTab)
+    moveItems.push({
+      kind: "item",
+      id: "own-pane",
+      label: "Move to a pane of its own",
+    });
   if (contextId && onReturnTabToWindow)
     moveItems.push({
       kind: "item",
       id: "return-tab-window",
       label: "Return tab to original window",
     });
+  // The keyboard's way to combine on the window's strip: the tab's menu
+  // names the entries it can join, as letting it go on their middle would.
+  const combineItems: ExplorerMenuItem[] =
+    contextId && menuKind === "tab" && onCombineTabs && stripTab(contextId)
+      ? displayIds.flatMap((id): ExplorerMenuItem[] => {
+          if (id === contextId || chipGroupId(id)) return [];
+          const split = splitEntries.get(id);
+          if (split)
+            return onAddToSplit
+              ? [
+                  {
+                    kind: "item",
+                    id: `strip-join:${id}`,
+                    label: split.segments
+                      .map((segment) =>
+                        splitSegmentLabel(segment, projectlessWorkspace),
+                      )
+                      .join(" + "),
+                  },
+                ]
+              : [];
+          if (!stripTab(id)) return [];
+          const tab = sessionTabs.get(id);
+          return [
+            {
+              kind: "item",
+              id: `strip-combine:${id}`,
+              label: tab
+                ? tabCopy(tab, projectlessWorkspace).headline
+                : browsers.get(id)?.title.trim() || "Browser",
+            },
+          ];
+        })
+      : [];
+  // The pane's "…" (its More tool) adds what the pane and its content offer
+  // to the tab's own actions: the content's secondary actions, Recent
+  // pages, the iPhone, moving and hiding the pane.
+  const moves = titleRow && onMovePane ? (paneMoves ?? []) : [];
+  const paneMenuOpen =
+    titleRow &&
+    menuKind === "tab" &&
+    tabMenu?.anchor?.dataset.paneTool === "more";
+  const contentMenu = paneMenuOpen ? paneHeader.menu : null;
+  const contentItem = (item: ExplorerMenuItem): ExplorerMenuItem =>
+    item.kind === "item"
+      ? {
+          ...item,
+          id: item.id.startsWith("page:")
+            ? `page:content:${item.id.slice("page:".length)}`
+            : `content:${item.id}`,
+        }
+      : item;
+  const contentItems = contentMenu ? contentMenu.items().map(contentItem) : [];
+  const contentPages: Record<string, ExplorerMenuItem[]> = Object.fromEntries(
+    Object.entries(contentMenu?.pages?.() ?? {}).map(([name, items]) => [
+      `content:${name}`,
+      items.map(contentItem),
+    ]),
+  );
+  const recentItems: ExplorerMenuItem[] =
+    paneMenuOpen && previewEnabled
+      ? [...browserEntries].reverse().map((tab) => ({
+          kind: "item",
+          id: `recent:${tab.id}`,
+          label: tab.title || "Browser",
+          description: tab.url,
+          checked: tab.id === focusedId,
+          shortcut: tab.kept ? "Kept" : undefined,
+        }))
+      : [];
+  const paneMoveItems: ExplorerMenuItem[] = paneMenuOpen
+    ? [
+        ...moves.map((side): ExplorerMenuItem => ({
+          kind: "item",
+          id: `pane-move:${side}`,
+          label: MOVE_LABEL[side],
+        })),
+        ...(moves.length && moveItems.length ? [{ kind: "sep" } as const] : []),
+        ...moveItems,
+      ]
+    : moveItems;
+  const paneHideItems: ExplorerMenuItem[] =
+    paneMenuOpen && onHidePane
+      ? (paneHides ?? []).map((hide) => ({
+          kind: "item",
+          id: `pane-hide:${hide.key}`,
+          label: hide.label,
+        }))
+      : [];
   const joinableGroups = stripGroups.filter(
     (segment) => segment.group.id !== contextGroupId,
   );
@@ -1812,6 +2640,21 @@ function TitleBarComponent({
   };
   const tabRootItems: ExplorerMenuItem[] = [];
   if (contextId) {
+    if (contentItems.length)
+      tabRootItems.push(...contentItems, { kind: "sep" });
+    if (recentItems.length)
+      tabRootItems.push({
+        kind: "item",
+        id: "page:recent",
+        label: "Recent pages",
+        shortcut: "›",
+      });
+    if (paneMenuOpen && onOpenIphone)
+      tabRootItems.push({
+        kind: "item",
+        id: "bar-open-iphone",
+        label: "iPhone",
+      });
     if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
       tabRootItems.push(
         { kind: "item", id: "keep-open", label: "Keep open" },
@@ -1830,6 +2673,19 @@ function TitleBarComponent({
         id: "group-new",
         label: "Add to new group",
       });
+    const onlyCombine = combineItems.length === 1 ? combineItems[0] : null;
+    if (onlyCombine?.kind === "item")
+      tabRootItems.push({
+        ...onlyCombine,
+        label: `Combine with ${onlyCombine.label}`,
+      });
+    else if (combineItems.length)
+      tabRootItems.push({
+        kind: "item",
+        id: "page:combine",
+        label: "Combine with",
+        shortcut: "›",
+      });
     if (contextGroup)
       tabRootItems.push({
         kind: "item",
@@ -1838,7 +2694,8 @@ function TitleBarComponent({
       });
     tabRootItems.push(
       ...pageEntry("split", "Split", splitItems),
-      ...pageEntry("move", "Move to", moveItems),
+      ...pageEntry("move", paneMenuOpen ? "Move" : "Move to", paneMoveItems),
+      ...paneHideItems,
       { kind: "sep" },
     );
     if (onReopenClosedTab)
@@ -1906,6 +2763,33 @@ function TitleBarComponent({
         checked: menuGroup.group.color === index,
       }))
     : [];
+  // A split's entry: take it apart, or close every tab in it.
+  const menuSplit =
+    menuKind === "split" && tabMenu ? splitEntries.get(tabMenu.tabId) : null;
+  const splitRootItems: ExplorerMenuItem[] = menuSplit
+    ? [
+        ...(onSeparateSplit
+          ? [
+              {
+                kind: "item" as const,
+                id: "split-separate",
+                label: "Separate split",
+              },
+            ]
+          : []),
+        { kind: "sep" },
+        ...(onCloseSplit
+          ? [
+              {
+                kind: "item" as const,
+                id: "split-close",
+                label: "Close split",
+                disabled: menuSplit.closable === false,
+              },
+            ]
+          : []),
+      ]
+    : [];
   // Empty strip space: actions for the whole strip.
   const barItems: ExplorerMenuItem[] = [];
   barItems.push({ kind: "item", id: "bar-new-session", label: "New chat" });
@@ -1960,10 +2844,13 @@ function TitleBarComponent({
 
   const pages: Record<string, ExplorerMenuItem[]> = {
     group: groupPageItems,
+    combine: combineItems,
     split: splitItems,
-    move: moveItems,
+    move: paneMoveItems,
     close: closeItems,
     color: colorItems,
+    recent: recentItems,
+    ...contentPages,
   };
   const page = tabMenu?.page;
   const contextMenuItems: ExplorerMenuItem[] =
@@ -1977,7 +2864,9 @@ function TitleBarComponent({
         ? barItems
         : menuKind === "group"
           ? groupRootItems
-          : tabRootItems;
+          : menuKind === "split"
+            ? splitRootItems
+            : tabRootItems;
   while (contextMenuItems[0]?.kind === "sep") contextMenuItems.shift();
   while (contextMenuItems[contextMenuItems.length - 1]?.kind === "sep")
     contextMenuItems.pop();
@@ -1996,6 +2885,24 @@ function TitleBarComponent({
       return;
     }
     setTabMenu(null);
+    if (id.startsWith("content:")) {
+      contentMenu?.pick(id.slice("content:".length));
+      return;
+    }
+    if (id.startsWith("recent:")) {
+      const page = id.slice("recent:".length);
+      if (browsers.has(page)) onSelectBrowser?.(unified ? page : undefined);
+      return;
+    }
+    if (id.startsWith("pane-move:")) {
+      const side = id.slice("pane-move:".length) as PaneSide;
+      if (moves.includes(side)) onMovePane?.(side);
+      return;
+    }
+    if (id.startsWith("pane-hide:")) {
+      onHidePane?.(id.slice("pane-hide:".length));
+      return;
+    }
     if (id === "reopen-tab") {
       if (canReopenClosedTab) onReopenClosedTab?.();
       return;
@@ -2025,6 +2932,15 @@ function TitleBarComponent({
     }
     if (id === "return-group-window" && groupId) {
       onReturnGroupToWindow?.(groupId);
+      return;
+    }
+    if (menuSplit) {
+      if (id === "split-separate") {
+        // Its segments glide into the tabs they become.
+        sortable.captureStripMorph();
+        onSeparateSplit?.(menuSplit.id);
+      } else if (id === "split-close" && menuSplit.closable !== false)
+        onCloseSplit?.(menuSplit.id);
       return;
     }
     if (menuGroup) {
@@ -2071,8 +2987,21 @@ function TitleBarComponent({
         setSurfaceGroupMembership({ [contextId]: target });
     } else if (id === "group-leave") {
       setSurfaceGroupMembership({ [contextId]: null });
+    } else if (id.startsWith("strip-combine:")) {
+      // Morphs into the split it makes, as a drop does.
+      sortable.captureStripMorph();
+      onCombineTabs?.(id.slice("strip-combine:".length), contextId);
+    } else if (id.startsWith("strip-join:")) {
+      sortable.captureStripMorph();
+      onAddToSplit?.(id.slice("strip-join:".length), contextId);
     } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
+    } else if (id === "own-pane") {
+      const beside =
+        contextId !== frontId
+          ? frontId
+          : orderedIds.find((other) => other !== contextId);
+      if (beside) onSplitTab?.(contextId, "right", beside);
     } else if (id === "return-tab-window") {
       onReturnTabToWindow?.(contextId);
     } else if (id === "race-overview") {
@@ -2081,8 +3010,10 @@ function TitleBarComponent({
       onNewView?.(contextId);
     } else if (id.startsWith("combine:")) {
       const targetId = id.slice("combine:".length);
-      if (availableCombineTargets.some((target) => target.id === targetId))
+      if (availableCombineTargets.some((target) => target.id === targetId)) {
+        sortable.captureStripMorph();
         onCombineWith?.(targetId);
+      }
     } else if (id === "close") {
       if (contextBrowser) onCloseBrowser?.(unified ? contextId : undefined);
       else onClose(contextId);
@@ -2189,17 +3120,8 @@ function TitleBarComponent({
     </div>
   );
 
-  const deck: TabDeckProps | undefined = titleRow
-    ? {
-        behind: stackOnStrip ? 0 : Math.max(0, orderedIds.length - 1),
-        open: Boolean(stackMenu),
-        onOpen: (anchor) => {
-          setTabMenu(null);
-          setMoveMenu(null);
-          setStackMenu((open) => (open ? null : anchor));
-        },
-      }
-    : undefined;
+  // A lone title row draws its tab's icon on a tile.
+  const deck = titleRow && !paneTabs;
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
@@ -2272,7 +3194,9 @@ function TitleBarComponent({
           ) ?? [],
         ).find((node) => node.dataset.surfaceTabId === id);
       setBrowserMenu(null);
-      setTabMenu({ tabId: id, x, y, anchor: element });
+      // Anchored on the tab's own button, which Escape gives focus back to
+      // (WebKit does not focus the tab's box).
+      setTabMenu({ tabId: id, x, y, anchor: focusableIn(element) });
     };
     if (tab)
       return (
@@ -2305,8 +3229,47 @@ function TitleBarComponent({
             }
             itemRef={itemRef}
             deck={deck}
+            combineInto={sortable.dropTarget?.id === id}
+            combine={combineJoinFor(id)}
           />
         </div>
+      );
+    const split = splitEntries.get(id);
+    if (split)
+      return (
+        <SplitEntryItem
+          key={id}
+          split={split}
+          projectless={projectlessWorkspace}
+          index={index}
+          active={id === focusedId}
+          tabStop={id === tabStopId}
+          canDrag={canDrag}
+          sortable={sortable}
+          onSelectTab={(tabId) => {
+            hideSegmentTip();
+            onSelectSplitTab?.(tabId);
+          }}
+          onContextMenu={(event, anchor) => {
+            setBrowserMenu(null);
+            setTabMenu({
+              kind: "split",
+              tabId: id,
+              x: event.clientX,
+              y: event.clientY,
+              anchor: focusableIn(anchor),
+            });
+          }}
+          onHover={(anchor, label) =>
+            anchor && label && !sortable.draggingId
+              ? showSegmentTip(anchor, label)
+              : hideSegmentTip()
+          }
+          dropInto={sortable.dropTarget?.id === id}
+          join={sortable.dropTarget?.id === id ? combineJoin : null}
+          opening={slotMotion.opening.has(id)}
+          itemRef={itemRef}
+        />
       );
     if (!browser) return null;
     return (
@@ -2336,8 +3299,10 @@ function TitleBarComponent({
             : undefined
         }
         onContextMenu={(event) => openMenu(event.clientX, event.clientY)}
+        // A title row's page opens the same menu from a right-click or the
+        // pane's "…", so it draws no layout arrow of its own.
         onMenu={
-          hasSurfaceMenu || onBrowserModeChange
+          !titleRow && (hasSurfaceMenu || onBrowserModeChange)
             ? (button) => {
                 const rect = button.getBoundingClientRect();
                 if (hasSurfaceMenu) {
@@ -2367,6 +3332,8 @@ function TitleBarComponent({
         itemRef={itemRef}
         separator={separators.has(id)}
         deck={deck}
+        combineInto={sortable.dropTarget?.id === id}
+        combine={combineJoinFor(id)}
       />
     );
   };
@@ -2392,39 +3359,21 @@ function TitleBarComponent({
               : undefined,
           }
         : null;
-  const moves = titleRow && onMovePane ? (paneMoves ?? []) : [];
-  const stackItems: ExplorerMenuItem[] = titleRow
-    ? [
-        ...orderedIds.map((id): ExplorerMenuItem => {
-          const tab = sessionTabs.get(id);
-          return {
-            kind: "item",
-            id: `stack:${id}`,
-            label: tab
-              ? tabCopy(tab, projectlessWorkspace).headline
-              : browsers.get(id)?.title.trim() || "Browser",
-            checked: id === frontId,
-          };
-        }),
-        ...(onSplitTab && orderedIds.length > 1
-          ? [
-              { kind: "sep" } as const,
-              {
-                kind: "item",
-                id: "stack-split",
-                label: "Move to a pane of its own",
-              } as const,
-            ]
-          : []),
-      ]
-    : [];
+  // The "+N" lists the pane's tabs that are not in its row.
+  const stackItems: ExplorerMenuItem[] = paneHidden.map(
+    (id): ExplorerMenuItem => {
+      const tab = sessionTabs.get(id);
+      return {
+        kind: "item",
+        id: `stack:${id}`,
+        label: tab
+          ? tabCopy(tab, projectlessWorkspace).headline
+          : browsers.get(id)?.title.trim() || "Browser",
+      };
+    },
+  );
   const pickStack = (item: string) => {
     setStackMenu(null);
-    if (item === "stack-split") {
-      const beside = orderedIds.find((id) => id !== frontId);
-      if (frontId && beside) onSplitTab?.(frontId, "right", beside);
-      return;
-    }
     const id = item.slice("stack:".length);
     if (sessionTabs.has(id)) onSelect(id);
     else if (browsers.has(id)) onSelectBrowser?.(unified ? id : undefined);
@@ -2447,9 +3396,21 @@ function TitleBarComponent({
 
   return (
     <header
+      ref={headerRef}
       className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
       data-pane-local={paneLocal || undefined}
       data-variant={variant}
+      data-title-layout={titleRow ? (paneTabs ? "tabs" : "lone") : undefined}
+      // The line under the pane's whole header is drawn below this row when
+      // the tab in front draws its own row under it, or (a tab split into
+      // panes) its panes' strips do.
+      data-header-continues={
+        (titleRow &&
+          (paneTabs
+            ? frontOwnHeader
+            : frontNamedBelow && orderedIds.length <= 1)) ||
+        undefined
+      }
       data-pane-focused={paneFocused}
       data-tauri-drag-region={paneLocal ? "false" : "deep"}
       onContextMenu={(event) => {
@@ -2505,189 +3466,246 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        <div
-          className="relative h-full min-w-0 flex-1 overflow-hidden"
-          onWheel={(event) => {
-            const el = tabStripRef.current;
-            if (!el || el.scrollWidth <= el.clientWidth) return;
-            if (event.deltaX === 0 && event.deltaY !== 0) {
-              el.scrollLeft += event.deltaY;
-            }
-          }}
-        >
-          {tabOverflow.left ? (
-            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
-          ) : null}
-          {tabOverflow.right ? (
-            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
-          ) : null}
+        {hostsHeader ? (
+          // The tab's own toolbar draws here, in place of its name.
           <div
-            ref={setTabStripRef}
-            role={titleRow ? "group" : "tablist"}
-            tabIndex={displayedTabIds.length ? -1 : 0}
-            data-sortable-scroll-container
+            ref={paneHeader.slotRef}
+            className="aven-pane-header-slot"
+            data-pane-header-slot={frontId}
+            // The pane's tabs, as its strip lists them, for a drop's target.
             data-surface-order={JSON.stringify(allOrderedIds)}
-            aria-label={titleRow ? "Pane" : "Workspace tabs"}
-            aria-orientation={titleRow ? undefined : "horizontal"}
-            data-tab-track={track || undefined}
-            className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
-            onFocusCapture={(event) => {
-              const target = event.target as HTMLElement;
-              focusedTabControlRef.current = target.closest(
-                "[data-surface-tab-id]",
-              )
-                ? target
-                : null;
-            }}
-            onBlurCapture={(event) => {
-              if (
-                !(event.relatedTarget instanceof Node) ||
-                !event.currentTarget.contains(event.relatedTarget)
-              ) {
-                focusedTabControlRef.current = null;
+          />
+        ) : (
+          <div
+            className="relative h-full min-w-0 flex-1 overflow-hidden"
+            onWheel={(event) => {
+              const el = tabStripRef.current;
+              if (!el || el.scrollWidth <= el.clientWidth) return;
+              if (event.deltaX === 0 && event.deltaY !== 0) {
+                el.scrollLeft += event.deltaY;
               }
-            }}
-            onKeyDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (
-                target === event.currentTarget &&
-                (event.key === "ContextMenu" ||
-                  (event.shiftKey && event.key === "F10"))
-              ) {
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                openBarMenu(rect.left, rect.bottom);
-                return;
-              }
-              if (
-                event.defaultPrevented ||
-                event.altKey ||
-                event.ctrlKey ||
-                event.metaKey ||
-                event.shiftKey ||
-                target.getAttribute("role") !== "tab"
-              ) {
-                return;
-              }
-              const buttons = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  '[role="tab"]',
-                ),
-              );
-              const index = buttons.indexOf(target as HTMLButtonElement);
-              if (index < 0) return;
-              const next =
-                event.key === "ArrowRight"
-                  ? (index + 1) % buttons.length
-                  : event.key === "ArrowLeft"
-                    ? (index - 1 + buttons.length) % buttons.length
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? buttons.length - 1
-                        : -1;
-              if (next < 0) return;
-              event.preventDefault();
-              const nextButton = buttons[next];
-              const id = nextButton?.closest<HTMLElement>(
-                "[data-surface-tab-id]",
-              )?.dataset.surfaceTabId;
-              nextButton?.focus();
-              if (id && sessionTabs.has(id)) onSelect(id);
-              else if (id && browsers.has(id))
-                onSelectBrowser?.(unified ? id : undefined);
             }}
           >
-            {track ? (
-              <span
-                ref={highlightRef}
-                className="aven-tab-highlight"
-                aria-hidden
-              />
+            {tabOverflow.left ? (
+              <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
             ) : null}
-            {slotGhosts(null)}
-            {loneHidden
-              ? null
-              : displayIds.flatMap((id, index) => [
-                  stripItem(id, index),
-                  ...slotGhosts(id),
-                ])}
-            {paneLocal && !titleRow ? (
-              <button
-                type="button"
-                aria-label="New chat"
-                title="New chat"
-                data-tauri-drag-region="false"
-                className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onNew}
-              >
-                <Plus className="size-3.5" strokeWidth={1.75} />
-              </button>
+            {tabOverflow.right ? (
+              <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
             ) : null}
-            {!titleRow &&
-            (onNewBrowser ||
-              (browserEntries.length === 0 && onSelectBrowser)) ? (
-              <button
-                type="button"
-                aria-label={
-                  paneLocal
-                    ? "New browser"
-                    : unified
-                      ? "New browser tab"
-                      : "Open browser"
+            <div
+              ref={setTabStripRef}
+              role={titleRow && !paneTabs ? "group" : "tablist"}
+              tabIndex={displayedTabIds.length ? -1 : 0}
+              data-sortable-scroll-container
+              data-surface-order={JSON.stringify(allOrderedIds)}
+              aria-label={
+                titleRow
+                  ? paneTabs
+                    ? "Tabs in this pane"
+                    : "Pane"
+                  : "Workspace tabs"
+              }
+              aria-orientation={
+                titleRow && !paneTabs ? undefined : "horizontal"
+              }
+              data-tab-track={track || undefined}
+              className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
+              onFocusCapture={(event) => {
+                const target = event.target as HTMLElement;
+                focusedTabControlRef.current = target.closest(
+                  "[data-surface-tab-id]",
+                )
+                  ? target
+                  : null;
+              }}
+              onBlurCapture={(event) => {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                ) {
+                  focusedTabControlRef.current = null;
                 }
-                title={
-                  paneLocal
-                    ? "New browser"
-                    : unified
-                      ? "New browser tab"
-                      : "Open browser"
+              }}
+              onKeyDown={(event) => {
+                const target = event.target as HTMLElement;
+                if (
+                  target === event.currentTarget &&
+                  (event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10"))
+                ) {
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  openBarMenu(rect.left, rect.bottom);
+                  return;
                 }
-                data-tauri-drag-region="false"
-                data-tour="browser-button"
-                className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={() =>
-                  onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
+                if (
+                  event.defaultPrevented ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey ||
+                  target.getAttribute("role") !== "tab"
+                ) {
+                  return;
                 }
-              >
-                <Globe className="size-3.5" strokeWidth={1.75} />
-                <Plus
-                  className="personal-title-browser-plus absolute size-2"
-                  strokeWidth={1.75}
+                const buttons = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  ),
+                );
+                const index = buttons.indexOf(target as HTMLButtonElement);
+                if (index < 0) return;
+                const next =
+                  event.key === "ArrowRight"
+                    ? (index + 1) % buttons.length
+                    : event.key === "ArrowLeft"
+                      ? (index - 1 + buttons.length) % buttons.length
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? buttons.length - 1
+                          : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                const nextButton = buttons[next];
+                const id = nextButton?.closest<HTMLElement>(
+                  "[data-surface-tab-id]",
+                )?.dataset.surfaceTabId;
+                // A split's segments are tabs of the strip in their own
+                // right: the arrows step through them like any tab.
+                const segment = nextButton?.dataset.splitSegment;
+                nextButton?.focus();
+                if (segment) onSelectSplitTab?.(segment);
+                else if (id && sessionTabs.has(id)) onSelect(id);
+                else if (id && browsers.has(id))
+                  onSelectBrowser?.(unified ? id : undefined);
+              }}
+            >
+              {track ? (
+                <span
+                  ref={highlightRef}
+                  className="aven-tab-highlight"
+                  aria-hidden
                 />
-              </button>
-            ) : null}
-            {onOpenBoard && !titleRow ? (
-              <button
-                type="button"
-                aria-label="Open board"
-                title="Open this project's board"
-                data-tauri-drag-region="false"
-                data-tour="board"
-                className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onOpenBoard}
-              >
-                <Kanban className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {onOpenIphone ? (
-              <button
-                type="button"
-                aria-label="iPhone"
-                title="Run this project's app on an iPhone simulator"
-                data-tauri-drag-region="false"
-                className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                onClick={onOpenIphone}
-              >
-                <Smartphone className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
+              ) : null}
+              {slotGhosts(null)}
+              {tearSlot ? (
+                <div
+                  className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 z-20 rounded-full"
+                  data-tear-insertion
+                  style={{ left: tearSlot.x }}
+                />
+              ) : null}
+              {loneHidden
+                ? null
+                : displayIds.flatMap((id, index) => [
+                    stripItem(id, index),
+                    ...slotGhosts(id),
+                  ])}
+              {paneHidden.length ? (
+                <button
+                  type="button"
+                  className="aven-title-more"
+                  data-title-overflow
+                  data-no-drag
+                  data-tauri-drag-region="false"
+                  aria-label={`${paneHidden.length} more ${
+                    paneHidden.length === 1 ? "tab" : "tabs"
+                  } in this pane`}
+                  title={`${paneHidden.length} more ${
+                    paneHidden.length === 1 ? "tab" : "tabs"
+                  } in this pane`}
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(stackMenu)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    const button = event.currentTarget;
+                    setTabMenu(null);
+                    setStackMenu((open) => (open ? null : button));
+                  }}
+                >
+                  +{paneHidden.length}
+                </button>
+              ) : null}
+              {paneLocal && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="New chat"
+                  title="New chat"
+                  data-tauri-drag-region="false"
+                  className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onNew}
+                >
+                  <Plus className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {!titleRow &&
+              (onNewBrowser ||
+                (browserEntries.length === 0 && onSelectBrowser)) ? (
+                <button
+                  type="button"
+                  aria-label={
+                    paneLocal
+                      ? "New browser"
+                      : unified
+                        ? "New browser tab"
+                        : "Open browser"
+                  }
+                  title={
+                    paneLocal
+                      ? "New browser"
+                      : unified
+                        ? "New browser tab"
+                        : "Open browser"
+                  }
+                  data-tauri-drag-region="false"
+                  data-tour="browser-button"
+                  className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={() =>
+                    onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
+                  }
+                >
+                  <Globe className="size-3.5" strokeWidth={1.75} />
+                  <Plus
+                    className="personal-title-browser-plus absolute size-2"
+                    strokeWidth={1.75}
+                  />
+                </button>
+              ) : null}
+              {onOpenBoard && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="Open board"
+                  title="Open this project's board"
+                  data-tauri-drag-region="false"
+                  data-tour="board"
+                  className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onOpenBoard}
+                >
+                  <Kanban className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {onOpenIphone && !titleRow ? (
+                <button
+                  type="button"
+                  aria-label="iPhone"
+                  title="Run this project's app on an iPhone simulator"
+                  data-tauri-drag-region="false"
+                  data-strip-tool
+                  className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                  onClick={onOpenIphone}
+                >
+                  <Smartphone className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
 
         {previewEnabled &&
         browserEntries.length > 0 &&
-        !(titleRow && stackOnStrip) ? (
+        !titleRow &&
+        !previewActionsInPane ? (
           <div
             className="personal-tab-preview-actions"
             data-tauri-drag-region="false"
@@ -2726,7 +3744,6 @@ function TitleBarComponent({
             className="aven-pane-tools"
             data-pane-tools
             data-open={
-              Boolean(moveMenu) ||
               (Boolean(tabMenu) &&
                 tabMenu?.anchor?.dataset.paneTool === "more") ||
               undefined
@@ -2750,7 +3767,6 @@ function TitleBarComponent({
                   }
                   const rect = button.getBoundingClientRect();
                   setStackMenu(null);
-                  setMoveMenu(null);
                   setBrowserMenu(null);
                   setTabMenu({
                     tabId: frontTool.id,
@@ -2761,40 +3777,6 @@ function TitleBarComponent({
                 }}
               >
                 <MoreHorizontal className="size-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {moves.length === 1 ? (
-              (() => {
-                const side = moves[0];
-                const Icon = MOVE_ICON[side];
-                return (
-                  <button
-                    type="button"
-                    className="aven-pane-tool"
-                    aria-label={MOVE_LABEL[side]}
-                    title={MOVE_LABEL[side]}
-                    onClick={() => onMovePane?.(side)}
-                  >
-                    <Icon className="size-3.5" strokeWidth={1.75} />
-                  </button>
-                );
-              })()
-            ) : moves.length > 1 ? (
-              <button
-                type="button"
-                className="aven-pane-tool"
-                aria-label="Move"
-                title="Move"
-                aria-haspopup="menu"
-                aria-expanded={Boolean(moveMenu)}
-                onClick={(event) => {
-                  const button = event.currentTarget;
-                  setTabMenu(null);
-                  setStackMenu(null);
-                  setMoveMenu((open) => (open ? null : button));
-                }}
-              >
-                <Move className="size-3.5" strokeWidth={1.75} />
               </button>
             ) : null}
             {paneZoom && onTogglePaneZoom ? (
@@ -2812,7 +3794,8 @@ function TitleBarComponent({
                 )}
               </button>
             ) : null}
-            {frontTool?.close ? (
+            {/* A row of tabs closes each from its own ×; a lone tab's is here. */}
+            {frontTool?.close && !paneTabs ? (
               <button
                 type="button"
                 className="aven-pane-tool"
@@ -2859,6 +3842,7 @@ function TitleBarComponent({
           onClose={() => setRecentMenu(null)}
         />
       ) : null}
+      <SplitSegmentTip tip={segmentTip} />
       {stackMenu && stackItems.length ? (
         <ExplorerMenu
           x={0}
@@ -2867,32 +3851,10 @@ function TitleBarComponent({
           align="start"
           gap={4}
           width={260}
-          ariaLabel="Tabs in this pane"
+          ariaLabel="More tabs in this pane"
           items={stackItems}
           onPick={pickStack}
           onClose={() => setStackMenu(null)}
-        />
-      ) : null}
-      {moveMenu && moves.length > 1 ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={moveMenu}
-          align="end"
-          gap={4}
-          width={180}
-          ariaLabel="Move pane"
-          items={moves.map((side) => ({
-            kind: "item",
-            id: side,
-            label: MOVE_LABEL[side],
-          }))}
-          onPick={(side) => {
-            setMoveMenu(null);
-            if (moves.includes(side as PaneSide))
-              onMovePane?.(side as PaneSide);
-          }}
-          onClose={() => setMoveMenu(null)}
         />
       ) : null}
       {tabMenu && contextMenuItems.length ? (
@@ -2908,9 +3870,15 @@ function TitleBarComponent({
           ariaLabel={
             menuGroup
               ? `Group actions for ${groupName(menuGroup.group)}`
-              : contextId
-                ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
-                : "Workspace tab actions"
+              : menuSplit
+                ? `Split actions for ${menuSplit.segments
+                    .map((segment) =>
+                      splitSegmentLabel(segment, projectlessWorkspace),
+                    )
+                    .join(" and ")}`
+                : contextId
+                  ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
+                  : "Workspace tab actions"
           }
           onPick={onPickTabMenu}
           onClose={closeTabMenu}
@@ -2950,15 +3918,21 @@ function TitleBarComponent({
   );
 }
 
+/** What focus may land on in a lent header's toolbar. */
+const LENT_HEADER_FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const MemoTitleBar = memo(TitleBarComponent);
 const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "tabs",
   "browserTabs",
   "surfaceOrder",
+  "splits",
   "visibleIds",
   "combineTargets",
   "recents",
   "paneMoves",
+  "paneHides",
 ];
 export function TitleBar(props: TitleBarProps) {
   return <MemoTitleBar {...useChromeProps(props, TITLE_DATA)} />;

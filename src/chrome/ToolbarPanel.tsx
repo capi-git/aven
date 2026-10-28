@@ -60,7 +60,7 @@ export function ToolbarPanelHeader({
             aria-label={closeLabel}
             title="Close (Esc)"
           >
-            <X size={16} />
+            <X size={14} strokeWidth={1.75} />
           </button>
         ) : null}
       </div>

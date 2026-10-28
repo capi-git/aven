@@ -45,7 +45,8 @@ export type WorkspaceRecoveryState = {
   version: 1;
   /** Oldest first; each stack is independently bounded. */
   closed: ClosedWorkspaceEntry[];
-  layouts: { cwd: string; view: WorkspaceView }[];
+  /** `entry`: the strip entry in front when the layout changed. */
+  layouts: { cwd: string; view: WorkspaceView; entry?: string }[];
 };
 
 export function emptyWorkspaceRecovery(): WorkspaceRecoveryState {
@@ -394,20 +395,28 @@ export function pushWorkspaceLayoutUndo(
   state: WorkspaceRecoveryState,
   cwd: string,
   view: WorkspaceViewSnapshot,
+  /** The strip entry the change was made in, which undo returns to. */
+  entry?: string,
 ): WorkspaceRecoveryState {
   if (!text(cwd)) return state;
   const clean = cleanView(view);
   if (!clean) return state;
+  const front = text(entry, 512) ? entry : undefined;
   const previous = [...state.layouts]
     .reverse()
     .find((entry) => entry.cwd === cwd);
-  if (previous && JSON.stringify(previous.view) === JSON.stringify(clean))
+  if (
+    previous &&
+    previous.entry === front &&
+    JSON.stringify(previous.view) === JSON.stringify(clean)
+  )
     return state;
   return {
     ...state,
-    layouts: [...state.layouts, { cwd, view: clean }].slice(
-      -WORKSPACE_RECOVERY_LIMIT,
-    ),
+    layouts: [
+      ...state.layouts,
+      front ? { cwd, view: clean, entry: front } : { cwd, view: clean },
+    ].slice(-WORKSPACE_RECOVERY_LIMIT),
   };
 }
 /** Undo arranges currently open tabs; closed tabs stay closed and newcomers survive. */
@@ -419,15 +428,20 @@ export function popWorkspaceLayoutUndo(
 ): {
   state: WorkspaceRecoveryState;
   view: WorkspaceView | null;
+  /** The snapshot as taken, and the strip entry it was taken in. */
+  snapshot: WorkspaceView | null;
+  entry?: string;
 } {
   const entry = [...state.layouts].reverse().find((entry) => entry.cwd === cwd);
-  if (!entry) return { state, view: null };
+  if (!entry) return { state, view: null, snapshot: null };
   return {
     state: {
       ...state,
       layouts: state.layouts.filter((item) => item !== entry),
     },
     view: resolveWorkspaceView(entry.view, openIds, fallback),
+    snapshot: entry.view,
+    entry: entry.entry,
   };
 }
 
@@ -479,7 +493,12 @@ export function parseWorkspaceRecovery(raw: unknown): WorkspaceRecoveryState {
     const item = record(entry);
     const view = item && cleanView(item.view);
     if (item && text(item.cwd) && view)
-      state = pushWorkspaceLayoutUndo(state, item.cwd, view);
+      state = pushWorkspaceLayoutUndo(
+        state,
+        item.cwd,
+        view,
+        text(item.entry, 512) ? item.entry : undefined,
+      );
   }
   return state;
 }

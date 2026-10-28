@@ -216,7 +216,7 @@ export function OrchestrationSidebarAgents({
                 <span
                   className={`flex shrink-0 items-center gap-1 text-ui-caption ${
                     task.status === "failed"
-                      ? "text-red-600 dark:text-red-400"
+                      ? "text-(--aven-danger-text)"
                       : deciding
                         ? "text-content/55"
                         : working
@@ -257,7 +257,7 @@ export function OrchestrationSidebarAgents({
                   )}
                   {live?.error && (
                     <p
-                      className="text-ui-caption text-red-600 dark:text-red-400"
+                      className="text-ui-caption text-(--aven-danger-text)"
                       title={live.error}
                     >
                       This agent ran into a problem. Open its chat to see what
@@ -307,7 +307,7 @@ export function OrchestrationSidebarAgents({
       {(error || run?.error) && (
         <p
           role="alert"
-          className="py-1 text-ui-caption text-red-600 dark:text-red-400"
+          className="py-1 text-ui-caption text-(--aven-danger-text)"
         >
           {error ?? run?.error}
         </p>

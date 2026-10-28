@@ -58,16 +58,19 @@ export function RemoveProjectDialog({
 
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
-      <div className="absolute inset-0 bg-black/30" onMouseDown={onCancel} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onCancel}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Delete ${name} and its chats`}
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
+        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-sheet p-4"
       >
         <div className="flex flex-col gap-1">
-          <h2 className="text-ui-body font-medium leading-tight text-content">
+          <h2 className="text-ui-sheet font-semibold leading-tight tracking-[-0.01em] text-content">
             Delete “{name}” and its chats?
           </h2>
           <p className="text-ui-label leading-snug text-content/55">
@@ -83,7 +86,10 @@ export function RemoveProjectDialog({
             </p>
           ) : null}
           {countError ? (
-            <p role="alert" className="text-ui-label leading-snug text-red-300">
+            <p
+              role="alert"
+              className="text-ui-label leading-snug text-(--aven-danger-text)"
+            >
               Could not load this project's chats. Cancel and try again.
             </p>
           ) : null}
@@ -97,7 +103,7 @@ export function RemoveProjectDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content"
           >
             Cancel
           </button>
@@ -105,7 +111,7 @@ export function RemoveProjectDialog({
             type="button"
             onClick={onConfirm}
             disabled={sessions == null || countError}
-            className="rounded-md bg-red-500/20 px-3 py-1.5 text-ui-label font-medium text-red-300 hover:bg-red-500/30 disabled:opacity-50"
+            className="rounded-md px-3 py-1.5 text-ui-label font-medium bg-(--aven-danger-fill) text-(--aven-danger-text) hover:bg-(--aven-danger-fill-hover) disabled:opacity-50"
           >
             Delete
           </button>

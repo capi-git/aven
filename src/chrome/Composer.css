@@ -168,11 +168,7 @@
   color: var(--color-content);
 }
 .personal-shell .personal-composer-actions > button:hover:not(:disabled) {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 16%,
-    var(--composer-surface)
-  );
+  background: var(--aven-control-hover);
 }
 .personal-shell .personal-composer-actions > .composer-send {
   border-color: transparent;
@@ -293,7 +289,7 @@ html.theme-light .personal-shell .personal-composer {
   height: 24px;
   padding: 0 9px 0 7px;
   border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: 999px;
+  border-radius: var(--aven-radius-capsule);
   background: var(--aven-fill-quaternary);
   color: color-mix(in srgb, var(--color-content) 66%, transparent);
   font-size: var(--text-ui-caption);

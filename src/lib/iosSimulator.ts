@@ -38,6 +38,8 @@ export type IosSimPhase =
   | "booting"
   | "preparing"
   | "building"
+  /** A Run's build is done; it waits for its device to start or get ready. */
+  | "waiting"
   | "installing"
   | "launching"
   | "running"
@@ -76,15 +78,16 @@ export const IDLE_STATUS: IosSimStatus = {
 export function isRunActive(phase: IosSimPhase): boolean {
   return (
     phase === "building" ||
+    phase === "waiting" ||
     phase === "installing" ||
     phase === "launching" ||
     phase === "running"
   );
 }
 
-/** Getting a device ready, before any build. */
+/** Getting a device ready: for the pane, or for a Run waiting on it. */
 export function isDeviceStarting(phase: IosSimPhase): boolean {
-  return phase === "booting" || phase === "preparing";
+  return phase === "booting" || phase === "preparing" || phase === "waiting";
 }
 
 /** The strip's dot: green running, amber working, red failed. */
@@ -220,8 +223,8 @@ export async function clearIosSimProject(project: string): Promise<void> {
 
 /**
  * The device the pane opens on: the project's remembered one if it still
- * exists, else Aven's suggestion (which never names a simulator someone
- * else is already running), else none and the person picks.
+ * exists, else Aven's suggestion (a running simulator before starting
+ * another one), else none and the person picks.
  */
 export function pickDevice(
   devices: readonly IosSimDevice[],
@@ -271,9 +274,12 @@ export const iosSim = {
       project,
       container: container ?? null,
     }),
-  /** `picked`: the person chose it in the menu just now. */
-  useDevice: (project: string, udid: string, picked: boolean) =>
-    invoke<void>("ios_sim_use_device", { project, udid, picked }),
+  /**
+   * Pane `pane` (its live view's id) shows `udid`. `picked`: the person
+   * chose it in the menu just now.
+   */
+  useDevice: (project: string, udid: string, picked: boolean, pane: string) =>
+    invoke<void>("ios_sim_use_device", { project, udid, picked, pane }),
   choose: (project: string, choice: IosSimChoice) =>
     invoke<void>("ios_sim_pane_choice", {
       project,
@@ -313,6 +319,7 @@ export const iosSim = {
       | { kind: "type"; text: string },
   ) => invoke<void>("ios_sim_basic_input", { project, udid, input }),
   focus: (id: string) => invoke<boolean>("ios_sim_view_focus", { id }),
+  /** The pane closed: its live view goes, and its device unless shown elsewhere. */
   close: (id: string) => invoke<void>("ios_sim_view_close", { id }),
 };
 

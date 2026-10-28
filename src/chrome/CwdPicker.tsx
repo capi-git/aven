@@ -16,6 +16,7 @@ import {
 } from "../lib/recents";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { LAYER } from "../lib/layers";
+import "./Menu.css";
 import { Popover } from "./Popover";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 import { MOD } from "../lib/platform";
@@ -270,26 +271,19 @@ export function CwdPicker({
         >
           <div
             ref={lockOverscroll}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-none py-1"
+            className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
           >
             {folderError ? (
-              <p
-                role="alert"
-                className="px-2.5 py-2 text-ui-label text-content/70"
-              >
+              <p role="alert" className="aven-menu-note">
                 Could not open the folder picker. Try again.
               </p>
             ) : null}
             {inProject ? (
               <>
-                <p className="px-2.5 pb-1 pt-2 text-ui-micro uppercase tracking-widest text-content/50">
-                  Current project
-                </p>
-                <div className="px-2.5 py-1.5 text-content/50">
-                  <p className="truncate text-ui-body text-content">
-                    {basename(cwd)}
-                  </p>
-                  <p className="truncate font-mono text-ui-caption">
+                <p className="aven-menu-section">Current project</p>
+                <div className="aven-menu-note">
+                  <p className="truncate text-content">{basename(cwd)}</p>
+                  <p className="aven-menu-description truncate font-mono">
                     {displayAppData(prettyParent(cwd))}
                   </p>
                 </div>
@@ -297,9 +291,7 @@ export function CwdPicker({
             ) : null}
             {previewRecents.length > 0 ? (
               <>
-                <p className="px-2.5 pb-1 pt-2 text-ui-micro uppercase tracking-widest text-content/50">
-                  Recent projects
-                </p>
+                <p className="aven-menu-section">Recent projects</p>
                 {previewRecents.map((item, index) => (
                   <button
                     key={item.path}
@@ -312,16 +304,13 @@ export function CwdPicker({
                       setActive(index);
                     }}
                     onClick={() => pick({ kind: "recent", path: item.path })}
-                    className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left ${
-                      active === index
-                        ? "bg-content/10 text-content"
-                        : "text-content/80 hover:bg-content/5"
-                    }`}
+                    data-active={active === index}
+                    className="aven-menu-item"
                   >
-                    <span className="min-w-0 truncate text-ui-body">
+                    <span className="aven-menu-label">
                       {basename(item.path)}
                     </span>
-                    <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
+                    <span className="aven-menu-detail max-w-28 font-mono">
                       {displayAppData(prettyParent(item.path))}
                     </span>
                   </button>
@@ -345,22 +334,20 @@ export function CwdPicker({
                   setActive(moreIndex);
                   openMore();
                 }}
-                className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left ${
-                  active === moreIndex || moreOpen
-                    ? "bg-content/10 text-content"
-                    : "text-content/80 hover:bg-content/5"
-                }`}
+                data-active={active === moreIndex}
+                className="aven-menu-item"
               >
-                <span className="text-ui-body">More Projects</span>
+                <span className="aven-menu-label">More Projects</span>
                 <ChevronRight
-                  className="size-3.5 shrink-0"
+                  aria-hidden="true"
+                  className="aven-menu-chevron"
                   strokeWidth={1.75}
                 />
               </button>
             ) : null}
           </div>
           {projectless || onNewTerminal ? (
-            <div className="shrink-0 border-t border-content/10 py-1">
+            <div className="aven-menu shrink-0 border-t border-(color:--aven-menu-line)">
               {projectless ? (
                 <button
                   type="button"
@@ -371,13 +358,12 @@ export function CwdPicker({
                     setActive(previewRecents.length + (hasMore ? 1 : 0));
                   }}
                   onClick={() => pick({ kind: "choose-folder" })}
-                  className={`flex w-full items-center px-2.5 py-2 text-left text-ui-body ${
+                  data-active={
                     active === previewRecents.length + (hasMore ? 1 : 0)
-                      ? "bg-content/10 text-content"
-                      : "text-content/80 hover:bg-content/5"
-                  }`}
+                  }
+                  className="aven-menu-item"
                 >
-                  Choose folder…
+                  <span className="aven-menu-label">Choose folder…</span>
                 </button>
               ) : null}
               {onNewTerminal ? (
@@ -390,16 +376,11 @@ export function CwdPicker({
                     setActive(newTerminalIndex);
                   }}
                   onClick={() => pick({ kind: "new-terminal" })}
-                  className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left ${
-                    active === newTerminalIndex
-                      ? "bg-content/10 text-content"
-                      : "text-content/80 hover:bg-content/5"
-                  }`}
+                  data-active={active === newTerminalIndex}
+                  className="aven-menu-item"
                 >
-                  <span className="text-ui-body">New terminal</span>
-                  <span className="shrink-0 font-mono text-ui-caption text-content/45">
-                    {MOD}`
-                  </span>
+                  <span className="aven-menu-label">New terminal</span>
+                  <span className="aven-menu-shortcut">{MOD}`</span>
                 </button>
               ) : null}
             </div>
@@ -417,7 +398,7 @@ export function CwdPicker({
           role="menu"
           aria-label="More projects"
           data-cwd-submenu
-          className="overflow-y-auto overscroll-none py-1"
+          className="aven-menu overflow-y-auto overscroll-none"
           onMouseEnter={openMore}
           onMouseLeave={scheduleCloseMore}
         >
@@ -429,12 +410,10 @@ export function CwdPicker({
               title={displayAppData(item.path)}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => pick({ kind: "recent", path: item.path })}
-              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left text-content/80 hover:bg-content/5 hover:text-content"
+              className="aven-menu-item"
             >
-              <span className="min-w-0 truncate text-ui-body">
-                {basename(item.path)}
-              </span>
-              <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
+              <span className="aven-menu-label">{basename(item.path)}</span>
+              <span className="aven-menu-detail max-w-28 font-mono">
                 {displayAppData(prettyParent(item.path))}
               </span>
             </button>

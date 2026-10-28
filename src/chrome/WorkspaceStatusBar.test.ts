@@ -43,7 +43,13 @@ vi.mock("./Popover", () => ({
   }: ComponentProps<"div"> & Record<string, unknown>) =>
     createElement(
       "div",
-      { role, onKeyDown, tabIndex, "aria-label": props["aria-label"] },
+      {
+        role,
+        onKeyDown,
+        tabIndex,
+        "aria-label": props["aria-label"],
+        className: props.className as string | undefined,
+      },
       children,
     ),
 }));
@@ -292,7 +298,7 @@ describe("workspace status data and actions", () => {
     ).toBeGreaterThan(children().indexOf(trigger));
   });
 
-  it("replaces the task label with the current settings section and keeps exit controls out of window dragging", async () => {
+  it("names Settings once, leaving the section to the page, and keeps exit controls out of window dragging", async () => {
     const closeSettings = vi.fn();
     await render({
       sessions: [task({ model: "current-task-model" })],
@@ -300,8 +306,8 @@ describe("workspace status data and actions", () => {
     });
     const settingsTitle = () =>
       container.querySelector(".workspace-status-settings")!;
-    expect(settingsTitle().textContent).toContain("Settings");
-    expect(settingsTitle().textContent).toContain("Appearance");
+    // The page's own heading names the section right below the bar.
+    expect(settingsTitle().textContent).toBe("Settings");
     expect(container.textContent).not.toContain("current-task-model");
     expect(
       container.querySelectorAll('button[aria-label="Close settings"]'),
@@ -310,8 +316,7 @@ describe("workspace status data and actions", () => {
     await render({
       settingsView: { section: "providers", onClose: closeSettings },
     });
-    expect(settingsTitle().textContent).toContain("Providers");
-    expect(settingsTitle().textContent).not.toContain("Appearance");
+    expect(settingsTitle().textContent).toBe("Settings");
     for (const label of ["Back to workspace", "Close settings"]) {
       const control = button(label);
       for (const target of [control, control.querySelector("svg")!]) {
@@ -623,6 +628,13 @@ describe("workspace status data and actions", () => {
       "Back",
       "Forward",
     ]);
+    // The shared menu's rows: a muted glyph and a label in each.
+    expect(menu.classList.contains("aven-menu")).toBe(true);
+    for (const item of items) {
+      expect(item.classList.contains("aven-menu-item")).toBe(true);
+      expect(item.querySelector(".aven-menu-icon svg")).not.toBeNull();
+      expect(item.querySelector(".aven-menu-label")).not.toBeNull();
+    }
     expect(items[3].disabled).toBe(true);
     expect(items[4].disabled).toBe(false);
     await act(async () => items[3].click());

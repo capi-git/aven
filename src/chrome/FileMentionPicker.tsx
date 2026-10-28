@@ -1,3 +1,4 @@
+import "./Menu.css";
 import { StickyNote } from "./icons";
 import {
   memo,
@@ -63,12 +64,9 @@ export const FileMentionPicker = memo(function FileMentionPicker({
   };
 
   return (
-    <div
-      data-mention-picker
-      className="overflow-hidden rounded-lg border border-content/10 bg-[var(--aven-popup)] shadow-[var(--aven-shadow)]"
-    >
+    <div data-mention-picker className="aven-glass-overlay overflow-hidden">
       {files.length === 0 ? (
-        <p className="px-3 py-2.5 text-ui-label text-content/50">
+        <p className="aven-menu aven-menu-note">
           {loading
             ? "Indexing files…"
             : query.trim()
@@ -85,7 +83,7 @@ export const FileMentionPicker = memo(function FileMentionPicker({
           role="listbox"
           aria-label={includeNotes ? "Files and notes" : "Files and folders"}
           onMouseMove={onListMouseMove}
-          className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-none px-1 py-1"
+          className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none"
         >
           {files.map((file, index) => {
             const highlighted = index === active;
@@ -112,23 +110,22 @@ export const FileMentionPicker = memo(function FileMentionPicker({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => onRowEnter(index)}
                 onClick={() => onPick(file)}
-                className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui-body leading-none ${
-                  highlighted ? "bg-content/10 text-content" : "text-content"
-                }`}
+                data-active={highlighted}
+                className="aven-menu-item"
               >
-                <span className="shrink-0">
+                <span aria-hidden="true" className="aven-menu-icon">
                   {isNoteMentionPath(file.path) ? (
                     <StickyNote className="size-3.5" strokeWidth={1.75} />
                   ) : (
                     <FileTypeIcon
                       name={file.name}
                       isDir={Boolean(file.isDir)}
-                      size={15}
+                      size={14}
                     />
                   )}
                 </span>
                 <span
-                  className={`min-w-0 flex-1 truncate ${
+                  className={`aven-menu-label ${
                     highlighted ? "text-mention" : ""
                   }`}
                 >
@@ -140,11 +137,9 @@ export const FileMentionPicker = memo(function FileMentionPicker({
                   {file.isDir ? "/" : null}
                 </span>
                 {note ? (
-                  <span className="shrink-0 font-mono text-ui-caption text-content/40">
-                    Note
-                  </span>
+                  <span className="aven-menu-shortcut font-mono">Note</span>
                 ) : dir ? (
-                  <span className="min-w-0 max-w-[45%] truncate font-mono text-ui-caption text-content/40">
+                  <span className="aven-menu-detail max-w-[45%] font-mono">
                     <MatchText
                       text={dir}
                       positions={file.positions.filter((pos) => pos < slash)}

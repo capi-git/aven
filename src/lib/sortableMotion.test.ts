@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { effectiveCssZoom } from "./drag";
+import { MOTION_ROOT_ATTRIBUTE } from "./motion";
+import { TAB_RUBBER_BAND } from "./motionTokens";
 import { SortableMotion, sortableMotionOffsets } from "./sortableMotion";
+import { rubberBand } from "./spring";
 
 describe("sortable visual projection", () => {
   const items = [
@@ -43,69 +46,119 @@ describe("sortable visual projection", () => {
   });
 });
 
-describe("sortable motion in a CSS-zoomed titlebar", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
-    document.body.style.zoom = "";
-    vi.restoreAllMocks();
-  });
+type Played = {
+  element: Element;
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  cancel: ReturnType<typeof vi.fn>;
+};
+let played: Played[];
 
+beforeEach(() => {
+  played = [];
+  document.documentElement.setAttribute(MOTION_ROOT_ATTRIBUTE, "full");
+  // Animations that never finish on their own, as under a native page: only
+  // the springs' own timers end them.
+  Object.defineProperty(HTMLElement.prototype, "animate", {
+    configurable: true,
+    value: function (
+      this: Element,
+      keyframes: Keyframe[],
+      options: KeyframeAnimationOptions,
+    ) {
+      const cancel = vi.fn();
+      played.push({ element: this, keyframes, options, cancel });
+      return {
+        cancel,
+        pending: false,
+        currentTime: 0,
+        finished: Promise.resolve(),
+        onfinish: null,
+      } as unknown as Animation;
+    },
+  });
+});
+
+afterEach(() => {
+  document.body.replaceChildren();
+  document.body.style.zoom = "";
+  document.documentElement.removeAttribute(MOTION_ROOT_ATTRIBUTE);
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>).animate;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+const playedOn = (element: Element | null | undefined) =>
+  played.filter((entry) => entry.element === element);
+const previewOf = () =>
+  document.querySelector<HTMLElement>("[data-sortable-preview]");
+const layer = (name: string) =>
+  previewOf()!.querySelector<HTMLElement>(`[data-sortable-layer="${name}"]`)!;
+const lifter = () =>
+  previewOf()!.querySelector<HTMLElement>("[data-sortable-lift]")!;
+const copyOf = () =>
+  previewOf()!.querySelector<HTMLElement>("[data-sortable-copy]")!;
+/** The colour a pill layer is painted, on each of its pieces. */
+const pillBackground = (name: string) => {
+  const colours = [...layer(name).children].map(
+    (piece) => (piece as HTMLElement).style.background,
+  );
+  expect(new Set(colours).size).toBe(1);
+  return colours[0];
+};
+
+/** A strip of 100px tabs (30px tall, 32px slots) whose visuals draw their transform. */
+function tabs(ids: string[], zoom = 1) {
+  const strip = document.createElement("div");
+  strip.style.zoom = String(zoom);
+  document.body.append(strip);
+  const lefts = new Map(ids.map((id, index) => [id, index * 100]));
+  const nodes = new Map<string, HTMLElement>();
+  const visuals = new Map<string, HTMLElement>();
+  for (const id of ids) {
+    const outer = document.createElement("div");
+    const visual = document.createElement("div");
+    visual.dataset.sortableMotion = "";
+    outer.append(visual);
+    strip.append(outer);
+    outer.getBoundingClientRect = () =>
+      new DOMRect(lefts.get(id)! * zoom, 0, 100 * zoom, 32 * zoom);
+    visual.getBoundingClientRect = () => {
+      const offset = Number(
+        /translate3d\(([-\d.]+)px/.exec(visual.style.transform)?.[1] ?? 0,
+      );
+      return new DOMRect(
+        (lefts.get(id)! + offset) * zoom,
+        1 * zoom,
+        100 * zoom,
+        30 * zoom,
+      );
+    };
+    nodes.set(id, outer);
+    visuals.set(id, visual);
+  }
+  return { strip, nodes, visuals, lefts };
+}
+
+describe("sortable motion in a CSS-zoomed titlebar", () => {
   it.each([0.5, 1, 2])(
-    "tracks the pointer, shifts siblings, and settles at CSS zoom %s",
+    "tracks the pointer, shifts siblings, and flies to the new slot at CSS zoom %s",
     (zoom) => {
-      const strip = document.createElement("div");
-      strip.style.zoom = String(zoom);
-      document.body.append(strip);
-      const positions = { first: 0, second: 100 };
-      const nodes = new Map<string, HTMLElement>();
-      const visuals = new Map<string, HTMLElement>();
-      const animations = new Map<string, ReturnType<typeof vi.fn>>();
-      for (const id of ["first", "second"] as const) {
-        const outer = document.createElement("div");
-        const visual = document.createElement("div");
-        visual.dataset.sortableMotion = "";
-        outer.append(visual);
-        strip.append(outer);
-        outer.getBoundingClientRect = () =>
-          new DOMRect(positions[id] * zoom, 0, 100 * zoom, 30 * zoom);
-        visual.getBoundingClientRect = () => {
-          const offset = Number(
-            /translate3d\(([-\d.]+)px/.exec(visual.style.transform)?.[1] ?? 0,
-          );
-          return new DOMRect(
-            (positions[id] + offset) * zoom,
-            0,
-            100 * zoom,
-            30 * zoom,
-          );
-        };
-        const animate = vi.fn(() => ({
-          cancel: vi.fn(),
-          onfinish: null,
-          oncancel: null,
-        }));
-        visual.animate = animate as unknown as HTMLElement["animate"];
-        nodes.set(id, outer);
-        visuals.set(id, visual);
-        animations.set(id, animate);
-      }
+      const { strip, nodes, visuals, lefts } = tabs(["first", "second"], zoom);
       const motion = new SortableMotion();
-      motion.begin(nodes, "first", { x: 50 * zoom, y: 15 * zoom }, "x");
-      motion.activate({ x: 160 * zoom, y: 15 * zoom });
+      motion.begin(nodes, "first", { x: 50 * zoom, y: 16 * zoom }, "x");
+      motion.activate({ x: 160 * zoom, y: 16 * zoom });
       motion.move(
         ["first", "second"],
-        { x: 160 * zoom, y: 15 * zoom },
+        { x: 160 * zoom, y: 16 * zoom },
         1,
         true,
       );
-
       // Client deltas include CSS zoom, but a local transform must not apply
       // that zoom a second time. Native page zoom is absent from both values.
-      const preview = document.querySelector<HTMLElement>(
-        "[data-sortable-preview]",
-      )!;
+      const preview = previewOf()!;
       expect(preview.style.zoom).toBe(String(zoom));
-      expect(preview.style.transform).toBe("translate3d(110px, 0px, 0)");
+      expect(preview.style.transform).toBe("translate3d(110px, 1px, 0)");
       expect(preview.style.width).toBe("100px");
       expect(preview.style.height).toBe("30px");
       expect(visuals.get("first")!.style.transform).toBe("");
@@ -113,20 +166,26 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
       expect(visuals.get("second")!.style.transform).toBe(
         "translate3d(-100px, 0, 0)",
       );
-      expect(motion.capture().get("first")?.left).toBe(110 * zoom);
       expect(nodes.get("first")!.getBoundingClientRect().left).toBe(0);
 
-      const captured = motion.capture();
-      motion.reset();
-      positions.first = 100;
-      positions.second = 0;
-      motion.settle(captured, nodes);
-      expect(animations.get("first")).toHaveBeenCalledWith(
-        [{ transform: "translate3d(10px, 0px, 0)" }, { transform: "none" }],
-        expect.any(Object),
+      played.length = 0;
+      motion.release(strip, nodes);
+      motion.land({ kind: "fly", velocity: { x: 0, y: 0 } });
+      lefts.set("first", 100);
+      lefts.set("second", 0);
+      motion.settle(strip, nodes);
+      // The copy flies from where it was let go to the first tab's new slot.
+      const [flight] = playedOn(preview);
+      expect(flight.keyframes[0].transform).toBe("translate3d(110px, 1px, 0)");
+      expect(flight.keyframes.at(-1)!.transform).toBe(
+        "translate3d(100px, 1px, 0)",
       );
-      expect(animations.get("second")).not.toHaveBeenCalled();
+      // The sibling was already drawn where it now stands: nothing to do.
+      expect(playedOn(visuals.get("second"))).toEqual([]);
+      expect(visuals.get("first")!.style.opacity).toBe("0");
       motion.cancel();
+      expect(previewOf()).toBeNull();
+      expect(visuals.get("first")!.style.opacity).toBe("");
     },
   );
 
@@ -154,7 +213,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     const visual = document.createElement("div");
     visual.dataset.sortableMotion = "";
     visual.style.color = "rgb(120, 180, 255)";
-    visual.style.setProperty("--aven-tab-drag-surface", "rgb(12, 15, 22)");
+    visual.style.setProperty("--aven-popup", "rgb(12, 15, 22)");
     visual.dataset.sortableGlass = "";
     visual.style.visibility = "inherit";
     visual.style.opacity = "0.75";
@@ -174,23 +233,21 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     const nodes = new Map([["first", outer]]);
     const motion = new SortableMotion();
     motion.begin(nodes, "first", { x: 142, y: 32 }, "x");
-    expect(document.querySelector("[data-sortable-preview]")).toBeNull();
+    expect(previewOf()).toBeNull();
     button.focus();
     motion.activate({ x: 162, y: 42 });
     motion.move(["first"], { x: 300, y: 120 }, 0, false);
-    const preview = document.querySelector<HTMLElement>(
-      "[data-sortable-preview]",
-    )!;
-    const clone = preview.firstElementChild as HTMLElement;
+    const preview = previewOf()!;
+    const clone = copyOf();
     expect(preview.parentElement).toBe(document.body);
     expect(preview.style.zoom).toBe("2");
     expect(preview.style.width).toBe("136px");
     expect(preview.style.height).toBe("28px");
     expect(preview.style.transform).toBe("translate3d(260px, 110px, 0)");
-    // Without theme glass (glass off), the lifted tab keeps the drag surface.
+    // The floating face is a solid layer of its own; the copy carries none.
     expect(preview.style.background).toBe("transparent");
-    expect(clone.style.background).toBe("rgb(12, 15, 22)");
-    expect(preview.style.backdropFilter).toBe("");
+    expect(pillBackground("face")).toBe("rgb(12, 15, 22)");
+    expect(clone.style.background).toBe("transparent");
     expect(clone.style.color).toBe("rgb(120, 180, 255)");
     expect(clone.querySelector("button")!.style.fontSize).toBe("12px");
     expect(preview.inert).toBe(true);
@@ -202,139 +259,56 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
         "[data-sortable-motion], [data-surface-tab-id], [id]",
       ),
     ).toBeNull();
-    expect(motion.capture().get("first")).toEqual({ left: 260, top: 110 });
     expect(outer.style.transform).toBe("");
     expect(visual.style.visibility).toBe("inherit");
     expect(visual.style.opacity).toBe("0");
     expect(document.activeElement).toBe(button);
     motion.cancel();
-    expect(document.querySelector("[data-sortable-preview]")).toBeNull();
+    expect(previewOf()).toBeNull();
     expect(visual.style.visibility).toBe("inherit");
     expect(visual.style.opacity).toBe("0.75");
     expect(document.activeElement).toBe(button);
   });
 
   it("moves the dragged tab without rewriting unchanged siblings or drag attributes", () => {
-    const nodes = new Map<string, HTMLElement>();
-    const visuals = new Map<string, HTMLElement>();
-    for (const [index, id] of ["first", "second", "third"].entries()) {
-      const outer = document.createElement("div");
-      const visual = document.createElement("div");
-      visual.dataset.sortableMotion = "";
-      outer.append(visual);
-      document.body.append(outer);
-      const bounds = () => new DOMRect(index * 100, 0, 100, 30);
-      outer.getBoundingClientRect = bounds;
-      visual.getBoundingClientRect = bounds;
-      nodes.set(id, outer);
-      visuals.set(id, visual);
-    }
+    const { nodes, visuals } = tabs(["first", "second", "third"]);
     const motion = new SortableMotion();
-    motion.begin(nodes, "first", { x: 50, y: 15 }, "x");
-    motion.activate({ x: 160, y: 15 });
-    motion.move([...nodes.keys()], { x: 160, y: 15 }, 1, true);
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 160, y: 16 });
+    motion.move([...nodes.keys()], { x: 160, y: 16 }, 1, true);
     const observer = new MutationObserver(() => {});
     observer.observe(document.body, { attributes: true, subtree: true });
 
-    motion.move([...nodes.keys()], { x: 170, y: 15 }, 1, true);
+    motion.move([...nodes.keys()], { x: 170, y: 16 }, 1, true);
 
     const mutations = observer.takeRecords();
     expect(mutations.length).toBeGreaterThan(0);
     expect(
       mutations.every(
         (record) =>
-          record.target === document.querySelector("[data-sortable-preview]") &&
-          record.attributeName === "style",
+          record.target === previewOf() && record.attributeName === "style",
       ),
     ).toBe(true);
-    expect(
-      document.querySelector<HTMLElement>("[data-sortable-preview]")?.style
-        .transform,
-    ).toBe("translate3d(120px, 0px, 0)");
+    expect(previewOf()?.style.transform).toBe("translate3d(120px, 1px, 0)");
     expect(visuals.get("second")!.style.transform).toBe(
       "translate3d(-100px, 0, 0)",
     );
-    motion.move([...nodes.keys()], { x: 170, y: 15 }, 1, true);
+    motion.move([...nodes.keys()], { x: 170, y: 16 }, 1, true);
     expect(observer.takeRecords()).toEqual([]);
 
     observer.disconnect();
     motion.cancel();
     expect(visuals.get("first")!.style.transform).toBe("");
+    expect(visuals.get("second")!.style.transform).toBe("");
     expect(nodes.get("first")!.hasAttribute("data-sortable-moving")).toBe(
       false,
     );
   });
 
-  it("measures all destination tabs before starting settle animations", () => {
-    const events: string[] = [];
-    const nodes = new Map<string, HTMLElement>();
-    for (const [index, id] of ["first", "second"].entries()) {
-      const outer = document.createElement("div");
-      const visual = document.createElement("div");
-      visual.dataset.sortableMotion = "";
-      outer.append(visual);
-      document.body.append(outer);
-      visual.getBoundingClientRect = () => {
-        events.push(`read ${id}`);
-        return new DOMRect(index * 100, 0, 100, 30);
-      };
-      visual.animate = vi.fn(() => {
-        events.push(`animate ${id}`);
-        return { cancel: vi.fn(), onfinish: null, oncancel: null };
-      }) as unknown as HTMLElement["animate"];
-      nodes.set(id, outer);
-    }
-    const motion = new SortableMotion();
-    motion.settle(
-      new Map([
-        ["first", { left: 100, top: 0 }],
-        ["second", { left: 0, top: 0 }],
-      ]),
-      nodes,
-    );
-    expect(events).toEqual([
-      "read first",
-      "read second",
-      "animate first",
-      "animate second",
-    ]);
-    motion.cancel();
-  });
-
-  it("cancels real settling animations without an unhandled finished rejection", async () => {
-    const outer = document.createElement("div");
-    const visual = document.createElement("div");
-    visual.dataset.sortableMotion = "";
-    outer.append(visual);
-    document.body.append(outer);
-    visual.getBoundingClientRect = () => new DOMRect(0, 0, 100, 30);
-    const animate = vi.spyOn(visual, "animate");
-    const motion = new SortableMotion();
-    motion.settle(
-      new Map([["first", { left: 100, top: 0 }]]),
-      new Map([["first", outer]]),
-    );
-    const animation = animate.mock.results[0].value as Animation;
-    expect(animation.playState).toBe("running");
-    motion.cancel();
-    // Let the actual Web Animations finished promise reject. Vitest reports
-    // an unhandled rejection here if teardown neglects that promise.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(animation.playState).toBe("idle");
-    expect(visual.style.transform).toBe("");
-  });
-
   it("exposes floating preview addition, movement, and removal to native browser occlusion", () => {
-    const outer = document.createElement("div");
-    const visual = document.createElement("div");
-    visual.dataset.sortableMotion = "";
-    outer.append(visual);
-    document.body.append(outer);
-    outer.getBoundingClientRect = () => new DOMRect(100, 0, 140, 32);
-    visual.getBoundingClientRect = outer.getBoundingClientRect;
-    const nodes = new Map([["first", outer]]);
+    const { nodes } = tabs(["first"]);
     const motion = new SortableMotion();
-    motion.begin(nodes, "first", { x: 150, y: 12 }, "x");
+    motion.begin(nodes, "first", { x: 50, y: 12 }, "x");
     const observer = new MutationObserver(() => {});
     observer.observe(document.body, {
       childList: true,
@@ -342,7 +316,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
       attributes: true,
       attributeFilter: ["style", "data-native-browser-occluded"],
     });
-    motion.activate({ x: 160, y: 12 });
+    motion.activate({ x: 60, y: 12 });
     const preview = document.querySelector<HTMLElement>(
       '[data-native-browser-occluded="true"]',
     )!;
@@ -362,8 +336,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
         ),
     ).toBe(true);
     expect(preview.getAttribute("data-native-browser-occluded")).toBe("true");
-    motion.reset();
-    motion.finishReset();
+    motion.cancel();
     expect(
       observer
         .takeRecords()
@@ -377,8 +350,234 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
   });
 });
 
-describe("lifted tab glass", () => {
-  it("frosts the rounded tab face without painting its taller motion box", () => {
+describe("picking a tab up", () => {
+  it("lifts in place: the copy starts over the tab, then catches up with the pointer", () => {
+    const { nodes } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 56, y: 16 });
+    // Laid out at the pointer, drawn from the tab's own place.
+    expect(previewOf()!.style.transform).toBe("translate3d(6px, 1px, 0)");
+    const [rise] = playedOn(lifter());
+    expect(rise.keyframes[0].transform).toBe(
+      "translate3d(-6px, 0px, 0px) scale(1)",
+    );
+    expect(rise.keyframes.at(-1)!.transform).toBe(
+      "translate3d(0px, 0px, 0px) scale(1.02)",
+    );
+    // The shadow comes in with the lift.
+    const [shadow] = playedOn(layer("shadow"));
+    expect(shadow.keyframes[0].opacity).toBe("0");
+    expect(shadow.keyframes.at(-1)!.opacity).toBe("1");
+    motion.cancel();
+  });
+
+  it("closes in around the pointer into a compact chip, and smaller over the panes", () => {
+    const { nodes, visuals } = tabs(["first", "second"]);
+    // A wide tab (400px) whose face holds an icon and a long name.
+    const visual = visuals.get("first")!;
+    const outer = nodes.get("first")!;
+    outer.getBoundingClientRect = () => new DOMRect(0, 0, 400, 32);
+    visual.getBoundingClientRect = () => new DOMRect(0, 1, 400, 30);
+    visual.dataset.sortableGlass = "";
+    visual.style.borderRadius = "6px";
+    visual.innerHTML =
+      '<span class="icon" style="width:14px;height:14px"></span><span class="name">Tighten the hero layout on small phones</span>';
+    const icon = visual.querySelector<HTMLElement>(".icon")!;
+    icon.getBoundingClientRect = () => new DOMRect(120, 9, 14, 14);
+    // Contents laid out for themselves: the chip's row would be 230px wide.
+    const rowWidth = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.dataset.sortableChipRow)
+          return new DOMRect(
+            0,
+            0,
+            this.style.width.endsWith("px")
+              ? Number.parseFloat(this.style.width)
+              : 230,
+            30,
+          );
+        if (this.parentElement?.dataset.sortableChipRow)
+          return new DOMRect(8, 8, 14, 14);
+        return new DOMRect(0, 0, 0, 0);
+      });
+    const motion = new SortableMotion();
+    // Pressed three quarters of the way along the tab.
+    motion.begin(nodes, "first", { x: 300, y: 16 }, "x");
+    motion.activate({ x: 306, y: 16 });
+    rowWidth.mockRestore();
+    const chip = previewOf()!.querySelector<HTMLElement>(
+      '[data-sortable-chip-row="chip"]',
+    )!;
+    const tiny = previewOf()!.querySelector<HTMLElement>(
+      '[data-sortable-chip-row="tiny"]',
+    )!;
+    // No wider than the cap, with the pointer three quarters along it.
+    expect(chip.style.width).toBe("176px");
+    expect(chip.style.left).toBe(`${300 - 0.75 * 176}px`);
+    expect(tiny.style.width).toBe("112px");
+    // The face's pieces end at the chip's box, the tab's own contents gone.
+    const [face] = playedOn(layer("face").children[0]);
+    expect(face.keyframes.at(-1)!.transform).toBe(
+      `translateX(${300 - 0.75 * 176}px)`,
+    );
+    const [handover] = playedOn(copyOf());
+    expect(handover.keyframes[0].opacity).toBe("1");
+    expect(handover.keyframes.at(-1)!.opacity).toBe("0");
+    const [shown] = playedOn(chip);
+    expect(shown.keyframes.at(-1)!.opacity).toBe("1");
+    // Its contents slide from where the tab drew its icon (120px) into it.
+    expect(shown.keyframes[0].transform).toBe(
+      `translateX(${120 - (300 - 0.75 * 176 + 8)}px)`,
+    );
+    played.length = 0;
+    motion.move(["first", "second"], { x: 306, y: 200 }, 0, false);
+    const smaller = playedOn(tiny).at(-1)!;
+    expect(smaller.keyframes.at(-1)!.opacity).toBe("1");
+    motion.cancel();
+  });
+
+  it("rubber-bands up and down along the strip, and pops free when it leaves it", () => {
+    const { nodes } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 60, y: 16 });
+    motion.move(["first", "second"], { x: 60, y: 28 }, 0, true);
+    const banded = 1 + rubberBand(12, 32, TAB_RUBBER_BAND);
+    expect(banded).toBeLessThan(1 + 12);
+    expect(previewOf()!.style.transform).toBe(
+      `translate3d(10px, ${banded}px, 0)`,
+    );
+    played.length = 0;
+    // Out of the strip it follows the pointer, from where the band held it.
+    motion.move(["first", "second"], { x: 60, y: 60 }, 0, false);
+    expect(previewOf()!.style.transform).toBe("translate3d(10px, 45px, 0)");
+    const [pop] = playedOn(lifter());
+    // (Its x is still catching up from the pick-up, frozen in this test.)
+    expect(pop.keyframes[0].transform).toMatch(
+      new RegExp(`^translate3d\\([-\\d.]+px, ${banded - 45}px, 0px\\)`),
+    );
+    expect(pop.keyframes.at(-1)!.transform).toMatch(
+      /^translate3d\([-\d.]+px, 0px, 0px\)/,
+    );
+    motion.cancel();
+  });
+
+  it("lifts, moves and lands without any animation when motion is reduced", () => {
+    document.documentElement.setAttribute(MOTION_ROOT_ATTRIBUTE, "reduce");
+    const { strip, nodes, visuals } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    const landed = vi.fn();
+    motion.onLanded = landed;
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 160, y: 16 });
+    motion.move(["first", "second"], { x: 160, y: 30 }, 1, true);
+    expect(visuals.get("second")!.style.transform).toBe(
+      "translate3d(-100px, 0, 0)",
+    );
+    motion.release(strip, nodes);
+    motion.land({ kind: "fly", velocity: { x: 900, y: 0 } });
+    motion.settle(strip, nodes);
+    expect(played).toEqual([]);
+    expect(previewOf()).toBeNull();
+    expect(visuals.get("first")!.style.opacity).toBe("");
+    expect(landed).toHaveBeenCalledOnce();
+  });
+});
+
+describe("letting a tab go", () => {
+  it("throws the copy on with the pointer's speed before it comes back", () => {
+    const { strip, nodes } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 60, y: 60 });
+    motion.move(["first", "second"], { x: 60, y: 60 }, 0, false);
+    motion.release(strip, nodes);
+    // Let go nowhere while moving right at 1200px/s: it flies home (to 0).
+    motion.land({ kind: "fly", velocity: { x: 1200, y: 0 } });
+    motion.settle(strip, nodes);
+    const [flight] = playedOn(previewOf());
+    const xs = flight.keyframes.map((frame) =>
+      Number(/translate3d\(([-\d.]+)px/.exec(String(frame.transform))![1]),
+    );
+    expect(xs[0]).toBe(10);
+    expect(Math.max(...xs)).toBeGreaterThan(20);
+    expect(xs.at(-1)).toBe(0);
+    motion.cancel();
+  });
+
+  it("hands over to the tab when it lands, bounded by timers even if no animation finishes", () => {
+    vi.useFakeTimers();
+    const { strip, nodes, visuals, lefts } = tabs(["first", "second"]);
+    // Its opacity eases (as a split's segment does on CSS).
+    visuals.get("first")!.style.transition = "opacity 238ms";
+    const motion = new SortableMotion();
+    const landed = vi.fn();
+    motion.onLanded = landed;
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 160, y: 16 });
+    motion.move(["first", "second"], { x: 160, y: 16 }, 1, true);
+    motion.release(strip, nodes);
+    motion.land({ kind: "fly", velocity: { x: 0, y: 0 } });
+    lefts.set("first", 100);
+    lefts.set("second", 0);
+    motion.settle(strip, nodes);
+    expect(previewOf()).not.toBeNull();
+    // Hidden at once under the copy, without fading out on its transition.
+    expect(visuals.get("first")!.style.opacity).toBe("0");
+    expect(visuals.get("first")!.style.transition).toBe("none");
+    expect(landed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(2000);
+    // Gone, and the tab is back in its place, exactly once, its own
+    // transition back only after its opacity is (so it does not fade in).
+    expect(previewOf()).toBeNull();
+    expect(visuals.get("first")!.style.opacity).toBe("");
+    expect(visuals.get("first")!.style.transition).toBe("opacity 238ms");
+    expect(landed).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("fades a copy the workspace took where it was let go, and removes it by timer", () => {
+    vi.useFakeTimers();
+    const { strip, nodes } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 160, y: 200 });
+    motion.move(["first", "second"], { x: 160, y: 200 }, 0, false);
+    motion.release(strip, nodes);
+    motion.land({ kind: "fade" });
+    motion.settle(strip, nodes);
+    expect(previewOf()).not.toBeNull();
+    expect(lifter().style.opacity).toBe("0");
+    expect(playedOn(previewOf())).toEqual([]);
+    vi.advanceTimersByTime(1000);
+    expect(previewOf()).toBeNull();
+  });
+
+  it("cancels its springs without an unhandled finished rejection", async () => {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+      .animate;
+    const { strip, nodes, lefts } = tabs(["first", "second"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 16 }, "x");
+    motion.activate({ x: 160, y: 16 });
+    motion.move(["first", "second"], { x: 160, y: 16 }, 1, true);
+    motion.release(strip, nodes);
+    motion.land({ kind: "fly", velocity: { x: 0, y: 0 } });
+    lefts.set("first", 100);
+    lefts.set("second", 0);
+    motion.settle(strip, nodes);
+    motion.cancel();
+    // Let any Web Animations finished promise reject. Vitest reports an
+    // unhandled rejection here if teardown neglects that promise.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(previewOf()).toBeNull();
+  });
+});
+
+describe("lifted tab face", () => {
+  it("paints the rounded tab face, lit and shadowed, without painting its taller motion box", () => {
     const strip = document.createElement("div");
     const outer = document.createElement("div");
     const visual = document.createElement("div");
@@ -390,31 +589,49 @@ describe("lifted tab glass", () => {
     face.style.height = "26px";
     face.style.borderRadius = "6px";
     face.style.borderRight = "1px solid black";
-    face.style.setProperty("--aven-glass-overlay", "rgba(30, 30, 34, 0.76)");
-    face.style.setProperty("--aven-glass-blur", "blur(40px) saturate(125%)");
+    face.style.setProperty("--aven-popup", "rgb(44, 44, 46)");
+    face.style.setProperty(
+      "--aven-specular",
+      "inset 0 1px 0 rgba(255, 255, 255, 0.13)",
+    );
+    face.style.setProperty(
+      "--aven-tab-lift-shadow",
+      "0 8px 20px -6px rgba(0, 0, 0, 0.5)",
+    );
     visual.append(face);
     outer.append(visual);
     strip.append(outer);
     document.body.append(strip);
     outer.getBoundingClientRect = () => new DOMRect(0, 0, 140, 32);
     visual.getBoundingClientRect = () => new DOMRect(0, 0, 140, 32);
+    face.getBoundingClientRect = () => new DOMRect(0, 3, 140, 26);
     const motion = new SortableMotion();
     motion.begin(new Map([["first", outer]]), "first", { x: 10, y: 10 }, "x");
     motion.activate({ x: 20, y: 10 });
-    const preview = document.querySelector<HTMLElement>(
-      "[data-sortable-preview]",
-    )!;
-    const clone = preview.firstElementChild as HTMLElement;
+    const preview = previewOf()!;
+    const clone = copyOf();
     const clonedFace = clone.querySelector("button")!;
     expect(preview.style.background).toBe("transparent");
-    expect(preview.style.backdropFilter).toBe("");
     expect(clone.style.background).toBe("transparent");
-    expect(clonedFace.style.background).toBe("rgba(30, 30, 34, 0.76)");
-    expect(clonedFace.style.backdropFilter).toBe("blur(40px) saturate(125%)");
-    expect(clonedFace.style.height).toBe("26px");
-    expect(clonedFace.style.borderRadius).toBe("6px");
+    expect(clonedFace.style.background).toBe("transparent");
     expect(clonedFace.style.borderRightColor).toBe("transparent");
     expect(face.style.borderRightColor).toBe("black");
+    // The face, at the button's own box and corners: solid, lit along its top.
+    expect(layer("face").style.top).toBe("3px");
+    expect(layer("face").style.height).toBe("26px");
+    // In three pieces (rounded caps and a middle), so it can narrow by
+    // transforms alone.
+    const [left, middle, right] = [...layer("face").children] as HTMLElement[];
+    expect(left.style.borderRadius).toBe("6px 0px 0px 6px");
+    expect(middle.style.borderRadius).toBe("0px");
+    expect(right.style.borderRadius).toBe("0px 6px 6px 0px");
+    expect(pillBackground("face")).toBe("rgb(44, 44, 46)");
+    expect(middle.style.boxShadow).toBe(
+      "inset 0 1px 0 rgba(255, 255, 255, 0.13)",
+    );
+    expect(layer("shadow").style.boxShadow).toBe(
+      "0 8px 20px -6px rgba(0, 0, 0, 0.5)",
+    );
     expect(preview.querySelector("[data-sortable-glass]")).toBeNull();
     expect(preview.style.boxShadow).toBe("none");
     motion.cancel();

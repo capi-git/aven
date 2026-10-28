@@ -1,3 +1,4 @@
+import "./Menu.css";
 import {
   useContext,
   useEffect,
@@ -142,31 +143,32 @@ function AssignmentModel({
           maxHeight={320}
           onDismiss={() => setOpen(false)}
           data-model-picker
-          className="flex flex-col overflow-hidden"
+          className="aven-menu-picker"
         >
-          <label className="flex shrink-0 items-center gap-2 border-b border-content/10 px-3 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
-            <input
-              ref={search}
-              type="text"
-              aria-label="Search assignment models"
-              placeholder="Search models or agents…"
-              spellCheck={false}
-              autoComplete="off"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
-              }}
-              onKeyDown={onSearchKey}
-              className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-            />
-          </label>
+          <div className="aven-menu aven-menu-search-bar">
+            <label className="aven-menu-search">
+              <Search aria-hidden="true" strokeWidth={1.75} />
+              <input
+                ref={search}
+                type="text"
+                aria-label="Search assignment models"
+                placeholder="Search models or agents…"
+                spellCheck={false}
+                autoComplete="off"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActive(0);
+                }}
+                onKeyDown={onSearchKey}
+              />
+            </label>
+          </div>
           <div
             ref={listOverscroll}
             role="listbox"
             aria-label="Assignment models"
-            className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1"
+            className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
           >
             {matches.map((choice, index) => (
               <button
@@ -178,34 +180,25 @@ function AssignmentModel({
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(choice)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
-                  index === active ? "bg-content/10" : ""
-                }`}
+                data-active={index === active}
+                className="aven-menu-item aven-menu-item-rich"
               >
-                <HarnessIcon
-                  harness={choice.harness}
-                  className="size-4 shrink-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-ui-body leading-tight text-content">
-                    {choice.name}
-                  </span>
-                  <span className="mt-0.5 block truncate text-ui-caption leading-tight text-content/45">
+                <span aria-hidden="true" className="aven-menu-icon">
+                  <HarnessIcon harness={choice.harness} className="size-4" />
+                </span>
+                <span className="aven-menu-text">
+                  <span className="aven-menu-label">{choice.name}</span>
+                  <span className="aven-menu-description truncate">
                     {appName(choice.harness)}
                   </span>
                 </span>
                 {choice === selected && (
-                  <Check
-                    className="size-3.5 shrink-0 text-content/55"
-                    strokeWidth={2}
-                  />
+                  <Check aria-hidden="true" className="aven-menu-check" />
                 )}
               </button>
             ))}
             {!matches.length && (
-              <p className="px-2 py-3 text-ui-label text-content/45">
-                No matching models
-              </p>
+              <p className="aven-menu-note">No matching models</p>
             )}
           </div>
         </Popover>
@@ -477,7 +470,7 @@ export function OrchestrationPreview({
             !superseded &&
             ["ready", "starting"].includes(proposal.status) && (
               <button
-                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+                className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
                 disabled={!editable}
                 title={
                   busy && !starting
@@ -510,7 +503,7 @@ export function OrchestrationPreview({
             const open = expanded.includes(task.id);
             return (
               <li key={task.id}>
-                <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 hover:bg-content/5">
+                <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 hover:bg-(--aven-hover)">
                   <button
                     type="button"
                     aria-label={`Details for ${task.title}`}
@@ -591,7 +584,7 @@ export function OrchestrationPreview({
                           key={path}
                           title={path}
                           data-orchestration-scope
-                          className="max-w-full truncate rounded bg-content/6 px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
+                          className="max-w-full truncate rounded-full bg-(--aven-fill-tertiary) px-1.5 py-px font-mono text-ui-micro leading-4 text-content/55"
                         >
                           {scopeLabel(path)}
                         </li>
@@ -679,7 +672,7 @@ export function OrchestrationPreview({
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(!showAll)}
-          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-ui-caption text-content/45 hover:bg-content/5 hover:text-content/70"
+          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-ui-caption text-content/45 hover:bg-(--aven-hover) hover:text-content/70"
         >
           {showAll ? (
             <ChevronDown className="size-3.5" />
@@ -694,7 +687,7 @@ export function OrchestrationPreview({
       {(error || proposal.error) && (
         <p
           role="alert"
-          className="px-3 py-2 text-ui-label text-red-600 dark:text-red-400"
+          className="px-3 py-2 text-ui-label text-(--aven-danger-text)"
           title={error ? undefined : proposal.error}
         >
           {error ?? planProblemText(proposal.error!)}

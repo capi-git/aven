@@ -26,7 +26,7 @@ export function DeleteWorkspaceDialog({ profile, onCancel, onDelete }: Props) {
         {error ? (
           <p
             role="alert"
-            className="mt-3 text-ui-label text-red-600 dark:text-red-400"
+            className="mt-3 text-ui-label text-(--aven-danger-text)"
           >
             {error}
           </p>
@@ -35,13 +35,13 @@ export function DeleteWorkspaceDialog({ profile, onCancel, onDelete }: Props) {
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-content/8"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/80 hover:bg-(--aven-control-bg)"
           >
             Cancel
           </button>
           <button
             type="button"
-            className="rounded-md bg-red-500/15 px-3 py-1.5 text-ui-label font-medium text-red-600 dark:text-red-400 hover:bg-red-500/25"
+            className="rounded-md px-3 py-1.5 text-ui-label font-medium bg-(--aven-danger-fill) text-(--aven-danger-text) hover:bg-(--aven-danger-fill-hover)"
             onClick={() => {
               try {
                 onDelete(profile.id);

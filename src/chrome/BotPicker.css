@@ -1,4 +1,4 @@
-/* New bot's picker: ready projects read as menu rows (WorkspaceMenuPanel.css);
+/* New bot's picker: ready projects read as menu rows (Menu.css);
    the ones that need Git first get a name, a grey note and one button (the
    team family's, TeamCard.css). Theme tokens only. In the Add a bot sheet the
    same rows sit on the modal, outside a toolbar panel, hence the fallbacks. */

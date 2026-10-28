@@ -209,7 +209,7 @@ describe("sidebar orchestration card", () => {
       expect(container.querySelectorAll("[data-session-card]")).toHaveLength(2);
       expect(card().dataset.orchestrationCard).toBe("true");
       // The lead card carries the sidebar's ordinary active treatment.
-      expect(card().className).toContain("bg-content/10");
+      expect(card().className).toContain("bg-(--aven-selected)");
       // The lead names its own model, like every agent row beneath it.
       expect(card().textContent).toContain(
         resolveModel(lead.harness, lead.model).name,

@@ -53,6 +53,14 @@ import {
   ChevronRight,
   ChevronUp,
 } from "../chrome/icons";
+import { paneMinimizeControls, type PaneMinimize } from "../lib/paneMinimize";
+import {
+  TAB_PREVIEW_ENTER_SCALE,
+  TAB_PX_PRECISION,
+  TAB_SPRING,
+  TAB_UNIT_PRECISION,
+} from "../lib/motionTokens";
+import { SpringAnimator } from "../lib/spring";
 import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
@@ -78,6 +86,11 @@ export type WorkspaceStageProps = {
     index: number,
     side: "before" | "after",
   ) => void;
+  /**
+   * Each pane offers Hide in its own "…" (paneMinimizeControls), so the
+   * headers draw no hide arrows; dragging a divider to the edge still hides.
+   */
+  hideInMenu?: boolean;
   onRestoreSplit?: () => void;
   restoreEdge?: "left" | "right" | "up" | "down";
   restoreStatus?: "working" | "attention";
@@ -91,6 +104,18 @@ export type WorkspaceStageProps = {
    * back again on Restore. A native page lands at its new bounds instead.
    */
   zoomedId?: string | null;
+  /**
+   * The strip entry in front (Cydonia's window tab), and which way the
+   * strip moved to reach it. A new key switches the whole arrangement: the
+   * incoming panes slide in a little and fade up while the outgoing ones
+   * fade away. A step of 0 (another project) switches at once.
+   */
+  arrangement?: { key: string; step: number } | null;
+  /**
+   * Bumped when an arrangement change should glide (a split, a closed or
+   * restored pane, a Move): each pane glides from its old place to its new.
+   */
+  glide?: number;
 };
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
@@ -140,10 +165,11 @@ function headerMembers(header: HTMLElement): string[] | null {
 
 /**
  * Where a tab dragged to (x, y) docks, in client coordinates so native
- * browser stacking never matters. As in Cydonia: a pane's title row, or the
- * middle of its body, stacks the tab in that pane; within a quarter of an
- * edge it splits that side (see paneDock.ts). A header that is a strip of
- * tabs (a detached window's) still takes the tab at the slot it is over.
+ * browser stacking never matters. As in Cydonia: a pane's lone title row,
+ * or the middle of its body, stacks the tab in that pane; within a quarter
+ * of an edge it splits that side (see paneDock.ts). A header that lays out
+ * tabs (a title row with several, a detached window's strip) takes the tab
+ * at the slot it is over.
  */
 export function workspaceSurfaceDropAt(
   container: HTMLElement,
@@ -175,7 +201,7 @@ export function workspaceSurfaceDropAt(
     const tabs = header
       ? [...header.querySelectorAll<HTMLElement>("[data-surface-tab-id]")]
       : [];
-    // A title row shows only the tab in front; its strip still lists them all.
+    // A title row may show only some of its tabs; its strip lists them all.
     const members =
       (header && headerMembers(header)) ??
       tabs.map((tab) => tab.dataset.surfaceTabId ?? "");
@@ -199,8 +225,14 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
-        // A title row stacks the tab behind the one in front.
-        if (header.querySelector('[data-variant="title"]'))
+        // A lone title row takes the tab into its pane; a row of tabs (a
+        // title row with several, or a detached window's strip) takes it at
+        // the slot it is over.
+        if (
+          header.querySelector(
+            '[data-variant="title"]:not([data-title-layout="tabs"])',
+          )
+        )
           return { id, edge: "tab" };
         const measuredTabs = tabs
           .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))
@@ -262,19 +294,70 @@ function stageBox(stage: HTMLElement, rect: DOMRect): DockRect {
   };
 }
 
-const sameBox = (a: DockRect | null, b: DockRect | null) =>
-  a === b ||
-  (!!a &&
-    !!b &&
-    Math.abs(a.left - b.left) < 0.5 &&
-    Math.abs(a.top - b.top) < 0.5 &&
-    Math.abs(a.width - b.width) < 0.5 &&
-    Math.abs(a.height - b.height) < 0.5);
-
 /** A drop is followed by its new layout within this long, or not at all. */
 const DROP_REVEAL_WINDOW_MS = 1000;
 /** Cydonia's zoom: a pane glides to the whole space in 200ms, eased out. */
 export const ZOOM_GLIDE_MS = 200;
+/** Switching strip entries crossfades the arrangements in 180ms. */
+export const SWITCH_MS = 180;
+/** The outgoing arrangement is gone within the switch's first 60%. */
+const SWITCH_OUT_MS = Math.round(SWITCH_MS * 0.6);
+/** How far the incoming arrangement slides in from the side it comes from. */
+const SWITCH_SHIFT_PX = 24;
+
+type PaneBox = { left: number; top: number; width: number; height: number };
+
+/**
+ * How a pane glides between two places. Same size: it moves. Growing: it
+ * is laid out at once at its new size and its clip opens from where it
+ * stood. A page held as a picture scales from where it stood: its picture
+ * stretches with it. A page of HTML that shrinks is never scaled (its text
+ * would stretch): it takes its new size at once and only moves, if it
+ * moves at all.
+ */
+export function paneGlideKeyframes(
+  from: PaneBox,
+  to: PaneBox,
+  pictured = false,
+): Keyframe[] {
+  const moved = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+  const still =
+    Math.abs(from.left - to.left) < 1 && Math.abs(from.top - to.top) < 1;
+  if (
+    Math.abs(from.width - to.width) < 1 &&
+    Math.abs(from.height - to.height) < 1
+  )
+    return [{ transform: moved }, { transform: "translate(0px, 0px)" }];
+  if (
+    !pictured &&
+    (from.width > to.width + 0.5 || from.height > to.height + 0.5)
+  )
+    return still
+      ? []
+      : [{ transform: moved }, { transform: "translate(0px, 0px)" }];
+  if (
+    !pictured &&
+    from.width <= to.width + 0.5 &&
+    from.height <= to.height + 0.5
+  )
+    return [
+      { clipPath: dockClip(from, to, 0) },
+      { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+    ];
+  return [
+    {
+      transformOrigin: "0 0",
+      transform: `${moved} scale(${from.width / to.width}, ${from.height / to.height})`,
+    },
+    { transformOrigin: "0 0", transform: "translate(0px, 0px) scale(1, 1)" },
+  ];
+}
+
+/** A live native page cannot move with its pane; a pictured one can. */
+function paneCanGlide(surface: HTMLElement): "html" | "pictured" | null {
+  if (!surface.querySelector(".browser-native-host")) return "html";
+  return surface.querySelector(".browser-motion-image") ? "pictured" : null;
+}
 
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
@@ -379,6 +462,7 @@ export function WorkspaceStage({
   onFocus,
   onLayoutChange,
   onMinimizeSide,
+  hideInMenu = false,
   onRestoreSplit,
   restoreEdge = "left",
   restoreStatus,
@@ -387,6 +471,8 @@ export function WorkspaceStage({
   dragLabel,
   dragKind = "tab",
   zoomedId = null,
+  arrangement = null,
+  glide = 0,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
   // Publish only committed destination changes; native pages draw their own
@@ -460,55 +546,25 @@ export function WorkspaceStage({
   }
   // Keep controls inside the header's reserved 32px strip. Chromium draws above
   // the web app, so a floating control over a pane body cannot be relied on.
+  // With `hideInMenu` each pane offers them in its own "…" instead.
+  const paneMinimizes = paneMinimizeControls(layout);
+  const minimizeControls =
+    onMinimizeSide && !hideInMenu
+      ? paneMinimizes
+      : new Map<string, PaneMinimize[]>();
+  /** The pane beside a divider's side, for the drag's cue. */
   function adjacentHeader(sash: LayoutSash, side: "before" | "after") {
-    const index = sash.index + (side === "after" ? 1 : 0);
-    const start = sash.sizes
-      .slice(0, index)
-      .reduce((sum, size) => sum + size, 0);
-    const end = start + sash.sizes[index];
-    const row = sash.dir === "right";
-    const child = row
-      ? {
-          x: sash.group.x + start * sash.group.w,
-          y: sash.group.y,
-          w: (end - start) * sash.group.w,
-          h: sash.group.h,
-        }
-      : {
-          x: sash.group.x,
-          y: sash.group.y + start * sash.group.h,
-          w: sash.group.w,
-          h: (end - start) * sash.group.h,
-        };
-    return leaves
-      .filter(
-        ({ rect }) =>
-          rect.x >= child.x - 1e-6 &&
-          rect.y >= child.y - 1e-6 &&
-          rect.x + rect.w <= child.x + child.w + 1e-6 &&
-          rect.y + rect.h <= child.y + child.h + 1e-6,
+    for (const [id, controls] of paneMinimizes)
+      if (
+        controls.some(
+          (control) =>
+            control.side === side &&
+            control.sash.splitId === sash.splitId &&
+            control.sash.index === sash.index,
+        )
       )
-      .sort(
-        (a, b) =>
-          a.rect.y - b.rect.y ||
-          (row && side === "after" ? a.rect.x - b.rect.x : b.rect.x - a.rect.x),
-      )[0]?.id;
-  }
-  const minimizeControls = new Map<
-    string,
-    Array<{ sash: LayoutSash; side: "before" | "after" }>
-  >();
-  if (onMinimizeSide) {
-    for (const sash of sashes) {
-      for (const side of ["before", "after"] as const) {
-        const id = adjacentHeader(sash, side);
-        if (id)
-          minimizeControls.set(id, [
-            ...(minimizeControls.get(id) ?? []),
-            { sash, side },
-          ]);
-      }
-    }
+        return id;
+    return undefined;
   }
   const restoreHeaderId = onRestoreSplit
     ? [...leaves].sort((a, b) => {
@@ -646,6 +702,14 @@ export function WorkspaceStage({
   useLayoutEffect(() => {
     committedShown.current = shownIds;
   });
+  // Switching strip entries: the arrangement in front changes whole.
+  const arrangementShown = useRef<string | null>(null);
+  const switching =
+    visible &&
+    !!arrangement &&
+    arrangement.step !== 0 &&
+    arrangementShown.current !== null &&
+    arrangementShown.current !== arrangement.key;
   // A newly opened split pane fades in beside the panes already there. A
   // switch (between tabs, or back from Settings) appears at once: fading the
   // incoming pane gave it a layer of its own and measurably slowed switching.
@@ -672,6 +736,31 @@ export function WorkspaceStage({
     positions.has(zoomedId);
   useLayoutEffect(() => {
     if (!held.size) return;
+    // Another strip entry in front: the panes it replaces fade away while
+    // its own come in. A page held as a picture fades with its pane.
+    if (switching && !motionReduced()) {
+      setHeldOut(new Set(held));
+      const fades = [...held].flatMap((id) => {
+        const node = surfaceNodes.current.get(id);
+        return node && typeof node.animate === "function"
+          ? [
+              // Gone in the first part of the switch, so the two
+              // arrangements are not read over each other.
+              node.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: SWITCH_OUT_MS,
+                easing: DOCK_EASE,
+                fill: "forwards",
+              }),
+            ]
+          : [];
+      });
+      // As with the zoom below, a timer ends the hold and so the fades.
+      const timer = window.setTimeout(() => setHeldOut(new Set()), SWITCH_MS);
+      return () => {
+        window.clearTimeout(timer);
+        for (const fade of fades) fade.cancel();
+      };
+    }
     // A pane expanding: the panes it covers fade out beneath it.
     if (zoomEntering && !motionReduced()) {
       setHeldOut(new Set(held));
@@ -780,7 +869,8 @@ export function WorkspaceStage({
   // the whole stage in 200ms, eased out: growing, it is laid out at once at
   // its new size and its clip opens from where it stood; shrinking, it
   // scales down from the whole stage while the panes it uncovers fade in
-  // (newSplitPanes). Native pages are never moved, so they land.
+  // (newSplitPanes). A native page moves as its picture when one was taken
+  // in time (browserMotion.ts); otherwise it lands at its new bounds.
   useLayoutEffect(() => {
     const container = stage.current;
     const previous = zoomShown.current;
@@ -804,36 +894,46 @@ export function WorkspaceStage({
     };
     const glide = (id: string, from: DockRect, to: DockRect, grow: boolean) => {
       const surface = surfaceNodes.current.get(id);
-      if (!surface || surface.querySelector(".browser-native-host")) return;
+      const kind = surface ? paneCanGlide(surface) : null;
+      if (!surface || !kind || typeof surface.animate !== "function") return;
+      if (to.width <= 0 || to.height <= 0) return;
+      const timing = { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE };
+      // A page held as a picture scales with its pane either way.
+      play(
+        surface,
+        grow && kind === "html"
+          ? [
+              { clipPath: dockClip(from, to, 0) },
+              { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+            ]
+          : paneGlideKeyframes(from, to, true),
+        timing,
+      );
+      // The title row never scales its text: growing, its clip opens with
+      // the pane; shrinking, it moves to its place at its new width.
       const header = headerNodes.current.get(id);
-      const headerFrom = { ...from, height: 32 };
-      const headerTo = { ...to, height: 32 };
-      for (const [node, start, end] of [
-        [surface, from, to],
-        [header, headerFrom, headerTo],
-      ] as const) {
-        if (!node || typeof node.animate !== "function") continue;
-        if (end.width <= 0 || end.height <= 0) continue;
-        play(
-          node,
-          grow
-            ? [
-                { clipPath: dockClip(start, end, 0) },
-                { clipPath: "inset(0px 0px 0px 0px round 0px)" },
-              ]
-            : [
-                {
-                  transformOrigin: "0 0",
-                  transform: `translate(${start.left - end.left}px, ${start.top - end.top}px) scale(${start.width / end.width}, ${start.height / end.height})`,
-                },
-                {
-                  transformOrigin: "0 0",
-                  transform: "translate(0px, 0px) scale(1, 1)",
-                },
-              ],
-          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
-        );
-      }
+      if (!header || typeof header.animate !== "function") return;
+      play(
+        header,
+        grow
+          ? [
+              {
+                clipPath: dockClip(
+                  { ...from, height: 32 },
+                  { ...to, height: 32 },
+                  0,
+                ),
+              },
+              { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+            ]
+          : [
+              {
+                transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`,
+              },
+              { transform: "translate(0px, 0px)" },
+            ],
+        timing,
+      );
     };
     if (
       zoomedId &&
@@ -858,6 +958,96 @@ export function WorkspaceStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomedId, layout, visible]);
 
+  // The incoming arrangement of a strip switch slides in from the side the
+  // strip moved to, fading up as the outgoing one fades (held, above).
+  useLayoutEffect(() => {
+    const previous = arrangementShown.current;
+    if (visible && arrangement) arrangementShown.current = arrangement.key;
+    if (
+      !visible ||
+      !arrangement ||
+      arrangement.step === 0 ||
+      previous === null ||
+      previous === arrangement.key ||
+      motionReduced()
+    )
+      return;
+    const shift = Math.sign(arrangement.step) * SWITCH_SHIFT_PX;
+    for (const id of positions.keys())
+      for (const node of [
+        surfaceNodes.current.get(id),
+        headerNodes.current.get(id),
+      ]) {
+        if (!node || typeof node.animate !== "function") continue;
+        play(
+          node,
+          [
+            { opacity: 0, transform: `translateX(${shift}px)` },
+            { opacity: 1, transform: "translateX(0px)" },
+          ],
+          { duration: SWITCH_MS, easing: DOCK_EASE },
+        );
+      }
+    // Positions follow the arrangement this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrangement?.key, visible]);
+
+  // A split, a closed or restored pane or a Move: each pane that stays
+  // glides from its old place to its new one, in the zoom's 200ms.
+  const glidePlaces = useRef(new Map<string, LayoutRect>());
+  const glideSeen = useRef(glide);
+  useLayoutEffect(() => {
+    const before = glidePlaces.current;
+    if (visible) glidePlaces.current = new Map(positions);
+    const asked = glideSeen.current !== glide;
+    glideSeen.current = glide;
+    const container = stage.current;
+    if (!asked || !container || !visible || motionReduced()) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const px = (rect: LayoutRect): PaneBox => ({
+      left: rect.x * width,
+      top: rect.y * height,
+      width: rect.w * width,
+      height: rect.h * height,
+    });
+    for (const [id, rect] of positions) {
+      const was = before.get(id);
+      if (
+        !was ||
+        (was.x === rect.x &&
+          was.y === rect.y &&
+          was.w === rect.w &&
+          was.h === rect.h)
+      )
+        continue;
+      const surface = surfaceNodes.current.get(id);
+      const kind = surface ? paneCanGlide(surface) : null;
+      if (!surface || !kind || typeof surface.animate !== "function") continue;
+      const from = px(was);
+      const to = px(rect);
+      if (to.width <= 0 || to.height <= 0) continue;
+      play(surface, paneGlideKeyframes(from, to, kind === "pictured"), {
+        duration: ZOOM_GLIDE_MS,
+        easing: DOCK_EASE,
+      });
+      const header = headerNodes.current.get(id);
+      if (header && typeof header.animate === "function")
+        play(
+          header,
+          [
+            {
+              transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`,
+            },
+            { transform: "translate(0px, 0px)" },
+          ],
+          { duration: ZOOM_GLIDE_MS, easing: DOCK_EASE },
+        );
+    }
+    // Positions are derived from the layout this effect follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, visible, glide]);
+
   // The docking preview, drawn once over the whole stage so it can glide
   // between zones and between panes (Cydonia's 150ms tween). The hint in the
   // target pane's body says where it goes; a native page reads that hint for
@@ -867,11 +1057,24 @@ export function WorkspaceStage({
   const previewNode = useRef<HTMLDivElement>(null);
   const previewState = useRef<{
     box: DockRect | null;
-    glide: BoundedMotion | null;
-    fade: BoundedMotion | null;
+    /** Its edges, opacity and entering scale, each on a spring. */
+    springs: SpringAnimator<"l" | "t" | "w" | "h" | "o" | "s"> | null;
+    /** Where it is laid out; its springs are drawn relative to this. */
+    laid: DockRect | null;
+    /** The side it grows from: the zone's edge, as a share of its box. */
+    pivot: { x: number; y: number };
+    leaving: boolean;
     split: boolean;
     dragLayout: LayoutNode | null;
-  }>({ box: null, glide: null, fade: null, split: false, dragLayout: null });
+  }>({
+    box: null,
+    springs: null,
+    laid: null,
+    pivot: { x: 0.5, y: 0.5 },
+    leaving: false,
+    split: false,
+    dragLayout: null,
+  });
   const dropReveal = useRef<{
     box: DockRect;
     until: number;
@@ -912,8 +1115,8 @@ export function WorkspaceStage({
     return () => {
       for (const motion of motions) motion.stop();
       motions.clear();
-      preview.glide = null;
-      preview.fade = null;
+      preview.springs?.cancel();
+      preview.springs = null;
     };
   }, []);
   const revealDrop = (box: DockRect) => {
@@ -959,7 +1162,6 @@ export function WorkspaceStage({
     if (!element || !container) return;
     const state = previewState.current;
     const reduced = motionReduced();
-    const animate = typeof element.animate === "function" && !reduced;
     if (dragging) state.dragLayout = layout;
     const hintNode =
       visible && dragging
@@ -968,6 +1170,41 @@ export function WorkspaceStage({
     const target = hintNode
       ? stageBox(container, hintNode.getBoundingClientRect())
       : null;
+    // The preview's box is drawn from springs on its edges, relative to
+    // where it is laid out: a new target retargets from the box on screen
+    // and its speed, so it glides between zones and never jumps.
+    const springs = (state.springs ??= new SpringAnimator(
+      {
+        l: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        t: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        w: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        h: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        o: { spring: TAB_SPRING.fade, precision: TAB_UNIT_PRECISION },
+        s: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+      },
+      { l: 0, t: 0, w: 0, h: 0, o: 0, s: 1 },
+      ({ l, t, w, h, o, s }) => {
+        const laid = state.laid;
+        if (!laid || laid.width <= 0 || laid.height <= 0)
+          return [[element, { transform: "none", opacity: String(o) }]];
+        // Grown about the side it comes from.
+        const width = w * s;
+        const height = h * s;
+        const left = l + (w - width) * state.pivot.x;
+        const top = t + (h - height) * state.pivot.y;
+        const round = (value: number, places: number) =>
+          Math.round(value * 10 ** places) / 10 ** places;
+        return [
+          [
+            element,
+            {
+              transform: `translate(${round(left - laid.left, 3)}px, ${round(top - laid.top, 3)}px) scale(${round(width / laid.width, 5)}, ${round(height / laid.height, 5)})`,
+              opacity: String(round(o, 4)),
+            },
+          ],
+        ];
+      },
+    ));
     if (!target || target.width <= 0 || target.height <= 0) {
       if (!dragging && state.box && state.split)
         dropReveal.current = {
@@ -975,53 +1212,55 @@ export function WorkspaceStage({
           until: performance.now() + DROP_REVEAL_WINDOW_MS,
           from: state.dragLayout,
         };
-      state.glide?.stop();
-      state.glide = null;
-      if (state.box && animate && !state.fade) {
-        // Fade where it was; it is gone when the fade ends, run or not.
-        state.fade = play(
-          element,
-          [{ opacity: 1 }, { opacity: 0 }],
-          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE, fill: "forwards" },
-          () => {
-            state.fade = null;
-            element.dataset.shown = "false";
-          },
-        );
-      } else if (!state.fade) element.dataset.shown = "false";
+      if (state.box && !state.leaving) {
+        // Fades where it is; it is gone when its springs end, run or not.
+        state.leaving = true;
+        springs.to({ o: 0 }, { instant: reduced });
+        springs.onSettle(() => {
+          if (!state.leaving) return;
+          state.leaving = false;
+          element.dataset.shown = "false";
+        });
+      } else if (!state.leaving) element.dataset.shown = "false";
       state.box = null;
       state.split = false;
     } else {
-      // Glide from wherever the preview is drawn, even part way along.
-      const drawn =
-        state.box && state.glide
-          ? stageBox(container, element.getBoundingClientRect())
-          : state.box;
-      state.glide?.stop();
-      state.glide = null;
-      state.fade?.stop();
-      state.fade = null;
+      // Fresh only when nothing of it is showing: coming back while it fades
+      // out, it turns round from what is drawn.
+      const fresh = springs.state().o.value <= 0.01;
+      state.leaving = false;
+      state.laid = target;
       element.style.left = `${target.left}px`;
       element.style.top = `${target.top}px`;
       element.style.width = `${target.width}px`;
       element.style.height = `${target.height}px`;
       element.dataset.shown = "true";
-      if (drawn && animate && !sameBox(drawn, target)) {
-        const glide = play(
-          element,
-          [
-            {
-              transform: `translate(${drawn.left - target.left}px, ${drawn.top - target.top}px) scale(${drawn.width / target.width}, ${drawn.height / target.height})`,
-            },
-            { transform: "translate(0px, 0px) scale(1, 1)" },
-          ],
-          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
-          () => {
-            if (state.glide === glide) state.glide = null;
+      // The side it grows from is set as it appears and kept until it has
+      // grown: changing it mid-growth would shift the box.
+      if (fresh) {
+        const zone = hintZone ?? "join";
+        state.pivot = {
+          x: zone === "left" ? 0 : zone === "right" ? 1 : 0.5,
+          y: zone === "up" ? 0 : zone === "down" ? 1 : 0.5,
+        };
+      }
+      const box = {
+        l: target.left,
+        t: target.top,
+        w: target.width,
+        h: target.height,
+      };
+      if (fresh)
+        // In from the side it splits, fading and growing a little.
+        springs.to(
+          { ...box, o: 1, s: 1 },
+          {
+            from: { ...box, o: 0, s: TAB_PREVIEW_ENTER_SCALE },
+            velocity: { l: 0, t: 0, w: 0, h: 0, o: 0, s: 0 },
+            instant: reduced,
           },
         );
-        state.glide = glide;
-      }
+      else springs.to({ ...box, o: 1, s: 1 }, { instant: reduced });
       state.box = target;
       state.split = hintZone !== null && hintZone !== "join";
     }

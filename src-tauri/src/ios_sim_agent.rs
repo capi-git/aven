@@ -202,7 +202,7 @@ pub(crate) fn resolve_udid(
         return if allowed.contains(&device) {
             Ok(device)
         } else {
-            Err("The iPhone pane shows a simulator this chat may not use; pass udid from the list action.".into())
+            Err("The iPhone pane shows a simulator that was already running outside Aven, which this chat may use only once the user picks it in the pane's device menu. Ask the user to pick it, or pass udid from the list action.".into())
         };
     }
     match allowed.len() {
@@ -222,7 +222,8 @@ Usage:
 
 Works only while this chat has an iPhone pane open beside it, and only on the
 simulators Aven started for this project or the user picked in its iPhone
-pane; never on real devices. Coordinates are the screen's upright points from
+pane (one that was already running joins only once the user picks it); never
+on real devices. Coordinates are the screen's upright points from
 its top-left corner, the same as screenshots and snapshot frames. udid is
 optional when the pane uses one simulator.
 
@@ -477,18 +478,28 @@ mod macos {
         status: &ios_sim::RunStatus,
     ) -> Result<Value, String> {
         let generation = if build {
-            let info = ios_sim::project_info(project, ios_sim::pane_container(project).as_deref());
-            let container = info
-                .container
-                .ok_or_else(|| info.error.clone().unwrap_or_default())?;
-            let scheme = ios_sim::pane_scheme(project)
-                .filter(|s| info.schemes.contains(s))
-                .or_else(|| info.schemes.first().cloned())
-                .ok_or("This project has no scheme to run")?;
+            // What the pane chose, as its Run button would build; listing the
+            // schemes again takes a while (longer with Swift packages).
+            let chosen = ios_sim::pane_container(project).zip(ios_sim::pane_scheme(project));
+            let (container, scheme) = match chosen {
+                Some(chosen) => chosen,
+                None => {
+                    let info =
+                        ios_sim::project_info(project, ios_sim::pane_container(project).as_deref());
+                    let container = info
+                        .container
+                        .ok_or_else(|| info.error.clone().unwrap_or_default())?;
+                    let scheme = ios_sim::pane_scheme(project)
+                        .filter(|s| info.schemes.contains(s))
+                        .or_else(|| info.schemes.first().cloned())
+                        .ok_or("This project has no scheme to run")?;
+                    (container.path.to_string_lossy().into_owned(), scheme)
+                }
+            };
             ios_sim::start_run(ios_sim::RunRequest {
                 project: project.to_owned(),
                 udid: udid.to_owned(),
-                container: container.path.to_string_lossy().into_owned(),
+                container,
                 scheme,
             })?
         } else {

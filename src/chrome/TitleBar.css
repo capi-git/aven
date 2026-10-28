@@ -10,6 +10,94 @@
   --aven-tab-selected: var(--aven-fill-secondary);
   --aven-tab-selected-edge: inset 0 0 0 1px
     var(--aven-control-edge, transparent);
+  /* A picked-up tab floats: a soft shadow under its face. */
+  --aven-tab-lift-shadow:
+    0 8px 20px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+  /* The tab motion springs (src/lib/motionTokens.ts) as CSS curves, for the
+     few parts of it CSS eases: the combine preview, a torn segment's fade,
+     tabs growing in and closing. The cubic-béziers approximate them where
+     linear() is missing; motionTokens.test.ts keeps both in step. */
+  --aven-tab-spring-move: cubic-bezier(0.25, 0.9, 0.3, 1);
+  --aven-tab-spring-move-ms: 279ms;
+  --aven-tab-spring-lift: cubic-bezier(0.25, 0.9, 0.3, 1);
+  --aven-tab-spring-lift-ms: 238ms;
+}
+html.theme-light,
+html.theme-light .personal-shell {
+  --aven-tab-lift-shadow:
+    0 8px 20px -6px rgb(0 0 0 / 0.22), 0 2px 6px -2px rgb(0 0 0 / 0.14);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root,
+  .personal-shell {
+    --aven-tab-spring-move: linear(
+      0,
+      0.0444,
+      0.1435,
+      0.263,
+      0.3834,
+      0.4946,
+      0.5922,
+      0.675,
+      0.7436,
+      0.7993,
+      0.8441,
+      0.8795,
+      0.9074,
+      0.9292,
+      0.946,
+      0.959,
+      0.969,
+      0.9766,
+      0.9823,
+      0.9867,
+      0.9901,
+      0.9926,
+      0.9944,
+      0.9958,
+      1
+    );
+    --aven-tab-spring-lift: linear(
+      0,
+      0.0475,
+      0.1526,
+      0.2776,
+      0.4018,
+      0.5151,
+      0.6133,
+      0.6955,
+      0.7626,
+      0.8165,
+      0.8592,
+      0.8926,
+      0.9185,
+      0.9384,
+      0.9537,
+      0.9653,
+      0.974,
+      0.9806,
+      0.9856,
+      0.9893,
+      0.9921,
+      0.9942,
+      0.9957,
+      0.9968,
+      1
+    );
+  }
+}
+/* Reduce motion, by the system or Aven's own switch: nothing eases. */
+:root[data-motion="reduce"],
+:root[data-motion="reduce"] .personal-shell {
+  --aven-tab-spring-move-ms: 0ms;
+  --aven-tab-spring-lift-ms: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  .personal-shell {
+    --aven-tab-spring-move-ms: 0ms;
+    --aven-tab-spring-lift-ms: 0ms;
+  }
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
@@ -114,7 +202,7 @@
   transform: translateY(-50%);
 }
 .aven-tab-close:hover {
-  background: var(--aven-fill-secondary);
+  background: var(--aven-control-hover);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-close {
@@ -286,7 +374,7 @@
 }
 .personal-shell .personal-titlebar .personal-titlebar-tool:hover {
   color: var(--color-content);
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
 }
 .personal-shell .personal-titlebar[data-pane-local="true"] {
   height: 32px;
@@ -311,6 +399,11 @@
   border-bottom: 0;
   background: transparent;
 }
+/* File tabs with a toolbar under them (an iPhone's) leave the one line to
+   the toolbar. */
+[data-header-continues] > .aven-surface-tabs {
+  box-shadow: none;
+}
 .personal-tab-insertion {
   width: 1px;
   background: var(--aven-drop-line, var(--aven-label-secondary));
@@ -322,7 +415,9 @@
 }
 
 /* Animate visuals inside stationary hit boxes. Both local reorder and the
-   native pane/window drop logic measure those outer boxes during a drag. */
+   native pane/window drop logic measure those outer boxes during a drag.
+   Springs move them (sortableMotion.ts): no CSS transition on transform,
+   which would replay every move the springs already drew. */
 .aven-tab-motion {
   position: relative;
   display: flex;
@@ -331,27 +426,12 @@
   align-items: stretch;
   min-width: 0;
   border-radius: inherit;
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .personal-title-tab > .aven-tab-motion {
   height: 100%;
 }
 [data-sortable-moving="true"] {
   z-index: 2;
-}
-.aven-tab-motion[data-sortable-dragging="true"] {
-  transition: none;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"] {
-  translate: 0 -1px;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="false"] {
-  opacity: 0.4;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"]
-  .aven-tab-button {
-  background: var(--aven-tab-drag-surface);
-  box-shadow: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -374,13 +454,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aven-tab-motion,
   .personal-shell .personal-title-tab-identity .provider-marks,
   .aven-tab-button {
     transition: none;
-  }
-  .aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"] {
-    translate: none;
   }
 }
 
@@ -411,10 +487,10 @@
 .personal-tab-preview-action:hover,
 .personal-tab-preview-action[aria-expanded="true"] {
   color: var(--color-content);
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
 }
 .personal-tab-preview-action:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring);
   outline-offset: -2px;
 }
 
@@ -509,11 +585,14 @@
   }
 }
 
-/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion:
-   180ms, eased out. See useTabSlotMotion. */
+/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion,
+   on the move spring's curve. The one layout animation in tab motion: a
+   few small boxes in the strip, for every way a tab opens or closes. See
+   useTabSlotMotion. */
 .personal-shell [data-tab-opening] {
   overflow: hidden;
-  animation: aven-tab-open 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: aven-tab-open var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) both;
 }
 @keyframes aven-tab-open {
   from {
@@ -529,7 +608,8 @@
   min-width: 0;
   margin-right: -2px;
   pointer-events: none;
-  animation: aven-tab-ghost 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: aven-tab-ghost var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) both;
 }
 @keyframes aven-tab-ghost {
   from {
@@ -560,52 +640,100 @@
   }
 }
 
-/* A pane's title row, after Cydonia's: the tab in front on a chip sized to
-   its name, lit while the pane has focus, with its kind icon on a deck; the
-   pane's tools at the row's end. */
+/* A pane's title row, after Cydonia's. With one tab: that tab on a chip
+   sized to its name, lit while the pane has focus, with its kind icon on a
+   tile. With more: the tabs side by side on a track, as on the window's
+   strip, the ones that no longer fit in a "+N" after them. Either way the
+   pane's tools sit at the row's end. */
 .personal-titlebar[data-variant="title"] .aven-tab-strip {
   padding-inline: 4px;
 }
-.personal-titlebar[data-variant="title"] .aven-tab-slot {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab-slot {
   flex: 0 1 auto;
   width: auto;
   min-width: 0;
   max-width: 100%;
 }
-.personal-titlebar[data-variant="title"] .aven-tab > .aven-tab-motion {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  > .aven-tab-motion {
   align-self: center;
   height: 26px;
   padding-left: 3px;
   border-radius: var(--aven-radius-sm);
   transition: background-color var(--aven-motion-fast) var(--aven-tab-ease);
 }
-.personal-titlebar[data-variant="title"] .aven-tab .aven-tab-button,
-.personal-titlebar[data-variant="title"] .aven-tab .aven-tab-button:hover {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  .aven-tab-button,
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab
+  .aven-tab-button:hover {
   padding: 0 10px 0 6px;
   background: transparent;
   box-shadow: none;
 }
-.personal-titlebar[data-variant="title"] .aven-tab:hover > .aven-tab-motion {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab:hover
+  > .aven-tab-motion {
   background: var(--aven-fill-quaternary);
 }
-.personal-titlebar[data-variant="title"][data-pane-focused="true"]
+.personal-titlebar[data-title-layout="lone"][data-pane-focused="true"]
+  .personal-tab-strip
   .aven-tab[data-active="true"]
   > .aven-tab-motion {
   background: var(--aven-tab-selected);
   box-shadow: var(--aven-tab-selected-edge);
 }
-.personal-titlebar[data-variant="title"] .aven-tab-label {
+.personal-titlebar[data-title-layout="lone"]
+  .personal-tab-strip
+  .aven-tab-label {
   font-weight: 500;
 }
-/* The title row's own × and the browser's layout menu are tools at the
-   row's end. */
-.personal-titlebar[data-variant="title"] .aven-tab-close,
-.personal-titlebar[data-variant="title"] .personal-title-browser-menu {
-  display: none;
+/* A pane is a share of the window, so its tabs go narrower than the
+   window strip's before they fold into the "+N" (tabTrack.ts). */
+.personal-titlebar[data-title-layout="tabs"]
+  .personal-tab-strip
+  .aven-tab-slot {
+  min-width: 96px;
+}
+/* The "+N": the pane's tabs that do not fit, listed in a menu. */
+.aven-title-more {
+  display: grid;
+  flex: 0 0 auto;
+  align-self: center;
+  place-items: center;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-body);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition:
+    background-color 120ms var(--aven-tab-ease),
+    color 120ms var(--aven-tab-ease);
+}
+.aven-title-more:hover,
+.aven-title-more[aria-expanded="true"] {
+  background: var(--aven-fill-quaternary);
+  color: var(--color-content);
+}
+.aven-title-more:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
 }
 
-/* The deck: the kind icon on a tile, a card or two peeking out past it for
-   the tabs behind (Cydonia's icon deck). */
+/* The lone title's tile: its kind icon, after Cydonia's icon deck. */
 .aven-tab-deck {
   position: relative;
   display: inline-flex;
@@ -614,12 +742,7 @@
   align-self: center;
   width: 28px;
   height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--aven-radius-xs);
-  background: none;
   color: inherit;
-  cursor: default;
 }
 .aven-tab-deck-face {
   display: grid;
@@ -628,38 +751,10 @@
   height: 20px;
   border-radius: var(--aven-radius-xs);
   background: color-mix(in srgb, var(--color-content) 12%, transparent);
-  transition: background-color var(--aven-motion-fast) var(--aven-tab-ease);
 }
 .aven-tab-deck-face .personal-title-tab-identity {
   display: grid;
   place-items: center;
-}
-.aven-tab-deck-card {
-  position: absolute;
-  top: 50%;
-  width: 2.5px;
-  border-radius: 0 var(--aven-radius-xs) var(--aven-radius-xs) 0;
-  pointer-events: none;
-}
-.aven-tab-deck-card[data-depth="1"] {
-  left: 21.5px;
-  height: 16px;
-  margin-top: -8px;
-  background: color-mix(in srgb, var(--color-content) 18%, transparent);
-}
-.aven-tab-deck-card[data-depth="2"] {
-  left: 25.5px;
-  height: 12px;
-  margin-top: -6px;
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
-}
-button.aven-tab-deck:hover .aven-tab-deck-face,
-button.aven-tab-deck[aria-expanded="true"] .aven-tab-deck-face {
-  background: color-mix(in srgb, var(--color-content) 20%, transparent);
-}
-button.aven-tab-deck:focus-visible {
-  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
-  outline-offset: 1px;
 }
 
 /* The pane's tools: More, Move, Expand or Restore, and Close. Always on the
@@ -694,7 +789,7 @@ button.aven-tab-deck:focus-visible {
 }
 .aven-pane-tool:hover,
 .aven-pane-tool[aria-expanded="true"] {
-  background: var(--aven-fill-tertiary);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 .aven-pane-tool:focus-visible {
@@ -703,8 +798,356 @@ button.aven-tab-deck:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .aven-pane-tools,
-  .aven-tab-deck-face,
-  .personal-titlebar[data-variant="title"] .aven-tab > .aven-tab-motion {
+  .aven-title-more,
+  .personal-titlebar[data-title-layout="lone"]
+    .personal-tab-strip
+    .aven-tab
+    > .aven-tab-motion {
     transition: none;
   }
+}
+
+/* A split on the window's strip, after Arc's split tabs: one entry divided
+   into a segment per pane, each naming its pane's tab in front. At rest a
+   faint fill sets it apart from the single tabs beside it; in front it takes
+   the front tab's fill (the highlight lands on it) and the focused pane's
+   segment sits on the raised thumb, as in a segmented control. */
+.aven-tab-strip[data-tab-track] .aven-split-entry {
+  /* Room for each pane's icon before the strip scrolls. */
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 40px + 4px));
+}
+.aven-split {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1 1 auto;
+  align-self: center;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  padding: 2px;
+  border-radius: var(--aven-radius-sm);
+}
+/* The pill's fill is a layer of its own, so a morph can stretch it without
+   stretching the segments' text. */
+.aven-split-fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--aven-hover);
+  pointer-events: none;
+  transition: background-color 120ms var(--aven-tab-ease);
+}
+.aven-split-entry[data-active="true"] .aven-split-fill {
+  background: var(--aven-tab-selected);
+  box-shadow: var(--aven-tab-selected-edge);
+}
+/* The highlight is the front split's fill. */
+.aven-tab-strip[data-tab-highlight="on"]
+  .aven-split-entry[data-active="true"]
+  .aven-split-fill {
+  background: transparent;
+  box-shadow: none;
+}
+.aven-split-segment {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-xs);
+  outline: none;
+  background: transparent;
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-row);
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: default;
+  /* Narrow segments (three panes or more in a crowded strip) keep only
+     their icons. */
+  container-type: inline-size;
+}
+.aven-split-entry[data-draggable="true"] .aven-split-segment {
+  cursor: grab;
+}
+.aven-split-segment:hover {
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+}
+.aven-split-entry[data-active="true"] .aven-split-segment {
+  color: color-mix(in srgb, var(--color-content) 74%, transparent);
+}
+.aven-split-entry .aven-split-segment[data-lit="true"] {
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  color: var(--color-content);
+  font-weight: 500;
+}
+.aven-split-segment:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}
+.aven-split-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container (max-width: 56px) {
+  .aven-split-label {
+    display: none;
+  }
+}
+.aven-combine .aven-split-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aven-split-segment .personal-title-tab-identity {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* A hairline between two resting segments, not beside a lit or pointed-at
+   one. */
+.aven-split-divider {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--aven-separator);
+}
+.aven-split-segment[data-lit="true"] + .aven-split-divider,
+.aven-split-segment:hover + .aven-split-divider,
+.aven-split-divider:has(+ .aven-split-segment[data-lit="true"]),
+.aven-split-divider:has(+ .aven-split-segment:hover) {
+  visibility: hidden;
+}
+/* Something held over an entry's middle joins it. The entry's fill rises
+   and the pane it will add shows at its right: a split's next segment, or
+   a single tab's other half as it becomes a split. */
+.aven-split-entry[data-drop-into="true"] .aven-split-fill {
+  background: var(--aven-control-hover);
+}
+.aven-split-incoming {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  height: 22px;
+  margin-left: 2px;
+  border-radius: var(--aven-radius-xs);
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  color: var(--color-content);
+  animation: aven-split-incoming var(--aven-tab-spring-lift-ms)
+    var(--aven-tab-spring-lift) backwards;
+}
+/* Only its icon: the segment is too narrow for a name until it is one. */
+.aven-split-incoming .aven-split-label {
+  display: none;
+}
+@keyframes aven-split-incoming {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+/* A single tab a held tab rests on previews the split they will make: the
+   split's pill over the tab, its own segment on the left, a divider and the
+   held tab's segment, as the split draws them. Drawn hidden while a tab is
+   dragged, so it comes and goes on transitions. Its own content steps aside
+   for it. */
+.aven-combine {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.aven-combine > * {
+  opacity: 0;
+  transition:
+    opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift),
+    transform var(--aven-tab-spring-move-ms) var(--aven-tab-spring-move);
+}
+.aven-combine-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 13px);
+  height: 26px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-tab-selected);
+  transform: scaleX(0.94);
+}
+.aven-combine-here,
+.aven-combine-incoming {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 22px;
+  margin: 0 2px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-xs);
+  color: var(--color-content);
+  font-size: var(--text-ui-row);
+  line-height: 1.25;
+  white-space: nowrap;
+  container-type: inline-size;
+}
+.aven-combine-here {
+  color: color-mix(in srgb, var(--color-content) 74%, transparent);
+  /* From the middle of the tab, where its own name stands. */
+  transform: translateX(50%);
+}
+.aven-combine-incoming {
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  font-weight: 500;
+  transform: translateX(-12px) scale(0.94);
+}
+.aven-combine-divider {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--aven-separator);
+  transform: scaleY(0);
+}
+.aven-combine[data-into] > * {
+  opacity: 1;
+  transform: none;
+}
+/* Drawn first already armed: it comes in as a transition would. */
+.aven-combine[data-into] > .aven-combine-fill {
+  animation: aven-combine-fill var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) backwards;
+}
+.aven-combine[data-into] > .aven-combine-here {
+  animation: aven-combine-here var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) backwards;
+}
+.aven-combine[data-into] > .aven-combine-divider {
+  animation: aven-combine-divider var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) backwards;
+}
+.aven-combine[data-into] > .aven-combine-incoming {
+  animation: aven-combine-incoming var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) backwards;
+}
+@keyframes aven-combine-fill {
+  from {
+    opacity: 0;
+    transform: scaleX(0.94);
+  }
+}
+@keyframes aven-combine-here {
+  from {
+    opacity: 0;
+    transform: translateX(50%);
+  }
+}
+@keyframes aven-combine-divider {
+  from {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+}
+@keyframes aven-combine-incoming {
+  from {
+    opacity: 0;
+    transform: translateX(-12px) scale(0.94);
+  }
+}
+.aven-tab-motion > .aven-tab-button > *,
+.aven-tab-motion > .aven-tab-deck {
+  transition: opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift);
+}
+.aven-tab[data-combine-into="true"] .aven-tab-motion > .aven-tab-button > *,
+.aven-tab[data-combine-into="true"] .aven-tab-close,
+.aven-tab[data-combine-into="true"] .personal-title-browser-menu {
+  opacity: 0;
+}
+.aven-tab[data-combine-into="true"] .aven-tab-button,
+.aven-tab-strip[data-tab-highlight="on"]
+  .aven-tab[data-combine-into="true"]
+  .aven-tab-button {
+  background: transparent;
+  box-shadow: none;
+}
+/* A segment pulled out of its split: the rest of the entry stays put, the
+   segment faded where it was. */
+.aven-split-segment {
+  transition:
+    background-color 120ms var(--aven-tab-ease),
+    color 120ms var(--aven-tab-ease),
+    opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift);
+}
+.aven-split-segment[data-sortable-torn-part="true"] {
+  opacity: 0.32;
+}
+/* Where a click on a segment of a split not in front goes. */
+.aven-split-tip {
+  position: fixed;
+  z-index: 60;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border: 1px solid var(--aven-glass-overlay-edge, var(--aven-separator));
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  visibility: hidden;
+}
+.aven-split-tip[data-placed="true"] {
+  visibility: visible;
+}
+.aven-split-tip strong {
+  color: var(--color-content);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-split-fill,
+  .aven-split-segment {
+    transition: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .aven-split-entry[data-active="true"] .aven-split-fill {
+    background: color-mix(
+      in srgb,
+      var(--color-content) 17%,
+      var(--color-background-base)
+    );
+  }
+  .aven-split-segment[data-lit="true"] {
+    font-weight: 600;
+  }
+}
+
+/* A lone title row lends its row to its tab's own toolbar (a page's
+   address, an iPhone's pickers, a tab's files), in place of its name. */
+.aven-pane-header-slot {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+/* A tab of files lent the row: its file tabs are the row. */
+.aven-pane-header-slot > .aven-surface-tabs {
+  flex: 1 1 auto;
+  height: 100%;
+  box-shadow: none;
 }

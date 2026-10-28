@@ -4,6 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
 import { EXTERNAL_BROWSER_NAME, type BrowserState } from "../lib/browser";
+import {
+  hostPaneHeaderMenu,
+  paneHeaderMenu,
+  setPaneHeaderSlot,
+} from "../lib/paneHeader";
 import { reportDevServer, resetDevPreviews } from "../lib/devPreviews";
 import {
   installDevServerStarter,
@@ -1680,6 +1685,116 @@ describe("native preview lifecycle", () => {
     expect(container.textContent).not.toContain("Current page title");
     await receive({ loading: false, title: "Current page title" });
     expect(container.querySelector(".browser-load-indicator")).toBeNull();
+  });
+
+  it("lends its arrows and address to its pane's header, naming the page once, and lists the rest in the pane's \u2026", async () => {
+    const row = document.createElement("div");
+    document.body.append(row);
+    setPaneHeaderSlot("one", { element: row, names: true });
+    const release = hostPaneHeaderMenu("one");
+    try {
+      const onAddToChat = vi.fn();
+      await openPane({
+        onAddToChat,
+        onToggleExpand: vi.fn(),
+        onClose: vi.fn(),
+      });
+      await receive();
+      // One header row, in the pane's header.
+      const toolbars = document.querySelectorAll(".browser-toolbar");
+      expect(toolbars).toHaveLength(1);
+      expect(row.contains(toolbars[0])).toBe(true);
+      for (const label of ["Go back", "Go forward", "Reload preview"])
+        expect(row.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
+      // Expand and Close are the pane's; the rest is in its "…".
+      for (const label of [
+        "Comment on page",
+        "Mark up page",
+        `Open preview in ${EXTERNAL_BROWSER_NAME}`,
+        "More browser actions",
+        "Expand preview",
+        "Close browser preview",
+      ])
+        expect(document.querySelector(`[aria-label="${label}"]`)).toBeNull();
+      // Arc's address: the page's title at rest, its address once focused.
+      const address = row.querySelector<HTMLInputElement>(
+        '[aria-label="Preview address"]',
+      )!;
+      expect(address.value).toBe("Working page");
+      expect(address.title).toBe("http://localhost:3000/");
+      await act(async () => address.focus());
+      expect(address.value).toBe("http://localhost:3000/");
+      await act(async () => address.blur());
+      expect(address.value).toBe("Working page");
+      const menu = paneHeaderMenu("one")!;
+      const labels = menu
+        .items()
+        .flatMap((item) => (item.kind === "item" ? [item.label] : []));
+      for (const label of [
+        "Comment on page",
+        "Add URL to chat",
+        `Open in ${EXTERNAL_BROWSER_NAME}`,
+        "Find in page",
+        "Zoom (100%)",
+        "Downloads",
+        "Developer tools",
+      ])
+        expect(labels).toContain(label);
+      expect(
+        menu
+          .pages?.()
+          .zoom.flatMap((item) => (item.kind === "item" ? [item.label] : [])),
+      ).toEqual(["Zoom in", "Zoom out", "Reset zoom (100%)"]);
+      await act(async () => menu.pick("external"));
+      expect(mocks.external).toHaveBeenCalledExactlyOnceWith(
+        "http://localhost:3000/",
+      );
+      await act(async () => menu.pick("chat"));
+      expect(onAddToChat).toHaveBeenCalledExactlyOnceWith(
+        "Working page\nhttp://localhost:3000/",
+      );
+    } finally {
+      release();
+      setPaneHeaderSlot("one", null);
+      row.remove();
+    }
+  });
+
+  it("never draws its toolbar inside the page while its pane's title row holds it, even hidden", async () => {
+    await openPane({ headerLent: true, visible: false });
+    await receive();
+    // Hidden, with no row lent yet: no toolbar anywhere, so the page keeps
+    // the size it has when shown.
+    expect(container.querySelector(".browser-toolbar")).toBeNull();
+    const row = document.createElement("div");
+    document.body.append(row);
+    try {
+      await act(async () =>
+        setPaneHeaderSlot("one", { element: row, names: true }),
+      );
+      expect(row.querySelector(".browser-toolbar")).not.toBeNull();
+      expect(container.querySelector(".browser-toolbar")).toBeNull();
+    } finally {
+      await act(async () => setPaneHeaderSlot("one", null));
+      row.remove();
+    }
+  });
+
+  it("shows its address, not the page's name, where a tab row above names the page", async () => {
+    const row = document.createElement("div");
+    document.body.append(row);
+    setPaneHeaderSlot("one", { element: row, names: false });
+    try {
+      await openPane();
+      await receive();
+      expect(
+        row.querySelector<HTMLInputElement>('[aria-label="Preview address"]')!
+          .value,
+      ).toBe("http://localhost:3000/");
+    } finally {
+      setPaneHeaderSlot("one", null);
+      row.remove();
+    }
   });
 
   it("preserves the compact toolbar's chat and external actions in its overflow menu and closes it when hidden", async () => {

@@ -702,7 +702,12 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic, strong) CALayer *screenLayer;
 @property(nonatomic, strong) CAShapeLayer *maskLayer;
 @property(nonatomic, strong) NSView<AvenAgentMarker> *marker;
-@property(nonatomic, strong) NSUUID *callbackId;
+// One registration each: SimScreen's callbacks replace a damage callback
+// registered under the same identifier, and the view then never hears of a
+// new frame (it showed the screen only when something else redrew it).
+@property(nonatomic, strong) NSUUID *damageId;
+@property(nonatomic, strong) NSUUID *surfacesId;
+@property(nonatomic, strong) NSUUID *screenId;
 @property(nonatomic, strong) AvenSimFrameSink *sink;
 @property(nonatomic, strong) id<AvenSimDisplay> display;
 @property(nonatomic) AvenSimDisplayInfo info;
@@ -719,29 +724,124 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic) CGPoint scrollStart;
 @property(nonatomic) CGPoint scrollPoint;
 @property(nonatomic, strong) NSTimer *scrollEnd;
-- (void)presentFrame;
+@property(nonatomic) uint64_t framesDrawn;
+@property(nonatomic) uint64_t framesShown;
+- (BOOL)presentFrame;
 - (void)restartFrames;
 @end
 
 static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 
+// AVEN_IOS_SIM_STATS=1 (or a file path to append to): each live view logs
+// its frame rate, how long frames wait for the main thread, and how soon the
+// screen changes after a click, every five seconds, to measure the pane the
+// same way before and after a change.
+static BOOL StatsEnabled(void) {
+  static BOOL enabled;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    const char *value = getenv("AVEN_IOS_SIM_STATS");
+    enabled = value && *value && strcmp(value, "0") != 0;
+  });
+  return enabled;
+}
+
+static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6; }
+
 // Receives damage callbacks on CoreSimulator's queue and posts at most one
 // main-thread update at a time. Only the main thread touches the view, so the
-// view is never retained, or released, on CoreSimulator's queue.
+// view is never retained, or released, on CoreSimulator's queue. While the
+// window is hidden (another window covers it, minimized, another Space)
+// frames are dropped here instead of waking the main thread 60 times a second.
 @interface AvenSimFrameSink : NSObject
 @property(nonatomic, weak) AvenSimView *view;
+@property(nonatomic, copy) NSString *viewId;
+- (void)setPaused:(BOOL)paused;
+- (void)touched;
+// Frames the simulator drew, and frames this view showed, since it started.
+- (uint64_t)drawnTotal;
+- (uint64_t)shownTotal;
 @end
 
 @implementation AvenSimFrameSink {
   _Atomic(BOOL) _pending;
+  _Atomic(BOOL) _paused;
+  _Atomic(uint64_t) _drawnTotal;
+  _Atomic(uint64_t) _shownTotal;
+  // Stats (main thread only, except the damage count and click time).
+  _Atomic(uint64_t) _damage;
+  _Atomic(double) _arrived;
+  _Atomic(double) _touchedAt;
+  uint64_t _presented;
+  double _waitTotal, _waitMax, _since;
+  NSMutableArray<NSNumber *> *_clicks;
+}
+- (void)setPaused:(BOOL)paused {
+  atomic_store(&_paused, paused);
+}
+- (void)touched {
+  if (StatsEnabled()) atomic_store(&_touchedAt, NowMs());
+}
+- (uint64_t)drawnTotal {
+  return atomic_load(&_drawnTotal);
+}
+- (uint64_t)shownTotal {
+  return atomic_load(&_shownTotal);
 }
 - (void)frameArrived {
+  atomic_fetch_add(&_drawnTotal, 1);
+  if (StatsEnabled()) {
+    atomic_fetch_add(&_damage, 1);
+    double touched = atomic_exchange(&_touchedAt, 0.0);
+    if (touched > 0) {
+      double latency = NowMs() - touched;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_clicks) self->_clicks = [NSMutableArray array];
+        [self->_clicks addObject:@(latency)];
+      });
+    }
+  }
+  if (atomic_load(&_paused)) return;
   BOOL expected = NO;
   if (!atomic_compare_exchange_strong(&_pending, &expected, YES)) return;
+  if (StatsEnabled()) atomic_store(&_arrived, NowMs());
   dispatch_async(dispatch_get_main_queue(), ^{
     atomic_store(&self->_pending, NO);
-    [self.view presentFrame];
+    if ([self.view presentFrame]) atomic_fetch_add(&self->_shownTotal, 1);
+    if (StatsEnabled()) [self countPresented];
   });
+}
+- (void)countPresented {
+  double now = NowMs();
+  double wait = now - atomic_load(&_arrived);
+  _presented++;
+  _waitTotal += wait;
+  _waitMax = MAX(_waitMax, wait);
+  if (_since <= 0) _since = now;
+  double seconds = (now - _since) / 1000;
+  if (seconds < 5) return;
+  uint64_t damage = atomic_exchange(&_damage, 0);
+  NSArray *clicks = [_clicks sortedArrayUsingSelector:@selector(compare:)];
+  NSString *click =
+      clicks.count ? [NSString stringWithFormat:@", click to new frame median %.1f ms (n=%lu)",
+                                                [clicks[clicks.count / 2] doubleValue], (unsigned long)clicks.count]
+                   : @"";
+  time_t wall = time(NULL);
+  struct tm local;
+  char clock[16] = "";
+  if (localtime_r(&wall, &local)) strftime(clock, sizeof clock, "%H:%M:%S", &local);
+  const char *target = getenv("AVEN_IOS_SIM_STATS");
+  FILE *file = target && target[0] == '/' ? fopen(target, "a") : NULL;
+  fprintf(file ?: stderr,
+          "[iphone %s %s] %.1f frames/s shown of %.1f/s drawn; main-thread wait avg %.2f ms, max %.1f ms%s\n",
+          clock, self.viewId.UTF8String ?: "?", _presented / seconds, damage / seconds,
+          _waitTotal / MAX(1, _presented), _waitMax, click.UTF8String);
+  if (file) fclose(file);
+  _presented = 0;
+  _waitTotal = 0;
+  _waitMax = 0;
+  _since = now;
+  [_clicks removeAllObjects];
 }
 @end
 
@@ -772,6 +872,32 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 - (BOOL)isFlipped {
   return YES;
 }
+
+// Frames are shown only while the window is on screen.
+- (BOOL)windowVisible {
+  return self.window && (self.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+}
+- (void)viewWillMoveToWindow:(NSWindow *)window {
+  if (self.window)
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:NSWindowDidChangeOcclusionStateNotification
+                                                object:self.window];
+  if (window)
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(occlusionChanged:)
+                                               name:NSWindowDidChangeOcclusionStateNotification
+                                             object:window];
+}
+- (void)viewDidMoveToWindow {
+  [self occlusionChanged:nil];
+}
+- (void)occlusionChanged:(NSNotification *)notification {
+  BOOL visible = [self windowVisible];
+  [self.sink setPaused:!visible];
+  // Back on screen: show the frame drawn meanwhile.
+  if (visible) [self presentFrame];
+}
+
 - (BOOL)acceptsFirstResponder {
   return self.udid != nil;
 }
@@ -839,6 +965,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
   [self.window makeFirstResponder:self];
   [self endScroll];
   NSPoint local = [self convertPoint:event.locationInWindow fromView:nil];
+  [self.sink touched];
   [self touch:1 at:[self devicePoint:local inside:NULL]];
 }
 - (void)mouseDragged:(NSEvent *)event {
@@ -988,35 +1115,39 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 
 #pragma mark Frames
 
-- (void)presentFrame {
-  if (!self.live) return;
+- (BOOL)presentFrame {
+  if (!self.live) return NO;
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   [self.screenLayer setContentsChanged];
   [CATransaction commit];
+  return YES;
 }
 
 - (void)stopFrames {
   id<AvenSimDisplay> display = self.display;
-  NSUUID *callbackId = self.callbackId;
-  if (display && callbackId) {
+  if (display) {
     // Each one alone: a failure must not leave the others registered.
     @try {
-      [display unregisterDamageRectanglesCallbackWithUUID:callbackId];
+      if (self.damageId) [display unregisterDamageRectanglesCallbackWithUUID:self.damageId];
     } @catch (NSException *exception) {
     }
     @try {
-      [display unregisterIOSurfacesChangeCallbackWithUUID:callbackId];
+      if (self.surfacesId) [display unregisterIOSurfacesChangeCallbackWithUUID:self.surfacesId];
     } @catch (NSException *exception) {
     }
     @try {
-      [display unregisterScreenCallbacksWithUUID:callbackId];
+      if (self.screenId) [display unregisterScreenCallbacksWithUUID:self.screenId];
     } @catch (NSException *exception) {
     }
   }
+  self.framesDrawn += self.sink.drawnTotal;
+  self.framesShown += self.sink.shownTotal;
   self.sink.view = nil;
   self.sink = nil;
-  self.callbackId = nil;
+  self.damageId = nil;
+  self.surfacesId = nil;
+  self.screenId = nil;
   self.display = nil;
   self.live = NO;
 }
@@ -1054,17 +1185,21 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
     }
     self.display = display;
     self.info = info;
-    self.callbackId = [NSUUID UUID];
+    self.damageId = [NSUUID UUID];
+    self.surfacesId = [NSUUID UUID];
+    self.screenId = [NSUUID UUID];
     self.sink = [AvenSimFrameSink new];
     self.sink.view = self;
+    self.sink.viewId = self.viewId;
+    [self.sink setPaused:![self windowVisible]];
     self.live = YES;
     AvenSimFrameSink *sink = self.sink;
-    [display registerCallbackWithUUID:self.callbackId
+    [display registerCallbackWithUUID:self.damageId
              damageRectanglesCallback:^(NSArray *rects) {
                [sink frameArrived];
              }];
     __weak AvenSimView *weakSelf = self;
-    [display registerCallbackWithUUID:self.callbackId
+    [display registerCallbackWithUUID:self.surfacesId
              ioSurfacesChangeCallback:^(IOSurface *framebuffer, IOSurface *masked) {
                dispatch_async(dispatch_get_main_queue(), ^{
                  AvenSimView *view = weakSelf;
@@ -1076,7 +1211,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
                    [view restartFrames];
                });
              }];
-    [display registerScreenCallbacksWithUUID:self.callbackId
+    [display registerScreenCallbacksWithUUID:self.screenId
                                callbackQueue:dispatch_get_main_queue()
                                frameCallback:^{
                                }
@@ -1194,6 +1329,7 @@ static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 }
 
 - (void)dealloc {
+  [NSNotificationCenter.defaultCenter removeObserver:self];
   [self stopFrames];
 }
 @end
@@ -1385,6 +1521,19 @@ int aven_sim_view_debug_click(const char *view_id, double x, double y) {
     } @catch (NSException *exception) {
       return 1;
     }
+  }
+}
+
+int aven_sim_view_frames(const char *view_id, uint64_t *drawn, uint64_t *shown, int *visible) {
+  @try {
+    AvenSimView *view = ViewFor(view_id);
+    if (!view || !drawn || !shown || !visible) return 1;
+    *drawn = view.framesDrawn + view.sink.drawnTotal;
+    *shown = view.framesShown + view.sink.shownTotal;
+    *visible = [view windowVisible] ? 1 : 0;
+    return 0;
+  } @catch (NSException *exception) {
+    return 1;
   }
 }
 

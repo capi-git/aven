@@ -12,7 +12,7 @@ import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
-import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
+import type { SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
@@ -35,6 +35,7 @@ import {
   sessionDisplayTitle,
   type Session,
 } from "../lib/session";
+import "./Menu.css";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
@@ -358,7 +359,7 @@ export function WorkspaceNavigation({
           width={208}
           role="menu"
           aria-label="More navigation"
-          className="workspace-navigation-menu"
+          className="aven-menu"
           tabIndex={-1}
           autoFocus
           onDismiss={(reason) => closeMenu(reason === "escape")}
@@ -372,14 +373,17 @@ export function WorkspaceNavigation({
               key={action.id}
               type="button"
               role="menuitem"
+              className="aven-menu-item"
               disabled={action.disabled}
               onClick={() => {
                 closeMenu(true);
                 action.onSelect?.();
               }}
             >
-              <action.icon size={14} aria-hidden />
-              <span>{action.label}</span>
+              <span className="aven-menu-icon" aria-hidden>
+                <action.icon size={14} />
+              </span>
+              <span className="aven-menu-label">{action.label}</span>
             </button>
           ))}
         </Popover>
@@ -494,10 +498,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           >
             <ChevronLeft size={14} aria-hidden />
           </button>
+          {/* The page below names its section (and the sidebar marks it),
+              so the window names only Settings. */}
           <div className="workspace-status-settings-path">
-            <span>Settings</span>
-            <ChevronRight size={11} aria-hidden />
-            <strong>{settingsSectionLabel(settingsView.section)}</strong>
+            <strong>Settings</strong>
           </div>
         </div>
       ) : null}

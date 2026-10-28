@@ -78,6 +78,10 @@ void aven_sim_view_detach(const char *view_id);
 int aven_sim_view_debug_click(const char *view_id, double x, double y);
 int aven_sim_view_debug_key(const char *view_id, unsigned short key_code, const char *characters,
                             unsigned long modifiers);
+// Frames the simulator drew and the view showed since it was created, and
+// whether its window is on screen (the check's frame-rate step). Main
+// thread. 0 when the view exists.
+int aven_sim_view_frames(const char *view_id, uint64_t *drawn, uint64_t *shown, int *visible);
 
 // Puts PNG bytes on the Mac clipboard.
 int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t error_len);

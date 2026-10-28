@@ -8,6 +8,7 @@ import {
 } from "../lib/session";
 import type { AccessPanelSnapshot } from "../lib/accessPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
+import "./Menu.css";
 import "./AccessPanel.css";
 
 export const ACCESS_ICONS: Record<RuntimeMode, typeof Lock> = {
@@ -107,7 +108,7 @@ export function AccessModeOptions({
       aria-label="Access mode"
       data-compact={compact || undefined}
       onKeyDown={navigate}
-      className="access-panel-options"
+      className="aven-menu access-panel-options"
     >
       {RUNTIME_MODES.map((mode) => {
         const Icon = ACCESS_ICONS[mode];
@@ -121,16 +122,25 @@ export function AccessModeOptions({
             data-mode={mode}
             title={compact ? RUNTIME_MODE_HINT[mode] : undefined}
             onClick={() => onSelect(mode)}
-            className="toolbar-panel-row access-panel-option"
+            className={`aven-menu-item access-panel-option${compact ? "" : " aven-menu-item-rich"}`}
           >
-            <Icon className="access-panel-icon" size={compact ? 15 : 16} />
-            <span className="access-panel-copy">
-              <strong>{RUNTIME_MODE_LABEL[mode]}</strong>
-              {compact ? null : <span>{RUNTIME_MODE_HINT[mode]}</span>}
+            <span aria-hidden="true" className="aven-menu-icon">
+              <Icon />
             </span>
+            {compact ? (
+              <span className="aven-menu-label">
+                {RUNTIME_MODE_LABEL[mode]}
+              </span>
+            ) : (
+              <span className="aven-menu-text">
+                <span>{RUNTIME_MODE_LABEL[mode]}</span>
+                <span className="aven-menu-description">
+                  {RUNTIME_MODE_HINT[mode]}
+                </span>
+              </span>
+            )}
             <Check
-              className="access-panel-check"
-              size={15}
+              className="aven-menu-check access-panel-check"
               aria-hidden="true"
             />
           </button>

@@ -140,7 +140,7 @@ fn ios_sim_live_round_trip() {
 
     let started = Instant::now();
     assert_eq!(
-        ensure_device(&project, &udid, None, false).unwrap(),
+        ensure_device(&project, &udid, None, false, false).unwrap(),
         Readiness::Ready
     );
     eprintln!("boot + input fix: {:.1} s", started.elapsed().as_secs_f64());

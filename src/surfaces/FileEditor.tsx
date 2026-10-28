@@ -504,7 +504,7 @@ export function FileEditor({
           <button
             type="button"
             onClick={() => setReloadKey((value) => value + 1)}
-            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-ui-label text-content hover:bg-content/15"
+            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-(--aven-control-bg) px-2.5 text-ui-label text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
           >
             <RotateCcw className="size-3" strokeWidth={1.75} />
             Retry
@@ -529,7 +529,7 @@ export function FileEditor({
           <button
             type="button"
             onClick={() => setReloadKey((value) => value + 1)}
-            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-ui-label text-content hover:bg-content/15"
+            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-(--aven-control-bg) px-2.5 text-ui-label text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
           >
             <RotateCcw className="size-3" strokeWidth={1.75} />
             Retry

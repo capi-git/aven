@@ -11,6 +11,7 @@ import { useUsagePanelTheme } from "../lib/usagePanel";
 import { Modal } from "./Modal";
 import { Popover } from "./Popover";
 import { ToolbarPanel } from "./ToolbarPanel";
+import "./Menu.css";
 import "./WorkspaceMenuPanel.css";
 import "./TeamCard.css";
 import "./BotPicker.css";
@@ -84,27 +85,23 @@ export function BotPickerList({
   return (
     <>
       <div
-        className="workspace-menu-panel-items bot-picker-items"
+        className="aven-menu workspace-menu-panel-items bot-picker-items"
         onKeyDown={moveFocus}
       >
         {ready.map((project) => (
           <button
             key={project.path}
             type="button"
-            className="toolbar-panel-row workspace-menu-panel-item"
+            className="aven-menu-item"
             data-bot-ready=""
             disabled={busyPath !== null}
             onClick={() => onAdd(project.path)}
           >
-            <span className="workspace-menu-panel-item-line">
-              <span className="workspace-menu-panel-item-label">
-                {project.label}
-              </span>
-            </span>
+            <span className="aven-menu-label">{project.label}</span>
           </button>
         ))}
         {ready.length && needGit.length ? (
-          <div role="separator" className="workspace-menu-panel-separator" />
+          <div role="separator" className="aven-menu-separator" />
         ) : null}
         {needGit.map((project) => (
           <BotGitSetupRow
@@ -116,7 +113,7 @@ export function BotPickerList({
           />
         ))}
         {!projects.length ? (
-          <p className="workspace-menu-panel-empty">{empty}</p>
+          <p className="aven-menu-note workspace-menu-panel-empty">{empty}</p>
         ) : null}
       </div>
       {needGit.length ? (

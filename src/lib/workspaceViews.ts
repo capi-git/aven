@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   leaf,
   leafIds,
@@ -9,7 +8,6 @@ import {
   type PaneEdge,
 } from "./layout";
 
-const STORAGE_KEY = "supermono.workspaceViews.v1";
 export type ViewEdge = "left" | "right" | "up" | "down";
 export type WorkspaceViewSnapshot = {
   layout: LayoutNode | null;
@@ -859,109 +857,4 @@ export function toggleWorkspaceExpansion(
   return fallbackSessionId && fallbackSessionId !== id
     ? splitWorkspaceView(current, fallbackSessionId, "left", id)
     : current;
-}
-
-function loadViews(): Record<string, WorkspaceView> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-export function useWorkspaceViews(
-  key: string,
-  ids: string[],
-  requestedFocus: string,
-  initialLayout?: LayoutNode,
-) {
-  const [saved, setSaved] = useState(loadViews);
-  const savedRef = useRef(saved);
-  savedRef.current = saved;
-  const idsKey = ids.join("\0");
-  const view = useMemo(
-    () => resolveWorkspaceView(saved[key], ids, requestedFocus, initialLayout),
-    [saved, key, idsKey, requestedFocus],
-  );
-  const current = useRef({ key, ids, requestedFocus, initialLayout });
-  current.current = { key, ids, requestedFocus, initialLayout };
-  const change = useCallback(
-    (update: (view: WorkspaceView) => WorkspaceView) => {
-      const { key, ids, requestedFocus, initialLayout } = current.current;
-      setSaved((all) => {
-        const before = resolveWorkspaceView(
-          all[key],
-          ids,
-          requestedFocus,
-          initialLayout,
-        );
-        const next = update(before);
-        if (JSON.stringify(next) === JSON.stringify(all[key])) return all;
-        return { ...all, [key]: next };
-      });
-    },
-    [],
-  );
-  const focus = useCallback((key: string, id: string) => {
-    setSaved((all) => {
-      const context = current.current;
-      const ids = [
-        ...new Set([
-          ...(context.key === key ? context.ids : (all[key]?.order ?? [])),
-          id,
-        ]),
-      ];
-      const before = resolveWorkspaceView(
-        all[key],
-        ids,
-        id,
-        context.key === key ? context.initialLayout : undefined,
-      );
-      return { ...all, [key]: selectWorkspaceView(before, id) };
-    });
-  }, []);
-  /** Explicit restoration/transfer can target a workspace other than the current one. */
-  const restore = useCallback((key: string, value: WorkspaceView) => {
-    setSaved((all) => ({ ...all, [key]: value }));
-  }, []);
-  const get = useCallback((key: string) => {
-    const value = savedRef.current[key];
-    return resolveWorkspaceView(
-      value,
-      value?.order ?? [],
-      value?.focusedId ?? "",
-    );
-  }, []);
-  const requested = useRef({
-    key,
-    focus: requestedFocus,
-    actual: view.focusedId,
-  });
-  useEffect(() => {
-    const previous = requested.current;
-    requested.current = { key, focus: requestedFocus, actual: view.focusedId };
-    // Opening another workspace restores its own arrangement instead of
-    // overwriting it with whichever session happened to be active before.
-    // Explicit pane selection also wins over an older session/browser hint.
-    // App mirrors actual focus into that hint; replaying both directions in
-    // one commit would repeatedly swap focus between the two surfaces.
-    if (
-      previous.key === key &&
-      previous.actual === view.focusedId &&
-      previous.focus !== requestedFocus &&
-      requestedFocus
-    )
-      change((view) => selectWorkspaceView(view, requestedFocus));
-  }, [key, requestedFocus, view.focusedId, change]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-    } catch {
-      /* Keep the in-memory arrangement usable. */
-    }
-  }, [saved]);
-  return { view, change, focus, restore, get };
 }

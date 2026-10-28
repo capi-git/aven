@@ -427,7 +427,7 @@ function OpenTeamBar({
           parts.reason
             ? "line-clamp-2 leading-4 [overflow-wrap:anywhere]"
             : "truncate"
-        } ${error ? "text-red-600 dark:text-red-400" : ""}`}
+        } ${error ? "text-(--aven-danger-text)" : ""}`}
         title={text}
         data-team-bar-text
       >

@@ -261,7 +261,7 @@ describe("the panel's model list", () => {
     expect(tab?.getAttribute("title")).toBe("Claude Code");
     const highlighted = [
       ...panel()!.querySelectorAll('[role="listbox"] > div'),
-    ].filter((row) => row.classList.contains("bg-content/10"));
+    ].filter((row) => row.getAttribute("data-active") === "true");
     expect(highlighted).toHaveLength(1);
     expect(highlighted[0].textContent).toContain(CLAUDE_OPUS_5_5_MODEL.name);
     expect(

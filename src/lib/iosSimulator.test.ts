@@ -74,7 +74,7 @@ describe("iPhone pane choices", () => {
   });
 
   it("never opens on a device nobody chose: no suggestion means no device", () => {
-    // The running iPhone 18 Pro is someone else's; Aven suggested nothing.
+    // Aven suggested nothing (no simulator to show): the person picks.
     expect(pickDevice([PHONE, MAX, PAD], undefined, null)).toBeNull();
     expect(pickDevice([PHONE], "gone", null)).toBeNull();
   });
@@ -146,7 +146,11 @@ describe("iPhone pane status", () => {
       "stopped",
     ] as const)
       expect(isRunActive(phase)).toBe(false);
+    // A Run whose build is done and that waits for its device is still the
+    // Run: Stop, not Run (which would start another build).
+    expect(isRunActive("waiting")).toBe(true);
     expect(isDeviceStarting("preparing")).toBe(true);
+    expect(isDeviceStarting("waiting")).toBe(true);
     expect(isDeviceStarting("building")).toBe(false);
   });
 

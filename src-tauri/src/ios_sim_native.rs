@@ -114,6 +114,12 @@ extern "C" {
         modifiers: u64,
     ) -> i32;
     fn aven_sim_view_detach(view_id: *const c_char);
+    fn aven_sim_view_frames(
+        view_id: *const c_char,
+        drawn: *mut u64,
+        shown: *mut u64,
+        visible: *mut i32,
+    ) -> i32;
     fn aven_sim_copy_png(
         png: *const u8,
         png_len: usize,
@@ -428,6 +434,17 @@ pub(crate) fn view_debug_key(
         0 => Ok(()),
         _ => Err("The iPhone pane has no device".into()),
     }
+}
+
+/// Aven Dev's iPhone check: frames the simulator drew and the live view
+/// showed since the view was created, and whether its window is on screen.
+/// Main thread.
+#[cfg(debug_assertions)]
+pub(crate) fn view_frames(view_id: &str) -> Option<(u64, u64, bool)> {
+    let id = c(view_id).ok()?;
+    let (mut drawn, mut shown, mut visible) = (0u64, 0u64, 0i32);
+    (unsafe { aven_sim_view_frames(id.as_ptr(), &mut drawn, &mut shown, &mut visible) } == 0)
+        .then_some((drawn, shown, visible != 0))
 }
 
 pub(crate) fn view_detach(view_id: &str) {

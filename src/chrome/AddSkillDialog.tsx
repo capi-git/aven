@@ -285,7 +285,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
             aria-label="owner/repo or a GitHub link"
             disabled={running}
             onChange={(event) => edit(event.target.value)}
-            className="w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60 disabled:opacity-60"
+            className="aven-field w-full px-2 py-1.5 font-mono text-ui-body"
           />
           {hint ? (
             <span className="text-ui-caption text-content/50">{hint}</span>
@@ -352,7 +352,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
         {error ? (
           <p
             role="alert"
-            className="whitespace-pre-line text-ui-label text-red-600 dark:text-red-400"
+            className="whitespace-pre-line text-ui-label text-(--aven-danger-text)"
           >
             {error}
           </p>
@@ -383,7 +383,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
             <button
               type="button"
               onClick={running ? stop : onClose}
-              className="aven-press rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content"
+              className="aven-press rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-(--aven-control-bg) hover:text-content"
             >
               {running ? "Stop" : "Cancel"}
             </button>
@@ -395,7 +395,7 @@ export function AddSkillDialog({ cwd, onClose, onInstalled }: Props) {
               (phase === "idle" && !parsed?.ok) ||
               (phase === "preview" && chosen === 0)
             }
-            className="aven-press rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
+            className="aven-press rounded-md bg-content px-3 py-1.5 text-ui-label font-medium text-background-base hover:bg-(--aven-inverse-hover) disabled:opacity-40"
           >
             {primary}
           </button>
@@ -447,7 +447,7 @@ function SkillChoices({
           ) : (
             <label
               key={skill.name}
-              className="flex cursor-default items-start gap-2 rounded px-1.5 py-1 hover:bg-content/5"
+              className="flex cursor-default items-start gap-2 rounded px-1.5 py-1 hover:bg-(--aven-hover)"
             >
               <input
                 type="checkbox"
