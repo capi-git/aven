@@ -822,6 +822,10 @@ fn prepare_input(udid: &str, booted_at: Option<Instant>) -> Result<Prepared, Str
     Ok(Prepared::Restarted)
 }
 
+/// How long the announcement watcher is given to start listening before the
+/// flag is read again (`simctl spawn` takes a fraction of a second).
+const WATCHER_START: Duration = Duration::from_millis(1500);
+
 /// Child processes waiting for a late announcement, ended when Aven quits.
 static WATCHERS: Mutex<Vec<Arc<Mutex<Child>>>> = Mutex::new(Vec::new());
 
@@ -855,6 +859,13 @@ fn watch_announcement(udid: &str, data_path: Option<PathBuf>, boot: BootId) {
     let _ = std::thread::Builder::new()
         .name("ios-sim-announce".into())
         .spawn(move || {
+            // An announcement made while the watcher was still starting never
+            // reaches it: once it has had time to listen, read the flag again
+            // and take a 1 as the notification.
+            std::thread::sleep(WATCHER_START);
+            if notify_flag(&key) == Some(1) {
+                kill_child(&child);
+            }
             // Ends when the notification comes or the device shuts down.
             loop {
                 let done = child.lock().unwrap_or_else(|p| p.into_inner()).try_wait();
