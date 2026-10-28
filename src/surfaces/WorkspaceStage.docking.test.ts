@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LayoutNode } from "../lib/layout";
 import { MOTION_ROOT_ATTRIBUTE } from "../lib/motion";
 import { DOCK_EASE, DOCK_TWEEN_MS } from "../lib/paneDock";
+import { SPRING_BOUND_SLACK_MS, SPRING_MAX_MS } from "../lib/spring";
+
+/** Long enough for any spring to have ended by its timer. */
+const SPRING_END_MS = SPRING_MAX_MS + SPRING_BOUND_SLACK_MS + 10;
 import {
   WorkspaceStage,
   ZOOM_GLIDE_MS,
@@ -150,26 +154,46 @@ describe("docking motion", () => {
     expect(preview().style.top).toBe("36px");
     expect(preview().style.width).toBe("492px");
     expect(preview().style.height).toBe("560px");
-    // It appears in place; there was nothing to glide from.
-    expect(animationsOf(preview())).toEqual([]);
+    // It appears where it goes, fading in and growing a little from the
+    // side it splits (its left edge stays put).
+    const [appear] = animationsOf(preview());
+    expect(appear.keyframes[0]).toEqual({
+      transform: "translate(0px, 8.4px) scale(0.97, 0.97)",
+      opacity: "0",
+      offset: 0,
+    });
+    expect(appear.keyframes.at(-1)).toEqual({
+      transform: "translate(0px, 0px) scale(1, 1)",
+      opacity: "1",
+      offset: 1,
+    });
+    expect(appear.options).toMatchObject({ easing: "linear", fill: "none" });
   });
 
-  it("glides 150ms between zones with transforms", async () => {
+  it("glides between zones on a spring, with transforms only", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     await render();
     boxes.set("hint", { left: 4, top: 36, width: 492, height: 560 });
     await render({ dragging: true, dragTarget: { id: "chat", edge: "left" } });
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
     boxes.set("hint", { left: 4, top: 36, width: 992, height: 280 });
     await render({ dragTarget: { id: "chat", edge: "up" } });
     expect(preview().style.width).toBe("992px");
-    const [glide] = animationsOf(preview());
-    expect(glide.keyframes).toEqual([
-      { transform: "translate(0px, 0px) scale(0.4959677419354839, 2)" },
-      { transform: "translate(0px, 0px) scale(1, 1)" },
-    ]);
-    expect(glide.options).toEqual({
-      duration: DOCK_TWEEN_MS,
-      easing: DOCK_EASE,
+    const glide = animationsOf(preview()).at(-1)!;
+    // From the left half it was drawn in, to the top half.
+    expect(glide.keyframes[0]).toMatchObject({
+      transform: "translate(0px, 0px) scale(0.49597, 2)",
     });
+    expect(glide.keyframes.at(-1)).toMatchObject({
+      transform: "translate(0px, 0px) scale(1, 1)",
+    });
+    for (const frame of glide.keyframes)
+      expect(Object.keys(frame).sort()).toEqual([
+        "offset",
+        "opacity",
+        "transform",
+      ]);
+    expect(glide.options.easing).toBe("linear");
   });
 
   it("grows the pane a drop makes from the preview while the preview fades", async () => {
@@ -198,7 +222,7 @@ describe("docking motion", () => {
     );
     await render({ dragging: false, dragTarget: null, layout: columns });
     const fade = animationsOf(preview()).at(-1)!;
-    expect(fade.keyframes).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(fade.keyframes.at(-1)!.opacity).toBe("0");
     const [grow] = animationsOf(surface("browser"));
     expect(grow.keyframes).toEqual([
       { clipPath: "inset(36px 4px 4px 3.5px round 6px)" },
@@ -345,11 +369,11 @@ describe("when WebKit holds the animation timeline back", () => {
     await dragOver("right");
     await render({ dragging: false, dragTarget: null, layout: columns });
     expect(shown()).toBe("true");
-    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
     expect(shown()).toBe("false");
-    // Its fade is stopped too, so it holds no opacity of its own.
+    // Its fade is stopped too, so it holds no animation of its own.
     const fade = animationsOf(preview()).at(-1)!;
-    expect(fade.keyframes).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(fade.keyframes.at(-1)!.opacity).toBe("0");
     expect(fade.cancel).toHaveBeenCalled();
   });
 
@@ -358,7 +382,7 @@ describe("when WebKit holds the animation timeline back", () => {
     await dragOver("left");
     // Every cancel reaches the stage as the drag ending with no target.
     await render({ dragging: false, dragTarget: null });
-    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
     expect(shown()).toBe("false");
   });
 
@@ -366,7 +390,7 @@ describe("when WebKit holds the animation timeline back", () => {
     await render();
     await dragOver("left");
     await render({ dragging: true, dragTarget: null });
-    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
     expect(shown()).toBe("false");
   });
 
@@ -374,7 +398,7 @@ describe("when WebKit holds the animation timeline back", () => {
     await render();
     await dragOver("left");
     await render({ visible: false });
-    await act(async () => vi.advanceTimersByTime(DOCK_TWEEN_MS + 60));
+    await act(async () => vi.advanceTimersByTime(SPRING_END_MS));
     expect(shown()).toBe("false");
   });
 

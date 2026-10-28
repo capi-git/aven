@@ -54,6 +54,13 @@ import {
   ChevronUp,
 } from "../chrome/icons";
 import { paneMinimizeControls, type PaneMinimize } from "../lib/paneMinimize";
+import {
+  TAB_PREVIEW_ENTER_SCALE,
+  TAB_PX_PRECISION,
+  TAB_SPRING,
+  TAB_UNIT_PRECISION,
+} from "../lib/motionTokens";
+import { SpringAnimator } from "../lib/spring";
 import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
@@ -287,15 +294,6 @@ function stageBox(stage: HTMLElement, rect: DOMRect): DockRect {
   };
 }
 
-const sameBox = (a: DockRect | null, b: DockRect | null) =>
-  a === b ||
-  (!!a &&
-    !!b &&
-    Math.abs(a.left - b.left) < 0.5 &&
-    Math.abs(a.top - b.top) < 0.5 &&
-    Math.abs(a.width - b.width) < 0.5 &&
-    Math.abs(a.height - b.height) < 0.5);
-
 /** A drop is followed by its new layout within this long, or not at all. */
 const DROP_REVEAL_WINDOW_MS = 1000;
 /** Cydonia's zoom: a pane glides to the whole space in 200ms, eased out. */
@@ -312,8 +310,10 @@ type PaneBox = { left: number; top: number; width: number; height: number };
 /**
  * How a pane glides between two places. Same size: it moves. Growing: it
  * is laid out at once at its new size and its clip opens from where it
- * stood. Otherwise, or for a page held as a picture, it scales from where
- * it stood. A pictured page always scales: its picture stretches with it.
+ * stood. A page held as a picture scales from where it stood: its picture
+ * stretches with it. A page of HTML that shrinks is never scaled (its text
+ * would stretch): it takes its new size at once and only moves, if it
+ * moves at all.
  */
 export function paneGlideKeyframes(
   from: PaneBox,
@@ -321,11 +321,20 @@ export function paneGlideKeyframes(
   pictured = false,
 ): Keyframe[] {
   const moved = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+  const still =
+    Math.abs(from.left - to.left) < 1 && Math.abs(from.top - to.top) < 1;
   if (
     Math.abs(from.width - to.width) < 1 &&
     Math.abs(from.height - to.height) < 1
   )
     return [{ transform: moved }, { transform: "translate(0px, 0px)" }];
+  if (
+    !pictured &&
+    (from.width > to.width + 0.5 || from.height > to.height + 0.5)
+  )
+    return still
+      ? []
+      : [{ transform: moved }, { transform: "translate(0px, 0px)" }];
   if (
     !pictured &&
     from.width <= to.width + 0.5 &&
@@ -1048,11 +1057,24 @@ export function WorkspaceStage({
   const previewNode = useRef<HTMLDivElement>(null);
   const previewState = useRef<{
     box: DockRect | null;
-    glide: BoundedMotion | null;
-    fade: BoundedMotion | null;
+    /** Its edges, opacity and entering scale, each on a spring. */
+    springs: SpringAnimator<"l" | "t" | "w" | "h" | "o" | "s"> | null;
+    /** Where it is laid out; its springs are drawn relative to this. */
+    laid: DockRect | null;
+    /** The side it grows from: the zone's edge, as a share of its box. */
+    pivot: { x: number; y: number };
+    leaving: boolean;
     split: boolean;
     dragLayout: LayoutNode | null;
-  }>({ box: null, glide: null, fade: null, split: false, dragLayout: null });
+  }>({
+    box: null,
+    springs: null,
+    laid: null,
+    pivot: { x: 0.5, y: 0.5 },
+    leaving: false,
+    split: false,
+    dragLayout: null,
+  });
   const dropReveal = useRef<{
     box: DockRect;
     until: number;
@@ -1093,8 +1115,8 @@ export function WorkspaceStage({
     return () => {
       for (const motion of motions) motion.stop();
       motions.clear();
-      preview.glide = null;
-      preview.fade = null;
+      preview.springs?.cancel();
+      preview.springs = null;
     };
   }, []);
   const revealDrop = (box: DockRect) => {
@@ -1140,7 +1162,6 @@ export function WorkspaceStage({
     if (!element || !container) return;
     const state = previewState.current;
     const reduced = motionReduced();
-    const animate = typeof element.animate === "function" && !reduced;
     if (dragging) state.dragLayout = layout;
     const hintNode =
       visible && dragging
@@ -1149,6 +1170,41 @@ export function WorkspaceStage({
     const target = hintNode
       ? stageBox(container, hintNode.getBoundingClientRect())
       : null;
+    // The preview's box is drawn from springs on its edges, relative to
+    // where it is laid out: a new target retargets from the box on screen
+    // and its speed, so it glides between zones and never jumps.
+    const springs = (state.springs ??= new SpringAnimator(
+      {
+        l: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        t: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        w: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        h: { spring: TAB_SPRING.move, precision: TAB_PX_PRECISION },
+        o: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+        s: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+      },
+      { l: 0, t: 0, w: 0, h: 0, o: 0, s: 1 },
+      ({ l, t, w, h, o, s }) => {
+        const laid = state.laid;
+        if (!laid || laid.width <= 0 || laid.height <= 0)
+          return [[element, { transform: "none", opacity: String(o) }]];
+        // Grown about the side it comes from.
+        const width = w * s;
+        const height = h * s;
+        const left = l + (w - width) * state.pivot.x;
+        const top = t + (h - height) * state.pivot.y;
+        const round = (value: number, places: number) =>
+          Math.round(value * 10 ** places) / 10 ** places;
+        return [
+          [
+            element,
+            {
+              transform: `translate(${round(left - laid.left, 3)}px, ${round(top - laid.top, 3)}px) scale(${round(width / laid.width, 5)}, ${round(height / laid.height, 5)})`,
+              opacity: String(round(o, 4)),
+            },
+          ],
+        ];
+      },
+    ));
     if (!target || target.width <= 0 || target.height <= 0) {
       if (!dragging && state.box && state.split)
         dropReveal.current = {
@@ -1156,53 +1212,50 @@ export function WorkspaceStage({
           until: performance.now() + DROP_REVEAL_WINDOW_MS,
           from: state.dragLayout,
         };
-      state.glide?.stop();
-      state.glide = null;
-      if (state.box && animate && !state.fade) {
-        // Fade where it was; it is gone when the fade ends, run or not.
-        state.fade = play(
-          element,
-          [{ opacity: 1 }, { opacity: 0 }],
-          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE, fill: "forwards" },
-          () => {
-            state.fade = null;
-            element.dataset.shown = "false";
-          },
-        );
-      } else if (!state.fade) element.dataset.shown = "false";
+      if (state.box && !state.leaving) {
+        // Fades where it is; it is gone when its springs end, run or not.
+        state.leaving = true;
+        springs.to({ o: 0 }, { instant: reduced });
+        springs.onSettle(() => {
+          if (!state.leaving) return;
+          state.leaving = false;
+          element.dataset.shown = "false";
+        });
+      } else if (!state.leaving) element.dataset.shown = "false";
       state.box = null;
       state.split = false;
     } else {
-      // Glide from wherever the preview is drawn, even part way along.
-      const drawn =
-        state.box && state.glide
-          ? stageBox(container, element.getBoundingClientRect())
-          : state.box;
-      state.glide?.stop();
-      state.glide = null;
-      state.fade?.stop();
-      state.fade = null;
+      const appearing = !state.box || state.leaving;
+      const drawn = springs.state();
+      state.leaving = false;
+      state.laid = target;
       element.style.left = `${target.left}px`;
       element.style.top = `${target.top}px`;
       element.style.width = `${target.width}px`;
       element.style.height = `${target.height}px`;
       element.dataset.shown = "true";
-      if (drawn && animate && !sameBox(drawn, target)) {
-        const glide = play(
-          element,
-          [
-            {
-              transform: `translate(${drawn.left - target.left}px, ${drawn.top - target.top}px) scale(${drawn.width / target.width}, ${drawn.height / target.height})`,
-            },
-            { transform: "translate(0px, 0px) scale(1, 1)" },
-          ],
-          { duration: DOCK_TWEEN_MS, easing: DOCK_EASE },
-          () => {
-            if (state.glide === glide) state.glide = null;
+      const zone = hintZone ?? "join";
+      state.pivot = {
+        x: zone === "left" ? 0 : zone === "right" ? 1 : 0.5,
+        y: zone === "up" ? 0 : zone === "down" ? 1 : 0.5,
+      };
+      const box = {
+        l: target.left,
+        t: target.top,
+        w: target.width,
+        h: target.height,
+      };
+      if (appearing && (!state.box || drawn.o.value <= 0.01))
+        // In from the side it splits, fading and growing a little.
+        springs.to(
+          { ...box, o: 1, s: 1 },
+          {
+            from: { ...box, o: 0, s: TAB_PREVIEW_ENTER_SCALE },
+            velocity: { l: 0, t: 0, w: 0, h: 0, o: 0, s: 0 },
+            instant: reduced,
           },
         );
-        state.glide = glide;
-      }
+      else springs.to({ ...box, o: 1, s: 1 }, { instant: reduced });
       state.box = target;
       state.split = hintZone !== null && hintZone !== "join";
     }

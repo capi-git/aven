@@ -243,7 +243,7 @@ describe("strip switches and pane glides", () => {
     ]);
   });
 
-  it("scales a pictured page as it grows, and clips a growing page of HTML", () => {
+  it("scales a pictured page, clips a growing page of HTML and never scales a shrinking one", () => {
     const half = { left: 0, top: 0, width: 500, height: 600 };
     const whole = { left: 0, top: 0, width: 1000, height: 600 };
     expect(paneGlideKeyframes(half, whole)[0]).toHaveProperty("clipPath");
@@ -251,10 +251,19 @@ describe("strip switches and pane glides", () => {
       transformOrigin: "0 0",
       transform: "translate(0px, 0px) scale(0.5, 1)",
     });
-    expect(paneGlideKeyframes(whole, half)[0]).toEqual({
+    expect(paneGlideKeyframes(whole, half, true)[0]).toEqual({
       transformOrigin: "0 0",
       transform: "translate(0px, 0px) scale(2, 1)",
     });
+    // Shrinking HTML takes its new size at once (its text would stretch),
+    // and only moves when its place moves.
+    expect(paneGlideKeyframes(whole, half)).toEqual([]);
+    expect(
+      paneGlideKeyframes(whole, { left: 500, top: 0, width: 500, height: 600 }),
+    ).toEqual([
+      { transform: "translate(-500px, 0px)" },
+      { transform: "translate(0px, 0px)" },
+    ]);
   });
 
   it("glides a pictured page in a zoom instead of leaving it behind", async () => {
