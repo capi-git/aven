@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, EventTarget, Manager, Webview};
 
 const MAX_REQUEST_BYTES: usize = 32 * 1024;
@@ -1278,6 +1278,41 @@ fn leave_for_user(refresh: Option<PageRefresh>, touched: bool) -> bool {
     touched && matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate))
 }
 
+/// How long an open waits for its page's loads: one already running when it
+/// arrives, and the reload or navigation it starts.
+const PAGE_SETTLE_WAIT: Duration = Duration::from_secs(10);
+const PAGE_SETTLE_POLL: Duration = Duration::from_millis(25);
+
+/// Wait until `done` holds, checking every `poll`, for at most `limit`.
+/// Returns whether it held.
+fn wait_until(mut done: impl FnMut() -> bool, limit: Duration, poll: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if done() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// Whether the page is loading, and how many of its loads have ended.
+fn page_load(caller: &Webview, id: &str) -> (bool, u64) {
+    let state = crate::browser::agent_tab_states(caller, &[id.to_owned()]);
+    let state = state.first();
+    let loading = state
+        .and_then(|state| state.get("loading"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let settled = state
+        .and_then(|state| state.get("loadsSettled"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    (loading, settled)
+}
+
 /// Whether the user has clicked, typed, dropped or annotated in the page
 /// since it was created (an agent's own input never counts).
 fn page_touched(caller: &Webview, id: &str) -> bool {
@@ -1314,7 +1349,19 @@ fn open_page(
         arrange,
         false,
     )?;
-    if refresh.is_some() && leave_for_user(refresh, page_touched(caller, &id)) {
+    let changes = matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate));
+    if changes {
+        // Never start a reload or navigation while the page's last load is
+        // still running (it only just opened, or the last open changed it):
+        // overlapping navigations on one page trip a Chromium observer-list
+        // reentrancy check.
+        wait_until(
+            || !page_load(caller, &id).0,
+            PAGE_SETTLE_WAIT,
+            PAGE_SETTLE_POLL,
+        );
+    }
+    if changes && leave_for_user(refresh, page_touched(caller, &id)) {
         // The window may not have heard yet; never reload or navigate it.
         let (fresh, _) = request_page(server, caller, grant, token, &url, true, arrange, true)?;
         return Ok(OpenedPage {
@@ -1324,6 +1371,7 @@ fn open_page(
             note: Some(TOUCHED_PAGE_NOTE),
         });
     }
+    let settled = page_load(caller, &id).1;
     // Chromium's reload keeps the page's scroll position.
     match refresh {
         Some(PageRefresh::Reload) => tauri::async_runtime::block_on(
@@ -1333,6 +1381,18 @@ fn open_page(
             crate::browser::browser_navigate(caller.clone(), id.clone(), url.clone()),
         )?,
         Some(PageRefresh::Loaded) | None => {}
+    }
+    if changes {
+        // Hand back (and let this chat's next open on the site in) once the
+        // page has loaded what was asked: the agent then reads the new page.
+        wait_until(
+            || {
+                let (loading, now) = page_load(caller, &id);
+                now > settled && !loading
+            },
+            PAGE_SETTLE_WAIT,
+            PAGE_SETTLE_POLL,
+        );
     }
     Ok(OpenedPage {
         id,
@@ -1802,7 +1862,9 @@ the same site (another route, query, fragment or mock file on that server)
 navigates it ("reused":"navigated"). A page the user opened, kept, clicked,
 typed in or annotated is never reloaded or navigated by open: one at the same
 address is only shown, and otherwise you get a new page (with a note). Opens
-from this chat on one site take turns. Sleeping pages wake as needed. Edit a mock in place and open or reload
+from this chat on one site take turns, and one that reloads or navigates your
+page returns once it has loaded. Sleeping pages wake as needed.
+Edit a mock in place and open or reload
 it again rather than making mock-v2 files or new tabs.
 Use newTab:true only for a second page you need at the same time, such as
 versions side by side the user asked for, at another path. newTab:true at the
@@ -2730,6 +2792,38 @@ mod tests {
         // Showing a page, or one that only now loaded, changes nothing in it.
         assert!(!leave_for_user(None, true));
         assert!(!leave_for_user(Some(PageRefresh::Loaded), true));
+    }
+
+    #[test]
+    fn an_open_waits_for_its_page_to_settle_and_gives_up_after_its_limit() {
+        // Done at once: no wait.
+        let started = Instant::now();
+        assert!(wait_until(
+            || true,
+            Duration::from_secs(5),
+            Duration::from_millis(1)
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        // Loading for three checks, then settled.
+        let mut checks = 0;
+        assert!(wait_until(
+            || {
+                checks += 1;
+                checks > 3
+            },
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+        ));
+        assert_eq!(checks, 4);
+        // A page that never settles does not hold the open for ever.
+        let started = Instant::now();
+        assert!(!wait_until(
+            || false,
+            Duration::from_millis(30),
+            Duration::from_millis(5)
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(30));
+        assert!(PAGE_SETTLE_WAIT <= Duration::from_secs(10));
     }
 
     #[test]

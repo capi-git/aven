@@ -606,6 +606,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && frame->IsMain()) {
       sleep_.Invalidate();
       if (EditActive()) EditMode(false);
+      // A same-document change (a new fragment) ends without any load.
+      if (!browser->IsLoading()) ++loads_settled_;
       context_id_=0; error_.clear(); State();
     }
   }
@@ -642,7 +644,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }));
   }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,bool loading,bool back,bool forward) override {
-    if (Main(browser)) State();
+    if (Main(browser)) { if (!loading) ++loads_settled_; State(); }
   }
   void OnLoadError(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,ErrorCode code,
       const CefString& error_text,const CefString& failed_url) override {
@@ -878,6 +880,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     d->SetString("title",browser_->GetHost()->GetWindowHandle() ? title_ : "");
     d->SetString("favicon",favicon_);
     d->SetBool("loading",browser_->IsLoading()); d->SetBool("canGoBack",browser_->CanGoBack()); d->SetBool("canGoForward",browser_->CanGoForward());
+    // Loads that have ended, so a caller can wait for the one it started.
+    d->SetDouble("loadsSettled",static_cast<double>(loads_settled_));
     d->SetBool("focused",Focused());
     // The user has used this page (or is annotating it): an agent's open
     // must no longer reload or navigate it.
@@ -2300,6 +2304,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool update_prepared_=false, update_attempt_=false, user_input_=false;
   // Unlike user_input_, only the user's own input, and never reset.
   supermono::UserTouch user_touch_;
+  uint64_t loads_settled_=0;
   std::string update_url_;
   supermono::BrowserSleepState sleep_;
   std::string sleep_request_;
