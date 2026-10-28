@@ -530,11 +530,16 @@ describe("browser tab integration", () => {
     expect(props.onCloseBrowser).not.toHaveBeenCalled();
   });
 
-  it("offers Keep open on an agent's page so its next page opens in a new tab", async () => {
+  it("names the chat on its agent's page and keeps the page from the menu or a double-click", async () => {
     const onKeepAgentPage = vi.fn();
     await render({
       browserTabs: [
-        { id: "web-1", title: "Mock", kept: true, agentPage: true },
+        {
+          id: "web-1",
+          title: "Mock",
+          kept: true,
+          agentChatName: "Pricing page",
+        },
         { id: "web-2", title: "Docs", kept: true },
       ],
       activeId: "web-1",
@@ -545,10 +550,15 @@ describe("browser tab integration", () => {
       container.querySelector<HTMLButtonElement>(
         `[data-surface-id="${id}"] [role="tab"]`,
       )!;
-    expect(tabButton("web-1").getAttribute("aria-description")).toBe(
-      "Agent's page. The agent shows its next page here unless you keep this one open.",
+    // Quiet: the tooltip and description say whose page it is.
+    expect(tabButton("web-1").title).toBe(
+      "Mock\nOpened by Pricing page; the chat reuses this page",
     );
-    const menuLabels = async (id: string) => {
+    expect(tabButton("web-1").getAttribute("aria-description")).toBe(
+      "Opened by Pricing page. The chat reuses this page for its next one unless you keep it.",
+    );
+    expect(tabButton("web-2").title).toBe("Docs");
+    const menuItems = async (id: string) => {
       await act(async () =>
         tabButton(id).dispatchEvent(
           new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
@@ -560,8 +570,8 @@ describe("browser tab integration", () => {
     };
     // A page the user already kept has nothing to keep.
     expect(
-      (await menuLabels("web-2")).some((item) =>
-        item.textContent?.startsWith("Keep open"),
+      (await menuItems("web-2")).some((item) =>
+        item.textContent?.startsWith("Keep"),
       ),
     ).toBe(false);
     await act(async () =>
@@ -569,12 +579,20 @@ describe("browser tab integration", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       ),
     );
-    const keep = (await menuLabels("web-1")).find((item) =>
-      item.textContent?.startsWith("Keep open"),
+    const keep = (await menuItems("web-1")).find((item) =>
+      item.textContent?.startsWith("Keep this page"),
     );
-    expect(keep).toBeDefined();
+    expect(keep?.textContent).toContain(
+      "Pricing page will open its own page instead of reusing this one",
+    );
     await act(async () => keep!.click());
     expect(onKeepAgentPage).toHaveBeenCalledExactlyOnceWith("web-1");
+    // A double-click keeps it too, like a preview page.
+    const item = container.querySelector('[data-surface-id="web-1"]')!;
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    );
+    expect(onKeepAgentPage).toHaveBeenCalledTimes(2);
     expect(props.onKeepBrowser).not.toHaveBeenCalled();
   });
 

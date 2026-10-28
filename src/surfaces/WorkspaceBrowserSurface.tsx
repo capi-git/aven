@@ -58,7 +58,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
     (url: string) => actions.current.update(project, tabId, { url }),
     [actions, project, tabId],
   );
-  const onAddressEntered = useCallback(
+  const onTakenOver = useCallback(
     () => actions.current.release(project, tabId),
     [actions, project, tabId],
   );
@@ -96,7 +96,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       onClose={onClose}
       onToggleExpand={onToggleExpand}
       onUrlChange={onUrlChange}
-      onAddressEntered={onAddressEntered}
+      onTakenOver={onTakenOver}
       onTitleChange={onTitleChange}
       onFaviconChange={onFaviconChange}
       onOpenTab={onOpenTab}

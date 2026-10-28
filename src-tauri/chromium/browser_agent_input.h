@@ -257,4 +257,28 @@ inline std::vector<std::string> AgentUploadUnaccepted(const std::vector<std::str
   return refused;
 }
 
+// Whether the user has used a page, which tells the app to stop treating it
+// as an agent's working page: no more reloads or navigations from that
+// agent's opens. The user's own clicks, keys, drops and annotations count. An
+// agent's keys are counted while it sends them (`agent_keys`), and its clicks
+// and fills arrive as DevTools input that never reaches the window's mouse
+// monitor, so neither counts. Once used, a page stays the user's for its life.
+class UserTouch {
+ public:
+  // Each returns whether this was the first use, so the page reports it once.
+  bool Key(int agent_keys) { return agent_keys == 0 && Note(); }
+  bool Pointer() { return Note(); }
+  bool Annotate() { return Note(); }
+  // An annotation in progress always counts, even if it began before.
+  bool Touched(bool annotating) const { return touched_ || annotating; }
+
+ private:
+  bool Note() {
+    if (touched_) return false;
+    touched_ = true;
+    return true;
+  }
+  bool touched_ = false;
+};
+
 }  // namespace supermono

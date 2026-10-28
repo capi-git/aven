@@ -204,6 +204,11 @@ export type BrowserState = {
   /** What the page is capturing right now. */
   microphoneInUse?: boolean;
   cameraInUse?: boolean;
+  /**
+   * The user clicked, typed, dropped something into or annotated the page;
+   * an agent's own input never counts.
+   */
+  userTouched?: boolean;
   /** Authored by the native window's first-responder observer. */
   focused?: boolean;
   /** Native menus can sit above Chromium without replacing the page. */

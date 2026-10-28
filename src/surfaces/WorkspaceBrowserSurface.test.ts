@@ -115,8 +115,8 @@ describe("workspace browser surface memo boundary", () => {
     first.onTitleChange!("Next page");
     first.onAddToChat!("Page context");
     first.onOpenTab!("https://example.com/opened", true);
-    // Typing an address takes the page over from its agent.
-    first.onAddressEntered!();
+    // The user taking the page over releases it from its agent.
+    first.onTakenOver!();
     expect(generations[1].release).toHaveBeenCalledExactlyOnceWith(
       props.project,
       props.tabId,
@@ -177,7 +177,7 @@ describe("workspace browser surface memo boundary", () => {
       "onTitleChange",
       "onAddToChat",
       "onOpenTab",
-      "onAddressEntered",
+      "onTakenOver",
     ] as const)
       expect(hidden[callback]).toBe(first[callback]);
     parentUpdate();

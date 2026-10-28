@@ -93,7 +93,7 @@ describe("agent browser session connection", () => {
       "Open keeps one page per site for this chat and builds on it: opening the same address again reloads your page, and another address on the same site (another route, query string, fragment or mock file on that server) navigates it.",
     );
     expect(text).toContain(
-      "It never navigates a page the user opened, kept or typed an address into",
+      "It never reloads or navigates a page the user opened, kept, clicked, typed in or annotated, or another chat's page",
     );
     expect(text).toContain(
       "keep building on that one page: edit the same file, then open or reload it again. Do not create mock-v2 or mock-v3 files or more tabs unless the user asks for alternatives side by side.",
@@ -408,16 +408,33 @@ describe("agent browser session connection", () => {
       browserId: "native-user-page",
     });
     expect(workspace.tabs![0].url).toBe("http://localhost:5173/notes.html");
+    // The user clicks in the chat's page (the pane hears `userTouched` and
+    // the app releases it): the agent's next page is a new one.
+    const { releaseAgentBrowserTab } = await import("./personalWorkspace");
+    workspace = releaseAgentBrowserTab(workspace, "page-1");
+    await send("after-user", "http://localhost:5173/mocks/index.html?v=9");
+    expect(workspace.tabs!.map((tab) => tab.id)).toEqual([
+      "user-page",
+      "page-1",
+      "page-2",
+    ]);
+    expect(replies().at(-1)).toEqual({
+      requestId: "after-user",
+      browserId: "native-page-2",
+    });
+    expect(workspace.tabs![1].url).toBe(
+      "http://localhost:5173/mocks/pricing.html",
+    );
     // A new tab at another path is honoured, for alternatives side by side.
     await send(
       "alternative",
       "http://localhost:5173/mocks/alternative.html",
       true,
     );
-    expect(workspace.tabs).toHaveLength(3);
+    expect(workspace.tabs).toHaveLength(4);
     expect(replies().at(-1)).toEqual({
       requestId: "alternative",
-      browserId: "native-page-2",
+      browserId: "native-page-3",
     });
     // A new tab that would only copy the chat's own page reuses it.
     await send(
@@ -425,10 +442,10 @@ describe("agent browser session connection", () => {
       "http://localhost:5173/mocks/alternative.html?v=2",
       true,
     );
-    expect(workspace.tabs).toHaveLength(3);
+    expect(workspace.tabs).toHaveLength(4);
     expect(replies().at(-1)).toEqual({
       requestId: "same-path",
-      browserId: "native-page-2",
+      browserId: "native-page-3",
       refresh: "navigate",
     });
   });
@@ -456,9 +473,39 @@ describe("agent browser session connection", () => {
       },
     });
     expect(wake).toHaveBeenCalledOnce();
+    // Reported as reused, without a second load.
     expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
       requestId: "r",
       browserId: "native-woken",
+      refresh: "loaded",
+    });
+  });
+  it("asks for a fresh page when Aven found the user using the chat's page", async () => {
+    const api = await import("./agentBrowser");
+    let pages: string[] = [];
+    const open = vi.fn(async (..._args: unknown[]) => {
+      pages = ["fresh-surface"];
+      api.registerAgentBrowserPage("fresh-surface", "native-fresh");
+      return { id: "fresh-surface" };
+    });
+    dispose = api.installAgentBrowserHost({ surfaces: () => pages, open });
+    await api.prepareAgentBrowserPrompt("Again", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    await mocks.handlers.get("browser-agent-open")!({
+      payload: {
+        requestId: "r",
+        sessionId: "s",
+        url: "http://localhost:3000/",
+        newTab: true,
+        fresh: true,
+      },
+    });
+    expect(open.mock.calls[0][2]).toEqual({ newTab: true, fresh: true });
+    expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
+      requestId: "r",
+      browserId: "native-fresh",
     });
   });
   it("wakes a reused sleeping page and protects it until its binding is acknowledged", async () => {

@@ -96,10 +96,11 @@ export type BrowserPaneProps = {
   onAddToChat?: (text: string, attachments?: Attachment[]) => void;
   onUrlChange?: (url: string) => void;
   /**
-   * The user typed an address (or chose a search) for this page: it is
-   * theirs now, and an agent's next open no longer navigates it.
+   * The user took the page over: typed an address or chose a search for it,
+   * or clicked, typed or annotated in it. It is theirs now, and an agent's
+   * next open no longer reloads or navigates it.
    */
-  onAddressEntered?: () => void;
+  onTakenOver?: () => void;
   onTitleChange?: (title: string) => void;
   onFaviconChange?: (favicon: string) => void;
   onFocus?: () => void;
@@ -185,7 +186,7 @@ function BrowserPaneSession({
   onClose,
   onAddToChat,
   onUrlChange,
-  onAddressEntered,
+  onTakenOver,
   onTitleChange,
   onFaviconChange,
   onFocus,
@@ -308,10 +309,12 @@ function BrowserPaneSession({
     null,
   );
   const notifiedUrl = useRef("");
+  // Told once: the user has used this page (see `onTakenOver`).
+  const takenOver = useRef(false);
   const callbacks = useRef({
     onNativeReady,
     onUrlChange,
-    onAddressEntered,
+    onTakenOver,
     onTitleChange,
     onFaviconChange,
     onAddToChat,
@@ -321,7 +324,7 @@ function BrowserPaneSession({
   callbacks.current = {
     onNativeReady,
     onUrlChange,
-    onAddressEntered,
+    onTakenOver,
     onTitleChange,
     onFaviconChange,
     onAddToChat,
@@ -886,6 +889,10 @@ function BrowserPaneSession({
           ? previous
           : nextAction,
       );
+      if (state.userTouched === true && !takenOver.current) {
+        takenOver.current = true;
+        callbacks.current.onTakenOver?.();
+      }
       const microphone = state.microphoneInUse === true;
       const camera = state.cameraInUse === true;
       setCapture((previous) =>
@@ -1339,7 +1346,7 @@ function BrowserPaneSession({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    callbacks.current.onAddressEntered?.();
+    callbacks.current.onTakenOver?.();
     navigate(address);
     addressInput.current?.blur();
   };
@@ -2138,7 +2145,7 @@ function BrowserPaneSession({
                 <button
                   type="button"
                   onClick={() => {
-                    callbacks.current.onAddressEntered?.();
+                    callbacks.current.onTakenOver?.();
                     navigate(browserSearchSuggestion(address || url)!);
                   }}
                 >

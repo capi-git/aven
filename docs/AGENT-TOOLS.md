@@ -18,16 +18,23 @@ page that is that chat's own. Its next `open` on the same site (the same
 scheme, host and port, with `localhost`, `127.0.0.1` and `[::1]` counting as
 one) lands on that page: the same address reloads it, keeping its scroll
 position, and another route, query string, fragment or mock file navigates it.
-The result says `"reused":"reloaded"` or `"reused":"navigated"`. Overlapping
-requests share one page, and sleeping tabs wake as needed. Another local
-server, or another site, gets a page of its own.
+The result says `"reused":"reloaded"` or `"reused":"navigated"` (a page that
+woke for the open counts as reloaded). Overlapping requests from one chat share
+one page, its opens on one site take turns so the page ends on the address
+asked for last, and sleeping tabs wake as needed. Another local server, or
+another site, gets a page of its own. The page's tab names the chat in its
+tooltip: "Opened by … ; the chat reuses this page".
 
-`open` never navigates a page the user opened. A page at the same address that
-is not the chat's own (the user's, or another chat's) is only shown, as it is.
-A page stops being the agent's when you choose **Keep open** on it (in its
-tab's menu) or type an address into it; the agent's next `open` then makes a
-new page. Moving a page into a split keeps it as a tab but leaves it the
-agent's.
+`open` never navigates a page the user opened, and one chat never gets
+another chat's page: a page of the user's at the same address is only shown,
+as it is, and another chat's is left to it. A page stops being the agent's the
+moment you use it (a click, a key, a dropped file or an annotation; the
+agent's own clicks and typing do not count), when you choose **Keep this
+page** in its tab's menu or double-click its tab, or when you type an address
+into it. The agent's next `open` then makes a new page. If you use the page
+just as an agent's open arrives, Aven leaves it as it is and opens a new page
+too, and the result says why. Moving a page into a split keeps it as a tab but
+leaves it the agent's.
 
 Agents are told to iterate on a mock-up or preview in place: edit the same
 file and reload its page, rather than making `mock-v2` files or more tabs,

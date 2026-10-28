@@ -168,5 +168,25 @@ int main() {
     CHECK(gate.Expired(400 + kAgentUploadDeadlineSeconds));
     CHECK(kAgentUploadDeadlineSeconds < 40);  // the host waits 40 s
   }
+  {
+    // An agent's keys never make a page the user's; the user's first key,
+    // click, drop or annotation does, and is reported once.
+    UserTouch touch;
+    CHECK(!touch.Key(1));
+    CHECK(!touch.Key(2));
+    CHECK(!touch.Touched(false));
+    CHECK(touch.Touched(true));  // annotating right now
+    CHECK(touch.Key(0));
+    CHECK(touch.Touched(false));
+    CHECK(!touch.Key(0));
+    CHECK(!touch.Pointer());
+    UserTouch clicked;
+    CHECK(clicked.Pointer());
+    CHECK(clicked.Touched(false));
+    UserTouch annotated;
+    CHECK(annotated.Annotate());
+    CHECK(!annotated.Annotate());
+    CHECK(annotated.Touched(false));  // stays the user's after the card closes
+  }
   std::printf("%d agent input checks passed\n", checks);
 }

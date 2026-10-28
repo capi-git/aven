@@ -10984,7 +10984,7 @@ export default function App({
         id: tab.surfaceId,
         favicon: tab.favicon,
         kept: tab.kept,
-        ...(tab.agentChat ? { agentPage: true } : {}),
+        ...agentChatNamed(tab.agentChat, sessions),
         url: tab.url,
         // A race agent's page says whose
         // version it shows.
@@ -12097,6 +12097,23 @@ export default function App({
     </LiveSessionsContext.Provider>
   );
 }
+/**
+ * The chat that reuses an agent's page, by name, for its tab. A chat that is
+ * gone leaves the page an ordinary one.
+ */
+function agentChatNamed(
+  chat: string | undefined,
+  sessions: readonly Session[],
+): { agentChatName?: string } {
+  const session = chat
+    ? sessions.find((entry) => entry.id === chat)
+    : undefined;
+  if (!session) return {};
+  return {
+    agentChatName: conversationTitle(session) || HARNESS_TITLE[session.harness],
+  };
+}
+
 function conversationTitle(session: Session): string {
   const title = sessionDisplayTitle(session.title, session.harness);
   return isUntitledChatTitle(title) ? "" : title;

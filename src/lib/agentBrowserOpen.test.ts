@@ -411,11 +411,13 @@ describe("an agent builds on one page", () => {
     });
   });
 
-  it("opens a new tab once the user kept the page or typed an address into it", () => {
+  it("opens a new tab once the user kept the page, used it or typed an address into it", () => {
     const first = openAll(EMPTY_BROWSER, [mock]).workspace;
     for (const released of [
-      // Keep open on the agent's page.
+      // Keep this page (or a double-click on its tab).
       releaseAgentBrowserTab(keepBrowserTab(first, "page-1"), "page-1"),
+      // A click or key in the page, or an annotation (the page says so).
+      releaseAgentBrowserTab(first, "page-1"),
       // An address typed into it, which also changes what it shows.
       releaseAgentBrowserTab(
         updateBrowserTab(first, "page-1", { url: "https://example.com/" }),
@@ -475,6 +477,73 @@ describe("an agent builds on one page", () => {
       ["page-4", "navigate"],
       ["page-1", "navigate"],
     ]);
+  });
+
+  it("never shares a page one chat owns with another, even at the same address", () => {
+    const createId = ids();
+    const a = openAll(EMPTY_BROWSER, [mock], "chat-a", createId).workspace;
+    const b = openAgentBrowserTab(a, mock, { chat: "chat-b" }, createId);
+    expect([b.tab.id, b.refresh]).toEqual(["page-2", undefined]);
+    expect(b.tab.agentChat).toBe("chat-b");
+    // B's next page on the site builds on B's own page, never on A's.
+    const next = openAgentBrowserTab(
+      b.workspace,
+      `${mock}?v=2`,
+      { chat: "chat-b" },
+      createId,
+    );
+    expect([next.tab.id, next.refresh]).toEqual(["page-2", "navigate"]);
+    expect(next.workspace.tabs[0].url).toBe(mock);
+    // Without a chat (a dev server's preview) the existing page is shown.
+    expect(openAgentBrowserTab(a, mock, {}, createId).tab.id).toBe("page-1");
+  });
+
+  it("opens a fresh page whatever the chat has when Aven finds the user using its page", () => {
+    const first = openAll(EMPTY_BROWSER, [mock]).workspace;
+    const fresh = openAgentBrowserTab(
+      first,
+      mock,
+      { chat: "chat-a", newTab: true, fresh: true },
+      () => "fresh",
+    );
+    expect([fresh.tab.id, fresh.refresh]).toEqual(["fresh", undefined]);
+    expect(fresh.workspace.tabs[0]).toEqual(first.tabs[0]);
+  });
+
+  it("keeps two chats' overlapping opens of one address apart", async () => {
+    const router = createAgentBrowserRouter();
+    const pages: Array<{ id: string; url: string; agentChat?: string }> = [];
+    const finishes: Array<(id: string) => void> = [];
+    const create = vi.fn(
+      () => new Promise<string>((resolve) => finishes.push(resolve)),
+    );
+    const adapter = { tabs: () => pages, reuse: async () => "unused", create };
+    const a = router.open("/p", mock, { chat: "chat-a" }, adapter);
+    const again = router.open("/p", mock, { chat: "chat-a" }, adapter);
+    const b = router.open("/p", mock, { chat: "chat-b" }, adapter);
+    expect(again).toBe(a);
+    expect(b).not.toBe(a);
+    await Promise.resolve();
+    expect(create).toHaveBeenCalledTimes(2);
+    finishes[0]("page-a");
+    finishes[1]("page-b");
+    await expect(a).resolves.toEqual({ id: "page-a" });
+    await expect(b).resolves.toEqual({ id: "page-b" });
+    // A fresh request never joins one in flight.
+    const inFlight = router.open("/p", mock, { chat: "chat-a" }, adapter);
+    const fresh = router.open(
+      "/p",
+      mock,
+      { chat: "chat-a", newTab: true, fresh: true },
+      adapter,
+    );
+    expect(fresh).not.toBe(inFlight);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(create).toHaveBeenCalledTimes(4);
+    finishes[2]("page-c");
+    finishes[3]("page-d");
+    await expect(fresh).resolves.toEqual({ id: "page-d" });
   });
 
   it("reuses the chat's own page through the router and reports the refresh", async () => {

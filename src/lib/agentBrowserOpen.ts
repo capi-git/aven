@@ -22,6 +22,11 @@ export type AgentBrowserOpenOptions = {
    * on the same site; a page it creates becomes its own.
    */
   chat?: string;
+  /**
+   * A new page whatever the chat has: Aven found the user using the page
+   * the window picked, and leaves it alone.
+   */
+  fresh?: boolean;
 };
 
 export type AgentBrowserPlacement = { activate: false; arrange: boolean };
@@ -68,11 +73,13 @@ export function createAgentBrowserRouter() {
       },
     ): Promise<AgentBrowserOpened> {
       const target = normalizeBrowserUrl(url);
-      const key = JSON.stringify([scope, target]);
+      // Per chat: another chat's open must never share this one's result.
+      const key = JSON.stringify([scope, options?.chat ?? null, target]);
       const operations =
         pending.get(key) ?? new Set<Promise<AgentBrowserOpened>>();
       const existingOperation = operations.values().next().value;
-      if (!options?.newTab && existingOperation) return existingOperation;
+      if (!options?.newTab && !options?.fresh && existingOperation)
+        return existingOperation;
       const operation = Promise.resolve()
         .then(async () => {
           const placement: AgentBrowserPlacement = {
@@ -84,7 +91,7 @@ export function createAgentBrowserRouter() {
             url,
             options?.chat,
             adapter.preferredId,
-            { newTab: options?.newTab },
+            { newTab: options?.newTab, fresh: options?.fresh },
           );
           return existing
             ? opened(
@@ -257,16 +264,18 @@ function pagePath(url: string): string | null {
  * the same path on the same site is reused (reloaded, or navigated to a new
  * query or fragment), since a copy of it shows nothing new; any other path
  * or site gets a new tab, for alternatives side by side.
- * Undefined means a new tab. A page the user kept or took over has no
- * `agentChat`, so it is never navigated.
+ * Another chat's page is never shared with a chat: it gets its own.
+ * Undefined means a new tab, as `fresh` always does. A page the user kept or
+ * took over has no `agentChat`, so it is never navigated.
  */
 export function agentPageFor<T extends AgentPageCandidate>(
   tabs: readonly T[],
   url: string,
   chat?: string,
   preferredId?: string,
-  { newTab = false }: { newTab?: boolean } = {},
+  { newTab = false, fresh = false }: { newTab?: boolean; fresh?: boolean } = {},
 ): { tab: T; refresh?: AgentPageRefresh } | undefined {
+  if (fresh) return undefined;
   const own = (tab: T) => !!chat && tab.agentChat === chat;
   const mine = tabs.filter(own);
   const exactOwn = matchingAgentBrowserTab(mine, url, preferredId);
@@ -280,7 +289,13 @@ export function agentPageFor<T extends AgentPageCandidate>(
   const page =
     site.find((tab) => tab.id === preferredId) ?? site[site.length - 1];
   if (newTab) return page ? { tab: page, refresh: "navigate" } : undefined;
-  const exact = matchingAgentBrowserTab(tabs, url, preferredId);
+  // A page the user opened is shown as it is; one another chat owns is not
+  // shared, or that chat would go on navigating it under this one.
+  const exact = matchingAgentBrowserTab(
+    chat ? tabs.filter((tab) => !tab.agentChat) : tabs,
+    url,
+    preferredId,
+  );
   if (exact) return { tab: exact };
   return page ? { tab: page, refresh: "navigate" } : undefined;
 }
@@ -319,7 +334,7 @@ export function openAgentBrowserTab(
     url,
     options.chat,
     current.activeTabId ?? undefined,
-    { newTab: options.newTab },
+    { newTab: options.newTab, fresh: options.fresh },
   );
   if (existing) {
     const { tab, refresh } = existing;
