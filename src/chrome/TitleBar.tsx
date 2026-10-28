@@ -1921,9 +1921,16 @@ function TitleBarComponent({
     hideSegmentTip();
   }, [focusedId, hideSegmentTip]);
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  // The strip mounts and unmounts as the pane lends its header, so effects
+  // that listen to it follow the element itself.
+  const [tabStripElement, setTabStripElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
       tabStripRef.current = el;
+      setTabStripElement(el);
       sortable.setContainerRef(el);
       lockOverscroll(el);
     },
@@ -2046,16 +2053,26 @@ function TitleBarComponent({
     // Respect focus moved into an editor, menu or confirmation dialog meanwhile.
     if (document.activeElement !== document.body) return;
     const strip = tabStripRef.current;
-    const next = strip?.querySelector<HTMLButtonElement>(
-      '[role="tab"][tabindex="0"]',
-    );
-    (next ?? strip)?.focus();
+    if (strip) {
+      const next = strip.querySelector<HTMLButtonElement>(
+        '[role="tab"][tabindex="0"]',
+      );
+      (next ?? strip).focus();
+      return;
+    }
+    // A lent header has no strip: its toolbar, then the pane's "…".
+    const header = headerRef.current;
+    const slot = header?.querySelector<HTMLElement>("[data-pane-header-slot]");
+    const target =
+      slot?.querySelector<HTMLElement>(LENT_HEADER_FOCUSABLE) ??
+      header?.querySelector<HTMLElement>('[data-pane-tool="more"]');
+    target?.focus();
   });
 
   useLayoutEffect(() => {
-    const el = tabStripRef.current;
-    if (!el) return;
+    const el = tabStripElement;
     syncTabOverflow();
+    if (!el) return;
     el.addEventListener("scroll", syncTabOverflow, { passive: true });
     const ro = new ResizeObserver(syncTabOverflow);
     ro.observe(el);
@@ -2063,7 +2080,7 @@ function TitleBarComponent({
       el.removeEventListener("scroll", syncTabOverflow);
       ro.disconnect();
     };
-  }, [syncTabOverflow]);
+  }, [tabStripElement, syncTabOverflow]);
 
   // A row of tabs in a title row fits its tabs to the strip's width, less
   // the strip's own buttons after them (the "+N" keeps its room in
@@ -2071,7 +2088,7 @@ function TitleBarComponent({
   // shows, so this settles in one pass.
   const hasStripTools = Boolean(onOpenIphone);
   useLayoutEffect(() => {
-    const el = tabStripRef.current;
+    const el = tabStripElement;
     if (!paneTabs || !el) return;
     const measure = () => {
       let width = el.clientWidth;
@@ -2088,7 +2105,7 @@ function TitleBarComponent({
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [paneTabs, hasStripTools]);
+  }, [tabStripElement, paneTabs, hasStripTools]);
 
   const overflowSignature = JSON.stringify(
     orderedIds.map((id) => {
@@ -3078,6 +3095,7 @@ function TitleBarComponent({
 
   return (
     <header
+      ref={headerRef}
       className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
       data-pane-local={paneLocal || undefined}
       data-variant={variant}
@@ -3153,6 +3171,8 @@ function TitleBarComponent({
             ref={paneHeader.slotRef}
             className="aven-pane-header-slot"
             data-pane-header-slot={frontId}
+            // The pane's tabs, as its strip lists them, for a drop's target.
+            data-surface-order={JSON.stringify(allOrderedIds)}
           />
         ) : (
           <div
@@ -3597,6 +3617,10 @@ function TitleBarComponent({
   );
 }
 
+/** What focus may land on in a lent header's toolbar. */
+const LENT_HEADER_FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const MemoTitleBar = memo(TitleBarComponent);
 const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "tabs",
@@ -3607,6 +3631,7 @@ const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "combineTargets",
   "recents",
   "paneMoves",
+  "paneHides",
 ];
 export function TitleBar(props: TitleBarProps) {
   return <MemoTitleBar {...useChromeProps(props, TITLE_DATA)} />;

@@ -218,4 +218,35 @@ describe("one header per pane", () => {
       container.querySelector('section[aria-label="Content"] button'),
     ).toBeNull();
   });
+
+  it("keeps keyboard focus in the row when its strip gives way to the toolbar", async () => {
+    await render({ tabs: [tab("a", "Page"), tab("b", "Chat")], activeId: "a" });
+    container.querySelector<HTMLElement>('[role="tab"][tabindex="0"]')!.focus();
+    expect(document.activeElement).not.toBe(document.body);
+    // The other tab closes: the row lends itself to the page's toolbar.
+    await render({ tabs: [tab("a", "Page")], activeId: "a" });
+    expect(header().dataset.titleLayout).toBe("lone");
+    const focused = document.activeElement as HTMLElement;
+    expect(focused).not.toBe(document.body);
+    expect(header().contains(focused)).toBe(true);
+    expect(
+      focused.closest("[data-pane-header-slot]") ??
+        focused.closest('[data-pane-tool="more"]'),
+    ).not.toBeNull();
+  });
+
+  it("follows the strip's scrolling again after the row was lent", async () => {
+    await render({ tabs: [tab("a", "Page"), tab("b", "Chat")], activeId: "a" });
+    await render({ tabs: [tab("a", "Page")], activeId: "a" });
+    await render({ tabs: [tab("a", "Page"), tab("b", "Chat")], activeId: "a" });
+    const strip = container.querySelector<HTMLElement>(".aven-tab-strip")!;
+    Object.defineProperty(strip, "clientWidth", { value: 200 });
+    Object.defineProperty(strip, "scrollWidth", { value: 600 });
+    await act(async () => {
+      strip.dispatchEvent(new Event("scroll"));
+    });
+    expect(
+      container.querySelector('button[title="Scroll tabs right"]'),
+    ).not.toBeNull();
+  });
 });
