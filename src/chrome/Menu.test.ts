@@ -33,6 +33,7 @@ function declarations(property: string) {
 /** Source files that render a menu's rows inside a popover. */
 const MENUS = [
   "src/chrome/AddProjectMenu.tsx",
+  "src/chrome/BotPicker.tsx",
   "src/chrome/BranchPicker.tsx",
   "src/chrome/Composer.tsx",
   "src/chrome/CwdPicker.tsx",
@@ -89,6 +90,15 @@ describe("one menu", () => {
     );
   });
 
+  it("gives a picker the menu's palette for the error under its list", () => {
+    const rule = /([^{}]+)\{[^}]*--aven-menu-danger:[^}]*\}/.exec(menu);
+    expect(rule?.[1].split(",").map((selector) => selector.trim())).toEqual([
+      ".aven-menu",
+      ".aven-menu-picker",
+    ]);
+    expect(menu).toMatch(/\.aven-menu-error \{[^}]*var\(--aven-menu-danger\)/);
+  });
+
   it("builds each menu from the shared rows", () => {
     for (const file of MENUS) {
       const source = read(file);
@@ -96,6 +106,39 @@ describe("one menu", () => {
       expect(source, file).toMatch(/className=\{?[`"]aven-menu[\s"`$]/);
       expect(source, file).toContain("aven-menu-item");
     }
+  });
+
+  it("lists New bot's projects in the shared rows, not the panel's former ones", () => {
+    const source = read("src/chrome/BotPicker.tsx");
+    for (const shared of [
+      "aven-menu-item",
+      "aven-menu-label",
+      "aven-menu-separator",
+      "aven-menu-note",
+    ])
+      expect(source).toContain(`"${shared}`);
+    expect(source).not.toMatch(
+      /workspace-menu-panel-(item(?!s)|separator)|toolbar-panel-row/,
+    );
+  });
+
+  it("uses no menu row class that no stylesheet defines", () => {
+    const styles = tracked("src/*.css")
+      .map((file) => read(file).replace(/\/\*[\s\S]*?\*\//g, ""))
+      .join("\n");
+    const defined = new Set(
+      [...styles.matchAll(/\.([a-zA-Z_][\w-]*)/g)].map((match) => match[1]),
+    );
+    const missing = tracked("src/*.tsx")
+      .filter((file) => !file.includes(".test."))
+      .flatMap((file) =>
+        [...read(file).matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
+          .flatMap((match) => (match[1] ?? match[2]).split(/[\s"]+/))
+          .filter((name) => /^(aven-menu|workspace-menu-panel)\b/.test(name))
+          .filter((name) => /^[\w-]+$/.test(name) && !defined.has(name))
+          .map((name) => `${file}: ${name}`),
+      );
+    expect([...new Set(missing)]).toEqual([]);
   });
 
   it("leaves no popover menu with rows of its own", () => {

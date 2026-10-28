@@ -9,8 +9,10 @@
 
    Ink follows a ToolbarPanel's palette when the menu sits in one (a native
    window carries its owner's palette inline), and the workspace text
-   otherwise. */
-.aven-menu {
+   otherwise. A picker declares the same palette for what it draws outside
+   its list, such as the error under it. */
+.aven-menu,
+.aven-menu-picker {
   --aven-menu-ink: var(--toolbar-panel-text, var(--color-content));
   --aven-menu-muted: color-mix(
     in srgb,
@@ -24,6 +26,9 @@
     var(--aven-focus-ring, var(--color-accent))
   );
   --aven-menu-danger: var(--aven-danger-text);
+}
+
+.aven-menu {
   display: flex;
   flex-direction: column;
   padding: var(--aven-menu-inset);
@@ -279,7 +284,8 @@
 }
 
 @media (prefers-contrast: more) {
-  .aven-menu {
+  .aven-menu,
+  .aven-menu-picker {
     --aven-menu-muted: var(--aven-menu-ink);
     --aven-menu-line: color-mix(in srgb, var(--aven-menu-ink) 35%, transparent);
   }
