@@ -166,6 +166,7 @@ import {
   stripEntryShown,
   stripItems,
   viewMembers,
+  NO_PROJECT_STRIP_KEY,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
@@ -1582,20 +1583,41 @@ export default function App({
   const [detachedIds, setDetachedIds] = useState<Set<string>>(() => new Set());
   const detachedIdsRef = useRef(detachedIds);
   detachedIdsRef.current = detachedIds;
-  const deckProjectTabs = useMemo(() => {
+  const deck = useMemo(() => {
     // A projectless session belongs to no project, so it stands on its own
-    // rather than trailing the last project's tabs.
+    // rather than trailing the last project's tabs, with a strip of its own:
+    // the project's strip is never written from the one chat.
     const active = tabs.find((tab) => tab.id === activeTabId);
     if (
       active &&
       !workspaceTabCwd(active, sessions) &&
       !detachedIds.has(active.id)
     )
-      return [active];
-    return visibleProjectTabs(tabs, sessions, projectCwd, activeTabId).filter(
-      (tab) => !detachedIds.has(tab.id),
-    );
+      return { tabs: [active], key: NO_PROJECT_STRIP_KEY };
+    return {
+      tabs: visibleProjectTabs(tabs, sessions, projectCwd, activeTabId).filter(
+        (tab) => !detachedIds.has(tab.id),
+      ),
+      key: projectCwd,
+    };
   }, [activeTabId, tabs, sessions, projectCwd, detachedIds]);
+  const deckProjectTabs = deck.tabs;
+  const workspaceKey = deck.key;
+  const workspaceKeyRef = useRef(workspaceKey);
+  workspaceKeyRef.current = workspaceKey;
+  // Every tab that still exists, so a strip written while some are out of
+  // view (put away, in another window) keeps their places.
+  const existingSurfaceIds = useMemo(
+    () => [
+      ...tabs.map((tab) => tab.id),
+      ...Object.entries(browserWorkspaces).flatMap(([project, saved]) =>
+        normalizeBrowserWorkspace(saved).tabs.map((tab) =>
+          browserIdForTab(project, tab.id),
+        ),
+      ),
+    ],
+    [tabs, browserWorkspaces],
+  );
   const browserState = normalizeBrowserWorkspace(
     browserWorkspaces[projectCwd] ?? EMPTY_BROWSER,
   );
@@ -1637,13 +1659,14 @@ export default function App({
       : null,
   );
   const workspaceViews = useWorkspaceViews(
-    projectCwd,
+    workspaceKey,
     [
       ...deckProjectTabs.map((tab) => tab.id),
       ...browserSurfaces.map((tab) => tab.surfaceId),
     ],
     fallbackSurface,
     initialBrowserSplit,
+    existingSurfaceIds,
   );
   const view = workspaceViews.view;
   const workspaceHeaderKeys = useWorkspaceHeaderKeys(projectCwd, view.groups);
@@ -1667,8 +1690,9 @@ export default function App({
       if (JSON.stringify(before) === JSON.stringify(after)) return;
       const next = pushWorkspaceLayoutUndo(
         recoveryRef.current,
-        projectCwdRef.current,
+        workspaceKeyRef.current,
         before,
+        viewRef.current.strip.front,
       );
       recoveryRef.current = next;
       setRecovery(next);
@@ -1680,15 +1704,16 @@ export default function App({
     const current = viewRef.current.view;
     const result = popWorkspaceLayoutUndo(
       recoveryRef.current,
-      projectCwdRef.current,
+      workspaceKeyRef.current,
       current.order,
       current.focusedId,
     );
-    if (!result.view) return;
+    if (!result.snapshot) return;
     recoveryRef.current = result.state;
     setRecovery(result.state);
-    const restored = result.view;
-    viewRef.current.change(() => restored);
+    // The change belongs to the entry it was made in, which comes to the
+    // front for it. With none of that entry's tabs left, nothing changes.
+    viewRef.current.undoLayout(result.snapshot, result.entry);
   }, []);
   const onKeepBrowser = useCallback((surfaceId: string) => {
     const cwd = projectCwdRef.current;
@@ -1728,6 +1753,9 @@ export default function App({
         viewRef.current.viewWith(workspaceIntentIds(intent)),
         intent,
       );
+      // A drop that moved nothing changes nothing, and keeps no preview.
+      if (JSON.stringify(result.view) === JSON.stringify(viewRef.current.view))
+        return;
       result.keep.forEach(onKeepBrowser);
       changeLayout(() => result.view);
       if (GLIDING_INTENTS.has(intent.type)) setPaneGlide((glide) => glide + 1);
@@ -9608,7 +9636,7 @@ export default function App({
         ...state.tabs.map((tab) => tab.id),
         ...state.browsers.map((tab) => tab.id),
       ];
-      const remaining = sameProjectPath(projectCwdRef.current, cwd)
+      const remaining = sameProjectPath(workspaceKeyRef.current, cwd)
         ? viewRef.current.view
         : viewRef.current.get(cwd);
       const restored = restoreWorkspaceArrangement(
@@ -10938,7 +10966,7 @@ export default function App({
         )}
         onUndoLayout={onUndoLayout}
         canUndoLayout={recovery.layouts.some(
-          (entry) => entry.cwd === projectCwd,
+          (entry) => entry.cwd === workspaceKey,
         )}
         onSurfaceDragMove={onSurfaceDragMove}
         onSurfaceDragEnd={onSurfaceDragEnd}

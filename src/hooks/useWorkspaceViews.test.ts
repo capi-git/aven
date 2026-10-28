@@ -15,6 +15,7 @@ import {
   type WorkspaceView,
 } from "../lib/workspaceViews";
 import {
+  NO_PROJECT_STRIP_KEY,
   WORKSPACE_SPACES_KEY,
   type WorkspaceStrip,
 } from "../lib/workspaceSpaces";
@@ -47,11 +48,22 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
   let root: Root;
   let container: HTMLDivElement;
   let current: ReturnType<typeof useWorkspaceViews>;
-  let props: { project: string; ids: string[]; requestedFocus: string };
+  let props: {
+    project: string;
+    ids: string[];
+    requestedFocus: string;
+    existing?: string[];
+  };
   let storage: Map<string, string>;
 
-  function Harness({ project, ids, requestedFocus }: typeof props) {
-    current = useWorkspaceViews(project, ids, requestedFocus);
+  function Harness({ project, ids, requestedFocus, existing }: typeof props) {
+    current = useWorkspaceViews(
+      project,
+      ids,
+      requestedFocus,
+      undefined,
+      existing,
+    );
     return null;
   }
   beforeEach(() => {
@@ -608,6 +620,36 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
       expect(current.strip.front).toBe("b-chat");
     });
 
+    it("undoes a layout change in the split it was made in", async () => {
+      const split = await withSplit();
+      await act(async () => current.select("b-web"));
+      const snapshot = current.view;
+      const entry = current.strip.front;
+      await act(async () =>
+        current.change((view) => ({
+          ...view,
+          layout: {
+            ...(view.layout as Extract<LayoutNode, { type: "split" }>),
+            sizes: [0.3, 0.7],
+          },
+        })),
+      );
+      // Another entry comes to the front before the undo.
+      await act(async () => current.select("b-chat"));
+      let undone = false;
+      await act(async () => {
+        undone = current.undoLayout(snapshot, entry);
+      });
+      expect(undone).toBe(true);
+      expect(current.strip.front).toBe(entryKeyOf(split));
+      expect(current.view.layout).toEqual(snapshot.layout);
+      expect(
+        current.strip.entries.map((item) =>
+          item.kind === "item" ? item.id : item.kind,
+        ),
+      ).toEqual(["b-chat", "space"]);
+    });
+
     it("separates a split into single tabs", async () => {
       const split = await withSplit();
       await act(async () => current.select("b-docs"));
@@ -618,6 +660,88 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
         ),
       ).toEqual(["b-chat", "b-web", "b-docs"]);
       expect(current.view.layout).toEqual(leaf("b-docs"));
+    });
+  });
+
+  describe("a chat of no project", () => {
+    const pair = (one: string, two: string): WorkspaceView => ({
+      layout: {
+        type: "split",
+        id: `${one}-${two}`,
+        dir: "right",
+        sizes: [0.5, 0.5],
+        children: [leaf(one), leaf(two)],
+      },
+      focusedId: one,
+      order: [one, two],
+      groups: { [one]: [one], [two]: [two] },
+    });
+    /** x | y in front, a single tab, a | b, and a page. */
+    const stored: WorkspaceStrip = {
+      entries: [
+        { kind: "space", id: "s1", view: pair("b-x", "b-y") },
+        { kind: "item", id: "b-f" },
+        { kind: "space", id: "s2", view: pair("b-a", "b-b") },
+        { kind: "item", id: "b-page" },
+      ],
+      front: "aven-space:s1",
+    };
+    const ids = ["b-x", "b-y", "b-f", "b-a", "b-b", "b-page"];
+    const existing = [...ids, "home"];
+    const shape = () =>
+      current.strip.entries.map((entry) =>
+        entry.kind === "item"
+          ? entry.id
+          : `${entry.id}(${leafIds(entry.view.layout!).join("|")})`,
+      );
+    const whole = ["s1(b-x|b-y)", "b-f", "s2(b-a|b-b)", "b-page"];
+    beforeEach(() => {
+      storage.set(
+        WORKSPACE_SPACES_KEY,
+        JSON.stringify({ version: 1, projects: { [projectB]: stored } }),
+      );
+    });
+
+    it("keeps the project's splits through a visit and back", async () => {
+      await render({ project: projectB, ids, requestedFocus: "b-x", existing });
+      expect(shape()).toEqual(whole);
+      // The chat stands on a strip of its own, beside the project's page.
+      await render({
+        project: NO_PROJECT_STRIP_KEY,
+        ids: ["home", "b-page"],
+        requestedFocus: "home",
+        existing,
+      });
+      await act(async () => current.select("b-page"));
+      expect(spaces().projects[projectB]).toEqual(stored);
+      // Back to one of the project's tabs.
+      await act(async () => current.focus(projectB, "b-a"));
+      await render({ project: projectB, ids, requestedFocus: "b-a", existing });
+      expect(shape()).toEqual(whole);
+      expect(current.strip.front).toBe("aven-space:s2");
+      // An older Aven opens on the split in front, too.
+      expect(leafIds(persisted()[projectB].layout!)).toEqual(["b-a", "b-b"]);
+    });
+
+    it("keeps them even when written from the chat's partial view", async () => {
+      await render({ project: projectB, ids, requestedFocus: "b-x", existing });
+      // The project's strip written while only the chat and a page show.
+      await render({
+        project: projectB,
+        ids: ["home", "b-page"],
+        requestedFocus: "home",
+        existing,
+      });
+      await act(async () => current.select("b-page"));
+      await render({
+        project: projectB,
+        ids,
+        requestedFocus: "b-page",
+        existing,
+      });
+      expect(shape()).toEqual(whole);
+      await act(async () => current.select("b-x"));
+      expect(leafIds(persisted()[projectB].layout!)).toEqual(["b-x", "b-y"]);
     });
   });
 });

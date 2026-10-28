@@ -27,6 +27,11 @@ import {
 
 /** Stored under its own versioned key; the former views stay readable. */
 export const WORKSPACE_SPACES_KEY = "aven.workspaceSpaces.v1";
+/**
+ * The strip of a chat that belongs to no project. It is kept apart from the
+ * project left behind, whose strip must not be written from the one chat.
+ */
+export const NO_PROJECT_STRIP_KEY = "~";
 /** Space entries are keyed apart from tab ids, which never start so. */
 export const SPACE_KEY_PREFIX = "aven-space:";
 
@@ -379,7 +384,7 @@ export function applyStripView(
   const items = paneItems(next);
   const front = items.includes(next.focusedId)
     ? next.focusedId
-    : (items[0] ?? (placed[0] ? entryKey(placed[0]) : ""));
+    : (items[0] ?? neighbourKey(placed, Math.max(frontAt, 0)));
   return { entries: placed, front };
 }
 
@@ -562,9 +567,13 @@ export function detachStripTab(
   const entries = strip.entries.flatMap((entry) =>
     entry === source ? rest : [entry],
   );
-  const at = before
-    ? entries.findIndex((entry) => entryKey(entry) === before)
-    : -1;
+  // Let go on its own split's chip, the tab stands where the split stood.
+  const at =
+    before === key
+      ? strip.entries.indexOf(source)
+      : before
+        ? entries.findIndex((entry) => entryKey(entry) === before)
+        : -1;
   entries.splice(at < 0 ? entries.length : at, 0, { kind: "item", id });
   let front = strip.front;
   if (front === key) {
@@ -630,4 +639,81 @@ export function stripViewWith(
       [owner]: [...(view.groups[owner] ?? []), ...incoming],
     },
   };
+}
+
+/**
+ * A write resolved against only some of a project's tabs (a chat of no
+ * project in front, pages put away) must not lose the rest: stored entries
+ * none of whose tabs the write could see stay in their places while any of
+ * their tabs still exist.
+ */
+export function keepUnseenStripEntries(
+  stored: unknown,
+  next: WorkspaceStrip,
+  seen: ReadonlySet<string>,
+  exists: (id: string) => boolean,
+): WorkspaceStrip {
+  const parsed = parseEntries(stored);
+  if (!parsed) return next;
+  const held = new Set(recordedStripIds(next));
+  const entries = [...next.entries];
+  const keys = new Set(entries.map(entryKey));
+  let after: string | null = null;
+  let kept = false;
+  for (const entry of parsed.entries) {
+    const key = entryKey(entry);
+    if (keys.has(key)) {
+      after = key;
+      continue;
+    }
+    const members =
+      entry.kind === "item" ? [entry.id] : storedMembers(entry.view);
+    if (
+      !members.length ||
+      members.some((id) => seen.has(id) || held.has(id)) ||
+      !members.some(exists)
+    )
+      continue;
+    const at =
+      after === null
+        ? 0
+        : entries.findIndex((candidate) => entryKey(candidate) === after) + 1;
+    entries.splice(at, 0, entry);
+    keys.add(key);
+    members.forEach((id) => held.add(id));
+    after = key;
+    kept = true;
+  }
+  return kept ? { ...next, entries } : next;
+}
+
+/**
+ * Undo a layout change on the entry it was made in, not whichever entry is
+ * in front now: that entry comes to the front and takes the arrangement
+ * back. An entry that has since been split or come apart is found by the
+ * tab that was focused in it, then by any of its tabs. Null when none of
+ * them is on the strip any more.
+ */
+export function undoStripLayout(
+  strip: WorkspaceStrip,
+  snapshot: WorkspaceView,
+  entry?: string,
+): WorkspaceStrip | null {
+  const members = storedMembers(snapshot);
+  const target =
+    (entry && strip.entries.some((candidate) => entryKey(candidate) === entry)
+      ? entry
+      : undefined) ??
+    stripEntryKeyOf(strip, snapshot.focusedId) ??
+    members.map((id) => stripEntryKeyOf(strip, id)).find(Boolean);
+  if (!target) return null;
+  const focus = stripEntryFocus(strip, target);
+  const front = focus ? focusStripTab(strip, focus) : strip;
+  const current = stripView(front);
+  const restored = resolveWorkspaceView(
+    snapshot,
+    current.order,
+    current.focusedId,
+  );
+  return applyStripView(front, restored);
 }

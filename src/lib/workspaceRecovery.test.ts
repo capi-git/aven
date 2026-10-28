@@ -344,7 +344,31 @@ describe("layout undo", () => {
     expect(popWorkspaceLayoutUndo(state, "/missing", [], "")).toEqual({
       state,
       view: null,
+      snapshot: null,
     });
+  });
+
+  it("remembers the strip entry each layout change was made in, through storage", () => {
+    const view = resolveWorkspaceView(undefined, ["x", "y"], "x");
+    let state = pushWorkspaceLayoutUndo(
+      emptyWorkspaceRecovery(),
+      cwd,
+      view,
+      "aven-space:one",
+    );
+    // The same arrangement in another entry is a capture of its own.
+    state = pushWorkspaceLayoutUndo(state, cwd, view, "aven-space:two");
+    expect(state.layouts.map((entry) => entry.entry)).toEqual([
+      "aven-space:one",
+      "aven-space:two",
+    ]);
+    const stored = parseWorkspaceRecovery(JSON.parse(JSON.stringify(state)));
+    const result = popWorkspaceLayoutUndo(stored, cwd, ["x", "y"], "x");
+    expect(result.entry).toBe("aven-space:two");
+    expect(result.snapshot?.order).toEqual(view.order);
+    expect(
+      popWorkspaceLayoutUndo(result.state, cwd, ["x", "y"], "x").entry,
+    ).toBe("aven-space:one");
   });
 
   it("never persists nested expansion backups or view runtime fields", () => {

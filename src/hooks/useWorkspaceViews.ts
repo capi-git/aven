@@ -5,12 +5,14 @@ import {
   applyStripView,
   detachStripTab,
   focusStripTab,
+  keepUnseenStripEntries,
   recordedStripIds,
   reorderStripEntries,
   resolveWorkspaceStrip,
   separateStripSpace,
   stripView,
   stripViewWith,
+  undoStripLayout,
   viewMembers,
   WORKSPACE_SPACES_KEY,
   type WorkspaceStrip,
@@ -99,6 +101,11 @@ export function useWorkspaceViews(
   ids: string[],
   requestedFocus: string,
   initialLayout?: LayoutNode,
+  /**
+   * Every tab that still exists, shown here or not. A write keeps stored
+   * entries of tabs `ids` leaves out while they are in this list.
+   */
+  existing: readonly string[] = [],
 ) {
   const [store, setStore] = useState(loadStore);
   const storeRef = useRef(store);
@@ -127,6 +134,8 @@ export function useWorkspaceViews(
   const view = useMemo(() => stripView(strip), [strip]);
   const current = useRef({ key, ids, requestedFocus, initialLayout });
   current.current = { key, ids, requestedFocus, initialLayout };
+  const existingRef = useRef(existing);
+  existingRef.current = existing;
 
   /** Change one project's strip, resolved against the tabs it can see. */
   const mutate = useCallback(
@@ -144,15 +153,22 @@ export function useWorkspaceViews(
           : all.strips[target]
             ? recordedStripIds(all.strips[target])
             : (all.legacy[target]?.order ?? []);
+        const seen = new Set([...known, ...extraIds]);
         const before = resolveStrip(
           all,
           target,
-          [...new Set([...known, ...extraIds])],
+          [...seen],
           here ? context.requestedFocus : "",
           here ? context.initialLayout : undefined,
           here && onStrip,
         );
-        const next = update(before);
+        const exists = new Set(existingRef.current);
+        const next = keepUnseenStripEntries(
+          all.strips[target],
+          update(before),
+          seen,
+          (id) => exists.has(id),
+        );
         if (JSON.stringify(next) === JSON.stringify(all.strips[target]))
           return all;
         return { ...all, strips: { ...all.strips, [target]: next } };
@@ -230,6 +246,21 @@ export function useWorkspaceViews(
       ),
     [mutate],
   );
+  /**
+   * Put back a layout snapshot in the entry it was taken in. False when
+   * none of that entry's tabs is on the strip any more.
+   */
+  const undoLayout = useCallback(
+    (snapshot: WorkspaceView, entry?: string) => {
+      if (!undoStripLayout(stripRef.current, snapshot, entry)) return false;
+      mutate(
+        current.current.key,
+        (strip) => undoStripLayout(strip, snapshot, entry) ?? strip,
+      );
+      return true;
+    },
+    [mutate],
+  );
   /** The next new tab stands on the strip, even with a space in front. */
   const openOnStrip = useCallback(() => {
     stripNext.current = Date.now();
@@ -303,5 +334,6 @@ export function useWorkspaceViews(
     separate,
     viewWith,
     openOnStrip,
+    undoLayout,
   };
 }

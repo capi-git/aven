@@ -2,16 +2,24 @@ import { describe, expect, it } from "vitest";
 import { leaf, leafIds, type LayoutNode } from "./layout";
 import {
   addStripPane,
+  applyStripView,
   detachStripTab,
   focusStripTab,
+  keepUnseenStripEntries,
   resolveWorkspaceStrip,
   separateStripSpace,
   spacePanes,
   stripView,
+  undoStripLayout,
   type StripEntry,
   type WorkspaceStrip,
 } from "./workspaceSpaces";
-import { toggleWorkspaceExpansion, type WorkspaceView } from "./workspaceViews";
+import {
+  closeWorkspaceViews,
+  splitWorkspaceView,
+  toggleWorkspaceExpansion,
+  type WorkspaceView,
+} from "./workspaceViews";
 
 const columns = (...ids: string[]): LayoutNode => ({
   type: "split",
@@ -206,5 +214,132 @@ describe("Separate split", () => {
         },
       ),
     ).toEqual(next);
+  });
+});
+
+/** x | y, then a single tab, then a | b. */
+function twoSplits(front: string): WorkspaceStrip {
+  const pair = (one: string, two: string): WorkspaceView => ({
+    layout: columns(one, two),
+    focusedId: one,
+    order: [one, two],
+    groups: { [one]: [one], [two]: [two] },
+  });
+  return {
+    entries: [
+      space("s1", pair("x", "y")),
+      item("f"),
+      space("s2", pair("a", "b")),
+    ],
+    front,
+  };
+}
+
+describe("closing the only single tab in front", () => {
+  it("brings its neighbour forward, not the first entry", () => {
+    const before = twoSplits("f");
+    const next = applyStripView(
+      before,
+      closeWorkspaceViews(stripView(before), ["f"], ""),
+    );
+    expect(keys(next)).toEqual(["split(x|y)", "split(a|b)"]);
+    expect(next.front).toBe("aven-space:s2");
+  });
+});
+
+describe("a tab let go on its own split's chip", () => {
+  it("stands where the split stood", () => {
+    const next = detachStripTab(strip(), "chat", "aven-space:s1");
+    expect(keys(next)).toEqual(["notes", "chat", "web", "docs", "board"]);
+  });
+
+  it("still goes before another entry it is let go on", () => {
+    const next = detachStripTab(strip(), "chat", "notes");
+    expect(keys(next)).toEqual(["chat", "notes", "web", "docs", "board"]);
+  });
+});
+
+describe("undoing a layout change", () => {
+  it("returns to the split it was made in, not the one in front", () => {
+    let current = twoSplits("aven-space:s1");
+    const snapshot = stripView(current);
+    current = applyStripView(
+      current,
+      splitWorkspaceView(stripView(current), "f", "down", "y"),
+    );
+    // The user looks at the other split, then undoes.
+    current = focusStripTab(current, "a");
+    expect(current.front).toBe("aven-space:s2");
+    const undone = undoStripLayout(current, snapshot, "aven-space:s1")!;
+    expect(undone.front).toBe("aven-space:s1");
+    expect(keys(undone)).toEqual(["split(x|y)", "f", "split(a|b)"]);
+    const s2 = undone.entries.find((entry) => entry.id === "s2");
+    expect(s2?.kind === "space" && leafIds(s2.view.layout!)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("finds a single tab's change in the split it became", () => {
+    const current = twoSplits("f");
+    const snapshot = stripView(current);
+    const split = applyStripView(
+      current,
+      splitWorkspaceView(
+        { ...snapshot, groups: { f: ["f", "a"] }, order: ["f", "a"] },
+        "a",
+        "right",
+        "f",
+      ),
+    );
+    expect(split.front).not.toBe("f");
+    const undone = undoStripLayout(split, snapshot, "f")!;
+    expect(keys(undone)).toContain("f");
+    expect(undone.front).toBe("f");
+  });
+
+  it("changes nothing once none of the entry's tabs is left", () => {
+    const current = twoSplits("aven-space:s2");
+    const gone: WorkspaceView = {
+      layout: columns("p", "q"),
+      focusedId: "p",
+      order: ["p", "q"],
+      groups: { p: ["p"], q: ["q"] },
+    };
+    expect(undoStripLayout(current, gone, "aven-space:old")).toBeNull();
+  });
+});
+
+describe("a write that sees only some of a project's tabs", () => {
+  const all = ["x", "y", "f", "a", "b"];
+  it("keeps the stored entries it could not see in their places", () => {
+    const stored = twoSplits("f");
+    const partial = resolveWorkspaceStrip(stored, ["home"], "home", () => {
+      throw new Error("unexpected migration");
+    });
+    const written = keepUnseenStripEntries(
+      stored,
+      partial,
+      new Set(["home"]),
+      (id) => all.includes(id),
+    );
+    const back = resolveWorkspaceStrip(written, all, "f", () => {
+      throw new Error("unexpected migration");
+    });
+    expect(keys(back)).toEqual(["split(x|y)", "f", "split(a|b)"]);
+  });
+
+  it("lets entries of closed tabs go", () => {
+    const stored = twoSplits("f");
+    const partial = resolveWorkspaceStrip(stored, ["x", "y"], "x", () => {
+      throw new Error("unexpected migration");
+    });
+    const written = keepUnseenStripEntries(
+      stored,
+      partial,
+      new Set(["x", "y"]),
+      (id) => id !== "f",
+    );
+    expect(keys(written)).toEqual(["split(x|y)", "split(a|b)"]);
   });
 });
