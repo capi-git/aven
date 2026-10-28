@@ -492,6 +492,9 @@ export class SpringAnimator<K extends string> {
     const animations: Animation[] = [];
     for (const [element, list] of frames) {
       if (typeof (element as HTMLElement).animate !== "function") continue;
+      // An element whose channels are not moving this run (only one value
+      // was retargeted) holds still in its own style: no animation for it.
+      if (list.every((frame) => sameFrame(frame, list[0]))) continue;
       animations.push(
         element.animate(list, { duration: ms, easing: "linear", fill: "none" }),
       );
@@ -517,6 +520,13 @@ export class SpringAnimator<K extends string> {
       };
     }
   }
+}
+
+/** The same properties at the same values, whatever their offsets. */
+function sameFrame(a: Keyframe, b: Keyframe): boolean {
+  for (const key of Object.keys(a))
+    if (key !== "offset" && a[key] !== b[key]) return false;
+  return true;
 }
 
 const KEBAB = /[A-Z]/g;

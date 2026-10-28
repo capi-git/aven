@@ -233,4 +233,27 @@ describe("SpringAnimator", () => {
     expect(element.style.transform).toBe("translateX(5px)");
     expect(springs.state().x).toEqual({ value: 5, velocity: 0 });
   });
+
+  it("animates only the elements whose values move", () => {
+    const moving = document.createElement("div");
+    const still = document.createElement("div");
+    const movingRuns = fakeAnimate(moving);
+    const stillRuns = fakeAnimate(still);
+    const springs = new SpringAnimator(
+      {
+        x: { spring: critical, precision: 0.25 },
+        o: { spring: critical, precision: 0.002 },
+      },
+      { x: 0, o: 1 },
+      ({ x, o }) => [
+        [moving, { transform: `translateX(${x}px)` }],
+        [still, { opacity: String(o) }],
+      ],
+    );
+    springs.to({ x: 40 });
+    expect(movingRuns).toHaveLength(1);
+    expect(stillRuns).toHaveLength(0);
+    expect(still.style.opacity).toBe("1");
+    springs.cancel();
+  });
 });
