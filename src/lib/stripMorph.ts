@@ -264,7 +264,15 @@ export class StripMorph {
    * The spring set of an element, made on first use. With `radius`, it also
    * draws a clip (channel `c`, px hidden at each side) with those corners.
    */
-  springs(element: HTMLElement, axis: "x" | "y" = "x", radius?: string) {
+  springs(
+    element: HTMLElement,
+    axis: "x" | "y" = "x",
+    radius?: string,
+    /** A pill's fill: it always draws its scale, so every frame's
+        transform lists the same functions (WebKit and Chromium then
+        interpolate them piece by piece). */
+    stretches = false,
+  ) {
     let found = this.animators.get(element);
     if (!found) {
       const zoom = effectiveCssZoom(element) || 1;
@@ -283,7 +291,7 @@ export class StripMorph {
       }: Readonly<Record<MorphChannels, number>>): Keyframe => ({
         transform:
           axis === "x"
-            ? `translate3d(${x / zoom}px, 0, 0)${sx !== 1 ? ` scaleX(${sx})` : ""}`
+            ? `translate3d(${x / zoom}px, 0, 0)${stretches ? ` scaleX(${sx})` : ""}`
             : `translate3d(0, ${x / zoom}px, 0)`,
         opacity: String(o),
         ...(radius !== undefined
@@ -428,6 +436,7 @@ export class StripMorph {
         step.kind === "content" && step.clip > 0
           ? after.parts.get(step.key)?.radius || "0px"
           : undefined,
+        step.kind === "fill",
       );
       if (step.kind === "entry")
         springs.to(

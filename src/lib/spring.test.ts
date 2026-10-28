@@ -208,6 +208,25 @@ describe("SpringAnimator", () => {
     expect(created[0].animation.cancel).toHaveBeenCalled();
     expect(settled).toHaveBeenCalledOnce();
     expect(element.style.transform).toBe("translateX(50px)");
+    // At rest it keeps no timer and draws no frame: nothing wakes an idle
+    // window (it never uses requestAnimationFrame at all).
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never asks for animation frames", () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame");
+    const element = document.createElement("div");
+    fakeAnimate(element);
+    const springs = new SpringAnimator(
+      { x: { spring: critical, precision: 0.25 } },
+      { x: 0 },
+      ({ x }) => [[element, { transform: `translateX(${x}px)` }]],
+    );
+    springs.to({ x: 80 }, { velocity: { x: 400 } });
+    springs.state();
+    springs.to({ x: -20 });
+    springs.finish();
+    expect(raf).not.toHaveBeenCalled();
   });
 
   it("jumps and finishes without animating", () => {

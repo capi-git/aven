@@ -8,8 +8,11 @@ import { springCurve, type Spring } from "./spring";
  *
  * Springs use Apple's two parameters (see spring.ts): damping 1 settles
  * without overshoot; response is roughly the seconds to get most of the way.
- * `motion.css` carries `move` and `lift` as sampled `linear()` curves for
- * the CSS that eases with them; motionTokens.test.ts keeps both in step.
+ * TitleBar.css carries `move` and `lift` as sampled `linear()` curves for
+ * the CSS that eases with them, behind `@supports`: WebKit before Safari
+ * 17.2 has no `linear()` and uses the cubic-bézier set before it. Script
+ * never needs `linear()`: its springs are sampled keyframes played with the
+ * plain "linear" keyword. motionTokens.test.ts keeps both in step.
  */
 export const TAB_SPRING = {
   /** Things that travel: siblings, the drop, flying home, morphs, previews. */

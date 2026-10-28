@@ -694,6 +694,42 @@ describe("useSortable external drops and cancellation", () => {
       expect(preview()).toBeNull();
       expect(original.style.opacity).toBe("");
       expect(onReorder).not.toHaveBeenCalled();
+      // Nothing is left behind mid-spring: every tab back in its own style,
+      // and no timer still pending (an idle window wakes for nothing).
+      if (reason !== "unmount")
+        for (const id of ids) {
+          expect(visual(id).style.transform).toBe("");
+          expect(visual(id).style.opacity).toBe("");
+        }
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["pointercancel", "blur", "Escape"])(
+    "leaves nothing behind when %s ends a drag whose neighbours are mid-spring and starts again at once",
+    async (reason) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await startAnimated(270);
+      // session-b is on its way to -100px when the drag ends.
+      expect(visual("session-b").style.transform).toBe(
+        "translate3d(-100px, 0, 0)",
+      );
+      await act(async () => {
+        if (reason === "Escape")
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        else window.dispatchEvent(new Event(reason));
+      });
+      // A new press while everything is still flying home ends it at once.
+      await pointer(item("session-a"), "pointerdown", 50, 15);
+      await pointer(window, "pointerup", 50, 15);
+      expect(preview()).toBeNull();
+      for (const id of ids) {
+        expect(visual(id).style.transform).toBe("");
+        expect(visual(id).style.opacity).toBe("");
+        expect(visual(id).hasAttribute("data-sortable-dragging")).toBe(false);
+      }
+      expect(sortable.landingId).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
     },
   );
 
