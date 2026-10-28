@@ -91,7 +91,8 @@ struct ProjectRun {
 struct State {
     projects: HashMap<String, ProjectRun>,
     /// Devices Aven booted or the person picked in each project's pane: the
-    /// only ones that project's agents may drive.
+    /// only ones that project's agents may drive. A running simulator the
+    /// pane merely suggested or remembered joins only once picked.
     scope: HashMap<String, BTreeSet<String>>,
     /// The boot of each device whose input Aven made (or found) ready.
     ready: HashMap<String, BootId>,
@@ -978,8 +979,10 @@ fn mark_ready(udid: &str, facts: &BootFacts) {
 
 /// Boots `udid` if needed and makes its input ready, once per boot. The input
 /// fix (which restarts the home screen) runs only on a boot Aven started, or
-/// on a device the person picked in the pane (`picked`). Progress goes to
-/// `report` (phase and message).
+/// on a device the person picked in the pane (`picked`). Those are also the
+/// only devices that join the project's agent scope: a running simulator the
+/// pane merely suggested or remembered does not. Progress goes to `report`
+/// (phase and message).
 pub(crate) fn prepare_device(
     project: &str,
     udid: &str,
@@ -992,7 +995,6 @@ pub(crate) fn prepare_device(
     let lock = device_lock(udid);
     let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
     let info = device(udid)?;
-    add_to_scope(project, udid);
     let key = udid.to_uppercase();
     if !info.booted {
         report(Phase::Booting, format!("Starting {}…", info.name));
@@ -1018,6 +1020,9 @@ pub(crate) fn prepare_device(
         native::reset(udid);
     }
     let facts = boot_facts(&key, info.data_path.as_deref());
+    if ios_sim_boot::joins_scope(&facts, picked) {
+        add_to_scope(project, udid);
+    }
     let prepared = match ios_sim_boot::input_step(&facts, picked, support().live) {
         InputStep::Ready => Prepared::Clear { watch: false },
         // Someone else's running simulator: never restart its home screen
@@ -1179,21 +1184,14 @@ pub(crate) struct PaneChoice {
 }
 
 /// Records the pane's choice. A device counts only when `simctl list` names
-/// it as a simulator; it then joins the project's agent scope.
+/// it as a simulator. Choosing does not put it in the agent scope: that
+/// happens in `prepare_device`, once the person picked it or Aven booted it.
 pub(crate) fn record_choice(project: &str, mut choice: PaneChoice, devices: &[SimDeviceInfo]) {
     let key = project_key(project);
     choice.udid = choice
         .udid
         .and_then(|udid| ios_sim_devices::known_simulator(&udid, devices));
-    let mut state = state();
-    if let Some(udid) = &choice.udid {
-        state
-            .scope
-            .entry(key.clone())
-            .or_default()
-            .insert(udid.clone());
-    }
-    state.choices.insert(key, choice);
+    state().choices.insert(key, choice);
 }
 
 #[tauri::command]
@@ -2588,9 +2586,12 @@ mod tests {
             scheme: None,
         };
         record_choice(project, choice(&picked.to_lowercase()), &listed);
-        // Booting for a project (ensure_device) records the same way.
-        add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
         assert_eq!(pane_device(project).as_deref(), Some(picked));
+        // Choosing (a suggested or remembered device) does not scope it:
+        // `prepare_device` does, once it was picked or Aven booted it.
+        assert!(scoped_devices(project).is_empty());
+        add_to_scope("/scope-test/pom", picked);
+        add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
         // A UUID simctl does not list (a real device's CoreDevice identifier)
         // and anything that is not a UUID never join the scope.
         record_choice(

@@ -136,7 +136,8 @@ pub(crate) fn known_simulator(udid: &str, devices: &[SimDeviceInfo]) -> Option<S
 /// The pane's choice when nothing is remembered. It never starts another
 /// simulator while one is running: first one Aven started (`aven_booted`,
 /// upper-case UDIDs), then any running one (shown at once; its home screen is
-/// restarted for touches only when the person picks it), iPhones before
+/// restarted for touches, and it joins the agent scope, only when the person
+/// picks it), iPhones before
 /// iPads; only when none runs, the newest iPhone that is shut down, else any
 /// device; otherwise nothing, and the person picks.
 pub(crate) fn default_device<'a>(
