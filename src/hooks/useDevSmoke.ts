@@ -40,6 +40,11 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
+import {
+  agentOpensProblem,
+  agentOpensSummary,
+  readAgentOpens,
+} from "../lib/devSmokePages";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
 import { providerShortName } from "../lib/discussionVoices";
@@ -71,6 +76,8 @@ type Options = DevPerfOptions & {
   /** The sidebar's "New chat in <project>". */
   newProjectTask: (path: string) => void;
   submit: (sessionId: string, text: string) => void;
+  /** Stop a chat's turn, as its message box's Stop does. */
+  stop?: (sessionId: string) => void;
   /** The workspace's own utility views, opened as their buttons would. */
   utilities?: SmokeUtilities;
   /** What the checks of things that move open and close. */
@@ -216,6 +223,41 @@ function replyCount(sessions: Session[], id: string): number {
   return (sessions.find((session) => session.id === id)?.blocks ?? []).filter(
     (block) => block.role === "assistant" && block.text.includes(SMOKE_REPLY),
   ).length;
+}
+
+/**
+ * Stop a chat's turn if it is still running, as its Stop does, and wait
+ * (briefly) for it to end, so a step that gave up on it leaves the project
+ * free for the next.
+ */
+async function stopTurn(get: () => Options, sessionId: string) {
+  const busy = () =>
+    get().sessions.find((session) => session.id === sessionId)?.busy === true;
+  if (!busy()) return;
+  get().stop?.(sessionId);
+  await waitFor(() => !busy(), 10_000, "the stopped turn to end").catch(
+    () => {},
+  );
+}
+
+/**
+ * The project's other chats still working, which keep a lead's run from
+ * starting ("Stop the other chats working in this project first").
+ */
+export function otherChatsWorking(
+  sessions: readonly Session[],
+  leadId: string,
+): string[] {
+  const lead = sessions.find((session) => session.id === leadId);
+  if (!lead) return [];
+  return sessions
+    .filter(
+      (session) =>
+        session.id !== leadId &&
+        session.busy &&
+        sameProjectPath(session.worktreeCwd ?? session.cwd, lead.cwd),
+    )
+    .map((session) => `“${session.title || session.id}”`);
 }
 
 /** The project's row in this window's (pinned) sidebar, when on screen. */
@@ -1827,7 +1869,16 @@ async function confirmProposal(
     () => get().orchestration?.run(leadId)?.status === "active",
     20_000,
     "the run to start",
-  );
+  ).catch((error: unknown) => {
+    // A run refuses to start beside another chat working in its project: an
+    // earlier step that left one running shows here by name.
+    const working = otherChatsWorking(get().sessions, leadId);
+    throw new Error(
+      working.length
+        ? `${errorText(error)}; still working in the project: ${working.join(", ")}`
+        : errorText(error),
+    );
+  });
   return { card, scopes };
 }
 
@@ -3369,40 +3420,39 @@ export async function runDevSmoke(
       get().submit(chat.id, `Show the mock. AVEN_SMOKE_PAGES ${base}`);
       const session = () =>
         get().sessions.find((entry) => entry.id === chat.id);
-      await waitFor(
-        () => !session()?.busy && replyCount(get().sessions, chat.id) > before,
-        60_000,
-        "the stand-in's page opens",
-      );
-      const text =
-        [...(session()?.blocks ?? [])]
-          .reverse()
-          .find(
-            (block) =>
-              block.role === "assistant" && block.text.includes("AVEN_PAGES"),
-          )?.text ?? "";
-      const listed = text.slice(text.indexOf("AVEN_PAGES") + 10).trim();
-      if (!text || listed.startsWith("FAILED"))
-        throw new Error(`The stand-in reported: ${text || "nothing"}`);
-      const opens = JSON.parse(listed) as { id?: string; reused?: string }[];
-      const ids = opens.map((open) => open.id);
-      const reused = opens.map((open) => open.reused ?? "-");
-      if (
-        opens.length !== 6 ||
-        new Set(ids.slice(0, 4)).size !== 1 ||
-        ids[4] === ids[0] ||
-        ids[5] !== ids[4] ||
-        reused.join(",") !== "-,reloaded,navigated,navigated,-,navigated"
-      )
-        throw new Error(`The opens returned ${JSON.stringify(opens)}`);
-      const own = agentPagesOf(config.projectPath).filter(
-        (page) => page.agentChat === chat.id,
-      );
-      if (own.length !== 2)
-        throw new Error(
-          `The chat has ${own.length} pages: ${own.map((page) => page.url).join(", ")}`,
+      try {
+        // The stand-in answers within 40 s, with each open's time, even if
+        // an open never does.
+        await waitFor(
+          () =>
+            !session()?.busy && replyCount(get().sessions, chat.id) > before,
+          60_000,
+          "the stand-in's page opens (its browser calls follow the results)",
         );
-      return `one page reloaded and navigated, a second only for another path (${reused.join(", ")})`;
+        const text =
+          [...(session()?.blocks ?? [])]
+            .reverse()
+            .find(
+              (block) =>
+                block.role === "assistant" && block.text.includes("AVEN_PAGES"),
+            )?.text ?? "";
+        const { opens, failure } = readAgentOpens(text);
+        if (failure) throw new Error(failure);
+        const problem = agentOpensProblem(opens);
+        if (problem) throw new Error(problem);
+        const own = agentPagesOf(config.projectPath).filter(
+          (page) => page.agentChat === chat.id,
+        );
+        if (own.length !== 2)
+          throw new Error(
+            `The chat has ${own.length} pages: ${own.map((page) => page.url).join(", ")}`,
+          );
+        return agentOpensSummary(opens);
+      } finally {
+        // A turn still running would keep the project busy, and the next
+        // step's run would be refused for it.
+        await stopTurn(get, chat.id);
+      }
     });
 
   // An orchestration, asked for from a chat's + menu. The stand-in lead

@@ -763,7 +763,38 @@ def report_smoke(root, exit_code):
     print(f'  {"PASS" if native_turn else "FAIL"}  stand-in chat received the turn from Aven\'s harness', flush=True)
     passed = result.get('passed') is True and native_turn and exit_code == 0
     print('Real-app check passed.' if passed else 'Real-app check FAILED.', flush=True)
+    if not passed:
+        # A runner keeps no folder: say here what a failure needs explaining.
+        for line in smoke_diagnostics(root, spawned):
+            print(line, flush=True)
     return passed
+
+
+# Lines of Aven's log worth printing after a failed check: its notes on agent
+# page opens that waited, and Chromium's observer-list check, which
+# overlapping navigations on one page trip.
+SMOKE_LOG_NOTES = ('[aven] Agent page open', 'observer_list.h')
+
+
+def smoke_diagnostics(root, spawned, limit=24):
+    """The stand-in's browser calls with their timings, and Aven's notes."""
+    lines = []
+    calls = [entry for entry in spawned if entry.get('browser')]
+    if calls:
+        lines.append('Stand-in browser calls:')
+        for entry in calls[-limit:]:
+            took = f'{entry["ms"]} ms' if isinstance(entry.get('ms'), (int, float)) else 'no timing'
+            outcome = {True: 'ok', False: 'failed', None: 'no answer'}.get(entry.get('ok'), 'failed')
+            lines.append(f'    {entry["browser"]} {entry.get("url") or ""} - {took}, {outcome}'.replace('  -', ' -'))
+    try:
+        log = (root / 'app.log').read_text(errors='replace').splitlines()
+    except OSError:
+        log = []
+    notes = [line.strip() for line in log if any(note in line for note in SMOKE_LOG_NOTES)]
+    if notes:
+        lines.append('From Aven\'s log:')
+        lines.extend(f'    {line[:300]}' for line in notes[-limit:])
+    return lines
 
 
 def main():
