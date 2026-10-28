@@ -21,6 +21,27 @@ const SCROLL_EDGE = 28;
 /** DOM screen coordinates in CSS pixels; never substitute client coordinates. */
 export type SortablePointerPosition = { screenX: number; screenY: number };
 
+/**
+ * A part of an item that a drag can pull out of the strip on its own: a
+ * split entry's segment. Moving along the strip still moves the whole
+ * item; once the pointer leaves the strip the part is torn off, the
+ * floating copy shows only it, and the drop is the consumer's to place.
+ */
+export type SortablePart = { id: string; element: HTMLElement };
+
+/**
+ * A drag that started on a part, for the consumer's move and end callbacks
+ * (others get none).
+ */
+export type SortablePartDrag = {
+  /** The part pressed. */
+  part: string;
+  /** The pointer has left the strip: the part is torn off the item. */
+  torn: boolean;
+  /** The pointer is over the strip. */
+  inStrip: boolean;
+};
+
 export type SortableDropTarget = {
   kind: "tab" | "group";
   id: string;
@@ -39,16 +60,27 @@ export type SortableOptions = {
     x: number,
     y: number,
     pointer: SortablePointerPosition,
+    part?: SortablePartDrag,
   ) => void;
-  /** Returning true consumes the drop instead of reordering the strip. */
+  /**
+   * Returning true consumes the drop instead of reordering the strip. A
+   * torn-off part never reorders the strip.
+   */
   onDragEnd?: (
     id: string,
     x: number,
     y: number,
     cancelled: boolean,
     pointer: SortablePointerPosition,
+    part?: SortablePartDrag,
   ) => boolean;
   onDropOnItem?: (draggedId: string, targetId: string) => void;
+  /**
+   * Which items take a drop onto them (with `onDropOnItem`). Others are
+   * never targets: the pointer over them reorders as usual. All items do
+   * when absent.
+   */
+  isDropTarget?: (draggedId: string, targetId: string) => boolean;
   onDropOnGroup?: (draggedId: string, groupId: string) => void;
   canDropOn?: (
     draggedId: string,
@@ -70,6 +102,8 @@ type DragState = {
   inStrip: boolean;
   toIndex: number;
   dropTarget: SortableDropTarget | null;
+  part: SortablePart | null;
+  torn: boolean;
 };
 
 type ReadBounds = (element: HTMLElement) => DOMRect;
@@ -133,6 +167,8 @@ export function useSortable(
   onDragEndRef.current = options.onDragEnd;
   const canDropOnRef = useRef(options.canDropOn);
   canDropOnRef.current = options.canDropOn;
+  const isDropTargetRef = useRef(options.isDropTarget);
+  isDropTargetRef.current = options.isDropTarget;
   const container = useRef<HTMLElement | null>(null);
   const nodes = useRef(new Map<string, HTMLElement>());
   const groupNodes = useRef(new Map<string, HTMLElement>());
@@ -244,6 +280,8 @@ export function useSortable(
       if (!onDropOnItemRef.current) return null;
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
+        if (isDropTargetRef.current && !isDropTargetRef.current(draggedId, id))
+          continue;
         const node = nodes.current.get(id);
         if (!node) continue;
         const rect = readBounds(node);
@@ -269,7 +307,7 @@ export function useSortable(
   );
 
   const onItemPointerDown = useCallback(
-    (id: string, event: ReactPointerEvent) => {
+    (id: string, event: ReactPointerEvent, part?: SortablePart) => {
       if (event.button !== 0) return;
       if (idsRef.current.length < 2 && !onDragEndRef.current) return;
       if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
@@ -305,35 +343,64 @@ export function useSortable(
         inStrip: true,
         toIndex: from,
         dropTarget: null,
+        part: part ?? null,
+        torn: false,
       };
       drag.current = state;
       handle.setPointerCapture(event.pointerId);
       const restoreSelection = suppressTextSelection();
 
       let scrollFrame: number | null = null;
+      /** Where the pointer is now; a part leaving the strip tears off. */
+      const locate = (current: DragState, readBounds: ReadBounds) => {
+        current.inStrip = inStrip(current.x, current.y, readBounds);
+        if (current.part && !current.inStrip && !current.torn) {
+          current.torn = true;
+          if (animate) motion.current.tearOff(current.part.element, current);
+        }
+        current.toIndex = indexAt(id, current.x, current.y, readBounds);
+        current.dropTarget = current.torn
+          ? null
+          : dropTargetAt(id, current.x, current.y, readBounds);
+      };
+      /** A drag that started on a part reports it; others pass nothing. */
+      const partOf = (current: DragState): [SortablePartDrag] | [] =>
+        current.part
+          ? [
+              {
+                part: current.part.id,
+                torn: current.torn,
+                inStrip: current.inStrip,
+              },
+            ]
+          : [];
       const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
         if (!current?.active) return;
-        const previousIndex = current.inStrip ? current.toIndex : null;
+        const previousIndex =
+          current.inStrip && !current.torn ? current.toIndex : null;
         const previousTarget = current.dropTarget;
-        current.inStrip = inStrip(current.x, current.y, readBounds);
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
-        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
+        locate(current, readBounds);
         // Workspace drop callbacks read stationary pane/header geometry. Run
         // them before transform writes so that hit testing stays one read phase.
-        onDragMoveRef.current?.(id, current.x, current.y, {
-          screenX: current.screenX,
-          screenY: current.screenY,
-        });
+        onDragMoveRef.current?.(
+          id,
+          current.x,
+          current.y,
+          { screenX: current.screenX, screenY: current.screenY },
+          ...partOf(current),
+        );
+        // A torn-off part leaves the item and its neighbours where they are.
         if (animate)
           motion.current.move(
             idsRef.current,
             current,
             current.dropTarget ? from : current.toIndex,
-            current.inStrip,
+            current.inStrip && !current.torn,
             readBounds,
           );
-        const nextIndex = current.inStrip ? current.toIndex : null;
+        const nextIndex =
+          current.inStrip && !current.torn ? current.toIndex : null;
         if (nextIndex !== previousIndex) setToIndex(nextIndex);
         // Pointer motion inside the same target only moves visual children;
         // it must not re-render every tab and its contents each display frame.
@@ -451,10 +518,7 @@ export function useSortable(
         current.y = ev.clientY;
         current.screenX = ev.screenX;
         current.screenY = ev.screenY;
-        const readBounds = measureBounds();
-        current.inStrip = inStrip(current.x, current.y, readBounds);
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
-        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
+        if (current.active) locate(current, measureBounds());
         stop(true);
       };
       const onCancel = (event?: Event) => {
@@ -488,8 +552,12 @@ export function useSortable(
         // A tab let go outside its strip may land in a pane; measure its
         // look before the motion below puts it back.
         const ghost =
-          commit && current?.active && !current.inStrip
-            ? captureDropGhost(nodes.current.get(current.id))
+          commit && current?.active && (current.torn || !current.inStrip)
+            ? captureDropGhost(
+                current.torn && current.part
+                  ? current.part.element
+                  : nodes.current.get(current.id),
+              )
             : null;
         if (animate) {
           settling.current = current?.active ? motion.current.capture() : null;
@@ -517,17 +585,19 @@ export function useSortable(
           current.y,
           !commit,
           { screenX: current.screenX, screenY: current.screenY },
+          ...partOf(current),
         );
         if (consumed) ghost?.fade();
         if (
           consumed ||
+          current.torn ||
           !current.inStrip ||
           (commit && current.dropTarget?.allowed)
         ) {
           settling.current = null;
           if (animate) motion.current.finishReset();
         }
-        if (!commit || consumed) return;
+        if (!commit || consumed || current.torn) return;
         if (current.dropTarget) {
           // A refused target still swallows the drop: the tab stays put rather
           // than reordering into a group it cannot join.

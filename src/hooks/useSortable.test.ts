@@ -10,7 +10,11 @@ import {
   vi,
   type Mock,
 } from "vitest";
-import { useSortable, type SortableOptions } from "./useSortable";
+import {
+  useSortable,
+  type SortableOptions,
+  type SortablePart,
+} from "./useSortable";
 
 const ghost = vi.hoisted(() => ({ capture: vi.fn(), fade: vi.fn() }));
 vi.mock("../lib/dropGhost", () => ({
@@ -33,6 +37,8 @@ describe("useSortable external drops and cancellation", () => {
   let animationApiAvailable: boolean;
   let geometryReads: Map<string, number>;
   let renders: number;
+  /** The part of an item a press lands on (a split's segment), if any. */
+  let partOf: (id: string) => SortablePart | undefined;
   let animations: Map<
     string,
     { animate: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }
@@ -108,7 +114,8 @@ describe("useSortable external drops and cancellation", () => {
                 });
               }
             },
-            onPointerDown: (event) => sortable.onItemPointerDown(id, event),
+            onPointerDown: (event) =>
+              sortable.onItemPointerDown(id, event, partOf(id)),
           },
           withVisuals
             ? createElement("span", { "data-sortable-motion": "" }, id)
@@ -131,6 +138,7 @@ describe("useSortable external drops and cancellation", () => {
     animationApiAvailable = true;
     geometryReads = new Map();
     renders = 0;
+    partOf = () => undefined;
     animations = new Map();
     vi.stubGlobal("matchMedia", () => ({ matches: reducedMotion }));
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -838,4 +846,84 @@ describe("useSortable external drops and cancellation", () => {
       );
     },
   );
+  describe("a part of an item", () => {
+    const page: SortablePart = {
+      id: "page",
+      element: document.createElement("span"),
+    };
+    beforeEach(() => {
+      partOf = (id) => (id === "browser-a" ? page : undefined);
+    });
+
+    it("moves the whole item while the pointer stays on the strip", async () => {
+      await act(async () => root.render(createElement(Harness)));
+      const handle = container.querySelector<HTMLButtonElement>(
+        '[data-id="browser-a"]',
+      )!;
+      await pointer(handle, "pointerdown", 150, 15);
+      await pointer(window, "pointermove", 10, 15);
+      await flushFrame();
+      await pointer(window, "pointerup", 10, 15);
+      expect(options.onDragEnd).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        10,
+        15,
+        false,
+        { screenX: 0, screenY: 0 },
+        { part: "page", torn: false, inStrip: true },
+      );
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["browser-a", "session-a", "session-b"],
+        "browser-a",
+      );
+    });
+
+    it("is torn off once the pointer leaves the strip, and never reorders it", async () => {
+      await start();
+      expect(options.onDragMove).toHaveBeenLastCalledWith(
+        "browser-a",
+        10,
+        120,
+        { screenX: 0, screenY: 0 },
+        { part: "page", torn: true, inStrip: false },
+      );
+      // Back over the strip it stays torn off: the consumer places it.
+      await pointer(window, "pointermove", 10, 15);
+      await flushFrame();
+      expect(sortable.toIndex).toBeNull();
+      await pointer(window, "pointerup", 10, 15);
+      expect(options.onDragEnd).toHaveBeenLastCalledWith(
+        "browser-a",
+        10,
+        15,
+        false,
+        { screenX: 0, screenY: 0 },
+        { part: "page", torn: true, inStrip: true },
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+      // The torn part's ghost, not the item's, fades where it landed.
+      expect(ghost.capture).toHaveBeenCalledWith(page.element);
+    });
+  });
+
+  it("takes drops only on the items it names", async () => {
+    options.onDropOnItem = vi.fn();
+    options.isDropTarget = (_dragged, target) => target === "session-b";
+    // Over session-a's drop zone (its middle half): an ordinary move.
+    await start(false);
+    await pointer(window, "pointerup", 30, 15);
+    expect(options.onDropOnItem).not.toHaveBeenCalled();
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+      ["browser-a", "session-a", "session-b"],
+      "browser-a",
+    );
+    // Over the middle of session-b: a drop onto it.
+    await start(false);
+    await pointer(window, "pointerup", 250, 15);
+    expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+      "browser-a",
+      "session-b",
+    );
+    expect(onReorder).toHaveBeenCalledOnce();
+  });
 });

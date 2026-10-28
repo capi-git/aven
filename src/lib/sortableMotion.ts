@@ -59,8 +59,12 @@ type MotionEntry = {
   zoom: number;
 };
 
-/** Freeze the small tab visual before taking it out of its theme/zoom context. */
-function copyVisual(visual: HTMLElement): HTMLElement {
+/**
+ * Freeze the small tab visual before taking it out of its theme/zoom context.
+ * `face` paints the copy itself as a tab face (a part torn off a larger item
+ * has no glass of its own).
+ */
+function copyVisual(visual: HTMLElement, face = false): HTMLElement {
   const copy = visual.cloneNode(true) as HTMLElement;
   const originals = [visual, ...visual.querySelectorAll("*")];
   const copies = [copy, ...copy.querySelectorAll("*")];
@@ -88,7 +92,10 @@ function copyVisual(visual: HTMLElement): HTMLElement {
     clone.style.setProperty("outline", "none", "important");
     // Paint only the tab face. Its motion container can include empty space
     // above/below a rounded button; filling that box adds a rectangular rim.
-    if (original.hasAttribute("data-sortable-glass")) {
+    if (
+      original.hasAttribute("data-sortable-glass") ||
+      (face && original === visual)
+    ) {
       const surface =
         computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
         computed.getPropertyValue("--color-background-base").trim();
@@ -139,6 +146,8 @@ export class SortableMotion {
     left: number;
     top: number;
   } | null = null;
+  /** The part torn off the dragged item, faded in its place. */
+  private torn: HTMLElement | null = null;
 
   begin(
     nodes: ReadonlyMap<string, HTMLElement>,
@@ -176,9 +185,46 @@ export class SortableMotion {
     if (!this.source || this.preview) return;
     const entry = this.entries.get(this.source.id);
     if (!entry) return;
-    const { visual, zoom } = entry;
+    this.showPreview(entry.visual, entry.zoom, point);
+    // Keep the real focused tab mounted and focusable throughout pickup.
+    entry.visual.style.opacity = "0";
+  }
+
+  /**
+   * The pointer left the strip holding a part of the item (a split's
+   * segment): the floating copy becomes that part, held where it was
+   * pressed, and the rest of the item stays in place with the part faded.
+   */
+  tearOff(part: HTMLElement, point: Point) {
+    const source = this.source;
+    const entry = source ? this.entries.get(source.id) : undefined;
+    if (!source || !entry || this.torn) return;
+    const visual = entry.visual.getBoundingClientRect();
+    const bounds = part.getBoundingClientRect();
+    const clamp = (value: number, size: number) =>
+      Math.max(0, Math.min(size, value));
+    source.grab = {
+      x: clamp(visual.left + source.grab.x - bounds.left, bounds.width),
+      y: clamp(visual.top + source.grab.y - bounds.top, bounds.height),
+    };
+    this.preview?.element.remove();
+    this.preview = null;
+    this.showPreview(part, entry.zoom, point, true);
+    entry.visual.style.opacity = entry.opacity;
+    entry.visual.dataset.sortableTorn = "true";
+    part.dataset.sortableTornPart = "true";
+    this.torn = part;
+  }
+
+  private showPreview(
+    visual: HTMLElement,
+    zoom: number,
+    point: Point,
+    face = false,
+  ) {
+    if (!this.source) return;
     const bounds = visual.getBoundingClientRect();
-    const copy = copyVisual(visual);
+    const copy = copyVisual(visual, face);
     const computed = getComputedStyle(visual);
     const element = document.createElement("div");
     element.dataset.sortablePreview = this.source.id;
@@ -209,8 +255,6 @@ export class SortableMotion {
     this.preview = { element, zoom, left: NaN, top: NaN };
     this.movePreview(point);
     document.body.append(element);
-    // Keep the real focused tab mounted and focusable throughout pickup.
-    visual.style.opacity = "0";
   }
 
   private movePreview(point: Point) {
@@ -300,6 +344,8 @@ export class SortableMotion {
   reset() {
     this.preview?.element.remove();
     this.preview = null;
+    if (this.torn) delete this.torn.dataset.sortableTornPart;
+    this.torn = null;
     for (const { outer, visual, transform, opacity } of this.entries.values()) {
       visual.style.transition = "none";
       visual.style.transform = transform;
@@ -307,6 +353,7 @@ export class SortableMotion {
       delete outer.dataset.sortableMoving;
       delete visual.dataset.sortableDragging;
       delete visual.dataset.sortableInStrip;
+      delete visual.dataset.sortableTorn;
     }
     this.source = null;
   }
