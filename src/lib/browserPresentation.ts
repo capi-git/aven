@@ -1,8 +1,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorText as errorMessage } from "./errors";
-import { browserBounds, nativeBrowser, type BrowserBounds } from "./browser";
+import {
+  browserBounds,
+  nativeBrowser,
+  type BrowserBounds,
+  type BrowserHole,
+} from "./browser";
 import {
   BROWSER_OVERLAYS,
+  MAX_BROWSER_HOLES,
   browserOverlayState,
   type BrowserOverlayState,
 } from "./browserOverlays";
@@ -16,6 +22,9 @@ const LAYOUT_FALLBACK_MS = 16;
 const OVERLAY_SNAPSHOT_DEADLINE_MS = 80;
 const SNAPSHOT_PAINT_DEADLINE_MS = 16;
 const ZOOM_SNAPSHOT_DELAY_MS = 60;
+/** A moving surface's still image is retried this often, this long apart. */
+const STILL_RETRIES = 5;
+const STILL_RETRY_MS = 120;
 /** A motion hold never waits longer than this on the native page. */
 const MOTION_HANDOFF_DEADLINE_MS = 160;
 
@@ -164,6 +173,45 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
   return clipLeft || clipRight ? { ...bounds, clipLeft, clipRight } : bounds;
 }
 
+/** Where a pane's page goes, what is cut out of it and what covers it. */
+type Placement = {
+  bounds: BrowserBounds | null;
+  /** Hidden behind a still image for a modal or unsupported overlay. */
+  capture: boolean;
+  /** Moving surfaces over the page (browserOverlays.ts). */
+  moving: BrowserHole[];
+  /** One of them is mid-animation; read where it is drawn again next frame. */
+  movingAnimates: boolean;
+  /** Hidden behind its painted still image for moving surfaces, on an engine without cut-outs. */
+  cover: boolean;
+};
+
+function viewportKey(viewport: Omit<BrowserSnapshot, "src">): string {
+  return JSON.stringify([
+    viewport.width,
+    viewport.height,
+    viewport.left,
+    viewport.top,
+    viewport.scale,
+  ]);
+}
+
+/** One painted frame, or a frame's time when WebKit defers frames. */
+function paintOnce(): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(paint);
+      window.clearTimeout(deadline);
+      resolve();
+    };
+    const paint = requestAnimationFrame(finish);
+    const deadline = window.setTimeout(finish, SNAPSHOT_PAINT_DEADLINE_MS);
+  });
+}
+
 function hasVisibleBrowserArea(bounds: BrowserBounds): boolean {
   return bounds.width - (bounds.clipLeft ?? 0) - (bounds.clipRight ?? 0) >= 1;
 }
@@ -185,6 +233,23 @@ function withOverlayHoles(
   overlay: BrowserOverlayState,
 ): BrowserBounds {
   return overlay.holes.length ? { ...bounds, holes: overlay.holes } : bounds;
+}
+
+/** What a pane last sent its native page: where it is, what is cut out of it, and whether it shows. */
+export type BrowserLayoutRecord = {
+  bounds: BrowserBounds;
+  visible: boolean;
+};
+const layoutRecords = new Map<string, BrowserLayoutRecord>();
+
+/**
+ * The layout a workspace pane last sent its native page, by surface id, for
+ * the real-app check: it can only see the page through what was sent.
+ */
+export function browserLayoutRecord(
+  surfaceId: string,
+): BrowserLayoutRecord | undefined {
+  return layoutRecords.get(surfaceId);
 }
 
 export type BrowserPresentationState = {
@@ -292,6 +357,26 @@ export function createBrowserPresentation({
   // A layout motion moves a picture of the page; the live page stays hidden
   // until the motion hands it back at its final bounds.
   let motionHeld = false;
+  // A still image of the page painted beneath it for surfaces that move with
+  // the pointer (browserOverlays.ts): the viewport it shows, once painted.
+  // Only then is such a surface cut out of the live page, so a cut-out that
+  // trails its surface by a frame shows the page, never the window behind.
+  let stillBeneath: string | null = null;
+  let stillGeneration = 0;
+  let stillCapture: number | null = null;
+  let stillRetry: number | null = null;
+  let stillTries = 0;
+  const setStill = (snapshot: BrowserSnapshot | null) => {
+    stillBeneath = null;
+    if (!snapshot) {
+      ++stillGeneration;
+      stillCapture = null;
+      stillTries = 0;
+      if (stillRetry !== null) window.clearTimeout(stillRetry);
+      stillRetry = null;
+    }
+    onSnapshot(snapshot);
+  };
   const motionWaiters = new Set<{
     shown: boolean;
     resolve: () => void;
@@ -413,7 +498,7 @@ export function createBrowserPresentation({
           if (!settled) window.clearTimeout(deadline);
           // Decode first: committing an <img> and waiting one frame does not
           // guarantee its pixels are ready before Chromium is hidden.
-          onSnapshot(captured);
+          setStill(captured);
           await waitForSnapshotPaint();
         })
         .catch(() => {
@@ -442,17 +527,128 @@ export function createBrowserPresentation({
     holeElements = elements;
     for (const element of elements) overlaySizes.observe(element);
   };
-  const placement = (bounds: BrowserBounds | null) => {
+  const placement = (bounds: BrowserBounds | null): Placement => {
     if (!bounds || freezeState === "frozen") {
       trackHoleElements([]);
-      return { bounds, capture: !!bounds };
+      return {
+        bounds,
+        capture: !!bounds,
+        moving: [],
+        movingAnimates: false,
+        cover: false,
+      };
     }
     const overlay = browserOverlayState(bounds, readState().holesSupported);
     trackHoleElements(overlay.elements);
-    return {
+    return withMoving({
       bounds: withOverlayHoles(bounds, overlay),
       capture: overlay.capture,
+      moving: overlay.moving,
+      movingAnimates: overlay.movingAnimates,
+      cover: false,
+    });
+  };
+  /** Whether a moving surface is over the page now. */
+  const movingWanted = () => {
+    if (disposed || motionHeld || freezeState !== "none") return false;
+    const bounds = currentBounds();
+    return (
+      !!bounds &&
+      hasVisibleBrowserArea(bounds) &&
+      browserOverlayState(bounds, readState().holesSupported).moving.length > 0
+    );
+  };
+  /**
+   * Moving surfaces over the page: until a still image of the page is
+   * painted beneath it they stay under the live page, then they are cut out
+   * where they are drawn (an engine without cut-outs shows the still image
+   * instead of the page while they are over it). The page never moves,
+   * resizes or hides for them.
+   */
+  const withMoving = (current: Placement): Placement => {
+    if (
+      !current.bounds ||
+      !current.moving.length ||
+      current.capture ||
+      motionHeld ||
+      freezeState !== "none" ||
+      !hasVisibleBrowserArea(current.bounds)
+    )
+      return current;
+    if (
+      stillBeneath === null ||
+      stillBeneath !== viewportKey(snapshotViewport(current.bounds))
+    ) {
+      captureStill(current.bounds);
+      return current;
+    }
+    if (!readState().holesSupported) return { ...current, cover: true };
+    const holes = [...(current.bounds.holes ?? []), ...current.moving].slice(
+      0,
+      MAX_BROWSER_HOLES,
+    );
+    return { ...current, bounds: { ...current.bounds, holes } };
+  };
+  const captureStill = (bounds: BrowserBounds) => {
+    if (stillCapture !== null || disposed) return;
+    const generation = ++stillGeneration;
+    stillCapture = generation;
+    const { url, navigation } = readState();
+    const zoom = readState().zoom.factor;
+    const wanted = () =>
+      generation === stillGeneration &&
+      readState().nativeId === pageId &&
+      readState().url === url &&
+      readState().navigation === navigation &&
+      readState().zoom.factor === zoom &&
+      movingWanted();
+    const matches = (captured: BrowserSnapshot) => {
+      const latest = currentBounds();
+      return (
+        !!latest && sameSnapshotViewport(captured, snapshotViewport(latest))
+      );
     };
+    void requestBrowserSnapshot(
+      pageId,
+      () => {
+        const viewport = snapshotViewport(lastNativeBounds ?? bounds);
+        return adapter.snapshot(pageId).then((src) => ({ src, ...viewport }));
+      },
+      wanted,
+    )
+      .then(async (captured) => {
+        if (!captured || !wanted() || !matches(captured)) return;
+        await adapter.decode(captured.src);
+        if (!wanted() || !matches(captured)) return;
+        // Decoded, committed and painted beneath the page before anything
+        // is cut out of it.
+        stillBeneath = null;
+        onSnapshot(captured);
+        await paintOnce();
+        if (generation !== stillGeneration || disposed) return;
+        stillBeneath = viewportKey(captured);
+        present();
+      })
+      .catch(() => {
+        // Without a still image the surface stays under the live page.
+      })
+      .finally(() => {
+        if (stillCapture !== generation) return;
+        stillCapture = null;
+        // Discarded (the page loaded or the pane moved meanwhile) or
+        // failed while the surface is still over the page: try again
+        // shortly, a few times, rather than wait for it to move.
+        if (
+          stillBeneath === null &&
+          stillRetry === null &&
+          ++stillTries <= STILL_RETRIES &&
+          movingWanted()
+        )
+          stillRetry = window.setTimeout(() => {
+            stillRetry = null;
+            present();
+          }, STILL_RETRY_MS);
+      });
   };
   const refreshZoomSnapshot = (refresh: boolean) => {
     if (!refresh || freezeState !== "none") {
@@ -503,20 +699,26 @@ export function createBrowserPresentation({
       !!bounds &&
       hasVisibleBrowserArea(bounds) &&
       !current.capture &&
+      !current.cover &&
       !motionHeld;
     let nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
+    // A moving surface's springs change no attribute: follow it each frame
+    // while they run, so its cut-out ends where it is drawn.
+    const following = current.movingAnimates && current.moving.length > 0;
     if (
       nextLayout === lastLayout &&
       (!bounds || JSON.stringify(lastBounds) === lastGeometry)
     ) {
       endBrowserHandoff(surfaceId);
       settleMotion();
+      if (following) schedule();
       return;
     }
     inFlight = true;
     try {
       if (
         !show &&
+        !current.cover &&
         !motionHeld &&
         freezeState === "none" &&
         bounds &&
@@ -541,13 +743,14 @@ export function createBrowserPresentation({
           !!bounds &&
           hasVisibleBrowserArea(bounds) &&
           !current.capture &&
+          !current.cover &&
           !motionHeld;
         nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
         if (
           nextLayout === lastLayout &&
           (!bounds || JSON.stringify(lastBounds) === lastGeometry)
         ) {
-          if (show) onSnapshot(null);
+          if (show && !movingWanted()) setStill(null);
           return;
         }
       }
@@ -575,13 +778,16 @@ export function createBrowserPresentation({
           snapshotViewport(sentBounds),
         );
       await adapter.layout(pageId, sentBounds, show);
+      if (!disposed)
+        layoutRecords.set(surfaceId, { bounds: sentBounds, visible: show });
       lastNativeBounds = sentBounds;
       lastGeometry = JSON.stringify(sentBounds);
       lastLayout = nextLayout;
       // A freeze may have put its picture beneath the page while this
       // layout was in flight; that picture is not this layout's to release.
+      // Nor is the still image a moving surface over the page still needs.
       if (show && !disposed) {
-        if (freezeState === "none") onSnapshot(null);
+        if (freezeState === "none" && !movingWanted()) setStill(null);
       } else if (
         !disposed &&
         freezeState === "none" &&
@@ -601,6 +807,7 @@ export function createBrowserPresentation({
       inFlight = false;
       settleMotion();
       if (!show || lastLayout !== "hidden") endBrowserHandoff(surfaceId);
+      if (following && !pending && !disposed) schedule();
       if (pending && !disposed) {
         pending = false;
         if (pendingImmediate) {
@@ -774,7 +981,7 @@ export function createBrowserPresentation({
     if (!current()) return false;
     // The same handoff as an overlay backing: decoded pixels committed and
     // painted beneath the page before Chromium is hidden.
-    onSnapshot({ src, ...snapshotViewport(lastNativeBounds ?? lastBounds) });
+    setStill({ src, ...snapshotViewport(lastNativeBounds ?? lastBounds) });
     await new Promise<void>((resolve) => {
       let settled = false;
       const finish = () => {
@@ -800,7 +1007,7 @@ export function createBrowserPresentation({
     // A freeze abandoned before hiding the page leaves it shown; drop the
     // image it put beneath. Otherwise the next layout shows the page and
     // releases the image itself.
-    if (previous === "covering" && lastLayout !== "hidden") onSnapshot(null);
+    if (previous === "covering" && lastLayout !== "hidden") setStill(null);
     present();
   };
   const holdForMotion = () => {
@@ -828,10 +1035,14 @@ export function createBrowserPresentation({
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      if (layoutRecords.get(surfaceId)?.bounds === lastNativeBounds)
+        layoutRecords.delete(surfaceId);
       settleMotion();
       endBrowserHandoff(surfaceId);
       cancelQueued();
       cancelOverlayCapture();
+      if (stillRetry !== null) window.clearTimeout(stillRetry);
+      stillRetry = null;
       stopObserving?.();
       overlaySizes.disconnect();
       holeElements = [];

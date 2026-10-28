@@ -1,4 +1,5 @@
 import type { BrowserBounds, BrowserHole } from "./browser";
+import { effectiveCssZoom } from "./drag";
 
 /** In-app surfaces that must appear above a native browser page. */
 export const BROWSER_OVERLAYS =
@@ -9,6 +10,15 @@ export const MAX_BROWSER_HOLES = 8;
 /** Beyond this share of the visible page, a still image reads better than a mostly empty cut-out. */
 export const BROWSER_HOLE_AREA_LIMIT = 0.6;
 
+/**
+ * Marks a surface that moves with the pointer, such as a dragged tab's copy.
+ * It is cut out of a live page exactly where it is drawn, never at a final
+ * box, and only once a still image of the page lies beneath the page: its
+ * cut-out reaches the screen a frame before or after WebKit draws it, and
+ * that gap must show the page, never the window behind it.
+ */
+export const BROWSER_MOVING_ATTRIBUTE = "data-native-browser-moving";
+
 export type BrowserOverlayState = {
   /** Hide the native page behind a still image (modal or unsupported overlay). */
   capture: boolean;
@@ -16,9 +26,26 @@ export type BrowserOverlayState = {
   holes: BrowserHole[];
   /** Elements that produced holes, so their size changes can be observed. */
   elements: HTMLElement[];
+  /**
+   * Moving surfaces over the page, where they are drawn, in page-relative
+   * CSS pixels. Never cut without a still image beneath; an engine without
+   * cut-outs shows the still image instead of the page while they are over it.
+   */
+  moving: BrowserHole[];
+  /**
+   * A moving surface is mid-animation (its springs run as WAAPI, which
+   * changes no attribute): where it is drawn must be read again next frame.
+   */
+  movingAnimates: boolean;
 };
 
-const NONE: BrowserOverlayState = { capture: false, holes: [], elements: [] };
+const NONE: BrowserOverlayState = {
+  capture: false,
+  holes: [],
+  elements: [],
+  moving: [],
+  movingAnimates: false,
+};
 
 type Box = { left: number; top: number; right: number; bottom: number };
 
@@ -56,12 +83,19 @@ function clientBox(element: HTMLElement): Box | null {
 /**
  * Entrance animations scale and shift a menu from its anchor. Cut the final
  * rectangle immediately so the native page never covers the opening frames.
- * Only the element's own 2D scale/translate is undone; ancestor transforms
- * are part of the final placement.
+ * Only the element's own 2D scale/translate is undone, and only while it is
+ * animating: a transform that places a surface (a centred tooltip, a copy
+ * following the pointer) is where it is drawn. Ancestor transforms are part
+ * of the final placement.
+ *
+ * The transform, its origin and `offsetWidth` are in the element's own CSS
+ * pixels; its client rects are in the viewport's. Under CSS zoom (the window
+ * strip cancels the interface zoom) one of the element's pixels is its
+ * effective zoom in the viewport.
  */
 function finalBox(element: HTMLElement, box: Box, style: CSSStyleDeclaration) {
   const transform = style.transform;
-  if (!transform || transform === "none") return box;
+  if (!transform || transform === "none" || !isEntering(element)) return box;
   try {
     const matrix = new DOMMatrixReadOnly(transform);
     if (
@@ -72,19 +106,25 @@ function finalBox(element: HTMLElement, box: Box, style: CSSStyleDeclaration) {
       !(matrix.d > 0)
     )
       return box;
+    const zoom = effectiveCssZoom(element);
+    if (!(zoom > 0)) return box;
     const [originX = 0, originY = 0] = (style.transformOrigin || "")
       .split(" ")
       .map((value) => parseFloat(value));
-    const width = element.offsetWidth || (box.right - box.left) / matrix.a;
-    const height = element.offsetHeight || (box.bottom - box.top) / matrix.d;
+    const width =
+      (element.offsetWidth || (box.right - box.left) / (matrix.a * zoom)) *
+      zoom;
+    const height =
+      (element.offsetHeight || (box.bottom - box.top) / (matrix.d * zoom)) *
+      zoom;
     const left =
       box.left -
-      (Number.isFinite(originX) ? originX : 0) * (1 - matrix.a) -
-      matrix.e;
+      ((Number.isFinite(originX) ? originX : 0) * (1 - matrix.a) + matrix.e) *
+        zoom;
     const top =
       box.top -
-      (Number.isFinite(originY) ? originY : 0) * (1 - matrix.d) -
-      matrix.f;
+      ((Number.isFinite(originY) ? originY : 0) * (1 - matrix.d) + matrix.f) *
+        zoom;
     if (![left, top, width, height].every(Number.isFinite)) return box;
     return { left, top, right: left + width, bottom: top + height };
   } catch {
@@ -142,6 +182,8 @@ export function browserOverlayState(
   const areaHeight = area.bottom - area.top;
   if (areaWidth < 1 || areaHeight < 1) return NONE;
   let capture = false;
+  const moving: BrowserHole[] = [];
+  let movingAnimates = false;
   const found: {
     hole: BrowserHole;
     element: HTMLElement;
@@ -168,6 +210,28 @@ export function browserOverlayState(
       break;
     }
     if (!intersects(box, area)) continue;
+    if (element.hasAttribute(BROWSER_MOVING_ATTRIBUTE)) {
+      // Where it is drawn now; the page keeps it beneath until a still
+      // image can show through any gap.
+      moving.push({
+        x: box.left - bounds.x,
+        y: box.top - bounds.y,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+        radius: Math.min(
+          cornerRadius(style) * effectiveCssZoom(element),
+          (box.right - box.left) / 2,
+          (box.bottom - box.top) / 2,
+        ),
+      });
+      for (
+        let node: HTMLElement | null = element;
+        node && node !== document.body && !movingAnimates;
+        node = node.parentElement
+      )
+        movingAnimates = isEntering(node);
+      continue;
+    }
     if (!holesSupported) {
       capture = true;
       break;
@@ -195,7 +259,8 @@ export function browserOverlayState(
       },
     });
   }
-  if (capture) return { capture: true, holes: [], elements: [] };
+  if (capture)
+    return { capture: true, holes: [], elements: [], moving, movingAnimates };
   // A popover frame, its animated surface and its menu list nest. Keep only
   // the outermost cut so overlapping paths never cancel each other out.
   // When a square frame and its rounded surface share one box (bare
@@ -223,16 +288,19 @@ export function browserOverlayState(
       );
       return { ...entry, hole: { ...entry.hole, radius } };
     });
-  if (!kept.length) return NONE;
+  if (!kept.length)
+    return moving.length ? { ...NONE, moving, movingAnimates } : NONE;
   const covered = kept.reduce((sum, entry) => sum + entry.visibleArea, 0);
   if (
     kept.length > MAX_BROWSER_HOLES ||
     covered > areaWidth * areaHeight * BROWSER_HOLE_AREA_LIMIT
   )
-    return { capture: true, holes: [], elements: [] };
+    return { capture: true, holes: [], elements: [], moving, movingAnimates };
   return {
     capture: false,
     holes: kept.map(({ hole }) => hole),
     elements: kept.map(({ element }) => element),
+    moving,
+    movingAnimates,
   };
 }

@@ -38,6 +38,8 @@ const DROP_ON_STILL = 4;
  */
 const DROP_ON_REST = 60;
 const SCROLL_EDGE = 28;
+/** A drag frame WebKit holds back runs this late (ms) instead. */
+const DRAG_FRAME_FALLBACK_MS = 16;
 
 /** DOM screen coordinates in CSS pixels; never substitute client coordinates. */
 export type SortablePointerPosition = { screenX: number; screenY: number };
@@ -472,6 +474,7 @@ export function useSortable(
       const restoreSelection = suppressTextSelection();
 
       let scrollFrame: number | null = null;
+      let scrollFallback: ReturnType<typeof setTimeout> | null = null;
       let armTimer: ReturnType<typeof setTimeout> | null = null;
       /** Look again once a drop zone the pointer rests on has armed. */
       const armLater = (wait: number) => {
@@ -653,9 +656,12 @@ export function useSortable(
       // Pointer input and edge autoscroll share one frame. High-rate pointer
       // events only replace coordinates, never repeat DOM hit testing.
       const scheduleDragFrame = () => {
-        if (scrollFrame !== null) return;
-        scrollFrame = requestAnimationFrame(() => {
+        if (scrollFrame !== null || scrollFallback !== null) return;
+        const run = () => {
+          if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+          if (scrollFallback !== null) clearTimeout(scrollFallback);
           scrollFrame = null;
+          scrollFallback = null;
           const readBounds = measureBounds();
           const scroll = scrollContainerAt(readBounds);
           const speed = scroll ? scrollSpeed(scroll.element, scroll.rect) : 0;
@@ -674,7 +680,12 @@ export function useSortable(
           // Scroll snapping, rounding or a changed overflow boundary can
           // prevent movement. Do not leave an idle drag in a permanent loop.
           if (scrolled) scheduleDragFrame();
-        });
+        };
+        scrollFrame = requestAnimationFrame(run);
+        // WKWebView may hold animation frames back while a native page
+        // covers much of it; the copy, its drop target and the preview must
+        // keep up with the pointer all the same.
+        scrollFallback = setTimeout(run, DRAG_FRAME_FALLBACK_MS);
       };
       const onMove = (ev: PointerEvent) => {
         const current = drag.current;
@@ -742,7 +753,9 @@ export function useSortable(
         handle.removeEventListener("lostpointercapture", onCancel);
         cleanupDrag.current = null;
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+        if (scrollFallback !== null) clearTimeout(scrollFallback);
         scrollFrame = null;
+        scrollFallback = null;
         if (armTimer !== null) clearTimeout(armTimer);
         armTimer = null;
         const current = drag.current;

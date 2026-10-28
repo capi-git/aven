@@ -9,6 +9,7 @@ import {
   type BrowserSnapshot,
 } from "./browserPresentation";
 import { resetBrowserHandoff } from "./browserHandoff";
+import { BROWSER_MOVING_ATTRIBUTE } from "./browserOverlays";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -114,6 +115,54 @@ describe("browser presentation", () => {
       ]);
     return menu;
   };
+
+  /** A dragged tab's copy over the page, as sortableMotion draws it. */
+  const movingCopy = (rect = new DOMRect(400, 300, 110, 30)) => {
+    const copy = document.createElement("div");
+    copy.dataset.nativeBrowserOccluded = "true";
+    copy.setAttribute(BROWSER_MOVING_ATTRIBUTE, "true");
+    const at = vi
+      .spyOn(copy, "getClientRects")
+      .mockReturnValue([rect] as unknown as DOMRectList);
+    element.append(copy);
+    const changed = (records: Partial<MutationRecord>[]) => {
+      for (const callback of mutationObservers) callback(records);
+    };
+    changed([
+      {
+        type: "childList",
+        addedNodes: [copy] as unknown as NodeList,
+        removedNodes: [] as unknown as NodeList,
+      },
+    ]);
+    return {
+      move(next: DOMRect) {
+        at.mockReturnValue([next] as unknown as DOMRectList);
+        changed([{ type: "attributes", attributeName: "style", target: copy }]);
+      },
+      remove() {
+        copy.remove();
+        changed([
+          {
+            type: "childList",
+            addedNodes: [] as unknown as NodeList,
+            removedNodes: [copy] as unknown as NodeList,
+          },
+        ]);
+      },
+    };
+  };
+  /** The last surface the page's pane holds, such as a copy. */
+  const lastSurface = () => element.lastElementChild as HTMLElement;
+  /** The page's frame, which a hover must never change. */
+  const frameOf = (bounds: BrowserBounds) => ({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    clipLeft: bounds.clipLeft,
+    clipRight: bounds.clipRight,
+  });
 
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -507,5 +556,185 @@ describe("browser presentation", () => {
     ).resolves.toBe(false);
     expect(native.decodes).toEqual([]);
     expect(snapshots).toEqual([]);
+  });
+  describe("a dragged tab's copy over the page", () => {
+    beforeEach(async () => {
+      state.holesSupported = true;
+      controller.update();
+      await settle();
+    });
+
+    it("stays under the live page until a still image is painted beneath, then is cut out where drawn", async () => {
+      const frame = frameOf(native.page.bounds);
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      const copy = movingCopy();
+      await settle();
+      // Nothing cut out yet, and the page never hides or moves for it.
+      expect(native.captures).toHaveLength(1);
+      expect(native.page.visible).toBe(true);
+      expect(native.page.bounds.holes).toBeUndefined();
+      pending.resolve("data:image/png;base64,still");
+      await settle();
+      expect(snapshots.at(-1)).toMatchObject({
+        src: "data:image/png;base64,still",
+        width: 600,
+        height: 500,
+      });
+      expect(native.page.bounds.holes).toBeUndefined();
+      await paint();
+      expect(native.page.visible).toBe(true);
+      expect(native.page.bounds.holes).toEqual([
+        { x: 300, y: 220, width: 110, height: 30, radius: 0 },
+      ]);
+      expect(frameOf(native.page.bounds)).toEqual(frame);
+      // Moving it moves only its cut-out, over the same still image.
+      copy.move(new DOMRect(150, 120, 110, 30));
+      await settle();
+      expect(native.page.bounds.holes).toEqual([
+        { x: 50, y: 40, width: 110, height: 30, radius: 0 },
+      ]);
+      expect(native.captures).toHaveLength(1);
+      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,still");
+      expect(frameOf(native.page.bounds)).toEqual(frame);
+      expect(native.layouts.every((layout) => layout.visible)).toBe(true);
+      // Gone, the page is whole first, then the still image goes.
+      copy.remove();
+      await settle();
+      expect(native.page).toMatchObject({ visible: true });
+      expect(native.page.bounds.holes).toBeUndefined();
+      expect(snapshots.at(-1)).toBeNull();
+      expect(frameOf(native.page.bounds)).toEqual(frame);
+    });
+
+    it("follows the copy each frame while its springs run, and stops after", async () => {
+      const copy = movingCopy();
+      await settle();
+      await paint();
+      expect(native.page.bounds.holes).toHaveLength(1);
+      // Its springs run as WAAPI: no attribute changes while it moves.
+      const element = lastSurface();
+      const running = vi
+        .spyOn(element, "getAnimations")
+        .mockReturnValue([
+          { playState: "running", pending: false } as unknown as Animation,
+        ]);
+      copy.move(new DOMRect(400, 300, 110, 30));
+      await settle();
+      vi.spyOn(element, "getClientRects").mockReturnValue([
+        new DOMRect(420, 310, 90, 30),
+      ] as unknown as DOMRectList);
+      await paint();
+      expect(native.page.bounds.holes).toEqual([
+        { x: 320, y: 230, width: 90, height: 30, radius: 0 },
+      ]);
+      running.mockReturnValue([]);
+      vi.spyOn(element, "getClientRects").mockReturnValue([
+        new DOMRect(430, 310, 80, 30),
+      ] as unknown as DOMRectList);
+      await paint();
+      expect(native.page.bounds.holes?.[0]).toMatchObject({ x: 330 });
+      // At rest it is no longer followed.
+      await paint();
+      expect(frames.size).toBe(0);
+    });
+
+    it("drops a still image that arrives after the copy has gone", async () => {
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      const copy = movingCopy();
+      await settle();
+      copy.remove();
+      await settle();
+      pending.resolve("data:image/png;base64,late");
+      await settle();
+      await paint();
+      expect(native.decodes).toEqual([]);
+      expect(snapshots.filter(Boolean)).toEqual([]);
+      expect(native.page.visible).toBe(true);
+      expect(native.page.bounds.holes).toBeUndefined();
+    });
+
+    it("takes the still image again when the page loads under a held copy", async () => {
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      movingCopy();
+      await settle();
+      state.url = "https://example.com/loaded";
+      state.navigation += 1;
+      pending.resolve("data:image/png;base64,before-load");
+      await settle();
+      expect(native.decodes).toEqual([]);
+      expect(native.page.bounds.holes).toBeUndefined();
+      // Held still, nothing moves it; the image is taken again regardless.
+      await vi.advanceTimersByTimeAsync(120);
+      await settle();
+      await paint();
+      expect(native.captures).toHaveLength(2);
+      expect(native.page.bounds.holes).toHaveLength(1);
+      expect(native.page.visible).toBe(true);
+    });
+
+    it("keeps the copy under a page whose still image fails", async () => {
+      let attempts = 0;
+      native.snapshot = () => {
+        attempts += 1;
+        return Promise.reject(new Error("no image"));
+      };
+      movingCopy();
+      await settle();
+      await paint();
+      // A few tries, then it stops asking.
+      for (let tick = 0; tick < 20; tick += 1) {
+        await vi.advanceTimersByTimeAsync(120);
+        await settle();
+      }
+      expect(attempts).toBeLessThanOrEqual(6);
+      expect(native.page.visible).toBe(true);
+      expect(native.page.bounds.holes).toBeUndefined();
+      expect(snapshots.filter(Boolean)).toEqual([]);
+    });
+
+    it("hands the page to a layout motion and back whole after the drop", async () => {
+      const copy = movingCopy();
+      await settle();
+      await paint();
+      expect(native.page.bounds.holes).toHaveLength(1);
+      await controller.holdForMotion();
+      expect(native.page.visible).toBe(false);
+      copy.remove();
+      native.measured = { ...native.measured, width: 300 };
+      await settle();
+      await controller.releaseFromMotion();
+      await settle();
+      expect(native.page).toMatchObject({
+        visible: true,
+        bounds: { width: 300 },
+      });
+      expect(native.page.bounds.holes).toBeUndefined();
+      expect(snapshots.at(-1)).toBeNull();
+    });
+
+    it("shows the still image instead of the page on an engine without cut-outs, once painted", async () => {
+      state.holesSupported = false;
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      const copy = movingCopy();
+      await settle();
+      // Never hidden with nothing beneath it, however slow the image.
+      await vi.advanceTimersByTimeAsync(400);
+      expect(native.page.visible).toBe(true);
+      pending.resolve("data:image/png;base64,still");
+      await settle();
+      expect(native.page.visible).toBe(true);
+      await paint();
+      expect(native.page.visible).toBe(false);
+      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,still");
+      expect(native.captures).toHaveLength(1);
+      copy.remove();
+      await settle();
+      expect(native.page.visible).toBe(true);
+      expect(snapshots.at(-1)).toBeNull();
+    });
   });
 });

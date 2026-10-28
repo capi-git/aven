@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BROWSER_MOVING_ATTRIBUTE, BROWSER_OVERLAYS } from "./browserOverlays";
 import { effectiveCssZoom } from "./drag";
 import { MOTION_ROOT_ATTRIBUTE } from "./motion";
 import { TAB_RUBBER_BAND } from "./motionTokens";
@@ -305,7 +306,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     );
   });
 
-  it("exposes floating preview addition, movement, and removal to native browser occlusion", () => {
+  it("exposes the copy's drawn face, its movement and its removal to native browser occlusion", () => {
     const { nodes } = tabs(["first"]);
     const motion = new SortableMotion();
     motion.begin(nodes, "first", { x: 50, y: 12 }, "x");
@@ -317,10 +318,17 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
       attributeFilter: ["style", "data-native-browser-occluded"],
     });
     motion.activate({ x: 60, y: 12 });
-    const preview = document.querySelector<HTMLElement>(
-      '[data-native-browser-occluded="true"]',
-    )!;
-    expect(preview.dataset.sortablePreview).toBe("first");
+    // Only the face is an overlay, and a moving one: the copy's box is
+    // mostly empty around its chip, and a page cut out of all of it showed
+    // the window behind (0.1.156).
+    const overlays = document.querySelectorAll<HTMLElement>(BROWSER_OVERLAYS);
+    expect(overlays).toHaveLength(1);
+    const [cut] = overlays;
+    expect(cut.dataset.sortableLayer).toBe("cut");
+    expect(cut.hasAttribute(BROWSER_MOVING_ATTRIBUTE)).toBe(true);
+    const preview = previewOf()!;
+    expect(preview.hasAttribute("data-native-browser-occluded")).toBe(false);
+    expect(preview.contains(cut)).toBe(true);
     expect(
       observer
         .takeRecords()
@@ -335,18 +343,37 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
             record.target === preview && record.attributeName === "style",
         ),
     ).toBe(true);
-    expect(preview.getAttribute("data-native-browser-occluded")).toBe("true");
+    // It is drawn as the face is, closing in around the chip.
+    const drawn = (element: HTMLElement) =>
+      playedOn(element).at(-1)?.keyframes.at(-1)?.transform ??
+      element.style.transform;
+    expect(drawn(cut)).toMatch(/scaleX/);
+    expect(drawn(cut)).toBe(drawn(layer("shadow")));
     motion.cancel();
     expect(
       observer
         .takeRecords()
         .some((record) => [...record.removedNodes].includes(preview)),
     ).toBe(true);
-    expect(
-      document.querySelector('[data-native-browser-occluded="true"]'),
-    ).toBeNull();
+    expect(document.querySelector(BROWSER_OVERLAYS)).toBeNull();
     expect(document.body.style.zoom).toBe("");
     observer.disconnect();
+  });
+
+  it("gives every page back once let go, however the drag ends", () => {
+    // Drop, Escape, a pointer cancel and the window losing focus all
+    // release the copy; it may still fly or fade, under any page.
+    const { nodes } = tabs(["first"]);
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 12 }, "x");
+    motion.activate({ x: 60, y: 12 });
+    motion.move(["first"], { x: 350, y: 160 }, 0, false);
+    expect(document.querySelectorAll(BROWSER_OVERLAYS)).toHaveLength(1);
+    motion.release(null, new Map());
+    expect(previewOf()).not.toBeNull();
+    expect(document.querySelector(BROWSER_OVERLAYS)).toBeNull();
+    expect(document.querySelector(`[${BROWSER_MOVING_ATTRIBUTE}]`)).toBeNull();
+    motion.cancel();
   });
 });
 

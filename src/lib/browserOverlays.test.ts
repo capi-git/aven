@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BROWSER_MOVING_ATTRIBUTE,
   MAX_BROWSER_HOLES,
   browserOverlayState,
   type BrowserOverlayState,
@@ -88,12 +89,20 @@ describe("browser overlay cut-outs", () => {
       capture: false,
       holes: [{ x: 300, y: 40, width: 224, height: 300, radius: 12 }],
       elements: [menu],
+      moving: [],
+      movingAnimates: false,
     });
   });
 
   it("uses the still-image path when the engine has no cut-out support", () => {
     overlay(new DOMRect(400, 120, 224, 300));
-    expect(state(false)).toEqual({ capture: true, holes: [], elements: [] });
+    expect(state(false)).toEqual({
+      capture: true,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+    });
   });
 
   it("ignores surfaces outside the page or behind a covered sidebar edge", () => {
@@ -103,6 +112,8 @@ describe("browser overlay cut-outs", () => {
       capture: false,
       holes: [],
       elements: [],
+      moving: [],
+      movingAnimates: false,
     });
   });
 
@@ -219,7 +230,13 @@ describe("browser overlay cut-outs", () => {
       style: { opacity: "0" },
     });
     vi.spyOn(menu, "getAnimations").mockReturnValue([]);
-    expect(state()).toEqual({ capture: false, holes: [], elements: [] });
+    expect(state()).toEqual({
+      capture: false,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+    });
     overlay(new DOMRect(300, 100, 200, 240), {
       style: { visibility: "hidden" },
     });
@@ -230,7 +247,13 @@ describe("browser overlay cut-outs", () => {
     overlay(new DOMRect(300, 100, 200, 240));
     const modal = overlay(new DOMRect(5, 5, 40, 40), { role: "dialog" });
     modal.setAttribute("aria-modal", "true");
-    expect(state()).toEqual({ capture: true, holes: [], elements: [] });
+    expect(state()).toEqual({
+      capture: true,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+    });
   });
 
   it("captures when menus would cover most of the page or exceed the cut-out limit", () => {
@@ -250,6 +273,127 @@ describe("browser overlay cut-outs", () => {
     sidebar.removeAttribute("role");
     sidebar.dataset.nativeBrowserOccluded = "true";
     sidebar.dataset.nativeBrowserEdge = "left";
-    expect(state()).toEqual({ capture: false, holes: [], elements: [] });
+    expect(state()).toEqual({
+      capture: false,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+    });
   });
+  // WebKit, measured: an element's client rects are in viewport pixels, while
+  // its transform, transform origin and offset size are in its own CSS
+  // pixels, which its effective zoom scales. The window strip cancels the
+  // interface zoom, so at 80% it is 1.25 and at 125% it is 0.8.
+  const zoomed = (element: HTMLElement, zoom: number) =>
+    Object.defineProperty(element, "currentCSSZoom", { value: zoom });
+
+  for (const [interfaceZoom, zoom] of [
+    [0.8, 1.25],
+    [1.25, 0.8],
+  ] as const) {
+    describe(`in the window strip at ${interfaceZoom * 100}% interface zoom`, () => {
+      it("cuts an entering menu at its final rectangle in viewport pixels", () => {
+        // 200x300 own pixels at its final place (300, 100), entering at
+        // scale(0.94) from its top-left and 8 own pixels above.
+        const menu = overlay(
+          new DOMRect(
+            300,
+            100 - 8 * zoom,
+            200 * 0.94 * zoom,
+            300 * 0.94 * zoom,
+          ),
+          {
+            style: {
+              transform: "matrix(0.94, 0, 0, 0.94, 0, -8)",
+              transformOrigin: "0px 0px",
+            },
+          },
+        );
+        zoomed(menu, zoom);
+        Object.defineProperties(menu, {
+          offsetWidth: { value: 200 },
+          offsetHeight: { value: 300 },
+        });
+        vi.spyOn(menu, "getAnimations").mockReturnValue([
+          { playState: "running", pending: false } as unknown as Animation,
+        ]);
+        const [hole] = state().holes;
+        expect(hole.x).toBeCloseTo(200);
+        expect(hole.y).toBeCloseTo(20);
+        expect(hole.width).toBeCloseTo(200 * zoom);
+        expect(hole.height).toBeCloseTo(300 * zoom);
+      });
+
+      it("cuts a surface its own transform places where it is drawn", () => {
+        // 0.1.156: a copy laid out at the corner and moved to the pointer by
+        // its transform was cut at (1 - 1/zoom) of where it was drawn.
+        const at = { x: 420, y: 330 };
+        const surface = overlay(
+          new DOMRect(at.x, at.y, 120 * zoom, 28 * zoom),
+          {
+            style: {
+              transform: `matrix(1, 0, 0, 1, ${at.x / zoom}, ${at.y / zoom})`,
+            },
+          },
+        );
+        zoomed(surface, zoom);
+        Object.defineProperties(surface, {
+          offsetWidth: { value: 120 },
+          offsetHeight: { value: 28 },
+        });
+        vi.spyOn(surface, "getAnimations").mockReturnValue([]);
+        const [hole] = state().holes;
+        expect(hole.x).toBeCloseTo(at.x - bounds.x);
+        expect(hole.y).toBeCloseTo(at.y - bounds.y);
+        expect(hole.width).toBeCloseTo(120 * zoom);
+        expect(hole.height).toBeCloseTo(28 * zoom);
+      });
+
+      it("reports a moving surface where it is drawn, apart from cut-outs", () => {
+        const copy = overlay(new DOMRect(500, 300, 110 * zoom, 30 * zoom), {
+          style: {
+            transform: "matrix(0.6, 0, 0, 1, 12, 0)",
+            borderTopLeftRadius: "8px",
+            borderTopRightRadius: "8px",
+            borderBottomRightRadius: "8px",
+            borderBottomLeftRadius: "8px",
+          },
+        });
+        copy.removeAttribute("role");
+        copy.dataset.nativeBrowserOccluded = "true";
+        copy.setAttribute(BROWSER_MOVING_ATTRIBUTE, "true");
+        zoomed(copy, zoom);
+        // Its springs run as animations; it is still cut where drawn.
+        vi.spyOn(copy, "getAnimations").mockReturnValue([
+          { playState: "running", pending: false } as unknown as Animation,
+        ]);
+        const moving = [
+          {
+            x: 400,
+            y: 220,
+            width: 110 * zoom,
+            height: 30 * zoom,
+            radius: 8 * zoom,
+          },
+        ];
+        expect(state()).toEqual({
+          capture: false,
+          holes: [],
+          elements: [],
+          moving,
+          movingAnimates: true,
+        });
+        // An engine without cut-outs shows a still image for it instead,
+        // once one is painted: it never asks to capture on its own.
+        expect(state(false)).toEqual({
+          capture: false,
+          holes: [],
+          elements: [],
+          moving,
+          movingAnimates: true,
+        });
+      });
+    });
+  }
 });
