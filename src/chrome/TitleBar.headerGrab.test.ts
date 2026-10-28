@@ -5,6 +5,7 @@ import {
   Fragment,
   type ComponentProps,
   type ReactNode,
+  useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -66,10 +67,12 @@ const back = vi.fn();
 
 /**
  * A page's toolbar, as BrowserPane draws it in its pane's header: the
- * arrows, its project's mark, the address naming the page, and space.
+ * arrows, its project's mark, the address naming the page (a handle for the
+ * tab) until it is focused to edit, and space.
  */
 function PageToolbar({ id }: { id: string }) {
   const slot = usePaneHeaderSlot(id);
+  const [editing, setEditing] = useState(false);
   if (!slot) return null;
   return createPortal(
     createElement(
@@ -89,8 +92,10 @@ function PageToolbar({ id }: { id: string }) {
       createElement("input", {
         "aria-label": "Preview address",
         defaultValue: "Pricing — WorkOS",
-        "data-pane-grab": slot.names ? "face" : undefined,
+        "data-pane-grab": slot.names && !editing ? "face" : undefined,
         onClick: edit,
+        onFocus: () => setEditing(true),
+        onBlur: () => setEditing(false),
       }),
       createElement("span", { "data-empty": "" }),
     ),
@@ -589,6 +594,90 @@ describe("a lone page's header moves its tab", () => {
   });
 });
 
+/**
+ * A right-click (or Control-click) as WebKit sends it: the pointer's press,
+ * the mouse's, whose default focuses a field it lands on, then the menu.
+ * Returns whether the page took the menu and whether the press focused.
+ */
+async function rightClick(target: HTMLElement, x: number, ctrl = false) {
+  const button = ctrl ? 0 : 2;
+  const init = {
+    bubbles: true,
+    cancelable: true,
+    button,
+    ctrlKey: ctrl,
+    clientX: x,
+    clientY: 56,
+  };
+  await act(async () => {
+    target.dispatchEvent(
+      new PointerEvent("pointerdown", { ...init, pointerId: 1 }),
+    );
+  });
+  await act(async () => {
+    const focusable = target.dispatchEvent(new MouseEvent("mousedown", init));
+    if (focusable && target.matches("input, button")) target.focus();
+  });
+  const focused = document.activeElement === target;
+  await act(async () => {
+    target.dispatchEvent(
+      new PointerEvent("pointerup", { ...init, pointerId: 1 }),
+    );
+  });
+  let taken = false;
+  await act(async () => {
+    taken = !target.dispatchEvent(new MouseEvent("contextmenu", init));
+  });
+  return { taken, focused };
+}
+const menuItems = () =>
+  [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].map(
+    (item) => item.textContent?.trim() ?? "",
+  );
+const closeMenu = () =>
+  act(async () => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
+
+describe("right-clicks and edits in a lone page's header", () => {
+  it("opens the tab's menu on a right-click or Control-click on the title, which a press would otherwise focus", async () => {
+    await render();
+    for (const ctrl of [false, true]) {
+      const { taken, focused } = await rightClick(address(), 700, ctrl);
+      expect(focused).toBe(false);
+      expect(taken).toBe(true);
+      expect(menuItems().some((item) => item.startsWith("Close browser"))).toBe(
+        true,
+      );
+      // Still the page's title, a handle for its tab.
+      expect(address().dataset.paneGrab).toBe("face");
+      await closeMenu();
+    }
+    // Being edited, the field keeps its own menu.
+    await act(async () => address().focus());
+    const { taken } = await rightClick(address(), 700);
+    expect(taken).toBe(false);
+  });
+
+  it("ends an edit when the row is pressed, the title lifting with the tab", async () => {
+    await render();
+    await act(async () => address().focus());
+    expect(address().hasAttribute("data-pane-grab")).toBe(false);
+    const { focusable } = await press(mark(), 546);
+    expect(focusable).toBe(false);
+    expect(document.activeElement).not.toBe(address());
+    // Naming the page again, the title is what the chip lifts from.
+    expect(address().dataset.paneGrab).toBe("face");
+    expect(standIn()?.style.left).toBe("560px");
+    await pointer(window, "pointermove", 570, 70);
+    await frame();
+    expect(address().style.opacity).toBe("0");
+    await pointer(window, "pointerup", 570, 70);
+  });
+});
+
 describe("a lone file's header moves its tab", () => {
   const files = (list: readonly FilePaneTab[]) => (id: string) =>
     createElement(FileToolbar, { id, files: list });
@@ -616,6 +705,34 @@ describe("a lone file's header moves its tab", () => {
     await pointer(window, "pointerup", 650, 56);
     await act(async () => close.click());
     expect(closeFile).toHaveBeenCalledExactlyOnceWith("readme");
+  });
+
+  it("keeps a lone file's own menu on its tab, and the tab's menu on the row's space", async () => {
+    await render(
+      {
+        tabs: [tab("files", "README.md", { files: ["README.md"] })],
+        browserTabs: [],
+        surfaceOrder: ["files"],
+        activeId: "files",
+      },
+      files([readme]),
+    );
+    const fileTab = document.querySelector<HTMLElement>(
+      '[data-pane-header-slot] [data-tab-track-id="readme"] [role="tab"]',
+    )!;
+    const own = await rightClick(fileTab, 560);
+    expect(own.taken).toBe(true);
+    expect(menuItems()).toContain("Copy path");
+    expect(menuItems().some((item) => item.startsWith("Close tab"))).toBe(
+      false,
+    );
+    await closeMenu();
+    const strip = document.querySelector<HTMLElement>(
+      '[data-pane-header-slot] [aria-label="Open files"]',
+    )!;
+    await rightClick(strip, 900);
+    expect(menuItems().some((item) => item.startsWith("Close tab"))).toBe(true);
+    await closeMenu();
   });
 
   it("leaves several files' tabs to reorder the files, and moves the tab by the row's space", async () => {

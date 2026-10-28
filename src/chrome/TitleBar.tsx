@@ -2389,6 +2389,18 @@ function TitleBarComponent({
       if (event.button !== 0 || event.ctrlKey || !id) return;
       const target = headerGrabTarget(event.target, zone);
       if (!target) return;
+      // A press on the row ends an edit in its toolbar, as a press off a
+      // field always has (its default is prevented below): the address goes
+      // back to naming the page, ready to lift with the tab.
+      const editing = document.activeElement;
+      if (
+        editing instanceof HTMLElement &&
+        zone.contains(editing) &&
+        editing.matches(HEADER_EDITABLE)
+      ) {
+        editing.blur();
+        flushSync(() => {});
+      }
       const faces = [
         ...zone.querySelectorAll<HTMLElement>('[data-pane-grab="face"]'),
       ];
@@ -2435,8 +2447,14 @@ function TitleBarComponent({
       window.addEventListener("keydown", released);
     };
     // The handle never takes focus: pressing it moves the tab, and a click
-    // on a page's title edits its address once let go (BrowserPane).
+    // on a page's title edits its address once let go (BrowserPane). A
+    // right-click (or Control-click) on it opens the tab's menu: focused,
+    // the address would stop naming the page before the menu is asked for.
     const onMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0 || event.ctrlKey) {
+        if (headerMenuTarget(event.target, zone)) event.preventDefault();
+        return;
+      }
       if (!grabbing.current) return;
       grabbing.current = false;
       event.preventDefault();
@@ -2450,7 +2468,7 @@ function TitleBarComponent({
     // Right-click on the handle: the tab's own menu, as on its chip.
     const onContextMenu = (event: MouseEvent) => {
       const id = grabLatest.current.frontId;
-      if (!id || !headerGrabTarget(event.target, zone)) return;
+      if (!id || !headerMenuTarget(event.target, zone)) return;
       event.preventDefault();
       event.stopPropagation();
       setBrowserMenu(null);
@@ -4243,6 +4261,24 @@ export function headerGrabTarget(
   if (control && control !== zone && zone.contains(control)) return null;
   return { handle: null };
 }
+
+/**
+ * Whether a right-click at `target` in a lone pane's header opens the tab's
+ * menu: on what moves the tab, unless it has a menu of its own (a file's
+ * tab, `data-own-menu`).
+ */
+export function headerMenuTarget(
+  target: EventTarget | null,
+  zone: HTMLElement,
+): boolean {
+  if (!headerGrabTarget(target, zone)) return false;
+  const own = (target as Element).closest("[data-own-menu]");
+  return !(own && zone.contains(own));
+}
+
+/** A field being edited in a header's toolbar. */
+const HEADER_EDITABLE =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** How far left of the pointer a stand-in with nothing to cover starts. */
 const GRAB_REACH = 24;

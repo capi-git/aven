@@ -4,6 +4,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import {
   dragPath,
+  frame,
   joinedProblem,
   splitLeftProblem,
   strippedProblem,
@@ -19,6 +20,26 @@ describe("the real-app check of a lone tab's header", () => {
       { x: 250, y: 170 },
       { x: 300, y: 220 },
     ]);
+  });
+
+  it("waits for a painted frame, but never longer than a moment where none comes", async () => {
+    vi.useFakeTimers();
+    // A hidden window: WebKit runs no frame callbacks.
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    try {
+      let done = false;
+      const waiting = frame().then(() => {
+        done = true;
+      });
+      await vi.advanceTimersByTimeAsync(99);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await waiting;
+      expect(done).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   it("reads a split to the chat's left, a join and the strip from the arrangement", () => {

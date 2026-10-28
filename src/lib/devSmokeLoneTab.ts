@@ -82,10 +82,17 @@ export function strippedProblem(
   return "the page is not on the strip";
 }
 
-const frame = () =>
-  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const pause = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+/**
+ * A painted frame, or 100 ms: WebKit paints none for a window that is
+ * hidden, covered or on another Space, and the check must not wait forever.
+ */
+export const frame = () =>
+  Promise.race([
+    new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    pause(100),
+  ]);
 
 async function mouse(kind: "down" | "drag" | "up", at: Point) {
   await invoke("dev_smoke_pointer", {
@@ -99,12 +106,22 @@ async function mouse(kind: "down" | "drag" | "up", at: Point) {
   await frame();
 }
 
-/** Press at `from`, move through `path`, and let go at its end. */
+/**
+ * Press at `from`, move through `path`, and let go at its end; let go
+ * wherever it got to if a move fails, so no press is left held.
+ */
 async function drag(from: Point, path: readonly Point[]) {
   await mouse("down", from);
-  for (const point of path) await mouse("drag", point);
-  await pause(80);
-  await mouse("up", path[path.length - 1] ?? from);
+  let at = from;
+  try {
+    for (const point of path) {
+      await mouse("drag", point);
+      at = point;
+    }
+    await pause(80);
+  } finally {
+    await mouse("up", at);
+  }
 }
 
 /** The address field in the page's header while it names the page. */
@@ -238,8 +255,7 @@ export async function checkLoneTabDrag(
     // A click that never moves edits the address, as before.
     field = titleField(pageId) ?? field;
     const atTitle = centre(field);
-    await mouse("down", atTitle);
-    await mouse("up", atTitle);
+    await drag(atTitle, []);
     await waitFor(
       () =>
         document.activeElement instanceof HTMLInputElement &&

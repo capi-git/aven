@@ -3236,7 +3236,13 @@ export async function runDevSmoke(
       "a page alone in a pane moves by its header, with the Mac's own mouse",
       () => {
         get().motion?.showWorkspace?.();
-        return checkLoneTabDrag(config.projectPath, pageUrl, get);
+        // Every wait in it has its own limit; this one names a stall
+        // anywhere else rather than leaving it to the runner's.
+        return withTimeout(
+          checkLoneTabDrag(config.projectPath, pageUrl, get),
+          120_000,
+          "moving a page by its header",
+        );
       },
     );
 
