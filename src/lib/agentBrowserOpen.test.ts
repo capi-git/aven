@@ -313,12 +313,13 @@ describe("an agent builds on one page", () => {
     });
   });
 
-  it("opens a second page only when the agent asks for a new tab, and builds on the one in front", () => {
+  it("opens a second page for a new tab at another path, and builds on the one in front", () => {
     const createId = ids();
     const first = openAll(EMPTY_BROWSER, [mock], "chat-a", createId);
+    const alternative = "http://localhost:5173/mocks/alternative.html";
     const copy = openAgentBrowserTab(
       first.workspace,
-      `${mock}?version=old`,
+      alternative,
       { chat: "chat-a", newTab: true },
       createId,
     );
@@ -327,10 +328,18 @@ describe("an agent builds on one page", () => {
       ["page-1", "chat-a"],
       ["page-2", "chat-a"],
     ]);
-    // The copy is in front, so the next page builds on it.
+    // Another site is a new page too.
+    const docs = openAgentBrowserTab(
+      copy.workspace,
+      "https://example.com/mocks/index.html",
+      { chat: "chat-a", newTab: true },
+      createId,
+    );
+    expect(docs.tab.id).toBe("page-3");
+    // The alternative is in front of the mock, so the next page builds on it.
     const next = openAgentBrowserTab(
       copy.workspace,
-      `${mock}?version=new`,
+      `${alternative}?version=new`,
       { chat: "chat-a" },
       createId,
     );
@@ -338,6 +347,44 @@ describe("an agent builds on one page", () => {
     expect(next.refresh).toBe("navigate");
     expect(next.workspace.tabs).toHaveLength(2);
     expect(next.workspace.tabs[0].url).toBe(mock);
+  });
+
+  it("reuses the chat's own page when a new tab would only copy it", () => {
+    const createId = ids();
+    const first = openAll(EMPTY_BROWSER, [mock], "chat-a", createId).workspace;
+    const same = openAgentBrowserTab(
+      first,
+      mock,
+      { chat: "chat-a", newTab: true },
+      createId,
+    );
+    expect([same.tab.id, same.refresh]).toEqual(["page-1", "reload"]);
+    const query = openAgentBrowserTab(
+      same.workspace,
+      `${mock}?v=2#hero`,
+      { chat: "chat-a", newTab: true },
+      createId,
+    );
+    expect([query.tab.id, query.refresh]).toEqual(["page-1", "navigate"]);
+    expect(query.workspace.tabs).toHaveLength(1);
+    expect(query.workspace.tabs[0].url).toBe(`${mock}?v=2#hero`);
+    // Nobody else's page is reused for a new tab, even at the same address.
+    const user = addRetainedBrowserTab(EMPTY_BROWSER, {
+      id: "mine",
+      url: mock,
+    });
+    const beside = openAgentBrowserTab(
+      user,
+      mock,
+      { chat: "chat-a", newTab: true },
+      () => "fresh",
+    );
+    expect([beside.tab.id, beside.refresh]).toEqual(["fresh", undefined]);
+    expect(beside.workspace.tabs).toHaveLength(2);
+    // Without a chat (the dev preview opener) a new tab is always new.
+    expect(
+      openAgentBrowserTab(first, mock, { newTab: true }, () => "copy").tab.id,
+    ).toBe("copy");
   });
 
   it("never navigates a page the user opened, and only shows one at the same address", () => {
@@ -458,6 +505,24 @@ describe("an agent builds on one page", () => {
       router.open("/p", `${mock}?v=3`, { chat: "chat-b" }, adapter),
     ).resolves.toEqual({ id: "new" });
     expect(create).toHaveBeenCalledOnce();
+    // A new tab at the chat's own page's path reuses it; another path does not.
+    await expect(
+      router.open(
+        "/p",
+        `${mock}?v=4`,
+        { chat: "chat-a", newTab: true },
+        adapter,
+      ),
+    ).resolves.toEqual({ id: "mine", refresh: "navigate" });
+    await expect(
+      router.open(
+        "/p",
+        "http://localhost:5173/mocks/other.html",
+        { chat: "chat-a", newTab: true },
+        adapter,
+      ),
+    ).resolves.toEqual({ id: "new" });
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it("treats loopback names as one site but not other ports, schemes or hosts", () => {

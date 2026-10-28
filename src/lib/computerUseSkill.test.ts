@@ -163,6 +163,9 @@ describe("desktop control permission guidance", () => {
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
       "Iterate on a mock-up or preview in place: edit the same file and reload its page, without mock-v2 files or new tabs unless the user asks for alternatives side by side.",
     );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "Use newTab:true only for a second page at another path needed at the same time; at the path of your own page it reuses that page.",
+    );
     expect(AVEN_BROWSER_HOST_POLICY).not.toContain("exact URL");
   });
 

@@ -101,6 +101,9 @@ describe("agent browser session connection", () => {
     expect(text).toContain(
       'Only pass "newTab":true for a second page you need at the same time',
     );
+    expect(text).toContain(
+      "at the path of a page of yours it reuses that page instead of copying it",
+    );
     expect(text).not.toContain(
       "Different query strings and fragments are different addresses",
     );
@@ -332,7 +335,7 @@ describe("agent browser session connection", () => {
       browserId: "native-page-2",
     });
   });
-  it("builds on one page per chat: reloads the same address, navigates another query or mock file, and opens a second tab only on request", async () => {
+  it("builds on one page per chat: reloads the same address, navigates another query or mock file, and opens a second tab only for another path on request", async () => {
     const api = await import("./agentBrowser");
     const { openAgentBrowserTab } = await import("./agentBrowserOpen");
     const { EMPTY_BROWSER, addRetainedBrowserTab } =
@@ -405,12 +408,28 @@ describe("agent browser session connection", () => {
       browserId: "native-user-page",
     });
     expect(workspace.tabs![0].url).toBe("http://localhost:5173/notes.html");
-    // An explicit request for a new tab is honoured.
-    await send("copy", mock, true);
+    // A new tab at another path is honoured, for alternatives side by side.
+    await send(
+      "alternative",
+      "http://localhost:5173/mocks/alternative.html",
+      true,
+    );
     expect(workspace.tabs).toHaveLength(3);
     expect(replies().at(-1)).toEqual({
-      requestId: "copy",
+      requestId: "alternative",
       browserId: "native-page-2",
+    });
+    // A new tab that would only copy the chat's own page reuses it.
+    await send(
+      "same-path",
+      "http://localhost:5173/mocks/alternative.html?v=2",
+      true,
+    );
+    expect(workspace.tabs).toHaveLength(3);
+    expect(replies().at(-1)).toEqual({
+      requestId: "same-path",
+      browserId: "native-page-2",
+      refresh: "navigate",
     });
   });
   it("does not reload a page that only now wakes or loads", async () => {

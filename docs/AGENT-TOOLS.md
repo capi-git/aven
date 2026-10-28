@@ -33,7 +33,10 @@ Agents are told to iterate on a mock-up or preview in place: edit the same
 file and reload its page, rather than making `mock-v2` files or more tabs,
 unless you ask for alternatives side by side. They pass `"newTab":true` only
 for a second page they need at the same time; `"arrange":false` already leaves
-your view alone. The browser shows `http` and `https` pages only, so a mock is
+your view alone. Agents often asked for a new tab just to be safe, so a
+new-tab request at the same path as the chat's own page reuses that page
+(reloaded, or navigated to the new query or fragment) instead of copying it;
+one at another path or site opens a second page. The browser shows `http` and `https` pages only, so a mock is
 served from a local server rather than opened as a `file://` address. Agents inspect a snapshot and interact with elements from it. If the connection fails, the agent reports the error
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.

@@ -3356,8 +3356,9 @@ export async function runDevSmoke(
 
   // A chat's agent iterates on a mock-up page through its browser command:
   // the same address twice, another query, another path on the same server,
-  // then an explicit new tab. The first four must land on one page, reloaded
-  // and then navigated, and only the new-tab request adds a second.
+  // then a new tab at another path, then a new tab at that path again. The
+  // first four must land on one page, reloaded and then navigated; the first
+  // new tab adds a second page, and the next one reuses it, not a copy.
   const agentPagesOf = get().agentPages;
   if (safe && pageUrl && agentPagesOf)
     await step("an agent's opens build on one page", async () => {
@@ -3387,10 +3388,11 @@ export async function runDevSmoke(
       const ids = opens.map((open) => open.id);
       const reused = opens.map((open) => open.reused ?? "-");
       if (
-        opens.length !== 5 ||
+        opens.length !== 6 ||
         new Set(ids.slice(0, 4)).size !== 1 ||
         ids[4] === ids[0] ||
-        reused.join(",") !== "-,reloaded,navigated,navigated,-"
+        ids[5] !== ids[4] ||
+        reused.join(",") !== "-,reloaded,navigated,navigated,-,navigated"
       )
         throw new Error(`The opens returned ${JSON.stringify(opens)}`);
       const own = agentPagesOf(config.projectPath).filter(
@@ -3400,7 +3402,7 @@ export async function runDevSmoke(
         throw new Error(
           `The chat has ${own.length} pages: ${own.map((page) => page.url).join(", ")}`,
         );
-      return `one page reloaded and navigated (${reused.join(", ")}); a new tab only on request`;
+      return `one page reloaded and navigated, a second only for another path (${reused.join(", ")})`;
     });
 
   // An orchestration, asked for from a chat's + menu. The stand-in lead

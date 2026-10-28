@@ -520,7 +520,8 @@ def iphone_turn(text):
 # "AVEN_SMOKE_PAGES <url>" makes the turn iterate on a mock-up page through
 # the scoped `--aven-browser` connection Aven gave this process, as an agent
 # would: the same address twice, another query, another path on the same
-# server, then an explicit new tab. The reply lists what each open returned.
+# server, then a new tab at a path of its own (an alternative), then a new
+# tab at that same path again. The reply lists what each open returned.
 PAGES_PATTERN = re.compile(r"AVEN_SMOKE_PAGES (http://[^\s]+/)")
 PAGES_WORD = "AVEN_PAGES"
 
@@ -538,8 +539,10 @@ def browser(action, timeout=30):
 
 def pages_turn(base):
     mock = base + "index.html?mock=1"
+    alternative = base + "alternative.html?mock="
     opens = [{"url": mock}, {"url": mock}, {"url": mock + "&v=2"},
-             {"url": base + "?mock=1"}, {"url": mock, "newTab": True}]
+             {"url": base + "?mock=1"}, {"url": alternative + "1", "newTab": True},
+             {"url": alternative + "2", "newTab": True}]
     report = []
     try:
         for request in opens:

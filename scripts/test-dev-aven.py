@@ -499,7 +499,7 @@ class RealAppCheck(unittest.TestCase):
                               timeout=20, env={**os.environ, 'AVEN_BROWSER_EXECUTABLE': str(fake)})
         reply = json.loads(chat.stdout.splitlines()[-1])['result']
         self.assertTrue(reply.startswith('AVEN_SMOKE_OK AVEN_PAGES ['), reply)
-        self.assertEqual(len(json.loads(reply.split('AVEN_PAGES ', 1)[1])), 5)
+        self.assertEqual(len(json.loads(reply.split('AVEN_PAGES ', 1)[1])), 6)
         sent = [json.loads(line) for line in calls.read_text().splitlines()]
         mock = 'http://127.0.0.1:8123/index.html?mock=1'
         self.assertEqual([(c['action'], c['url'], c.get('newTab', False), c['arrange']) for c in sent], [
@@ -507,7 +507,8 @@ class RealAppCheck(unittest.TestCase):
             ('open', mock, False, False),
             ('open', mock + '&v=2', False, False),
             ('open', 'http://127.0.0.1:8123/?mock=1', False, False),
-            ('open', mock, True, False),
+            ('open', 'http://127.0.0.1:8123/alternative.html?mock=1', True, False),
+            ('open', 'http://127.0.0.1:8123/alternative.html?mock=2', True, False),
         ])
 
     def test_stand_in_claude_writes_into_its_folder_as_a_race_lane(self):

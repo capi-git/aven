@@ -79,14 +79,13 @@ export function createAgentBrowserRouter() {
             activate: false,
             arrange: options?.arrange !== false,
           };
-          const existing = options?.newTab
-            ? undefined
-            : agentPageFor(
-                adapter.tabs(),
-                url,
-                options?.chat,
-                adapter.preferredId,
-              );
+          const existing = agentPageFor(
+            adapter.tabs(),
+            url,
+            options?.chat,
+            adapter.preferredId,
+            { newTab: options?.newTab },
+          );
           return existing
             ? opened(
                 await adapter.reuse(existing.tab, placement, existing.refresh),
@@ -239,12 +238,25 @@ export function sameAgentSite(a: string, b: string): boolean {
   }
 }
 
+/** The address's path, without its query or fragment. */
+function pagePath(url: string): string | null {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The page an agent's open lands on, without a new tab:
  * - a page at the same address: the chat's own is reloaded, any other is
  *   only shown (a page the user opened is never navigated by an open);
  * - else the chat's own page on the same site, navigated to the address (the
  *   one in front first, else the newest), so one page is built on.
+ * With `newTab` the agent wants a second page: only the chat's own page at
+ * the same path on the same site is reused (reloaded, or navigated to a new
+ * query or fragment), since a copy of it shows nothing new; any other path
+ * or site gets a new tab, for alternatives side by side.
  * Undefined means a new tab. A page the user kept or took over has no
  * `agentChat`, so it is never navigated.
  */
@@ -253,17 +265,23 @@ export function agentPageFor<T extends AgentPageCandidate>(
   url: string,
   chat?: string,
   preferredId?: string,
+  { newTab = false }: { newTab?: boolean } = {},
 ): { tab: T; refresh?: AgentPageRefresh } | undefined {
   const own = (tab: T) => !!chat && tab.agentChat === chat;
-  const exact =
-    matchingAgentBrowserTab(tabs.filter(own), url, preferredId) ??
-    matchingAgentBrowserTab(tabs, url, preferredId);
-  if (exact)
-    return own(exact) ? { tab: exact, refresh: "reload" } : { tab: exact };
+  const mine = tabs.filter(own);
+  const exactOwn = matchingAgentBrowserTab(mine, url, preferredId);
+  if (exactOwn) return { tab: exactOwn, refresh: "reload" };
   const target = normalizeBrowserUrl(url);
-  const site = tabs.filter((tab) => own(tab) && sameAgentSite(tab.url, target));
+  const path = pagePath(target);
+  const site = mine.filter(
+    (tab) =>
+      sameAgentSite(tab.url, target) && (!newTab || pagePath(tab.url) === path),
+  );
   const page =
     site.find((tab) => tab.id === preferredId) ?? site[site.length - 1];
+  if (newTab) return page ? { tab: page, refresh: "navigate" } : undefined;
+  const exact = matchingAgentBrowserTab(tabs, url, preferredId);
+  if (exact) return { tab: exact };
   return page ? { tab: page, refresh: "navigate" } : undefined;
 }
 
@@ -271,7 +289,8 @@ export function agentPageFor<T extends AgentPageCandidate>(
  * An agent's open in a workspace's browser state. A repeated open selects
  * the live tab; the chat's own page is reloaded at the same address or
  * navigated to another on its site (`refresh`), and otherwise a new tab,
- * owned by the chat, is added.
+ * owned by the chat, is added. `newTab` adds one unless the chat already
+ * has its own page at that path (`agentPageFor`).
  */
 export function openAgentBrowserTab(
   state: BrowserWorkspace,
@@ -295,14 +314,13 @@ export function openAgentBrowserTab(
           expanded: current.expanded,
         }
       : workspace;
-  const existing = options.newTab
-    ? undefined
-    : agentPageFor(
-        current.tabs,
-        url,
-        options.chat,
-        current.activeTabId ?? undefined,
-      );
+  const existing = agentPageFor(
+    current.tabs,
+    url,
+    options.chat,
+    current.activeTabId ?? undefined,
+    { newTab: options.newTab },
+  );
   if (existing) {
     const { tab, refresh } = existing;
     // The page shows the new address at once, so an overlapping open finds
