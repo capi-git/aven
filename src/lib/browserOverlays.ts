@@ -1,5 +1,5 @@
 import type { BrowserBounds, BrowserHole } from "./browser";
-import { effectiveCssZoom } from "./drag";
+import { effectiveCssZoom, viewportRect } from "./drag";
 
 /** In-app surfaces that must appear above a native browser page. */
 export const BROWSER_OVERLAYS =
@@ -28,8 +28,8 @@ export type BrowserOverlayState = {
   elements: HTMLElement[];
   /**
    * Moving surfaces over the page, where they are drawn, in page-relative
-   * CSS pixels. Never cut without a still image beneath; an engine without
-   * cut-outs shows the still image instead of the page while they are over it.
+   * CSS pixels; never cut without a still image beneath. An engine without
+   * cut-outs takes the still-image path for them, as for any overlay.
    */
   moving: BrowserHole[];
   /**
@@ -67,10 +67,11 @@ function intersects(rect: Box, area: Box): boolean {
   );
 }
 
+/** Where `element` is drawn, in the viewport's pixels on any engine. */
 function clientBox(element: HTMLElement): Box | null {
-  const rects = [...element.getClientRects()].filter(
-    (rect) => rect.width > 0 && rect.height > 0,
-  );
+  const rects = [...element.getClientRects()]
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .map((rect) => viewportRect(element, rect));
   if (!rects.length) return null;
   return {
     left: Math.min(...rects.map((rect) => rect.left)),
@@ -89,9 +90,9 @@ function clientBox(element: HTMLElement): Box | null {
  * of the final placement.
  *
  * The transform, its origin and `offsetWidth` are in the element's own CSS
- * pixels; its client rects are in the viewport's. Under CSS zoom (the window
- * strip cancels the interface zoom) one of the element's pixels is its
- * effective zoom in the viewport.
+ * pixels; `box` is in the viewport's (`clientBox`, on either kind of
+ * engine). Under CSS zoom (the window strip cancels the interface zoom) one
+ * of the element's pixels is its effective zoom in the viewport.
  */
 function finalBox(element: HTMLElement, box: Box, style: CSSStyleDeclaration) {
   const transform = style.transform;
@@ -210,7 +211,7 @@ export function browserOverlayState(
       break;
     }
     if (!intersects(box, area)) continue;
-    if (element.hasAttribute(BROWSER_MOVING_ATTRIBUTE)) {
+    if (element.hasAttribute(BROWSER_MOVING_ATTRIBUTE) && holesSupported) {
       // Where it is drawn now; the page keeps it beneath until a still
       // image can show through any gap.
       moving.push({

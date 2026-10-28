@@ -715,26 +715,107 @@ describe("browser presentation", () => {
       expect(snapshots.at(-1)).toBeNull();
     });
 
-    it("shows the still image instead of the page on an engine without cut-outs, once painted", async () => {
-      state.holesSupported = false;
-      const pending = deferred<string>();
-      native.nextCapture = pending;
+    it("tries a failing still image a few times, however much the copy moves", async () => {
+      let attempts = 0;
+      native.snapshot = () => {
+        attempts += 1;
+        return Promise.reject(new Error("no image"));
+      };
       const copy = movingCopy();
       await settle();
-      // Never hidden with nothing beneath it, however slow the image.
-      await vi.advanceTimersByTimeAsync(400);
+      for (let frame = 0; frame < 60; frame += 1) {
+        copy.move(new DOMRect(400 + frame, 300, 110, 30));
+        await settle();
+        await paint();
+        await vi.advanceTimersByTimeAsync(16);
+      }
+      // One try as it arrives, then only the retry timer's few.
+      expect(attempts).toBeLessThanOrEqual(6);
       expect(native.page.visible).toBe(true);
-      pending.resolve("data:image/png;base64,still");
+      expect(native.page.bounds.holes).toBeUndefined();
+      // Off the page and back is a new hover, with a try of its own.
+      copy.remove();
       await settle();
-      expect(native.page.visible).toBe(true);
+      movingCopy();
+      await settle();
+      expect(attempts).toBeLessThanOrEqual(7);
+      expect(attempts).toBeGreaterThan(1);
+    });
+
+    it("leaves nothing beneath when the drag ends while its still image paints", async () => {
+      const copy = movingCopy();
+      await settle();
+      // Decoded and mounted; its frame has not been painted yet.
+      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,capture-1");
+      copy.remove();
+      await settle();
       await paint();
+      expect(snapshots.at(-1)).toBeNull();
+      expect(native.page.bounds.holes).toBeUndefined();
+      // The next drag takes a still image of its own, not the stale one.
+      movingCopy();
+      await settle();
+      expect(native.captures).toHaveLength(2);
+      await paint();
+      expect(native.page.bounds.holes).toHaveLength(1);
+    });
+
+    it("keeps the still image until the page no longer has the copy cut out", async () => {
+      const copy = movingCopy();
+      await settle();
+      await paint();
+      expect(native.page.bounds.holes).toHaveLength(1);
+      // Each release, with what the native page had cut out at that moment.
+      const releases: number[] = [];
+      const push = snapshots.push.bind(snapshots);
+      snapshots.push = (...items) => {
+        for (const item of items)
+          if (item === null)
+            releases.push(native.page.bounds.holes?.length ?? 0);
+        return push(...items);
+      };
+      // A layout with the moved cut-out is in flight when the tab drops.
+      const pending = deferred<void>();
+      native.nextLayout = pending;
+      copy.move(new DOMRect(150, 120, 110, 30));
+      await settle();
+      copy.remove();
+      await settle();
+      pending.resolve();
+      await settle();
+      await paint();
+      expect(native.page.bounds.holes).toBeUndefined();
+      expect(releases).toEqual([0]);
+    });
+
+    it("takes the overlay still-image path on an engine without cut-outs", async () => {
+      state.holesSupported = false;
+      const copy = movingCopy();
+      await settle();
+      await paint();
+      // As for any overlay: a still image of the page, then the page hides
+      // so the copy and the drop preview show over it.
+      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,capture-1");
       expect(native.page.visible).toBe(false);
-      expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,still");
-      expect(native.captures).toHaveLength(1);
       copy.remove();
       await settle();
       expect(native.page.visible).toBe(true);
       expect(snapshots.at(-1)).toBeNull();
+    });
+
+    it("never leaves the copy under the page when no still image can be had", async () => {
+      // Windows: browser_snapshot always fails. The page still hides for the
+      // copy at the overlay deadline, as for any overlay.
+      state.holesSupported = false;
+      native.snapshot = () => Promise.reject(new Error("unsupported"));
+      const copy = movingCopy();
+      await settle();
+      await vi.advanceTimersByTimeAsync(80);
+      await paint();
+      expect(native.page.visible).toBe(false);
+      copy.remove();
+      await settle();
+      expect(native.page.visible).toBe(true);
     });
   });
 });

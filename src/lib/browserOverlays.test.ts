@@ -7,6 +7,7 @@ import {
   type BrowserOverlayState,
 } from "./browserOverlays";
 import type { BrowserBounds } from "./browser";
+import { setCssZoomRectsForTests } from "./drag";
 
 const bounds: BrowserBounds = {
   x: 100,
@@ -281,27 +282,48 @@ describe("browser overlay cut-outs", () => {
       movingAnimates: false,
     });
   });
-  // WebKit, measured: an element's client rects are in viewport pixels, while
-  // its transform, transform origin and offset size are in its own CSS
-  // pixels, which its effective zoom scales. The window strip cancels the
-  // interface zoom, so at 80% it is 1.25 and at 125% it is 0.8.
+  // An element's transform, transform origin and offset size are in its own
+  // CSS pixels, which its effective zoom scales. Its client rects are in the
+  // viewport's pixels with standardized CSS zoom (macOS 27's WebKit,
+  // measured), or divided by that zoom on older WebKit. The window strip
+  // cancels the interface zoom, so at 80% it is 1.25 and at 125% it is 0.8.
   const zoomed = (element: HTMLElement, zoom: number) =>
     Object.defineProperty(element, "currentCSSZoom", { value: zoom });
 
-  for (const [interfaceZoom, zoom] of [
-    [0.8, 1.25],
-    [1.25, 0.8],
-  ] as const) {
-    describe(`in the window strip at ${interfaceZoom * 100}% interface zoom`, () => {
+  for (const [mode, [interfaceZoom, zoom]] of (
+    ["standard", "legacy"] as const
+  ).flatMap((mode) =>
+    (
+      [
+        [0.8, 1.25],
+        [1.25, 0.8],
+      ] as const
+    ).map((zooms) => [mode, zooms] as const),
+  )) {
+    /** What the engine reports for a rect drawn at `drawn` (viewport px). */
+    const reported = (drawn: DOMRect) =>
+      mode === "standard"
+        ? drawn
+        : new DOMRect(
+            drawn.x / zoom,
+            drawn.y / zoom,
+            drawn.width / zoom,
+            drawn.height / zoom,
+          );
+    describe(`in the window strip at ${interfaceZoom * 100}% interface zoom, ${mode} CSS zoom`, () => {
+      beforeEach(() => setCssZoomRectsForTests(mode));
+      afterEach(() => setCssZoomRectsForTests(undefined));
       it("cuts an entering menu at its final rectangle in viewport pixels", () => {
         // 200x300 own pixels at its final place (300, 100), entering at
         // scale(0.94) from its top-left and 8 own pixels above.
         const menu = overlay(
-          new DOMRect(
-            300,
-            100 - 8 * zoom,
-            200 * 0.94 * zoom,
-            300 * 0.94 * zoom,
+          reported(
+            new DOMRect(
+              300,
+              100 - 8 * zoom,
+              200 * 0.94 * zoom,
+              300 * 0.94 * zoom,
+            ),
           ),
           {
             style: {
@@ -330,7 +352,7 @@ describe("browser overlay cut-outs", () => {
         // its transform was cut at (1 - 1/zoom) of where it was drawn.
         const at = { x: 420, y: 330 };
         const surface = overlay(
-          new DOMRect(at.x, at.y, 120 * zoom, 28 * zoom),
+          reported(new DOMRect(at.x, at.y, 120 * zoom, 28 * zoom)),
           {
             style: {
               transform: `matrix(1, 0, 0, 1, ${at.x / zoom}, ${at.y / zoom})`,
@@ -351,15 +373,18 @@ describe("browser overlay cut-outs", () => {
       });
 
       it("reports a moving surface where it is drawn, apart from cut-outs", () => {
-        const copy = overlay(new DOMRect(500, 300, 110 * zoom, 30 * zoom), {
-          style: {
-            transform: "matrix(0.6, 0, 0, 1, 12, 0)",
-            borderTopLeftRadius: "8px",
-            borderTopRightRadius: "8px",
-            borderBottomRightRadius: "8px",
-            borderBottomLeftRadius: "8px",
+        const copy = overlay(
+          reported(new DOMRect(500, 300, 110 * zoom, 30 * zoom)),
+          {
+            style: {
+              transform: "matrix(0.6, 0, 0, 1, 12, 0)",
+              borderTopLeftRadius: "8px",
+              borderTopRightRadius: "8px",
+              borderBottomRightRadius: "8px",
+              borderBottomLeftRadius: "8px",
+            },
           },
-        });
+        );
         copy.removeAttribute("role");
         copy.dataset.nativeBrowserOccluded = "true";
         copy.setAttribute(BROWSER_MOVING_ATTRIBUTE, "true");
@@ -384,15 +409,10 @@ describe("browser overlay cut-outs", () => {
           moving,
           movingAnimates: true,
         });
-        // An engine without cut-outs shows a still image for it instead,
-        // once one is painted: it never asks to capture on its own.
-        expect(state(false)).toEqual({
-          capture: false,
-          holes: [],
-          elements: [],
-          moving,
-          movingAnimates: true,
-        });
+        // An engine without cut-outs (or still images) takes the
+        // still-image path, as for any overlay: the copy must not vanish
+        // under its page.
+        expect(state(false)).toMatchObject({ capture: true, holes: [] });
       });
     });
   }

@@ -173,7 +173,7 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
   return clipLeft || clipRight ? { ...bounds, clipLeft, clipRight } : bounds;
 }
 
-/** Where a pane's page goes, what is cut out of it and what covers it. */
+/** Where a pane's page goes and what is cut out of it. */
 type Placement = {
   bounds: BrowserBounds | null;
   /** Hidden behind a still image for a modal or unsupported overlay. */
@@ -182,8 +182,8 @@ type Placement = {
   moving: BrowserHole[];
   /** One of them is mid-animation; read where it is drawn again next frame. */
   movingAnimates: boolean;
-  /** Hidden behind its painted still image for moving surfaces, on an engine without cut-outs. */
-  cover: boolean;
+  /** Moving surfaces are cut out of the page in these bounds. */
+  movingCut: boolean;
 };
 
 function viewportKey(viewport: Omit<BrowserSnapshot, "src">): string {
@@ -365,17 +365,43 @@ export function createBrowserPresentation({
   let stillGeneration = 0;
   let stillCapture: number | null = null;
   let stillRetry: number | null = null;
+  // Tries this hover: the first comes from the surface arriving, the rest
+  // only from the retry timer, never from each frame it moves.
   let stillTries = 0;
+  // The moving surfaces' still image is the one mounted beneath the page.
+  let stillMounted = false;
+  // The layout the native page has now cuts moving surfaces out of it.
+  let nativeMovingCut = false;
+  /** The surfaces left the page: nothing of their still is kept for a later one. */
+  const forgetStill = () => {
+    if (
+      stillBeneath === null &&
+      stillCapture === null &&
+      stillRetry === null &&
+      !stillTries
+    )
+      return;
+    stillBeneath = null;
+    ++stillGeneration;
+    stillCapture = null;
+    stillTries = 0;
+    if (stillRetry !== null) window.clearTimeout(stillRetry);
+    stillRetry = null;
+  };
   const setStill = (snapshot: BrowserSnapshot | null) => {
     stillBeneath = null;
-    if (!snapshot) {
-      ++stillGeneration;
-      stillCapture = null;
-      stillTries = 0;
-      if (stillRetry !== null) window.clearTimeout(stillRetry);
-      stillRetry = null;
-    }
+    stillMounted = false;
+    if (!snapshot) forgetStill();
     onSnapshot(snapshot);
+  };
+  /**
+   * Drop the image beneath the page once nothing needs it: never while the
+   * native page still has a moving surface cut out of it (as last sent, not
+   * as the workspace is now), nor while one is over the page.
+   */
+  const releaseStill = () => {
+    if (freezeState !== "none" || nativeMovingCut || movingWanted()) return;
+    setStill(null);
   };
   const motionWaiters = new Set<{
     shown: boolean;
@@ -535,7 +561,7 @@ export function createBrowserPresentation({
         capture: !!bounds,
         moving: [],
         movingAnimates: false,
-        cover: false,
+        movingCut: false,
       };
     }
     const overlay = browserOverlayState(bounds, readState().holesSupported);
@@ -545,7 +571,7 @@ export function createBrowserPresentation({
       capture: overlay.capture,
       moving: overlay.moving,
       movingAnimates: overlay.movingAnimates,
-      cover: false,
+      movingCut: false,
     });
   };
   /** Whether a moving surface is over the page now. */
@@ -561,38 +587,43 @@ export function createBrowserPresentation({
   /**
    * Moving surfaces over the page: until a still image of the page is
    * painted beneath it they stay under the live page, then they are cut out
-   * where they are drawn (an engine without cut-outs shows the still image
-   * instead of the page while they are over it). The page never moves,
-   * resizes or hides for them.
+   * where they are drawn. The page never moves, resizes or hides for them.
    */
   const withMoving = (current: Placement): Placement => {
     if (
       !current.bounds ||
-      !current.moving.length ||
       current.capture ||
       motionHeld ||
       freezeState !== "none" ||
       !hasVisibleBrowserArea(current.bounds)
     )
       return current;
-    if (
-      stillBeneath === null ||
-      stillBeneath !== viewportKey(snapshotViewport(current.bounds))
-    ) {
-      captureStill(current.bounds);
+    if (!current.moving.length) {
+      forgetStill();
       return current;
     }
-    if (!readState().holesSupported) return { ...current, cover: true };
+    const viewport = viewportKey(snapshotViewport(current.bounds));
+    if (stillBeneath !== viewport) {
+      // A still of another viewport (the pane resized) starts afresh.
+      if (stillBeneath !== null) forgetStill();
+      if (!stillTries) captureStill(current.bounds);
+      return current;
+    }
     const holes = [...(current.bounds.holes ?? []), ...current.moving].slice(
       0,
       MAX_BROWSER_HOLES,
     );
-    return { ...current, bounds: { ...current.bounds, holes } };
+    return {
+      ...current,
+      bounds: { ...current.bounds, holes },
+      movingCut: true,
+    };
   };
   const captureStill = (bounds: BrowserBounds) => {
     if (stillCapture !== null || disposed) return;
     const generation = ++stillGeneration;
     stillCapture = generation;
+    stillTries += 1;
     const { url, navigation } = readState();
     const zoom = readState().zoom.factor;
     const wanted = () =>
@@ -624,8 +655,14 @@ export function createBrowserPresentation({
         // is cut out of it.
         stillBeneath = null;
         onSnapshot(captured);
+        stillMounted = true;
         await paintOnce();
         if (generation !== stillGeneration || disposed) return;
+        // The drag ended while it painted: nothing was cut for it.
+        if (!movingWanted()) {
+          releaseStill();
+          return;
+        }
         stillBeneath = viewportKey(captured);
         present();
       })
@@ -641,12 +678,13 @@ export function createBrowserPresentation({
         if (
           stillBeneath === null &&
           stillRetry === null &&
-          ++stillTries <= STILL_RETRIES &&
+          stillTries <= STILL_RETRIES &&
           movingWanted()
         )
           stillRetry = window.setTimeout(() => {
             stillRetry = null;
-            present();
+            const latest = currentBounds();
+            if (latest && movingWanted()) captureStill(latest);
           }, STILL_RETRY_MS);
       });
   };
@@ -699,7 +737,6 @@ export function createBrowserPresentation({
       !!bounds &&
       hasVisibleBrowserArea(bounds) &&
       !current.capture &&
-      !current.cover &&
       !motionHeld;
     let nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
     // A moving surface's springs change no attribute: follow it each frame
@@ -711,6 +748,7 @@ export function createBrowserPresentation({
     ) {
       endBrowserHandoff(surfaceId);
       settleMotion();
+      if (show && stillMounted) releaseStill();
       if (following) schedule();
       return;
     }
@@ -718,7 +756,6 @@ export function createBrowserPresentation({
     try {
       if (
         !show &&
-        !current.cover &&
         !motionHeld &&
         freezeState === "none" &&
         bounds &&
@@ -743,14 +780,13 @@ export function createBrowserPresentation({
           !!bounds &&
           hasVisibleBrowserArea(bounds) &&
           !current.capture &&
-          !current.cover &&
           !motionHeld;
         nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
         if (
           nextLayout === lastLayout &&
           (!bounds || JSON.stringify(lastBounds) === lastGeometry)
         ) {
-          if (show && !movingWanted()) setStill(null);
+          if (show) releaseStill();
           return;
         }
       }
@@ -778,6 +814,7 @@ export function createBrowserPresentation({
           snapshotViewport(sentBounds),
         );
       await adapter.layout(pageId, sentBounds, show);
+      nativeMovingCut = show && current.movingCut;
       if (!disposed)
         layoutRecords.set(surfaceId, { bounds: sentBounds, visible: show });
       lastNativeBounds = sentBounds;
@@ -786,9 +823,8 @@ export function createBrowserPresentation({
       // A freeze may have put its picture beneath the page while this
       // layout was in flight; that picture is not this layout's to release.
       // Nor is the still image a moving surface over the page still needs.
-      if (show && !disposed) {
-        if (freezeState === "none" && !movingWanted()) setStill(null);
-      } else if (
+      if (show && !disposed) releaseStill();
+      else if (
         !disposed &&
         freezeState === "none" &&
         bounds &&
