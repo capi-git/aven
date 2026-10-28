@@ -10,6 +10,94 @@
   --aven-tab-selected: var(--aven-fill-secondary);
   --aven-tab-selected-edge: inset 0 0 0 1px
     var(--aven-control-edge, transparent);
+  /* A picked-up tab floats: a soft shadow under its face. */
+  --aven-tab-lift-shadow:
+    0 8px 20px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+  /* The tab motion springs (src/lib/motionTokens.ts) as CSS curves, for the
+     few parts of it CSS eases: the combine preview, a torn segment's fade,
+     tabs growing in and closing. The cubic-béziers approximate them where
+     linear() is missing; motionTokens.test.ts keeps both in step. */
+  --aven-tab-spring-move: cubic-bezier(0.25, 0.9, 0.3, 1);
+  --aven-tab-spring-move-ms: 279ms;
+  --aven-tab-spring-lift: cubic-bezier(0.25, 0.9, 0.3, 1);
+  --aven-tab-spring-lift-ms: 238ms;
+}
+html.theme-light,
+html.theme-light .personal-shell {
+  --aven-tab-lift-shadow:
+    0 8px 20px -6px rgb(0 0 0 / 0.22), 0 2px 6px -2px rgb(0 0 0 / 0.14);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root,
+  .personal-shell {
+    --aven-tab-spring-move: linear(
+      0,
+      0.0444,
+      0.1435,
+      0.263,
+      0.3834,
+      0.4946,
+      0.5922,
+      0.675,
+      0.7436,
+      0.7993,
+      0.8441,
+      0.8795,
+      0.9074,
+      0.9292,
+      0.946,
+      0.959,
+      0.969,
+      0.9766,
+      0.9823,
+      0.9867,
+      0.9901,
+      0.9926,
+      0.9944,
+      0.9958,
+      1
+    );
+    --aven-tab-spring-lift: linear(
+      0,
+      0.0475,
+      0.1526,
+      0.2776,
+      0.4018,
+      0.5151,
+      0.6133,
+      0.6955,
+      0.7626,
+      0.8165,
+      0.8592,
+      0.8926,
+      0.9185,
+      0.9384,
+      0.9537,
+      0.9653,
+      0.974,
+      0.9806,
+      0.9856,
+      0.9893,
+      0.9921,
+      0.9942,
+      0.9957,
+      0.9968,
+      1
+    );
+  }
+}
+/* Reduce motion, by the system or Aven's own switch: nothing eases. */
+:root[data-motion="reduce"],
+:root[data-motion="reduce"] .personal-shell {
+  --aven-tab-spring-move-ms: 0ms;
+  --aven-tab-spring-lift-ms: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  .personal-shell {
+    --aven-tab-spring-move-ms: 0ms;
+    --aven-tab-spring-lift-ms: 0ms;
+  }
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
@@ -327,7 +415,9 @@
 }
 
 /* Animate visuals inside stationary hit boxes. Both local reorder and the
-   native pane/window drop logic measure those outer boxes during a drag. */
+   native pane/window drop logic measure those outer boxes during a drag.
+   Springs move them (sortableMotion.ts): no CSS transition on transform,
+   which would replay every move the springs already drew. */
 .aven-tab-motion {
   position: relative;
   display: flex;
@@ -336,27 +426,12 @@
   align-items: stretch;
   min-width: 0;
   border-radius: inherit;
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .personal-title-tab > .aven-tab-motion {
   height: 100%;
 }
 [data-sortable-moving="true"] {
   z-index: 2;
-}
-.aven-tab-motion[data-sortable-dragging="true"] {
-  transition: none;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"] {
-  translate: 0 -1px;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="false"] {
-  opacity: 0.4;
-}
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"]
-  .aven-tab-button {
-  background: var(--aven-tab-drag-surface);
-  box-shadow: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -379,13 +454,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aven-tab-motion,
   .personal-shell .personal-title-tab-identity .provider-marks,
   .aven-tab-button {
     transition: none;
-  }
-  .aven-tab-motion[data-sortable-dragging="true"][data-sortable-in-strip="true"] {
-    translate: none;
   }
 }
 
@@ -514,11 +585,14 @@
   }
 }
 
-/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion:
-   180ms, eased out. See useTabSlotMotion. */
+/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion,
+   on the move spring's curve. The one layout animation in tab motion: a
+   few small boxes in the strip, for every way a tab opens or closes. See
+   useTabSlotMotion. */
 .personal-shell [data-tab-opening] {
   overflow: hidden;
-  animation: aven-tab-open 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: aven-tab-open var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) both;
 }
 @keyframes aven-tab-open {
   from {
@@ -534,7 +608,8 @@
   min-width: 0;
   margin-right: -2px;
   pointer-events: none;
-  animation: aven-tab-ghost 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: aven-tab-ghost var(--aven-tab-spring-move-ms)
+    var(--aven-tab-spring-move) both;
 }
 @keyframes aven-tab-ghost {
   from {
@@ -742,6 +817,8 @@
   min-width: max(120px, calc(var(--aven-split-panes, 2) * 40px + 4px));
 }
 .aven-split {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex: 1 1 auto;
   align-self: center;
@@ -750,17 +827,26 @@
   height: 26px;
   padding: 2px;
   border-radius: var(--aven-radius-sm);
+}
+/* The pill's fill is a layer of its own, so a morph can stretch it without
+   stretching the segments' text. */
+.aven-split-fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background: var(--aven-hover);
+  pointer-events: none;
   transition: background-color 120ms var(--aven-tab-ease);
 }
-.aven-split-entry[data-active="true"] .aven-split {
+.aven-split-entry[data-active="true"] .aven-split-fill {
   background: var(--aven-tab-selected);
   box-shadow: var(--aven-tab-selected-edge);
 }
 /* The highlight is the front split's fill. */
 .aven-tab-strip[data-tab-highlight="on"]
   .aven-split-entry[data-active="true"]
-  .aven-split {
+  .aven-split-fill {
   background: transparent;
   box-shadow: none;
 }
@@ -785,9 +871,6 @@
   /* Narrow segments (three panes or more in a crowded strip) keep only
      their icons. */
   container-type: inline-size;
-  transition:
-    background-color 120ms var(--aven-tab-ease),
-    color 120ms var(--aven-tab-ease);
 }
 .aven-split-entry[data-draggable="true"] .aven-split-segment {
   cursor: grab;
@@ -819,6 +902,11 @@
     display: none;
   }
 }
+.aven-combine .aven-split-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .aven-split-segment .personal-title-tab-identity {
   display: inline-flex;
   flex-shrink: 0;
@@ -840,48 +928,124 @@
 /* Something held over an entry's middle joins it. The entry's fill rises
    and the pane it will add shows at its right: a split's next segment, or
    a single tab's other half as it becomes a split. */
-.aven-split-entry[data-drop-into="true"] .aven-split {
+.aven-split-entry[data-drop-into="true"] .aven-split-fill {
   background: var(--aven-control-hover);
+}
+.aven-split-incoming {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  height: 22px;
+  margin-left: 2px;
+  border-radius: var(--aven-radius-xs);
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  color: var(--color-content);
+  animation: aven-split-incoming var(--aven-tab-spring-lift-ms)
+    var(--aven-tab-spring-lift) backwards;
+}
+/* Only its icon: the segment is too narrow for a name until it is one. */
+.aven-split-incoming .aven-split-label {
+  display: none;
+}
+@keyframes aven-split-incoming {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+/* A single tab a held tab rests on previews the split they will make: the
+   split's pill over the tab, its own segment on the left, a divider and the
+   held tab's segment, as the split draws them. Drawn hidden while a tab is
+   dragged, so it comes and goes on transitions. Its own content steps aside
+   for it. */
+.aven-combine {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.aven-combine > * {
+  opacity: 0;
+  transition:
+    opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift),
+    transform var(--aven-tab-spring-move-ms) var(--aven-tab-spring-move);
+}
+.aven-combine-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 13px);
+  height: 26px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-tab-selected);
+  transform: scaleX(0.94);
+}
+.aven-combine-here,
+.aven-combine-incoming {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 22px;
+  margin: 0 2px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-xs);
+  color: var(--color-content);
+  font-size: var(--text-ui-row);
+  line-height: 1.25;
+  white-space: nowrap;
+  container-type: inline-size;
+}
+.aven-combine-here {
+  color: color-mix(in srgb, var(--color-content) 74%, transparent);
+  /* From the middle of the tab, where its own name stands. */
+  transform: translateX(50%);
+}
+.aven-combine-incoming {
+  background: var(--aven-thumb);
+  box-shadow: var(--aven-thumb-shadow);
+  font-weight: 500;
+  transform: translateX(-12px) scale(0.94);
+}
+.aven-combine-divider {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--aven-separator);
+  transform: scaleY(0);
+}
+.aven-combine[data-into] > * {
+  opacity: 1;
+  transform: none;
+}
+.aven-tab-motion > .aven-tab-button > *,
+.aven-tab-motion > .aven-tab-deck {
+  transition: opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift);
+}
+.aven-tab[data-combine-into="true"] .aven-tab-motion > .aven-tab-button > *,
+.aven-tab[data-combine-into="true"] .aven-tab-close,
+.aven-tab[data-combine-into="true"] .personal-title-browser-menu {
+  opacity: 0;
 }
 .aven-tab[data-combine-into="true"] .aven-tab-button,
 .aven-tab-strip[data-tab-highlight="on"]
   .aven-tab[data-combine-into="true"]
   .aven-tab-button {
-  padding-right: 34px;
-  background: var(--aven-control-hover);
+  background: transparent;
   box-shadow: none;
-  color: var(--color-content);
-}
-.aven-tab[data-combine-into="true"] .aven-tab-close,
-.aven-tab[data-combine-into="true"] .personal-title-browser-menu {
-  visibility: hidden;
-}
-.aven-split-incoming,
-.aven-tab-combine {
-  display: grid;
-  place-items: center;
-  height: 22px;
-  border-radius: var(--aven-radius-xs);
-  background: var(--aven-thumb);
-  box-shadow: var(--aven-thumb-shadow);
-  color: var(--color-content);
-}
-.aven-split-incoming {
-  flex: 0 0 28px;
-  margin-left: 2px;
-}
-.aven-tab-combine {
-  position: absolute;
-  top: 50%;
-  right: 2px;
-  width: 28px;
-  transform: translateY(-50%);
-  pointer-events: none;
 }
 /* A segment pulled out of its split: the rest of the entry stays put, the
    segment faded where it was. */
-.aven-tab-motion[data-sortable-dragging="true"][data-sortable-torn="true"] {
-  opacity: 1;
+.aven-split-segment {
+  transition:
+    background-color 120ms var(--aven-tab-ease),
+    color 120ms var(--aven-tab-ease),
+    opacity var(--aven-tab-spring-lift-ms) var(--aven-tab-spring-lift);
 }
 .aven-split-segment[data-sortable-torn-part="true"] {
   opacity: 0.32;
@@ -913,13 +1077,13 @@
   font-weight: 500;
 }
 @media (prefers-reduced-motion: reduce) {
-  .aven-split,
+  .aven-split-fill,
   .aven-split-segment {
     transition: none;
   }
 }
 @media (prefers-contrast: more) {
-  .aven-split-entry[data-active="true"] .aven-split {
+  .aven-split-entry[data-active="true"] .aven-split-fill {
     background: color-mix(
       in srgb,
       var(--color-content) 17%,

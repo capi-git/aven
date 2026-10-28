@@ -506,6 +506,7 @@ function TitleTabItem({
   itemRef,
   deck,
   combineInto = false,
+  combine = null,
 }: {
   tab: Tab;
   projectless: boolean;
@@ -524,6 +525,8 @@ function TitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /** While a tab is dragged that could combine with this one: what joins. */
+  combine?: CombineJoin | null;
 }) {
   const { headline, tooltip } = tabCopy(tab, projectless);
   const tabRef = useRef<HTMLDivElement | null>(null);
@@ -618,6 +621,7 @@ function TitleTabItem({
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-sortable-glass
           data-tauri-drag-region="false"
+          data-morph={combineInto ? undefined : `tab:${tab.id}`}
           className="personal-title-tab-button aven-tab-button relative flex min-w-0 flex-1 cursor-default items-center text-left"
         >
           <span className="personal-title-tab-number" aria-hidden>
@@ -671,24 +675,93 @@ function TitleTabItem({
             <X className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
-        {combineInto ? <CombineIncoming /> : null}
+        {combine ? (
+          <CombinePreview
+            id={tab.id}
+            into={combineInto}
+            join={combine}
+            here={
+              <>
+                <TabIdentity tab={tab} active={false} />
+                <span className="aven-split-label">{headline}</span>
+              </>
+            }
+          />
+        ) : null}
       </div>
     </div>
   );
 }
 
+/** What a dragged tab would bring to an entry it joins. */
+export type CombineJoin = {
+  /** Its icon and name, as its segment will show them. */
+  incoming: ReactNode;
+  /** The dragged tab's own id: its segment grows from this preview. */
+  id: string | null;
+};
+
 /**
- * The pane a drop would add, drawn at the right of the entry it joins: a
- * single tab about to become a split, or a split about to take a pane.
+ * A single tab previewing the split a held tab would make with it: the
+ * split's pill over the tab, the tab's own segment on the left, a divider,
+ * and the held tab's segment on the right, as the split will draw them. It
+ * is drawn (hidden) while a tab is dragged and shows while one rests on its
+ * middle, so it comes and goes on transitions rather than popping.
  */
-function CombineIncoming({ inline = false }: { inline?: boolean }) {
+function CombinePreview({
+  id,
+  into,
+  join,
+  here,
+}: {
+  id: string;
+  into: boolean;
+  join: CombineJoin;
+  here: ReactNode;
+}) {
   return (
     <span
-      className={inline ? "aven-split-incoming" : "aven-tab-combine"}
-      data-combine-incoming
+      className="aven-combine"
+      data-into={into || undefined}
+      // It comes and goes on its own transitions.
+      data-morph-own
       aria-hidden
     >
-      <Columns2 className="size-3" strokeWidth={1.75} />
+      <span
+        className="aven-combine-fill"
+        data-morph={into ? `fill:${id}` : undefined}
+      />
+      <span
+        className="aven-combine-here"
+        data-morph={into ? `tab:${id}` : undefined}
+      >
+        {here}
+      </span>
+      <span className="aven-combine-divider" />
+      <span
+        className="aven-combine-incoming"
+        data-combine-incoming={into || undefined}
+        data-morph={into && join.id ? `tab:${join.id}` : undefined}
+      >
+        {join.incoming}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The pane a drop would add, drawn at the right of a split it joins, with
+ * the held tab's icon.
+ */
+function CombineIncoming({ join }: { join: CombineJoin | null }) {
+  return (
+    <span
+      className="aven-split-incoming"
+      data-combine-incoming
+      data-morph={join?.id ? `tab:${join.id}` : undefined}
+      aria-hidden
+    >
+      {join?.incoming ?? <Columns2 className="size-3" strokeWidth={1.75} />}
     </span>
   );
 }
@@ -767,6 +840,7 @@ function SplitSegment({
       title={front ? tooltip : undefined}
       className="aven-split-segment"
       data-split-segment={segment.id}
+      data-morph={`tab:${segment.id}`}
       data-lit={lit || undefined}
       data-tauri-drag-region="false"
       onPointerEnter={(event) => {
@@ -811,6 +885,7 @@ function SplitEntryItem({
   onContextMenu,
   onHover,
   dropInto = false,
+  join = null,
   opening = false,
   itemRef,
 }: {
@@ -826,6 +901,8 @@ function SplitEntryItem({
   onHover: (anchor: HTMLElement | null, label?: string) => void;
   /** A tab held over the entry joins the split as a new pane. */
   dropInto?: boolean;
+  /** What a held tab would bring, while one is dragged. */
+  join?: CombineJoin | null;
   opening?: boolean;
   itemRef?: (element: HTMLDivElement | null) => void;
 }) {
@@ -921,6 +998,14 @@ function SplitEntryItem({
           data-sortable-glass
           data-panes={split.segments.length}
         >
+          {/* The pill's fill, a layer of its own: a morph stretches it
+              without stretching the segments' text. */}
+          <span
+            className="aven-split-fill"
+            data-sortable-fill
+            data-morph={`fill:${split.id}`}
+            aria-hidden
+          />
           {split.segments.map((segment, at) => (
             <Fragment key={segment.id}>
               {at > 0 ? (
@@ -936,7 +1021,7 @@ function SplitEntryItem({
               />
             </Fragment>
           ))}
-          {dropInto ? <CombineIncoming inline /> : null}
+          {dropInto ? <CombineIncoming join={join} /> : null}
         </div>
       </div>
     </div>
@@ -1023,6 +1108,7 @@ function BrowserTitleTabItem({
   separator = false,
   deck,
   combineInto = false,
+  combine = null,
 }: {
   id: string;
   title: string;
@@ -1053,6 +1139,8 @@ function BrowserTitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /** While a tab is dragged that could combine with this one: what joins. */
+  combine?: CombineJoin | null;
 }) {
   const label = title.trim() || "Browser";
   const dropBefore =
@@ -1151,6 +1239,7 @@ function BrowserTitleTabItem({
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
+          data-morph={combineInto ? undefined : `tab:${id}`}
           title={label}
           className="personal-title-tab-button personal-title-browser-button aven-tab-button flex min-w-0 flex-1 items-center"
         >
@@ -1198,7 +1287,19 @@ function BrowserTitleTabItem({
             <ChevronDown className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
-        {combineInto ? <CombineIncoming /> : null}
+        {combine ? (
+          <CombinePreview
+            id={id}
+            into={combineInto}
+            join={combine}
+            here={
+              <>
+                <BrowserTabIcon favicon={favicon} />
+                <span className="aven-split-label">{label}</span>
+              </>
+            }
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1941,11 +2042,56 @@ function TitleBarComponent({
   const slotMotion = useTabSlotMotion(
     titleRow && !paneTabs ? LONE_TITLE_SLOTS : displayIds,
     tabStripRef,
+    { morphed: sortable.morphed },
   );
   const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
-    enabled: track && !sortable.draggingId,
+    // Off while a tab is dragged, and while the front tab's copy is still
+    // flying to its place: it shows its own fill and hands over on landing.
+    enabled: track && !sortable.draggingId && sortable.landingId !== focusedId,
     layoutKey: displayIds.join("\n"),
+    glideFrom: sortable.takeOrigin,
   });
+  // What a dragged tab (or a segment pulled out of its split) would bring to
+  // an entry it joins: its icon and name, as its segment will show them.
+  const dragContentId = sortable.draggingPartId ?? sortable.draggingId;
+  const combineJoin = ((): CombineJoin | null => {
+    if (!dragContentId) return null;
+    const tab = sessionTabs.get(dragContentId);
+    if (tab)
+      return {
+        id: dragContentId,
+        incoming: (
+          <>
+            <TabIdentity tab={tab} active />
+            <span className="aven-split-label">
+              {tabCopy(tab, projectlessWorkspace).headline}
+            </span>
+          </>
+        ),
+      };
+    const page = browsers.get(dragContentId);
+    if (page)
+      return {
+        id: dragContentId,
+        incoming: (
+          <>
+            <BrowserTabIcon favicon={page.favicon} />
+            <span className="aven-split-label">
+              {page.title.trim() || "Browser"}
+            </span>
+          </>
+        ),
+      };
+    return {
+      id: null,
+      incoming: <Columns2 className="size-3" strokeWidth={1.75} />,
+    };
+  })();
+  /** The combine preview a strip tab draws while a drag could join it. */
+  const combineJoinFor = (id: string): CombineJoin | null =>
+    combineJoin && onCombineTabs && id !== sortable.draggingId
+      ? combineJoin
+      : null;
   const [stackMenu, setStackMenu] = useState<HTMLElement | null>(null);
   // A segment of a split not in front says where a click goes, once the
   // pointer rests on it.
@@ -2757,8 +2903,11 @@ function TitleBarComponent({
       return;
     }
     if (menuSplit) {
-      if (id === "split-separate") onSeparateSplit?.(menuSplit.id);
-      else if (id === "split-close" && menuSplit.closable !== false)
+      if (id === "split-separate") {
+        // Its segments glide into the tabs they become.
+        sortable.captureStripMorph();
+        onSeparateSplit?.(menuSplit.id);
+      } else if (id === "split-close" && menuSplit.closable !== false)
         onCloseSplit?.(menuSplit.id);
       return;
     }
@@ -3042,6 +3191,7 @@ function TitleBarComponent({
             itemRef={itemRef}
             deck={deck}
             combineInto={sortable.dropTarget?.id === id}
+            combine={combineJoinFor(id)}
           />
         </div>
       );
@@ -3077,6 +3227,7 @@ function TitleBarComponent({
               : hideSegmentTip()
           }
           dropInto={sortable.dropTarget?.id === id}
+          join={sortable.dropTarget?.id === id ? combineJoin : null}
           opening={slotMotion.opening.has(id)}
           itemRef={itemRef}
         />
@@ -3143,6 +3294,7 @@ function TitleBarComponent({
         separator={separators.has(id)}
         deck={deck}
         combineInto={sortable.dropTarget?.id === id}
+        combine={combineJoinFor(id)}
       />
     );
   };

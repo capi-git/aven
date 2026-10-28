@@ -6,9 +6,14 @@ import {
   type RefObject,
 } from "react";
 import { effectiveCssZoom } from "../lib/drag";
+import { motionReduced } from "../lib/motion";
+import { TAB_CSS_SPRINGS } from "../lib/motionTokens";
 
-/** MonoCode's tab motion: 180ms, eased out. Keep in step with TitleBar.css. */
-export const TAB_SLOT_MOTION_MS = 180;
+/**
+ * MonoCode's tab motion, on the move spring's curve: how long a tab grows
+ * in or a closed one's space collapses (`--aven-tab-spring-move-ms`).
+ */
+export const TAB_SLOT_MOTION_MS = TAB_CSS_SPRINGS.move.ms;
 
 /** A just-closed tab's space, collapsing where the tab used to be. */
 export type TabSlotGhost = {
@@ -17,14 +22,6 @@ export type TabSlotGhost = {
   after: string | null;
   width: number;
 };
-
-function reducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 /**
  * Opening and closing motion for a strip of fixed-width tabs, adapted from
@@ -35,6 +32,15 @@ function reducedMotion(): boolean {
 export function useTabSlotMotion(
   ids: readonly string[],
   strip: RefObject<HTMLElement | null>,
+  {
+    morphed,
+  }: {
+    /**
+     * True when this commit's change is already morphing (a drop, a split
+     * coming apart): no tab grows in and no space collapses for it.
+     */
+    morphed?: () => boolean;
+  } = {},
 ) {
   const widths = useRef(new Map<string, number>());
   const previous = useRef<readonly string[] | null>(null);
@@ -93,7 +99,7 @@ export function useTabSlotMotion(
     // Switching project or window replaces every tab: no motion for that.
     const replaced =
       before.length > 0 && ids.length > 0 && ids.every((id) => !was.has(id));
-    if (replaced || reducedMotion()) {
+    if (replaced || motionReduced() || morphed?.()) {
       for (const timer of timers.current.values()) window.clearTimeout(timer);
       timers.current.clear();
       setOpening((current) => (current.size ? new Set() : current));

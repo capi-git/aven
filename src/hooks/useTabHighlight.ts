@@ -1,6 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
 import { effectiveCssZoom } from "../lib/drag";
 import { motionReduced, playBounded, type BoundedMotion } from "../lib/motion";
+import { TAB_PX_PRECISION, TAB_SPRING } from "../lib/motionTokens";
+import { springKeyframes } from "../lib/spring";
 import {
   TAB_SLIDE_EASE,
   TAB_SLIDE_MS,
@@ -22,7 +24,10 @@ function trackSlot(strip: HTMLElement, id: string): HTMLElement | null {
 }
 
 /** A box on screen as a place along the strip's scrolled content. */
-function boxIn(strip: HTMLElement, rect: DOMRect): TrackBox {
+function boxIn(
+  strip: HTMLElement,
+  rect: { left: number; width: number },
+): TrackBox {
   const zoom = effectiveCssZoom(strip) || 1;
   const outer = strip.getBoundingClientRect();
   return {
@@ -47,7 +52,20 @@ function boxIn(strip: HTMLElement, rect: DOMRect): TrackBox {
 export function useTabHighlight(
   strip: RefObject<HTMLElement | null>,
   frontId: string | null,
-  { enabled, layoutKey }: { enabled: boolean; layoutKey: string },
+  {
+    enabled,
+    layoutKey,
+    glideFrom,
+  }: {
+    enabled: boolean;
+    layoutKey: string;
+    /**
+     * After a drop or a split coming apart, the box on screen the tab in
+     * front stood in (once): the highlight glides from there on the same
+     * spring the strip morphs on, rather than appearing in place.
+     */
+    glideFrom?: (id: string) => { left: number; width: number } | null;
+  },
 ) {
   const highlight = useRef<HTMLElement | null>(null);
   const state = useRef<{
@@ -56,8 +74,8 @@ export function useTabHighlight(
     from: TrackBox | null;
     slide: BoundedMotion | null;
   }>({ front: null, box: null, from: null, slide: null });
-  const current = useRef({ frontId, enabled });
-  current.current = { frontId, enabled };
+  const current = useRef({ frontId, enabled, glideFrom });
+  current.current = { frontId, enabled, glideFrom };
 
   const place = useCallback(() => {
     const root = strip.current;
@@ -69,7 +87,7 @@ export function useTabHighlight(
       state.current.box = null;
       return;
     }
-    const { frontId: front, enabled: on } = current.current;
+    const { frontId: front, enabled: on, glideFrom: origin } = current.current;
     const slot = on && front ? trackSlot(root, front) : null;
     const rect = slot?.getBoundingClientRect();
     // A strip that is not laid out (hidden) keeps what it had until shown.
@@ -102,7 +120,46 @@ export function useTabHighlight(
       element.style.transform = `translateX(${to.x}px)`;
     }
     state.current.box = to;
-    if (plan.from && typeof element.animate === "function") {
+    // Where the tab in front stood before a drop or morph: glide from there
+    // on the strip's spring.
+    const stood = front ? origin?.(front) : null;
+    const glide =
+      stood && !motionReduced() && typeof element.animate === "function"
+        ? springKeyframes(
+            {
+              x: {
+                spring: TAB_SPRING.move,
+                from: boxIn(root, stood).x,
+                to: to.x,
+                velocity: 0,
+                precision: TAB_PX_PRECISION,
+              },
+              width: {
+                spring: TAB_SPRING.move,
+                from: stood.width / (effectiveCssZoom(root) || 1),
+                to: to.width,
+                velocity: 0,
+                precision: TAB_PX_PRECISION,
+              },
+            },
+            ({ x, width }) => ({
+              transform: `translateX(${x}px) scaleX(${to.width > 0 ? width / to.width : 1})`,
+            }),
+          )
+        : null;
+    if (glide) {
+      state.current.slide?.stop();
+      state.current.from = null;
+      const slide = playBounded(
+        element,
+        glide.keyframes,
+        { duration: glide.ms, easing: "linear" },
+        () => {
+          if (state.current.slide === slide) state.current.slide = null;
+        },
+      );
+      state.current.slide = slide;
+    } else if (plan.from && typeof element.animate === "function") {
       state.current.slide?.stop();
       const from = plan.from;
       state.current.from = from;

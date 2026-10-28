@@ -16,11 +16,6 @@ import {
   type SortablePart,
 } from "./useSortable";
 
-const ghost = vi.hoisted(() => ({ capture: vi.fn(), fade: vi.fn() }));
-vi.mock("../lib/dropGhost", () => ({
-  captureDropGhost: ghost.capture,
-}));
-
 describe("useSortable external drops and cancellation", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -126,8 +121,6 @@ describe("useSortable external drops and cancellation", () => {
   }
 
   beforeEach(() => {
-    ghost.fade.mockReset();
-    ghost.capture.mockReset().mockImplementation(() => ({ fade: ghost.fade }));
     now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     restoreClock = () => clock.mockRestore();
@@ -160,8 +153,16 @@ describe("useSortable external drops and cancellation", () => {
     await act(async () => root.unmount());
     container.remove();
     restoreClock();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  /** Lets every landing copy finish: each is bounded by a timer. */
+  async function land() {
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+  }
 
   async function pointer(
     target: EventTarget,
@@ -217,8 +218,6 @@ describe("useSortable external drops and cancellation", () => {
       { screenX: 0, screenY: 0 },
     );
     expect(onReorder).not.toHaveBeenCalled();
-    // The tab's ghost fades where the workspace took it.
-    expect(ghost.fade).toHaveBeenCalledOnce();
     expect(sortable.consumeClick()).toBe(true);
     expect(document.documentElement.classList.contains("is-reordering")).toBe(
       false,
@@ -269,17 +268,8 @@ describe("useSortable external drops and cancellation", () => {
       await pointer(window, "pointerup", 20, 15);
       expect(options.onDragEnd).toHaveBeenCalledOnce();
       expect(onReorder).not.toHaveBeenCalled();
-      // A cancelled drag leaves no ghost behind.
-      expect(ghost.fade).not.toHaveBeenCalled();
     },
   );
-
-  it("leaves no ghost when a drop outside the strip is not taken", async () => {
-    await start();
-    await pointer(window, "pointerup", 12, 150);
-    expect(options.onDragEnd).toHaveBeenCalledOnce();
-    expect(ghost.fade).not.toHaveBeenCalled();
-  });
 
   it("does not report a drag or consume a click below the activation threshold", async () => {
     withVisuals = true;
@@ -624,10 +614,12 @@ describe("useSortable external drops and cancellation", () => {
     await pointer(window, "pointermove", 265, 15);
     await flushFrame();
     expect(sortable.toIndex).toBe(1);
-    expect(visual("session-b").style.transform).toBe("translate3d(0px, 0, 0)");
+    // Back where it belongs, a sibling keeps its own style.
+    expect(visual("session-b").style.transform).toBe("");
   });
 
   it("keeps the floating tab at the grab offset during scrolling and outside the strip", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await startAnimated();
     const strip = item().parentElement!;
     strip.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
@@ -642,13 +634,21 @@ describe("useSortable external drops and cancellation", () => {
     expect(visual().style.transform).toBe("");
     expect(visual("session-b").style.transform).toBe("");
     expect(visual().dataset.sortableInStrip).toBe("false");
+    // Out of the strip it follows the pointer, no longer rubber-banded.
     expect(preview()?.style.transform).toBe("translate3d(170px, 75px, 0)");
     expect(preview()?.parentElement).toBe(document.body);
     await pointer(window, "pointerup", 220, 90);
+    // Let go where nothing takes it, the copy flies home; the tab itself
+    // shows again once it lands.
     expect(animations.get("browser-a")!.animate).not.toHaveBeenCalled();
     expect(onReorder).not.toHaveBeenCalled();
+    expect(preview()).not.toBeNull();
+    expect(visual().style.opacity).toBe("0");
+    expect(sortable.landingId).toBe("browser-a");
+    await land();
     expect(preview()).toBeNull();
     expect(visual().style.opacity).toBe("");
+    expect(sortable.landingId).toBeNull();
   });
 
   it("updates stationary-pointer drop geometry after a strip scroll", async () => {
@@ -673,8 +673,9 @@ describe("useSortable external drops and cancellation", () => {
   });
 
   it.each(["pointercancel", "blur", "lostpointercapture", "Escape", "unmount"])(
-    "removes the picked-up copy and restores the original on %s",
+    "brings the picked-up copy home and restores the original on %s",
     async (reason) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       await startAnimated(270);
       const handle = item();
       const original = visual();
@@ -688,6 +689,8 @@ describe("useSortable external drops and cancellation", () => {
           handle.dispatchEvent(new Event(reason));
         else window.dispatchEvent(new Event(reason));
       });
+      // Gone at once with the strip; otherwise it flies home first.
+      if (reason !== "unmount") await land();
       expect(preview()).toBeNull();
       expect(original.style.opacity).toBe("");
       expect(onReorder).not.toHaveBeenCalled();
@@ -695,39 +698,56 @@ describe("useSortable external drops and cancellation", () => {
   );
 
   it("captures the painted drag before reordering and settles against the committed layout", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     onReorder.mockImplementation((next) => {
       expect(visual().style.transform).toBe("");
       ids = next;
       root.render(createElement(Harness));
     });
     await startAnimated(270);
+    const copy = preview()!;
+    const flight = vi.spyOn(copy, "animate");
     await pointer(window, "pointerup", 270, 15);
     expect(onReorder).toHaveBeenCalledExactlyOnceWith(
       ["session-a", "session-b", "browser-a"],
       "browser-a",
     );
-    expect(
-      animations.get("browser-a")!.animate,
-    ).toHaveBeenCalledExactlyOnceWith(
-      [{ transform: "translate3d(20px, 0px, 0)" }, { transform: "none" }],
-      { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    // The copy flies from where it was let go to the tab's new slot, and the
+    // tab stays hidden under it until it lands.
+    const [frames] = flight.mock.calls[0];
+    expect((frames as Keyframe[])[0].transform).toBe(
+      "translate3d(220px, 0px, 0)",
+    );
+    expect((frames as Keyframe[]).at(-1)!.transform).toBe(
+      "translate3d(200px, 0px, 0)",
+    );
+    expect(animations.get("browser-a")!.animate).not.toHaveBeenCalled();
+    expect(visual().style.opacity).toBe("0");
+    // The sibling it pushed aside settles from where it was drawn.
+    const sibling = animations.get("session-b")!.animate.mock.calls[0];
+    expect((sibling[0] as Keyframe[])[0].transform).toBe(
+      "translate3d(0px, 0, 0)",
     );
     expect(visual().style.transform).toBe("");
     expect(visual().style.transition).toBe("");
     expect(item().hasAttribute("data-sortable-moving")).toBe(false);
     expect(visual().hasAttribute("data-sortable-dragging")).toBe(false);
     expect(visual().hasAttribute("data-sortable-in-strip")).toBe(false);
-    expect(visual().style.opacity).toBe("");
-    expect(preview()).toBeNull();
-    // Even a new click below the threshold cancels a previous settling effect.
+    // Even a new click below the threshold ends a landing at once.
     await pointer(item("session-a"), "pointerdown", 50, 15);
-    expect(animations.get("browser-a")!.cancel).toHaveBeenCalledOnce();
+    expect(preview()).toBeNull();
+    expect(visual().style.opacity).toBe("");
+    expect(animations.get("session-b")!.cancel).toHaveBeenCalled();
     await pointer(window, "pointerup", 50, 15);
     expect(onReorder).toHaveBeenCalledOnce();
   });
 
-  it("cleans source and sibling styles on Escape and cancels settling on unmount", async () => {
+  it("brings siblings home from where they are drawn on Escape, and stops on unmount", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await startAnimated(270);
+    expect(visual("session-b").style.transform).toBe(
+      "translate3d(-100px, 0, 0)",
+    );
     await act(async () =>
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
     );
@@ -740,16 +760,21 @@ describe("useSortable external drops and cancellation", () => {
       { screenX: 0, screenY: 0 },
     );
     for (const id of ids) {
-      expect(visual(id).style.transform).toBe("");
       expect(visual(id).style.transition).toBe("");
       expect(visual(id).hasAttribute("data-sortable-dragging")).toBe(false);
       expect(item(id).hasAttribute("data-sortable-moving")).toBe(false);
     }
-    expect(animations.get("browser-a")!.animate).toHaveBeenCalledOnce();
-    expect(animations.get("session-b")!.animate).toHaveBeenCalledOnce();
+    // The tab's copy flies home; the sibling springs back from -100px.
+    expect(animations.get("browser-a")!.animate).not.toHaveBeenCalled();
+    const [home] = animations.get("session-b")!.animate.mock.calls.at(-1)!;
+    expect((home as Keyframe[])[0].transform).toBe("translate3d(-100px, 0, 0)");
+    expect((home as Keyframe[]).at(-1)!.transform).toBe(
+      "translate3d(0px, 0, 0)",
+    );
+    expect(visual("session-b").style.transform).toBe("");
     await act(async () => root.render(null));
-    expect(animations.get("browser-a")!.cancel).toHaveBeenCalledOnce();
-    expect(animations.get("session-b")!.cancel).toHaveBeenCalledOnce();
+    expect(animations.get("session-b")!.cancel).toHaveBeenCalled();
+    expect(preview()).toBeNull();
   });
 
   it("follows the pointer with reduced motion but does not start timed settling", async () => {
@@ -763,13 +788,25 @@ describe("useSortable external drops and cancellation", () => {
       expect(animation.animate).not.toHaveBeenCalled();
   });
 
-  it("does not animate a consumed external drop or a drop into another item", async () => {
+  it("flies no copy back from a consumed drop or a drop into another item", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     options.onDragEnd = vi.fn(() => true);
     await startAnimated(270);
-    await pointer(window, "pointerup", 270, 15);
+    await pointer(window, "pointerup", 270, 90);
     expect(onReorder).not.toHaveBeenCalled();
-    for (const animation of animations.values())
-      expect(animation.animate).not.toHaveBeenCalled();
+    // Taken from outside the strip, it fades where it was let go, and the
+    // tab (still on this test's strip) fades back in rather than flying.
+    expect(sortable.landingId).toBeNull();
+    expect(
+      animations.get("browser-a")!.animate,
+    ).toHaveBeenCalledExactlyOnceWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      expect.objectContaining({ easing: "linear" }),
+    );
+    const lift = preview()!.querySelector<HTMLElement>("[data-sortable-lift]")!;
+    expect(lift.style.opacity).toBe("0");
+    await land();
+    expect(preview()).toBeNull();
     options.onDragEnd = vi.fn(() => false);
     options.onDropOnItem = vi.fn();
     await startAnimated(270);
@@ -778,8 +815,12 @@ describe("useSortable external drops and cancellation", () => {
       "browser-a",
       "session-b",
     );
-    for (const animation of animations.values())
-      expect(animation.animate).not.toHaveBeenCalled();
+    // Let go onto another item, that item shows it: nothing flies home (the
+    // tab, still on this test's strip, only fades back in).
+    expect(sortable.landingId).toBeNull();
+    expect(animations.get("browser-a")!.animate).toHaveBeenCalledTimes(2);
+    await land();
+    expect(preview()).toBeNull();
     expect(visual().style.transition).toBe("");
   });
 
@@ -817,6 +858,7 @@ describe("useSortable external drops and cancellation", () => {
   it.each(["pointercancel", "blur", "lostpointercapture", "Escape", "unmount"])(
     "clears an unpainted drag frame on %s",
     async (reason) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       withVisuals = true;
       options.animate = true;
       const handle = await start(false);
@@ -832,6 +874,7 @@ describe("useSortable external drops and cancellation", () => {
         else window.dispatchEvent(new Event(reason));
       });
       expect(frames.size).toBe(0);
+      if (reason !== "unmount") await land();
       expect(preview()).toBeNull();
       expect(original.style.opacity).toBe("");
       await flushFrame();
@@ -901,8 +944,6 @@ describe("useSortable external drops and cancellation", () => {
         { part: "page", torn: true, inStrip: true },
       );
       expect(onReorder).not.toHaveBeenCalled();
-      // The torn part's ghost, not the item's, fades where it landed.
-      expect(ghost.capture).toHaveBeenCalledWith(page.element);
     });
   });
 
@@ -986,14 +1027,20 @@ describe("useSortable external drops and cancellation", () => {
       expect(onReorder).not.toHaveBeenCalled();
     });
 
-    it("fades the floating copy over the item it would drop onto", async () => {
+    it("dissolves the floating copy into the item it would drop onto", async () => {
       await startAnimated(250);
-      expect(preview()?.style.opacity).toBe("");
+      const lift = () =>
+        preview()!.querySelector<HTMLElement>("[data-sortable-lift]")!;
+      expect(lift().style.opacity).toBe("1");
       now += 200;
       await hold(250);
-      expect(preview()?.style.opacity).toBe("0.35");
+      // Towards the right half of session-b (200–300), where it will join:
+      // from the copy's centre (250) to that half's (275).
+      expect(lift().style.opacity).toBe("0");
+      expect(lift().style.transform).toMatch(/^translate3d\(25px, 0px, 0px\)/);
       await hold(290);
-      expect(preview()?.style.opacity).toBe("");
+      expect(lift().style.opacity).toBe("1");
+      expect(lift().style.transform).toMatch(/^translate3d\(0px, 0px, 0px\)/);
       await pointer(window, "pointerup", 290, 15);
     });
 

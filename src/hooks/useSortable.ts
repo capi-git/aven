@@ -7,12 +7,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
-import { captureDropGhost } from "../lib/dropGhost";
 import { moveItem } from "../lib/reorder";
-import {
-  SortableMotion,
-  type SortableMotionPositions,
-} from "../lib/sortableMotion";
+import { SortableMotion } from "../lib/sortableMotion";
+import type { MorphBox } from "../lib/stripMorph";
 
 const THRESHOLD = 5;
 /**
@@ -210,25 +207,47 @@ export function useSortable(
   const suppressClickUntil = useRef(0);
   const cleanupDrag = useRef<(() => void) | null>(null);
   const motion = useRef(new SortableMotion());
-  const settling = useRef<SortableMotionPositions | null>(null);
+  // A drop waiting for React to lay out its result, and a change made
+  // outside a drag (Separate split) measured before it.
+  const settling = useRef(false);
+  const morphing = useRef(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingPartId, setDraggingPartId] = useState<string | null>(null);
+  const [toIndex, setToIndex] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
+  // The tab whose copy is flying to its place after a drop. Its tab and the
+  // highlight under it show once it lands.
+  const [landingId, setLandingId] = useState<string | null>(null);
+  motion.current.onLanded = () => setLandingId(null);
+  // True through the layout effects of a commit whose strip a morph took
+  // care of, so other strip motion (tabs growing in, closed ones
+  // collapsing) leaves that change to it.
+  const morphedThisCommit = useRef(false);
   useLayoutEffect(() => {
-    if (!settling.current) return;
-    const positions = settling.current;
-    settling.current = null;
-    motion.current.settle(positions, nodes.current);
+    motion.current.playHint(container.current, nodes.current);
+    if (settling.current) {
+      settling.current = false;
+      morphing.current = false;
+      morphedThisCommit.current = true;
+      motion.current.settle(container.current, nodes.current);
+    } else if (morphing.current) {
+      morphing.current = false;
+      morphedThisCommit.current = true;
+      motion.current.morphing.play(container.current, nodes.current);
+    }
+  });
+  useEffect(() => {
+    morphedThisCommit.current = false;
   });
   useEffect(
     () => () => {
       cleanupDrag.current?.();
-      settling.current = null;
+      settling.current = false;
+      motion.current.onLanded = null;
       motion.current.cancel();
     },
     [],
   );
-
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [toIndex, setToIndex] = useState<number | null>(null);
-  const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
 
   const setContainerRef = useCallback((element: HTMLElement | null) => {
     container.current = element;
@@ -364,7 +383,7 @@ export function useSortable(
       const from = idsRef.current.indexOf(id);
       if (from < 0) return;
       cleanupDrag.current?.();
-      settling.current = null;
+      settling.current = false;
       motion.current.cancel();
       const animate = animateRef.current;
       if (animate)
@@ -413,6 +432,7 @@ export function useSortable(
         current.inStrip = inStrip(current.x, current.y, readBounds);
         if (current.part && !current.inStrip && !current.torn) {
           current.torn = true;
+          setDraggingPartId(current.part.id);
           if (animate) motion.current.tearOff(current.part.element, current);
         }
         current.toIndex = indexAt(id, current.x, current.y, readBounds);
@@ -486,15 +506,31 @@ export function useSortable(
             current.inStrip && !current.torn,
             readBounds,
           );
-          motion.current.dropping(current.dropTarget?.kind === "tab");
+          // Over an entry it would join, the copy goes into the entry's
+          // preview of the result.
+          const into =
+            current.dropTarget?.kind === "tab" && current.dropTarget.allowed
+              ? nodes.current.get(current.dropTarget.id)
+              : undefined;
+          motion.current.dropping(into ? readBounds(into) : null);
         }
         const nextIndex =
           current.inStrip && !current.torn ? current.toIndex : null;
         if (nextIndex !== previousIndex) setToIndex(nextIndex);
         // Pointer motion inside the same target only moves visual children;
         // it must not re-render every tab and its contents each display frame.
-        if (!sameDropTarget(previousTarget, current.dropTarget))
+        if (!sameDropTarget(previousTarget, current.dropTarget)) {
+          // The entry it would join previews the result: measure first, so
+          // what makes room moves into it.
+          if (animate)
+            motion.current.hintChanged(
+              container.current,
+              nodes.current,
+              [previousTarget?.id, current.dropTarget?.id],
+              readBounds,
+            );
           setDropTarget(current.dropTarget);
+        }
       };
       const scrollContainerAt = (readBounds: ReadBounds) => {
         const current = drag.current;
@@ -640,24 +676,15 @@ export function useSortable(
         if (armTimer !== null) clearTimeout(armTimer);
         armTimer = null;
         const current = drag.current;
-        // A tab let go outside its strip may land in a pane; measure its
-        // look before the motion below puts it back.
-        const ghost =
-          commit && current?.active && (current.torn || !current.inStrip)
-            ? captureDropGhost(
-                current.torn && current.part
-                  ? current.part.element
-                  : nodes.current.get(current.id),
-              )
-            : null;
-        if (animate) {
-          settling.current = current?.active ? motion.current.capture() : null;
-          motion.current.reset();
-        }
+        const active = current?.active === true;
+        // Measure the strip as drawn before React lays out the drop.
+        if (animate && active)
+          motion.current.release(container.current, nodes.current);
         drag.current = null;
         restoreSelection();
         setGrabbing(false);
         setDraggingId(null);
+        setDraggingPartId(null);
         setToIndex(null);
         setDropTarget(null);
         try {
@@ -665,8 +692,8 @@ export function useSortable(
         } catch {
           /* already released */
         }
-        if (!current?.active) {
-          if (animate) motion.current.finishReset();
+        if (!current || !active) {
+          if (animate) motion.current.cancel();
           return;
         }
         suppressClickUntil.current = performance.now() + 400;
@@ -678,15 +705,37 @@ export function useSortable(
           { screenX: current.screenX, screenY: current.screenY },
           ...partOf(current),
         );
-        if (consumed) ghost?.fade();
-        if (
-          consumed ||
-          current.torn ||
-          !current.inStrip ||
-          (commit && current.dropTarget?.allowed)
-        ) {
-          settling.current = null;
-          if (animate) motion.current.finishReset();
+        if (animate) {
+          // Taken by the workspace from outside the strip, the copy fades
+          // where it was let go (its pane grows from the drop preview); let
+          // go onto an entry, that entry already shows it; otherwise it flies
+          // to where its tab now stands, at the pointer's speed (still, for
+          // Escape).
+          const joined =
+            commit &&
+            current.dropTarget?.kind === "tab" &&
+            current.dropTarget.allowed;
+          const fly = !(consumed && !current.inStrip) && !joined;
+          motion.current.land(
+            fly
+              ? {
+                  kind: "fly",
+                  velocity: commit
+                    ? motion.current.releaseVelocity()
+                    : { x: 0, y: 0 },
+                }
+              : consumed && !current.inStrip
+                ? { kind: "fade" }
+                : { kind: "dissolve" },
+          );
+          settling.current = true;
+          setLandingId(
+            fly
+              ? current.torn && current.part
+                ? current.part.id
+                : current.id
+              : null,
+          );
         }
         if (!commit || consumed) return;
         if (current.dropTarget) {
@@ -743,8 +792,30 @@ export function useSortable(
     return suppressed;
   }, []);
 
+  /**
+   * Measures the strip before a change made outside a drag (a split coming
+   * apart from its menu), so it morphs into its new shape once laid out.
+   */
+  const captureStripMorph = useCallback(() => {
+    if (!animateRef.current || drag.current) return;
+    motion.current.morphing.capture(container.current, nodes.current);
+    morphing.current = true;
+  }, []);
+
+  /** The box the entry `id` stood in before the last drop or morph, once. */
+  const takeOrigin = useCallback(
+    (id: string): MorphBox | null =>
+      motion.current.takeOrigin(id) ?? motion.current.morphing.takeOrigin(id),
+    [],
+  );
+
+  const morphed = useCallback(() => morphedThisCommit.current, []);
+
   return {
     draggingId,
+    /** A part torn off the dragged item (a split's segment), once torn. */
+    draggingPartId: draggingId ? draggingPartId : null,
+    landingId,
     fromIndex: draggingId ? ids.indexOf(draggingId) : null,
     toIndex: draggingId && !dropTarget ? toIndex : null,
     dropTarget: draggingId ? dropTarget : null,
@@ -753,5 +824,9 @@ export function useSortable(
     setGroupDropRef,
     onItemPointerDown,
     consumeClick,
+    captureStripMorph,
+    takeOrigin,
+    /** The strip change of this commit is being morphed (see above). */
+    morphed,
   };
 }
