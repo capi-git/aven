@@ -149,11 +149,68 @@ describe("the iPhone pane", () => {
     expect(pane.textContent).toContain("Basic mode");
     // Suggested, not picked: Aven may boot it but never restarts the home
     // screen of one someone else is running.
+    // Each pane names itself, so Aven keeps a device another chat's pane
+    // still shows.
     expect(host.invoke).toHaveBeenCalledWith("ios_sim_use_device", {
       project: "/work/pom",
       udid: "AAAA",
       picked: false,
+      pane: pane.querySelector<HTMLElement>("[data-ios-sim]")?.dataset.iosSim,
     });
+    expect(
+      pane.querySelector<HTMLElement>("[data-ios-sim]")?.dataset.iosSim,
+    ).toMatch(/^iphone-/);
+  });
+
+  it("starts its device again when shown after it was shut down while hidden", async () => {
+    let booted = true;
+    host.invoke.mockImplementation(async (command: string) => {
+      const reply = await answer(command);
+      if (command !== "ios_sim_devices") return reply;
+      const list = reply as { devices: { booted: boolean; state: string }[] };
+      return {
+        ...list,
+        devices: list.devices.map((device) => ({
+          ...device,
+          booted,
+          state: booted ? "Booted" : "Shutdown",
+        })),
+      };
+    });
+    const { IosSimulatorPane } = await import("./IosSimulatorPane");
+    const props = (visible: boolean) => ({
+      project: "/work/pom",
+      visible,
+      onOpenFile: () => {},
+    });
+    await render();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const uses = () =>
+      host.invoke.mock.calls.filter(
+        ([command]) => command === "ios_sim_use_device",
+      ).length;
+    expect(uses()).toBe(1);
+    await act(async () => {
+      root!.render(createElement(IosSimulatorPane, props(false)));
+    });
+    // Shown again while it still runs: nothing to do.
+    await act(async () => {
+      root!.render(createElement(IosSimulatorPane, props(true)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(uses()).toBe(1);
+    // Shut down while hidden: shown again, it starts the device again.
+    await act(async () => {
+      root!.render(createElement(IosSimulatorPane, props(false)));
+    });
+    booted = false;
+    await act(async () => {
+      root!.render(createElement(IosSimulatorPane, props(true)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(uses()).toBe(2);
   });
 
   it("is its pane's one header row: pickers and Run, with the rest in its \u2026 and the pane's tools at its end", async () => {

@@ -271,9 +271,12 @@ export const iosSim = {
       project,
       container: container ?? null,
     }),
-  /** `picked`: the person chose it in the menu just now. */
-  useDevice: (project: string, udid: string, picked: boolean) =>
-    invoke<void>("ios_sim_use_device", { project, udid, picked }),
+  /**
+   * Pane `pane` (its live view's id) shows `udid`. `picked`: the person
+   * chose it in the menu just now.
+   */
+  useDevice: (project: string, udid: string, picked: boolean, pane: string) =>
+    invoke<void>("ios_sim_use_device", { project, udid, picked, pane }),
   choose: (project: string, choice: IosSimChoice) =>
     invoke<void>("ios_sim_pane_choice", {
       project,
@@ -313,6 +316,7 @@ export const iosSim = {
       | { kind: "type"; text: string },
   ) => invoke<void>("ios_sim_basic_input", { project, udid, input }),
   focus: (id: string) => invoke<boolean>("ios_sim_view_focus", { id }),
+  /** The pane closed: its live view goes, and its device unless shown elsewhere. */
   close: (id: string) => invoke<void>("ios_sim_view_close", { id }),
 };
 

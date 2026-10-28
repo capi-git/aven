@@ -93,8 +93,8 @@ struct State {
     /// for CoreDevice's announcement). Kept in `boots.json` across restarts.
     aven_boots: HashMap<String, (BootId, Option<Instant>)>,
     aven_boots_loaded: bool,
-    /// The device each project's pane shows.
-    pane_devices: HashMap<String, String>,
+    /// The device each open iPhone pane shows (a project can have several).
+    panes: PaneDevices,
     /// Boots watched for a late CoreDevice announcement.
     watching: BTreeSet<(String, BootId)>,
     /// Build settings per (container, scheme).
@@ -108,6 +108,42 @@ struct State {
     /// Simulators `simctl list` named recently, to refuse anything else
     /// (a real device's identifier is a UUID too) without listing each time.
     known: Option<(Instant, BTreeSet<String>)>,
+}
+
+/// The device each open iPhone pane shows, by the pane's id. Panes of the
+/// same project (one per chat, hidden tabs included) count separately, so a
+/// device stays up while any of them shows it.
+#[derive(Default)]
+struct PaneDevices(HashMap<String, (String, String)>);
+
+impl PaneDevices {
+    /// Pane `pane` of `project` now shows `udid` (`None`: it closed). Returns
+    /// the project and device it stopped showing, when that changed.
+    fn show(&mut self, pane: &str, project: &str, udid: Option<&str>) -> Option<(String, String)> {
+        let previous = match udid {
+            Some(udid) => self
+                .0
+                .insert(pane.to_owned(), (project_key(project), udid.to_uppercase())),
+            None => self.0.remove(pane),
+        };
+        previous.filter(|(_, before)| udid.is_none_or(|now| !before.eq_ignore_ascii_case(now)))
+    }
+
+    /// Whether any open pane shows `udid`.
+    fn shows(&self, udid: &str) -> bool {
+        self.0
+            .values()
+            .any(|(_, device)| device.eq_ignore_ascii_case(udid))
+    }
+
+    /// The projects with a pane showing `udid`.
+    fn projects_showing(&self, udid: &str) -> BTreeSet<String> {
+        self.0
+            .values()
+            .filter(|(_, device)| device.eq_ignore_ascii_case(udid))
+            .map(|(project, _)| project.clone())
+            .collect()
+    }
 }
 
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -830,17 +866,12 @@ fn watch_announcement(udid: &str, data_path: Option<PathBuf>, boot: BootId) {
             if !same_boot || notify_flag(&key) != Some(1) {
                 return;
             }
-            let projects: Vec<String> = {
+            let projects = {
                 let mut state = state();
                 if state.ready.get(&key) == Some(&boot) {
                     state.ready.remove(&key);
                 }
-                state
-                    .pane_devices
-                    .iter()
-                    .filter(|(_, device)| **device == key)
-                    .map(|(project, _)| project.clone())
-                    .collect()
+                state.panes.projects_showing(&key)
             };
             for project in projects {
                 set_status(&project, None, |s| {
@@ -1036,7 +1067,8 @@ fn release_later(project: &str, udid: &str) {
             let facts = boot_facts(&udid, info.data_path.as_deref());
             let (shown, used, ours_running) = {
                 let state = state();
-                let shown = state.pane_devices.values().any(|d| *d == udid);
+                // Any open pane, of this project or another.
+                let shown = state.panes.shows(&udid);
                 let on_device = |run: &ProjectRun| {
                     run.status.udid.as_deref() == Some(udid.as_str())
                         && (run.status.phase.busy() || run.status.phase == Phase::Running)
@@ -1066,21 +1098,25 @@ fn release_later(project: &str, udid: &str) {
         });
 }
 
-/// The pane shows `udid`: boot it if needed. `picked` is true when the person
-/// chose it in the device menu just now (not a remembered or suggested one).
+/// Pane `pane` shows `udid`: boot it if needed. `picked` is true when the
+/// person chose it in the device menu just now (not a remembered or
+/// suggested one). The device it showed before is released shortly unless
+/// another pane shows it.
 #[tauri::command]
 pub async fn ios_sim_use_device(
     project: String,
     udid: String,
     picked: Option<bool>,
+    pane: String,
 ) -> Result<(), String> {
+    if !valid_view_id(&pane) {
+        return Err("Invalid iPhone pane".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         if ios_sim_devices::valid_udid(&udid) {
-            let previous = state()
-                .pane_devices
-                .insert(project_key(&project), udid.to_uppercase());
-            if let Some(previous) = previous.filter(|p| *p != udid.to_uppercase()) {
-                release_later(&project, &previous);
+            let previous = state().panes.show(&pane, &project, Some(&udid));
+            if let Some((owner, previous)) = previous {
+                release_later(&owner, &previous);
             }
         }
         let generation = state()
@@ -2351,10 +2387,15 @@ pub async fn ios_sim_view_close(caller: Webview, id: String) -> Result<(), Strin
     if !valid_view_id(&id) {
         return Err("Invalid iPhone pane".into());
     }
-    {
+    let released = {
         let mut state = state();
         state.views.remove(&id);
         state.view_devices.remove(&id);
+        state.panes.show(&id, "", None)
+    };
+    // The pane closed: its device goes shortly unless another pane shows it.
+    if let Some((owner, udid)) = released {
+        release_later(&owner, &udid);
     }
     let app = caller.app_handle().clone();
     on_main(&app, move || {
@@ -2544,6 +2585,43 @@ mod tests {
         assert!(scoped_devices("/scope-test/other").is_empty());
         // Not a simulator: no pick, and no device for agents to default to.
         assert_eq!(pane_device(project), None);
+    }
+
+    #[test]
+    fn keeps_a_device_while_any_pane_of_any_chat_shows_it() {
+        const A: &str = "AAAAAAAA-0000-0000-0000-000000000001";
+        const B: &str = "BBBBBBBB-0000-0000-0000-000000000002";
+        let mut panes = PaneDevices::default();
+        // Chats 1 and 2 of one project both show A.
+        assert_eq!(panes.show("chat-1", "/p/", Some(&A.to_lowercase())), None);
+        assert_eq!(panes.show("chat-2", "/p", Some(A)), None);
+        assert!(panes.shows(A));
+        // Showing the same device again releases nothing.
+        assert_eq!(panes.show("chat-2", "/p", Some(A)), None);
+        // Chat 2 picks B: A is released, but chat 1 still shows it.
+        assert_eq!(
+            panes.show("chat-2", "/p", Some(B)),
+            Some(("/p".into(), A.into()))
+        );
+        assert!(panes.shows(A) && panes.shows(B));
+        assert_eq!(panes.projects_showing(A), BTreeSet::from(["/p".to_owned()]));
+        // Chat 1's pane closes: now nothing shows A.
+        assert_eq!(
+            panes.show("chat-1", "", None),
+            Some(("/p".into(), A.into()))
+        );
+        assert!(!panes.shows(A));
+        assert!(panes.projects_showing(A).is_empty());
+        // A pane of another project showing B keeps it after chat 2 closes.
+        panes.show("other", "/q", Some(B));
+        assert_eq!(
+            panes.show("chat-2", "", None),
+            Some(("/p".into(), B.into()))
+        );
+        assert!(panes.shows(B));
+        assert_eq!(panes.projects_showing(B), BTreeSet::from(["/q".to_owned()]));
+        // Closing a pane that showed nothing releases nothing.
+        assert_eq!(panes.show("never-shown", "", None), None);
     }
 
     #[test]
