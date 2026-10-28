@@ -24,8 +24,6 @@ const XCRUN: &str = "/usr/bin/xcrun";
 const XCODEBUILD: &str = "/usr/bin/xcodebuild";
 /// Console lines kept per project for the pane and agents.
 const LOG_LINES: usize = 4000;
-/// How long CoreDevice may take to announce its HID daemon after a boot.
-const HID_ANNOUNCE_WAIT: Duration = Duration::from_secs(60);
 const DTUHIDD_FLAG: &str = "com.apple.coredevice.dtuhidd.active";
 const DTUHIDD_JOB: &str = "com.apple.coredevice.dtuhidd";
 
@@ -97,6 +95,8 @@ struct State {
     aven_boots_loaded: bool,
     /// The device each project's pane shows.
     pane_devices: HashMap<String, String>,
+    /// Boots watched for a late CoreDevice announcement.
+    watching: BTreeSet<(String, BootId)>,
     /// Build settings per (container, scheme).
     products: HashMap<(PathBuf, String), AppProduct>,
     /// The webview each live view sits above, as a pointer.
@@ -674,22 +674,15 @@ pub async fn ios_sim_devices() -> Result<DeviceList, String> {
     .map_err(|error| error.to_string())?
 }
 
-/// CoreDevice's HID daemon runs in this simulator (Xcode 27 and later). Older
-/// runtimes have none, and their input needs no fix.
-fn has_dtuhidd(udid: &str) -> bool {
+/// CoreDevice's HID daemon in this simulator (iOS 27 and later; older
+/// runtimes have none, and their input needs no fix).
+fn hid_daemon(udid: &str) -> ios_sim_boot::Daemon {
     simctl(
         &["spawn", udid, "launchctl", "list"],
         Duration::from_secs(10),
     )
-    .map(|o| launchctl_lists(&String::from_utf8_lossy(&o.stdout), DTUHIDD_JOB))
-    .unwrap_or(false)
-}
-
-/// Whether `launchctl list` output names a job.
-fn launchctl_lists(listed: &str, label: &str) -> bool {
-    listed
-        .lines()
-        .any(|line| line.split_whitespace().nth(2) == Some(label))
+    .map(|o| ios_sim_boot::parse_daemon(&String::from_utf8_lossy(&o.stdout), DTUHIDD_JOB))
+    .unwrap_or(ios_sim_boot::Daemon::Absent)
 }
 
 fn notify_flag(udid: &str) -> Option<u64> {
@@ -702,20 +695,33 @@ fn notify_flag(udid: &str) -> Option<u64> {
     text.split_whitespace().last()?.parse().ok()
 }
 
+/// What preparing a device's input did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Prepared {
+    /// The home screen restarted; touches work.
+    Restarted,
+    /// CoreDevice did not announce its HID daemon: touches work as they are.
+    /// `watch`: it may still do so later (the daemon exists).
+    Clear { watch: bool },
+}
+
 /// Xcode 27.1's CoreDevice HID daemon makes the simulator ignore SimulatorKit
-/// input once it announces itself after a boot. Mark it inactive and restart
+/// input once it announces itself after a boot (it does when a CoreDevice
+/// client such as DeviceHub is open). Then mark it inactive and restart
 /// backboardd so the input services start fresh (the home screen restarts
-/// once). Returns whether the device was restarted.
-fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
-    if !has_dtuhidd(udid) {
-        return Ok(false);
-    }
-    let deadline = Instant::now() + wait;
+/// once). `booted_at` is when Aven booted the device in this session.
+fn prepare_input(udid: &str, booted_at: Option<Instant>) -> Result<Prepared, String> {
     loop {
-        match notify_flag(udid) {
-            Some(1) => break,
-            _ if Instant::now() >= deadline => return Ok(false),
-            _ => std::thread::sleep(Duration::from_millis(100)),
+        let daemon = hid_daemon(udid);
+        let flag = notify_flag(udid);
+        match ios_sim_boot::announcement(flag, daemon, booted_at.map(|at| at.elapsed())) {
+            ios_sim_boot::Announcement::Fix => break,
+            ios_sim_boot::Announcement::Wait => std::thread::sleep(Duration::from_millis(150)),
+            ios_sim_boot::Announcement::Clear => {
+                return Ok(Prepared::Clear {
+                    watch: daemon != ios_sim_boot::Daemon::Absent,
+                })
+            }
         }
     }
     // Clear the flag and tell its listeners in one call.
@@ -771,7 +777,81 @@ fn prepare_input(udid: &str, wait: Duration) -> Result<bool, String> {
     }
     std::thread::sleep(Duration::from_secs(2));
     native::reset(udid);
-    Ok(true)
+    Ok(Prepared::Restarted)
+}
+
+/// Child processes waiting for a late announcement, ended when Aven quits.
+static WATCHERS: Mutex<Vec<Arc<Mutex<Child>>>> = Mutex::new(Vec::new());
+
+/// Waits (without polling) for CoreDevice to announce its HID daemon on a
+/// boot whose input works without the fix, as when DeviceHub is opened
+/// later. Touches then stop reaching the device until the fix runs: the
+/// pane says so, and the next Run or pick fixes it.
+fn watch_announcement(udid: &str, data_path: Option<PathBuf>, boot: BootId) {
+    let key = udid.to_uppercase();
+    if !state().watching.insert((key.clone(), boot)) {
+        return;
+    }
+    let mut command = tool(
+        XCRUN,
+        &["simctl", "spawn", &key, "notifyutil", "-1", DTUHIDD_FLAG],
+    );
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    let Ok(child) = command.spawn() else {
+        state().watching.remove(&(key, boot));
+        return;
+    };
+    let child = Arc::new(Mutex::new(child));
+    WATCHERS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(child.clone());
+    let _ = std::thread::Builder::new()
+        .name("ios-sim-announce".into())
+        .spawn(move || {
+            // Ends when the notification comes or the device shuts down.
+            loop {
+                let done = child.lock().unwrap_or_else(|p| p.into_inner()).try_wait();
+                match done {
+                    Ok(None) => std::thread::sleep(Duration::from_millis(500)),
+                    _ => break,
+                }
+            }
+            WATCHERS
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .retain(|other| !Arc::ptr_eq(other, &child));
+            state().watching.remove(&(key.clone(), boot));
+            let same_boot = data_path.as_deref().and_then(ios_sim_boot::boot_id) == Some(boot);
+            if !same_boot || notify_flag(&key) != Some(1) {
+                return;
+            }
+            let projects: Vec<String> = {
+                let mut state = state();
+                if state.ready.get(&key) == Some(&boot) {
+                    state.ready.remove(&key);
+                }
+                state
+                    .pane_devices
+                    .iter()
+                    .filter(|(_, device)| **device == key)
+                    .map(|(project, _)| project.clone())
+                    .collect()
+            };
+            for project in projects {
+                set_status(&project, None, |s| {
+                    if s.phase == Phase::Running {
+                        s.message = format!("{} · {NEEDS_PICK}", s.message);
+                    } else if !s.phase.busy() {
+                        s.message = NEEDS_PICK.into();
+                    }
+                });
+            }
+        });
 }
 
 /// Whether a device's touches and keys reach it.
@@ -890,23 +970,30 @@ pub(crate) fn prepare_device(
         native::reset(udid);
     }
     let facts = boot_facts(&key, info.data_path.as_deref());
-    match ios_sim_boot::input_step(&facts, picked, support().live, HID_ANNOUNCE_WAIT) {
-        InputStep::Ready => {}
+    let prepared = match ios_sim_boot::input_step(&facts, picked, support().live) {
+        InputStep::Ready => Prepared::Clear { watch: false },
         // Someone else's running simulator: never restart its home screen
         // unless the person picks it here.
         InputStep::Check => {
-            if has_dtuhidd(udid) && notify_flag(udid) == Some(1) {
-                return Ok(Readiness::NeedsPick);
+            let daemon = hid_daemon(udid);
+            match ios_sim_boot::announcement(notify_flag(udid), daemon, None) {
+                ios_sim_boot::Announcement::Fix => return Ok(Readiness::NeedsPick),
+                _ => Prepared::Clear {
+                    watch: daemon != ios_sim_boot::Daemon::Absent,
+                },
             }
         }
-        // A boot Aven just started waits for CoreDevice's announcement; any
-        // other is fixed only if the announcement happened.
-        InputStep::Fix { wait } => {
+        // A boot Aven just started may still be announced; any other is
+        // fixed only if the announcement happened.
+        InputStep::Fix { since_boot } => {
             report(Phase::Preparing, "Getting the iPhone ready…".into());
-            prepare_input(udid, wait)?;
+            prepare_input(udid, since_boot.map(|since| Instant::now() - since))?
         }
-    }
+    };
     mark_ready(&key, &facts);
+    if let (Prepared::Clear { watch: true }, Some(boot)) = (prepared, facts.current) {
+        watch_announcement(udid, info.data_path.clone(), boot);
+    }
     Ok(Readiness::Ready)
 }
 
@@ -1648,8 +1735,9 @@ pub(crate) fn shutdown() {
             run.child.take()
         })
         .collect();
-    for child in children {
-        kill_child(&child);
+    let watchers = std::mem::take(&mut *WATCHERS.lock().unwrap_or_else(|p| p.into_inner()));
+    for child in children.iter().chain(&watchers) {
+        kill_child(child);
     }
     crate::ios_sim_xcuitest::shutdown();
 }
@@ -2479,17 +2567,6 @@ mod tests {
             no_xcode_reason(&DeveloperDir::Missing),
             "Install Xcode to run iPhone apps"
         );
-    }
-
-    #[test]
-    fn finds_the_hid_daemon_in_launchctl_output() {
-        let listed = "PID\tStatus\tLabel\n88812\t0\tcom.apple.coredevice.dtuhidd\n-\t0\tcom.apple.coredevice.dthidd\n";
-        assert!(launchctl_lists(listed, DTUHIDD_JOB));
-        assert!(!launchctl_lists(
-            "-\t0\tcom.apple.coredevice.dtuhidd.helper\n",
-            DTUHIDD_JOB
-        ));
-        assert!(!launchctl_lists("", DTUHIDD_JOB));
     }
 
     #[test]

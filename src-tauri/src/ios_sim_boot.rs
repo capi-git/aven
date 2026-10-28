@@ -37,9 +37,10 @@ fn same_boot(remembered: Option<BootId>, current: Option<BootId>) -> bool {
 pub(crate) enum InputStep {
     /// Already done for this boot (or not needed): nothing to run.
     Ready,
-    /// Restart its home screen once if CoreDevice announced its HID daemon,
-    /// waiting up to `wait` for that announcement.
-    Fix { wait: Duration },
+    /// Restart its home screen once if CoreDevice announced its HID daemon.
+    /// `since_boot` is set for a boot Aven started in this session: the
+    /// announcement may still be on its way (see `announcement`).
+    Fix { since_boot: Option<Duration> },
     /// Someone else's running simulator: only find out whether it needs the
     /// fix; its home screen is never restarted unless the person picks it.
     Check,
@@ -68,28 +69,85 @@ impl BootFacts {
 /// ready, again after any reboot (in Aven or elsewhere). It runs on its own
 /// only for boots Aven started; a running simulator someone else started is
 /// fixed only when the person picks it (`picked`).
-pub(crate) fn input_step(
-    facts: &BootFacts,
-    picked: bool,
-    live: bool,
-    announce_wait: Duration,
-) -> InputStep {
+pub(crate) fn input_step(facts: &BootFacts, picked: bool, live: bool) -> InputStep {
     if !live || same_boot(facts.ready, facts.current) {
         return InputStep::Ready;
     }
     if facts.aven_booted() {
-        // A boot started just now: CoreDevice announces its HID daemon a
-        // moment later. One from earlier has announced (or never will).
-        let since = facts.started_by_aven.and_then(|(_, since)| since);
-        let wait = since.map_or(Duration::ZERO, |since| announce_wait.saturating_sub(since));
-        return InputStep::Fix { wait };
+        let since_boot = facts.started_by_aven.and_then(|(_, since)| since);
+        return InputStep::Fix { since_boot };
     }
     if picked {
-        InputStep::Fix {
-            wait: Duration::ZERO,
-        }
+        InputStep::Fix { since_boot: None }
     } else {
         InputStep::Check
+    }
+}
+
+/// CoreDevice's HID daemon in a simulator, from `launchctl list`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Daemon {
+    /// Not in this runtime (before iOS 27): input needs no fix.
+    Absent,
+    /// Listed, not running: no CoreDevice client (such as DeviceHub) uses it.
+    Idle,
+    Running,
+}
+
+pub(crate) fn parse_daemon(listed: &str, label: &str) -> Daemon {
+    let mut found = Daemon::Absent;
+    for line in listed.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(pid), Some(_), Some(job)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        if job == label {
+            found = if pid.parse::<u32>().is_ok() {
+                Daemon::Running
+            } else {
+                Daemon::Idle
+            };
+        }
+    }
+    found
+}
+
+/// The daemon announces itself (and the fix is needed) about a second after
+/// a boot, when a CoreDevice client such as DeviceHub is open; without one
+/// it never does, and touches work as they are. So a boot is waited on only
+/// briefly while the daemon is idle, and at most this long while it runs.
+pub(crate) const ANNOUNCE_GRACE: Duration = Duration::from_secs(3);
+pub(crate) const ANNOUNCE_WAIT: Duration = Duration::from_secs(60);
+
+/// What to do about CoreDevice's announcement for a device being prepared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Announcement {
+    /// It happened: restart the home screen once.
+    Fix,
+    /// A boot Aven just started may still announce: look again shortly.
+    Wait,
+    /// None, and none is expected: touches work as they are. A later one
+    /// (DeviceHub opened afterwards) is watched for.
+    Clear,
+}
+
+/// `flag` is the announcement flag (1 once announced); `since_boot` is set
+/// only for a boot Aven started in this session.
+pub(crate) fn announcement(
+    flag: Option<u64>,
+    daemon: Daemon,
+    since_boot: Option<Duration>,
+) -> Announcement {
+    if daemon == Daemon::Absent {
+        return Announcement::Clear;
+    }
+    if flag == Some(1) {
+        return Announcement::Fix;
+    }
+    match since_boot {
+        Some(since) if since < ANNOUNCE_GRACE => Announcement::Wait,
+        Some(since) if daemon == Daemon::Running && since < ANNOUNCE_WAIT => Announcement::Wait,
+        _ => Announcement::Clear,
     }
 }
 
@@ -106,7 +164,6 @@ mod tests {
 
     const BOOT: BootId = 1_793_138_996_000_000_000;
     const LATER: BootId = BOOT + 600_000_000_000;
-    const WAIT: Duration = Duration::from_secs(60);
 
     fn facts(current: Option<BootId>) -> BootFacts {
         BootFacts {
@@ -121,61 +178,95 @@ mod tests {
         let mut device = facts(Some(BOOT));
         device.started_by_aven = Some((BOOT, Some(Duration::from_secs(2))));
         assert_eq!(
-            input_step(&device, false, true, WAIT),
+            input_step(&device, false, true),
             InputStep::Fix {
-                wait: Duration::from_secs(58)
+                since_boot: Some(Duration::from_secs(2))
             }
         );
         // Done: picking it again, remembering it or running on it never
         // restarts its home screen again during this boot.
         device.ready = Some(BOOT);
         for picked in [false, true] {
-            assert_eq!(input_step(&device, picked, true, WAIT), InputStep::Ready);
+            assert_eq!(input_step(&device, picked, true), InputStep::Ready);
         }
         // Rebooted elsewhere (Xcode, DeviceHub, simctl): fixed again.
         device.current = Some(LATER);
-        assert_eq!(input_step(&device, false, true, WAIT), InputStep::Check);
+        assert_eq!(input_step(&device, false, true), InputStep::Check);
         assert_eq!(
-            input_step(&device, true, true, WAIT),
-            InputStep::Fix {
-                wait: Duration::ZERO
-            }
+            input_step(&device, true, true),
+            InputStep::Fix { since_boot: None }
         );
         // Basic mode needs no fix.
-        assert_eq!(input_step(&device, true, false, WAIT), InputStep::Ready);
+        assert_eq!(input_step(&device, true, false), InputStep::Ready);
     }
 
     #[test]
     fn restarts_only_boots_aven_started_unless_picked() {
         let running = facts(Some(BOOT));
-        assert_eq!(input_step(&running, false, true, WAIT), InputStep::Check);
+        assert_eq!(input_step(&running, false, true), InputStep::Check);
         assert_eq!(
-            input_step(&running, true, true, WAIT),
-            InputStep::Fix {
-                wait: Duration::ZERO
-            }
+            input_step(&running, true, true),
+            InputStep::Fix { since_boot: None }
         );
         // Aven's boot from before a restart of Aven: fixed without waiting.
         let mut ours = facts(Some(BOOT));
         ours.started_by_aven = Some((BOOT, None));
         assert_eq!(
-            input_step(&ours, false, true, WAIT),
-            InputStep::Fix {
-                wait: Duration::ZERO
-            }
+            input_step(&ours, false, true),
+            InputStep::Fix { since_boot: None }
         );
         // An old boot of Aven's does not make a later boot Aven's.
         ours.current = Some(LATER);
         assert!(!ours.aven_booted());
-        assert_eq!(input_step(&ours, false, true, WAIT), InputStep::Check);
+        assert_eq!(input_step(&ours, false, true), InputStep::Check);
+    }
+
+    #[test]
+    fn waits_for_coredevices_announcement_only_while_one_can_come() {
+        use Announcement::*;
+        use Daemon::*;
+        let just = Some(Duration::from_secs(1));
+        let later = Some(Duration::from_secs(10));
+        // Announced: fix, however long ago the boot was.
+        assert_eq!(announcement(Some(1), Running, later), Fix);
+        assert_eq!(announcement(Some(1), Idle, None), Fix);
+        // A boot Aven just started: give DeviceHub a moment to connect.
+        assert_eq!(announcement(Some(0), Idle, just), Wait);
+        assert_eq!(announcement(Some(0), Running, just), Wait);
+        // Nothing connected after the grace: no fix, and no 60-second wait.
+        assert_eq!(announcement(Some(0), Idle, later), Clear);
+        // Connected but not announced yet: keep waiting, up to a minute.
+        assert_eq!(announcement(Some(0), Running, later), Wait);
+        assert_eq!(announcement(Some(0), Running, Some(ANNOUNCE_WAIT)), Clear);
+        // Someone else's or an earlier boot: only what has happened counts.
+        assert_eq!(announcement(Some(0), Running, None), Clear);
+        assert_eq!(announcement(None, Idle, None), Clear);
+        // Runtimes without the daemon never need the fix.
+        assert_eq!(announcement(Some(1), Absent, just), Clear);
+    }
+
+    #[test]
+    fn reads_the_hid_daemon_from_launchctl() {
+        let job = "com.apple.coredevice.dtuhidd";
+        let running = "PID\tStatus\tLabel\n88812\t0\tcom.apple.coredevice.dtuhidd\n-\t0\tcom.apple.coredevice.dthidd\n";
+        assert_eq!(parse_daemon(running, job), Daemon::Running);
+        assert_eq!(
+            parse_daemon("-\t0\tcom.apple.coredevice.dtuhidd\n", job),
+            Daemon::Idle
+        );
+        assert_eq!(
+            parse_daemon("-\t0\tcom.apple.coredevice.dtuhidd.helper\n", job),
+            Daemon::Absent
+        );
+        assert_eq!(parse_daemon("", job), Daemon::Absent);
     }
 
     #[test]
     fn trusts_records_when_the_boot_cannot_be_read() {
         let mut device = facts(None);
-        assert_eq!(input_step(&device, false, true, WAIT), InputStep::Check);
+        assert_eq!(input_step(&device, false, true), InputStep::Check);
         device.ready = Some(BOOT);
-        assert_eq!(input_step(&device, true, true, WAIT), InputStep::Ready);
+        assert_eq!(input_step(&device, true, true), InputStep::Ready);
     }
 
     #[test]

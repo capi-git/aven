@@ -182,7 +182,7 @@ fn timed_run(
             "{}; {}{}",
             phases.join(" "),
             status.message,
-            if before != after {
+            if before.is_some() && before != after {
                 "; home screen restarted"
             } else {
                 ""
@@ -511,6 +511,62 @@ fn ios_sim_perf_phases() {
         "",
     );
     crate::ios_sim_xcuitest::shutdown();
+
+    // A late CoreDevice announcement (DeviceHub opened after the boot) is
+    // noticed, and the next preparation fixes input.
+    if std::env::var_os("AVEN_IOS_SIM_PERF_ANNOUNCE").is_some() {
+        let _ = simctl(&["shutdown", &udid], Duration::from_secs(120));
+        forget_session();
+        let started = Instant::now();
+        ensure_device(&project, &udid, None, false).unwrap();
+        row(
+            &mut steps,
+            "pick a shut-down device, no CoreDevice client",
+            started.elapsed().as_secs_f64(),
+            format!("flag {:?}", notify_flag(&udid)),
+        );
+        std::thread::sleep(Duration::from_secs(1));
+        simctl(
+            &[
+                "spawn",
+                &udid,
+                "notifyutil",
+                "-s",
+                DTUHIDD_FLAG,
+                "1",
+                "-p",
+                DTUHIDD_FLAG,
+            ],
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let started = Instant::now();
+        while state().ready.contains_key(&udid) {
+            assert!(started.elapsed() < Duration::from_secs(10), "not noticed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        row(
+            &mut steps,
+            "late announcement noticed after",
+            started.elapsed().as_secs_f64(),
+            "",
+        );
+        let before = springboard_pid(&udid);
+        let started = Instant::now();
+        ensure_device(&project, &udid, None, false).unwrap();
+        row(
+            &mut steps,
+            "next preparation fixes input",
+            started.elapsed().as_secs_f64(),
+            format!(
+                "flag {:?}, home screen restarted: {}",
+                notify_flag(&udid),
+                before != springboard_pid(&udid)
+            ),
+        );
+        // As the pane leaves it after preparing a device.
+        set_status(&project, None, |s| s.phase = Phase::Idle);
+    }
 
     // h) The pane moves to another simulator: one Aven booted is shut down.
     if std::env::var_os("AVEN_IOS_SIM_PERF_RELEASE").is_some() {
