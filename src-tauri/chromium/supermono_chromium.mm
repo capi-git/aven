@@ -465,7 +465,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     return true;
   }
   bool OnDragEnter(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDragData>,DragOperationsMask) override {
-    if (Main(browser)) user_input_=true;
+    if (Main(browser)) { user_input_=true; if (user_touch_.Pointer()) State(); }
     return false;
   }
   bool OnJSDialog(CefRefPtr<CefBrowser>,const CefString&,JSDialogType,const CefString&,
@@ -606,6 +606,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && frame->IsMain()) {
       sleep_.Invalidate();
       if (EditActive()) EditMode(false);
+      // A same-document change (a new fragment) ends without any load.
+      if (!browser->IsLoading()) ++loads_settled_;
       context_id_=0; error_.clear(); State();
     }
   }
@@ -642,7 +644,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }));
   }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser,bool loading,bool back,bool forward) override {
-    if (Main(browser)) State();
+    if (Main(browser)) { if (!loading) ++loads_settled_; State(); }
   }
   void OnLoadError(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,ErrorCode code,
       const CefString& error_text,const CefString& failed_url) override {
@@ -654,6 +656,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
     if (Main(browser) && update_prepared_) return true;
     if (Main(browser)) { sleep_.Invalidate(); user_input_=true; }
+    // Keys an agent sends are counted in agent_keys_; any other is the user's.
+    if (Main(browser) && user_touch_.Key(agent_keys_)) State();
     // A key the agent did not send while an upload waits: the user is using
     // this page, so any chooser that opens now is theirs.
     if (Main(browser) && agent_keys_==0)
@@ -876,7 +880,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     d->SetString("title",browser_->GetHost()->GetWindowHandle() ? title_ : "");
     d->SetString("favicon",favicon_);
     d->SetBool("loading",browser_->IsLoading()); d->SetBool("canGoBack",browser_->CanGoBack()); d->SetBool("canGoForward",browser_->CanGoForward());
+    // Loads that have ended, so a caller can wait for the one it started.
+    d->SetDouble("loadsSettled",static_cast<double>(loads_settled_));
     d->SetBool("focused",Focused());
+    // The user has used this page (or is annotating it): an agent's open
+    // must no longer reload or navigate it.
+    d->SetBool("userTouched",user_touch_.Touched(EditActive()));
     d->SetString("error",error_); d->SetString("notice",notice_); d->SetDouble("zoomFactor",zoom_.factor());
     d->SetString("noticeAction",notice_action_);
     d->SetBool("microphoneInUse",microphone_in_use_); d->SetBool("cameraInUse",camera_in_use_);
@@ -1186,6 +1195,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         ![(SMBrowserClipView*)clip_view_ pageTakesPoint:point]) return;
     if (NSPointInRect(point,clip_view_.bounds)) {
       user_input_=true;
+      if (user_touch_.Pointer()) State();
       CancelUpload("The user clicked in the page while the upload waited for its file chooser, so Aven left the chooser to them and uploaded nothing.");
     }
   }
@@ -1244,7 +1254,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="notice-action") NoticeAction();
     else if (action=="notice-dismiss") Notice("");
     else if (action=="devtools") { if (!devtools_client_) devtools_client_=new DevToolsClient; CefWindowInfo window; window.runtime_style=CEF_RUNTIME_STYLE_CHROME; CefBrowserSettings settings; host->ShowDevTools(window,devtools_client_,settings,CefPoint()); }
-    else if (action=="edit-start" || action=="edit-stop") { EditMode(action=="edit-start",request,Text(cmd,"token")); return; }
+    else if (action=="edit-start" || action=="edit-stop") {
+      // Only the user starts annotating, from the page's toolbar.
+      if (action=="edit-start" && user_touch_.Annotate()) State();
+      EditMode(action=="edit-start",request,Text(cmd,"token")); return;
+    }
     else if (action=="downloadCancel") { auto item=downloads_.find(Text(cmd,"downloadId")); if (item==downloads_.end()) { Result(id_,request,false,Error("This download is no longer active")); return; } item->second->Cancel(); }
     else if (action=="drop-indicator") {
       if (!DropIndicator(cmd)) { Result(id_,request,false,Error("Invalid browser drop indicator")); return; }
@@ -2288,6 +2302,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   std::vector<Completion> zoom_waiters_;
   bool closing_=false;
   bool update_prepared_=false, update_attempt_=false, user_input_=false;
+  // Unlike user_input_, only the user's own input, and never reset.
+  supermono::UserTouch user_touch_;
+  uint64_t loads_settled_=0;
   std::string update_url_;
   supermono::BrowserSleepState sleep_;
   std::string sleep_request_;

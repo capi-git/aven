@@ -12,12 +12,42 @@ or change to the Mac's default browser is required.
 
 Agents should start development servers without auto-opening a browser. They then
 list pages first and reuse the matching page ID to inspect or reload the preview.
-The `open` action reuses an exact matching URL within the task's workspace, including
-when requests overlap. It preserves live page state; sleeping tabs wake as needed.
-Different query strings and fragments remain separate addresses. Pass `"newTab":true`
-only when a separate copy is intentional, such as preserving a user draft while
-testing. Use `reload` to refresh the existing page after an edit, rather than
-opening another copy. Agents inspect a snapshot and interact with elements from it. If the connection fails, the agent reports the error
+
+Each chat builds on one page per site. The first `open` from a chat makes a
+page that is that chat's own. Its next `open` on the same site (the same
+scheme, host and port, with `localhost`, `127.0.0.1` and `[::1]` counting as
+one) lands on that page: the same address reloads it, keeping its scroll
+position, and another route, query string, fragment or mock file navigates it.
+The result says `"reused":"reloaded"` or `"reused":"navigated"` (a page that
+woke for the open counts as reloaded). Overlapping requests from one chat share
+one page, its opens on one site take turns so the page ends on the address
+asked for last, and sleeping tabs wake as needed. An open that reloads or
+navigates the chat's page first lets a load still running finish, then returns
+once the page has loaded (at most about ten seconds each), so the agent's next
+snapshot reads the new page and two navigations never overlap on one page. Another local server, or
+another site, gets a page of its own. The page's tab names the chat in its
+tooltip: "Opened by … ; the chat reuses this page".
+
+`open` never navigates a page the user opened, and one chat never gets
+another chat's page: a page of the user's at the same address is only shown,
+as it is, and another chat's is left to it. A page stops being the agent's the
+moment you use it (a click, a key, a dropped file or an annotation; the
+agent's own clicks and typing do not count), when you choose **Keep this
+page** in its tab's menu or double-click its tab, or when you type an address
+into it. The agent's next `open` then makes a new page. If you use the page
+just as an agent's open arrives, Aven leaves it as it is and opens a new page
+too, and the result says why. Moving a page into a split keeps it as a tab but
+leaves it the agent's.
+
+Agents are told to iterate on a mock-up or preview in place: edit the same
+file and reload its page, rather than making `mock-v2` files or more tabs,
+unless you ask for alternatives side by side. They pass `"newTab":true` only
+for a second page they need at the same time; `"arrange":false` already leaves
+your view alone. Agents often asked for a new tab just to be safe, so a
+new-tab request at the same path as the chat's own page reuses that page
+(reloaded, or navigated to the new query or fragment) instead of copying it;
+one at another path or site opens a second page. The browser shows `http` and `https` pages only, so a mock is
+served from a local server rather than opened as a `file://` address. Agents inspect a snapshot and interact with elements from it. If the connection fails, the agent reports the error
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
@@ -135,7 +165,7 @@ input channel, not the Mac's.
   fades about two seconds after the last action, respects Reduce Motion, is
   clipped with the pane and is never drawn for hidden panes. It is hidden while
   a page screenshot is taken, so screenshots never contain it.
-- `open` normally shows a new page beside the requesting chat. Pass
+- `open` normally shows its page beside the requesting chat. Pass
   `"arrange":false` to leave your panes exactly as they are: a new page waits as
   a background tab in the focused pane, and an existing page stays where it is.
   Pages in detached windows keep that window's own placement.

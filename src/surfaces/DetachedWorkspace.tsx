@@ -1,7 +1,12 @@
 import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
 import { previewTabsOnServer } from "../lib/devPreviews";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
-import { sessionWorkCwd } from "../lib/session";
+import {
+  HARNESS_TITLE,
+  sessionDisplayTitle,
+  sessionWorkCwd,
+} from "../lib/session";
+import { isUntitledChatTitle } from "../lib/untitledChat";
 import { leadDecidedIds, sessionNeedsUser } from "../lib/teamAttention";
 import { orchestrator } from "../lib/orchestration";
 import { useBootSplashReady } from "../lib/bootSplash";
@@ -129,6 +134,35 @@ function keepBrowsers(
   );
 }
 
+/** The chat that reuses an agent's page, by name, while it is in this window. */
+function agentChatNamed(
+  chat: string | undefined,
+  sessions: DetachedWorkspaceState["sessions"],
+): { agentChatName?: string } {
+  const session = chat
+    ? sessions.find((entry) => entry.session.id === chat)?.session
+    : undefined;
+  if (!session) return {};
+  const title = sessionDisplayTitle(session.title, session.harness);
+  return {
+    agentChatName: isUntitledChatTitle(title)
+      ? HARNESS_TITLE[session.harness]
+      : title,
+  };
+}
+
+/** The user kept or took over the page: its agent's next page opens apart. */
+function releaseAgentBrowsers(
+  browsers: DetachedWorkspaceState["browsers"],
+  id: string,
+): DetachedWorkspaceState["browsers"] {
+  return browsers.map((browser) => {
+    if (browser.id !== id || !browser.agentChat) return browser;
+    const { agentChat: _released, ...rest } = browser;
+    return rest;
+  });
+}
+
 /** A renderer, never an App: every agent action returns to the one owner. */
 export function DetachedWorkspace() {
   const [envelope, setEnvelope] = useState<DetachedWorkspaceSnapshot | null>(
@@ -225,15 +259,21 @@ export function DetachedWorkspace() {
     }, 150);
   }, [checkpoint, report]);
   const change = useCallback(
-    (update: (state: DetachedWorkspaceState) => DetachedWorkspaceState) => {
+    (
+      update: (state: DetachedWorkspaceState) => DetachedWorkspaceState,
+      // Sent at once rather than batched: the main window must hear before
+      // an agent's next open (a page released from its agent).
+      immediately = false,
+    ) => {
       const e = current.current;
       if (!e) return;
       const next = { ...e, state: update(e.state) };
       current.current = next;
       setEnvelope(next);
-      scheduleCheckpoint();
+      if (immediately) void checkpoint().catch(report);
+      else scheduleCheckpoint();
     },
-    [scheduleCheckpoint],
+    [checkpoint, report, scheduleCheckpoint],
   );
   const arrange = useCallback(
     (intent: WorkspaceIntent) =>
@@ -1016,6 +1056,7 @@ export function DetachedWorkspace() {
             url: b.url,
             favicon: b.favicon,
             kept: b.kept,
+            ...agentChatNamed(b.agentChat, state.sessions),
           }))}
         surfaceOrder={members}
         visibleIds={active.size > 1 ? [id] : []}
@@ -1040,6 +1081,18 @@ export function DetachedWorkspace() {
             ...s,
             browsers: keepBrowsers(s.browsers, [selected]),
           }))
+        }
+        onKeepAgentPage={(selected) =>
+          change(
+            (s) => ({
+              ...s,
+              browsers: releaseAgentBrowsers(
+                keepBrowsers(s.browsers, [selected]),
+                selected,
+              ),
+            }),
+            true,
+          )
         }
         onCloseMany={(ids) =>
           void (async () => {
@@ -1117,6 +1170,20 @@ export function DetachedWorkspace() {
               ),
             }))
           }
+          onTakenOver={() => {
+            if (
+              current.current?.state.browsers.some(
+                (b) => b.id === browser.id && b.agentChat,
+              )
+            )
+              change(
+                (s) => ({
+                  ...s,
+                  browsers: releaseAgentBrowsers(s.browsers, browser.id),
+                }),
+                true,
+              );
+          }}
           onTitleChange={(title) =>
             change((s) => ({
               ...s,

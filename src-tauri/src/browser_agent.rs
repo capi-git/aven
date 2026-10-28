@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, EventTarget, Manager, Webview};
 
 const MAX_REQUEST_BYTES: usize = 32 * 1024;
@@ -40,7 +40,86 @@ struct PendingOpen {
     owner: String,
     token: String,
     kind: PendingKind,
-    sender: mpsc::Sender<Result<String, String>>,
+    sender: mpsc::Sender<Result<Opened, String>>,
+}
+
+/// The owning window's answer: the granted page for a browser open (empty for
+/// file and wake replies) and what to do to it.
+type Opened = (String, Option<PageRefresh>);
+
+/// What an open does to the asking chat's own page it landed on, so the agent
+/// keeps building on one page: reload it at the same address, or navigate it
+/// to another address on the same site. `Loaded` is a page that woke or first
+/// loaded at that address for this open, which needs nothing more. Another
+/// page is only shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PageRefresh {
+    Reload,
+    Navigate,
+    Loaded,
+}
+
+impl PageRefresh {
+    fn parse(value: Option<&str>) -> Result<Option<Self>, String> {
+        match value {
+            None => Ok(None),
+            Some("reload") => Ok(Some(Self::Reload)),
+            Some("navigate") => Ok(Some(Self::Navigate)),
+            Some("loaded") => Ok(Some(Self::Loaded)),
+            Some(_) => Err("Unknown page refresh".into()),
+        }
+    }
+
+    /// What the agent's result says happened to its page: a page that just
+    /// loaded the same address is as fresh as a reloaded one.
+    fn reused(self) -> &'static str {
+        match self {
+            Self::Reload | Self::Loaded => "reloaded",
+            Self::Navigate => "navigated",
+        }
+    }
+}
+
+/// Opens from one chat on one site take turns: a second waits until the
+/// first has landed (its page reloaded or navigated) before the window picks
+/// its page, so the page ends on the address asked for last and its saved
+/// address agrees.
+#[derive(Default)]
+struct OpenQueue(Mutex<OpenLanes>);
+
+/// One turn-taking lock per chat (session id) and site.
+type OpenLanes = HashMap<(String, String), Arc<Mutex<()>>>;
+
+impl OpenQueue {
+    fn lane(&self, session: &str, url: &str) -> Arc<Mutex<()>> {
+        let mut lanes = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A lane only the map holds is idle.
+        lanes.retain(|_, lane| Arc::strong_count(lane) > 1);
+        lanes
+            .entry((session.to_owned(), open_site(url)))
+            .or_default()
+            .clone()
+    }
+}
+
+/// The site an open is on, as the window matches a chat's own page: scheme,
+/// host and port, with the loopback names counting as one host.
+fn open_site(address: &str) -> String {
+    let Ok(url) = tauri::Url::parse(address) else {
+        return address.to_owned();
+    };
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let host = if matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]") {
+        "localhost"
+    } else {
+        host.as_str()
+    };
+    format!(
+        "{}://{}:{}",
+        url.scheme(),
+        host,
+        url.port_or_known_default().unwrap_or(0)
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -59,6 +138,7 @@ struct Server {
     socket_path: String,
     grants: Mutex<HashMap<String, Grant>>,
     pending: Mutex<HashMap<String, PendingOpen>>,
+    opens: OpenQueue,
 }
 
 static SERVER: OnceLock<Result<Arc<Server>, String>> = OnceLock::new();
@@ -644,6 +724,7 @@ pub fn browser_agent_open_result(
     request_id: String,
     browser_id: Option<String>,
     error: Option<String>,
+    refresh: Option<String>,
 ) -> Result<(), String> {
     crate::browser::label(&caller, "agent-check")?;
     let Some(Ok(server)) = SERVER.get() else {
@@ -674,7 +755,7 @@ pub fn browser_agent_open_result(
             &Request::Snapshot { id: id.clone() },
         )?;
         crate::browser::preview(&caller, &id)?;
-        Ok(id)
+        PageRefresh::parse(refresh.as_deref()).map(|refresh| (id, refresh))
     };
     if let Some(request) = pending.remove(&request_id) {
         let _ = request.sender.send(result);
@@ -705,7 +786,7 @@ pub fn browser_agent_open_file_result(
         .map_err(|_| "App access is unavailable")?;
     authorize(&grants, &request.token, &Request::List {})?;
     let result = error.map_or_else(
-        || Ok(String::new()),
+        || Ok((String::new(), None)),
         |error| Err(error.chars().take(500).collect()),
     );
     if let Some(request) = pending.remove(&request_id) {
@@ -733,7 +814,7 @@ pub fn browser_agent_wake_result(
     let request = pending.get(&request_id).ok_or("Browser request expired")?;
     validate_pending_wake_reply(request, caller.label())?;
     let result = error.map_or_else(
-        || Ok(String::new()),
+        || Ok((String::new(), None)),
         |error| Err(error.chars().take(500).collect()),
     );
     if let Some(request) = pending.remove(&request_id) {
@@ -909,6 +990,7 @@ fn start_server(app: AppHandle) -> Result<Arc<Server>, String> {
         socket_path: socket.to_string_lossy().into_owned(),
         grants: Mutex::new(HashMap::new()),
         pending: Mutex::new(HashMap::new()),
+        opens: OpenQueue::default(),
     });
     let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let host = server.clone();
@@ -1165,8 +1247,86 @@ fn page_url(caller: &Webview, id: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A page an agent's open landed on, as its result reports it.
+struct OpenedPage {
+    id: String,
+    url: String,
+    refresh: Option<PageRefresh>,
+    note: Option<&'static str>,
+}
+
+impl OpenedPage {
+    fn result(&self) -> Value {
+        let mut result = json!({"id": self.id, "url": self.url});
+        if let Some(refresh) = self.refresh {
+            result["reused"] = Value::String(refresh.reused().into());
+        }
+        if let Some(note) = self.note {
+            result["note"] = Value::String(note.into());
+        }
+        result
+    }
+}
+
+const TOUCHED_PAGE_NOTE: &str = "The user has been using your earlier page, so it was left as it is and this opened a new page. Use this id.";
+
+/// Whether an open must leave its page alone and open a new one: the window
+/// picked the chat's page to reload or navigate, but the user has used it
+/// (clicked, typed, dropped or annotated, never an agent's own input) and the
+/// window has not heard yet.
+fn leave_for_user(refresh: Option<PageRefresh>, touched: bool) -> bool {
+    touched && matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate))
+}
+
+/// How long an open waits for its page's loads: one already running when it
+/// arrives, and the reload or navigation it starts.
+const PAGE_SETTLE_WAIT: Duration = Duration::from_secs(10);
+const PAGE_SETTLE_POLL: Duration = Duration::from_millis(25);
+
+/// Wait until `done` holds, checking every `poll`, for at most `limit`.
+/// Returns whether it held.
+fn wait_until(mut done: impl FnMut() -> bool, limit: Duration, poll: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if done() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// Whether the page is loading, and how many of its loads have ended.
+fn page_load(caller: &Webview, id: &str) -> (bool, u64) {
+    let state = crate::browser::agent_tab_states(caller, &[id.to_owned()]);
+    let state = state.first();
+    let loading = state
+        .and_then(|state| state.get("loading"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let settled = state
+        .and_then(|state| state.get("loadsSettled"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    (loading, settled)
+}
+
+/// Whether the user has clicked, typed, dropped or annotated in the page
+/// since it was created (an agent's own input never counts).
+fn page_touched(caller: &Webview, id: &str) -> bool {
+    crate::browser::agent_tab_states(caller, &[id.to_owned()])
+        .first()
+        .and_then(|state| state.get("userTouched"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// Ask the owning window to open `url` for this session and wait for the page
-/// it granted. Returns the page id and the normalized address.
+/// it granted. The chat's own page is then reloaded or navigated as the window
+/// answered, unless the user has been using it: that page is left alone and a
+/// new one is opened instead. Opens from one chat on one site take turns.
 fn open_page(
     server: &Server,
     caller: &Webview,
@@ -1175,8 +1335,86 @@ fn open_page(
     url: &str,
     new_tab: bool,
     arrange: bool,
-) -> Result<(String, String), String> {
+) -> Result<OpenedPage, String> {
     let url = crate::browser::parse_url(caller, url)?.to_string();
+    let lane = server.opens.lane(&grant.session_id, &url);
+    let _turn = lane.lock().unwrap_or_else(|e| e.into_inner());
+    let (id, refresh) = request_page(
+        server,
+        caller,
+        grant,
+        token.clone(),
+        &url,
+        new_tab,
+        arrange,
+        false,
+    )?;
+    let changes = matches!(refresh, Some(PageRefresh::Reload | PageRefresh::Navigate));
+    if changes {
+        // Never start a reload or navigation while the page's last load is
+        // still running (it only just opened, or the last open changed it):
+        // overlapping navigations on one page trip a Chromium observer-list
+        // reentrancy check.
+        wait_until(
+            || !page_load(caller, &id).0,
+            PAGE_SETTLE_WAIT,
+            PAGE_SETTLE_POLL,
+        );
+    }
+    if changes && leave_for_user(refresh, page_touched(caller, &id)) {
+        // The window may not have heard yet; never reload or navigate it.
+        let (fresh, _) = request_page(server, caller, grant, token, &url, true, arrange, true)?;
+        return Ok(OpenedPage {
+            id: fresh,
+            url,
+            refresh: None,
+            note: Some(TOUCHED_PAGE_NOTE),
+        });
+    }
+    let settled = page_load(caller, &id).1;
+    // Chromium's reload keeps the page's scroll position.
+    match refresh {
+        Some(PageRefresh::Reload) => tauri::async_runtime::block_on(
+            crate::browser::browser_action(caller.clone(), id.clone(), "reload".into()),
+        )?,
+        Some(PageRefresh::Navigate) => tauri::async_runtime::block_on(
+            crate::browser::browser_navigate(caller.clone(), id.clone(), url.clone()),
+        )?,
+        Some(PageRefresh::Loaded) | None => {}
+    }
+    if changes {
+        // Hand back (and let this chat's next open on the site in) once the
+        // page has loaded what was asked: the agent then reads the new page.
+        wait_until(
+            || {
+                let (loading, now) = page_load(caller, &id);
+                now > settled && !loading
+            },
+            PAGE_SETTLE_WAIT,
+            PAGE_SETTLE_POLL,
+        );
+    }
+    Ok(OpenedPage {
+        id,
+        url,
+        refresh,
+        note: None,
+    })
+}
+
+/// One open request to the owning window. `fresh` asks for a new page whatever
+/// the chat already has.
+#[allow(clippy::too_many_arguments)]
+fn request_page(
+    server: &Server,
+    caller: &Webview,
+    grant: &Grant,
+    token: String,
+    url: &str,
+    new_tab: bool,
+    arrange: bool,
+    fresh: bool,
+) -> Result<Opened, String> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let (sender, receiver) = mpsc::channel();
     server
@@ -1195,7 +1433,7 @@ fn open_page(
     let emitted = caller.emit_to(
         EventTarget::webview(&grant.owner),
         "browser-agent-open",
-        json!({"requestId":request_id,"sessionId":grant.session_id,"url":url,"newTab":new_tab,"arrange":arrange}),
+        json!({"requestId":request_id,"sessionId":grant.session_id,"url":url,"newTab":new_tab,"arrange":arrange,"fresh":fresh}),
     );
     let result = if emitted.is_ok() {
         receiver
@@ -1213,7 +1451,7 @@ fn open_page(
         .lock()
         .map_err(|_| "Browser access is unavailable")?
         .remove(&request_id);
-    result.map(|id| (id, url))
+    result
 }
 
 /// A task's sleeping pages wake when its agent first looks for them, not
@@ -1329,7 +1567,7 @@ fn dispatch(
             new_tab,
             arrange.unwrap_or(true),
         )
-        .map(|(id, url)| json!({"id":id,"url":url})),
+        .map(|page| page.result()),
         Request::OpenFile { path, line, column } => {
             let path = validate_editor_file(&path)?;
             let request_id = uuid::Uuid::new_v4().to_string();
@@ -1373,7 +1611,7 @@ fn dispatch(
         Request::Navigate { id, url } => {
             if opens_separate_page(page_url(&caller, &id).as_deref(), &url) {
                 return open_page(server, &caller, grant, envelope.token, &url, true, false).map(
-                    |(id, url)| json!({"id":id,"url":url,"opened":true,"note":SEPARATE_PAGE_NOTE}),
+                    |page| json!({"id":page.id,"url":page.url,"opened":true,"note":SEPARATE_PAGE_NOTE}),
                 );
             }
             tauri::async_runtime::block_on(crate::browser::browser_navigate(caller, id, url))?;
@@ -1618,10 +1856,21 @@ Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-browser '<JSON>'
   {"action":"back|forward|reload","id":"TAB_ID"} (choose one action)
 Uses the real embedded browser and its login/page state. Only tabs granted to
 this session are accessible. Take a new snapshot before choosing element refs.
-Open reuses a tab at the same address in this chat's workspace. Live pages keep
-their state; sleeping pages wake as needed.
-Use newTab:true only when a separate copy is needed. Use reload to refresh an
-existing page, and navigate to change its address. Navigating a page to a
+Open keeps one page per site for this chat and builds on it: opening the same
+address again reloads your page ("reused":"reloaded"), and another address on
+the same site (another route, query, fragment or mock file on that server)
+navigates it ("reused":"navigated"). A page the user opened, kept, clicked,
+typed in or annotated is never reloaded or navigated by open: one at the same
+address is only shown, and otherwise you get a new page (with a note). Opens
+from this chat on one site take turns, and one that reloads or navigates your
+page returns once it has loaded. Sleeping pages wake as needed.
+Edit a mock in place and open or reload
+it again rather than making mock-v2 files or new tabs.
+Use newTab:true only for a second page you need at the same time, such as
+versions side by side the user asked for, at another path. newTab:true at the
+path of a page of yours reuses that page instead of copying it. arrange:false
+is enough to leave the user's view alone. Use reload to refresh a page, and
+navigate to change its address. Navigating a page to a
 different local server opens a new page instead; use the id it returns. Open
 shows a new page beside the chat; arrange:false never moves, splits or selects
 the user's panes (a new page waits as a background tab). Pages work the same
@@ -2473,6 +2722,165 @@ mod tests {
             );
         }
         assert!(HELP.contains("different local server opens a new page"));
+    }
+
+    #[test]
+    fn an_open_reply_names_only_a_known_refresh_of_the_chats_own_page() {
+        assert_eq!(PageRefresh::parse(None), Ok(None));
+        assert_eq!(
+            PageRefresh::parse(Some("reload")),
+            Ok(Some(PageRefresh::Reload))
+        );
+        assert_eq!(
+            PageRefresh::parse(Some("navigate")),
+            Ok(Some(PageRefresh::Navigate))
+        );
+        for unknown in ["", "Reload", "back", "close", "navigate "] {
+            assert!(PageRefresh::parse(Some(unknown)).is_err(), "{unknown:?}");
+        }
+        assert_eq!(
+            PageRefresh::parse(Some("loaded")),
+            Ok(Some(PageRefresh::Loaded))
+        );
+        assert_eq!(PageRefresh::Reload.reused(), "reloaded");
+        assert_eq!(PageRefresh::Navigate.reused(), "navigated");
+        // A page that woke at the same address reads like a reload.
+        assert_eq!(PageRefresh::Loaded.reused(), "reloaded");
+        // The reference tells agents to build on one page.
+        for advice in [
+            "Open keeps one page per site for this chat and builds on it",
+            "(\"reused\":\"reloaded\")",
+            "(\"reused\":\"navigated\")",
+            "A page the user opened, kept, clicked,\ntyped in or annotated is never reloaded or navigated by open",
+            "Edit a mock in place and open or reload\nit again rather than making mock-v2 files or new tabs.",
+            "Use newTab:true only for a second page you need at the same time",
+            "newTab:true at the\npath of a page of yours reuses that page instead of copying it.",
+        ] {
+            assert!(HELP.contains(advice), "{advice}");
+        }
+    }
+
+    #[test]
+    fn an_open_reports_how_its_page_was_reused_and_why_it_got_a_new_one() {
+        let page = |refresh, note| OpenedPage {
+            id: "tab-a".into(),
+            url: "http://localhost:5173/".into(),
+            refresh,
+            note,
+        };
+        assert_eq!(
+            page(None, None).result(),
+            json!({"id":"tab-a","url":"http://localhost:5173/"})
+        );
+        assert_eq!(
+            page(Some(PageRefresh::Navigate), None).result(),
+            json!({"id":"tab-a","url":"http://localhost:5173/","reused":"navigated"})
+        );
+        assert_eq!(
+            page(None, Some(TOUCHED_PAGE_NOTE)).result()["note"],
+            TOUCHED_PAGE_NOTE
+        );
+        assert!(TOUCHED_PAGE_NOTE.contains("opened a new page"));
+    }
+
+    #[test]
+    fn a_page_the_user_used_is_never_reloaded_or_navigated_by_an_open() {
+        for refresh in [PageRefresh::Reload, PageRefresh::Navigate] {
+            assert!(leave_for_user(Some(refresh), true), "{refresh:?}");
+            assert!(!leave_for_user(Some(refresh), false), "{refresh:?}");
+        }
+        // Showing a page, or one that only now loaded, changes nothing in it.
+        assert!(!leave_for_user(None, true));
+        assert!(!leave_for_user(Some(PageRefresh::Loaded), true));
+    }
+
+    #[test]
+    fn an_open_waits_for_its_page_to_settle_and_gives_up_after_its_limit() {
+        // Done at once: no wait.
+        let started = Instant::now();
+        assert!(wait_until(
+            || true,
+            Duration::from_secs(5),
+            Duration::from_millis(1)
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        // Loading for three checks, then settled.
+        let mut checks = 0;
+        assert!(wait_until(
+            || {
+                checks += 1;
+                checks > 3
+            },
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+        ));
+        assert_eq!(checks, 4);
+        // A page that never settles does not hold the open for ever.
+        let started = Instant::now();
+        assert!(!wait_until(
+            || false,
+            Duration::from_millis(30),
+            Duration::from_millis(5)
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(30));
+        assert!(PAGE_SETTLE_WAIT <= Duration::from_secs(10));
+    }
+
+    #[test]
+    fn opens_take_turns_per_chat_and_site_with_loopback_names_as_one_site() {
+        assert_eq!(
+            open_site("http://localhost:5173/mocks/a.html?v=2#x"),
+            open_site("http://127.0.0.1:5173/b.html")
+        );
+        assert_eq!(open_site("http://[::1]:5173/"), "http://localhost:5173");
+        assert_eq!(
+            open_site("https://Example.com/a"),
+            "https://example.com:443"
+        );
+        for other in [
+            "http://localhost:5174/",
+            "https://localhost:5173/",
+            "http://example.com:5173/",
+        ] {
+            assert_ne!(
+                open_site("http://localhost:5173/"),
+                open_site(other),
+                "{other}"
+            );
+        }
+        let queue = OpenQueue::default();
+        let first = queue.lane("chat-a", "http://localhost:5173/a");
+        assert!(Arc::ptr_eq(
+            &first,
+            &queue.lane("chat-a", "http://127.0.0.1:5173/b?v=1")
+        ));
+        assert!(!Arc::ptr_eq(
+            &first,
+            &queue.lane("chat-b", "http://localhost:5173/a")
+        ));
+        assert!(!Arc::ptr_eq(
+            &first,
+            &queue.lane("chat-a", "http://localhost:5174/a")
+        ));
+        // The second open on the lane waits for the first to finish.
+        let turn = first.lock().unwrap();
+        let (started, waiting) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        let second = queue.lane("chat-a", "http://localhost:5173/b");
+        let worker = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            let _turn = second.lock().unwrap();
+            finished.send(()).unwrap();
+        });
+        waiting.recv().unwrap();
+        assert!(done.recv_timeout(Duration::from_millis(100)).is_err());
+        drop(turn);
+        done.recv_timeout(Duration::from_secs(5)).unwrap();
+        worker.join().unwrap();
+        // Idle lanes are dropped from the map.
+        drop(first);
+        queue.lane("chat-c", "http://localhost:1/");
+        assert_eq!(queue.0.lock().unwrap().len(), 1);
     }
 
     #[test]

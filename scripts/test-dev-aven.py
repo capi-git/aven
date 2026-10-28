@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from types import SimpleNamespace
@@ -476,6 +477,38 @@ class RealAppCheck(unittest.TestCase):
             'AVEN_SMOKE_OK',
             'AVEN_SMOKE_OK NOTE[Live from Aven. | Dev server running: http://localhost:5199/ (started by Claude).]',
             'AVEN_SMOKE_OK NOTE[none]',
+        ])
+
+    def test_stand_in_iterates_on_one_page_through_the_browser_command(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        calls = self.root / 'browser-calls.jsonl'
+        # Aven's browser command, answering each open with the same page.
+        fake = self.root / 'fake-aven'
+        fake.write_text(
+            f'#!{sys.executable}\n'
+            'import json, sys\n'
+            'request = json.loads(sys.argv[2])\n'
+            f'open({str(calls)!r}, "a").write(json.dumps(request) + "\\n")\n'
+            'print(json.dumps({"ok": True, "result": {"id": "page-1", "url": request["url"]}}))\n')
+        fake.chmod(0o755)
+        request = {'type': 'user', 'uuid': 'turn-8', 'message': {'role': 'user', 'content': [
+            {'type': 'text', 'text': 'Show it. AVEN_SMOKE_PAGES http://127.0.0.1:8123/'}]}}
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json',
+                               '--permission-prompt-tool', 'stdio'],
+                              input=json.dumps(request) + '\n', capture_output=True, text=True,
+                              timeout=20, env={**os.environ, 'AVEN_BROWSER_EXECUTABLE': str(fake)})
+        reply = json.loads(chat.stdout.splitlines()[-1])['result']
+        self.assertTrue(reply.startswith('AVEN_SMOKE_OK AVEN_PAGES ['), reply)
+        self.assertEqual(len(json.loads(reply.split('AVEN_PAGES ', 1)[1])), 6)
+        sent = [json.loads(line) for line in calls.read_text().splitlines()]
+        mock = 'http://127.0.0.1:8123/index.html?mock=1'
+        self.assertEqual([(c['action'], c['url'], c.get('newTab', False), c['arrange']) for c in sent], [
+            ('open', mock, False, False),
+            ('open', mock, False, False),
+            ('open', mock + '&v=2', False, False),
+            ('open', 'http://127.0.0.1:8123/?mock=1', False, False),
+            ('open', 'http://127.0.0.1:8123/alternative.html?mock=1', True, False),
+            ('open', 'http://127.0.0.1:8123/alternative.html?mock=2', True, False),
         ])
 
     def test_stand_in_claude_writes_into_its_folder_as_a_race_lane(self):

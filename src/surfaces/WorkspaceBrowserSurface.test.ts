@@ -34,6 +34,7 @@ function freshActions(): BrowserSurfaceActions {
     update: vi.fn(),
     addToChat: vi.fn(),
     openTab: vi.fn(),
+    release: vi.fn(),
   };
 }
 
@@ -114,6 +115,12 @@ describe("workspace browser surface memo boundary", () => {
     first.onTitleChange!("Next page");
     first.onAddToChat!("Page context");
     first.onOpenTab!("https://example.com/opened", true);
+    // The user taking the page over releases it from its agent.
+    first.onTakenOver!();
+    expect(generations[1].release).toHaveBeenCalledExactlyOnceWith(
+      props.project,
+      props.tabId,
+    );
     expect(generations[1].focus).toHaveBeenCalledExactlyOnceWith(
       props.project,
       props.id,
@@ -170,6 +177,7 @@ describe("workspace browser surface memo boundary", () => {
       "onTitleChange",
       "onAddToChat",
       "onOpenTab",
+      "onTakenOver",
     ] as const)
       expect(hidden[callback]).toBe(first[callback]);
     parentUpdate();

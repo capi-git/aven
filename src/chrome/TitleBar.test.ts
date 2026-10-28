@@ -530,6 +530,72 @@ describe("browser tab integration", () => {
     expect(props.onCloseBrowser).not.toHaveBeenCalled();
   });
 
+  it("names the chat on its agent's page and keeps the page from the menu or a double-click", async () => {
+    const onKeepAgentPage = vi.fn();
+    await render({
+      browserTabs: [
+        {
+          id: "web-1",
+          title: "Mock",
+          kept: true,
+          agentChatName: "Pricing page",
+        },
+        { id: "web-2", title: "Docs", kept: true },
+      ],
+      activeId: "web-1",
+      onKeepBrowser: vi.fn(),
+      onKeepAgentPage,
+    });
+    const tabButton = (id: string) =>
+      container.querySelector<HTMLButtonElement>(
+        `[data-surface-id="${id}"] [role="tab"]`,
+      )!;
+    // Quiet: the tooltip and description say whose page it is.
+    expect(tabButton("web-1").title).toBe(
+      "Mock\nOpened by Pricing page; the chat reuses this page",
+    );
+    expect(tabButton("web-1").getAttribute("aria-description")).toBe(
+      "Opened by Pricing page. The chat reuses this page for its next one unless you keep it.",
+    );
+    expect(tabButton("web-2").title).toBe("Docs");
+    const menuItems = async (id: string) => {
+      await act(async () =>
+        tabButton(id).dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+        ),
+      );
+      return [
+        ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ];
+    };
+    // A page the user already kept has nothing to keep.
+    expect(
+      (await menuItems("web-2")).some((item) =>
+        item.textContent?.startsWith("Keep"),
+      ),
+    ).toBe(false);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    const keep = (await menuItems("web-1")).find((item) =>
+      item.textContent?.startsWith("Keep this page"),
+    );
+    expect(keep?.textContent).toContain(
+      "Pricing page will open its own page instead of reusing this one",
+    );
+    await act(async () => keep!.click());
+    expect(onKeepAgentPage).toHaveBeenCalledExactlyOnceWith("web-1");
+    // A double-click keeps it too, like a preview page.
+    const item = container.querySelector('[data-surface-id="web-1"]')!;
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    );
+    expect(onKeepAgentPage).toHaveBeenCalledTimes(2);
+    expect(props.onKeepBrowser).not.toHaveBeenCalled();
+  });
+
   it("does not resurrect a hidden page after Keep and a header remount", async () => {
     const pages = [
       { id: "web-1", title: "Older page" },

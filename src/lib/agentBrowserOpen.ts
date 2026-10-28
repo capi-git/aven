@@ -6,7 +6,10 @@ import {
   keepBrowserTab,
   normalizeBrowserWorkspace,
   selectBrowserTab,
+  updateBrowserTab,
+  type BrowserTab,
   type BrowserWorkspace,
+  type NormalizedBrowserWorkspace,
 } from "./personalWorkspace";
 
 export type AgentBrowserOpenOptions = {
@@ -14,45 +17,88 @@ export type AgentBrowserOpenOptions = {
   focus?: boolean;
   /** False keeps the user's panes as they are: no move, split or selection. */
   arrange?: boolean;
+  /**
+   * The chat asking. Its own page (`agentChat`) is reused for its next page
+   * on the same site; a page it creates becomes its own.
+   */
+  chat?: string;
+  /**
+   * A new page whatever the chat has: Aven found the user using the page
+   * the window picked, and leaves it alone.
+   */
+  fresh?: boolean;
 };
 
 export type AgentBrowserPlacement = { activate: false; arrange: boolean };
 
+/**
+ * What an open does to the chat's own page it lands on: reload it at the
+ * same address, or navigate it to the new one. Another page is only shown.
+ */
+export type AgentPageRefresh = "reload" | "navigate";
+
+/** The page an agent's open landed on, and what to do to it. */
+export type AgentBrowserOpened = { id: string; refresh?: AgentPageRefresh };
+
+type AgentPageCandidate = { id: string; url: string; agentChat?: string };
+
+function opened(
+  value: string | AgentBrowserOpened,
+  refresh?: AgentPageRefresh,
+): AgentBrowserOpened {
+  if (typeof value !== "string") return value;
+  return refresh ? { id: value, refresh } : { id: value };
+}
+
 /** Both window adapters use the same reuse, concurrency and background policy. */
 export function createAgentBrowserRouter() {
-  const pending = new Map<string, Set<Promise<string>>>();
+  const pending = new Map<string, Set<Promise<AgentBrowserOpened>>>();
   return {
-    open<T extends { id: string; url: string }>(
+    open<T extends AgentPageCandidate>(
       scope: string,
       url: string,
       options: AgentBrowserOpenOptions | undefined,
       adapter: {
         tabs: () => readonly T[];
         preferredId?: string;
-        reuse: (tab: T, placement: AgentBrowserPlacement) => Promise<string>;
+        reuse: (
+          tab: T,
+          placement: AgentBrowserPlacement,
+          refresh?: AgentPageRefresh,
+        ) => Promise<string | AgentBrowserOpened>;
         create: (
           url: string,
           placement: AgentBrowserPlacement,
-        ) => Promise<string>;
+        ) => Promise<string | AgentBrowserOpened>;
       },
-    ): Promise<string> {
+    ): Promise<AgentBrowserOpened> {
       const target = normalizeBrowserUrl(url);
-      const key = JSON.stringify([scope, target]);
-      const operations = pending.get(key) ?? new Set<Promise<string>>();
+      // Per chat: another chat's open must never share this one's result.
+      const key = JSON.stringify([scope, options?.chat ?? null, target]);
+      const operations =
+        pending.get(key) ?? new Set<Promise<AgentBrowserOpened>>();
       const existingOperation = operations.values().next().value;
-      if (!options?.newTab && existingOperation) return existingOperation;
+      if (!options?.newTab && !options?.fresh && existingOperation)
+        return existingOperation;
       const operation = Promise.resolve()
-        .then(() => {
+        .then(async () => {
           const placement: AgentBrowserPlacement = {
             activate: false,
             arrange: options?.arrange !== false,
           };
-          const existing = options?.newTab
-            ? undefined
-            : matchingAgentBrowserTab(adapter.tabs(), url, adapter.preferredId);
+          const existing = agentPageFor(
+            adapter.tabs(),
+            url,
+            options?.chat,
+            adapter.preferredId,
+            { newTab: options?.newTab, fresh: options?.fresh },
+          );
           return existing
-            ? adapter.reuse(existing, placement)
-            : adapter.create(target, placement);
+            ? opened(
+                await adapter.reuse(existing.tab, placement, existing.refresh),
+                existing.refresh,
+              )
+            : opened(await adapter.create(target, placement));
         })
         .finally(() => {
           operations.delete(operation);
@@ -173,13 +219,104 @@ export function matchingAgentBrowserTab<T extends { id: string; url: string }>(
   return preferred && matches(preferred) ? preferred : tabs.find(matches);
 }
 
-/** Repeated agent opens select a live tab without navigating or replacing it. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Whether two addresses are the same site for an agent's page: the same
+ * scheme, host and port, with the loopback names counting as one host. Any
+ * route, file, query string or fragment on it is the same work. Another
+ * local server is not: it may stop, or be another app.
+ */
+export function sameAgentSite(a: string, b: string): boolean {
+  try {
+    const one = new URL(a);
+    const two = new URL(b);
+    const host = (url: URL) =>
+      LOOPBACK_HOSTS.has(url.hostname.toLowerCase())
+        ? "localhost"
+        : url.hostname.toLowerCase();
+    return (
+      one.protocol === two.protocol &&
+      one.port === two.port &&
+      host(one) === host(two)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The address's path, without its query or fragment. */
+function pagePath(url: string): string | null {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The page an agent's open lands on, without a new tab:
+ * - a page at the same address: the chat's own is reloaded, any other is
+ *   only shown (a page the user opened is never navigated by an open);
+ * - else the chat's own page on the same site, navigated to the address (the
+ *   one in front first, else the newest), so one page is built on.
+ * With `newTab` the agent wants a second page: only the chat's own page at
+ * the same path on the same site is reused (reloaded, or navigated to a new
+ * query or fragment), since a copy of it shows nothing new; any other path
+ * or site gets a new tab, for alternatives side by side.
+ * Another chat's page is never shared with a chat: it gets its own.
+ * Undefined means a new tab, as `fresh` always does. A page the user kept or
+ * took over has no `agentChat`, so it is never navigated.
+ */
+export function agentPageFor<T extends AgentPageCandidate>(
+  tabs: readonly T[],
+  url: string,
+  chat?: string,
+  preferredId?: string,
+  { newTab = false, fresh = false }: { newTab?: boolean; fresh?: boolean } = {},
+): { tab: T; refresh?: AgentPageRefresh } | undefined {
+  if (fresh) return undefined;
+  const own = (tab: T) => !!chat && tab.agentChat === chat;
+  const mine = tabs.filter(own);
+  const exactOwn = matchingAgentBrowserTab(mine, url, preferredId);
+  if (exactOwn) return { tab: exactOwn, refresh: "reload" };
+  const target = normalizeBrowserUrl(url);
+  const path = pagePath(target);
+  const site = mine.filter(
+    (tab) =>
+      sameAgentSite(tab.url, target) && (!newTab || pagePath(tab.url) === path),
+  );
+  const page =
+    site.find((tab) => tab.id === preferredId) ?? site[site.length - 1];
+  if (newTab) return page ? { tab: page, refresh: "navigate" } : undefined;
+  // A page the user opened is shown as it is; one another chat owns is not
+  // shared, or that chat would go on navigating it under this one.
+  const exact = matchingAgentBrowserTab(
+    chat ? tabs.filter((tab) => !tab.agentChat) : tabs,
+    url,
+    preferredId,
+  );
+  if (exact) return { tab: exact };
+  return page ? { tab: page, refresh: "navigate" } : undefined;
+}
+
+/**
+ * An agent's open in a workspace's browser state. A repeated open selects
+ * the live tab; the chat's own page is reloaded at the same address or
+ * navigated to another on its site (`refresh`), and otherwise a new tab,
+ * owned by the chat, is added. `newTab` adds one unless the chat already
+ * has its own page at that path (`agentPageFor`).
+ */
 export function openAgentBrowserTab(
   state: BrowserWorkspace,
   url: string,
   options: AgentBrowserOpenOptions = {},
   createId: () => string = () => crypto.randomUUID(),
-) {
+): {
+  tab: BrowserTab;
+  workspace: NormalizedBrowserWorkspace;
+  refresh?: AgentPageRefresh;
+} {
   const current = normalizeBrowserWorkspace(state);
   const preserveFocus = (
     workspace: ReturnType<typeof normalizeBrowserWorkspace>,
@@ -192,22 +329,36 @@ export function openAgentBrowserTab(
           expanded: current.expanded,
         }
       : workspace;
-  const existing = options.newTab
-    ? undefined
-    : matchingAgentBrowserTab(
-        current.tabs,
-        url,
-        current.activeTabId ?? undefined,
-      );
+  const existing = agentPageFor(
+    current.tabs,
+    url,
+    options.chat,
+    current.activeTabId ?? undefined,
+    { newTab: options.newTab, fresh: options.fresh },
+  );
   if (existing) {
+    const { tab, refresh } = existing;
+    // The page shows the new address at once, so an overlapping open finds
+    // it; the page itself is navigated once it is ready.
+    const moved =
+      refresh === "navigate"
+        ? updateBrowserTab(current, tab.id, { url: normalizeBrowserUrl(url) })
+        : current;
+    const workspace = preserveFocus(
+      selectBrowserTab(keepBrowserTab(moved, tab.id), tab.id),
+    );
     return {
-      tab: existing,
-      workspace: preserveFocus(
-        selectBrowserTab(keepBrowserTab(current, existing.id), existing.id),
-      ),
+      tab: workspace.tabs.find((page) => page.id === tab.id) ?? tab,
+      workspace,
+      ...(refresh ? { refresh } : {}),
     };
   }
-  const tab = { id: createId(), url: normalizeBrowserUrl(url), kept: true };
+  const tab = {
+    id: createId(),
+    url: normalizeBrowserUrl(url),
+    kept: true,
+    ...(options.chat ? { agentChat: options.chat } : {}),
+  };
   return {
     tab,
     workspace: preserveFocus(addRetainedBrowserTab(current, tab)),

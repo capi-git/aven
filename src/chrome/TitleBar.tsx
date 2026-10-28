@@ -239,9 +239,16 @@ export type TitleBarProps = {
     title: string;
     favicon?: string;
     kept?: boolean;
+    /**
+     * The chat whose agent opened this page and reuses it for its next one,
+     * by name; absent for the user's own pages.
+     */
+    agentChatName?: string;
     url?: string;
   }>;
   onKeepBrowser?: (id: string) => void;
+  /** Keep an agent's page as it is: its chat opens its own page instead. */
+  onKeepAgentPage?: (id: string) => void;
   /** Last selected page in this workspace, used when its header remounts. */
   browserPreviewId?: string | null;
   surfaceOrder?: string[];
@@ -1137,6 +1144,7 @@ function BrowserTitleTabItem({
   onMenu,
   menuOpen,
   preview = false,
+  agentChatName,
   onKeep,
   groupStyle,
   groupRun,
@@ -1163,6 +1171,8 @@ function BrowserTitleTabItem({
   onMenu?: (button: HTMLButtonElement) => void;
   menuOpen: boolean;
   preview?: boolean;
+  /** The chat that reuses this page for its next one (an agent's page). */
+  agentChatName?: string;
   onKeep?: () => void;
   /** Colour of the user tab group this page belongs to. */
   groupStyle?: CSSProperties;
@@ -1270,14 +1280,20 @@ function BrowserTitleTabItem({
           aria-description={
             preview
               ? "Preview tab. The next page you open takes its place unless you keep it open."
-              : visible && !active
-                ? "Visible in split"
-                : undefined
+              : agentChatName
+                ? `Opened by ${agentChatName}. The chat reuses this page for its next one unless you keep it.`
+                : visible && !active
+                  ? "Visible in split"
+                  : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
           data-morph={combineInto ? undefined : `tab:${id}`}
-          title={label}
+          title={
+            agentChatName
+              ? `${label}\nOpened by ${agentChatName}; the chat reuses this page`
+              : label
+          }
           className="personal-title-tab-button personal-title-browser-button aven-tab-button flex min-w-0 flex-1 items-center"
         >
           {deck ? null : <BrowserTabIcon favicon={favicon} />}
@@ -1710,6 +1726,7 @@ function TitleBarComponent({
   browserMode = "tab",
   browserTabs,
   onKeepBrowser,
+  onKeepAgentPage,
   browserPreviewId,
   surfaceOrder,
   splits,
@@ -2920,7 +2937,19 @@ function TitleBarComponent({
         id: "bar-open-iphone",
         label: "iPhone",
       });
-    if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
+    // An agent's page is kept as a tab but still the agent's to reuse:
+    // keeping it makes it the user's, and the chat opens a page of its own.
+    if (contextBrowser?.agentChatName && onKeepAgentPage)
+      tabRootItems.push(
+        {
+          kind: "item",
+          id: "keep-open",
+          label: "Keep this page",
+          description: `${contextBrowser.agentChatName} will open its own page instead of reusing this one`,
+        },
+        { kind: "sep" },
+      );
+    else if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
       tabRootItems.push(
         { kind: "item", id: "keep-open", label: "Keep open" },
         { kind: "sep" },
@@ -3260,7 +3289,9 @@ function TitleBarComponent({
       sortable.captureStripMorph();
       onAddToSplit?.(id.slice("strip-join:".length), contextId);
     } else if (id === "keep-open") {
-      if (contextBrowser) onKeepBrowser?.(contextId);
+      if (contextBrowser?.agentChatName && onKeepAgentPage)
+        onKeepAgentPage(contextId);
+      else if (contextBrowser) onKeepBrowser?.(contextId);
     } else if (id === "own-pane") {
       const beside =
         contextId !== frontId
@@ -3590,7 +3621,15 @@ function TitleBarComponent({
         }
         menuOpen={tabMenu?.tabId === id || (!unified && Boolean(browserMenu))}
         preview={previewEnabled && preview.previewId === id}
-        onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
+        agentChatName={browser.agentChatName}
+        // Double-click keeps a page: an agent's, from its chat.
+        onKeep={
+          browser.agentChatName && onKeepAgentPage
+            ? () => onKeepAgentPage(id)
+            : onKeepBrowser
+              ? () => onKeepBrowser(id)
+              : undefined
+        }
         groupStyle={groupStyle}
         groupRun={groupRun}
         opening={slotMotion.opening.has(id)}

@@ -3920,6 +3920,39 @@ describe("native preview lifecycle", () => {
     expect(mocks.action).not.toHaveBeenCalled();
   });
 
+  it("says once when the user takes the page over, by using it or typing an address", async () => {
+    const onTakenOver = vi.fn();
+    await openPane({ onTakenOver });
+    // An agent's clicks, fills and keys never mark the page.
+    await receive();
+    await receive({ userTouched: false });
+    expect(onTakenOver).not.toHaveBeenCalled();
+    // The user clicked, typed or annotated in it.
+    await receive({ userTouched: true });
+    await receive({ userTouched: true });
+    expect(onTakenOver).toHaveBeenCalledOnce();
+
+    const typed = vi.fn();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await openPane({ id: "two", onTakenOver: typed });
+    await receive();
+    const input = container.querySelector("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "example.com");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      input.form!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(typed).toHaveBeenCalledOnce();
+  });
+
   it("shows when the page is using the microphone or camera", async () => {
     await openPane();
     await receive();

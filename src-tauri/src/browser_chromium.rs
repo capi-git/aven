@@ -305,6 +305,13 @@ pub(crate) struct BrowserState {
     /// What the page is capturing right now, for the toolbar indicator.
     microphone_in_use: bool,
     camera_in_use: bool,
+    /// The user clicked, typed, dropped something into or annotated this page
+    /// (an agent's own input never counts): an agent's open must no longer
+    /// reload or navigate it, and the app stops treating it as the agent's.
+    user_touched: bool,
+    /// Loads of the page that have ended, so an agent's open can wait for the
+    /// one it started before the next one changes the page again.
+    loads_settled: u64,
     focused: bool,
     floating: bool,
     zoom_factor: f64,
@@ -1143,6 +1150,16 @@ fn handle_event(native_id: &str, event: Value) {
                 if let Some(value) = event.get("cameraInUse").and_then(Value::as_bool) {
                     state.camera_in_use = value;
                 }
+                if let Some(value) = event.get("userTouched").and_then(Value::as_bool) {
+                    state.user_touched = value;
+                }
+                if let Some(value) = event
+                    .get("loadsSettled")
+                    .and_then(Value::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                {
+                    state.loads_settled = value as u64;
+                }
                 if let Some(value) = event.get("findResult") {
                     state.find_result = (!value.is_null()).then(|| value.clone());
                 }
@@ -1600,6 +1617,8 @@ pub async fn browser_create(
             notice_action: None,
             microphone_in_use: false,
             camera_in_use: false,
+            user_touched: false,
+            loads_settled: 0,
             focused: false,
             floating: false,
             zoom_factor: 1.0,

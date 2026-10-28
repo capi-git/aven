@@ -7,21 +7,26 @@ import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
 import { leaf, leafIds, newTab } from "../lib/layout";
 import { installInAppLinks } from "../lib/inAppLinks";
 
+const panes = vi.hoisted(() => new Map<string, { onTakenOver?: () => void }>());
 vi.mock("./BrowserPane", () => ({
   BrowserPane: ({
     id,
     visible,
     agentRequested,
+    onTakenOver,
   }: {
     id: string;
     visible: boolean;
     agentRequested?: boolean;
-  }) =>
-    createElement("div", {
+    onTakenOver?: () => void;
+  }) => {
+    panes.set(id, { onTakenOver });
+    return createElement("div", {
       "data-test-browser": id,
       "data-presented": String(visible),
       "data-agent-requested": String(agentRequested),
-    }),
+    });
+  },
 }));
 vi.mock("./SessionPane", () => ({ SessionPane: () => null }));
 vi.mock("./FilePane", () => ({ FilePane: () => null }));
@@ -312,4 +317,28 @@ it("preserves the pane's previous browser preview when its conversation has focu
   expect(
     saved.browsers.find((browser) => browser.id === "selected")?.kept,
   ).toBe(true);
+});
+
+it("tells the main window at once when the user takes an agent's page over", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  initial.state.browsers[0] = {
+    ...initial.state.browsers[0],
+    kept: true,
+    agentChat: "task",
+  };
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  vi.mocked(nativeWorkspaceWindow.checkpoint).mockClear();
+  // The user clicked in the page: no wait for the batched checkpoint.
+  await act(async () => panes.get("selected")!.onTakenOver!());
+  const saved = vi
+    .mocked(nativeWorkspaceWindow.checkpoint)
+    .mock.calls.at(-1)?.[0];
+  expect(saved?.browsers.find((browser) => browser.id === "selected")).toEqual(
+    expect.not.objectContaining({ agentChat: expect.anything() }),
+  );
+  // A page that is already the user's changes nothing.
+  vi.mocked(nativeWorkspaceWindow.checkpoint).mockClear();
+  await act(async () => panes.get("history")!.onTakenOver!());
+  await act(async () => vi.advanceTimersByTime(150));
+  expect(nativeWorkspaceWindow.checkpoint).not.toHaveBeenCalled();
 });
