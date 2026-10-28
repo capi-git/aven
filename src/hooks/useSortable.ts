@@ -176,7 +176,23 @@ type DragState = {
    * when, and where the pointer was then.
    */
   arming: { id: string; since: number; x: number; y: number } | null;
+  /** When the pointer event not yet looked at happened (`eventTime`). */
+  at: number | null;
 };
+
+/**
+ * When a pointer event happened, on `performance.now()`'s clock. A busy page
+ * can handle an event well after it: a rest is how long the pointer stayed,
+ * not how long the page took to look. Engines that stamp events otherwise
+ * (epoch time, or nothing) count from now.
+ */
+function eventTime(event: { timeStamp?: number }): number {
+  const now = performance.now();
+  const at = event.timeStamp;
+  return typeof at === "number" && Number.isFinite(at) && at > 0 && at <= now
+    ? at
+    : now;
+}
 
 type ReadBounds = (element: HTMLElement) => DOMRect;
 
@@ -466,6 +482,7 @@ export function useSortable(
         part: part ?? null,
         torn: false,
         arming: null,
+        at: null,
       };
       drag.current = state;
       handle.setPointerCapture(event.pointerId);
@@ -481,8 +498,19 @@ export function useSortable(
           if (drag.current?.active) scheduleDragFrame();
         }, Math.ceil(wait));
       };
-      /** Where the pointer is now; a part leaving the strip tears off. */
-      const locate = (current: DragState, readBounds: ReadBounds) => {
+      /**
+       * Where the pointer is now; a part leaving the strip tears off. A
+       * release is judged at `releasedAt`, when it happened.
+       */
+      const locate = (
+        current: DragState,
+        readBounds: ReadBounds,
+        releasedAt?: number,
+      ) => {
+        // A rest starts when the pointer got where it is: at the event that
+        // moved it there, else (the strip scrolled under it) now.
+        const movedAt = current.at ?? performance.now();
+        current.at = null;
         current.inStrip = inStrip(current.x, current.y, readBounds);
         if (current.part && !current.inStrip && !current.torn) {
           current.torn = true;
@@ -509,7 +537,7 @@ export function useSortable(
         // rest again, so a slow pass never arms.
         if (target?.kind !== "tab" || delay <= 0) current.arming = null;
         else if (target.id !== armed) {
-          const now = performance.now();
+          const now = releasedAt ?? performance.now();
           if (
             current.arming?.id !== target.id ||
             Math.hypot(
@@ -519,7 +547,7 @@ export function useSortable(
           )
             current.arming = {
               id: target.id,
-              since: now,
+              since: Math.min(movedAt, now),
               x: current.x,
               y: current.y,
             };
@@ -684,6 +712,7 @@ export function useSortable(
         current.y = ev.clientY;
         current.screenX = ev.screenX;
         current.screenY = ev.screenY;
+        current.at = eventTime(ev);
         if (!current.active) {
           if (
             Math.hypot(
@@ -713,7 +742,11 @@ export function useSortable(
         current.y = ev.clientY;
         current.screenX = ev.screenX;
         current.screenY = ev.screenY;
-        if (current.active) locate(current, measureBounds());
+        // Judged when it happened, not when a busy page got to it: a quick
+        // pass let go on a middle still moves the tab.
+        const releasedAt = eventTime(ev);
+        current.at = releasedAt;
+        if (current.active) locate(current, measureBounds(), releasedAt);
         stop(true);
       };
       const onCancel = (event?: Event) => {
