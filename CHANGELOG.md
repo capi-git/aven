@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.156] - 2026-10-28
+
+### Fixed
+
+- **A tab alone in its pane can be moved again.** Drag a page by its title in the address bar, its site icon or the empty part of its top row. It lifts into the usual chip and can go into another pane, onto an edge to split, or back up to the strip. A click without moving still edits the address. The iPhone pane and a lone file drag by their top row the same way.
+- Right-clicking a lone page's title or the empty part of its top row opens the tab's menu. A file's tab keeps its own menu.
+- A split that is the only thing in the window shows in the tab strip again, so its halves can be clicked and dragged.
+
 ## [0.1.155] - 2026-10-27
 
 ### Added

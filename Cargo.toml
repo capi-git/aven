@@ -4,7 +4,7 @@ members = ["src-tauri", "tools/verify-update"]
 exclude = ["vendor/portable-pty"]
 
 [workspace.package]
-version = "0.1.155"
+version = "0.1.156"
 edition = "2021"
 license = "MIT"
 
