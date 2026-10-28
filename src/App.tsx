@@ -10924,6 +10924,10 @@ export default function App({
         ),
       closePage: (id) => onCloseBrowserTab(id),
     },
+    agentPages: (project) =>
+      normalizeBrowserWorkspace(
+        browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
+      ).tabs,
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),

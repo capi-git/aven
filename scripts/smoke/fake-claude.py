@@ -517,6 +517,43 @@ def iphone_turn(text):
         return f"{IPHONE_FAILED} {error} {json.dumps(report)}"
 
 
+# "AVEN_SMOKE_PAGES <url>" makes the turn iterate on a mock-up page through
+# the scoped `--aven-browser` connection Aven gave this process, as an agent
+# would: the same address twice, another query, another path on the same
+# server, then an explicit new tab. The reply lists what each open returned.
+PAGES_PATTERN = re.compile(r"AVEN_SMOKE_PAGES (http://[^\s]+/)")
+PAGES_WORD = "AVEN_PAGES"
+
+
+def browser(action, timeout=30):
+    executable = os.environ.get("AVEN_BROWSER_EXECUTABLE")
+    if not executable:
+        raise RuntimeError("no scoped connection in this process")
+    done = subprocess.run([executable, "--aven-browser", json.dumps(action)],
+                          capture_output=True, text=True, timeout=timeout)
+    result = json.loads(done.stdout or "{}")
+    log({"pid": os.getpid(), "browser": action.get("action"), "ok": result.get("ok")})
+    return result
+
+
+def pages_turn(base):
+    mock = base + "index.html?mock=1"
+    opens = [{"url": mock}, {"url": mock}, {"url": mock + "&v=2"},
+             {"url": base + "?mock=1"}, {"url": mock, "newTab": True}]
+    report = []
+    try:
+        for request in opens:
+            # arrange:false leaves the check's panes as they are.
+            done = browser({"action": "open", "arrange": False, **request})
+            if not done.get("ok"):
+                raise RuntimeError(done.get("error") or "open failed")
+            result = done.get("result") or {}
+            report.append({"id": result.get("id"), "reused": result.get("reused")})
+        return f"{REPLY} {PAGES_WORD} {json.dumps(report)}"
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+        return f"{REPLY} {PAGES_WORD} FAILED {error} {json.dumps(report)}"
+
+
 def main():
     args = sys.argv[1:]
     log({
@@ -618,6 +655,8 @@ def main():
                 reply = lead_turn(text)
             elif not helper and IPHONE_WORD in text:
                 reply = iphone_turn(text)
+            elif not helper and chat_session(args) and PAGES_PATTERN.search(text):
+                reply = pages_turn(PAGES_PATTERN.search(text).group(1))
             message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",

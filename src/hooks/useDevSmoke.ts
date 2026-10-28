@@ -110,6 +110,10 @@ type Options = DevPerfOptions & {
   board?: boolean;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
+  /** A project's browser pages, with the chat whose agent builds on each. */
+  agentPages?: (
+    project: string,
+  ) => readonly { id: string; url: string; agentChat?: string }[];
 };
 
 /** What the race check reads and sets outside the page. */
@@ -3349,6 +3353,55 @@ export async function runDevSmoke(
         return `:${SECOND_SERVER_PORT} flagged beside :${FIRST_SERVER_PORT}; the next turn named :${FIRST_SERVER_PORT}`;
       },
     );
+
+  // A chat's agent iterates on a mock-up page through its browser command:
+  // the same address twice, another query, another path on the same server,
+  // then an explicit new tab. The first four must land on one page, reloaded
+  // and then navigated, and only the new-tab request adds a second.
+  const agentPagesOf = get().agentPages;
+  if (safe && pageUrl && agentPagesOf)
+    await step("an agent's opens build on one page", async () => {
+      get().motion?.showWorkspace?.();
+      const chat = await openNewTask(get, config.projectPath);
+      const base = new URL("/", pageUrl).href;
+      const before = replyCount(get().sessions, chat.id);
+      get().submit(chat.id, `Show the mock. AVEN_SMOKE_PAGES ${base}`);
+      const session = () =>
+        get().sessions.find((entry) => entry.id === chat.id);
+      await waitFor(
+        () => !session()?.busy && replyCount(get().sessions, chat.id) > before,
+        60_000,
+        "the stand-in's page opens",
+      );
+      const text =
+        [...(session()?.blocks ?? [])]
+          .reverse()
+          .find(
+            (block) =>
+              block.role === "assistant" && block.text.includes("AVEN_PAGES"),
+          )?.text ?? "";
+      const listed = text.slice(text.indexOf("AVEN_PAGES") + 10).trim();
+      if (!text || listed.startsWith("FAILED"))
+        throw new Error(`The stand-in reported: ${text || "nothing"}`);
+      const opens = JSON.parse(listed) as { id?: string; reused?: string }[];
+      const ids = opens.map((open) => open.id);
+      const reused = opens.map((open) => open.reused ?? "-");
+      if (
+        opens.length !== 5 ||
+        new Set(ids.slice(0, 4)).size !== 1 ||
+        ids[4] === ids[0] ||
+        reused.join(",") !== "-,reloaded,navigated,navigated,-"
+      )
+        throw new Error(`The opens returned ${JSON.stringify(opens)}`);
+      const own = agentPagesOf(config.projectPath).filter(
+        (page) => page.agentChat === chat.id,
+      );
+      if (own.length !== 2)
+        throw new Error(
+          `The chat has ${own.length} pages: ${own.map((page) => page.url).join(", ")}`,
+        );
+      return `one page reloaded and navigated (${reused.join(", ")}); a new tab only on request`;
+    });
 
   // An orchestration, asked for from a chat's + menu. The stand-in lead
   // plans two tasks; one worker asks its lead a question, which the lead
