@@ -145,6 +145,7 @@ export class SortableMotion {
     zoom: number;
     left: number;
     top: number;
+    dropping: boolean;
   } | null = null;
   /** The part torn off the dragged item, faded in its place. */
   private torn: HTMLElement | null = null;
@@ -250,11 +251,23 @@ export class SortableMotion {
       zIndex: "2147483647",
       zoom: String(zoom / effectiveCssZoom(document.body)),
       willChange: "transform",
+      transition: reducedMotion() ? "none" : "opacity 120ms ease-out",
     });
     element.append(copy);
-    this.preview = { element, zoom, left: NaN, top: NaN };
+    this.preview = { element, zoom, left: NaN, top: NaN, dropping: false };
     this.movePreview(point);
     document.body.append(element);
+  }
+
+  /**
+   * Over an item it would drop onto, the floating copy turns faint so the
+   * item it covers shows what the drop will do.
+   */
+  dropping(on: boolean) {
+    const preview = this.preview;
+    if (!preview || preview.dropping === on) return;
+    preview.dropping = on;
+    preview.element.style.opacity = on ? "0.35" : "";
   }
 
   private movePreview(point: Point) {

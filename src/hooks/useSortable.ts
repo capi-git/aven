@@ -15,7 +15,19 @@ import {
 } from "../lib/sortableMotion";
 
 const THRESHOLD = 5;
+/**
+ * An item's drop zone is its middle half: a quarter of it at each end
+ * reorders, but never less than `DROP_ON_EDGE` pixels, so a narrow item
+ * still leaves room to move past it.
+ */
 const DROP_ON_INSET = 0.25;
+const DROP_ON_EDGE = 16;
+/**
+ * Once a delayed drop zone arms, it reaches this much further towards each
+ * end, so a pointer resting on its boundary does not flicker between a
+ * drop and a reorder.
+ */
+const DROP_ON_HOLD = 8;
 const SCROLL_EDGE = 28;
 
 /** DOM screen coordinates in CSS pixels; never substitute client coordinates. */
@@ -40,6 +52,11 @@ export type SortablePartDrag = {
   torn: boolean;
   /** The pointer is over the strip. */
   inStrip: boolean;
+  /**
+   * The item a torn-off part is armed to drop onto. The drop goes to
+   * `onDropOnItem` with the part; the consumer only tidies up.
+   */
+  target?: string;
 };
 
 export type SortableDropTarget = {
@@ -74,13 +91,26 @@ export type SortableOptions = {
     pointer: SortablePointerPosition,
     part?: SortablePartDrag,
   ) => boolean;
-  onDropOnItem?: (draggedId: string, targetId: string) => void;
+  /** `part` names a torn-off part dropped onto the item. */
+  onDropOnItem?: (draggedId: string, targetId: string, part?: string) => void;
   /**
    * Which items take a drop onto them (with `onDropOnItem`). Others are
    * never targets: the pointer over them reorders as usual. All items do
-   * when absent.
+   * when absent. A torn-off part is named by `part`; over the strip it can
+   * drop onto items too (never onto its own item or a group).
    */
-  isDropTarget?: (draggedId: string, targetId: string) => boolean;
+  isDropTarget?: (
+    draggedId: string,
+    targetId: string,
+    part?: string,
+  ) => boolean;
+  /**
+   * How long, in milliseconds, the pointer rests on an item's drop zone
+   * before a drop onto it arms. Until then the pointer there reorders as
+   * usual, so a quick pass over an item never drops onto it; once armed,
+   * the zone holds a little past its edges. 0 (the default) arms at once.
+   */
+  dropOnDelay?: number;
   onDropOnGroup?: (draggedId: string, groupId: string) => void;
   canDropOn?: (
     draggedId: string,
@@ -104,6 +134,8 @@ type DragState = {
   dropTarget: SortableDropTarget | null;
   part: SortablePart | null;
   torn: boolean;
+  /** The item whose drop zone the pointer rests on, until it arms. */
+  arming: { id: string; since: number } | null;
 };
 
 type ReadBounds = (element: HTMLElement) => DOMRect;
@@ -169,6 +201,8 @@ export function useSortable(
   canDropOnRef.current = options.canDropOn;
   const isDropTargetRef = useRef(options.isDropTarget);
   isDropTargetRef.current = options.isDropTarget;
+  const dropOnDelayRef = useRef(options.dropOnDelay ?? 0);
+  dropOnDelayRef.current = options.dropOnDelay ?? 0;
   const container = useRef<HTMLElement | null>(null);
   const nodes = useRef(new Map<string, HTMLElement>());
   const groupNodes = useRef(new Map<string, HTMLElement>());
@@ -257,6 +291,10 @@ export function useSortable(
       x: number,
       y: number,
       readBounds: ReadBounds,
+      /** An armed item, whose zone holds a little wider. */
+      held: string | null = null,
+      /** A torn-off part: it drops onto items only. */
+      part?: string,
     ): SortableDropTarget | null => {
       const target = (
         kind: "tab" | "group",
@@ -266,7 +304,9 @@ export function useSortable(
         id,
         allowed: canDropOnRef.current?.(draggedId, kind, id) ?? true,
       });
-      for (const [groupId, el] of groupNodes.current) {
+      for (const [groupId, el] of part === undefined
+        ? groupNodes.current
+        : []) {
         const rect = readBounds(el);
         if (
           x >= rect.left &&
@@ -280,15 +320,22 @@ export function useSortable(
       if (!onDropOnItemRef.current) return null;
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
-        if (isDropTargetRef.current && !isDropTargetRef.current(draggedId, id))
+        if (
+          isDropTargetRef.current &&
+          !(part === undefined
+            ? isDropTargetRef.current(draggedId, id)
+            : isDropTargetRef.current(draggedId, id, part))
+        )
           continue;
         const node = nodes.current.get(id);
         if (!node) continue;
         const rect = readBounds(node);
-        const inset =
-          axis === "x"
-            ? rect.width * DROP_ON_INSET
-            : rect.height * DROP_ON_INSET;
+        const size = axis === "x" ? rect.width : rect.height;
+        const edge = Math.min(
+          Math.max(size * DROP_ON_INSET, DROP_ON_EDGE),
+          size / 2,
+        );
+        const inset = id === held ? Math.max(0, edge - DROP_ON_HOLD) : edge;
         const inCenter =
           axis === "x"
             ? x >= rect.left + inset &&
@@ -345,12 +392,22 @@ export function useSortable(
         dropTarget: null,
         part: part ?? null,
         torn: false,
+        arming: null,
       };
       drag.current = state;
       handle.setPointerCapture(event.pointerId);
       const restoreSelection = suppressTextSelection();
 
       let scrollFrame: number | null = null;
+      let armTimer: ReturnType<typeof setTimeout> | null = null;
+      /** Look again once a drop zone the pointer rests on has armed. */
+      const armLater = (wait: number) => {
+        if (armTimer !== null) clearTimeout(armTimer);
+        armTimer = setTimeout(() => {
+          armTimer = null;
+          if (drag.current?.active) scheduleDragFrame();
+        }, Math.ceil(wait));
+      };
       /** Where the pointer is now; a part leaving the strip tears off. */
       const locate = (current: DragState, readBounds: ReadBounds) => {
         current.inStrip = inStrip(current.x, current.y, readBounds);
@@ -359,9 +416,34 @@ export function useSortable(
           if (animate) motion.current.tearOff(current.part.element, current);
         }
         current.toIndex = indexAt(id, current.x, current.y, readBounds);
-        current.dropTarget = current.torn
-          ? null
-          : dropTargetAt(id, current.x, current.y, readBounds);
+        const delay = dropOnDelayRef.current;
+        const armed =
+          current.dropTarget?.kind === "tab" ? current.dropTarget.id : null;
+        let target =
+          current.torn && !current.inStrip
+            ? null
+            : dropTargetAt(
+                id,
+                current.x,
+                current.y,
+                readBounds,
+                delay > 0 ? armed : null,
+                current.torn ? current.part?.id : undefined,
+              );
+        // A delayed zone arms once the pointer has rested on it; until then
+        // the pointer there reorders.
+        if (target?.kind !== "tab" || delay <= 0) current.arming = null;
+        else if (target.id !== armed) {
+          const now = performance.now();
+          if (current.arming?.id !== target.id)
+            current.arming = { id: target.id, since: now };
+          const wait = current.arming.since + delay - now;
+          if (wait > 0) {
+            armLater(wait);
+            target = null;
+          }
+        }
+        current.dropTarget = target;
       };
       /** A drag that started on a part reports it; others pass nothing. */
       const partOf = (current: DragState): [SortablePartDrag] | [] =>
@@ -371,6 +453,11 @@ export function useSortable(
                 part: current.part.id,
                 torn: current.torn,
                 inStrip: current.inStrip,
+                ...(current.torn &&
+                current.dropTarget?.kind === "tab" &&
+                current.dropTarget.allowed
+                  ? { target: current.dropTarget.id }
+                  : {}),
               },
             ]
           : [];
@@ -391,7 +478,7 @@ export function useSortable(
           ...partOf(current),
         );
         // A torn-off part leaves the item and its neighbours where they are.
-        if (animate)
+        if (animate) {
           motion.current.move(
             idsRef.current,
             current,
@@ -399,6 +486,8 @@ export function useSortable(
             current.inStrip && !current.torn,
             readBounds,
           );
+          motion.current.dropping(current.dropTarget?.kind === "tab");
+        }
         const nextIndex =
           current.inStrip && !current.torn ? current.toIndex : null;
         if (nextIndex !== previousIndex) setToIndex(nextIndex);
@@ -548,6 +637,8 @@ export function useSortable(
         cleanupDrag.current = null;
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
         scrollFrame = null;
+        if (armTimer !== null) clearTimeout(armTimer);
+        armTimer = null;
         const current = drag.current;
         // A tab let go outside its strip may land in a pane; measure its
         // look before the motion below puts it back.
@@ -597,18 +688,28 @@ export function useSortable(
           settling.current = null;
           if (animate) motion.current.finishReset();
         }
-        if (!commit || consumed || current.torn) return;
+        if (!commit || consumed) return;
         if (current.dropTarget) {
           // A refused target still swallows the drop: the tab stays put rather
           // than reordering into a group it cannot join.
           if (!current.dropTarget.allowed) return;
           if (current.dropTarget.kind === "tab") {
-            onDropOnItemRef.current?.(current.id, current.dropTarget.id);
+            const part = current.torn ? current.part?.id : undefined;
+            if (part === undefined)
+              onDropOnItemRef.current?.(current.id, current.dropTarget.id);
+            else
+              onDropOnItemRef.current?.(
+                current.id,
+                current.dropTarget.id,
+                part,
+              );
           } else {
             onDropOnGroupRef.current?.(current.id, current.dropTarget.id);
           }
           return;
         }
+        // A torn-off part is the consumer's to place.
+        if (current.torn) return;
         // Outside/invalid releases must never fall back to a horizontal reorder.
         if (!current.inStrip) return;
         const list = idsRef.current;

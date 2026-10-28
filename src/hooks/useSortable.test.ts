@@ -926,4 +926,116 @@ describe("useSortable external drops and cancellation", () => {
     );
     expect(onReorder).toHaveBeenCalledOnce();
   });
+
+  describe("a delayed drop onto an item", () => {
+    beforeEach(() => {
+      options.onDropOnItem = vi.fn();
+      options.dropOnDelay = 200;
+    });
+    async function hold(x: number) {
+      await pointer(window, "pointermove", x, 15);
+      await flushFrame();
+    }
+    async function press() {
+      await act(async () => root.render(createElement(Harness)));
+      await pointer(item(), "pointerdown", 150, 15);
+    }
+
+    it("reorders on a quick pass over an item's middle", async () => {
+      await press();
+      await hold(250);
+      // Until it arms, the middle reorders: the line shows, no target.
+      expect(sortable.dropTarget).toBeNull();
+      expect(sortable.toIndex).toBe(2);
+      await pointer(window, "pointerup", 250, 15);
+      expect(options.onDropOnItem).not.toHaveBeenCalled();
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["session-a", "session-b", "browser-a"],
+        "browser-a",
+      );
+    });
+
+    it("arms once the pointer rests there, and holds a little past its edge", async () => {
+      await press();
+      await hold(250);
+      now += 199;
+      await hold(251);
+      expect(sortable.dropTarget).toBeNull();
+      now += 1;
+      await hold(250);
+      expect(sortable.dropTarget).toEqual({
+        kind: "tab",
+        id: "session-b",
+        allowed: true,
+      });
+      expect(sortable.toIndex).toBeNull();
+      // Its middle is 225–275; armed, it holds to 217.
+      await hold(220);
+      expect(sortable.dropTarget?.id).toBe("session-b");
+      await hold(212);
+      expect(sortable.dropTarget).toBeNull();
+      // Coming back, it waits again.
+      await hold(250);
+      expect(sortable.dropTarget).toBeNull();
+      now += 200;
+      await pointer(window, "pointerup", 250, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it("fades the floating copy over the item it would drop onto", async () => {
+      await startAnimated(250);
+      expect(preview()?.style.opacity).toBe("");
+      now += 200;
+      await hold(250);
+      expect(preview()?.style.opacity).toBe("0.35");
+      await hold(290);
+      expect(preview()?.style.opacity).toBe("");
+      await pointer(window, "pointerup", 290, 15);
+    });
+
+    it("keeps the outer quarters for reordering", async () => {
+      await press();
+      await hold(290);
+      now += 500;
+      await hold(290);
+      expect(sortable.dropTarget).toBeNull();
+      await pointer(window, "pointerup", 290, 15);
+      expect(options.onDropOnItem).not.toHaveBeenCalled();
+      expect(onReorder).toHaveBeenCalledOnce();
+    });
+
+    it("lets a torn-off part drop onto an item back on the strip", async () => {
+      const page: SortablePart = {
+        id: "page",
+        element: document.createElement("span"),
+      };
+      partOf = (id) => (id === "browser-a" ? page : undefined);
+      options.isDropTarget = (_dragged, target, part) =>
+        part === "page" && target === "session-b";
+      await press();
+      await pointer(window, "pointermove", 150, 120);
+      await flushFrame();
+      await hold(250);
+      now += 200;
+      await hold(250);
+      expect(options.onDragMove).toHaveBeenLastCalledWith(
+        "browser-a",
+        250,
+        15,
+        { screenX: 0, screenY: 0 },
+        { part: "page", torn: true, inStrip: true, target: "session-b" },
+      );
+      await pointer(window, "pointerup", 250, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+        "page",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+  });
 });
