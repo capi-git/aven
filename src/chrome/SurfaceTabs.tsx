@@ -448,6 +448,8 @@ export function SurfaceTabs({
                       anchor: event.currentTarget,
                     });
                   }}
+                  // Its icon and name are the dragged tab's compact chip.
+                  data-sortable-chip
                   className="aven-surface-tab-button aven-tab-button flex min-w-0 flex-1 items-center text-left"
                 >
                   {terminal ? (

@@ -810,6 +810,7 @@ function SplitSegment({
   lit,
   front,
   tabStop,
+  chip = false,
   onHover,
 }: {
   segment: StripSplitSegment;
@@ -819,6 +820,8 @@ function SplitSegment({
   /** The split is in front. */
   front: boolean;
   tabStop: boolean;
+  /** Its icon and name stand for the whole split in a dragged split's chip. */
+  chip?: boolean;
   /** The pointer came to the segment (its label) or left it (null). */
   onHover: (anchor: HTMLElement | null, label?: string) => void;
 }) {
@@ -841,6 +844,7 @@ function SplitSegment({
       className="aven-split-segment"
       data-split-segment={segment.id}
       data-morph={`tab:${segment.id}`}
+      data-sortable-chip={chip || undefined}
       data-lit={lit || undefined}
       data-tauri-drag-region="false"
       onPointerEnter={(event) => {
@@ -1017,6 +1021,7 @@ function SplitEntryItem({
                 lit={segment.id === lit}
                 front={active}
                 tabStop={tabStop && segment.id === stop}
+                chip={segment.id === stop}
                 onHover={onHover}
               />
             </Fragment>
@@ -2088,8 +2093,18 @@ function TitleBarComponent({
     };
   })();
   /** The combine preview a strip tab draws while a drag could join it. */
+  // Only the tab a held tab rests on draws the preview, and the last one it
+  // rested on keeps it (hidden) so leaving it plays the preview back out.
+  const joinTarget =
+    sortable.dropTarget?.kind === "tab" ? sortable.dropTarget.id : null;
+  const lastJoinTarget = useRef<string | null>(null);
+  if (!sortable.draggingId) lastJoinTarget.current = null;
+  else if (joinTarget) lastJoinTarget.current = joinTarget;
   const combineJoinFor = (id: string): CombineJoin | null =>
-    combineJoin && onCombineTabs && id !== sortable.draggingId
+    combineJoin &&
+    onCombineTabs &&
+    id !== sortable.draggingId &&
+    (id === joinTarget || id === lastJoinTarget.current)
       ? combineJoin
       : null;
   const [stackMenu, setStackMenu] = useState<HTMLElement | null>(null);

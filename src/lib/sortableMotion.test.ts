@@ -96,6 +96,16 @@ const layer = (name: string) =>
   previewOf()!.querySelector<HTMLElement>(`[data-sortable-layer="${name}"]`)!;
 const lifter = () =>
   previewOf()!.querySelector<HTMLElement>("[data-sortable-lift]")!;
+const copyOf = () =>
+  previewOf()!.querySelector<HTMLElement>("[data-sortable-copy]")!;
+/** The colour a pill layer is painted, on each of its pieces. */
+const pillBackground = (name: string) => {
+  const colours = [...layer(name).children].map(
+    (piece) => (piece as HTMLElement).style.background,
+  );
+  expect(new Set(colours).size).toBe(1);
+  return colours[0];
+};
 
 /** A strip of 100px tabs (30px tall, 32px slots) whose visuals draw their transform. */
 function tabs(ids: string[], zoom = 1) {
@@ -228,7 +238,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     motion.activate({ x: 162, y: 42 });
     motion.move(["first"], { x: 300, y: 120 }, 0, false);
     const preview = previewOf()!;
-    const clone = lifter().lastElementChild as HTMLElement;
+    const clone = copyOf();
     expect(preview.parentElement).toBe(document.body);
     expect(preview.style.zoom).toBe("2");
     expect(preview.style.width).toBe("136px");
@@ -236,7 +246,7 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     expect(preview.style.transform).toBe("translate3d(260px, 110px, 0)");
     // The floating face is a solid layer of its own; the copy carries none.
     expect(preview.style.background).toBe("transparent");
-    expect(layer("face").style.background).toBe("rgb(12, 15, 22)");
+    expect(pillBackground("face")).toBe("rgb(12, 15, 22)");
     expect(clone.style.background).toBe("transparent");
     expect(clone.style.color).toBe("rgb(120, 180, 255)");
     expect(clone.querySelector("button")!.style.fontSize).toBe("12px");
@@ -359,6 +369,72 @@ describe("picking a tab up", () => {
     const [shadow] = playedOn(layer("shadow"));
     expect(shadow.keyframes[0].opacity).toBe("0");
     expect(shadow.keyframes.at(-1)!.opacity).toBe("1");
+    motion.cancel();
+  });
+
+  it("closes in around the pointer into a compact chip, and smaller over the panes", () => {
+    const { nodes, visuals } = tabs(["first", "second"]);
+    // A wide tab (400px) whose face holds an icon and a long name.
+    const visual = visuals.get("first")!;
+    const outer = nodes.get("first")!;
+    outer.getBoundingClientRect = () => new DOMRect(0, 0, 400, 32);
+    visual.getBoundingClientRect = () => new DOMRect(0, 1, 400, 30);
+    visual.dataset.sortableGlass = "";
+    visual.style.borderRadius = "6px";
+    visual.innerHTML =
+      '<span class="icon" style="width:14px;height:14px"></span><span class="name">Tighten the hero layout on small phones</span>';
+    const icon = visual.querySelector<HTMLElement>(".icon")!;
+    icon.getBoundingClientRect = () => new DOMRect(120, 9, 14, 14);
+    // Contents laid out for themselves: the chip's row would be 230px wide.
+    const rowWidth = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.dataset.sortableChipRow)
+          return new DOMRect(
+            0,
+            0,
+            this.style.width.endsWith("px")
+              ? Number.parseFloat(this.style.width)
+              : 230,
+            30,
+          );
+        if (this.parentElement?.dataset.sortableChipRow)
+          return new DOMRect(8, 8, 14, 14);
+        return new DOMRect(0, 0, 0, 0);
+      });
+    const motion = new SortableMotion();
+    // Pressed three quarters of the way along the tab.
+    motion.begin(nodes, "first", { x: 300, y: 16 }, "x");
+    motion.activate({ x: 306, y: 16 });
+    rowWidth.mockRestore();
+    const chip = previewOf()!.querySelector<HTMLElement>(
+      '[data-sortable-chip-row="chip"]',
+    )!;
+    const tiny = previewOf()!.querySelector<HTMLElement>(
+      '[data-sortable-chip-row="tiny"]',
+    )!;
+    // No wider than the cap, with the pointer three quarters along it.
+    expect(chip.style.width).toBe("176px");
+    expect(chip.style.left).toBe(`${300 - 0.75 * 176}px`);
+    expect(tiny.style.width).toBe("112px");
+    // The face's pieces end at the chip's box, the tab's own contents gone.
+    const [face] = playedOn(layer("face").children[0]);
+    expect(face.keyframes.at(-1)!.transform).toBe(
+      `translateX(${300 - 0.75 * 176}px)`,
+    );
+    const [handover] = playedOn(copyOf());
+    expect(handover.keyframes[0].opacity).toBe("1");
+    expect(handover.keyframes.at(-1)!.opacity).toBe("0");
+    const [shown] = playedOn(chip);
+    expect(shown.keyframes.at(-1)!.opacity).toBe("1");
+    // Its contents slide from where the tab drew its icon (120px) into it.
+    expect(shown.keyframes[0].transform).toBe(
+      `translateX(${120 - (300 - 0.75 * 176 + 8)}px)`,
+    );
+    played.length = 0;
+    motion.move(["first", "second"], { x: 306, y: 200 }, 0, false);
+    const smaller = playedOn(tiny).at(-1)!;
+    expect(smaller.keyframes.at(-1)!.opacity).toBe("1");
     motion.cancel();
   });
 
@@ -527,7 +603,7 @@ describe("lifted tab face", () => {
     motion.begin(new Map([["first", outer]]), "first", { x: 10, y: 10 }, "x");
     motion.activate({ x: 20, y: 10 });
     const preview = previewOf()!;
-    const clone = lifter().lastElementChild as HTMLElement;
+    const clone = copyOf();
     const clonedFace = clone.querySelector("button")!;
     expect(preview.style.background).toBe("transparent");
     expect(clone.style.background).toBe("transparent");
@@ -537,9 +613,14 @@ describe("lifted tab face", () => {
     // The face, at the button's own box and corners: solid, lit along its top.
     expect(layer("face").style.top).toBe("3px");
     expect(layer("face").style.height).toBe("26px");
-    expect(layer("face").style.borderRadius).toBe("6px");
-    expect(layer("face").style.background).toBe("rgb(44, 44, 46)");
-    expect(layer("face").style.boxShadow).toBe(
+    // In three pieces (rounded caps and a middle), so it can narrow by
+    // transforms alone.
+    const [left, middle, right] = [...layer("face").children] as HTMLElement[];
+    expect(left.style.borderRadius).toBe("6px 0px 0px 6px");
+    expect(middle.style.borderRadius).toBe("0px");
+    expect(right.style.borderRadius).toBe("0px 6px 6px 0px");
+    expect(pillBackground("face")).toBe("rgb(44, 44, 46)");
+    expect(middle.style.boxShadow).toBe(
       "inset 0 1px 0 rgba(255, 255, 255, 0.13)",
     );
     expect(layer("shadow").style.boxShadow).toBe(

@@ -392,6 +392,7 @@ export function useSortable(
           id,
           { x: event.clientX, y: event.clientY },
           axis,
+          part?.element,
         );
       // A new press is intentional, even immediately after a previous drag.
       suppressClickUntil.current = 0;

@@ -31,6 +31,13 @@ export const TAB_CSS_SPRINGS = {
   lift: springCurve(TAB_SPRING.lift, { precision: 0.004 }),
 } as const;
 
+/**
+ * A picked-up tab closes in around the pointer into a compact chip, its
+ * icon and name, no wider than this (px); over a pane, where it should not
+ * hide the drop preview, a smaller one.
+ */
+export const TAB_CHIP_MAX_WIDTH = 176;
+export const TAB_CHIP_TINY_WIDTH = 112;
 /** How much a picked-up tab grows. */
 export const TAB_LIFT_SCALE = 1.02;
 /** Let go faster than this (px/s) and the drop overshoots a little. */

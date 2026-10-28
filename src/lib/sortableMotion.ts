@@ -2,6 +2,8 @@ import { moveItem } from "./reorder";
 import { effectiveCssZoom } from "./drag";
 import { motionReduced, playBounded } from "./motion";
 import {
+  TAB_CHIP_MAX_WIDTH,
+  TAB_CHIP_TINY_WIDTH,
   TAB_FLICK_SPEED,
   TAB_LIFT_SCALE,
   TAB_PX_PRECISION,
@@ -140,14 +142,151 @@ function copyVisual(visual: HTMLElement): HTMLElement {
   return copy;
 }
 
-type LiftChannels = "lift" | "dx" | "dy" | "fade" | "face";
+/** A fill with `radius` corners in three pieces: two caps and a middle. */
+function pill(
+  name: string,
+  box: { left: number; top: number; width: number; height: number },
+  radius: number,
+  background: string,
+  boxShadow: string,
+): Pill {
+  const group = document.createElement("div");
+  group.dataset.sortableLayer = name;
+  Object.assign(group.style, {
+    position: "absolute",
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    pointerEvents: "none",
+  });
+  const piece = (left: number, width: number, corners: string) => {
+    const node = document.createElement("div");
+    Object.assign(node.style, {
+      position: "absolute",
+      top: "0",
+      left: `${left}px`,
+      width: `${width}px`,
+      height: "100%",
+      borderRadius: corners,
+      background,
+      boxShadow,
+      transformOrigin: "0 50%",
+    });
+    group.append(node);
+    return node;
+  };
+  // The middle overlaps each cap by half a pixel, so no seam shows.
+  const middle = Math.max(0, box.width - 2 * radius);
+  return {
+    group,
+    pieces: [
+      piece(0, radius + 0.5, `${radius}px 0 0 ${radius}px`),
+      piece(radius, middle, "0"),
+      piece(
+        box.width - radius - 0.5,
+        radius + 0.5,
+        `0 ${radius}px ${radius}px 0`,
+      ),
+    ],
+  };
+}
+
+/** A pill drawn from `left` to `right` (the copy's px), at `opacity`. */
+function pillFrames(
+  pill: Pill,
+  box: { left: number; width: number },
+  radius: number,
+  left: number,
+  right: number,
+  opacity: number,
+): Array<readonly [Element, Keyframe]> {
+  const start = left - box.left;
+  const end = right - box.left;
+  const middle = Math.max(0, box.width - 2 * radius);
+  const span = Math.max(0, end - start - 2 * radius);
+  return [
+    [pill.group, { opacity: String(opacity) }],
+    [pill.pieces[0], { transform: `translateX(${start}px)` }],
+    [
+      pill.pieces[1],
+      {
+        transform: `translateX(${start}px) scaleX(${middle > 0 ? span / middle : 1})`,
+      },
+    ],
+    [pill.pieces[2], { transform: `translateX(${end - box.width}px)` }],
+  ];
+}
+
+/**
+ * The compact chip: a frozen copy of the tab's face (its icon and name, any
+ * small dots) laid out for its own width up to `max`, the name ellipsized.
+ * Placed and sized once it is in the page (see `showPreview`).
+ */
+function chipOf(
+  source: HTMLElement,
+  face: { top: number; height: number },
+  max: number,
+): HTMLElement {
+  const row = copyVisual(source);
+  row.removeAttribute("role");
+  for (const node of row.querySelectorAll<HTMLElement>("*")) {
+    if (!(node instanceof HTMLElement) || node.tagName === "IMG") continue;
+    // Boxes with text give up the width they had in the tab, so the name
+    // fits the chip; icons keep their size.
+    if (node.textContent?.trim())
+      Object.assign(node.style, {
+        width: "auto",
+        maxWidth: "none",
+        minWidth: "0",
+        flex: "0 1 auto",
+      });
+  }
+  // A size container (a split's segment is one) measures as empty.
+  for (const node of [row, ...row.querySelectorAll<HTMLElement>("*")])
+    if (node instanceof HTMLElement) node.style.containerType = "normal";
+  Object.assign(row.style, {
+    position: "absolute",
+    left: "0",
+    top: `${face.top}px`,
+    height: `${face.height}px`,
+    width: "max-content",
+    maxWidth: `${max}px`,
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 10px 0 8px",
+    margin: "0",
+    opacity: "0",
+  });
+  return row;
+}
+
+/**
+ * The floating copy's springs: `lift` (scale and shadow), `dx`/`dy` (an
+ * offset from the pointer: catching up, popping, going into an entry),
+ * `fade` (the whole copy), `face` (floating face 1, resting look 0),
+ * `compact` (the full tab 0, the compact chip 1) and `tiny` (the chip 0,
+ * the smaller chip shown over panes 1).
+ */
+type LiftChannels = "lift" | "dx" | "dy" | "fade" | "face" | "compact" | "tiny";
+
+/** A rounded fill drawn in three pieces, so it can change width by transforms. */
+type Pill = {
+  group: HTMLElement;
+  pieces: [HTMLElement, HTMLElement, HTMLElement];
+};
 
 type Preview = {
   element: HTMLElement;
   lifter: HTMLElement;
-  face: HTMLElement;
-  rest: HTMLElement;
+  rest: Pill;
   zoom: number;
+  /** The face's box and the compact chips' boxes, in the copy's own px. */
+  face: { left: number; width: number };
+  chip: { left: number; width: number };
+  tiny: { left: number; width: number };
   width: number;
   height: number;
   left: number;
@@ -187,6 +326,8 @@ export class SortableMotion {
     band: number;
   } | null = null;
   private preview: Preview | null = null;
+  /** The part of the item pressed, if any: the chip shows it. */
+  private pressed: HTMLElement | null = null;
   /** The part torn off the dragged item, faded in its place. */
   private torn: HTMLElement | null = null;
   private velocity = new PointerVelocity(TAB_VELOCITY_WINDOW_MS);
@@ -203,13 +344,19 @@ export class SortableMotion {
   /** A copy still flying home or fading after its drop, and how to end it now. */
   private flying: { end: () => void } | null = null;
 
+  /**
+   * A press on `id`. `pressed` is the part of it pressed (a split's
+   * segment): its icon and name stand for the item in the compact chip.
+   */
   begin(
     nodes: ReadonlyMap<string, HTMLElement>,
     id: string,
     point: Point,
     axis: Axis,
+    pressed?: HTMLElement,
   ) {
     this.cancel();
+    this.pressed = pressed ?? null;
     const outer = nodes.get(id);
     const visual = visualOf(outer);
     if (!outer || !visual) return;
@@ -248,10 +395,11 @@ export class SortableMotion {
     if (!preview) return;
     // The copy starts exactly over the tab (the pointer has moved past the
     // threshold since the press), catches up with the pointer and lifts.
+    // It closes in around the pointer into its compact chip as it lifts.
     const { start } = this.source;
     const reduced = motionReduced();
     preview.springs.to(
-      { lift: 1, dx: 0 },
+      { lift: 1, dx: 0, compact: 1 },
       {
         from: { dx: start.x - point.x },
         velocity: { dx: 0 },
@@ -290,20 +438,23 @@ export class SortableMotion {
     const entry = source ? this.entries.get(source.id) : undefined;
     const previous = this.preview;
     if (!source || !entry || this.torn || !previous) return;
-    const visual = entry.visual.getBoundingClientRect();
     const bounds = part.getBoundingClientRect();
-    // Where the part is drawn now inside the floating copy.
-    const lift = previous.springs.state();
-    const scale = 1 + (TAB_LIFT_SCALE - 1) * lift.lift.value;
-    const drawnLeft =
-      previous.left + lift.dx.value + (bounds.left - visual.left) * scale;
-    const drawnTop =
-      previous.top + lift.dy.value + (bounds.top - visual.top) * scale;
-    const clamp = (value: number, size: number) =>
-      Math.max(0, Math.min(size, value));
+    // Where the chip is drawn now, in the viewport.
+    const was = previous.springs.state();
+    const drawnLeft = this.chipLeft(previous) + was.dx.value;
+    const drawnTop = previous.top + was.dy.value;
+    // The part's own chip keeps the pointer at the same share of it.
+    const share = Math.max(
+      0,
+      Math.min(
+        1,
+        (point.x - drawnLeft) /
+          Math.max(1, previous.chip.width * previous.zoom),
+      ),
+    );
     source.grab = {
-      x: clamp(point.x - drawnLeft, bounds.width),
-      y: clamp(point.y - drawnTop, bounds.height),
+      x: share * bounds.width,
+      y: Math.max(0, Math.min(bounds.height, point.y - drawnTop)),
     };
     previous.springs.cancel();
     previous.element.remove();
@@ -315,19 +466,27 @@ export class SortableMotion {
     this.torn = part;
     const preview = this.preview as Preview | null;
     if (!preview) return;
+    // Already compact; it pops from where the chip was to the pointer.
     preview.springs.to(
-      { lift: 1, dx: 0, dy: 0 },
+      { lift: 1, dx: 0, dy: 0, compact: 1, tiny: 1 },
       {
         from: {
-          lift: lift.lift.value,
-          dx: drawnLeft - preview.left,
+          lift: was.lift.value,
+          compact: 1,
+          tiny: was.tiny.value,
+          dx: drawnLeft - this.chipLeft(preview),
           dy: drawnTop - preview.top,
         },
-        velocity: { lift: 0, dx: 0, dy: 0 },
+        velocity: { lift: 0, dx: 0, dy: 0, compact: 0, tiny: 0 },
         springs: { dx: TAB_SPRING.pop, dy: TAB_SPRING.pop },
         instant: motionReduced(),
       },
     );
+  }
+
+  /** The left edge of a copy's chip in the viewport, before its offsets. */
+  private chipLeft(preview: Preview): number {
+    return preview.left + preview.chip.left * preview.zoom;
   }
 
   private showPreview(
@@ -369,28 +528,35 @@ export class SortableMotion {
       zoom: String(zoom / effectiveCssZoom(document.body)),
       willChange: "transform",
     });
+    // In the copy's own px (it carries the strip's zoom).
+    const faceBox = {
+      left: (faceBounds.left - bounds.left) / zoom,
+      top: (faceBounds.top - bounds.top) / zoom,
+      width: faceBounds.width / zoom,
+      height: faceBounds.height / zoom,
+    };
+    const radius = Math.min(
+      faceBox.height / 2,
+      Number.parseFloat(computed.borderTopLeftRadius) || 0,
+    );
     // Layers under the copy, at the face's own box: the lift's shadow, the
     // floating face, and the tab's resting fill it lands into.
-    const layer = (name: string) => {
-      const node = document.createElement("div");
-      node.dataset.sortableLayer = name;
-      Object.assign(node.style, {
-        position: "absolute",
-        left: `${(faceBounds.left - bounds.left) / zoom}px`,
-        top: `${(faceBounds.top - bounds.top) / zoom}px`,
-        width: `${faceBounds.width / zoom}px`,
-        height: `${faceBounds.height / zoom}px`,
-        borderRadius: computed.borderRadius,
-        pointerEvents: "none",
-      });
-      return node;
-    };
-    const shadow = layer("shadow");
-    shadow.style.boxShadow =
-      computed.getPropertyValue("--aven-tab-lift-shadow").trim() ||
-      "0 6px 16px -4px rgb(0 0 0 / 0.4)";
-    shadow.style.opacity = "0";
-    const faceLayer = layer("face");
+    const shadow = document.createElement("div");
+    shadow.dataset.sortableLayer = "shadow";
+    Object.assign(shadow.style, {
+      position: "absolute",
+      left: `${faceBox.left}px`,
+      top: `${faceBox.top}px`,
+      width: `${faceBox.width}px`,
+      height: `${faceBox.height}px`,
+      borderRadius: `${radius}px`,
+      boxShadow:
+        computed.getPropertyValue("--aven-tab-lift-shadow").trim() ||
+        "0 6px 16px -4px rgb(0 0 0 / 0.4)",
+      transformOrigin: "0 50%",
+      opacity: "0",
+      pointerEvents: "none",
+    });
     // A solid face, the material menus float on (`--aven-popup`), lit along
     // its top edge: a translucent one let the tabs it passes over read
     // through it, and a moving backdrop blur is costly every frame.
@@ -398,21 +564,80 @@ export class SortableMotion {
       computed.getPropertyValue("--aven-popup").trim() ||
       computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
       computed.getPropertyValue("--color-background-base").trim();
-    Object.assign(faceLayer.style, {
-      background: solid || computed.backgroundColor,
-      boxShadow: computed.getPropertyValue("--aven-specular").trim(),
-    });
-    const rest = layer("rest");
-    rest.style.opacity = "0";
+    const faceLayer = pill(
+      "face",
+      faceBox,
+      radius,
+      solid || computed.backgroundColor,
+      computed.getPropertyValue("--aven-specular").trim(),
+    );
+    const rest = pill("rest", faceBox, radius, "transparent", "");
+    rest.group.style.opacity = "0";
     const lifter = document.createElement("div");
     lifter.dataset.sortableLift = "";
+    const grab = {
+      x: this.source.grab.x / zoom,
+      y: this.source.grab.y / zoom,
+    };
     Object.assign(lifter.style, {
       position: "absolute",
       inset: "0",
-      transformOrigin: `${this.source.grab.x / zoom}px ${this.source.grab.y / zoom}px`,
+      transformOrigin: `${grab.x}px ${grab.y}px`,
     });
-    lifter.append(shadow, faceLayer, rest, copy);
+    // The compact chip it shrinks into (and a smaller one over panes): the
+    // tab's icon and name, laid out for their own width, the name cut short.
+    const chipSource =
+      (this.pressed && visual.contains(this.pressed) ? this.pressed : null) ??
+      visual.querySelector<HTMLElement>("[data-sortable-chip]") ??
+      face;
+    const chip = chipOf(chipSource, faceBox, TAB_CHIP_MAX_WIDTH);
+    const tiny = chipOf(chipSource, faceBox, TAB_CHIP_TINY_WIDTH);
+    copy.dataset.sortableCopy = "";
+    chip.dataset.sortableChipRow = "chip";
+    tiny.dataset.sortableChipRow = "tiny";
+    lifter.append(shadow, faceLayer.group, rest.group, copy, chip, tiny);
     element.append(lifter);
+    document.body.append(element);
+    // Sized by their contents, once: a layout of two small rows.
+    const sized = (row: HTMLElement, max: number) => {
+      const natural = row.getBoundingClientRect().width / zoom;
+      const chipWidth = natural > 0 ? Math.min(max, natural) : faceBox.width;
+      row.style.width = `${chipWidth}px`;
+      // Around the grab point: the pointer stays at the same share of it.
+      const share = Math.max(
+        0,
+        Math.min(1, (grab.x - faceBox.left) / Math.max(1, faceBox.width)),
+      );
+      const left = grab.x - share * chipWidth;
+      row.style.left = `${left}px`;
+      return { left, width: chipWidth };
+    };
+    const chipBox = sized(chip, TAB_CHIP_MAX_WIDTH);
+    const tinyBox = sized(tiny, TAB_CHIP_TINY_WIDTH);
+    // The smaller chip keeps the chip's left edge (its icon and the start of
+    // its name stay put) unless that would leave the pointer off it.
+    const inset = Math.min(10, tinyBox.width / 2);
+    tinyBox.left = Math.max(
+      grab.x - tinyBox.width + inset,
+      Math.min(chipBox.left, grab.x - inset),
+    );
+    tiny.style.left = `${tinyBox.left}px`;
+    // Where the tab drew its icon, for the chip's contents to slide from.
+    const iconIn = (root: HTMLElement) =>
+      [root, ...root.querySelectorAll<HTMLElement>("*")]
+        .map((node) => node.getBoundingClientRect())
+        .find((rect) => rect.width > 0 && rect.height > 0 && rect.height < 24);
+    const tabIcon = iconIn(chipSource);
+    const chipIcon = iconIn(chip);
+    const chipRow = chip.getBoundingClientRect();
+    // Both in the copy's own px: the tab's icon from the tab's left edge,
+    // the chip's from its own placed left edge.
+    const slide =
+      tabIcon && chipIcon
+        ? (tabIcon.left - bounds.left) / zoom -
+          (chipBox.left + (chipIcon.left - chipRow.left) / zoom)
+        : 0;
+    const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
     const springs = new SpringAnimator<LiftChannels>(
       {
         lift: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
@@ -420,27 +645,70 @@ export class SortableMotion {
         dy: { spring: TAB_SPRING.pop, precision: TAB_PX_PRECISION },
         fade: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
         face: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+        compact: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
+        tiny: { spring: TAB_SPRING.lift, precision: TAB_UNIT_PRECISION },
       },
-      { lift: 0, dx: 0, dy: 0, fade: 1, face: 1 },
-      ({ lift, dx, dy, fade, face }) => [
-        [
-          lifter,
-          {
-            transform: `translate3d(${dx / zoom}px, ${dy / zoom}px, 0px) scale(${1 + (TAB_LIFT_SCALE - 1) * lift})`,
-            opacity: String(fade),
-          },
-        ],
-        [shadow, { opacity: String(Math.max(0, Math.min(1, lift))) }],
-        [faceLayer, { opacity: String(face) }],
-        [rest, { opacity: String(1 - face) }],
-      ],
+      { lift: 0, dx: 0, dy: 0, fade: 1, face: 1, compact: 0, tiny: 0 },
+      ({ lift, dx, dy, fade, face, compact, tiny: small }) => {
+        // The face's box, from the full tab to the chip (and the chip to the
+        // smaller one): it closes in around the pointer.
+        const chipLeft = chipBox.left + (tinyBox.left - chipBox.left) * small;
+        const chipRight =
+          chipBox.left +
+          chipBox.width +
+          (tinyBox.left + tinyBox.width - chipBox.left - chipBox.width) * small;
+        const left = faceBox.left + (chipLeft - faceBox.left) * compact;
+        const right =
+          faceBox.left +
+          faceBox.width +
+          (chipRight - faceBox.left - faceBox.width) * compact;
+        // The tab's own contents hand over to the chip's.
+        const shown = clamp01((compact - 0.15) / 0.4);
+        return [
+          [
+            lifter,
+            {
+              transform: `translate3d(${dx / zoom}px, ${dy / zoom}px, 0px) scale(${1 + (TAB_LIFT_SCALE - 1) * lift})`,
+              opacity: String(fade),
+            },
+          ],
+          [
+            shadow,
+            {
+              transform: `translateX(${left - faceBox.left}px) scaleX(${(right - left) / Math.max(1, faceBox.width)})`,
+              opacity: String(clamp01(lift)),
+            },
+          ],
+          ...pillFrames(faceLayer, faceBox, radius, left, right, face),
+          ...pillFrames(rest, faceBox, radius, left, right, 1 - face),
+          [copy, { opacity: String(1 - shown) }],
+          // The chip's contents start where the tab drew its own and slide
+          // into the chip as it closes in: the two read as one.
+          [
+            chip,
+            {
+              opacity: String(shown * (1 - small)),
+              transform: `translateX(${slide * (1 - compact)}px)`,
+            },
+          ],
+          [
+            tiny,
+            {
+              opacity: String(shown * small),
+              transform: `translateX(${slide * (1 - compact)}px)`,
+            },
+          ],
+        ];
+      },
     );
     const preview: Preview = {
       element,
       lifter,
-      face: faceLayer,
       rest,
       zoom,
+      face: { left: faceBox.left, width: faceBox.width },
+      chip: chipBox,
+      tiny: tinyBox,
       width: bounds.width,
       height: bounds.height,
       left: NaN,
@@ -464,7 +732,8 @@ export class SortableMotion {
     };
     this.preview = preview;
     this.place(point, banded);
-    document.body.append(element);
+    // Drawn as the full tab until its springs move it.
+    springs.jump({});
   }
 
   /** Where the copy's box goes for a pointer at `point`. */
@@ -519,7 +788,9 @@ export class SortableMotion {
     const centreY = into.top + into.height / 2;
     preview.springs.to(
       {
-        dx: centreX - (preview.left + preview.width / 2),
+        dx:
+          centreX -
+          (this.chipLeft(preview) + (preview.chip.width * preview.zoom) / 2),
         dy: centreY - (preview.top + preview.height / 2),
         fade: 0,
         lift: 0,
@@ -559,6 +830,14 @@ export class SortableMotion {
     // strip (or torn off it) it follows the pointer.
     this.place(point, axis === "x" && inStrip && !this.torn);
     const reduced = motionReduced();
+    // Over the panes its chip gets smaller, so it hides less of the drop
+    // preview; back on the strip it is the chip again.
+    const preview = this.preview;
+    if (preview && !preview.dropping) {
+      const small = inStrip ? 0 : 1;
+      if (preview.springs.targets().tiny !== small)
+        preview.springs.to({ tiny: small }, { instant: reduced });
+    }
     for (const [id, entry] of this.entries) {
       const dragged = id === source.id;
       if (dragged) {
@@ -726,7 +1005,7 @@ export class SortableMotion {
     if (original && original !== target) this.reveal(original);
     this.hide(target);
     // The resting look it lands into: the tab's own fill where it stands.
-    preview.rest.style.background = restFill;
+    for (const piece of preview.rest.pieces) piece.style.background = restFill;
     const x = box!.left + (box!.width - preview.width) / 2;
     const y = box!.top + (box!.height - preview.height) / 2;
     const throwSpeed =
@@ -760,7 +1039,8 @@ export class SortableMotion {
     // Carried, then set down: the copy keeps its face and lift while it
     // travels (it passes over other tabs), and settles into the tab's own
     // look once it is within a few pixels of its place.
-    preview.springs.to({ dx: 0, dy: 0, fade: 1 });
+    // It grows back to the tab as it flies, and keeps its face until near.
+    preview.springs.to({ dx: 0, dy: 0, fade: 1, compact: 0, tiny: 0 });
     const near =
       Math.max(
         springSettleTime(spring, preview.left, x, velocity.x, TAB_SET_DOWN_PX),
