@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.1.157] - 2026-10-28
+
+### Fixed
+
+- **Agents build on one page instead of opening a new tab for every mock.** In a chat, opening a page on the same site again reloads the agent's own page (the same address) or moves it to the new one (another page, query or mock file). A new tab opens only for a different page or site the agent wants side by side.
+  - Your own pages, and other chats' pages, are never changed.
+  - The moment you click or type on an agent's page it becomes yours, and the agent opens a new one next time. A comment you're writing on a page blocks a reload.
+  - **Keep this page** in the tab's menu, or double-clicking the tab, does the same. The tab's tooltip says which chat opened it.
+  - Agents are told to edit the same mock and reload it, and to keep one preview server on one port.
+
 ## [0.1.156] - 2026-10-28
 
 ### Fixed
