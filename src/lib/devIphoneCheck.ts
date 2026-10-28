@@ -311,6 +311,38 @@ export async function runDevIphoneCheck(
     },
   );
 
+  await step(
+    "the live view keeps up with an animation in the app",
+    async () => {
+      const frames = () =>
+        invoke<{ drawn: number; shown: number; visible: boolean }>(
+          "ios_sim_dev_frames",
+          { id: viewId },
+        );
+      // The sample app's toggle starts and stops a spinning square.
+      const toggle = node(await snapshot(), "animate");
+      if (!toggle) throw new Error("The app has no animation toggle");
+      const [x, y, w, h] = toggle.frame;
+      const knob = { x: x + w - 30, y: y + h / 2 };
+      await click(knob);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const first = await frames();
+      const started = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const last = await frames();
+      const seconds = (Date.now() - started) / 1000;
+      await click(knob);
+      const drawn = (last.drawn - first.drawn) / seconds;
+      const shown = (last.shown - first.shown) / seconds;
+      const rates = `${shown.toFixed(1)} frames/s shown of ${drawn.toFixed(1)} drawn`;
+      // A covered window shows no frames by design.
+      if (!first.visible || !last.visible) return `window covered; ${rates}`;
+      if (drawn < 10) throw new Error(`The animation did not run: ${rates}`);
+      if (shown < drawn * 0.5) throw new Error(`Frames were dropped: ${rates}`);
+      return rates;
+    },
+  );
+
   await step("Rotate turns the screen and taps follow it", async () => {
     await iphoneAction("Rotate");
     await poll(
