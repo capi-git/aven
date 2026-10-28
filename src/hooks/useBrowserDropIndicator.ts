@@ -7,6 +7,7 @@ import {
   type BrowserDropColor,
   type BrowserDropPalette,
 } from "../lib/browser";
+import { loadUiScale } from "../lib/uiScale";
 
 export const WORKSPACE_DROP_FEEDBACK = "supermono:workspace-drop-feedback";
 
@@ -32,10 +33,36 @@ export function parseDropColor(value: string): BrowserDropColor | null {
   ) as BrowserDropColor;
 }
 
+/**
+ * The preview's corner, so the native one draws the same box: its smallest
+ * corner radius in CSS pixels, within what native accepts.
+ */
+export function readDropRadius(
+  style: Pick<
+    CSSStyleDeclaration,
+    | "borderTopLeftRadius"
+    | "borderTopRightRadius"
+    | "borderBottomRightRadius"
+    | "borderBottomLeftRadius"
+  >,
+): number | undefined {
+  const radius = Math.min(
+    ...[
+      style.borderTopLeftRadius,
+      style.borderTopRightRadius,
+      style.borderBottomRightRadius,
+      style.borderBottomLeftRadius,
+    ].map((value) => Number.parseFloat(value ?? "")),
+  );
+  return Number.isFinite(radius)
+    ? Math.max(0, Math.min(64, radius))
+    : undefined;
+}
+
 export function readDropPalette(
   hint: HTMLElement,
+  style: CSSStyleDeclaration = getComputedStyle(hint),
 ): BrowserDropPalette | undefined {
-  const style = getComputedStyle(hint);
   const stroke = parseDropColor(style.borderTopColor);
   const fill = parseDropColor(style.backgroundColor);
   const halo = parseDropColor(style.outlineColor);
@@ -46,7 +73,10 @@ export function readDropPalette(
 export function normalizeDropIndicator(
   viewport: BrowserBounds,
   rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
-  details: Pick<BrowserDropIndicator, "edge" | "kind" | "title" | "palette">,
+  details: Pick<
+    BrowserDropIndicator,
+    "edge" | "kind" | "title" | "palette" | "radius" | "zoom"
+  >,
 ): BrowserDropIndicator | null {
   if (
     ![
@@ -181,6 +211,7 @@ export function useBrowserDropIndicator(
       id,
     );
     let palette: BrowserDropPalette | undefined;
+    let radius: number | undefined;
     let paletteDirty = true;
     const refresh = (event?: Event) => {
       if (event?.type === WORKSPACE_DROP_FEEDBACK && event.target !== stage)
@@ -205,15 +236,20 @@ export function useBrowserDropIndicator(
         return;
       }
       if (paletteDirty) {
-        palette = readDropPalette(hint);
+        const style = getComputedStyle(hint);
+        palette = readDropPalette(hint, style);
+        radius = readDropRadius(style);
         paletteDirty = false;
       }
+      const zoom = loadUiScale();
       presenter.update(
         normalizeDropIndicator(bounds, hint.getBoundingClientRect(), {
           edge: hint.dataset.dropEdge as BrowserDropIndicator["edge"],
           kind: hint.dataset.dropKind as BrowserDropIndicator["kind"],
           title: hint.dataset.dropTitle ?? "",
           ...(palette ? { palette } : {}),
+          ...(radius !== undefined ? { radius } : {}),
+          ...(zoom >= 0.5 && zoom <= 2 ? { zoom } : {}),
         }),
       );
     };

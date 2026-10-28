@@ -1,7 +1,9 @@
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 
 #import "browser_drop_indicator.h"
@@ -142,6 +144,7 @@ static void TransferClears() {
 static void GreyOutlineOnLightAndDarkPages() {
   SMBrowserDropIndicator *view = [[SMBrowserDropIndicator alloc]
       initWithFrame:NSMakeRect(0, 0, 400, 300)];
+  view.animates = NO;
   CHECK([view updateTarget:NSMakeRect(.1,.1,.8,.8) edge:@"right" kind:@"tab" title:@"Docs"]);
   for (NSColor *background in @[NSColor.whiteColor, NSColor.blackColor]) {
     NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
@@ -155,12 +158,13 @@ static void GreyOutlineOnLightAndDarkPages() {
     CGContextScaleCTM(context.CGContext, 2, 2);
     [background setFill];
     NSRectFill(view.bounds);
-    [view drawRect:view.bounds];
+    [view.layer renderInContext:context.CGContext];
     [context flushGraphics];
     [NSGraphicsContext restoreGraphicsState];
     const CGFloat base = [background colorUsingColorSpace:NSColorSpace.sRGBColorSpace].redComponent;
-    // The outline runs along the inset target's left edge.
-    NSRect outline = NSInsetRect(view.targetRect, 3, 3);
+    // The edge runs along the target's own left edge, as the HTML preview's
+    // border does: no inset of its own.
+    NSRect outline = view.targetRect;
     NSColor *edge = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline)) y:(NSInteger)(2 * NSMidY(outline))]
         colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
     CHECK(std::fabs(edge.redComponent - base) > .2);
@@ -176,6 +180,7 @@ static void GreyOutlineOnLightAndDarkPages() {
 static void ThemedFeedbackAndPaletteValidation() {
   SMDropPaintProbe *view = [[SMDropPaintProbe alloc]
       initWithFrame:NSMakeRect(0, 0, 400, 300)];
+  view.animates = NO;
   const NSRect target = NSMakeRect(.1,.1,.8,.8);
   const SMBrowserDropPalette palettes[] = {
     {{.84,.86,.9,.55}, {.65,.7,.8,.06}, {.04,.05,.07,.9}}, // Dark workspace
@@ -198,22 +203,22 @@ static void ThemedFeedbackAndPaletteValidation() {
       [NSGraphicsContext setCurrentContext:context];
       CGContextScaleCTM(context.CGContext, 2, 2);
       [background setFill]; NSRectFill(view.bounds);
-      [view drawRect:view.bounds];
+      [view.layer renderInContext:context.CGContext];
       // Reference swatches use the same bitmap color space and source-over
       // compositing as AppKit; generic-RGB contexts do not blend in sRGB math.
-      const auto swatch = [&](double x, int layers) {
+      const auto swatch = [&](double x, std::initializer_list<const double *> colors) {
         const NSRect rect = NSMakeRect(x, 145, 4, 10);
-        const double *colors[] = {palette.fill, palette.halo, palette.stroke};
-        for (int i=0; i<layers; ++i) {
-          const auto color = colors[i];
+        for (const double *color : colors) {
           [[NSColor colorWithSRGBRed:color[0] green:color[1] blue:color[2] alpha:color[3]] setFill];
           NSRectFillUsingOperation(rect, NSCompositingOperationSourceOver);
         }
       };
-      swatch(5, 1); swatch(15, 2); swatch(25, 3);
+      // The wash; the outline alone outside the box; the edge over the wash.
+      swatch(5, {palette.fill}); swatch(15, {palette.halo});
+      swatch(25, {palette.fill, palette.stroke});
       [context flushGraphics];
       [NSGraphicsContext restoreGraphicsState];
-      NSRect outline = NSInsetRect(view.targetRect, 3, 3);
+      NSRect outline = view.targetRect;
       NSColor *edge = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline)) y:(NSInteger)(2 * NSMidY(outline))]
           colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
       const CGFloat base = [background colorUsingColorSpace:NSColorSpace.sRGBColorSpace].redComponent;
@@ -227,9 +232,15 @@ static void ThemedFeedbackAndPaletteValidation() {
       CHECK(std::fabs(middle.redComponent - fill.redComponent) < .03);
       CHECK(std::fabs(middle.greenComponent - fill.greenComponent) < .03);
       CHECK(std::fabs(middle.blueComponent - fill.blueComponent) < .03);
-      // At 2x scale, the 1pt stroke occupies two pixels. The next inner pixel
-      // contains only the halo/fill, and pixels outside the 2pt halo stay clear.
-      NSColor *insideHalo = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline) + 1)
+      // At 2x scale, the 1px edge is two pixels inside the box, the 0.5px
+      // outline the one pixel outside it, and the page shows beyond that.
+      NSColor *innerEdge = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline) + 1)
+          y:(NSInteger)(2 * NSMidY(outline))] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+      CHECK(std::fabs(innerEdge.redComponent - stroke.redComponent) < .03);
+      NSColor *inside = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline) + 3)
+          y:(NSInteger)(2 * NSMidY(outline))] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+      CHECK(std::fabs(inside.redComponent - fill.redComponent) < .03);
+      NSColor *insideHalo = [[bitmap colorAtX:(NSInteger)(2 * NSMinX(outline) - 1)
           y:(NSInteger)(2 * NSMidY(outline))] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
       CHECK(std::fabs(insideHalo.redComponent - halo.redComponent) < .03);
       CHECK(std::fabs(insideHalo.greenComponent - halo.greenComponent) < .03);
@@ -257,6 +268,53 @@ static void ThemedFeedbackAndPaletteValidation() {
   CHECK([view updateTarget:target edge:@"tab" kind:@"tab" title:@"Docs"]);
 }
 
+static void ShapeMotionAndFade() {
+  SMBrowserDropIndicator *view = [[SMBrowserDropIndicator alloc]
+      initWithFrame:NSMakeRect(0, 0, 400, 300)];
+  // The HTML preview's 6px corner at 100%, and at 80% interface zoom.
+  CHECK([view updateTarget:NSMakeRect(.5, 0, .5, 1) edge:@"right" kind:@"tab" title:@""]);
+  CHECK(std::fabs(view.cornerRadius - 6) < 1e-9 && std::fabs(view.edgeWidth - 1) < 1e-9);
+  const SMBrowserDropShape small = {6, .8};
+  CHECK([view updateTarget:NSMakeRect(.5, 0, .5, 1) edge:@"right" kind:@"tab" title:@""
+      palette:nullptr shape:&small]);
+  CHECK(std::fabs(view.cornerRadius - 4.8) < 1e-9 && std::fabs(view.edgeWidth - .8) < 1e-9);
+  for (const SMBrowserDropShape bad : {SMBrowserDropShape{-1, 1}, SMBrowserDropShape{65, 1},
+      SMBrowserDropShape{6, .4}, SMBrowserDropShape{6, 2.1},
+      SMBrowserDropShape{std::numeric_limits<double>::quiet_NaN(), 1}})
+    CHECK(![view updateTarget:NSMakeRect(.5, 0, .5, 1) edge:@"right" kind:@"tab" title:@""
+        palette:nullptr shape:&bad]);
+  // In from its side: fading in and growing about its right edge.
+  [view clear];
+  CHECK([view updateTarget:NSMakeRect(.5, 0, .5, 1) edge:@"right" kind:@"tab" title:@""]);
+  CALayer *preview = view.layer.sublayers.firstObject;
+  CHECK([preview animationForKey:@"fade"] && [preview animationForKey:@"grow"]);
+  CALayer *box = preview.sublayers.lastObject;
+  // Top-left, as the view: the right half's box is in its right half.
+  CHECK(std::fabs(box.position.x - 300) < 1e-9 && std::fabs(box.position.y - 150) < 1e-9);
+  CHECK(![box animationForKey:@"glide-position"]);
+  // To another zone it glides on a spring from where it is drawn.
+  CHECK([view updateTarget:NSMakeRect(0, 0, 1, .5) edge:@"up" kind:@"tab" title:@""]);
+  CASpringAnimation *glide = (CASpringAnimation *)[box animationForKey:@"glide-position"];
+  CHECK([glide isKindOfClass:CASpringAnimation.class]);
+  // TAB_SPRING.move: 0.22 s response, critically damped.
+  const double omega = 2 * M_PI / .22;
+  CHECK(std::fabs(glide.stiffness - omega * omega) < 1e-6);
+  CHECK(std::fabs(glide.damping - 2 * omega) < 1e-6);
+  CHECK(std::fabs(box.position.x - 200) < 1e-9 && std::fabs(box.position.y - 75) < 1e-9);
+  // The drag leaves: it fades where it is and is no longer a target.
+  [view fadeOut];
+  CHECK(!view.active && !view.hidden && preview.opacity == 0);
+  CHECK([preview animationForKey:@"fade"]);
+  // Off, it is at once in place, with nothing animating.
+  view.animates = NO;
+  [view clear];
+  CHECK(view.hidden && !view.active);
+  CHECK([view updateTarget:NSMakeRect(0, 0, 1, .5) edge:@"up" kind:@"tab" title:@""]);
+  CHECK(!preview.animationKeys.count && preview.opacity == 1);
+  [view fadeOut];
+  CHECK(view.hidden && !view.active);
+}
+
 int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
@@ -265,7 +323,8 @@ int main() {
     TransferClears();
     GreyOutlineOnLightAndDarkPages();
     ThemedFeedbackAndPaletteValidation();
-    std::puts("Browser drop indicator: 5 AppKit checks passed");
+    ShapeMotionAndFade();
+    std::puts("Browser drop indicator: 6 AppKit checks passed");
   }
   return 0;
 }
