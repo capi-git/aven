@@ -104,7 +104,7 @@ fn timed_pick(
 ) -> f64 {
     let before = springboard_pid(udid);
     let started = Instant::now();
-    let readiness = ensure_device(project, udid, None, picked).unwrap();
+    let readiness = ensure_device(project, udid, None, picked, false).unwrap();
     let seconds = started.elapsed().as_secs_f64();
     let after = springboard_pid(udid);
     let restarted = before.is_some() && before != after;
@@ -518,7 +518,7 @@ fn ios_sim_perf_phases() {
         let _ = simctl(&["shutdown", &udid], Duration::from_secs(120));
         forget_session();
         let started = Instant::now();
-        ensure_device(&project, &udid, None, false).unwrap();
+        ensure_device(&project, &udid, None, false, false).unwrap();
         row(
             &mut steps,
             "pick a shut-down device, no CoreDevice client",
@@ -553,7 +553,7 @@ fn ios_sim_perf_phases() {
         );
         let before = springboard_pid(&udid);
         let started = Instant::now();
-        ensure_device(&project, &udid, None, false).unwrap();
+        ensure_device(&project, &udid, None, false, false).unwrap();
         row(
             &mut steps,
             "next preparation fixes input",

@@ -162,6 +162,35 @@ describe("the iPhone pane", () => {
     ).toMatch(/^iphone-/);
   });
 
+  it("offers Stop while a Run waits for its device, and Stop ends that Run", async () => {
+    host.invoke.mockImplementation(async (command: string) => {
+      if (command !== "ios_sim_state") return answer(command);
+      const idle = (await answer(command)) as { status: object; logs: [] };
+      return {
+        ...idle,
+        status: {
+          ...idle.status,
+          phase: "waiting",
+          message: "Starting iPhone 18 Pro…",
+          udid: "AAAA",
+        },
+      };
+    });
+    const pane = await render();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const button = pane.querySelector<HTMLButtonElement>(".ios-sim-run")!;
+    expect(button.textContent).toBe("Stop");
+    expect(button.disabled).toBe(false);
+    await act(async () => {
+      button.click();
+    });
+    const commands = host.invoke.mock.calls.map(([command]) => command);
+    expect(commands).toContain("ios_sim_stop");
+    expect(commands).not.toContain("ios_sim_run");
+  });
+
   it("starts its device again when shown after it was shut down while hidden", async () => {
     let booted = true;
     host.invoke.mockImplementation(async (command: string) => {

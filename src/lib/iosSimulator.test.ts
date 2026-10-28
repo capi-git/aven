@@ -146,7 +146,11 @@ describe("iPhone pane status", () => {
       "stopped",
     ] as const)
       expect(isRunActive(phase)).toBe(false);
+    // A Run whose build is done and that waits for its device is still the
+    // Run: Stop, not Run (which would start another build).
+    expect(isRunActive("waiting")).toBe(true);
     expect(isDeviceStarting("preparing")).toBe(true);
+    expect(isDeviceStarting("waiting")).toBe(true);
     expect(isDeviceStarting("building")).toBe(false);
   });
 

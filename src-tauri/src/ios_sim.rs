@@ -35,9 +35,14 @@ const DTUHIDD_JOB: &str = "com.apple.coredevice.dtuhidd";
 pub(crate) enum Phase {
     #[default]
     Idle,
+    /// The pane's device is starting (no Run).
     Booting,
+    /// The pane's device's input is being made ready (no Run).
     Preparing,
     Building,
+    /// A Run waits for its device to start or get ready: part of the Run,
+    /// so the pane offers Stop.
+    Waiting,
     Installing,
     Launching,
     Running,
@@ -52,6 +57,7 @@ impl Phase {
             Phase::Booting
                 | Phase::Preparing
                 | Phase::Building
+                | Phase::Waiting
                 | Phase::Installing
                 | Phase::Launching
         )
@@ -1028,17 +1034,19 @@ pub(crate) fn prepare_device(
     Ok(Readiness::Ready)
 }
 
-/// `prepare_device` with progress in the project's status strip.
+/// `prepare_device` with progress in the project's status strip. `run`: a
+/// Run waits for it, so the strip says Waiting (and the pane offers Stop).
 pub(crate) fn ensure_device(
     project: &str,
     udid: &str,
     generation: Option<u64>,
     picked: bool,
+    run: bool,
 ) -> Result<Readiness, String> {
     let key = udid.to_uppercase();
     prepare_device(project, udid, picked, &|phase, message| {
         set_status(project, generation, |s| {
-            s.phase = phase;
+            s.phase = if run { Phase::Waiting } else { phase };
             s.message = message;
             s.udid = Some(key.clone());
         });
@@ -1125,7 +1133,13 @@ pub async fn ios_sim_use_device(
             .or_default()
             .generation;
         let busy = status_of(&project).phase.busy();
-        let result = ensure_device(&project, &udid, Some(generation), picked.unwrap_or(false));
+        let result = ensure_device(
+            &project,
+            &udid,
+            Some(generation),
+            picked.unwrap_or(false),
+            false,
+        );
         if !busy {
             set_status(&project, Some(generation), |s| {
                 if matches!(s.phase, Phase::Booting | Phase::Preparing | Phase::Idle) {
@@ -1372,10 +1386,10 @@ pub(crate) fn build_args(
 }
 
 /// The device's progress while a Run builds: kept quiet until the build is
-/// done, then shown while the Run waits for the device.
+/// done, then shown (as `Phase::Waiting`) while the Run waits for the device.
 #[derive(Default)]
 struct DeviceProgress {
-    latest: Option<(Phase, String)>,
+    latest: Option<String>,
     shown: bool,
 }
 
@@ -1391,12 +1405,12 @@ fn prepare_beside_build(
         .name("ios-sim-device".into())
         .spawn(move || {
             let key = udid.to_uppercase();
-            prepare_device(&project, &udid, false, &|phase, message| {
+            prepare_device(&project, &udid, false, &|_, message| {
                 let mut progress = progress.lock().unwrap_or_else(|p| p.into_inner());
-                progress.latest = Some((phase, message.clone()));
+                progress.latest = Some(message.clone());
                 if progress.shown {
                     set_status(&project, Some(generation), |s| {
-                        s.phase = phase;
+                        s.phase = Phase::Waiting;
                         s.message = message;
                         s.udid = Some(key.clone());
                     });
@@ -1541,7 +1555,8 @@ fn run_pipeline(
 }
 
 /// Waits for the device a Run prepared beside its build, showing its
-/// progress from now on.
+/// progress from now on. The phase is `Waiting`, part of the Run: the pane
+/// offers Stop, which ends the Run when the device is ready.
 fn wait_for_device(
     project: &str,
     generation: u64,
@@ -1556,10 +1571,9 @@ fn wait_for_device(
         };
         // Still waiting for another preparation of the same device (the
         // pane's) when there is no progress of its own.
-        let (phase, message) =
-            latest.unwrap_or((Phase::Preparing, "Getting the iPhone ready…".into()));
+        let message = latest.unwrap_or_else(|| "Getting the iPhone ready…".into());
         set_status(project, Some(generation), |s| {
-            s.phase = phase;
+            s.phase = Phase::Waiting;
             s.message = message;
         });
     }
@@ -1722,7 +1736,7 @@ pub(crate) fn relaunch(project: &str, udid: &str, bundle_id: &str) -> Result<u64
     if let Some(child) = previous {
         kill_child(&child);
     }
-    ensure_device(project, udid, Some(generation), false)?;
+    ensure_device(project, udid, Some(generation), false, true)?;
     launch(project, udid, bundle_id, generation, None)?;
     Ok(generation)
 }
@@ -2622,6 +2636,12 @@ mod tests {
         assert_eq!(panes.projects_showing(B), BTreeSet::from(["/q".to_owned()]));
         // Closing a pane that showed nothing releases nothing.
         assert_eq!(panes.show("never-shown", "", None), None);
+    }
+
+    #[test]
+    fn a_runs_wait_for_its_device_is_busy_and_reads_waiting() {
+        assert!(Phase::Waiting.busy());
+        assert_eq!(serde_json::to_value(Phase::Waiting).unwrap(), "waiting");
     }
 
     #[test]

@@ -38,6 +38,8 @@ export type IosSimPhase =
   | "booting"
   | "preparing"
   | "building"
+  /** A Run's build is done; it waits for its device to start or get ready. */
+  | "waiting"
   | "installing"
   | "launching"
   | "running"
@@ -76,15 +78,16 @@ export const IDLE_STATUS: IosSimStatus = {
 export function isRunActive(phase: IosSimPhase): boolean {
   return (
     phase === "building" ||
+    phase === "waiting" ||
     phase === "installing" ||
     phase === "launching" ||
     phase === "running"
   );
 }
 
-/** Getting a device ready, before any build. */
+/** Getting a device ready: for the pane, or for a Run waiting on it. */
 export function isDeviceStarting(phase: IosSimPhase): boolean {
-  return phase === "booting" || phase === "preparing";
+  return phase === "booting" || phase === "preparing" || phase === "waiting";
 }
 
 /** The strip's dot: green running, amber working, red failed. */
