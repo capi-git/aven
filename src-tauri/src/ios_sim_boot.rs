@@ -84,6 +84,14 @@ pub(crate) fn input_step(facts: &BootFacts, picked: bool, live: bool) -> InputSt
     }
 }
 
+/// Whether a device a pane uses joins its project's agent scope: only Aven's
+/// own boot or one the person picked in the pane. A running simulator the
+/// pane merely suggested or remembered (someone else started it) stays out
+/// until the person picks it.
+pub(crate) fn joins_scope(facts: &BootFacts, picked: bool) -> bool {
+    picked || facts.aven_booted()
+}
+
 /// CoreDevice's HID daemon in a simulator, from `launchctl list`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Daemon {
@@ -259,6 +267,21 @@ mod tests {
             Daemon::Absent
         );
         assert_eq!(parse_daemon("", job), Daemon::Absent);
+    }
+
+    #[test]
+    fn scopes_only_aven_boots_and_picked_devices() {
+        // Someone else's running simulator, suggested or remembered: out.
+        let mut device = facts(Some(BOOT));
+        assert!(!joins_scope(&device, false));
+        // The person picked it in the pane: in.
+        assert!(joins_scope(&device, true));
+        // Aven booted it (in this session or before a restart): in.
+        device.started_by_aven = Some((BOOT, None));
+        assert!(joins_scope(&device, false));
+        // Rebooted elsewhere since: no longer Aven's.
+        device.current = Some(LATER);
+        assert!(!joins_scope(&device, false));
     }
 
     #[test]

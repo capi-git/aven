@@ -73,7 +73,7 @@ fn forget_session() {
     // What Aven booted is read back from its data, as after a restart.
     state.aven_boots.clear();
     state.aven_boots_loaded = false;
-    state.pane_devices.clear();
+    state.panes = Default::default();
     state.known = None;
 }
 
@@ -104,7 +104,7 @@ fn timed_pick(
 ) -> f64 {
     let before = springboard_pid(udid);
     let started = Instant::now();
-    let readiness = ensure_device(project, udid, None, picked).unwrap();
+    let readiness = ensure_device(project, udid, None, picked, false).unwrap();
     let seconds = started.elapsed().as_secs_f64();
     let after = springboard_pid(udid);
     let restarted = before.is_some() && before != after;
@@ -518,7 +518,7 @@ fn ios_sim_perf_phases() {
         let _ = simctl(&["shutdown", &udid], Duration::from_secs(120));
         forget_session();
         let started = Instant::now();
-        ensure_device(&project, &udid, None, false).unwrap();
+        ensure_device(&project, &udid, None, false, false).unwrap();
         row(
             &mut steps,
             "pick a shut-down device, no CoreDevice client",
@@ -553,7 +553,7 @@ fn ios_sim_perf_phases() {
         );
         let before = springboard_pid(&udid);
         let started = Instant::now();
-        ensure_device(&project, &udid, None, false).unwrap();
+        ensure_device(&project, &udid, None, false, false).unwrap();
         row(
             &mut steps,
             "next preparation fixes input",
@@ -572,7 +572,7 @@ fn ios_sim_perf_phases() {
     if std::env::var_os("AVEN_IOS_SIM_PERF_RELEASE").is_some() {
         let started = Instant::now();
         let other = "00000000-0000-0000-0000-000000000000".to_owned();
-        state().pane_devices.insert(project_key(&project), other);
+        state().panes.show("perf-pane", &project, Some(&other));
         release_later(&project, &udid);
         while list_devices()
             .unwrap()

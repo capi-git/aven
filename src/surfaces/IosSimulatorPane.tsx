@@ -125,6 +125,8 @@ export function IosSimulatorPane({
   /** Reading the project takes long the first time packages resolve. */
   const [slowProject, setSlowProject] = useState(false);
   const [pickCount, setPickCount] = useState(0);
+  /** Bumped to start the device again after it was shut down while hidden. */
+  const [recheck, setRecheck] = useState(0);
   const viewId = useMemo(
     () => `iphone-${crypto.randomUUID().replaceAll("-", "")}`,
     [],
@@ -248,7 +250,7 @@ export function IosSimulatorPane({
     const picked = pickedRef.current;
     pickedRef.current = false;
     void iosSim
-      .useDevice(project, udid, picked)
+      .useDevice(project, udid, picked, viewId)
       .then(async () => {
         if (cancelled) return;
         setDeviceReady(true);
@@ -261,7 +263,30 @@ export function IosSimulatorPane({
     return () => {
       cancelled = true;
     };
-  }, [support, project, udid, pickCount]);
+  }, [support, project, udid, pickCount, recheck, viewId]);
+
+  // A pane shown again checks its device: if it was shut down while hidden
+  // (in Simulator, Xcode or Terminal), start it again rather than show a
+  // dead screen. Aven itself keeps a device up while any pane shows it.
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    const shownAgain = visible && !wasVisible.current;
+    wasVisible.current = visible;
+    if (!shownAgain || !support?.xcode || !udid) return;
+    let cancelled = false;
+    void iosSim
+      .devices()
+      .then((list) => {
+        if (cancelled) return;
+        setDevices(list.devices);
+        if (list.devices.some((d) => d.udid === udid && !d.booted))
+          setRecheck((count) => count + 1);
+      })
+      .catch((error) => logError("iPhone pane devices", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, support, udid]);
 
   // Agents see this pane's simulator while it is open.
   useEffect(() => {

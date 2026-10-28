@@ -202,7 +202,7 @@ pub(crate) fn resolve_udid(
         return if allowed.contains(&device) {
             Ok(device)
         } else {
-            Err("The iPhone pane shows a simulator this chat may not use; pass udid from the list action.".into())
+            Err("The iPhone pane shows a simulator that was already running outside Aven, which this chat may use only once the user picks it in the pane's device menu. Ask the user to pick it, or pass udid from the list action.".into())
         };
     }
     match allowed.len() {
@@ -222,7 +222,8 @@ Usage:
 
 Works only while this chat has an iPhone pane open beside it, and only on the
 simulators Aven started for this project or the user picked in its iPhone
-pane; never on real devices. Coordinates are the screen's upright points from
+pane (one that was already running joins only once the user picks it); never
+on real devices. Coordinates are the screen's upright points from
 its top-left corner, the same as screenshots and snapshot frames. udid is
 optional when the pane uses one simulator.
 

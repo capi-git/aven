@@ -35,9 +35,14 @@ const DTUHIDD_JOB: &str = "com.apple.coredevice.dtuhidd";
 pub(crate) enum Phase {
     #[default]
     Idle,
+    /// The pane's device is starting (no Run).
     Booting,
+    /// The pane's device's input is being made ready (no Run).
     Preparing,
     Building,
+    /// A Run waits for its device to start or get ready: part of the Run,
+    /// so the pane offers Stop.
+    Waiting,
     Installing,
     Launching,
     Running,
@@ -52,6 +57,7 @@ impl Phase {
             Phase::Booting
                 | Phase::Preparing
                 | Phase::Building
+                | Phase::Waiting
                 | Phase::Installing
                 | Phase::Launching
         )
@@ -85,7 +91,8 @@ struct ProjectRun {
 struct State {
     projects: HashMap<String, ProjectRun>,
     /// Devices Aven booted or the person picked in each project's pane: the
-    /// only ones that project's agents may drive.
+    /// only ones that project's agents may drive. A running simulator the
+    /// pane merely suggested or remembered joins only once picked.
     scope: HashMap<String, BTreeSet<String>>,
     /// The boot of each device whose input Aven made (or found) ready.
     ready: HashMap<String, BootId>,
@@ -93,8 +100,8 @@ struct State {
     /// for CoreDevice's announcement). Kept in `boots.json` across restarts.
     aven_boots: HashMap<String, (BootId, Option<Instant>)>,
     aven_boots_loaded: bool,
-    /// The device each project's pane shows.
-    pane_devices: HashMap<String, String>,
+    /// The device each open iPhone pane shows (a project can have several).
+    panes: PaneDevices,
     /// Boots watched for a late CoreDevice announcement.
     watching: BTreeSet<(String, BootId)>,
     /// Build settings per (container, scheme).
@@ -108,6 +115,42 @@ struct State {
     /// Simulators `simctl list` named recently, to refuse anything else
     /// (a real device's identifier is a UUID too) without listing each time.
     known: Option<(Instant, BTreeSet<String>)>,
+}
+
+/// The device each open iPhone pane shows, by the pane's id. Panes of the
+/// same project (one per chat, hidden tabs included) count separately, so a
+/// device stays up while any of them shows it.
+#[derive(Default)]
+struct PaneDevices(HashMap<String, (String, String)>);
+
+impl PaneDevices {
+    /// Pane `pane` of `project` now shows `udid` (`None`: it closed). Returns
+    /// the project and device it stopped showing, when that changed.
+    fn show(&mut self, pane: &str, project: &str, udid: Option<&str>) -> Option<(String, String)> {
+        let previous = match udid {
+            Some(udid) => self
+                .0
+                .insert(pane.to_owned(), (project_key(project), udid.to_uppercase())),
+            None => self.0.remove(pane),
+        };
+        previous.filter(|(_, before)| udid.is_none_or(|now| !before.eq_ignore_ascii_case(now)))
+    }
+
+    /// Whether any open pane shows `udid`.
+    fn shows(&self, udid: &str) -> bool {
+        self.0
+            .values()
+            .any(|(_, device)| device.eq_ignore_ascii_case(udid))
+    }
+
+    /// The projects with a pane showing `udid`.
+    fn projects_showing(&self, udid: &str) -> BTreeSet<String> {
+        self.0
+            .values()
+            .filter(|(_, device)| device.eq_ignore_ascii_case(udid))
+            .map(|(project, _)| project.clone())
+            .collect()
+    }
 }
 
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -780,6 +823,10 @@ fn prepare_input(udid: &str, booted_at: Option<Instant>) -> Result<Prepared, Str
     Ok(Prepared::Restarted)
 }
 
+/// How long the announcement watcher is given to start listening before the
+/// flag is read again (`simctl spawn` takes a fraction of a second).
+const WATCHER_START: Duration = Duration::from_millis(1500);
+
 /// Child processes waiting for a late announcement, ended when Aven quits.
 static WATCHERS: Mutex<Vec<Arc<Mutex<Child>>>> = Mutex::new(Vec::new());
 
@@ -813,6 +860,13 @@ fn watch_announcement(udid: &str, data_path: Option<PathBuf>, boot: BootId) {
     let _ = std::thread::Builder::new()
         .name("ios-sim-announce".into())
         .spawn(move || {
+            // An announcement made while the watcher was still starting never
+            // reaches it: once it has had time to listen, read the flag again
+            // and take a 1 as the notification.
+            std::thread::sleep(WATCHER_START);
+            if notify_flag(&key) == Some(1) {
+                kill_child(&child);
+            }
             // Ends when the notification comes or the device shuts down.
             loop {
                 let done = child.lock().unwrap_or_else(|p| p.into_inner()).try_wait();
@@ -830,17 +884,12 @@ fn watch_announcement(udid: &str, data_path: Option<PathBuf>, boot: BootId) {
             if !same_boot || notify_flag(&key) != Some(1) {
                 return;
             }
-            let projects: Vec<String> = {
+            let projects = {
                 let mut state = state();
                 if state.ready.get(&key) == Some(&boot) {
                     state.ready.remove(&key);
                 }
-                state
-                    .pane_devices
-                    .iter()
-                    .filter(|(_, device)| **device == key)
-                    .map(|(project, _)| project.clone())
-                    .collect()
+                state.panes.projects_showing(&key)
             };
             for project in projects {
                 set_status(&project, None, |s| {
@@ -930,8 +979,10 @@ fn mark_ready(udid: &str, facts: &BootFacts) {
 
 /// Boots `udid` if needed and makes its input ready, once per boot. The input
 /// fix (which restarts the home screen) runs only on a boot Aven started, or
-/// on a device the person picked in the pane (`picked`). Progress goes to
-/// `report` (phase and message).
+/// on a device the person picked in the pane (`picked`). Those are also the
+/// only devices that join the project's agent scope: a running simulator the
+/// pane merely suggested or remembered does not. Progress goes to `report`
+/// (phase and message).
 pub(crate) fn prepare_device(
     project: &str,
     udid: &str,
@@ -944,7 +995,6 @@ pub(crate) fn prepare_device(
     let lock = device_lock(udid);
     let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
     let info = device(udid)?;
-    add_to_scope(project, udid);
     let key = udid.to_uppercase();
     if !info.booted {
         report(Phase::Booting, format!("Starting {}…", info.name));
@@ -970,6 +1020,9 @@ pub(crate) fn prepare_device(
         native::reset(udid);
     }
     let facts = boot_facts(&key, info.data_path.as_deref());
+    if ios_sim_boot::joins_scope(&facts, picked) {
+        add_to_scope(project, udid);
+    }
     let prepared = match ios_sim_boot::input_step(&facts, picked, support().live) {
         InputStep::Ready => Prepared::Clear { watch: false },
         // Someone else's running simulator: never restart its home screen
@@ -997,17 +1050,19 @@ pub(crate) fn prepare_device(
     Ok(Readiness::Ready)
 }
 
-/// `prepare_device` with progress in the project's status strip.
+/// `prepare_device` with progress in the project's status strip. `run`: a
+/// Run waits for it, so the strip says Waiting (and the pane offers Stop).
 pub(crate) fn ensure_device(
     project: &str,
     udid: &str,
     generation: Option<u64>,
     picked: bool,
+    run: bool,
 ) -> Result<Readiness, String> {
     let key = udid.to_uppercase();
     prepare_device(project, udid, picked, &|phase, message| {
         set_status(project, generation, |s| {
-            s.phase = phase;
+            s.phase = if run { Phase::Waiting } else { phase };
             s.message = message;
             s.udid = Some(key.clone());
         });
@@ -1036,7 +1091,8 @@ fn release_later(project: &str, udid: &str) {
             let facts = boot_facts(&udid, info.data_path.as_deref());
             let (shown, used, ours_running) = {
                 let state = state();
-                let shown = state.pane_devices.values().any(|d| *d == udid);
+                // Any open pane, of this project or another.
+                let shown = state.panes.shows(&udid);
                 let on_device = |run: &ProjectRun| {
                     run.status.udid.as_deref() == Some(udid.as_str())
                         && (run.status.phase.busy() || run.status.phase == Phase::Running)
@@ -1066,21 +1122,25 @@ fn release_later(project: &str, udid: &str) {
         });
 }
 
-/// The pane shows `udid`: boot it if needed. `picked` is true when the person
-/// chose it in the device menu just now (not a remembered or suggested one).
+/// Pane `pane` shows `udid`: boot it if needed. `picked` is true when the
+/// person chose it in the device menu just now (not a remembered or
+/// suggested one). The device it showed before is released shortly unless
+/// another pane shows it.
 #[tauri::command]
 pub async fn ios_sim_use_device(
     project: String,
     udid: String,
     picked: Option<bool>,
+    pane: String,
 ) -> Result<(), String> {
+    if !valid_view_id(&pane) {
+        return Err("Invalid iPhone pane".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         if ios_sim_devices::valid_udid(&udid) {
-            let previous = state()
-                .pane_devices
-                .insert(project_key(&project), udid.to_uppercase());
-            if let Some(previous) = previous.filter(|p| *p != udid.to_uppercase()) {
-                release_later(&project, &previous);
+            let previous = state().panes.show(&pane, &project, Some(&udid));
+            if let Some((owner, previous)) = previous {
+                release_later(&owner, &previous);
             }
         }
         let generation = state()
@@ -1089,7 +1149,13 @@ pub async fn ios_sim_use_device(
             .or_default()
             .generation;
         let busy = status_of(&project).phase.busy();
-        let result = ensure_device(&project, &udid, Some(generation), picked.unwrap_or(false));
+        let result = ensure_device(
+            &project,
+            &udid,
+            Some(generation),
+            picked.unwrap_or(false),
+            false,
+        );
         if !busy {
             set_status(&project, Some(generation), |s| {
                 if matches!(s.phase, Phase::Booting | Phase::Preparing | Phase::Idle) {
@@ -1118,21 +1184,14 @@ pub(crate) struct PaneChoice {
 }
 
 /// Records the pane's choice. A device counts only when `simctl list` names
-/// it as a simulator; it then joins the project's agent scope.
+/// it as a simulator. Choosing does not put it in the agent scope: that
+/// happens in `prepare_device`, once the person picked it or Aven booted it.
 pub(crate) fn record_choice(project: &str, mut choice: PaneChoice, devices: &[SimDeviceInfo]) {
     let key = project_key(project);
     choice.udid = choice
         .udid
         .and_then(|udid| ios_sim_devices::known_simulator(&udid, devices));
-    let mut state = state();
-    if let Some(udid) = &choice.udid {
-        state
-            .scope
-            .entry(key.clone())
-            .or_default()
-            .insert(udid.clone());
-    }
-    state.choices.insert(key, choice);
+    state().choices.insert(key, choice);
 }
 
 #[tauri::command]
@@ -1336,10 +1395,10 @@ pub(crate) fn build_args(
 }
 
 /// The device's progress while a Run builds: kept quiet until the build is
-/// done, then shown while the Run waits for the device.
+/// done, then shown (as `Phase::Waiting`) while the Run waits for the device.
 #[derive(Default)]
 struct DeviceProgress {
-    latest: Option<(Phase, String)>,
+    latest: Option<String>,
     shown: bool,
 }
 
@@ -1355,12 +1414,12 @@ fn prepare_beside_build(
         .name("ios-sim-device".into())
         .spawn(move || {
             let key = udid.to_uppercase();
-            prepare_device(&project, &udid, false, &|phase, message| {
+            prepare_device(&project, &udid, false, &|_, message| {
                 let mut progress = progress.lock().unwrap_or_else(|p| p.into_inner());
-                progress.latest = Some((phase, message.clone()));
+                progress.latest = Some(message.clone());
                 if progress.shown {
                     set_status(&project, Some(generation), |s| {
-                        s.phase = phase;
+                        s.phase = Phase::Waiting;
                         s.message = message;
                         s.udid = Some(key.clone());
                     });
@@ -1505,7 +1564,8 @@ fn run_pipeline(
 }
 
 /// Waits for the device a Run prepared beside its build, showing its
-/// progress from now on.
+/// progress from now on. The phase is `Waiting`, part of the Run: the pane
+/// offers Stop, which ends the Run when the device is ready.
 fn wait_for_device(
     project: &str,
     generation: u64,
@@ -1520,10 +1580,9 @@ fn wait_for_device(
         };
         // Still waiting for another preparation of the same device (the
         // pane's) when there is no progress of its own.
-        let (phase, message) =
-            latest.unwrap_or((Phase::Preparing, "Getting the iPhone ready…".into()));
+        let message = latest.unwrap_or_else(|| "Getting the iPhone ready…".into());
         set_status(project, Some(generation), |s| {
-            s.phase = phase;
+            s.phase = Phase::Waiting;
             s.message = message;
         });
     }
@@ -1686,7 +1745,7 @@ pub(crate) fn relaunch(project: &str, udid: &str, bundle_id: &str) -> Result<u64
     if let Some(child) = previous {
         kill_child(&child);
     }
-    ensure_device(project, udid, Some(generation), false)?;
+    ensure_device(project, udid, Some(generation), false, true)?;
     launch(project, udid, bundle_id, generation, None)?;
     Ok(generation)
 }
@@ -2351,10 +2410,15 @@ pub async fn ios_sim_view_close(caller: Webview, id: String) -> Result<(), Strin
     if !valid_view_id(&id) {
         return Err("Invalid iPhone pane".into());
     }
-    {
+    let released = {
         let mut state = state();
         state.views.remove(&id);
         state.view_devices.remove(&id);
+        state.panes.show(&id, "", None)
+    };
+    // The pane closed: its device goes shortly unless another pane shows it.
+    if let Some((owner, udid)) = released {
+        release_later(&owner, &udid);
     }
     let app = caller.app_handle().clone();
     on_main(&app, move || {
@@ -2522,9 +2586,12 @@ mod tests {
             scheme: None,
         };
         record_choice(project, choice(&picked.to_lowercase()), &listed);
-        // Booting for a project (ensure_device) records the same way.
-        add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
         assert_eq!(pane_device(project).as_deref(), Some(picked));
+        // Choosing (a suggested or remembered device) does not scope it:
+        // `prepare_device` does, once it was picked or Aven booted it.
+        assert!(scoped_devices(project).is_empty());
+        add_to_scope("/scope-test/pom", picked);
+        add_to_scope("/scope-test/pom", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
         // A UUID simctl does not list (a real device's CoreDevice identifier)
         // and anything that is not a UUID never join the scope.
         record_choice(
@@ -2544,6 +2611,49 @@ mod tests {
         assert!(scoped_devices("/scope-test/other").is_empty());
         // Not a simulator: no pick, and no device for agents to default to.
         assert_eq!(pane_device(project), None);
+    }
+
+    #[test]
+    fn keeps_a_device_while_any_pane_of_any_chat_shows_it() {
+        const A: &str = "AAAAAAAA-0000-0000-0000-000000000001";
+        const B: &str = "BBBBBBBB-0000-0000-0000-000000000002";
+        let mut panes = PaneDevices::default();
+        // Chats 1 and 2 of one project both show A.
+        assert_eq!(panes.show("chat-1", "/p/", Some(&A.to_lowercase())), None);
+        assert_eq!(panes.show("chat-2", "/p", Some(A)), None);
+        assert!(panes.shows(A));
+        // Showing the same device again releases nothing.
+        assert_eq!(panes.show("chat-2", "/p", Some(A)), None);
+        // Chat 2 picks B: A is released, but chat 1 still shows it.
+        assert_eq!(
+            panes.show("chat-2", "/p", Some(B)),
+            Some(("/p".into(), A.into()))
+        );
+        assert!(panes.shows(A) && panes.shows(B));
+        assert_eq!(panes.projects_showing(A), BTreeSet::from(["/p".to_owned()]));
+        // Chat 1's pane closes: now nothing shows A.
+        assert_eq!(
+            panes.show("chat-1", "", None),
+            Some(("/p".into(), A.into()))
+        );
+        assert!(!panes.shows(A));
+        assert!(panes.projects_showing(A).is_empty());
+        // A pane of another project showing B keeps it after chat 2 closes.
+        panes.show("other", "/q", Some(B));
+        assert_eq!(
+            panes.show("chat-2", "", None),
+            Some(("/p".into(), B.into()))
+        );
+        assert!(panes.shows(B));
+        assert_eq!(panes.projects_showing(B), BTreeSet::from(["/q".to_owned()]));
+        // Closing a pane that showed nothing releases nothing.
+        assert_eq!(panes.show("never-shown", "", None), None);
+    }
+
+    #[test]
+    fn a_runs_wait_for_its_device_is_busy_and_reads_waiting() {
+        assert!(Phase::Waiting.busy());
+        assert_eq!(serde_json::to_value(Phase::Waiting).unwrap(), "waiting");
     }
 
     #[test]
