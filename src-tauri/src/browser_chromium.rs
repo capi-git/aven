@@ -309,6 +309,9 @@ pub(crate) struct BrowserState {
     /// (an agent's own input never counts): an agent's open must no longer
     /// reload or navigate it, and the app stops treating it as the agent's.
     user_touched: bool,
+    /// Loads of the page that have committed a document, so an agent's open
+    /// can hand back once the page it asked for has arrived.
+    loads_committed: u64,
     /// Loads of the page that have ended, so an agent's open can wait for the
     /// one it started before the next one changes the page again.
     loads_settled: u64,
@@ -1153,12 +1156,18 @@ fn handle_event(native_id: &str, event: Value) {
                 if let Some(value) = event.get("userTouched").and_then(Value::as_bool) {
                     state.user_touched = value;
                 }
-                if let Some(value) = event
-                    .get("loadsSettled")
-                    .and_then(Value::as_f64)
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                {
-                    state.loads_settled = value as u64;
+                let count = |key| {
+                    event
+                        .get(key)
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite() && *value >= 0.0)
+                        .map(|value| value as u64)
+                };
+                if let Some(value) = count("loadsCommitted") {
+                    state.loads_committed = value;
+                }
+                if let Some(value) = count("loadsSettled") {
+                    state.loads_settled = value;
                 }
                 if let Some(value) = event.get("findResult") {
                     state.find_result = (!value.is_null()).then(|| value.clone());
@@ -1618,6 +1627,7 @@ pub async fn browser_create(
             microphone_in_use: false,
             camera_in_use: false,
             user_touched: false,
+            loads_committed: 0,
             loads_settled: 0,
             focused: false,
             floating: false,
