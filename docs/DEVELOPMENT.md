@@ -183,8 +183,9 @@ xcrun simctl delete $U
 
 `ios_sim_perf_repeat` repeats the slow paths (`AVEN_IOS_SIM_PERF_REPEAT`
 times). Other agents' builds skew these numbers; alternate before and after
-runs. `AVEN_IOS_SIM_STATS=1` makes Aven Dev log each live view's frame rate,
-main-thread wait and click-to-frame time every five seconds.
+runs. `AVEN_IOS_SIM_STATS=<file>` makes Aven Dev append each live view's frame
+rate, main-thread wait and click-to-frame time to that file every five
+seconds (`1` writes them to standard error).
 
 `npm run check:iphone` checks the real pane in Aven Dev, in a throwaway
 profile with the stand-in `claude`, on a throwaway simulator ("Aven Dev

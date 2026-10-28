@@ -245,6 +245,34 @@ export async function runDevIphoneCheck(
   });
 
   await step(
+    "keys typed in the live screen reach the focused field",
+    async () => {
+      await click(centre(node(await snapshot(), "textField")));
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      // h, i, then Option-E and E: iOS composes the accent itself.
+      await invoke("ios_sim_dev_keys", {
+        id: viewId,
+        keys: [
+          { code: 4, text: "h" },
+          { code: 34, text: "i" },
+          { code: 14, text: "", modifiers: OPTION },
+          { code: 14, text: "é" },
+        ],
+      });
+      const echo = await poll(
+        async () => {
+          const text = await label("echo");
+          return /^Echo: hié$/i.test(text) ? text : null;
+        },
+        10_000,
+        '"Echo: hié"',
+      );
+      await shot("3-typed");
+      return echo;
+    },
+  );
+
+  await step(
     "the live view keeps up with an animation in the app",
     async () => {
       const frames = () =>
@@ -273,34 +301,6 @@ export async function runDevIphoneCheck(
       if (drawn < 10) throw new Error(`The animation did not run: ${rates}`);
       if (shown < drawn * 0.5) throw new Error(`Frames were dropped: ${rates}`);
       return rates;
-    },
-  );
-
-  await step(
-    "keys typed in the live screen reach the focused field",
-    async () => {
-      await click(centre(node(await snapshot(), "textField")));
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      // h, i, then Option-E and E: iOS composes the accent itself.
-      await invoke("ios_sim_dev_keys", {
-        id: viewId,
-        keys: [
-          { code: 4, text: "h" },
-          { code: 34, text: "i" },
-          { code: 14, text: "", modifiers: OPTION },
-          { code: 14, text: "é" },
-        ],
-      });
-      const echo = await poll(
-        async () => {
-          const text = await label("echo");
-          return /^Echo: hié$/i.test(text) ? text : null;
-        },
-        10_000,
-        '"Echo: hié"',
-      );
-      await shot("3-typed");
-      return echo;
     },
   );
 

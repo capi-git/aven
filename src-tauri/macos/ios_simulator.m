@@ -702,7 +702,12 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 @property(nonatomic, strong) CALayer *screenLayer;
 @property(nonatomic, strong) CAShapeLayer *maskLayer;
 @property(nonatomic, strong) NSView<AvenAgentMarker> *marker;
-@property(nonatomic, strong) NSUUID *callbackId;
+// One registration each: SimScreen's callbacks replace a damage callback
+// registered under the same identifier, and the view then never hears of a
+// new frame (it showed the screen only when something else redrew it).
+@property(nonatomic, strong) NSUUID *damageId;
+@property(nonatomic, strong) NSUUID *surfacesId;
+@property(nonatomic, strong) NSUUID *screenId;
 @property(nonatomic, strong) AvenSimFrameSink *sink;
 @property(nonatomic, strong) id<AvenSimDisplay> display;
 @property(nonatomic) AvenSimDisplayInfo info;
@@ -727,10 +732,10 @@ int aven_sim_copy_png(const uint8_t *png, size_t png_len, char *error, size_t er
 
 static NSMutableDictionary<NSString *, AvenSimView *> *gViews;
 
-// AVEN_IOS_SIM_STATS=1: each live view logs its frame rate, how long frames
-// wait for the main thread, and how soon the screen changes after a click,
-// every five seconds, to measure the pane the same way before and after a
-// change.
+// AVEN_IOS_SIM_STATS=1 (or a file path to append to): each live view logs
+// its frame rate, how long frames wait for the main thread, and how soon the
+// screen changes after a click, every five seconds, to measure the pane the
+// same way before and after a change.
 static BOOL StatsEnabled(void) {
   static BOOL enabled;
   static dispatch_once_t once;
@@ -825,10 +830,13 @@ static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RA
   struct tm local;
   char clock[16] = "";
   if (localtime_r(&wall, &local)) strftime(clock, sizeof clock, "%H:%M:%S", &local);
-  fprintf(stderr,
+  const char *target = getenv("AVEN_IOS_SIM_STATS");
+  FILE *file = target && target[0] == '/' ? fopen(target, "a") : NULL;
+  fprintf(file ?: stderr,
           "[iphone %s %s] %.1f frames/s shown of %.1f/s drawn; main-thread wait avg %.2f ms, max %.1f ms%s\n",
           clock, self.viewId.UTF8String ?: "?", _presented / seconds, damage / seconds,
           _waitTotal / MAX(1, _presented), _waitMax, click.UTF8String);
+  if (file) fclose(file);
   _presented = 0;
   _waitTotal = 0;
   _waitMax = 0;
@@ -1118,19 +1126,18 @@ static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RA
 
 - (void)stopFrames {
   id<AvenSimDisplay> display = self.display;
-  NSUUID *callbackId = self.callbackId;
-  if (display && callbackId) {
+  if (display) {
     // Each one alone: a failure must not leave the others registered.
     @try {
-      [display unregisterDamageRectanglesCallbackWithUUID:callbackId];
+      if (self.damageId) [display unregisterDamageRectanglesCallbackWithUUID:self.damageId];
     } @catch (NSException *exception) {
     }
     @try {
-      [display unregisterIOSurfacesChangeCallbackWithUUID:callbackId];
+      if (self.surfacesId) [display unregisterIOSurfacesChangeCallbackWithUUID:self.surfacesId];
     } @catch (NSException *exception) {
     }
     @try {
-      [display unregisterScreenCallbacksWithUUID:callbackId];
+      if (self.screenId) [display unregisterScreenCallbacksWithUUID:self.screenId];
     } @catch (NSException *exception) {
     }
   }
@@ -1138,7 +1145,9 @@ static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RA
   self.framesShown += self.sink.shownTotal;
   self.sink.view = nil;
   self.sink = nil;
-  self.callbackId = nil;
+  self.damageId = nil;
+  self.surfacesId = nil;
+  self.screenId = nil;
   self.display = nil;
   self.live = NO;
 }
@@ -1176,19 +1185,21 @@ static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RA
     }
     self.display = display;
     self.info = info;
-    self.callbackId = [NSUUID UUID];
+    self.damageId = [NSUUID UUID];
+    self.surfacesId = [NSUUID UUID];
+    self.screenId = [NSUUID UUID];
     self.sink = [AvenSimFrameSink new];
     self.sink.view = self;
     self.sink.viewId = self.viewId;
     [self.sink setPaused:![self windowVisible]];
     self.live = YES;
     AvenSimFrameSink *sink = self.sink;
-    [display registerCallbackWithUUID:self.callbackId
+    [display registerCallbackWithUUID:self.damageId
              damageRectanglesCallback:^(NSArray *rects) {
                [sink frameArrived];
              }];
     __weak AvenSimView *weakSelf = self;
-    [display registerCallbackWithUUID:self.callbackId
+    [display registerCallbackWithUUID:self.surfacesId
              ioSurfacesChangeCallback:^(IOSurface *framebuffer, IOSurface *masked) {
                dispatch_async(dispatch_get_main_queue(), ^{
                  AvenSimView *view = weakSelf;
@@ -1200,7 +1211,7 @@ static double NowMs(void) { return (double)clock_gettime_nsec_np(CLOCK_UPTIME_RA
                    [view restartFrames];
                });
              }];
-    [display registerScreenCallbacksWithUUID:self.callbackId
+    [display registerScreenCallbacksWithUUID:self.screenId
                                callbackQueue:dispatch_get_main_queue()
                                frameCallback:^{
                                }
