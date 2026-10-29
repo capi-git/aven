@@ -101,7 +101,7 @@ add_test(NAME browser_actions_menu_controls COMMAND supermono_chromium_browser_a
 add_executable(supermono_chromium_browser_drop_indicator_test EXCLUDE_FROM_ALL
   browser_drop_indicator_test.mm browser_drop_indicator.mm)
 target_compile_options(supermono_chromium_browser_drop_indicator_test PRIVATE -fobjc-arc)
-target_link_libraries(supermono_chromium_browser_drop_indicator_test PRIVATE "-framework Cocoa")
+target_link_libraries(supermono_chromium_browser_drop_indicator_test PRIVATE "-framework Cocoa" "-framework QuartzCore")
 add_test(NAME browser_drop_indicator COMMAND supermono_chromium_browser_drop_indicator_test)
 
 # Aven's in-pane agent pointer: placement, clipping, motion and capture hiding.

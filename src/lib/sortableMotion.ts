@@ -1,5 +1,6 @@
 import { moveItem } from "./reorder";
 import { effectiveCssZoom } from "./drag";
+import { BROWSER_MOVING_ATTRIBUTE } from "./browserOverlays";
 import { motionReduced, playBounded } from "./motion";
 import {
   TAB_CHIP_MAX_WIDTH,
@@ -528,9 +529,8 @@ export class SortableMotion {
     const computed = getComputedStyle(face);
     const element = document.createElement("div");
     element.dataset.sortablePreview = this.source.id;
-    // Native Chromium paints above the app webview. Its existing overlay
-    // observer snapshots only intersecting pages and restores them on removal.
-    element.dataset.nativeBrowserOccluded = "true";
+    // Not an overlay itself: most of its box is empty around the chip. Its
+    // `cut` layer below marks what native pages must leave uncovered.
     element.setAttribute("aria-hidden", "true");
     element.inert = true;
     const width = bounds.width / zoom;
@@ -598,6 +598,22 @@ export class SortableMotion {
     );
     const rest = pill("rest", faceBox, radius, "transparent", "");
     rest.group.style.opacity = "0";
+    // What a native page leaves uncovered for the copy: the face as drawn,
+    // tracked with it (browserOverlays.ts). It paints nothing.
+    const cut = document.createElement("div");
+    cut.dataset.sortableLayer = "cut";
+    cut.dataset.nativeBrowserOccluded = "true";
+    cut.setAttribute(BROWSER_MOVING_ATTRIBUTE, "true");
+    Object.assign(cut.style, {
+      position: "absolute",
+      left: `${faceBox.left}px`,
+      top: `${faceBox.top}px`,
+      width: `${faceBox.width}px`,
+      height: `${faceBox.height}px`,
+      borderRadius: `${radius}px`,
+      transformOrigin: "0 50%",
+      pointerEvents: "none",
+    });
     const lifter = document.createElement("div");
     lifter.dataset.sortableLift = "";
     const grab = {
@@ -620,7 +636,7 @@ export class SortableMotion {
     copy.dataset.sortableCopy = "";
     chip.dataset.sortableChipRow = "chip";
     tiny.dataset.sortableChipRow = "tiny";
-    lifter.append(shadow, faceLayer.group, rest.group, copy, chip, tiny);
+    lifter.append(shadow, cut, faceLayer.group, rest.group, copy, chip, tiny);
     element.append(lifter);
     document.body.append(element);
     // Sized by their contents, once: a layout of two small rows.
@@ -702,6 +718,12 @@ export class SortableMotion {
             {
               transform: `translateX(${left - faceBox.left}px) scaleX(${(right - left) / Math.max(1, faceBox.width)})`,
               opacity: String(clamp01(lift)),
+            },
+          ],
+          [
+            cut,
+            {
+              transform: `translateX(${left - faceBox.left}px) scaleX(${(right - left) / Math.max(1, faceBox.width)})`,
             },
           ],
           ...pillFrames(faceLayer, faceBox, radius, left, right, face),
@@ -902,6 +924,15 @@ export class SortableMotion {
       if (id !== source.id)
         velocity.set(id, this.morph.velocityOf(item.visual));
     this.releasedVelocity = velocity;
+    // Let go, however the drag ended: the copy lands under any native page
+    // it crosses, which is whole again at once.
+    const cut = this.preview?.element.querySelector<HTMLElement>(
+      '[data-sortable-layer="cut"]',
+    );
+    if (cut) {
+      delete cut.dataset.nativeBrowserOccluded;
+      cut.removeAttribute(BROWSER_MOVING_ATTRIBUTE);
+    }
     this.morph.capture(container, nodes, [
       this.torn ? this.torn : entry?.visual,
     ]);
