@@ -563,3 +563,69 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 .crew-settings-field .crew-settings-select {
   max-width: none;
 }
+
+/* Ready-made members: one click adds one; one in the crew is greyed. */
+.crew-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+
+.crew-gallery-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.crew-gallery-item:hover:not([aria-disabled="true"]) {
+  background: var(--aven-fill-quaternary);
+}
+
+.crew-gallery-item[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.crew-gallery-item > .crew-critter-wrap {
+  margin-top: 2px;
+}
+
+.crew-gallery-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-gallery-text strong {
+  font-weight: 500;
+}
+
+.crew-gallery-text small {
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-gallery-text small.crew-gallery-app {
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-settings-heading.crew-blank-heading {
+  margin-top: 14px;
+}
