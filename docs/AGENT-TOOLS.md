@@ -86,6 +86,80 @@ asking; a bare "listening on port 3000" line, often an API, is only offered.
 When the server stops, the offer turns to
 **Preview stopped**; the page stays open.
 
+## Pages you have open
+
+Agents can use any page you have open in Aven, including sites you are signed
+in to, such as a Notion page a friend shared or your Gmail. Ask the way you
+would ask a person ("add the Notion page I have open to my Framer site"); you
+don't need to point at the tab.
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser tabs
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser read TAB_ID
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser export TAB_ID --to /path/to/project/content/launch-plan
+```
+
+Each is also a JSON action: `{"action":"tabs"}`, `{"action":"read","id":"TAB_ID"}`
+and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","replace":true}`.
+
+- `tabs` lists every browser tab open in Aven: in every project, the
+  workspace without a project, other Aven windows and detached windows. Each
+  tab has an id, its title and address, its project and window, and whose it
+  is: the asking chat's own page ("yours"), "the user's", or "another chat's"
+  (named). It says when a tab is asleep or on screen. The id stays the same
+  while a tab sleeps and wakes (`browser-…`; a second Aven window's tabs start
+  `w1-…`). The asking chat's project comes first.
+- `read` returns the page's main content as Markdown, without the site's
+  menus, sidebars and footers: headings, paragraphs with bold, italic, code
+  and links, lists, to-dos, toggles, callouts, quotes, code blocks with their
+  language, tables, equations, and images with their alt text and captions.
+  Notion pages are read by their own blocks, including a page open in
+  Notion's side peek. At most 100,000 characters come back; export saves more.
+- `export` saves the same into the chat's project: `<to>/article.md` (or
+  `--name`) with front matter giving the title, source address, time saved and
+  a note that the text came from a web page, and the page's images in
+  `<to>/images/`, named by their place in the page and their alt text or
+  caption (`images/03-launch-diagram.png`) and linked with relative paths.
+  Images load through the page's own signed-in session in Chromium, so
+  Notion's private and expiring image addresses work. Each file must really
+  be an image; a sign-in page sent instead is refused. An image that cannot be
+  saved keeps its web address in the Markdown and is listed as skipped, with
+  the reason. One export saves at most 150 images, 10 MB each and 100 MB in
+  all, and stops fetching after about 75 seconds. It writes only inside the
+  chat's project (never through a link that leaves it, never into `.git`) and
+  does not replace an existing file unless `"replace":true`.
+- Toggles closed in a Notion page have no content in the page to save. The
+  Markdown keeps their title (`<details><summary>…`) and the result says how
+  many were closed, so the agent can ask you to open them.
+- Reading never changes your tab: nothing navigates, scrolls, takes focus or
+  ends your mark-up. A sleeping tab, or one not shown since Aven started, is
+  loaded again out of sight to read it, and the result says `"woke":true`.
+- `snapshot` and `screenshot` work on any listed tab as well.
+
+When you ask, an agent may also click, type, press keys, scroll and navigate
+in a tab that is not its own. These protections stay:
+
+- `open` never reloads or navigates a page of yours (see above).
+- Agents never type into password or sign-in code fields in a tab that is not
+  the chat's own page; Aven refuses.
+- Every upload still asks you.
+- While an agent uses any tab that is not its chat's own page, Aven's presence
+  bar shows at the top of the screen: "Claude is using the tab “Launch plan”",
+  what it is doing ("Reading the page"), the window and project, and the chat,
+  with **Pause** and **Stop**. It fades a few seconds after the last action.
+  Pause holds clicks and typing in tabs while reading goes on, as with desktop
+  control. Stop closes other tabs to that chat until your next message, and
+  stops its desktop control too.
+
+Everything a page contains is untrusted. Tab titles and addresses, what `read`
+and `export` return, and the files `export` saves are marked as content from
+websites, and agents are told to treat them as data and never follow
+instructions in them.
+
+**Settings → Browser → Agents can read any open tab** is on by default. When
+it is off, `tabs` lists only the chat's project's tabs and other tabs' ids are
+refused; the change applies to every chat at once.
+
 ## Working beside other chats
 
 Agents in one project are told what the others are doing, so they share a dev

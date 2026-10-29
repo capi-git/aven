@@ -1251,8 +1251,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }
     sleep_.Invalidate();
     if (sleep_.closing()) { Result(id_,request,false,Error("This page is going to sleep. Wait for it to reopen.")); return; }
+    // Reading the page (a snapshot or its content) leaves the user's mark-up
+    // as it is; anything that changes the page ends it.
+    const auto dom_action=action=="dom" ? Text(cmd->GetDictionary("request"),"action") : std::string();
     if (edit_annotation_.active && (action=="navigate" || action=="back" ||
-        action=="forward" || action=="reload" || action=="dom" ||
+        action=="forward" || action=="reload" ||
+        (action=="dom" && dom_action!="snapshot" && dom_action!="extract") ||
         action=="scroll" || action=="press" || action=="devtools"))
       EditMode(false);
     if (action=="navigate") { const auto url=Text(cmd,"url"); if (!AllowedUrl(url)) { Result(id_,request,false,Error("Unsupported browser address")); return; } browser_->GetMainFrame()->LoadURL(url); }
@@ -1287,6 +1291,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="snapshot") { Screenshot(request); return; }
     else if (action=="agent-screenshot") { PageScreenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
+    else if (action=="fetch-resource") { FetchResource(request,Text(cmd,"url"),Number(cmd,"maxBytes",0)); return; }
     else if (action=="upload") { Upload(request,cmd); return; }
     // The host stopped waiting for this upload: it must not stay armed.
     else if (action=="upload-cancel") CancelUpload("The upload timed out before a file chooser was answered, so nothing was uploaded.");
@@ -1809,13 +1814,13 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void Dom(const std::string& request,Dict operation) {
     operation=supermono::OwnAgentDomRequest(operation);
     const auto action=Text(operation,"action");
-    if (!operation || (action!="snapshot"&&action!="fill"&&action!="click"&&action!="hover"&&action!="upload-check") ||
+    if (!operation || (action!="snapshot"&&action!="extract"&&action!="fill"&&action!="click"&&action!="hover"&&action!="upload-check") ||
         Json(operation).size()>70000) { Result(id_,request,false,Error("Invalid browser action")); return; }
     if (operation->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(operation->GetDictionary("actor")->Copy(false));
     operation->Remove("actor");
     for (const char *key:{"native","pointer","phase","point"}) operation->Remove(key);
     CefRefPtr<Page> self=this;
-    if (action=="snapshot" || action=="upload-check") {
+    if (action=="snapshot" || action=="extract" || action=="upload-check") {
       RunAgentDom(operation,[self,request](bool ok,Dict result) { Result(self->id_,request,ok,result); });
       return;
     }
@@ -2135,6 +2140,83 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   // copied from its existing view, like element capture, and cropped to the
   // exposed area. A hidden page has nothing on screen to copy; only then use
   // the compositor surface, whose temporary emulation and resize are not visible.
+  // An image (or other file) the page shows, loaded through the page's own
+  // frame: Chromium sends the page's cookies and caches with it, so signed,
+  // expiring and sign-in-gated addresses (Notion's) load as they do for the
+  // page. Nothing changes in the page. The body comes back in base64 chunks,
+  // at most `maxBytes` (10 MB) in all.
+  static constexpr double kMaxResourceBytes=10*1024*1024;
+  void FetchResource(const std::string& request,const std::string& url,double max_bytes) {
+    if ((url.rfind("http://",0)!=0 && url.rfind("https://",0)!=0) || url.size()>16384) {
+      Result(id_,request,false,Error("Only http and https addresses can be loaded")); return;
+    }
+    const size_t limit=(size_t)std::clamp(max_bytes>0 ? max_bytes : kMaxResourceBytes,1.0,kMaxResourceBytes);
+    CefRefPtr<Page> self=this;
+    Dev("Page.getFrameTree",Object(),[self,request,url,limit](bool ok,Dict tree) {
+      auto root=ok ? tree->GetDictionary("frameTree") : nullptr; auto frame=root ? root->GetDictionary("frame") : nullptr;
+      if (Text(frame,"id").empty()) { Result(self->id_,request,false,ok ? Error("The page is still loading. Try again.") : tree); return; }
+      auto params=Object(); params->SetString("frameId",Text(frame,"id")); params->SetString("url",url);
+      auto options=Object(); options->SetBool("disableCache",false); options->SetBool("includeCredentials",true);
+      params->SetDictionary("options",options);
+      self->Dev("Network.loadNetworkResource",params,[self,request,limit](bool ok,Dict loaded) {
+        auto resource=ok ? loaded->GetDictionary("resource") : nullptr;
+        if (!resource) { Result(self->id_,request,false,ok ? Error("Chromium did not load the address") : loaded); return; }
+        const int status=(int)Number(resource,"httpStatusCode",0);
+        const auto handle=Text(resource,"stream");
+        if (!Boolean(resource,"success") || handle.empty()) {
+          const auto reason=Text(resource,"netErrorName");
+          if (!handle.empty()) self->CloseStream(handle);
+          Result(self->id_,request,false,Error(status ? "The site answered HTTP "+std::to_string(status) :
+            "The address could not be loaded"+(reason.empty() ? std::string() : " ("+reason+")")));
+          return;
+        }
+        std::string type;
+        if (auto headers=resource->GetDictionary("headers")) {
+          CefDictionaryValue::KeyList keys; headers->GetKeys(keys);
+          for (const auto& key:keys) {
+            std::string name=key.ToString(); std::transform(name.begin(),name.end(),name.begin(),::tolower);
+            if (name=="content-type") type=Text(headers,key.ToString().c_str()).substr(0,200);
+          }
+        }
+        auto body=std::make_shared<ResourceBody>(); body->status=status; body->type=type; body->limit=limit;
+        self->ReadStream(request,handle,body);
+      });
+    });
+  }
+  struct ResourceBody {
+    int status=0; std::string type; size_t limit=0, bytes=0;
+    std::vector<std::pair<std::string,bool>> chunks;
+  };
+  void CloseStream(const std::string& handle) {
+    auto params=Object(); params->SetString("handle",handle);
+    Dev("IO.close",params,[](bool,Dict) {});
+  }
+  void ReadStream(const std::string& request,const std::string& handle,std::shared_ptr<ResourceBody> body) {
+    CefRefPtr<Page> self=this;
+    // A multiple of three, so each base64 chunk decodes on its own.
+    auto params=Object(); params->SetString("handle",handle); params->SetInt("size",3*256*1024);
+    Dev("IO.read",params,[self,request,handle,body](bool ok,Dict read) {
+      if (!ok) { self->CloseStream(handle); Result(self->id_,request,false,read); return; }
+      auto data=Text(read,"data"); const bool base64=Boolean(read,"base64Encoded");
+      body->bytes+=base64 ? data.size()/4*3 : data.size();
+      if (body->bytes>body->limit) {
+        self->CloseStream(handle);
+        Result(self->id_,request,false,Error("The file is larger than "+std::to_string(body->limit/(1024*1024))+" MB")); return;
+      }
+      const bool done=Boolean(read,"eof") || data.empty();
+      if (!data.empty()) body->chunks.emplace_back(std::move(data),base64);
+      if (!done) { self->ReadStream(request,handle,body); return; }
+      self->CloseStream(handle);
+      auto chunks=CefListValue::Create(); chunks->SetSize(body->chunks.size());
+      for (size_t i=0;i<body->chunks.size();++i) {
+        auto chunk=Object(); chunk->SetString("data",body->chunks[i].first); chunk->SetBool("base64",body->chunks[i].second);
+        chunks->SetDictionary(i,chunk);
+      }
+      auto reply=Object(); reply->SetInt("status",body->status); reply->SetString("contentType",body->type);
+      reply->SetDouble("bytes",(double)body->bytes); reply->SetList("chunks",chunks);
+      Result(self->id_,request,true,reply);
+    });
+  }
   void PageScreenshot(const std::string& request) {
     if (screenshot_running_ || zoom_.pending()) { Result(id_,request,false,Error("The browser is finishing another image or zoom change. Retry shortly.")); return; }
     if (!browser_ || closing_) { Result(id_,request,false,Error("Browser is closed")); return; }

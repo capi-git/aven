@@ -15,6 +15,7 @@ mod browser_agent_dom;
 mod browser_agent_dom;
 #[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
 mod browser_drop_indicator;
+mod browser_export;
 mod panic_log;
 pub use browser_agent::{run_browser_cli, run_desktop_cli, run_simulator_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
@@ -439,6 +440,8 @@ pub fn run() {
             browser_agent::browser_agent_open_result,
             browser_agent::browser_agent_open_file_result,
             browser_agent::browser_agent_wake_result,
+            browser_agent::browser_agent_tabs_result,
+            browser_agent::browser_agent_reach_result,
             browser::browser_create,
             browser::browser_navigate,
             browser::browser_action,

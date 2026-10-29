@@ -157,3 +157,14 @@ target_link_libraries(supermono_chromium_browser_load_signals_test PRIVATE
   "-framework Cocoa" "-framework CoreGraphics" "-framework QuartzCore" "-framework ImageIO"
   "-framework IOSurface" "-framework AVFoundation" "-framework Security"
   "-framework UserNotifications")
+
+# Live: an agent's read and export of a hidden page (its main content, and
+# images loaded through the page's own cookies) in the real bridge.
+# scripts/check-chromium-export.py builds and runs it in a throwaway bundle.
+add_executable(supermono_chromium_browser_export_check_test EXCLUDE_FROM_ALL browser_export_check_test.mm)
+target_compile_options(supermono_chromium_browser_export_check_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_browser_export_check_test PRIVATE
+  supermono_chromium_impl libcef_dll_wrapper ${CEF_STANDARD_LIBS} c++ "-Wl,-ObjC"
+  "-framework Cocoa" "-framework CoreGraphics" "-framework QuartzCore" "-framework ImageIO"
+  "-framework IOSurface" "-framework AVFoundation" "-framework Security"
+  "-framework UserNotifications")

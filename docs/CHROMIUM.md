@@ -160,6 +160,16 @@ node scripts/check-browser-agent.mjs --browser "/path/to/Chromium"
 
 In the packaged app, also verify picking and changing an element, correct screenshot crops at different zoom levels, Escape/Done cancellation, and adding the comment/image to the draft without sending it.
 
+### Reading and saving pages
+
+An agent's `read` and `export` run the agent DOM script's fixed `extract` action in the same isolated world as snapshots: it reads the page's main content (Notion's blocks by their classes, other pages by their HTML) into bounded Markdown with image placeholders, and changes nothing in the page, so it does not end the user's mark-up. `export` then loads each image with the bridge's `fetch-resource` command: CDP `Network.loadNetworkResource` for the page's main frame with credentials included, read back through `IO.read` in base64 chunks of at most 10 MB in all. The request carries the frame's cookies and uses its cache, so signed, expiring and sign-in-gated image addresses load as they do for the page, with no request from Aven's own process. Only `http` and `https` addresses load.
+
+Run the live check after building the wrapper; see [DEVELOPMENT.md](DEVELOPMENT.md#chromium-load-check):
+
+```bash
+./scripts/with-dev-env.sh python3 scripts/check-chromium-export.py
+```
+
 ### Marking up a page
 
 **Mark up** freezes the page behind a still picture and draws over that picture. The `browser_capture` command sends the helper's existing `agent-screenshot` action, so the picture is the same lossless PNG agents get: copied from the shown view without moving or resizing it, cropped to the part the person can see, and bounded to 4096 pixels on an edge and 8 megapixels. The helper refuses while the page is loading or while another capture or zoom change runs; the command turns those refusals into plain advice to try again. Builds without Chromium on macOS use WebKit's PNG snapshot instead, and other platforms do not offer Mark up.

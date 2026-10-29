@@ -46,6 +46,7 @@ pub(crate) const SCREEN_LOCKED: &str = "The Mac is locked. Desktop control is pa
 pub(crate) const SESSION_AWAY: &str = "The user's Mac session is not on screen (another user may be signed in). Desktop control is paused until the user returns; keep working in Aven's browser or code, or wait.";
 pub(crate) const UPLOAD_LOCKED: &str = "The Mac is locked, so Aven cannot ask the user to approve this upload. Nothing was uploaded; keep working, or wait for the user to unlock, then retry.";
 pub(crate) const UPLOAD_AWAY: &str = "The user's Mac session is not on screen, so Aven cannot ask them to approve this upload. Nothing was uploaded; wait for the user to return, then retry.";
+pub(crate) const TABS_STOPPED: &str = "The user pressed Stop while you were using one of their tabs, so tabs that are not this chat's own are closed to you until their next message. Do not retry; ask in the chat.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -175,9 +176,22 @@ pub(crate) enum Step {
     SettingValue,
     SelectingText,
     OpeningMenu,
+    /// In a browser tab that is not the chat's own (see `begin_tab`).
+    ReadingPage,
+    SavingPage,
+    CapturingPage,
+    Navigating,
 }
 
 impl Step {
+    /// Looking only: nothing on the Mac or in a tab changes.
+    pub(crate) fn observes(self) -> bool {
+        matches!(
+            self,
+            Self::Looking | Self::ReadingPage | Self::SavingPage | Self::CapturingPage
+        )
+    }
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Looking => "Looking at the screen",
@@ -191,6 +205,10 @@ impl Step {
             Self::SettingValue => "Setting a value",
             Self::SelectingText => "Selecting text",
             Self::OpeningMenu => "Opening a menu",
+            Self::ReadingPage => "Reading the page",
+            Self::SavingPage => "Saving the page into the project",
+            Self::CapturingPage => "Taking a screenshot of the page",
+            Self::Navigating => "Going to another address",
         }
     }
 
@@ -234,7 +252,7 @@ pub(crate) fn step_for(request: &Request) -> Option<Step> {
 
 /// Input changes the user's desktop (including focus); observation does not.
 pub(crate) fn is_input(request: &Request) -> bool {
-    step_for(request).is_some_and(|step| step != Step::Looking)
+    step_for(request).is_some_and(|step| !step.observes())
 }
 
 /// The app an input action would affect. `key` is a bundle ID when known.
@@ -518,6 +536,8 @@ pub(crate) enum Admission {
 struct Activity {
     scope: String,
     app: Option<String>,
+    /// Where a browser tab is ("Main window · Notes").
+    place: Option<String>,
     step: Step,
     /// The target element's title for element actions.
     element: Option<String>,
@@ -668,6 +688,9 @@ pub(crate) struct Presence {
     /// Declined apps per chat, until the user's next message in that chat.
     denied: HashMap<String, HashSet<String>>,
     stopped: HashSet<String>,
+    /// Chats the user stopped while they used a tab that is not their own:
+    /// such tabs are closed to them until the user's next message.
+    tabs_stopped: HashSet<String>,
     paused: Option<Pause>,
     activity: Option<Activity>,
     prompt: Option<Prompt>,
@@ -688,6 +711,7 @@ impl Presence {
         if let Some(actor) = actor {
             self.actors.insert(scope.into(), actor);
             self.denied.remove(scope);
+            self.tabs_stopped.remove(scope);
         }
     }
 
@@ -698,6 +722,7 @@ impl Presence {
         self.allowed.retain(|id, _| !matches(id));
         self.denied.retain(|id, _| !matches(id));
         self.stopped.retain(|id| !matches(id));
+        self.tabs_stopped.retain(|id| !matches(id));
         if self
             .prompt
             .as_ref()
@@ -898,7 +923,7 @@ impl Presence {
                 .filter(|activity| activity.scope == scope)
                 .and_then(|activity| activity.app.clone())
         });
-        let input = step != Step::Looking;
+        let input = !step.observes();
         if step == Step::Looking && self.paused.is_some() {
             return Ticket {
                 scope: scope.into(),
@@ -909,10 +934,56 @@ impl Presence {
         self.activity = Some(Activity {
             scope: scope.into(),
             app,
+            place: None,
             step,
             element: None,
             input,
             shared_input: true,
+            target_pid: None,
+            in_flight: true,
+            last: now,
+            stopped: false,
+        });
+        Ticket {
+            scope: scope.into(),
+            epoch: self.epoch,
+            input,
+        }
+    }
+
+    /// Whether a chat may use a browser tab that is not its own now. Reading
+    /// goes on while desktop control is paused; acting in the tab waits.
+    pub(crate) fn admit_tab(&self, scope: &str, step: Step) -> Result<(), String> {
+        if self.tabs_stopped.contains(scope) {
+            return Err(TABS_STOPPED.into());
+        }
+        match self.paused {
+            Some(pause) if !step.observes() => Err(pause.message().into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// A chat is using a browser tab that is not its own: the bar names the
+    /// agent, the tab and where it is, with Pause and Stop. The user's own
+    /// mouse and keyboard never pause it (nothing is shared with them).
+    pub(crate) fn begin_tab(
+        &mut self,
+        scope: &str,
+        step: Step,
+        title: &str,
+        place: &str,
+        now: Instant,
+    ) -> Ticket {
+        let title = clean_label(title, TITLE_LIMIT).unwrap_or_else(|| "Untitled".into());
+        let input = !step.observes();
+        self.activity = Some(Activity {
+            scope: scope.into(),
+            app: Some(format!("the tab \u{201c}{title}\u{201d}")),
+            place: clean_label(place, TITLE_LIMIT * 2),
+            step,
+            element: None,
+            input,
+            shared_input: false,
             target_pid: None,
             in_flight: true,
             last: now,
@@ -1088,6 +1159,7 @@ impl Presence {
     /// next check; drags release their button on that error path.
     pub(crate) fn stop(&mut self, scope: &str, now: Instant) {
         self.stopped.insert(scope.into());
+        self.tabs_stopped.insert(scope.into());
         self.allowed.remove(scope);
         self.epoch = self.epoch.wrapping_add(1);
         // A pause caused by the user's own activity existed only to yield to
@@ -1325,10 +1397,11 @@ impl Presence {
             title: format!("{} is using {app}", actor.name),
             detail: {
                 let step = activity.step.describe(activity.element.as_deref());
-                match &actor.title {
-                    Some(title) => format!("{step} \u{b7} {title}"),
-                    None => step,
-                }
+                [Some(step), activity.place.clone(), actor.title.clone()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" \u{b7} ")
             },
             buttons: vec![
                 BarButton {
@@ -2836,5 +2909,74 @@ mod tests {
         // Stop revokes it until the user allows the chat again.
         state.stop("chat", now);
         assert_eq!(state.check(&ticket).unwrap_err(), STOPPED);
+    }
+
+    #[test]
+    fn a_tab_that_is_not_the_chats_own_shows_who_uses_it_and_where() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("claude", Some("Grab the Notion page"))));
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        let ticket = presence.begin_tab(
+            "chat",
+            Step::ReadingPage,
+            "Launch plan \u{202e}evil",
+            "Main window \u{b7} Notes",
+            now,
+        );
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Acting);
+        assert_eq!(
+            bar.title,
+            "Claude is using the tab \u{201c}Launch plan evil\u{201d}"
+        );
+        assert_eq!(
+            bar.detail,
+            "Reading the page \u{b7} Main window \u{b7} Notes \u{b7} Grab the Notion page"
+        );
+        assert!(bar.buttons.iter().any(|button| button.label == "Stop"));
+        // It fades shortly after the read ends.
+        presence.end(&ticket, now);
+        assert!(presence.model(now + IDLE_FADE).is_none());
+        // The user's own typing never pauses it: nothing is shared.
+        presence.begin_tab("chat", Step::Typing, "Form", "Window 2 \u{b7} App", now);
+        for step in 0..40 {
+            let at = now + Duration::from_millis(step * 100);
+            assert_eq!(
+                presence.user_input_in_app(UserEvent::Key, at, None),
+                InputEffect::None
+            );
+        }
+    }
+
+    #[test]
+    fn stop_closes_other_tabs_until_the_users_next_message_and_pause_holds_actions() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("codex", None)));
+        presence.begin_tab(
+            "chat",
+            Step::ReadingPage,
+            "Inbox",
+            "Main window \u{b7} No project",
+            now,
+        );
+        presence.stop("chat", now);
+        for step in [Step::ReadingPage, Step::Clicking] {
+            assert_eq!(presence.admit_tab("chat", step).unwrap_err(), TABS_STOPPED);
+        }
+        assert!(presence.admit_tab("other chat", Step::ReadingPage).is_ok());
+        // A passive rebind keeps it closed; the user's next message opens it.
+        presence.bind("chat", None);
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_err());
+        presence.bind("chat", Some(actor("codex", None)));
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        presence.pause(Pause::ByUser);
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        assert!(presence.admit_tab("chat", Step::SavingPage).is_ok());
+        assert_eq!(
+            presence.admit_tab("chat", Step::Navigating).unwrap_err(),
+            PAUSED_BY_USER
+        );
     }
 }

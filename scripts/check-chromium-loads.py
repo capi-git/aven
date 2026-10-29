@@ -77,13 +77,15 @@ def entitlements(folder, jit):
     return path
 
 
-def bundle(folder, build, cef_root):
-    """The check's executable as an app, with CEF and its five helpers."""
-    app = folder / f'{APP_NAME}.app'
+def bundle(folder, build, cef_root, target=TARGET, app_name=APP_NAME, bundle_id=BUNDLE_ID):
+    """A check's executable as an app, with CEF and its five helpers.
+
+    scripts/check-chromium-export.py bundles its own check the same way."""
+    app = folder / f'{app_name}.app'
     contents = app / 'Contents'
     (contents / 'MacOS').mkdir(parents=True)
-    shutil.copy2(build / TARGET, contents / 'MacOS' / APP_NAME)
-    (contents / 'Info.plist').write_bytes(plist(APP_NAME, BUNDLE_ID))
+    shutil.copy2(build / target, contents / 'MacOS' / app_name)
+    (contents / 'Info.plist').write_bytes(plist(app_name, bundle_id))
     frameworks = contents / 'Frameworks'
     frameworks.mkdir()
     framework = frameworks / 'Chromium Embedded Framework.framework'
@@ -91,7 +93,7 @@ def bundle(folder, build, cef_root):
                     str(framework)], check=True)
     helpers = []
     for suffix, role in HELPERS:
-        name = f'{APP_NAME} Helper{suffix}'
+        name = f'{app_name} Helper{suffix}'
         helper = frameworks / f'{name}.app'
         executable = helper / 'Contents/MacOS' / name
         executable.parent.mkdir(parents=True)
@@ -103,7 +105,7 @@ def bundle(folder, build, cef_root):
             executable.chmod(0o755)
         else:
             shutil.copy2(build / 'Aven Chromium Helper', executable)
-        (helper / 'Contents/Info.plist').write_bytes(plist(name, f'{BUNDLE_ID}.helper.{role}'))
+        (helper / 'Contents/Info.plist').write_bytes(plist(name, f'{bundle_id}.helper.{role}'))
         helpers.append((helper, role in ('gpu', 'renderer')))
     subprocess.run(['xattr', '-cr', str(app)], check=True)
     sign = ['codesign', '--force', '--sign', '-', '--options', 'runtime', '--timestamp=none']
@@ -116,7 +118,7 @@ def bundle(folder, build, cef_root):
                        check=True, capture_output=True)
     subprocess.run(sign + ['--entitlements', str(entitlements(folder, False)), str(app)],
                    check=True, capture_output=True)
-    return contents / 'MacOS' / APP_NAME
+    return contents / 'MacOS' / app_name
 
 
 @contextmanager

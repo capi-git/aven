@@ -1268,6 +1268,39 @@ pub(crate) fn ask_upload(
     })
 }
 
+/// While an agent reads or acts in a browser tab that is not its chat's own
+/// page, Aven's presence bar names the agent and the tab, with Pause and
+/// Stop. Dropping this ends the action; the bar fades shortly after.
+pub(crate) struct TabUse {
+    ticket: presence::Ticket,
+}
+
+impl Drop for TabUse {
+    fn drop(&mut self) {
+        presence::with(|state| state.end(&self.ticket, std::time::Instant::now()));
+        platform::presence_changed();
+    }
+}
+
+/// Starts a chat's use of a tab that is not its own, or refuses it: after
+/// the user pressed Stop on such a use (until their next message), and for
+/// actions in the tab while desktop control is paused. Desktop control's own
+/// switch and permissions are not needed: this only shows the bar.
+pub(crate) fn begin_tab_use(
+    scope: &str,
+    step: presence::Step,
+    title: &str,
+    place: &str,
+) -> Result<TabUse, String> {
+    let ticket = presence::with(|state| {
+        state.admit_tab(scope, step)?;
+        Ok::<_, String>(state.begin_tab(scope, step, title, place, std::time::Instant::now()))
+    })?;
+    // The bar is a courtesy on screen; a Mac without one still reads.
+    let _ = platform::presence_show(None, false);
+    Ok(TabUse { ticket })
+}
+
 /// Binds a chat's scope. `actor` is supplied by the frontend once per user
 /// turn; other rebinds pass None and keep the previous actor.
 pub(crate) fn bind_session(
