@@ -4941,17 +4941,28 @@ mod tests {
         }
         assert!(browser_shorthand(&args(r#"{"action":"tabs"}"#)).is_none());
         // The JSON forms are checked like any other action.
+        // An absolute folder on this platform (Windows needs a drive).
+        let root = if cfg!(windows) { r"C:\p" } else { "/p" };
         for (input, ok) in [
-            (r#"{"action":"tabs"}"#, true),
-            (r#"{"action":"read","id":"browser-0123456789abcdef"}"#, true),
-            (r#"{"action":"export","id":"T","to":"/p","name":"a"}"#, true),
-            (r#"{"action":"export","id":"T","to":"relative"}"#, false),
+            (json!({"action":"tabs"}).to_string(), true),
             (
-                r#"{"action":"export","id":"T","to":"/p","name":"../x"}"#,
+                json!({"action":"read","id":"browser-0123456789abcdef"}).to_string(),
+                true,
+            ),
+            (
+                json!({"action":"export","id":"T","to":root,"name":"a"}).to_string(),
+                true,
+            ),
+            (
+                json!({"action":"export","id":"T","to":"relative"}).to_string(),
+                false,
+            ),
+            (
+                json!({"action":"export","id":"T","to":root,"name":"../x"}).to_string(),
                 false,
             ),
         ] {
-            assert_eq!(cli_request_value(input, false).is_ok(), ok, "{input}");
+            assert_eq!(cli_request_value(&input, false).is_ok(), ok, "{input}");
         }
         assert_eq!(
             cli_reply_wait(&json!({"action":"export"}), false),
