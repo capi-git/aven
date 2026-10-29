@@ -72,6 +72,7 @@ import {
   trackSeparators,
 } from "../lib/tabTrack";
 import { focusPaneContent, workspacePane } from "../lib/paneFocus";
+import { overStrip, stripSlotAt } from "../lib/windowStripSlot";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import { useHostPaneHeader } from "../hooks/usePaneHeader";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -1992,20 +1993,10 @@ function TitleBarComponent({
   const tearSlotAt = (pointerX: number) => {
     const strip = tabStripRef.current;
     if (!strip) return null;
-    const origin = strip.getBoundingClientRect().left - strip.scrollLeft;
     const slots = [
       ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
     ].filter((slot) => !chipGroupId(slot.dataset.motionSlot ?? ""));
-    for (const slot of slots) {
-      const rect = slot.getBoundingClientRect();
-      if (pointerX < rect.left + rect.width / 2)
-        return {
-          before: slot.dataset.motionSlot ?? null,
-          x: rect.left - origin - 1,
-        };
-    }
-    const last = slots[slots.length - 1]?.getBoundingClientRect();
-    return { before: null, x: last ? last.right - origin + 1 : 0 };
+    return stripSlotAt(strip, slots, pointerX);
   };
   /** A single tab of the window's strip: a chat, file, iPhone or page. */
   const stripTab = (id: string) =>
@@ -2352,16 +2343,8 @@ function TitleBarComponent({
     if (titleRow || !acceptsPaneDrops) return;
     return setWindowStripZone({
       slotAt: (x, y) => {
-        const rect = tabStripRef.current?.getBoundingClientRect();
-        if (
-          !rect ||
-          rect.width <= 0 ||
-          x < rect.left ||
-          x > rect.right ||
-          y < rect.top ||
-          y > rect.bottom
-        )
-          return null;
+        const strip = tabStripRef.current;
+        if (!strip || !overStrip(strip, x, y)) return null;
         return { before: tearSlotRef.current(x)?.before ?? null };
       },
       show: (x) => {

@@ -6,7 +6,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { setGrabbing, suppressTextSelection } from "../lib/drag";
+import {
+  clientRectScales,
+  pointInRects,
+  setGrabbing,
+  suppressTextSelection,
+} from "../lib/drag";
 import { moveItem } from "../lib/reorder";
 import { SortableMotion } from "../lib/sortableMotion";
 import type { MorphOrigin } from "../lib/stripMorph";
@@ -493,6 +498,12 @@ export function useSortable(
       let scrollFrame: number | null = null;
       let scrollFallback: ReturnType<typeof setTimeout> | null = null;
       let armTimer: ReturnType<typeof setTimeout> | null = null;
+      // Hit tests compare the pointer with rects as reported: under the
+      // window strip's CSS zoom, older WebKit reports them divided by it.
+      const rectScale = clientRectScales();
+      const stripScale = rectScale(
+        container.current ?? nodes.current.get(id) ?? handle,
+      );
       /** Look again once a drop zone the pointer rests on has armed. */
       const armLater = (wait: number) => {
         if (armTimer !== null) clearTimeout(armTimer);
@@ -514,13 +525,14 @@ export function useSortable(
         // moved it there, else (the strip scrolled under it) now.
         const movedAt = current.at ?? performance.now();
         current.at = null;
-        current.inStrip = inStrip(current.x, current.y, readBounds);
+        const at = pointInRects(current, stripScale);
+        current.inStrip = inStrip(at.x, at.y, readBounds);
         if (current.part && !current.inStrip && !current.torn) {
           current.torn = true;
           setDraggingPartId(current.part.id);
           if (animate) motion.current.tearOff(current.part.element, current);
         }
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
+        current.toIndex = indexAt(id, at.x, at.y, readBounds);
         const delay = dropOnDelayRef.current;
         const armed =
           current.dropTarget?.kind === "tab" ? current.dropTarget.id : null;
@@ -529,8 +541,8 @@ export function useSortable(
             ? null
             : dropTargetAt(
                 id,
-                current.x,
-                current.y,
+                at.x,
+                at.y,
                 readBounds,
                 delay > 0 ? armed : null,
                 current.torn ? current.part?.id : undefined,
@@ -645,28 +657,33 @@ export function useSortable(
           candidates.push(container.current);
         for (const element of candidates) {
           const rect = readBounds(element);
+          const at = pointInRects(current, rectScale(element));
           if (
             rect.width > 0 &&
             rect.height > 0 &&
-            current.x >= rect.left &&
-            current.x <= rect.right &&
-            current.y >= rect.top &&
-            current.y <= rect.bottom
+            at.x >= rect.left &&
+            at.x <= rect.right &&
+            at.y >= rect.top &&
+            at.y <= rect.bottom
           )
-            return { element, rect };
+            return { element, rect, at };
         }
         return null;
       };
-      const scrollSpeed = (element: HTMLElement, rect: DOMRect) => {
+      const scrollSpeed = (
+        element: HTMLElement,
+        rect: DOMRect,
+        at: { x: number; y: number },
+      ) => {
         const current = drag.current;
         if (!current?.active) return 0;
-        const cross = axis === "x" ? current.y : current.x;
+        const cross = axis === "x" ? at.y : at.x;
         if (
           cross < (axis === "x" ? rect.top : rect.left) ||
           cross > (axis === "x" ? rect.bottom : rect.right)
         )
           return 0;
-        const pos = axis === "x" ? current.x : current.y;
+        const pos = axis === "x" ? at.x : at.y;
         const start = axis === "x" ? rect.left : rect.top;
         const end = axis === "x" ? rect.right : rect.bottom;
         if (pos < start || pos > end) return 0;
@@ -692,7 +709,9 @@ export function useSortable(
           scrollFallback = null;
           const readBounds = measureBounds();
           const scroll = scrollContainerAt(readBounds);
-          const speed = scroll ? scrollSpeed(scroll.element, scroll.rect) : 0;
+          const speed = scroll
+            ? scrollSpeed(scroll.element, scroll.rect, scroll.at)
+            : 0;
           let scrolled = false;
           if (scroll && speed) {
             const { element } = scroll;

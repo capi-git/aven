@@ -10,6 +10,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
+import { setCssZoomRectsForTests, type CssZoomRects } from "../lib/drag";
 import {
   useSortable,
   type SortableOptions,
@@ -31,6 +32,13 @@ describe("useSortable external drops and cancellation", () => {
   let reducedMotion: boolean;
   let animationApiAvailable: boolean;
   let geometryReads: Map<string, number>;
+  /**
+   * The CSS zoom the items sit under (the window strip cancels the
+   * interface zoom with one), and how the engine reports their rects:
+   * in the viewport's pixels, or divided by that zoom (legacy WebKit).
+   */
+  let stripZoom: number;
+  let rects: CssZoomRects;
   let renders: number;
   /** The part of an item a press lands on (a split's segment), if any. */
   let partOf: (id: string) => SortablePart | undefined;
@@ -64,20 +72,27 @@ describe("useSortable external drops and cancellation", () => {
                 .slice(0, index)
                 .reduce((total, id) => total + (widths.get(id) ?? 100), 0);
               const size = widths.get(id) ?? 100;
+              Object.defineProperty(element, "currentCSSZoom", {
+                configurable: true,
+                get: () => stripZoom,
+              });
               element.getBoundingClientRect = () => {
                 geometryReads.set(id, (geometryReads.get(id) ?? 0) + 1);
+                // Drawn `stripZoom` times its own size in the viewport.
+                const scale = rects === "legacy" ? 1 : stripZoom;
                 return options.axis === "y"
                   ? new DOMRect(
                       0,
-                      start - (element.parentElement?.scrollTop ?? 0),
-                      30,
-                      size,
+                      (start - (element.parentElement?.scrollTop ?? 0)) * scale,
+                      30 * scale,
+                      size * scale,
                     )
                   : new DOMRect(
-                      start - (element.parentElement?.scrollLeft ?? 0),
+                      (start - (element.parentElement?.scrollLeft ?? 0)) *
+                        scale,
                       0,
-                      size,
-                      30,
+                      size * scale,
+                      30 * scale,
                     );
               };
               element.setPointerCapture = vi.fn();
@@ -138,6 +153,9 @@ describe("useSortable external drops and cancellation", () => {
     reducedMotion = false;
     animationApiAvailable = true;
     geometryReads = new Map();
+    stripZoom = 1;
+    rects = "standard";
+    setCssZoomRectsForTests("standard");
     renders = 0;
     partOf = () => undefined;
     animations = new Map();
@@ -163,6 +181,7 @@ describe("useSortable external drops and cancellation", () => {
     restoreClock();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    setCssZoomRectsForTests(undefined);
   });
 
   /** Lets every landing copy finish: each is bounded by a timer. */
@@ -646,6 +665,63 @@ describe("useSortable external drops and cancellation", () => {
     // Back where it belongs, a sibling keeps its own style.
     expect(visual("session-b").style.transform).toBe("");
   });
+
+  // The window strip cancels the interface zoom with CSS zoom: 1.25 at
+  // 80%, 1/1.2 at 120%. Each 100px tab is that many of the viewport's
+  // pixels, where the pointer is, and older WebKit (macOS 13 to 26) reports
+  // the strip's rects divided by the zoom.
+  const zoomCases = (["standard", "legacy"] as const).flatMap((engine) =>
+    [0.8, 1.2].map((ui) => [engine, ui] as const),
+  );
+  /** Where the strip draws (x, y) of its own, in the viewport's pixels. */
+  const onStrip = (x: number, y = 15) =>
+    [x * stripZoom, y * stripZoom] as const;
+
+  it.each(zoomCases)(
+    "reorders a CSS-zoomed strip where the pointer is, on %s CSS zoom at %s",
+    async (engine, ui) => {
+      stripZoom = 1 / ui;
+      rects = engine;
+      setCssZoomRectsForTests(engine);
+      await act(async () => root.render(createElement(Harness)));
+      await pointer(item(), "pointerdown", ...onStrip(150));
+      // The third tab is 200 to 300 of the strip's own. Over its first
+      // half, low on the 30px strip, the dragged tab stays second.
+      await pointer(window, "pointermove", ...onStrip(224, 27));
+      await flushFrame();
+      expect(sortable.toIndex).toBe(1);
+      // Just past its middle, it goes last.
+      await pointer(window, "pointermove", ...onStrip(262));
+      await flushFrame();
+      expect(sortable.toIndex).toBe(2);
+      await pointer(window, "pointerup", ...onStrip(262));
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["session-a", "session-b", "browser-a"],
+        "browser-a",
+      );
+    },
+  );
+
+  it.each(zoomCases)(
+    "joins the tab whose middle the pointer is on, on %s CSS zoom at %s",
+    async (engine, ui) => {
+      stripZoom = 1 / ui;
+      rects = engine;
+      setCssZoomRectsForTests(engine);
+      options.onDropOnItem = vi.fn();
+      await act(async () => root.render(createElement(Harness)));
+      await pointer(item(), "pointerdown", ...onStrip(150));
+      // The third tab's middle half is 225 to 275 of the strip's own.
+      await pointer(window, "pointermove", ...onStrip(262));
+      await flushFrame();
+      await pointer(window, "pointerup", ...onStrip(262));
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps the floating tab at the grab offset during scrolling and outside the strip", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

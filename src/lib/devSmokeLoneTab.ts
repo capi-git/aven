@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { waitFor } from "./devSmoke";
+import { viewportRect } from "./drag";
 import { loadUiScale } from "./uiScale";
 
 /**
@@ -36,10 +37,15 @@ type LoneTabOptions = {
 
 type Point = { x: number; y: number };
 
-/** The middle of an element, in the page's client pixels. */
-function centre(element: Element): Point {
-  const rect = element.getBoundingClientRect();
-  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+/**
+ * The middle of an element in the viewport's pixels, where a press at it
+ * lands (`dev_smoke_pointer` and `elementFromPoint` take these), on either
+ * kind of CSS zoom: older WebKit reports the rects of the window strip,
+ * which cancels the interface zoom with CSS zoom, divided by that zoom.
+ */
+export function pressPoint(element: HTMLElement): Point {
+  const box = viewportRect(element, element.getBoundingClientRect());
+  return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
 }
 
 /**
@@ -200,7 +206,7 @@ export async function checkLoneTabDrag(
       "a new chat in front",
     );
     const chatBody = () =>
-      document.querySelector(
+      document.querySelector<HTMLElement>(
         `[data-workspace-surface="${CSS.escape(chat)}"] > [data-workspace-body]`,
       );
     /** The page alone in a pane right of the chat: its header is its toolbar. */
@@ -233,7 +239,7 @@ export async function checkLoneTabDrag(
         5_000,
         "the page's title in its pane's header",
       );
-      const from = centre(field);
+      const from = pressPoint(field);
       dragging = true;
       try {
         await drag(from, dragPath(from, to));
@@ -255,7 +261,7 @@ export async function checkLoneTabDrag(
 
     // A click that never moves edits the address, as before.
     field = titleField(pageId) ?? field;
-    const atTitle = centre(field);
+    const atTitle = pressPoint(field);
     await drag(atTitle, []);
     await waitFor(
       () =>
@@ -288,7 +294,7 @@ export async function checkLoneTabDrag(
     // By its title into the middle of the chat's pane: they share it.
     body = chatBody();
     if (!body) throw new Error("the chat's pane is not on screen");
-    await dragTitle(centre(body));
+    await dragTitle(pressPoint(body));
     await waitFor(
       () => !joinedProblem(panes(), chat, pageId),
       5_000,
