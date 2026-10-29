@@ -50,6 +50,12 @@ export type SessionPermissions = {
    */
   readOnly?: boolean;
   /**
+   * Commands never run outside the sandbox, and never ask to (a bot's or a
+   * crew's chat). Claude gets it through `sandbox`; Codex runs the chat in
+   * its workspace sandbox with approvals off, so nothing escalates.
+   */
+  noEscalation?: boolean;
+  /**
    * No MCP servers: the agent launches with an empty, strict MCP config, so
    * nothing the user connected elsewhere can act for a bot.
    */
@@ -164,6 +170,7 @@ export function permissionRulesKey(
         permissions.rules.deny ?? [],
         permissions.sandbox ?? null,
         permissions.readOnly ?? false,
+        permissions.noEscalation ?? false,
         permissions.noMcp ?? false,
         permissions.workFolder ?? "",
       ])

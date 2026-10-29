@@ -60,12 +60,26 @@ export const CODEX_READ_ONLY_CONFIG: CodexThreadConfig = {
   sandboxPolicy: { type: "readOnly" },
 };
 
+/**
+ * A chat whose commands must never leave the sandbox (a crew's Builder on
+ * Codex): it writes only in its working folder and the temp folder, with no
+ * network, and approvals are off, so nothing escalates or asks.
+ */
+export const CODEX_NO_ESCALATION_CONFIG: CodexThreadConfig = {
+  approvalPolicy: "never",
+  sandbox: "workspace-write",
+  approvalsReviewer: "user",
+  sandboxPolicy: { type: "workspaceWrite" },
+};
+
 export function runtimeModeToCodexConfig(
   mode: RuntimeMode,
   controlsAgents?: boolean,
   readOnly?: boolean,
+  noEscalation?: boolean,
 ): CodexThreadConfig {
   if (readOnly) return CODEX_READ_ONLY_CONFIG;
+  if (noEscalation) return CODEX_NO_ESCALATION_CONFIG;
   return withNetwork(baseCodexConfig(mode), controlsAgents);
 }
 
@@ -108,6 +122,8 @@ export function buildThreadStartParams(input: {
   controlsAgents?: boolean;
   /** Read-only, whatever the mode (see `CODEX_READ_ONLY_CONFIG`). */
   readOnly?: boolean;
+  /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
+  noEscalation?: boolean;
   model?: string;
   serviceTier?: string;
   /** Merged host/config instructions; isolated text helpers leave this unset. */
@@ -117,6 +133,7 @@ export function buildThreadStartParams(input: {
     input.runtimeMode,
     input.controlsAgents,
     input.readOnly,
+    input.noEscalation,
   );
   return {
     cwd: input.cwd,
@@ -208,6 +225,8 @@ export function buildTurnStartParams(input: {
   controlsAgents?: boolean;
   /** Read-only, whatever the mode or intent (see `CODEX_READ_ONLY_CONFIG`). */
   readOnly?: boolean;
+  /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
+  noEscalation?: boolean;
   prompt?: string;
   attachments?: CodexAttachmentInput[];
   model?: string;
@@ -234,7 +253,9 @@ export function buildTurnStartParams(input: {
           },
           input.controlsAgents,
         )
-      : runtimeConfig;
+      : input.noEscalation
+        ? CODEX_NO_ESCALATION_CONFIG
+        : runtimeConfig;
   const turnInput: Array<Record<string, unknown>> = [];
   if (input.prompt) {
     turnInput.push({ type: "text", text: input.prompt });

@@ -59,6 +59,11 @@ import {
 function readOnlyChat(sessionId: string): boolean {
   return sessionPermissions(sessionId)?.readOnly === true;
 }
+
+/** A chat whose commands never leave the sandbox (a crew's Builder), whatever its mode says. */
+function noEscalationChat(sessionId: string): boolean {
+  return sessionPermissions(sessionId)?.noEscalation === true;
+}
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -508,6 +513,7 @@ function toolsKey(sessionId: string): string {
   return JSON.stringify([
     permissions?.noMcp === true,
     permissions?.readOnly === true,
+    permissions?.noEscalation === true,
     permissionRulesKey(permissions),
   ]);
 }
@@ -694,6 +700,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
             runtimeMode: input.runtimeMode,
             controlsAgents: input.controlsAgents,
             readOnly: readOnlyChat(input.sessionId),
+            noEscalation: noEscalationChat(input.sessionId),
             model,
             serviceTier,
           }),
@@ -713,6 +720,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
               runtimeMode: input.runtimeMode,
               controlsAgents: input.controlsAgents,
               readOnly: readOnlyChat(input.sessionId),
+              noEscalation: noEscalationChat(input.sessionId),
               model,
               serviceTier,
             }),
@@ -745,6 +753,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
           runtimeMode: input.runtimeMode,
           controlsAgents: input.controlsAgents,
           readOnly: readOnlyChat(input.sessionId),
+          noEscalation: noEscalationChat(input.sessionId),
           model,
           serviceTier,
         }),
@@ -837,6 +846,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     runtimeMode: input.runtimeMode,
     controlsAgents: input.controlsAgents,
     readOnly: readOnlyChat(input.sessionId),
+    noEscalation: noEscalationChat(input.sessionId),
     prompt: text.trim() || undefined,
     attachments,
     model,
