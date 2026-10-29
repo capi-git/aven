@@ -8,6 +8,7 @@ import {
 } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useWorkspaceViews } from "./hooks/useWorkspaceViews";
+import type { SortablePointerPosition } from "./hooks/useSortable";
 import { useUtilityViews } from "./hooks/useUtilityViews";
 import { whenIdle } from "./lib/idle";
 import {
@@ -111,6 +112,7 @@ import {
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
 import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
+import { useInboxReviewCount } from "./hooks/useAutomationChats";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
@@ -156,7 +158,9 @@ import {
 } from "./lib/workspaceIntents";
 import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
+  addStripPane,
   entryKey,
+  insertStripPane,
   isSpaceKey,
   spacePanes,
   stepStripEntry,
@@ -167,8 +171,10 @@ import {
   stripCombineUndo,
   stripDropKeeps,
   stripItems,
+  stripView,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
+  type WorkspaceStrip,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
@@ -287,15 +293,29 @@ import {
   type RaceWorkspace,
 } from "./lib/race";
 import {
-  finalAssistantText,
+  automationNoticeChatId,
+  automationRunTarget,
+  chatsToArchive,
+  getScheduledAgent,
   getScheduledRun,
+  listScheduledRuns,
+  markRunOpenedAsChat,
+  onScheduledRunsTrimmed,
+  requestAutomationRun,
   requestScheduleEditor,
-  runSummary,
-  saveScheduledRun,
-  scheduledAgentProblem,
-  updateScheduledRun,
+  subscribeScheduledRuns,
+  withoutAutomationChats,
   type ScheduledAgent,
+  type ScheduledRun,
 } from "./lib/scheduledAgents";
+import {
+  automationChatTitle,
+  canAnswerCard,
+  continueAutomationRun,
+  startAutomationRun,
+  type AutomationRunNotice,
+} from "./lib/automationRuns";
+import { reviewHeading } from "./lib/automationReview";
 import {
   DEV_PALETTE_COMMANDS,
   PALETTE_COMMANDS,
@@ -1226,7 +1246,25 @@ export default function App({
   const startScheduledAgentRef = useRef<(agent: ScheduledAgent) => void>(
     () => {},
   );
-  useScheduledAgents((agent) => startScheduledAgentRef.current(agent));
+  // Runs given up on (no reply in four hours) are news, as a failure is.
+  const announceAutomationRunRef = useRef<
+    (notice: AutomationRunNotice) => void
+  >(() => {});
+  useScheduledAgents(
+    (agent) => startScheduledAgentRef.current(agent),
+    undefined,
+    (runs) => {
+      for (const run of runs)
+        announceAutomationRunRef.current({ kind: "failed", run });
+    },
+  );
+  const automationReviewActionRef = useRef<
+    (run: ScheduledRun) => Promise<void>
+  >(async () => {});
+  const reviewAnswersInFlight = useRef(new Set<string>());
+  const showAutomationRunRef = useRef<(runId: string) => Promise<boolean>>(
+    async () => false,
+  );
   useAutomationsKeepAwake();
   const onRaceFromChat = useCallback(
     (
@@ -1723,9 +1761,29 @@ export default function App({
     if (!result.snapshot) return;
     recoveryRef.current = result.state;
     setRecovery(result.state);
+    // A drop that reshaped the strip puts the whole strip back.
+    if (result.strip) {
+      viewRef.current.restoreStrip(result.strip);
+      return;
+    }
     // The change belongs to the entry it was made in, which comes to the
     // front for it. With none of that entry's tabs left, nothing changes.
     viewRef.current.undoLayout(result.snapshot, result.entry);
+  }, []);
+  /**
+   * Remember the whole strip before a drop on it that reshapes it, so Undo
+   * layout puts it back.
+   */
+  const pushStripUndo = useCallback((strip: WorkspaceStrip) => {
+    const next = pushWorkspaceLayoutUndo(
+      recoveryRef.current,
+      workspaceKeyRef.current,
+      stripView(strip),
+      strip.front,
+      strip,
+    );
+    recoveryRef.current = next;
+    setRecovery(next);
   }, []);
   const onKeepBrowser = useCallback((surfaceId: string) => {
     const cwd = projectCwdRef.current;
@@ -1776,6 +1834,7 @@ export default function App({
           workspaceKeyRef.current,
           undo.view,
           undo.entry,
+          undo.strip,
         );
         recoveryRef.current = next;
         setRecovery(next);
@@ -1877,17 +1936,30 @@ export default function App({
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
   const surfaceDropRef = useRef<WorkspaceSurfaceDropTarget | null>(null);
-  const onSurfaceDragMove = useCallback((id: string, x: number, y: number) => {
-    const stage = document.querySelector<HTMLElement>("[data-workspace-stage]");
-    const target = stage
-      ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
-      : null;
-    surfaceDropRef.current = target;
-    setSurfaceDragging(true);
-    setSurfaceDrop((previous) =>
-      JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
-    );
-  }, []);
+  const onSurfaceDragMove = useCallback(
+    (
+      id: string,
+      x: number,
+      y: number,
+      _pointer?: SortablePointerPosition,
+      // A tab it rests on elsewhere takes it: no pane does.
+      taken = false,
+    ) => {
+      const stage = document.querySelector<HTMLElement>(
+        "[data-workspace-stage]",
+      );
+      const target =
+        stage && !taken
+          ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
+          : null;
+      surfaceDropRef.current = target;
+      setSurfaceDragging(true);
+      setSurfaceDrop((previous) =>
+        JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
+      );
+    },
+    [],
+  );
   const onSurfaceDragEnd = useCallback(
     (id: string, x: number, y: number, cancelled: boolean) => {
       const stage = document.querySelector<HTMLElement>(
@@ -3488,6 +3560,34 @@ export default function App({
     [discussionList, panelChats],
   );
 
+  const scheduledRuns = useSyncExternalStore(
+    subscribeScheduledRuns,
+    listScheduledRuns,
+  );
+  const runningAutomationChats = useMemo(
+    () =>
+      scheduledRuns.flatMap((run) =>
+        run.status === "running" && run.sessionId ? [run.sessionId] : [],
+      ),
+    [scheduledRuns],
+  );
+  // A run let go of (its automation has too many) leaves its chat archived,
+  // not back among the project's chats, which it never was in. A chat that
+  // is open (a tab, or loaded for a turn) is left as it is, and so is any
+  // chat from before runs stayed in Automations (see `chatsToArchive`).
+  useEffect(
+    () =>
+      onScheduledRunsTrimmed((dropped) => {
+        const open = new Set([
+          ...openSessionIds(tabsRef.current),
+          ...sessionsRef.current.map((session) => session.id),
+        ]);
+        for (const id of chatsToArchive(dropped, open))
+          void setSessionArchived(id, true).catch(() => {});
+      }),
+    [sessionsRef],
+  );
+
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
@@ -3512,6 +3612,9 @@ export default function App({
         ...sessions
           .filter((session) => !session.blocks.length && isBotChat(session.id))
           .map((session) => session.id),
+        // An automation run's chat has no tab: it stays loaded while the
+        // run works, then is parked like any chat.
+        ...runningAutomationChats,
       ],
     );
     const keepUnseen = liveAgentsEnabled;
@@ -3551,6 +3654,7 @@ export default function App({
     orchestrationRuns,
     keptDiscussionKey,
     botWorkingChats,
+    runningAutomationChats,
   ]);
 
   const activateTab = useCallback(
@@ -5441,6 +5545,14 @@ export default function App({
 
   const onSelectHistorySession = useCallback(
     async (sessionId: string) => {
+      // Home, the palette, search or any other list: a run's own chat (or
+      // the notice of a run that never started) opens in Automations, under
+      // its run, never as a tab.
+      const automationRun = automationRunTarget(sessionId);
+      if (automationRun) {
+        void showAutomationRunRef.current(automationRun);
+        return;
+      }
       const currentIntent = beginNavigation();
       clearReturnFocus();
       if (await activityWindowBridgeRef.current.showSession?.(sessionId))
@@ -8705,8 +8817,39 @@ export default function App({
     [enqueueHarnessEvent, flushHarnessEvents, onSubmit],
   );
 
+  /**
+   * Shows one automation run in Automations: where Activity, a banner or the
+   * Inbox take you for a run's chat, which has no tab of its own.
+   */
+  const showAutomationRun = useCallback(
+    async (runId: string): Promise<boolean> => {
+      requestAutomationRun(runId);
+      flushSync(() => {
+        setHomeViewOpen(false);
+        leaveExpandedPreview();
+        onOpenAutomations();
+      });
+      try {
+        const appWindow = getCurrentWindow();
+        await appWindow.unminimize();
+        await appWindow.show();
+        await appWindow.setFocus();
+      } catch {
+        // The view is open; a window that cannot be raised stays where it is.
+      }
+      return true;
+    },
+    [leaveExpandedPreview, onOpenAutomations, setHomeViewOpen],
+  );
+
+  showAutomationRunRef.current = showAutomationRun;
+
   const onOpenApprovalSession = useCallback(
     async (sessionId: string): Promise<boolean> => {
+      // A run's chat stays in Automations until it is opened as a chat, and
+      // a notice for a run that never started shows that run.
+      const automationRun = automationRunTarget(sessionId);
+      if (automationRun) return showAutomationRun(automationRun);
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
@@ -8747,7 +8890,21 @@ export default function App({
       focusOpenSession,
       onSelectHistorySession,
       leaveExpandedPreview,
+      showAutomationRun,
     ],
+  );
+
+  /**
+   * Open as chat: the run's chat becomes an ordinary chat, listed with the
+   * project's chats, and opens in a tab to continue.
+   */
+  const onOpenRunAsChat = useCallback(
+    (run: ScheduledRun): Promise<boolean> => {
+      if (!run.sessionId) return Promise.resolve(false);
+      markRunOpenedAsChat(run.id);
+      return onOpenApprovalSession(run.sessionId);
+    },
+    [onOpenApprovalSession],
   );
 
   useEffect(() => {
@@ -9880,10 +10037,13 @@ export default function App({
         name: projectDisplayName(project.path, labelsForPalette),
       }))
     : [];
+  // A run's own chat is in Automations, not among the palette's chats.
   const paletteChats: PaletteChat[] = paletteOpen
-    ? conversationRowsFrom(
-        history,
-        sessions.filter((session) => !session.inboxAsk),
+    ? withoutAutomationChats(
+        conversationRowsFrom(
+          history,
+          sessions.filter((session) => !session.inboxAsk),
+        ),
       ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
     : [];
   const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
@@ -10107,57 +10267,90 @@ export default function App({
     return true;
   };
   startRaceRef.current = startRace;
-  /** Opens behind the user: no tab, project or focus change. */
-  const startScheduledAgent = async (agent: ScheduledAgent) => {
-    const run = {
-      id: crypto.randomUUID(),
-      scheduleId: agent.id,
-      name: agent.name,
-      project: agent.project,
-      summary: "",
-      startedAt: Date.now(),
-    };
-    const problem = await scheduledAgentProblem(agent);
-    if (problem) {
-      saveScheduledRun({
-        ...run,
-        status: "failed",
-        error: problem,
-        finishedAt: Date.now(),
-      });
-      return;
-    }
-    const session: Session = {
-      ...newSession(
-        agent.harness,
-        agent.project,
-        agent.model,
-        agent.runtimeMode,
-      ),
-      title: `Scheduled · ${agent.name}`,
-    };
-    setSessions((previous) => [...previous, session]);
-    appendTab(newTab(session.id), agent.project);
-    saveScheduledRun({ ...run, sessionId: session.id, status: "running" });
-    submitManagedTurn(
-      (settle) => onSubmit(session.id, agent.prompt, [], { onSettled: settle }),
-      (outcome) => {
-        if (!getScheduledRun(run.id)) return;
-        const finished = sessionsRef.current.find(
-          (item) => item.id === session.id,
-        );
-        updateScheduledRun(run.id, {
-          status: outcome.status,
-          summary: runSummary(
-            finalAssistantText(finished?.blocks ?? []) || outcome.text,
-          ),
-          error: outcome.error,
-          finishedAt: Date.now(),
-        });
+  /**
+   * A run you hear about: it failed, or it left a card to review. Its own
+   * turn posts nothing (see `startAutomationRun`), so this is its one entry.
+   */
+  const announceAutomationRun = ({
+    kind,
+    run,
+    session,
+  }: AutomationRunNotice) => {
+    // A run that could not start has no chat: its entry names the run, and
+    // opening it shows the run (see `onOpenApprovalSession`).
+    const agent = getScheduledAgent(run.scheduleId);
+    const chat = noticeChat(
+      session?.id ?? run.sessionId ?? automationNoticeChatId(run.id),
+      {
+        harness: session?.harness ?? agent?.harness ?? "claude",
+        cwd: run.project || "~",
+        title: session?.title ?? automationChatTitle(run),
+        model: session?.model ?? agent?.model,
       },
     );
+    if (!chat) return;
+    announceActivity(
+      chat,
+      kind === "failed"
+        ? {
+            id: `${chat.id}:automation:${run.id}:failed:${run.finishedAt ?? 0}`,
+            outcome: "failed",
+            summary: run.error || run.summary || "The run failed.",
+          }
+        : {
+            id: `${chat.id}:automation:${run.id}:review:${run.review?.postedAt ?? 0}`,
+            outcome: "completed",
+            summary: run.review
+              ? `${reviewHeading(run.review)}: ${run.review.title}`
+              : run.summary,
+          },
+    );
   };
+  announceAutomationRunRef.current = announceAutomationRun;
+  /**
+   * Starts a run behind the user: its chat gets no tab, stays out of the
+   * chats list and changes no project or focus. It is in Automations.
+   */
+  const startScheduledAgent = (agent: ScheduledAgent) =>
+    startAutomationRun(agent, {
+      noProjectFolder: async () =>
+        (await ensureProjectlessWorkspace(profilesRef.current.activeProfileId))
+          .cwd,
+      addChat: (session) => setSessions((previous) => [...previous, session]),
+      submit: (session, turn, settle) =>
+        onSubmit(session.id, turn.text, [], {
+          displayText: turn.displayText,
+          quiet: true,
+          onSettled: settle,
+        }),
+      blocks: (id) =>
+        sessionsRef.current.find((item) => item.id === id)?.blocks,
+      notify: announceAutomationRun,
+    });
   startScheduledAgentRef.current = (agent) => void startScheduledAgent(agent);
+  /**
+   * A card's button: Aven's answer for the card's kind goes to the run's
+   * chat, in Automations. Once per card, and never while the chat works.
+   */
+  automationReviewActionRef.current = async (run: ScheduledRun) => {
+    if (reviewAnswersInFlight.current.has(run.id)) return;
+    if (!canAnswerCard(getScheduledRun(run.id)) || !run.sessionId) return;
+    reviewAnswersInFlight.current.add(run.id);
+    try {
+      const session = await ensureOpenSession(run.sessionId);
+      if (!session || session.busy || session.queuedMessages?.length) return;
+      continueAutomationRun(run.id, {
+        session,
+        submit: (id, text, settle) =>
+          onSubmit(id, text, [], { quiet: true, onSettled: settle }),
+        blocks: (id) =>
+          sessionsRef.current.find((item) => item.id === id)?.blocks,
+        notify: announceAutomationRun,
+      });
+    } finally {
+      reviewAnswersInFlight.current.delete(run.id);
+    }
+  };
   /** The race's overview tab, opened or brought forward in its project. */
   const showRaceOverview = (raceId: string) => {
     const race = getRace(raceId);
@@ -10687,6 +10880,8 @@ export default function App({
   }, [botStore, releaseBotChat]);
 
   const automationsUnread = useUnreadAutomationRuns();
+  // The Inbox lists these projects' cards, with its own filters.
+  const inboxCount = useInboxReviewCount(recents, sidebarCwd);
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -10804,6 +10999,7 @@ export default function App({
     onOpenHome,
     homeActive: homeShown,
     automationsUnread,
+    inboxCount,
     notesEnabled,
     projectRailOpen,
     onToggleProjectRail,
@@ -11189,6 +11385,7 @@ export default function App({
         }),
         focusedId: entry.view.focusedId,
         closable: ![...members].some(isChat) || !!chatOutside(members),
+        members: [...members],
       },
     ];
   });
@@ -11315,10 +11512,20 @@ export default function App({
           visibleIds: [strip.front],
           // One click on a segment: the split, that pane and that tab.
           onSelectSplitTab: onSelectSurface,
-          // A page moved into a split's pane is kept, as on the stage.
-          onAddToSplit: (key, id) => {
+          // A page moved into a split's pane is kept, as on the stage. Let
+          // go on a segment, it stands beside that segment's pane.
+          // Undo layout puts the strip back as it was.
+          onAddToSplit: (key, id, beside) => {
+            const before = viewRef.current.strip;
+            const next = beside
+              ? insertStripPane(before, key, id, beside.pane, beside.side)
+              : addStripPane(before, key, id);
+            if (next === before) return;
+            pushStripUndo(before);
             stripDropKeeps(key, id).forEach(onKeepBrowser);
-            workspaceViews.addPane(key, id);
+            if (beside)
+              workspaceViews.insertPane(key, id, beside.pane, beside.side);
+            else workspaceViews.addPane(key, id);
           },
           onCombineTabs: onCombineOnStrip,
           onDetachFromSplit: (id, before) => workspaceViews.detach(id, before),
@@ -11590,6 +11797,15 @@ export default function App({
                                     frontOwnHeader: titleRowOf(owner).lend,
                                     frontNamed: frontNamed(owner),
                                     onDropOnStrip,
+                                    // A tab let go on the middle of one of
+                                    // this pane's tabs, from any bar, stands
+                                    // beside it in a pane of its own.
+                                    onPairTabs: (target, dragged) =>
+                                      onWorkspaceIntent({
+                                        type: "pair",
+                                        id: dragged,
+                                        target,
+                                      }),
                                     ...paneTitleTools(owner),
                                   }),
                                 }))}
@@ -11826,6 +12042,12 @@ export default function App({
                           onAsk={onAskInboxItem}
                           onAskRestart={onRestartInboxAsk}
                           onAskMount={setInboxAskPortal}
+                          onReviewAction={(run) =>
+                            automationReviewActionRef.current(run)
+                          }
+                          onOpenAutomationRun={(id) =>
+                            void showAutomationRun(id)
+                          }
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -11841,7 +12063,12 @@ export default function App({
                           onRunAutomation={(agent) =>
                             startScheduledAgentRef.current(agent)
                           }
-                          onOpenChat={onOpenApprovalSession}
+                          onOpenRunAsChat={onOpenRunAsChat}
+                          onApproval={onApproval}
+                          onStopRun={onStop}
+                          onReviewAction={(run) =>
+                            automationReviewActionRef.current(run)
+                          }
                         />
                       </LazyViewSlot>
                     ) : null}

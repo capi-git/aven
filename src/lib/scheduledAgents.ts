@@ -8,12 +8,17 @@ import {
 import { resolveModel } from "./models";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { HARNESSES, type Block, type HarnessId } from "./session";
+import {
+  normalizeAutomationReview,
+  type AutomationReview,
+} from "./automationReview";
 
 /**
- * A scheduled agent starts an ordinary chat on a timetable while Aven is
- * running. Schedules and their run history live in local storage, shared by
- * every Aven window; `claimScheduledSlot` makes sure only one window fires
- * each due time.
+ * A scheduled agent starts a chat on a timetable while Aven is running. The
+ * chat belongs to the run: it stays inside Automations, out of the chats
+ * list and the tabs, until you open it as a chat. Schedules and their run
+ * history live in local storage, shared by every Aven window;
+ * `claimScheduledSlot` makes sure only one window fires each due time.
  */
 export type ScheduleRule =
   /** `days` are 0 (Sunday) to 6; `time` is local "HH:MM". */
@@ -24,6 +29,7 @@ export type ScheduledAgent = {
   id: string;
   name: string;
   prompt: string;
+  /** Project folder; empty for an automation that is in no project. */
   project: string;
   harness: HarnessId;
   model: string;
@@ -51,11 +57,32 @@ export type ScheduledRun = {
   error?: string;
   startedAt: number;
   finishedAt?: number;
+  /**
+   * When its latest turn started: the run's own, or a later one sent from
+   * its card. A turn is given up on four hours after this, not after the
+   * run started.
+   */
+  turnStartedAt?: number;
+  /**
+   * The run's chat stays in Automations: set on every run started since runs
+   * stayed there. Runs from before keep their chats where they were, among
+   * the project's chats.
+   */
+  inAutomations?: true;
+  /**
+   * You chose Open as chat: the run's chat is an ordinary chat from then on,
+   * listed with the project's chats. Until then it is the run's alone.
+   */
+  openedAsChat?: true;
+  /** Something the run left for you to review or publish (the Inbox card). */
+  review?: AutomationReview;
 };
 
 export const SCHEDULE_MIN_HOURS = 1;
 export const SCHEDULE_MAX_HOURS = 24;
-export const SCHEDULED_RUN_LIMIT = 100;
+/** Runs kept in all, and for each automation; older ones are let go. */
+export const SCHEDULED_RUN_LIMIT = 300;
+export const SCHEDULED_RUNS_PER_AUTOMATION = 50;
 export const SCHEDULED_SUMMARY_LIMIT = 600;
 /** A run that has not settled after this long is recorded as failed. */
 export const SCHEDULED_RUN_TIMEOUT_MS = 4 * 60 * 60 * 1000;
@@ -273,6 +300,7 @@ export function normalizeScheduledRun(value: unknown): ScheduledRun | null {
     !Number.isFinite(run.startedAt)
   )
     return null;
+  const review = normalizeAutomationReview(run.review);
   return {
     id: run.id,
     scheduleId: run.scheduleId,
@@ -288,16 +316,42 @@ export function normalizeScheduledRun(value: unknown): ScheduledRun | null {
     ...(typeof run.finishedAt === "number" && Number.isFinite(run.finishedAt)
       ? { finishedAt: run.finishedAt }
       : {}),
+    ...(typeof run.turnStartedAt === "number" &&
+    Number.isFinite(run.turnStartedAt)
+      ? { turnStartedAt: run.turnStartedAt }
+      : {}),
+    ...(run.inAutomations === true ? { inAutomations: true as const } : {}),
+    ...(run.openedAsChat === true ? { openedAsChat: true as const } : {}),
+    ...(review ? { review } : {}),
   };
 }
 
-/** Newest first, at most `SCHEDULED_RUN_LIMIT`. */
+/**
+ * Newest first: at most `SCHEDULED_RUNS_PER_AUTOMATION` runs kept in
+ * Automations for each automation, so a busy one never pushes a quiet one's
+ * runs out, and at most `SCHEDULED_RUN_LIMIT` in all. A run still running,
+ * or with a card waiting for you, is always kept. Runs from before runs
+ * stayed in Automations count only towards the overall limit, which is
+ * above the 100 an earlier Aven kept.
+ */
 export function trimScheduledRuns(
   runs: readonly ScheduledRun[],
 ): ScheduledRun[] {
-  return [...runs]
-    .sort((a, b) => b.startedAt - a.startedAt)
-    .slice(0, SCHEDULED_RUN_LIMIT);
+  const perAutomation = new Map<string, number>();
+  const kept: ScheduledRun[] = [];
+  for (const run of [...runs].sort((a, b) => b.startedAt - a.startedAt)) {
+    const pinned = run.status === "running" || run.review?.status === "open";
+    const count = perAutomation.get(run.scheduleId) ?? 0;
+    if (
+      !pinned &&
+      ((run.inAutomations && count >= SCHEDULED_RUNS_PER_AUTOMATION) ||
+        kept.length >= SCHEDULED_RUN_LIMIT)
+    )
+      continue;
+    if (run.inAutomations) perAutomation.set(run.scheduleId, count + 1);
+    kept.push(run);
+  }
+  return kept;
 }
 
 /** The opening of the agent's final reply, short enough for a list. */
@@ -458,13 +512,27 @@ export function getScheduledRun(id: string): ScheduledRun | undefined {
   return runs.read().find((run) => run.id === id);
 }
 
+type TrimmedRunsListener = (runs: ScheduledRun[]) => void;
+const trimmedRunListeners = new Set<TrimmedRunsListener>();
+
+/**
+ * Called with the runs a save let go. Their chats lose the run that held
+ * them; the workspace archives them rather than let them reappear among
+ * the project's chats.
+ */
+export function onScheduledRunsTrimmed(listener: TrimmedRunsListener) {
+  trimmedRunListeners.add(listener);
+  return () => void trimmedRunListeners.delete(listener);
+}
+
 export function saveScheduledRun(run: ScheduledRun) {
-  runs.write(
-    trimScheduledRuns([
-      ...runs.read().filter((item) => item.id !== run.id),
-      run,
-    ]),
-  );
+  const all = [...runs.read().filter((item) => item.id !== run.id), run];
+  const kept = trimScheduledRuns(all);
+  runs.write(kept);
+  if (kept.length === all.length) return;
+  const ids = new Set(kept.map((item) => item.id));
+  const dropped = all.filter((item) => !ids.has(item.id));
+  for (const listener of trimmedRunListeners) listener(dropped);
 }
 
 export function updateScheduledRun(id: string, patch: Partial<ScheduledRun>) {
@@ -474,6 +542,127 @@ export function updateScheduledRun(id: string, patch: Partial<ScheduledRun>) {
 }
 
 export const subscribeScheduledRuns = runs.subscribe;
+
+/** A run whose chat is still its own, in Automations. */
+export function holdsChat(
+  run: ScheduledRun,
+): run is ScheduledRun & { sessionId: string } {
+  return !!run.sessionId && !!run.inAutomations && !run.openedAsChat;
+}
+
+/**
+ * The run that holds a chat, while the chat is still the run's: it stays in
+ * Automations and out of the chats list and the tabs. Undefined for every
+ * other chat, including a run's chat you opened as a chat and the chats of
+ * runs from before runs stayed in Automations, which stay ordinary chats.
+ */
+export function automationRunForChat(
+  sessionId: string | undefined,
+  all: readonly ScheduledRun[] = listScheduledRuns(),
+): ScheduledRun | undefined {
+  if (!sessionId) return undefined;
+  return all.find((run) => run.sessionId === sessionId && holdsChat(run));
+}
+
+let chatIds: { source: ScheduledRun[]; ids: ReadonlySet<string> } | null = null;
+
+/**
+ * Chats that belong to automation runs, kept out of chat lists, Home and
+ * the palette. The chats of runs from before runs stayed in Automations are
+ * not among them: they stay where they were, and their runs are listed under
+ * their automation as well. The same set is returned until the runs change.
+ */
+export function automationChatIds(): ReadonlySet<string> {
+  const source = listScheduledRuns();
+  if (chatIds?.source !== source)
+    chatIds = {
+      source,
+      ids: new Set(
+        source.flatMap((run) => (holdsChat(run) ? [run.sessionId] : [])),
+      ),
+    };
+  return chatIds.ids;
+}
+
+/** Rows (chats) with the automation runs' own chats left out. */
+export function withoutAutomationChats<T extends { id: string }>(
+  rows: readonly T[],
+  hidden: ReadonlySet<string> = automationChatIds(),
+): T[] {
+  return hidden.size ? rows.filter((row) => !hidden.has(row.id)) : [...rows];
+}
+
+/**
+ * The chats a save let go of that should be archived: chats that were their
+ * run's own, that no run still holds, and that are not open anywhere (a tab,
+ * or loaded for a turn). A chat from before runs stayed in Automations, or
+ * one opened as a chat, is never archived.
+ */
+export function chatsToArchive(
+  dropped: readonly ScheduledRun[],
+  open: ReadonlySet<string>,
+  held: ReadonlySet<string> = automationChatIds(),
+): string[] {
+  return [
+    ...new Set(
+      dropped.flatMap((run) =>
+        holdsChat(run) && !held.has(run.sessionId) && !open.has(run.sessionId)
+          ? [run.sessionId]
+          : [],
+      ),
+    ),
+  ];
+}
+
+/**
+ * The Activity row for a run's notice when the run has no chat to point at
+ * (it could not start): its id names the run, and opening it shows the run.
+ */
+const NOTICE_CHAT = "aven-automation-run-";
+export function automationNoticeChatId(runId: string): string {
+  return `${NOTICE_CHAT}${runId}`;
+}
+export function runIdOfNoticeChat(sessionId: string): string | undefined {
+  return sessionId.startsWith(NOTICE_CHAT)
+    ? sessionId.slice(NOTICE_CHAT.length) || undefined
+    : undefined;
+}
+
+/**
+ * The run that opening a chat (from any list, Activity or a banner) should
+ * show in Automations instead: the run whose own chat it is, or the run a
+ * notice names. Undefined for every other chat.
+ */
+export function automationRunTarget(sessionId: string): string | undefined {
+  return runIdOfNoticeChat(sessionId) ?? automationRunForChat(sessionId)?.id;
+}
+
+/** Open as chat: from now on the run's chat is listed with the others. */
+export function markRunOpenedAsChat(id: string) {
+  updateScheduledRun(id, { openedAsChat: true });
+}
+
+/** Done (you acted on it) or dismissed: the card leaves the Inbox. */
+export function resolveRunReview(
+  id: string,
+  status: "done" | "dismissed",
+  now = Date.now(),
+) {
+  const run = getScheduledRun(id);
+  if (!run?.review || run.review.status !== "open") return;
+  updateScheduledRun(id, {
+    review: { ...run.review, status, resolvedAt: now },
+  });
+}
+
+/** Runs with a card waiting in the Inbox, newest card first. */
+export function openReviewRuns(
+  all: readonly ScheduledRun[] = listScheduledRuns(),
+): ScheduledRun[] {
+  return all
+    .filter((run) => run.review?.status === "open")
+    .sort((a, b) => b.review!.postedAt - a.review!.postedAt);
+}
 
 /**
  * Read state key and timestamp in the shared seen store (the key predates the
@@ -487,29 +676,32 @@ export function scheduledRunSeenEntry(run: ScheduledRun) {
   };
 }
 
-/** Mark runs nobody will settle (a closed window, a lost turn) as failed. */
-export function expireStaleScheduledRuns(now = Date.now()) {
+/**
+ * Mark runs nobody will settle (a closed window, a lost turn) as failed,
+ * four hours after their latest turn started. Returns the runs it failed.
+ */
+export function expireStaleScheduledRuns(now = Date.now()): ScheduledRun[] {
   const all = runs.read();
   const stale = all.filter(
     (run) =>
       run.status === "running" &&
-      now - run.startedAt >= SCHEDULED_RUN_TIMEOUT_MS,
+      now - (run.turnStartedAt ?? run.startedAt) >= SCHEDULED_RUN_TIMEOUT_MS,
   );
-  if (!stale.length) return;
-  const ids = new Set(stale.map((run) => run.id));
-  runs.write(
-    all.map((run) =>
-      ids.has(run.id)
-        ? {
-            ...run,
-            status: "failed" as const,
-            finishedAt: now,
-            error:
-              "Aven stopped waiting for this run. Open the chat to see where it got to.",
-          }
-        : run,
-    ),
+  if (!stale.length) return [];
+  const failed = new Map(
+    stale.map((run) => [
+      run.id,
+      {
+        ...run,
+        status: "failed" as const,
+        finishedAt: now,
+        error:
+          "Aven stopped waiting for this run. Open it to see where it got to.",
+      },
+    ]),
   );
+  runs.write(all.map((run) => failed.get(run.id) ?? run));
+  return [...failed.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -597,10 +789,14 @@ const defaultChecks: ScheduledAgentChecks = {
     ),
 };
 
-/** Why a schedule cannot start right now, or null when it can. */
+/**
+ * Why a schedule cannot start right now, or null when it can. `folder` is
+ * where it runs: its project, or the chats folder for one in no project.
+ */
 export async function scheduledAgentProblem(
   agent: ScheduledAgent,
   checks: ScheduledAgentChecks = defaultChecks,
+  folder = agent.project,
 ): Promise<string | null> {
   if (!agent.prompt.trim()) return "This schedule has no prompt.";
   try {
@@ -612,8 +808,10 @@ export async function scheduledAgentProblem(
     return harnessUnavailableHint(agent.harness);
   if (resolveModel(agent.harness, agent.model).harness !== agent.harness)
     return "The chosen model is no longer available. Edit the schedule to pick another.";
-  if (!agent.project || !(await checks.folderExists(agent.project)))
-    return `The project folder ${agent.project || "(none)"} could not be opened.`;
+  if (!folder || !(await checks.folderExists(folder)))
+    return agent.project
+      ? `The project folder ${agent.project} could not be opened.`
+      : "The folder for chats outside a project could not be opened.";
   return null;
 }
 
@@ -621,6 +819,8 @@ export type DueCheck = {
   now: number;
   claim: (slot: string) => Promise<boolean>;
   fire: (agent: ScheduledAgent) => void;
+  /** Runs given up on in this check, to tell you about. */
+  expired?: (runs: ScheduledRun[]) => void;
 };
 
 /**
@@ -632,8 +832,10 @@ export async function runDueScheduledAgents({
   now,
   claim,
   fire,
+  expired,
 }: DueCheck): Promise<number> {
-  expireStaleScheduledRuns(now);
+  const given = expireStaleScheduledRuns(now);
+  if (given.length) expired?.(given);
   let fired = 0;
   for (const agent of listScheduledAgents()) {
     const dueAt = agent.nextRunAt;
@@ -652,24 +854,39 @@ export async function runDueScheduledAgents({
 }
 
 // ---------------------------------------------------------------------------
-// The palette asks the Automations view to open a blank automation.
+// Requests the Automations view takes when it opens, or at once when it is
+// open: a blank automation (from the palette, or a folder's +), or one run
+// (an Activity entry, the Inbox card, a notification for a run's chat).
 
-const EDITOR_REQUEST = "aven:scheduled-agent-editor";
-let editorRequested = false;
+export type AutomationsRequest =
+  { kind: "new"; project?: string } | { kind: "run"; runId: string };
 
-export function requestScheduleEditor() {
-  editorRequested = true;
-  window.dispatchEvent(new Event(EDITOR_REQUEST));
+const VIEW_REQUEST = "aven:scheduled-agent-editor";
+let pendingRequest: AutomationsRequest | null = null;
+
+function request(next: AutomationsRequest) {
+  pendingRequest = next;
+  window.dispatchEvent(new Event(VIEW_REQUEST));
 }
 
-/** True once per request. */
-export function takeScheduleEditorRequest(): boolean {
-  const requested = editorRequested;
-  editorRequested = false;
-  return requested;
+/** A blank automation, in `project` when given. */
+export function requestScheduleEditor(project?: string) {
+  request(project === undefined ? { kind: "new" } : { kind: "new", project });
 }
 
-export function subscribeScheduleEditorRequest(listener: () => void) {
-  window.addEventListener(EDITOR_REQUEST, listener);
-  return () => window.removeEventListener(EDITOR_REQUEST, listener);
+/** One run's conversation, under its automation. */
+export function requestAutomationRun(runId: string) {
+  request({ kind: "run", runId });
+}
+
+/** The pending request, once. */
+export function takeAutomationsRequest(): AutomationsRequest | null {
+  const taken = pendingRequest;
+  pendingRequest = null;
+  return taken;
+}
+
+export function subscribeAutomationsRequest(listener: () => void) {
+  window.addEventListener(VIEW_REQUEST, listener);
+  return () => window.removeEventListener(VIEW_REQUEST, listener);
 }

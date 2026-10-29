@@ -1,9 +1,10 @@
-import { leaf, leafIds, type LayoutNode } from "./layout";
+import { leaf, leafIds, placePane, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
   resolveWorkspaceView,
   restoreWorkspaceSplit,
   selectWorkspaceView,
+  splitWorkspaceView,
   workspaceGroupOwner,
   workspaceIsSpace,
   type WorkspaceView,
@@ -549,6 +550,46 @@ export function addStripPane(
 }
 
 /**
+ * A tab dropped on one segment of a split's entry: it joins the split as a
+ * new pane beside that segment's pane, on the `side` of it nearer the
+ * pointer, sharing that pane's room; the split comes to the front with the
+ * new pane focused. A tab already in the split moves there (out of its
+ * pane's stack, or its own pane moving). Without that pane, it goes at the
+ * split's right, as on the entry as a whole.
+ */
+export function insertStripPane(
+  strip: WorkspaceStrip,
+  key: string,
+  id: string,
+  beside: string,
+  side: "before" | "after",
+): WorkspaceStrip {
+  const target = strip.entries.find((entry) => entryKey(entry) === key);
+  if (target?.kind !== "space") return strip;
+  if (stripEntryKeyOf(strip, id) === undefined) return strip;
+  const base = restoreWorkspaceSplit(target.view);
+  if (!base.layout || !leafIds(base.layout).includes(beside))
+    return addStripPane(strip, key, id);
+  if (id === beside) return strip;
+  const edge = side === "before" ? "left" : "right";
+  const view: WorkspaceView = viewMembers(base).includes(id)
+    ? splitWorkspaceView(base, id, edge, beside)
+    : {
+        ...base,
+        layout: placePane(base.layout, id, beside, edge),
+        focusedId: id,
+        order: unique([...base.order, id]),
+        groups: { ...base.groups, [id]: [id] },
+      };
+  if (JSON.stringify(view) === JSON.stringify(base)) return strip;
+  const leaving = new Set([id]);
+  const entries = strip.entries.flatMap((entry): StripEntry[] =>
+    entry === target ? [{ ...entry, view }] : withoutTabs(entry, leaving),
+  );
+  return { entries, front: key };
+}
+
+/**
  * A tab let go on the middle of a single tab: the two become a split in the
  * single tab's place, it on the left and the tab let go on the right, half
  * each. The tab let go leaves the entry it was in (a split left with one
@@ -597,20 +638,42 @@ export function stripDropKeeps(target: string, dragged: string): string[] {
 /**
  * What Undo layout needs to take a split made on the strip apart again: the
  * single tab's view, as if in front, with the tab let go brought into it,
- * taken in the single tab's entry. Null when the drop makes no new split (a
- * split taking a pane, as a tab let go on a split does, is not undone).
+ * taken in the single tab's entry. A tab that came out of a split (a pane's
+ * tab, or a segment pulled out) also records the whole strip as it was, so
+ * undo puts it back in that split. Null when the drop makes no new split (a
+ * split let go on a single tab).
  */
 export function stripCombineUndo(
   strip: WorkspaceStrip,
   target: string,
   id: string,
-): { view: WorkspaceView; entry: string } | null {
+): { view: WorkspaceView; entry: string; strip?: WorkspaceStrip } | null {
   if (isSpaceKey(id) || combineStripTabs(strip, target, id) === strip)
     return null;
+  const from = stripEntryKeyOf(strip, id);
   return {
     view: stripViewWith(focusStripTab(strip, target), [id]),
     entry: target,
+    ...(from && isSpaceKey(from) ? { strip } : {}),
   };
+}
+
+/**
+ * Undo a drop that reshaped the strip: the strip as it was (`snapshot`),
+ * holding the tabs open now. Tabs closed since stay closed; tabs opened
+ * since stand on the strip beside the entry in front.
+ */
+export function restoreStripSnapshot(
+  current: WorkspaceStrip,
+  snapshot: WorkspaceStrip,
+): WorkspaceStrip {
+  return resolveWorkspaceStrip(
+    snapshot,
+    recordedStripIds(current),
+    "",
+    () => stripView(current),
+    { newcomersOnStrip: true },
+  );
 }
 
 /**

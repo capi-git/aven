@@ -100,17 +100,59 @@ export const frame = () =>
     pause(100),
   ]);
 
-/** One press, move or release of the Mac's own mouse at `at`, client pixels. */
-export async function smokeMouse(kind: "down" | "drag" | "up", at: Point) {
+/**
+ * One press, move or release of the Mac's own mouse at `at`, client pixels.
+ * With `settle` false it returns as soon as the event is posted, so the
+ * next one follows at once (a release with no rest before it).
+ */
+export async function smokeMouse(
+  kind: "down" | "drag" | "up",
+  at: Point,
+  { settle = true }: { settle?: boolean } = {},
+) {
   await invoke("dev_smoke_pointer", {
     kind,
     x: at.x,
     y: at.y,
     zoom: loadUiScale(),
   });
+  if (!settle) return;
   // Let WebKit deliver it and the drag's frame run.
   await frame();
   await frame();
+}
+
+/**
+ * Where along the strip `box` a tab let go stands after its last entry
+ * (`entries`, in order): in the room after it, or else just inside its far
+ * edge, in the band that moves a tab rather than combining with it.
+ */
+export function slotAfterLast(
+  box: { left: number; right: number },
+  entries: readonly { left: number; right: number }[],
+): number {
+  const last = entries.at(-1);
+  if (!last) return (box.left + box.right) / 2;
+  const end = Math.min(last.right, box.right);
+  if (box.right - end >= 24) return (end + box.right) / 2;
+  return end - 4;
+}
+
+/** Why the strip holds no split of exactly `a` and `b`, or null. */
+export function combinedProblem(
+  strip: ReturnType<SmokeLoneTab["strip"]>,
+  a: string,
+  b: string,
+): string | null {
+  const split = strip.find(
+    (entry): entry is { split: string[] } =>
+      "split" in entry && entry.split.includes(a),
+  );
+  if (!split)
+    return `no split on the strip holds the first tab (strip: ${JSON.stringify(strip)})`;
+  if (!split.split.includes(b) || split.split.length !== 2)
+    return `the split holds ${JSON.stringify(split.split)}, not just the two tabs`;
+  return null;
 }
 
 /**
@@ -281,7 +323,7 @@ export async function checkLoneTabDrag(
     // By its title to the chat's left edge: a pane of its own, now left.
     let body = chatBody();
     if (!body) throw new Error("the chat's pane is not on screen");
-    let box = body.getBoundingClientRect();
+    const box = body.getBoundingClientRect();
     await dragTitle({ x: box.left + 12, y: box.top + box.height / 2 });
     await waitFor(
       () => !splitLeftProblem(panes(), chat, pageId),
@@ -310,10 +352,16 @@ export async function checkLoneTabDrag(
       '.workspace-status-strip-content [aria-label="Workspace tabs"]',
     );
     if (!strip) throw new Error("the window's strip is not on screen");
-    box = strip.getBoundingClientRect();
+    // A slot, never a tab's middle (which would combine with that tab):
+    // after the last entry. In the viewport's pixels: the strip is
+    // CSS-zoomed at any interface zoom but 100%.
+    const onStrip = viewportRect(strip, strip.getBoundingClientRect());
+    const entries = [
+      ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
+    ].map((entry) => viewportRect(entry, entry.getBoundingClientRect()));
     await dragTitle({
-      x: box.right - Math.min(40, box.width / 4),
-      y: box.top + box.height / 2,
+      x: slotAfterLast(onStrip, entries),
+      y: (onStrip.top + onStrip.bottom) / 2,
     });
     await waitFor(
       () => !strippedProblem(get().loneTab?.strip() ?? [], pageId),
@@ -328,7 +376,48 @@ export async function checkLoneTabDrag(
       throw new Error(
         `the presses on the headers were not the Mac's own (${JSON.stringify(presses)})`,
       );
-    return `${presses.length} presses with the Mac's own mouse on the page's header: a click on its title focused the address; dragged by its title, the page split the chat's pane, joined it and stood alone on the strip, and the address never took focus`;
+
+    // Its strip tab let go on the middle of the chat's, with no rest before
+    // the release: the two make a split.
+    const stripTab = (id: string) =>
+      strip.querySelector<HTMLElement>(
+        `[data-surface-tab-id="${CSS.escape(id)}"]`,
+      );
+    const [pageTab, chatTab] = await waitFor(
+      () => {
+        const both = [stripTab(pageId), stripTab(chat)];
+        return both.every((tab) => tab && tab.getClientRects().length > 0)
+          ? (both as HTMLElement[])
+          : null;
+      },
+      5_000,
+      "the page's and the chat's tabs on the strip",
+    );
+    await pause(300);
+    const from = pressPoint(pageTab);
+    const onto = pressPoint(chatTab);
+    await smokeMouse("down", from);
+    let at = from;
+    try {
+      for (const point of dragPath(from, onto, 4)) {
+        await smokeMouse("drag", point);
+        at = point;
+      }
+    } finally {
+      // At once, where the last move left it.
+      await smokeMouse("up", at, { settle: false });
+    }
+    await waitFor(
+      () => !combinedProblem(get().loneTab?.strip() ?? [], chat, pageId),
+      5_000,
+      "the page let go on the chat's tab to make a split with it",
+    ).catch(() => {
+      throw new Error(
+        combinedProblem(get().loneTab?.strip() ?? [], chat, pageId) ??
+          "no split",
+      );
+    });
+    return `${presses.length} presses with the Mac's own mouse on the page's header: a click on its title focused the address; dragged by its title, the page split the chat's pane, joined it and stood alone on the strip, and the address never took focus; its strip tab let go on the chat's at once made a split of the two`;
   } finally {
     window.removeEventListener("pointerdown", onPress, true);
     document.removeEventListener("focusin", onFocus, true);

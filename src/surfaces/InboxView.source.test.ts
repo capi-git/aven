@@ -123,7 +123,7 @@ describe("Inbox source", () => {
     await renderInbox();
 
     const inbox = container.querySelector("[data-app-inbox]")!;
-    expect(inbox.textContent).toContain("Issues & pull requests");
+    expect(inbox.textContent).toContain("Reviews, issues & pull requests");
     expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(container.querySelector('[role="tab"]')).toBeNull();
     expect(inbox.textContent).toContain("Fix the login redirect");

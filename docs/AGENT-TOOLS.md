@@ -190,6 +190,30 @@ render new pixels: a screenshot waits at most four seconds, then later
 screenshots fail at once with a clear message until the lock changes. Snapshot,
 click, fill, press and scroll keep working.
 
+## Automation runs
+
+An automation's run is a chat of its own that stays in **Automations**, under
+its automation in its project's folder; it gets no tab and is not listed with
+the project's chats, on Home or in the palette until you choose **Open as
+chat**. Chats that runs started before this change stay ordinary chats where
+they were, and their runs are listed under their automation as well. A run
+posts nothing to Activity when it simply finishes. A run that fails, cannot
+start or is given up on after four hours without a reply posts one entry, and
+approvals and questions reach you as they do from any chat; opening any of
+them shows the run in Automations.
+
+The agent is told the run is unattended. When it finishes with something for
+you to review or publish, it saves that as a draft and ends its final reply
+with one `aven-review` block: a JSON object with a `title`, and optionally a
+`kind` (`publish` or `review`), a `summary` and a `url` (http or https only).
+Only a single block at the very end of the reply counts; one quoted inside
+another fence, a quote or a list is text. Aven turns it into a **Ready to
+publish** or **Ready to review** card in the Inbox and at the top of the run.
+The card's button is Aven's, never the agent's: **Publish** sends "Publish the
+draft now." and **Approve** sends "Approved. Go ahead." to the run's chat, once,
+and only while the run is not working. **Done** takes the card away. A reply
+without the block leaves no card.
+
 ## Uploading files
 
 An agent can send local files to a website through the page's own file

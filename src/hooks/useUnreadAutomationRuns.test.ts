@@ -49,7 +49,7 @@ afterEach(async () => {
 });
 
 describe("unread automation runs", () => {
-  it("counts finished runs nobody has opened, not running ones", () => {
+  it("counts failed runs nobody has opened; finished runs stay quiet", () => {
     const done = run();
     const failed = run({ id: "run-2", status: "failed", error: "No access" });
     const running = run({
@@ -57,11 +57,11 @@ describe("unread automation runs", () => {
       status: "running",
       finishedAt: undefined,
     });
-    expect(unreadAutomationRuns([done, failed, running])).toBe(2);
-    markInboxItemSeen(scheduledRunSeenEntry(done));
     expect(unreadAutomationRuns([done, failed, running])).toBe(1);
-    // A run that finishes again after it was read is new again.
-    expect(unreadAutomationRuns([{ ...done, finishedAt: 9_000 }])).toBe(1);
+    markInboxItemSeen(scheduledRunSeenEntry(failed));
+    expect(unreadAutomationRuns([done, failed, running])).toBe(0);
+    // A run that fails again after it was read is new again.
+    expect(unreadAutomationRuns([{ ...failed, finishedAt: 9_000 }])).toBe(1);
   });
 
   it("keeps the sidebar's count current as runs finish and are read", async () => {
@@ -79,9 +79,15 @@ describe("unread automation runs", () => {
     await act(async () =>
       updateScheduledRun("run-1", { status: "completed", finishedAt: 3_000 }),
     );
+    expect(seen).toBe(0);
+    await act(async () =>
+      updateScheduledRun("run-1", { status: "failed", finishedAt: 4_000 }),
+    );
     expect(seen).toBe(1);
     await act(async () =>
-      markInboxItemSeen(scheduledRunSeenEntry(run({ finishedAt: 3_000 }))),
+      markInboxItemSeen(
+        scheduledRunSeenEntry(run({ status: "failed", finishedAt: 4_000 })),
+      ),
     );
     expect(seen).toBe(0);
   });

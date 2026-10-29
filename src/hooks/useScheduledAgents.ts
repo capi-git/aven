@@ -9,6 +9,7 @@ import {
   subscribeScheduledAgents,
   wantsKeepAwake,
   type ScheduledAgent,
+  type ScheduledRun,
 } from "../lib/scheduledAgents";
 
 export const SCHEDULE_CHECK_MS = 30_000;
@@ -23,9 +24,13 @@ export const SCHEDULE_FIRST_CHECK_MS = 5_000;
 export function useScheduledAgents(
   start: (agent: ScheduledAgent) => void,
   claim: (slot: string) => Promise<boolean> = claimScheduledSlot,
+  /** Runs a check gave up on (no reply in four hours), to tell you about. */
+  expired?: (runs: ScheduledRun[]) => void,
 ) {
   const startRef = useRef(start);
   startRef.current = start;
+  const expiredRef = useRef(expired);
+  expiredRef.current = expired;
   const claimRef = useRef(claim);
   claimRef.current = claim;
 
@@ -40,6 +45,9 @@ export function useScheduledAgents(
         claim: (slot) => claimRef.current(slot),
         fire: (agent) => {
           if (!disposed) startRef.current(agent);
+        },
+        expired: (runs) => {
+          if (!disposed) expiredRef.current?.(runs);
         },
       })
         .catch(() => {

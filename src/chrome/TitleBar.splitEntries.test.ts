@@ -416,23 +416,57 @@ describe("dragging with splits", () => {
     await frame();
   };
 
-  it("adds a tab let go on a split's entry as a pane", async () => {
+  /** What the split's pill draws, in order: segments and the pane it adds. */
+  const pill = () =>
+    [
+      ...entry().querySelectorAll<HTMLElement>(
+        "[data-split-segment], [data-combine-incoming]",
+      ),
+    ].map((node) => node.dataset.splitSegment ?? "incoming");
+
+  it("adds a tab let go on a split's entry as a pane beside the segment it is over", async () => {
     await render();
     layOut();
     await pointer(tabButton("hero"), "pointerdown", 50);
     await pointer(window, "pointermove", 120);
     await frame();
-    await pointer(window, "pointermove", 300);
+    await pointer(window, "pointermove", 290);
     await frame();
-    // Once the pointer rests on its middle, the pane it adds shows.
+    // Once the pointer rests on its middle, the pane it adds shows, beside
+    // sign-up (202–300), on the side nearer the pointer.
     expect(entry().dataset.dropInto).toBeUndefined();
     await arm();
     expect(entry().dataset.dropInto).toBe("true");
-    expect(entry().querySelector("[data-combine-incoming]")).not.toBeNull();
+    expect(pill()).toEqual(["signup", "incoming", "page"]);
     expect(container.querySelector(".personal-tab-insertion")).toBeNull();
-    await pointer(window, "pointerup", 300);
-    expect(props.onAddToSplit).toHaveBeenCalledExactlyOnceWith(SPLIT, "hero");
+    await pointer(window, "pointerup", 290);
+    expect(props.onAddToSplit).toHaveBeenCalledExactlyOnceWith(SPLIT, "hero", {
+      pane: "signup",
+      side: "after",
+    });
     expect(props.onReorderSurfaces).not.toHaveBeenCalled();
+  });
+
+  it("puts the new pane before a segment whose first half it is let go on", async () => {
+    await render();
+    layOut();
+    await pointer(tabButton("checkout"), "pointerdown", 150);
+    await pointer(window, "pointermove", 220);
+    await frame();
+    // The page's segment (300–398): its first half.
+    await pointer(window, "pointermove", 330);
+    await frame();
+    await arm();
+    expect(pill()).toEqual(["signup", "incoming", "page"]);
+    await pointer(window, "pointermove", 345);
+    await frame();
+    // Let go at once, the same place: no new rest needed.
+    await pointer(window, "pointerup", 345);
+    expect(props.onAddToSplit).toHaveBeenCalledExactlyOnceWith(
+      SPLIT,
+      "checkout",
+      { pane: "page", side: "before" },
+    );
   });
 
   it("still reorders past a split's edge, and moves the split like a tab", async () => {
@@ -536,6 +570,8 @@ describe("dragging with splits", () => {
   describe("combining on a single tab", () => {
     const combineTarget = () =>
       container.querySelector<HTMLElement>("[data-combine-into]");
+    const nearTarget = () =>
+      container.querySelector<HTMLElement>("[data-combine-near]");
 
     it("makes a split of a tab let go on another's middle, once it rests there", async () => {
       await render();
@@ -545,9 +581,11 @@ describe("dragging with splits", () => {
       await frame();
       await pointer(window, "pointermove", 150);
       await frame();
-      // Passing over, the line shows where it would move to.
+      // On its middle, checkout takes a light hint at once, and no line
+      // shows: a release now would combine. The preview waits.
       expect(combineTarget()).toBeNull();
-      expect(container.querySelector(".personal-tab-insertion")).not.toBeNull();
+      expect(nearTarget()?.dataset.surfaceTabId).toBe("checkout");
+      expect(container.querySelector(".personal-tab-insertion")).toBeNull();
       await arm();
       // Resting, checkout lights to combine and the line goes.
       expect(combineTarget()?.dataset.surfaceTabId).toBe("checkout");
@@ -564,7 +602,7 @@ describe("dragging with splits", () => {
       expect(combineTarget()).toBeNull();
     });
 
-    it("only moves a tab let go on another's middle in passing", async () => {
+    it("makes a split of a tab let go on another's middle without resting", async () => {
       await render();
       layOut();
       await pointer(tabButton("hero"), "pointerdown", 50);
@@ -572,7 +610,44 @@ describe("dragging with splits", () => {
       await frame();
       await pointer(window, "pointermove", 150);
       await frame();
+      // Not armed: only the light hint, and no line.
+      expect(combineTarget()).toBeNull();
+      expect(nearTarget()?.dataset.surfaceTabId).toBe("checkout");
+      expect(container.querySelector(".personal-tab-insertion")).toBeNull();
       await pointer(window, "pointerup", 150);
+      expect(props.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
+        "checkout",
+        "hero",
+      );
+      expect(props.onReorderSurfaces).not.toHaveBeenCalled();
+      expect(combineTarget()).toBeNull();
+    });
+
+    it("only moves a tab that passes another's middle and goes on, never previewing", async () => {
+      await render();
+      layOut();
+      const previewed: string[] = [];
+      const watch = new MutationObserver(() => {
+        const target = combineTarget()?.dataset.surfaceTabId;
+        if (target) previewed.push(target);
+      });
+      watch.observe(container, {
+        subtree: true,
+        attributes: true,
+        childList: true,
+      });
+      await pointer(tabButton("hero"), "pointerdown", 50);
+      await pointer(window, "pointermove", 120);
+      await frame();
+      // Through checkout's middle (125–175) and on to its far edge.
+      for (const x of [140, 160, 180, 190]) {
+        await pointer(window, "pointermove", x);
+        await wait(16);
+      }
+      await frame();
+      await pointer(window, "pointerup", 190);
+      watch.disconnect();
+      expect(previewed).toEqual([]);
       expect(props.onCombineTabs).not.toHaveBeenCalled();
       expect(props.onReorderSurfaces).toHaveBeenLastCalledWith(
         ["checkout", "hero", SPLIT],

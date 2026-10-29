@@ -371,6 +371,79 @@ describe("layout undo", () => {
     ).toBe("aven-space:one");
   });
 
+  it("keeps the whole strip a drop reshaped, through storage, beside the view older versions read", () => {
+    const view = resolveWorkspaceView(
+      { layout: leaf("x"), focusedId: "x", order: ["x", "y"], groups: {} },
+      ["x", "y"],
+      "x",
+    );
+    const strip = {
+      entries: [
+        { kind: "item" as const, id: "x" },
+        {
+          kind: "space" as const,
+          id: "s1",
+          view: resolveWorkspaceView(
+            {
+              layout: {
+                type: "split",
+                id: "cols",
+                dir: "right",
+                sizes: [0.5, 0.5],
+                children: [leaf("y"), leaf("z")],
+              },
+              focusedId: "y",
+              order: ["y", "z"],
+              groups: { y: ["y"], z: ["z"] },
+            },
+            ["y", "z"],
+            "y",
+          ),
+        },
+      ],
+      front: "aven-space:s1",
+    };
+    const state = pushWorkspaceLayoutUndo(
+      emptyWorkspaceRecovery(),
+      cwd,
+      view,
+      "x",
+      strip,
+    );
+    const raw = JSON.parse(JSON.stringify(state));
+    // The same key and fields as before, with the strip beside them.
+    expect(Object.keys(raw.layouts[0]).sort()).toEqual([
+      "cwd",
+      "entry",
+      "strip",
+      "view",
+    ]);
+    const stored = parseWorkspaceRecovery(raw);
+    const result = popWorkspaceLayoutUndo(stored, cwd, ["x", "y", "z"], "x");
+    expect(result.strip).toEqual(strip);
+    expect(result.entry).toBe("x");
+    // A malformed strip is dropped; the view still undoes.
+    raw.layouts[0].strip = { entries: [{ kind: "space", id: "s1" }] };
+    const damaged = popWorkspaceLayoutUndo(
+      parseWorkspaceRecovery(raw),
+      cwd,
+      ["x", "y"],
+      "x",
+    );
+    expect(damaged.strip).toBeUndefined();
+    expect(damaged.snapshot).toEqual(view);
+    // An entry stored without one reads as before.
+    expect(
+      "strip" in
+        popWorkspaceLayoutUndo(
+          pushWorkspaceLayoutUndo(emptyWorkspaceRecovery(), cwd, view, "x"),
+          cwd,
+          ["x", "y"],
+          "x",
+        ),
+    ).toBe(false);
+  });
+
   it("never persists nested expansion backups or view runtime fields", () => {
     const view = {
       ...resolveWorkspaceView(undefined, ["tab"], "tab"),

@@ -66,6 +66,7 @@ import {
 } from "../lib/githubTasks";
 import {
   applyInboxFilters,
+  inboxReviewRuns,
   hasActiveInboxFilters,
   inboxFetchState,
   loadInboxFilters,
@@ -101,6 +102,9 @@ import {
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
+import { useOpenReviewRuns } from "../hooks/useAutomationChats";
+import type { ScheduledRun } from "../lib/scheduledAgents";
+import { AutomationReviewCard, InboxReviewCard } from "./AutomationReviewCard";
 
 // The diff renderer pulls in CodeMirror; load it when a PR's code is opened.
 const InboxPrDiff = retryableLazy(() =>
@@ -189,7 +193,13 @@ type Props = {
   onClose?: () => void;
   onToggleSidebar?: () => void;
   onStart?: (item: InboxItem) => void | Promise<void>;
+  /** A card's button: sends its message to the automation run's chat. */
+  onReviewAction?: (run: ScheduledRun) => unknown;
+  /** Shows the run a card came from, in Automations. */
+  onOpenAutomationRun?: (runId: string) => void;
 };
+
+const reviewKey = (run: ScheduledRun) => `review:${run.id}`;
 
 export function InboxView({
   onAsk,
@@ -201,6 +211,8 @@ export function InboxView({
   onClose,
   onToggleSidebar,
   onStart,
+  onReviewAction,
+  onOpenAutomationRun,
 }: Props) {
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const listLock = useLockOverscroll<HTMLDivElement>();
@@ -328,6 +340,18 @@ export function InboxView({
     () => applyInboxFilters(items, activeFilters, searchInput, Date.now()),
     [activeFilters, items, searchInput],
   );
+  // Cards automations left for you, above the issues and pull requests.
+  const reviewRuns = useOpenReviewRuns();
+  const visibleReviews = useMemo(
+    () =>
+      inboxReviewRuns(
+        reviewRuns,
+        activeFilters,
+        projects.map((project) => project.path),
+        searchInput,
+      ),
+    [reviewRuns, activeFilters, projects, searchInput],
+  );
   const inboxSeenTick = useInboxSeenTick();
   const seenEntries = useMemo(
     () =>
@@ -343,22 +367,32 @@ export function InboxView({
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
+  const listed = visibleReviews.length
+    ? "issues or pull requests"
+    : "reviews, issues or pull requests";
   const narrowedByUser = searchNarrowed || filtersActive;
   const fetchError = providerErrors.github ?? null;
 
-  const selected =
-    visibleItems.find((item) => inboxItemKey(item) === selectedKey) ??
-    visibleItems[0] ??
-    null;
+  const chosenItem = visibleItems.find(
+    (item) => inboxItemKey(item) === selectedKey,
+  );
+  // A card is shown when chosen, and first when nothing else is.
+  const selectedReview = chosenItem
+    ? undefined
+    : (visibleReviews.find((run) => reviewKey(run) === selectedKey) ??
+      visibleReviews[0]);
+  const selected = selectedReview
+    ? null
+    : (chosenItem ?? visibleItems[0] ?? null);
 
   useEffect(() => {
-    if (!selected) {
-      setSelectedKey(null);
-      return;
-    }
-    const key = inboxItemKey(selected);
+    const key = selectedReview
+      ? reviewKey(selectedReview)
+      : selected
+        ? inboxItemKey(selected)
+        : null;
     if (key !== selectedKey) setSelectedKey(key);
-  }, [selected, selectedKey]);
+  }, [selected, selectedReview, selectedKey]);
 
   const onFiltersChange = (next: InboxFilters) => {
     const pruned = pruneInboxFilters(
@@ -437,6 +471,22 @@ export function InboxView({
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
+        {visibleReviews.length ? (
+          <ul
+            className="flex flex-col gap-0.5 p-1.5 pb-0"
+            aria-label="From automations"
+          >
+            {visibleReviews.map((run) => (
+              <li key={run.id}>
+                <InboxReviewCard
+                  run={run}
+                  active={selectedReview?.id === run.id}
+                  onSelect={() => setSelectedKey(reviewKey(run))}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {fetchError && visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-ui-label text-content/50">
             {fetchError}
@@ -447,13 +497,14 @@ export function InboxView({
           </div>
         ) : visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-ui-label text-content/50">
+            {/* Cards shown above: this line speaks for the rest alone. */}
             {narrowedByUser
               ? searchNarrowed
-                ? "No matching issues or pull requests"
-                : "No issues or pull requests match these filters"
+                ? `No matching ${listed}`
+                : `No ${listed} match these filters`
               : projects.length === 0
                 ? "Open a project to fill the inbox"
-                : "No matching issues or pull requests"}
+                : `No matching ${listed}`}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
@@ -530,7 +581,7 @@ export function InboxView({
           />
           <span className="min-w-0 truncate text-content">Inbox</span>
           <span className="truncate text-ui-caption text-content/45">
-            Issues & pull requests
+            Reviews, issues & pull requests
           </span>
         </div>
         {IS_MAC ? null : <WindowControls />}
@@ -543,13 +594,28 @@ export function InboxView({
             ref={detailLock}
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
           >
-            <InboxDetailBody
-              item={selected}
-              cwd={cwd}
-              revision={refresh}
-              onDiscuss={() => setDiscussionOpen(true)}
-              onStart={onStart}
-            />
+            {selectedReview ? (
+              <div className="mx-auto w-full max-w-3xl px-8 py-8">
+                <AutomationReviewCard
+                  key={selectedReview.id}
+                  run={selectedReview}
+                  onAction={onReviewAction}
+                  onOpenRun={
+                    onOpenAutomationRun
+                      ? (run) => onOpenAutomationRun(run.id)
+                      : undefined
+                  }
+                />
+              </div>
+            ) : (
+              <InboxDetailBody
+                item={selected}
+                cwd={cwd}
+                revision={refresh}
+                onDiscuss={() => setDiscussionOpen(true)}
+                onStart={onStart}
+              />
+            )}
           </div>
           {discussionOpen && selected ? (
             <InboxDiscussionPanel
@@ -586,7 +652,7 @@ function InboxDetailBody({
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
         <Inbox className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
         <p className="text-ui-body text-content/45">
-          Select an issue or pull request
+          Select a review, issue or pull request
         </p>
       </div>
     );

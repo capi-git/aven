@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   clientRectScales,
   pointInRects,
@@ -37,11 +38,11 @@ const DROP_ON_HOLD = 8;
  */
 const DROP_ON_STILL = 4;
 /**
- * Waiting that long still, the pointer is resting rather than passing: the
- * entry stays where it is (it would join it, not move past it) until it
- * arms or the pointer leaves its middle.
+ * Marks a part of an item a drop can land beside (a split's segment), by
+ * its id: a drop on the item's middle says which part was under the pointer
+ * and on which side of it (`SortableDropAt`).
  */
-const DROP_ON_REST = 60;
+export const SORTABLE_DROP_PART_ATTRIBUTE = "data-sortable-drop-part";
 const SCROLL_EDGE = 28;
 /** A drag frame WebKit holds back runs this late (ms) instead. */
 const DRAG_FRAME_FALLBACK_MS = 16;
@@ -103,12 +104,79 @@ export type SortablePressOptions = {
   stands?: readonly HTMLElement[];
 };
 
+/**
+ * Where on an item a drop lands: beside the part of it under the pointer
+ * (`SORTABLE_DROP_PART_ATTRIBUTE`), on the side of it nearer the pointer.
+ */
+export type SortableDropAt = { part: string; side: "before" | "after" };
+
 export type SortableDropTarget = {
   kind: "tab" | "group";
   id: string;
   /** False when the drop is refused — the target is flagged, not acted on. */
   allowed: boolean;
+  /** An item with parts: the one under the pointer, and which side of it. */
+  at?: SortableDropAt;
 };
+
+/**
+ * Sortables on one channel take drops from one another's drags: a tab
+ * dragged out of one bar and let go on the middle of another bar's item
+ * joins that item, as it would one of its own bar's (the window's strip and
+ * each pane's row of tabs). The bar dragging finds the target and arms it;
+ * the bar holding the target previews the join and acts on the drop.
+ */
+export type SortableLink = {
+  channel: string;
+  /**
+   * Whether `target`, one of this sortable's items, takes `moving` (an item
+   * of another sortable on the channel, or the part of it pulled out). None
+   * does when absent.
+   */
+  accepts?: (moving: string, target: string) => boolean;
+  /** `moving`, from another sortable on the channel, let go on `target`. */
+  onDrop?: (moving: string, target: string, at?: SortableDropAt) => void;
+  /**
+   * What `moving`, dragged from here, brings to an item of another sortable
+   * that it would join: whatever that sortable's items draw as its preview
+   * (`SortableIncoming.content`).
+   */
+  describe?: (moving: string) => unknown;
+};
+
+/** A drag from another sortable on the channel, over one of this one's items. */
+export type SortableIncoming = {
+  /** What is dragged: an item of that sortable, or the part of it pulled out. */
+  moving: string;
+  /** What that sortable says it brings (`SortableLink.describe`). */
+  content: unknown;
+  /**
+   * The item it would join once armed; null once it has left the item, so
+   * the preview plays out while the drag goes on.
+   */
+  target: SortableDropTarget | null;
+  /**
+   * The item whose middle it is over, armed or not: let go now, it joins
+   * that item. A light hint shows it until the full preview arms.
+   */
+  over: string | null;
+};
+
+/** A sortable on a channel, as other sortables' drags see it. */
+type LinkedZone = {
+  channel: string;
+  axis: "x" | "y";
+  container: () => HTMLElement | null;
+  ids: () => readonly string[];
+  nodes: () => ReadonlyMap<string, HTMLElement>;
+  accepts: (moving: string, target: string) => boolean;
+  /** Preview a drag elsewhere joining one of its items, or stop (null). */
+  show: (incoming: SortableIncoming | null) => void;
+  drop: (moving: string, target: string, at?: SortableDropAt) => void;
+};
+
+/** Every mounted sortable on a channel, in mount order. */
+const linkedZones = new Set<LinkedZone>();
 
 export type SortableOptions = {
   axis?: "x" | "y";
@@ -125,7 +193,9 @@ export type SortableOptions = {
   ) => void;
   /**
    * Returning true consumes the drop instead of reordering the strip. A
-   * torn-off part never reorders the strip.
+   * torn-off part never reorders the strip. A drop another sortable on the
+   * channel takes (onto one of its items) ends here as cancelled: the
+   * consumer only tidies up.
    */
   onDragEnd?: (
     id: string,
@@ -135,8 +205,16 @@ export type SortableOptions = {
     pointer: SortablePointerPosition,
     part?: SortablePartDrag,
   ) => boolean;
-  /** `part` names a torn-off part dropped onto the item. */
-  onDropOnItem?: (draggedId: string, targetId: string, part?: string) => void;
+  /**
+   * `part` names a torn-off part dropped onto the item; `at`, the part of
+   * the item it was let go beside, if the item has parts.
+   */
+  onDropOnItem?: (
+    draggedId: string,
+    targetId: string,
+    part?: string,
+    at?: SortableDropAt,
+  ) => void;
   /**
    * Which items take a drop onto them (with `onDropOnItem`). Others are
    * never targets: the pointer over them reorders as usual. All items do
@@ -150,11 +228,15 @@ export type SortableOptions = {
   ) => boolean;
   /**
    * How long, in milliseconds, the pointer rests on an item's drop zone
-   * before a drop onto it arms. Until then the pointer there reorders as
-   * usual, so a quick pass over an item never drops onto it; once armed,
-   * the zone holds a little past its edges. 0 (the default) arms at once.
+   * before its preview of the drop arms. Until then the pointer there
+   * reorders as usual and nothing is previewed, so a quick pass over an
+   * item never flashes it; once armed, the zone holds a little past its
+   * edges. Letting go on the zone drops onto the item, armed or not. 0
+   * (the default) arms at once.
    */
   dropOnDelay?: number;
+  /** Take drops from other sortables' drags, and drop onto their items. */
+  link?: SortableLink;
   onDropOnGroup?: (draggedId: string, groupId: string) => void;
   canDropOn?: (
     draggedId: string,
@@ -176,13 +258,34 @@ type DragState = {
   inStrip: boolean;
   toIndex: number;
   dropTarget: SortableDropTarget | null;
+  /** The sortable on the channel `dropTarget` is an item of; null: this one. */
+  zone: LinkedZone | null;
+  /** What the copy dissolves into: the target item, or its part. */
+  into: HTMLElement | null;
+  /**
+   * The item whose middle the pointer is over and would join on release,
+   * armed or not, and in which sortable (null: this one).
+   */
+  over: { id: string; zone: LinkedZone | null } | null;
+  /** The target and hint last shown, and in which sortable. */
+  shown: {
+    target: SortableDropTarget | null;
+    zone: LinkedZone | null;
+    over: { id: string; zone: LinkedZone | null } | null;
+  };
   part: SortablePart | null;
   torn: boolean;
   /**
-   * The item whose drop zone the pointer rests on, until it arms: since
-   * when, and where the pointer was then.
+   * The item whose drop zone the pointer rests on, until it arms: in which
+   * sortable (null: this one), since when, and where the pointer was then.
    */
-  arming: { id: string; since: number; x: number; y: number } | null;
+  arming: {
+    id: string;
+    zone: LinkedZone | null;
+    since: number;
+    x: number;
+    y: number;
+  } | null;
   /** When the pointer event not yet looked at happened (`eventTime`). */
   at: number | null;
 };
@@ -224,8 +327,70 @@ function sameDropTarget(
     previous === next ||
     (previous?.id === next?.id &&
       previous?.kind === next?.kind &&
-      previous?.allowed === next?.allowed)
+      previous?.allowed === next?.allowed &&
+      previous?.at?.part === next?.at?.part &&
+      previous?.at?.side === next?.at?.side)
   );
+}
+
+/**
+ * The item whose drop zone (its middle) is under (x, y), among `ids` that
+ * `takes` accepts: the item, the part of it under the pointer (if it has
+ * parts) and the element the copy dissolves into. `held` is an armed item,
+ * whose zone holds a little wider.
+ */
+function itemDropAt(
+  ids: readonly string[],
+  nodes: ReadonlyMap<string, HTMLElement>,
+  axis: "x" | "y",
+  x: number,
+  y: number,
+  readBounds: ReadBounds,
+  held: string | null,
+  takes: (id: string) => boolean,
+): { id: string; at?: SortableDropAt; into: HTMLElement } | null {
+  for (const id of ids) {
+    if (!takes(id)) continue;
+    const node = nodes.get(id);
+    if (!node) continue;
+    const rect = readBounds(node);
+    const size = axis === "x" ? rect.width : rect.height;
+    const edge = Math.min(
+      Math.max(size * DROP_ON_INSET, DROP_ON_EDGE),
+      size / 2,
+    );
+    const inset = id === held ? Math.max(0, edge - DROP_ON_HOLD) : edge;
+    const inCenter =
+      axis === "x"
+        ? x >= rect.left + inset &&
+          x <= rect.right - inset &&
+          y >= rect.top &&
+          y <= rect.bottom
+        : y >= rect.top + inset &&
+          y <= rect.bottom - inset &&
+          x >= rect.left &&
+          x <= rect.right;
+    if (!inCenter) continue;
+    const pos = axis === "x" ? x : y;
+    for (const part of node.querySelectorAll<HTMLElement>(
+      `[${SORTABLE_DROP_PART_ATTRIBUTE}]`,
+    )) {
+      const box = readBounds(part);
+      const start = axis === "x" ? box.left : box.top;
+      const length = axis === "x" ? box.width : box.height;
+      if (length <= 0 || pos < start || pos > start + length) continue;
+      return {
+        id,
+        at: {
+          part: part.getAttribute(SORTABLE_DROP_PART_ATTRIBUTE) ?? "",
+          side: pos < start + length / 2 ? "before" : "after",
+        },
+        into: part,
+      };
+    }
+    return { id, into: node };
+  }
+  return null;
 }
 
 function optionsOf(
@@ -266,6 +431,9 @@ export function useSortable(
   isDropTargetRef.current = options.isDropTarget;
   const dropOnDelayRef = useRef(options.dropOnDelay ?? 0);
   dropOnDelayRef.current = options.dropOnDelay ?? 0;
+  const linkRef = useRef(options.link);
+  linkRef.current = options.link;
+  const channel = options.link?.channel ?? null;
   const container = useRef<HTMLElement | null>(null);
   const nodes = useRef(new Map<string, HTMLElement>());
   const groupNodes = useRef(new Map<string, HTMLElement>());
@@ -281,6 +449,12 @@ export function useSortable(
   const [draggingPartId, setDraggingPartId] = useState<string | null>(null);
   const [toIndex, setToIndex] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
+  // A drag from another sortable on the channel, over (or near) an item here.
+  const [incoming, setIncoming] = useState<SortableIncoming | null>(null);
+  // The item of this sortable a release of its own drag would join.
+  const [nearId, setNearId] = useState<string | null>(null);
+  // How the other sortables' drags see this one.
+  const selfZone = useRef<LinkedZone | null>(null);
   // The tab whose copy is flying to its place after a drop. Its tab and the
   // highlight under it show once it lands.
   const [landingId, setLandingId] = useState<string | null>(null);
@@ -323,6 +497,56 @@ export function useSortable(
     container.current = element;
   }, []);
 
+  /**
+   * Measures the strip before a change made outside a drag (a split coming
+   * apart from its menu), so it morphs into its new shape once laid out.
+   */
+  const captureStripMorph = useCallback(() => {
+    if (!animateRef.current || drag.current) return;
+    motion.current.morphing.capture(container.current, nodes.current);
+    morphing.current = true;
+  }, []);
+
+  // Lend this sortable's items to drags in other sortables on the channel.
+  useEffect(() => {
+    if (!channel) return;
+    const zone: LinkedZone = {
+      channel,
+      axis,
+      container: () => container.current,
+      ids: () => idsRef.current,
+      nodes: () => nodes.current,
+      accepts: (moving, target) =>
+        linkRef.current?.accepts?.(moving, target) ?? false,
+      show: (next) =>
+        setIncoming((previous) =>
+          previous === next ||
+          (previous &&
+            next &&
+            previous.moving === next.moving &&
+            previous.content === next.content &&
+            previous.over === next.over &&
+            sameDropTarget(previous.target, next.target))
+            ? previous
+            : next,
+        ),
+      drop: (moving, target, at) => {
+        // The target's preview is drawn: the strip morphs from it.
+        captureStripMorph();
+        const onDrop = linkRef.current?.onDrop;
+        if (at) onDrop?.(moving, target, at);
+        else onDrop?.(moving, target);
+      },
+    };
+    selfZone.current = zone;
+    linkedZones.add(zone);
+    return () => {
+      linkedZones.delete(zone);
+      if (selfZone.current === zone) selfZone.current = null;
+      setIncoming(null);
+    };
+  }, [channel, axis, captureStripMorph]);
+
   const inStrip = useCallback(
     (x: number, y: number, readBounds: ReadBounds) => {
       const bounds = container.current
@@ -352,21 +576,40 @@ export function useSortable(
   }, []);
 
   const indexAt = useCallback(
-    (draggedId: string, x: number, y: number, readBounds: ReadBounds) => {
+    (
+      draggedId: string,
+      x: number,
+      y: number,
+      readBounds: ReadBounds,
+      /**
+       * An item whose middle the pointer is in and that takes the drop: a
+       * release joins it, so the slot does not pass it. It stays on the
+       * side of it the slot was on (`previous`) until the pointer reaches
+       * its far edge.
+       */
+      hold: { id: string; previous: number } | null = null,
+    ) => {
       const pos = axis === "x" ? x : y;
       let next = 0;
+      let place = 0;
       // The destination is an insertion slot after removing the source. Its
       // own midpoint must not advance a rightward drag into its neighbor.
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
+        const at = place++;
         const node = nodes.current.get(id);
         if (!node) continue;
-        const rect = readBounds(node);
-        const mid =
-          axis === "x"
-            ? rect.left + rect.width / 2
-            : rect.top + rect.height / 2;
-        if (pos < mid) break;
+        let passed: boolean;
+        if (id === hold?.id) passed = hold.previous > at;
+        else {
+          const rect = readBounds(node);
+          const mid =
+            axis === "x"
+              ? rect.left + rect.width / 2
+              : rect.top + rect.height / 2;
+          passed = pos >= mid;
+        }
+        if (!passed) break;
         next += 1;
       }
       return next;
@@ -384,7 +627,7 @@ export function useSortable(
       held: string | null = null,
       /** A torn-off part: it drops onto items only. */
       part?: string,
-    ): SortableDropTarget | null => {
+    ): { target: SortableDropTarget; into: HTMLElement } | null => {
       const target = (
         kind: "tab" | "group",
         id: string,
@@ -403,43 +646,97 @@ export function useSortable(
           y >= rect.top &&
           y <= rect.bottom
         ) {
-          return target("group", groupId);
+          return { target: target("group", groupId), into: el };
         }
       }
       if (!onDropOnItemRef.current) return null;
-      for (const id of idsRef.current) {
-        if (id === draggedId) continue;
+      const hit = itemDropAt(
+        idsRef.current,
+        nodes.current,
+        axis,
+        x,
+        y,
+        readBounds,
+        held,
+        (id) =>
+          id !== draggedId &&
+          (!isDropTargetRef.current ||
+            (part === undefined
+              ? isDropTargetRef.current(draggedId, id)
+              : isDropTargetRef.current(draggedId, id, part))),
+      );
+      if (!hit) return null;
+      return {
+        target: { ...target("tab", hit.id), ...(hit.at ? { at: hit.at } : {}) },
+        into: hit.into,
+      };
+    },
+    [axis],
+  );
+
+  /**
+   * The item of another sortable on the channel whose middle is under
+   * (x, y), the pointer in the viewport's pixels, and takes `moving`. Over
+   * a sortable but not on a middle, none. `held` is the armed item, whose
+   * zone holds a little wider. Each sortable is hit-tested in its own
+   * reported pixels (`scaleOf`): the window's strip is CSS-zoomed, pane
+   * rows are not.
+   */
+  const linkedDropAt = useCallback(
+    (
+      moving: string,
+      x: number,
+      y: number,
+      readBounds: ReadBounds,
+      held: { zone: LinkedZone; id: string } | null,
+      scaleOf: (element: HTMLElement) => number,
+    ): {
+      zone: LinkedZone;
+      target: SortableDropTarget;
+      into: HTMLElement;
+    } | null => {
+      const channel = linkRef.current?.channel;
+      if (!channel) return null;
+      for (const zone of linkedZones) {
+        if (zone === selfZone.current || zone.channel !== channel) continue;
+        const box = zone.container();
+        if (!box) continue;
+        const rect = readBounds(box);
+        const at = pointInRects({ x, y }, scaleOf(box));
         if (
-          isDropTargetRef.current &&
-          !(part === undefined
-            ? isDropTargetRef.current(draggedId, id)
-            : isDropTargetRef.current(draggedId, id, part))
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          at.x < rect.left ||
+          at.x > rect.right ||
+          at.y < rect.top ||
+          at.y > rect.bottom
         )
           continue;
-        const node = nodes.current.get(id);
-        if (!node) continue;
-        const rect = readBounds(node);
-        const size = axis === "x" ? rect.width : rect.height;
-        const edge = Math.min(
-          Math.max(size * DROP_ON_INSET, DROP_ON_EDGE),
-          size / 2,
+        const hit = itemDropAt(
+          zone.ids(),
+          zone.nodes(),
+          zone.axis,
+          at.x,
+          at.y,
+          readBounds,
+          held?.zone === zone ? held.id : null,
+          (id) => id !== moving && zone.accepts(moving, id),
         );
-        const inset = id === held ? Math.max(0, edge - DROP_ON_HOLD) : edge;
-        const inCenter =
-          axis === "x"
-            ? x >= rect.left + inset &&
-              x <= rect.right - inset &&
-              y >= rect.top &&
-              y <= rect.bottom
-            : y >= rect.top + inset &&
-              y <= rect.bottom - inset &&
-              x >= rect.left &&
-              x <= rect.right;
-        if (inCenter) return target("tab", id);
+        if (!hit) return null;
+        return {
+          zone,
+          target: {
+            kind: "tab",
+            id: hit.id,
+            allowed: true,
+            ...(hit.at ? { at: hit.at } : {}),
+          },
+          into: hit.into,
+        };
       }
       return null;
     },
-    [axis],
+    [],
   );
 
   const onItemPointerDown = useCallback(
@@ -486,11 +783,17 @@ export function useSortable(
         inStrip: true,
         toIndex: from,
         dropTarget: null,
+        zone: null,
+        into: null,
+        over: null,
+        shown: { target: null, zone: null, over: null },
         part: part ?? null,
         torn: false,
         arming: null,
         at: null,
       };
+      // Sortables on the channel whose items previewed this drag.
+      const touched = new Set<LinkedZone>();
       drag.current = state;
       handle.setPointerCapture(event.pointerId);
       const restoreSelection = suppressTextSelection();
@@ -532,11 +835,11 @@ export function useSortable(
           setDraggingPartId(current.part.id);
           if (animate) motion.current.tearOff(current.part.element, current);
         }
-        current.toIndex = indexAt(id, at.x, at.y, readBounds);
         const delay = dropOnDelayRef.current;
         const armed =
           current.dropTarget?.kind === "tab" ? current.dropTarget.id : null;
-        let target =
+        const armedZone = current.zone;
+        let hit =
           current.torn && !current.inStrip
             ? null
             : dropTargetAt(
@@ -544,17 +847,53 @@ export function useSortable(
                 at.x,
                 at.y,
                 readBounds,
-                delay > 0 ? armed : null,
+                delay > 0 && !armedZone ? armed : null,
                 current.torn ? current.part?.id : undefined,
               );
-        // A delayed zone arms once the pointer has rested on it; until then
-        // the pointer there reorders. Moving on within the zone starts the
-        // rest again, so a slow pass never arms.
-        if (target?.kind !== "tab" || delay <= 0) current.arming = null;
-        else if (target.id !== armed) {
-          const now = releasedAt ?? performance.now();
+        let zone: LinkedZone | null = null;
+        // Out of its own strip, it can join another bar's tab.
+        if (!hit && !current.inStrip) {
+          const linked = linkedDropAt(
+            movingOf(current),
+            current.x,
+            current.y,
+            readBounds,
+            delay > 0 && armedZone && armed
+              ? { zone: armedZone, id: armed }
+              : null,
+            rectScale,
+          );
+          if (linked) {
+            hit = linked;
+            zone = linked.zone;
+          }
+        }
+        let target = hit?.target ?? null;
+        // What shows is what a release does: on the middle of an item that
+        // takes it, a release joins the item, so the slot does not move past
+        // it and no line shows where it would stand; a light hint marks the
+        // item at once.
+        current.over = target?.kind === "tab" ? { id: target.id, zone } : null;
+        current.toIndex = indexAt(
+          id,
+          at.x,
+          at.y,
+          readBounds,
+          current.over && !zone
+            ? { id: current.over.id, previous: current.toIndex }
+            : null,
+        );
+        // A delayed zone's full preview arms once the pointer has rested on
+        // it, so a quick pass never flashes it. Moving on within the zone
+        // starts the rest again, so a slow pass never arms. Letting go on
+        // the zone drops onto the item all the same.
+        if (target?.kind !== "tab" || delay <= 0 || releasedAt !== undefined)
+          current.arming = null;
+        else if (target.id !== armed || zone !== armedZone) {
+          const now = performance.now();
           if (
             current.arming?.id !== target.id ||
+            current.arming.zone !== zone ||
             Math.hypot(
               current.x - current.arming.x,
               current.y - current.arming.y,
@@ -562,6 +901,7 @@ export function useSortable(
           )
             current.arming = {
               id: target.id,
+              zone,
               since: Math.min(movedAt, now),
               x: current.x,
               y: current.y,
@@ -569,15 +909,16 @@ export function useSortable(
           const wait = current.arming.since + delay - now;
           if (wait > 0) {
             armLater(wait);
-            // Resting there, it is about to join, not to move past: the
-            // entry keeps its place (and a release now moves nothing).
-            if (now - current.arming.since >= DROP_ON_REST)
-              current.toIndex = idsRef.current.indexOf(id);
             target = null;
           }
         } else current.arming = null;
         current.dropTarget = target;
+        current.zone = target ? zone : null;
+        current.into = target ? (hit?.into ?? null) : null;
       };
+      /** What moves: the item, or the part of it torn off. */
+      const movingOf = (current: DragState) =>
+        current.torn && current.part ? current.part.id : current.id;
       /** A drag that started on a part reports it; others pass nothing. */
       const partOf = (current: DragState): [SortablePartDrag] | [] =>
         current.part
@@ -587,6 +928,7 @@ export function useSortable(
                 torn: current.torn,
                 inStrip: current.inStrip,
                 ...(current.torn &&
+                !current.zone &&
                 current.dropTarget?.kind === "tab" &&
                 current.dropTarget.allowed
                   ? { target: current.dropTarget.id }
@@ -594,12 +936,81 @@ export function useSortable(
               },
             ]
           : [];
+      /**
+       * The box the copy dissolves into, while it would join an item, in
+       * the viewport's pixels, where the copy follows the pointer.
+       */
+      const joinBox = (current: DragState, readBounds: ReadBounds) => {
+        const into = current.into;
+        if (
+          !into ||
+          current.dropTarget?.kind !== "tab" ||
+          !current.dropTarget.allowed
+        )
+          return null;
+        const rect = readBounds(into);
+        const scale = rectScale(into);
+        return scale === 1
+          ? rect
+          : new DOMRect(
+              rect.x * scale,
+              rect.y * scale,
+              rect.width * scale,
+              rect.height * scale,
+            );
+      };
+      /**
+       * Preview the item the drag would join (or none): here, as the
+       * consumer's `dropTarget`; in another sortable on the channel, as
+       * its `incoming`. One it has left plays its preview out.
+       */
+      const showTarget = (current: DragState, readBounds?: ReadBounds) => {
+        const { target: was, zone: wasZone, over: wasOver } = current.shown;
+        const next = current.dropTarget;
+        const zone = current.zone;
+        const over = current.over;
+        const sameTarget = sameDropTarget(was, next) && wasZone === zone;
+        const sameOver =
+          wasOver?.id === over?.id && wasOver?.zone === over?.zone;
+        if (sameTarget && sameOver) return;
+        current.shown = { target: next, zone, over };
+        // Other bars it was over, or is: each draws its hint and preview.
+        const zones = new Set<LinkedZone>();
+        for (const candidate of [wasZone, zone, wasOver?.zone, over?.zone])
+          if (candidate) zones.add(candidate);
+        if (zones.size) {
+          const moving = movingOf(current);
+          const content = linkRef.current?.describe?.(moving);
+          for (const candidate of zones) {
+            touched.add(candidate);
+            candidate.show({
+              moving,
+              content,
+              // One it has left keeps what it brings, to play out.
+              target: candidate === zone ? next : null,
+              over: over && candidate === over.zone ? over.id : null,
+            });
+          }
+        }
+        if (!sameTarget) {
+          // The entry it would join here previews the result: measure
+          // first, so what makes room moves into it.
+          if (animate)
+            motion.current.hintChanged(
+              container.current,
+              nodes.current,
+              [wasZone ? null : was?.id, zone ? null : next?.id],
+              readBounds,
+            );
+          setDropTarget(zone ? null : next);
+        }
+        if (!sameOver) setNearId(over && !over.zone ? over.id : null);
+      };
       const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
         if (!current?.active) return;
         const previousIndex =
           current.inStrip && !current.torn ? current.toIndex : null;
-        const previousTarget = current.dropTarget;
         locate(current, readBounds);
         // Workspace drop callbacks read stationary pane/header geometry. Run
         // them before transform writes so that hit testing stays one read phase.
@@ -619,31 +1030,19 @@ export function useSortable(
             current.inStrip && !current.torn,
             readBounds,
           );
-          // Over an entry it would join, the copy goes into the entry's
-          // preview of the result.
-          const into =
-            current.dropTarget?.kind === "tab" && current.dropTarget.allowed
-              ? nodes.current.get(current.dropTarget.id)
-              : undefined;
-          motion.current.dropping(into ? readBounds(into) : null);
+          // Over an entry it would join, here or in another bar, the copy
+          // goes into the entry's preview of the result.
+          motion.current.dropping(
+            joinBox(current, readBounds),
+            current.dropTarget?.at?.side,
+          );
         }
         const nextIndex =
           current.inStrip && !current.torn ? current.toIndex : null;
         if (nextIndex !== previousIndex) setToIndex(nextIndex);
         // Pointer motion inside the same target only moves visual children;
         // it must not re-render every tab and its contents each display frame.
-        if (!sameDropTarget(previousTarget, current.dropTarget)) {
-          // The entry it would join previews the result: measure first, so
-          // what makes room moves into it.
-          if (animate)
-            motion.current.hintChanged(
-              container.current,
-              nodes.current,
-              [previousTarget?.id, current.dropTarget?.id],
-              readBounds,
-            );
-          setDropTarget(current.dropTarget);
-        }
+        showTarget(current, readBounds);
       };
       const scrollContainerAt = (readBounds: ReadBounds) => {
         const current = drag.current;
@@ -812,6 +1211,36 @@ export function useSortable(
         armTimer = null;
         const current = drag.current;
         const active = current?.active === true;
+        // A bar gone since it armed takes nothing.
+        if (current?.zone && !linkedZones.has(current.zone)) {
+          current.dropTarget = null;
+          current.zone = null;
+          current.into = null;
+        }
+        // Let go on an item it joins, here or in another bar.
+        const joined = Boolean(
+          commit &&
+          current?.active &&
+          current.dropTarget?.kind === "tab" &&
+          current.dropTarget.allowed,
+        );
+        if (joined && current) {
+          // Let go on a middle before its preview armed: it shows now, so
+          // the drop morphs from it as from an armed one, and the copy goes
+          // into its half as it fades.
+          if (
+            !sameDropTarget(current.shown.target, current.dropTarget) ||
+            current.shown.zone !== current.zone
+          )
+            flushSync(() => showTarget(current));
+          if (animate)
+            motion.current.dropping(
+              joinBox(current, measureBounds()),
+              current.dropTarget?.at?.side,
+            );
+        }
+        // Another bar's item takes the drop.
+        const linked = joined ? (current?.zone ?? null) : null;
         // Measure the strip as drawn before React lays out the drop.
         if (animate && active)
           motion.current.release(container.current, nodes.current);
@@ -822,13 +1251,20 @@ export function useSortable(
         setDraggingPartId(null);
         setToIndex(null);
         setDropTarget(null);
+        setNearId(null);
         try {
           handle.releasePointerCapture(state.pointerId);
         } catch {
           /* already released */
         }
+        /** Other bars' previews of this drag go once it has landed. */
+        const untouch = () => {
+          for (const zone of touched) zone.show(null);
+          touched.clear();
+        };
         if (!current || !active) {
           if (animate) motion.current.cancel();
+          untouch();
           return;
         }
         suppressClickUntil.current = performance.now() + 400;
@@ -836,20 +1272,16 @@ export function useSortable(
           current.id,
           current.x,
           current.y,
-          !commit,
+          !commit || linked !== null,
           { screenX: current.screenX, screenY: current.screenY },
           ...partOf(current),
         );
         if (animate) {
           // Taken by the workspace from outside the strip, the copy fades
           // where it was let go (its pane grows from the drop preview); let
-          // go onto an entry, that entry already shows it; otherwise it flies
-          // to where its tab now stands, at the pointer's speed (still, for
-          // Escape).
-          const joined =
-            commit &&
-            current.dropTarget?.kind === "tab" &&
-            current.dropTarget.allowed;
+          // go onto an entry, here or in another bar, that entry already
+          // shows it; otherwise it flies to where its tab now stands, at the
+          // pointer's speed (still, for Escape).
           const fly = !(consumed && !current.inStrip) && !joined;
           motion.current.land(
             fly
@@ -872,6 +1304,17 @@ export function useSortable(
               : null,
           );
         }
+        if (linked && current.dropTarget) {
+          // Its preview still drawn, the other bar measures itself and acts.
+          linked.drop(
+            movingOf(current),
+            current.dropTarget.id,
+            current.dropTarget.at,
+          );
+          untouch();
+          return;
+        }
+        untouch();
         if (!commit || consumed) return;
         if (current.dropTarget) {
           // A refused target still swallows the drop: the tab stays put rather
@@ -879,14 +1322,11 @@ export function useSortable(
           if (!current.dropTarget.allowed) return;
           if (current.dropTarget.kind === "tab") {
             const part = current.torn ? current.part?.id : undefined;
-            if (part === undefined)
-              onDropOnItemRef.current?.(current.id, current.dropTarget.id);
-            else
-              onDropOnItemRef.current?.(
-                current.id,
-                current.dropTarget.id,
-                part,
-              );
+            const { id: target, at } = current.dropTarget;
+            if (at) onDropOnItemRef.current?.(current.id, target, part, at);
+            else if (part === undefined)
+              onDropOnItemRef.current?.(current.id, target);
+            else onDropOnItemRef.current?.(current.id, target, part);
           } else {
             onDropOnGroupRef.current?.(current.id, current.dropTarget.id);
           }
@@ -918,7 +1358,7 @@ export function useSortable(
       handle.addEventListener("lostpointercapture", onCancel);
       cleanupDrag.current = onCancel;
     },
-    [axis, dropTargetAt, indexAt, inStrip],
+    [axis, dropTargetAt, linkedDropAt, indexAt, inStrip],
   );
 
   const consumeClick = useCallback(() => {
@@ -928,14 +1368,11 @@ export function useSortable(
   }, []);
 
   /**
-   * Measures the strip before a change made outside a drag (a split coming
-   * apart from its menu), so it morphs into its new shape once laid out.
+   * The pointer of the drag in progress is on the middle of an item it
+   * would join on release, here or in another bar, armed or not: where
+   * else it would go shows nothing.
    */
-  const captureStripMorph = useCallback(() => {
-    if (!animateRef.current || drag.current) return;
-    motion.current.morphing.capture(container.current, nodes.current);
-    morphing.current = true;
-  }, []);
+  const joining = useCallback(() => Boolean(drag.current?.over), []);
 
   /**
    * The box the entry `id` stood in before this commit's drop or morph,
@@ -954,8 +1391,33 @@ export function useSortable(
     draggingPartId: draggingId ? draggingPartId : null,
     landingId,
     fromIndex: draggingId ? ids.indexOf(draggingId) : null,
-    toIndex: draggingId && !dropTarget ? toIndex : null,
-    dropTarget: draggingId ? dropTarget : null,
+    // No line while a release would join an item rather than move.
+    toIndex: draggingId && !dropTarget && !nearId ? toIndex : null,
+    /**
+     * The item a drag would join: this sortable's own drag, or one from
+     * another bar on the channel (see `incoming`).
+     */
+    dropTarget: draggingId
+      ? dropTarget
+      : incoming && ids.includes(incoming.target?.id ?? "")
+        ? incoming.target
+        : null,
+    /**
+     * The item a release would join, its middle under the pointer, armed or
+     * not (this sortable's own drag, or one from another bar): a light hint
+     * until the full preview (`dropTarget`) arms.
+     */
+    joinHint: draggingId
+      ? nearId
+      : incoming?.over && ids.includes(incoming.over)
+        ? incoming.over
+        : null,
+    /**
+     * A drag from another bar on the channel over (or lately over) one of
+     * this sortable's items; null with none, or during a drag of its own.
+     */
+    incoming: draggingId ? null : incoming,
+    joining,
     setContainerRef,
     setItemRef,
     setGroupDropRef,

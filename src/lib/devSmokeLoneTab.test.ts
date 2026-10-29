@@ -2,11 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
+import { invoke } from "@tauri-apps/api/core";
 import {
+  combinedProblem,
   dragPath,
   frame,
   joinedProblem,
   splitLeftProblem,
+  slotAfterLast,
+  smokeMouse,
   strippedProblem,
 } from "./devSmokeLoneTab";
 
@@ -70,5 +74,55 @@ describe("the real-app check of a lone tab's header", () => {
     expect(strippedProblem([{ id: "chat" }], "page")).toBe(
       "the page is not on the strip",
     );
+  });
+
+  it("reads a split of the two tabs a no-rest drop made on the strip", () => {
+    expect(
+      combinedProblem(
+        [{ id: "notes" }, { split: ["chat", "page"] }],
+        "chat",
+        "page",
+      ),
+    ).toBeNull();
+    expect(
+      combinedProblem([{ id: "chat" }, { id: "page" }], "chat", "page"),
+    ).toMatch(/no split on the strip/);
+    expect(
+      combinedProblem([{ split: ["chat", "page", "other"] }], "chat", "page"),
+    ).toMatch(/not just the two tabs/);
+  });
+
+  it("lets go at once when asked not to wait for the drag's frames", async () => {
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    try {
+      // No frame ever comes, yet it returns as soon as the release is sent.
+      await smokeMouse("up", { x: 10, y: 20 }, { settle: false });
+      expect(invoke).toHaveBeenLastCalledWith("dev_smoke_pointer", {
+        kind: "up",
+        x: 10,
+        y: 20,
+        zoom: expect.any(Number),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("lets a pane's tab go on the strip at a slot, never on a tab's middle", () => {
+    // Room after the last entry: in it.
+    expect(
+      slotAfterLast({ left: 0, right: 500 }, [
+        { left: 0, right: 100 },
+        { left: 100, right: 300 },
+      ]),
+    ).toBe(400);
+    // None: just inside the last entry's far edge, in its moving band.
+    expect(
+      slotAfterLast({ left: 0, right: 300 }, [
+        { left: 0, right: 150 },
+        { left: 150, right: 300 },
+      ]),
+    ).toBe(296);
+    expect(slotAfterLast({ left: 0, right: 300 }, [])).toBe(150);
   });
 });

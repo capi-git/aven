@@ -12,6 +12,7 @@ import {
 import { secondOpinionTargets } from "./secondOpinion";
 import { HARNESS_TITLE } from "./session";
 import { asHarness } from "./appSearch";
+import { automationChatIds } from "./scheduledAgents";
 import { searchSessions } from "./sessionStore";
 
 /** Installed agents, the default one first with its remembered model. */
@@ -39,12 +40,15 @@ export function availablePaletteAgents(): PaletteAgent[] {
   });
 }
 
-/** Conversations in every project whose title or messages match. */
+/**
+ * Conversations in every project whose title or messages match. An
+ * automation run's own chat is left out: it is in Automations.
+ */
 export async function searchPaletteChats(
   query: string,
 ): Promise<PaletteChat[]> {
   const { hits } = await searchSessions({ query });
-  const seen = new Set<string>();
+  const seen = new Set<string>(automationChatIds());
   const chats: PaletteChat[] = [];
   for (const hit of hits) {
     if (seen.has(hit.sessionId)) continue;

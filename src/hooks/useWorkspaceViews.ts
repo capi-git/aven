@@ -6,12 +6,14 @@ import {
   combineStripTabs,
   detachStripTab,
   focusStripTab,
+  insertStripPane,
   isSpaceKey,
   joinStripSplit,
   keepUnseenStripEntries,
   recordedStripIds,
   reorderStripEntries,
   resolveWorkspaceStrip,
+  restoreStripSnapshot,
   separateStripSpace,
   stripView,
   stripViewWith,
@@ -236,6 +238,17 @@ export function useWorkspaceViews(
     [mutate],
   );
   /**
+   * A tab dropped on a split's segment joins it as a pane beside that
+   * segment's pane (`beside`), on `side` of it.
+   */
+  const insertPane = useCallback(
+    (spaceKey: string, id: string, beside: string, side: "before" | "after") =>
+      mutate(current.current.key, (strip) =>
+        insertStripPane(strip, spaceKey, id, beside, side),
+      ),
+    [mutate],
+  );
+  /**
    * Something let go on the middle of a single tab `target`: a tab (single,
    * or pulled out of a split) makes a new split with it in its place; a
    * split takes it as a pane at its right, standing in its place.
@@ -276,6 +289,17 @@ export function useWorkspaceViews(
       );
       return true;
     },
+    [mutate],
+  );
+  /**
+   * Put back the whole strip as it was before a drop that reshaped it,
+   * holding the tabs open now.
+   */
+  const restoreStrip = useCallback(
+    (snapshot: WorkspaceStrip) =>
+      mutate(current.current.key, (strip) =>
+        restoreStripSnapshot(strip, snapshot),
+      ),
     [mutate],
   );
   /** The next new tab stands on the strip, even with a space in front. */
@@ -347,11 +371,13 @@ export function useWorkspaceViews(
     get,
     reorderEntries,
     addPane,
+    insertPane,
     combine,
     detach,
     separate,
     viewWith,
     openOnStrip,
     undoLayout,
+    restoreStrip,
   };
 }
