@@ -21,8 +21,10 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [], refresh: async () => true }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./AgentPill", () => ({ AgentPill: () => null }));
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
+vi.mock("./AgentPill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AgentPill")>()),
+  AgentPill: () => null,
+}));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
 let root: Root;
@@ -81,6 +83,12 @@ async function type(text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
   });
+}
+/** Opens the critter's dialog, where the old bottom bar's controls live. */
+async function openHelm() {
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("[data-helm-critter]")!.click(),
+  );
 }
 async function press(key: string) {
   await act(async () => {
@@ -195,17 +203,12 @@ it("explains why /compact did nothing while a reply is running", async () => {
 it("reports a failed upload instead of failing silently", async () => {
   picker.pick.mockRejectedValue(new Error("dialog failed"));
   await render();
+  await openHelm();
   await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>(
-        '[aria-label="Add files or choose a mode"]',
-      )!
+    document.body
+      .querySelector<HTMLButtonElement>('[data-helm-row="files"]')!
       .click(),
   );
-  const upload = [...document.body.querySelectorAll("button")].find((item) =>
-    item.textContent?.includes("Upload file"),
-  )!;
-  await act(async () => upload.click());
   expect(picker.pick).toHaveBeenCalledOnce();
   expect(alertText()).toContain("Couldn't attach these files");
 });
@@ -254,19 +257,27 @@ it("creates a new skill where this chat's agent works", async () => {
   });
 });
 
-it("works the + menu from the keyboard", async () => {
+it("works the helm's dialog from the keyboard", async () => {
+  props.hotkeys = true;
+  props.focused = true;
+  props.hideTopBar = false;
   await render();
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>(
-        '[aria-label="Add files or choose a mode"]',
-      )!
-      .click(),
-  );
-  const menu = document.body.querySelector<HTMLElement>(
-    "[data-composer-plus]",
-  )!;
-  expect(menu.contains(document.activeElement)).toBe(true);
+  field().focus();
+  // Cmd+. opens the dialog, as it opened the old model menu.
+  await act(async () => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: ".",
+        code: "Period",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  const dialog =
+    document.body.querySelector<HTMLElement>("[data-helm-dialog]")!;
+  expect(dialog.contains(document.activeElement)).toBe(true);
   const key = (name: string) =>
     act(async () => {
       (document.activeElement as HTMLElement).dispatchEvent(
@@ -277,16 +288,67 @@ it("works the + menu from the keyboard", async () => {
         }),
       );
     });
+  expect(document.activeElement?.getAttribute("data-helm-row")).toBe("model");
   await key("ArrowDown");
-  expect(document.activeElement?.textContent).toContain("Upload file");
   await key("ArrowDown");
+  expect(document.activeElement?.getAttribute("data-helm-row")).toBe("files");
+  await key("ArrowDown");
+  expect(document.activeElement?.getAttribute("data-helm-row")).toBe("modes");
+  await act(async () => (document.activeElement as HTMLElement).click());
   expect(document.activeElement?.textContent).toContain("Plan mode");
-  await key("ArrowUp");
-  await key("ArrowUp");
-  expect(document.activeElement?.textContent).toContain("Plan mode");
+  await key("ArrowDown");
+  expect(document.activeElement?.textContent).toContain("Orchestrator");
   await key("Escape");
-  expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
+  expect(document.activeElement?.getAttribute("data-helm-row")).toBe("modes");
+  await key("Escape");
+  expect(document.body.querySelector("[data-helm-dialog]")).toBeNull();
   expect(document.activeElement).toBe(field());
+});
+
+it("attaches files with Cmd+U", async () => {
+  picker.pick.mockResolvedValue([]);
+  await render();
+  await act(async () => {
+    field().dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "u",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  expect(picker.pick).toHaveBeenCalledOnce();
+});
+
+it("holds only text: no controls row, and the field is a block", async () => {
+  await render();
+  const box = container.querySelector("[data-composer-box]")!;
+  expect(box.querySelectorAll("button")).toHaveLength(0);
+  expect(field().className).toContain("block");
+  // The field and its painted words share one wrapper and nothing else.
+  const wrapper = field().parentElement!;
+  expect(wrapper.children).toHaveLength(2);
+  expect(wrapper.querySelector(".composer-highlight")).not.toBeNull();
+});
+
+it("sends with Enter and with the paper plane", async () => {
+  await render();
+  expect(
+    container.querySelector<HTMLButtonElement>("[data-helm-send]")!.hidden,
+  ).toBe(true);
+  await type("Ship it");
+  await press("Enter");
+  expect(props.onSubmit).toHaveBeenCalledTimes(1);
+  await type("And the docs");
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("[data-helm-send]")!.click(),
+  );
+  expect(props.onSubmit).toHaveBeenLastCalledWith(
+    "And the docs",
+    [],
+    expect.anything(),
+  );
 });
 
 it("sends a typed /orchestrator request as an orchestrated turn", async () => {

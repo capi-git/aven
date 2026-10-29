@@ -1,19 +1,15 @@
 import { harnessDescriptor } from "../lib/harness/descriptors";
 import {
-  ArrowUp,
   AiIdea,
   Check,
   CornerDownRight,
-  FilePlus,
   ListEnd,
   MessageMultiple,
   Pause,
   Pencil,
   Play,
-  Plus,
   Race,
   Share,
-  Square,
   StickyNote,
   Trash2,
   X,
@@ -99,7 +95,7 @@ import type {
   UserQuestionPrompt,
   UserQuestionReply,
 } from "../lib/userQuestion";
-import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
+import { isImeComposition } from "../lib/keyboard";
 import {
   createBlankSkill,
   rankSkillMatches,
@@ -117,9 +113,9 @@ import {
   rememberRecentSkills,
   subscribeRecentSkills,
 } from "../lib/recentSkills";
-import { AgentPill } from "./AgentPill";
 import { ComposerRunner } from "./ComposerRunner";
-import { ContextMeter } from "./ContextMeter";
+import { ComposerHelm, type HelmMode } from "./ComposerHelm";
+import { HELM_RECENT_SKILLS } from "../lib/composerHelm";
 import { AttachmentChip } from "./AttachmentChip";
 import { ChatReferenceText } from "./ChatReferenceText";
 import { BranchPicker } from "./BranchPicker";
@@ -130,7 +126,6 @@ import { InboxMiniCard } from "./InboxMiniCard";
 import { NoteMiniCard } from "./NoteMiniCard";
 import { HandoffMiniCard } from "./HandoffMiniCard";
 import { QuestionForm } from "./QuestionForm";
-import { RECENT_SKILL_CHIPS, RecentSkillChips } from "./RecentSkillChips";
 import { SKILL_ACTION_ROWS, SkillPicker } from "./SkillPicker";
 import { retryableLazy } from "../lib/retryableLazy";
 import { projectKey } from "../lib/paths";
@@ -155,7 +150,6 @@ import {
 } from "../lib/notes";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
-import { Popover } from "./Popover";
 import { RaceChip } from "./RaceChip";
 import type { AgentRoleId } from "../lib/agentRoles";
 import type { PaletteAgent } from "../lib/commandPalette";
@@ -214,6 +208,11 @@ type Props = {
    * project's bot always runs Claude, in its own mode.
    */
   hideAgentPill?: boolean;
+  /**
+   * The folder whose critter stands at the helm, when not the chat's own
+   * (a bot's chat works in a copy; its critter is its project's).
+   */
+  helmPath?: string;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -323,6 +322,7 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
 }
 
 const NO_FILES: ProjectFile[] = [];
+const NO_SKILLS: readonly Skill[] = [];
 
 type MentionSources = {
   projectMentionIndex: MentionIndex;
@@ -356,37 +356,6 @@ function mentionInsert(
 
 /** One shared empty value, so the agent pill's props stay the same. */
 const NO_MODEL_SETTINGS: Record<string, string> = {};
-
-function ToolButton({
-  active,
-  disabled,
-  label,
-  onClick,
-  children,
-}: {
-  active?: boolean;
-  disabled?: boolean;
-  label: string;
-  onClick?: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={`grid size-6.5 shrink-0 place-items-center rounded-md ${
-        active
-          ? "bg-content/20 text-content"
-          : "bg-content/10 text-content/50 hover:bg-content/15 hover:text-content"
-      } disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-content/50`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function MessageQueue({
   messages,
@@ -614,6 +583,7 @@ function ComposerComponent({
   hideTopBar = false,
   placeholder,
   hideAgentPill = false,
+  helmPath,
   context,
   compactSupported = false,
   quoteRequest,
@@ -657,10 +627,16 @@ function ComposerComponent({
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
-  const plusRef = useRef<HTMLDivElement>(null);
-  // How much the controls row can say: in a narrow chat, chips shorten and
-  // the agent pill keeps its mark, never cutting a word off.
-  const [controlsRef, controlsWidth] = useWidth<HTMLDivElement>();
+  // How much the mode chip can say: in a narrow chat it shortens, never
+  // cutting a word off.
+  const [measureBox, boxWidth] = useWidth<HTMLDivElement>();
+  const setBox = useCallback(
+    (node: HTMLDivElement | null) => {
+      boxRef.current = node;
+      measureBox(node);
+    },
+    [measureBox],
+  );
   const highlightRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>(initialAttachments ?? []);
   const draftCallbacks = useRef({ onDraftChange, onAttachmentsChange });
@@ -698,7 +674,6 @@ function ComposerComponent({
   const [fileDrag, setFileDrag] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
-  const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
   // Race mode: sending gives the message to the lanes the chip shows.
   const [raceOn, setRaceOn] = useState(false);
@@ -840,11 +815,6 @@ function ComposerComponent({
     !planSelected &&
     !orchestrationSelected &&
     !discussActive;
-  const fit = composerFit(
-    controlsWidth,
-    !jumpInId &&
-      (raceActive || discussActive || planSelected || orchestrationSelected),
-  );
   const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
@@ -983,7 +953,7 @@ function ComposerComponent({
     return recentSkills
       .map((invocation) => byInvocation.get(invocation))
       .filter((skill): skill is Skill => skill !== undefined)
-      .slice(0, RECENT_SKILL_CHIPS);
+      .slice(0, HELM_RECENT_SKILLS);
   }, [recentSkills, slashItems]);
   const mentionFiles = useMemo(
     () => (notesEnabled ? [...files, ...notesAsProjectFiles(notes)] : files),
@@ -1420,7 +1390,7 @@ function ComposerComponent({
     if (!focused) return;
     if (
       document.querySelector(
-        "[data-model-picker], [data-access-picker], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus], [data-discussion-menu]",
+        "[data-model-picker], [data-access-picker], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus], [data-discussion-menu], [data-helm-dialog]",
       )
     )
       return;
@@ -1594,7 +1564,6 @@ function ComposerComponent({
       return;
     }
     setCommandNotice(null);
-    setPlusOpen(false);
     setSlash(null);
     setMention(null);
     clearField();
@@ -1639,7 +1608,6 @@ function ComposerComponent({
       ref.current.style.height = "auto";
       dismissedTokenRef.current = null;
       updateDraft("");
-      setPlusOpen(false);
       setSlash(null);
       setMention(null);
       setCreatingSkill(false);
@@ -1673,7 +1641,6 @@ function ComposerComponent({
         return;
       }
       stopRaceMode();
-      setPlusOpen(false);
       setSlash(null);
       setMention(null);
       clearField();
@@ -1721,7 +1688,6 @@ function ComposerComponent({
     clearField();
     setPlanSelected(false);
     setOrchestrationSelected(false);
-    setPlusOpen(false);
     setSlash(null);
     setMention(null);
     setCreatingSkill(false);
@@ -1744,6 +1710,18 @@ function ComposerComponent({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(e.nativeEvent)) return;
     if (creatingSkill) return;
+
+    // Cmd+U attaches files, as the helm's Files row says.
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      !e.shiftKey &&
+      e.key.toLowerCase() === "u"
+    ) {
+      e.preventDefault();
+      attachFromPicker();
+      return;
+    }
 
     if (mentionOpen) {
       if (e.key === "ArrowDown") {
@@ -1872,9 +1850,274 @@ function ComposerComponent({
       );
   };
 
+  const actionLabel = jumpInId
+    ? "Send to both"
+    : raceActive
+      ? raceReady
+        ? `Race ${raceLanes.length} agents`
+        : "Choose agents to race"
+      : queueSubmission
+        ? "Queue message"
+        : busy
+          ? STEER_HINT
+          : "Send";
+  // The helm is memoized: hand it callbacks that stay the same while you
+  // type, each calling the latest version of what it does.
+  const latest = useRef({
+    submit,
+    attachFromPicker,
+    onCompactContext,
+    startDiscussion,
+  });
+  latest.current = {
+    submit,
+    attachFromPicker,
+    onCompactContext,
+    startDiscussion,
+  };
+  const sendFromHelm = useCallback(
+    () => latest.current.submit(ref.current?.value ?? ""),
+    [],
+  );
+  const attachFromHelm = useCallback(
+    () => latest.current.attachFromPicker(),
+    [],
+  );
+  const compactFromHelm = useCallback(() => {
+    const compact = latest.current.onCompactContext;
+    if (compact && !compact())
+      setCommandNotice("Wait for the current reply to finish, then compact.");
+  }, []);
+  // The + menu's modes, now a page of the helm's dialog. Exclusive: turning
+  // one on turns the others off.
+  const helmModes = useMemo<HelmMode[]>(
+    () =>
+      jumpInId
+        ? []
+        : [
+            {
+              id: "plan",
+              label: "Plan mode",
+              description:
+                "Plans first; you approve before it changes anything",
+              icon: <AiIdea className="text-content/80" />,
+              pressed: planSelected,
+              onToggle: () => {
+                setPlanSelected((selected) => !selected);
+                setOrchestrationSelected(false);
+                stopRaceMode();
+                stopDiscussMode();
+                ref.current?.focus();
+              },
+            },
+            ...(hideTopBar
+              ? []
+              : [
+                  {
+                    id: "orchestrator" as const,
+                    label: "Orchestrator",
+                    description:
+                      "Splits the job into parts and runs an agent on each",
+                    icon: <Share />,
+                    pressed: orchestrationSelected,
+                    onToggle: () => {
+                      setOrchestrationSelected((selected) => !selected);
+                      setPlanSelected(false);
+                      stopRaceMode();
+                      stopDiscussMode();
+                      ref.current?.focus();
+                    },
+                  },
+                ]),
+            ...(discussAvailable
+              ? [
+                  {
+                    id: "discuss" as const,
+                    label: "Discuss",
+                    description:
+                      "Another chat talks it over with this one for a few rounds",
+                    icon: <MessageMultiple />,
+                    pressed: discussActive,
+                    onToggle: () => {
+                      if (discussActive) stopDiscussMode();
+                      else startDiscussMode();
+                      ref.current?.focus();
+                    },
+                  },
+                ]
+              : []),
+            ...(onRace
+              ? [
+                  {
+                    id: "race" as const,
+                    label: "Race",
+                    description:
+                      "Several AIs try it separately; you keep the best one",
+                    icon: <Race strokeWidth={1.75} />,
+                    pressed: raceActive,
+                    onToggle: () => {
+                      if (raceActive) stopRaceMode();
+                      else startRaceMode();
+                      ref.current?.focus();
+                    },
+                  },
+                ]
+              : []),
+          ],
+    [
+      jumpInId,
+      planSelected,
+      orchestrationSelected,
+      discussActive,
+      raceActive,
+      hideTopBar,
+      discussAvailable,
+      onRace,
+      startDiscussMode,
+      startRaceMode,
+      stopDiscussMode,
+      stopRaceMode,
+    ],
+  );
+  // The chip of the mode that is on stands on the box beside the critter,
+  // with its dropdown (lanes, partner, rounds) and its way to turn it off.
+  const raceReasonText = raceActive ? (raceError ?? raceReason(draft)) : null;
+  const discussReasonText = discussActive
+    ? (discussError ?? discussReason(draft))
+    : null;
+  const previewDiscussion = useCallback(
+    () => latest.current.startDiscussion(ref.current?.value ?? "", true),
+    [],
+  );
+  const fit = composerFit(
+    boxWidth,
+    !jumpInId &&
+      (raceActive || discussActive || planSelected || orchestrationSelected),
+  );
+  const activeModeChip = useMemo((): ReactNode => {
+    if (jumpInId) return null;
+    if (orchestrationSelected)
+      return (
+        <button
+          type="button"
+          title="Orchestrator: splits the job into parts and runs an agent on each. Click to turn off."
+          aria-label="Turn off Orchestrator mode"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setOrchestrationSelected(false);
+            ref.current?.focus();
+          }}
+          className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-1.5 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
+        >
+          <Share className="size-3.5" />
+          {fit === "narrow" ? null : "Orchestrator"}
+          <X className="size-3" />
+        </button>
+      );
+    if (planSelected)
+      return (
+        <button
+          type="button"
+          title="Plan mode: plans first; you approve before it changes anything. Click to turn off."
+          aria-label="Turn off Plan mode"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setPlanSelected(false);
+            ref.current?.focus();
+          }}
+          className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-1.5 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
+        >
+          <AiIdea className="size-3.5" />
+          {fit === "narrow" ? null : "Plan"}
+          <X className="size-3" />
+        </button>
+      );
+    if (raceActive)
+      return (
+        <RaceChip
+          fit={fit}
+          available={raceAvailable}
+          lanes={raceLanes}
+          onFirstModelChange={setRaceModel}
+          reason={raceReasonText}
+          failed={!!raceError}
+          open={raceMenuOpen}
+          onOpenChange={(open) => {
+            setRaceMenuOpen(open);
+            if (!open) setRaceError(null);
+          }}
+          onTurnOff={() => {
+            stopRaceMode();
+            ref.current?.focus();
+          }}
+          onDone={() => ref.current?.focus()}
+        />
+      );
+    if (discussActive && discussion && sessionId)
+      return (
+        <DiscussionChip
+          fit={fit}
+          host={discussion}
+          sessionId={sessionId}
+          harness={harness}
+          model={model}
+          pick={discussPick}
+          rounds={discussRounds}
+          role={discussRole}
+          reason={discussReasonText}
+          open={discussMenuOpen}
+          onOpenChange={(open) => {
+            setDiscussMenuOpen(open);
+            if (!open) setDiscussError(null);
+          }}
+          onPick={(pick) => {
+            setDiscussPick(pick);
+            setDiscussError(null);
+          }}
+          onRoundsChange={(rounds) => {
+            setDiscussRounds(rounds);
+            saveDiscussionRounds(rounds);
+          }}
+          onRoleChange={setDiscussRole}
+          onTurnOff={() => {
+            stopDiscussMode();
+            ref.current?.focus();
+          }}
+          onPreview={previewDiscussion}
+          onDone={() => ref.current?.focus()}
+        />
+      );
+    return null;
+  }, [
+    fit,
+    jumpInId,
+    orchestrationSelected,
+    planSelected,
+    raceActive,
+    raceAvailable,
+    raceLanes,
+    raceReasonText,
+    raceError,
+    raceMenuOpen,
+    discussActive,
+    discussion,
+    sessionId,
+    harness,
+    model,
+    discussPick,
+    discussRounds,
+    discussRole,
+    discussReasonText,
+    discussMenuOpen,
+    stopRaceMode,
+    stopDiscussMode,
+    previewDiscussion,
+  ]);
+
   return (
     <div
       data-composer
+      data-helm
       className={`personal-composer relative shrink-0 ${shell ? "" : "p-1.5 pt-0"}`}
       onMouseDown={onFocus}
     >
@@ -1987,7 +2230,7 @@ function ComposerComponent({
           </div>
         ) : null}
         <div
-          ref={boxRef}
+          ref={setBox}
           data-composer-box
           data-tour="composer"
           data-file-drag={fileDrag || undefined}
@@ -2095,20 +2338,22 @@ function ComposerComponent({
                           ? "Add a message, or send…"
                           : handoffCard
                             ? "Add context, or send to continue…"
-                            : noteHint
-                              ? `${noteHint}. Say what's next…`
-                              : composerHint(
-                                  hasNativeCommands(harness),
-                                  looksLikeProject(cwd)
-                                    ? "files"
-                                    : notesEnabled
-                                      ? "notes"
-                                      : null,
-                                )
+                            : busy
+                              ? "Steer, or queue a follow-up…"
+                              : noteHint
+                                ? `${noteHint}. Say what's next…`
+                                : composerHint(
+                                    hasNativeCommands(harness),
+                                    looksLikeProject(cwd)
+                                      ? "files"
+                                      : notesEnabled
+                                        ? "notes"
+                                        : null,
+                                  )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
-              className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
+              className={`composer-field scrollbar-none relative block max-h-40 w-full resize-none overscroll-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
                 shell ? "py-4" : "py-3"
               }`}
               onFocus={() => {
@@ -2141,345 +2386,6 @@ function ComposerComponent({
               }}
             />
           </div>
-
-          <div
-            ref={controlsRef}
-            className="personal-composer-controls flex items-center gap-1 px-2 pb-2"
-            data-fit={fit === "full" ? undefined : fit}
-          >
-            <div
-              ref={plusRef}
-              className="personal-composer-add relative shrink-0"
-            >
-              <ToolButton
-                label="Add files or choose a mode"
-                active={plusOpen}
-                onClick={() => setPlusOpen((open) => !open)}
-              >
-                <Plus className="size-3.5" strokeWidth={1.5} />
-              </ToolButton>
-              {plusOpen ? (
-                <Popover
-                  anchor={plusRef}
-                  side="top"
-                  align="start"
-                  width={250}
-                  autoFocus
-                  tabIndex={-1}
-                  aria-label="Add to message"
-                  onKeyDown={moveMenuFocus}
-                  onDismiss={(reason) => {
-                    setPlusOpen(false);
-                    if (reason === "escape") ref.current?.focus();
-                  }}
-                  data-composer-plus
-                  className="aven-menu"
-                >
-                  <p className="aven-menu-section">Add to message</p>
-                  <button
-                    type="button"
-                    disabled={!attachmentsSupported}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlusOpen(false);
-                      attachFromPicker();
-                    }}
-                    className="aven-menu-item aven-menu-item-rich"
-                  >
-                    <span aria-hidden="true" className="aven-menu-icon">
-                      <FilePlus />
-                    </span>
-                    <span className="aven-menu-text">
-                      <span>Upload file</span>
-                      <span className="aven-menu-description">
-                        {attachmentsSupported
-                          ? "Attach files or images to this message"
-                          : `${appName(harness)} can't take attachments`}
-                      </span>
-                    </span>
-                  </button>
-                  {jumpInId ? (
-                    <p
-                      className="aven-menu-note aven-menu-description"
-                      data-composer-modes-off
-                    >
-                      While this chat's discussion runs, what you send goes to
-                      both chats. Modes return when it ends.
-                    </p>
-                  ) : null}
-                  {jumpInId ? null : (
-                    <button
-                      type="button"
-                      aria-pressed={planSelected}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setPlanSelected((selected) => !selected);
-                        setOrchestrationSelected(false);
-                        stopRaceMode();
-                        stopDiscussMode();
-                        setPlusOpen(false);
-                        ref.current?.focus();
-                      }}
-                      className="aven-menu-item aven-menu-item-rich"
-                    >
-                      <span aria-hidden="true" className="aven-menu-icon">
-                        <AiIdea className="text-yellow-300/80" />
-                      </span>
-                      <span className="aven-menu-text">
-                        <span>Plan mode</span>
-                        <span className="aven-menu-description">
-                          Plans first; you approve before it changes anything
-                        </span>
-                      </span>
-                      {planSelected ? (
-                        <Check aria-hidden="true" className="aven-menu-check" />
-                      ) : null}
-                    </button>
-                  )}
-                  {!hideTopBar && !jumpInId ? (
-                    <button
-                      type="button"
-                      aria-pressed={orchestrationSelected}
-                      data-composer-orchestrator
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setOrchestrationSelected((selected) => !selected);
-                        setPlanSelected(false);
-                        stopRaceMode();
-                        stopDiscussMode();
-                        setPlusOpen(false);
-                        ref.current?.focus();
-                      }}
-                      className="aven-menu-item aven-menu-item-rich"
-                    >
-                      <span aria-hidden="true" className="aven-menu-icon">
-                        <Share />
-                      </span>
-                      <span className="aven-menu-text">
-                        <span>Orchestrator</span>
-                        <span className="aven-menu-description">
-                          Splits the job into parts and runs an agent on each
-                        </span>
-                      </span>
-                      {orchestrationSelected ? (
-                        <Check aria-hidden="true" className="aven-menu-check" />
-                      ) : null}
-                    </button>
-                  ) : null}
-                  {discussAvailable && !jumpInId ? (
-                    <button
-                      type="button"
-                      aria-pressed={discussActive}
-                      data-composer-discuss
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setPlusOpen(false);
-                        if (discussActive) stopDiscussMode();
-                        else startDiscussMode();
-                        ref.current?.focus();
-                      }}
-                      className="aven-menu-item aven-menu-item-rich"
-                    >
-                      <span aria-hidden="true" className="aven-menu-icon">
-                        <MessageMultiple />
-                      </span>
-                      <span className="aven-menu-text">
-                        <span>Discuss</span>
-                        <span className="aven-menu-description">
-                          Another chat talks it over with this one for a few
-                          rounds
-                        </span>
-                      </span>
-                      {discussActive ? (
-                        <Check aria-hidden="true" className="aven-menu-check" />
-                      ) : null}
-                    </button>
-                  ) : null}
-                  {onRace && !jumpInId ? (
-                    <button
-                      type="button"
-                      aria-pressed={raceActive}
-                      data-composer-race
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setPlusOpen(false);
-                        if (raceActive) stopRaceMode();
-                        else startRaceMode();
-                        ref.current?.focus();
-                      }}
-                      className="aven-menu-item aven-menu-item-rich"
-                    >
-                      <span aria-hidden="true" className="aven-menu-icon">
-                        <Race strokeWidth={1.75} />
-                      </span>
-                      <span className="aven-menu-text">
-                        <span>Race</span>
-                        <span className="aven-menu-description">
-                          Several AIs try it separately; you keep the best one
-                        </span>
-                      </span>
-                      {raceActive ? (
-                        <Check aria-hidden="true" className="aven-menu-check" />
-                      ) : null}
-                    </button>
-                  ) : null}
-                </Popover>
-              ) : null}
-            </div>
-            {orchestrationSelected && !jumpInId ? (
-              <button
-                type="button"
-                title="Orchestrator: splits the job into parts and runs an agent on each. Click to turn off."
-                aria-label="Turn off Orchestrator mode"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  setOrchestrationSelected(false);
-                  ref.current?.focus();
-                }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-(--aven-control-bg) px-1.5 text-ui-caption text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
-              >
-                <Share className="size-3.5" />
-                {fit === "narrow" ? null : "Orchestrator"}
-                <X className="size-3" />
-              </button>
-            ) : null}
-            {planSelected && !jumpInId ? (
-              <button
-                type="button"
-                title="Plan mode: plans first; you approve before it changes anything. Click to turn off."
-                aria-label="Turn off Plan mode"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setPlanSelected(false);
-                  ref.current?.focus();
-                }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-ui-caption text-yellow-200/90 hover:bg-yellow-300/18"
-              >
-                <AiIdea className="size-3.5" />
-                {fit === "narrow" ? null : "Plan"}
-                <X className="size-3" />
-              </button>
-            ) : null}
-            {raceActive ? (
-              <RaceChip
-                fit={fit}
-                available={raceAvailable}
-                lanes={raceLanes}
-                onFirstModelChange={setRaceModel}
-                reason={raceError ?? raceReason(draft)}
-                failed={!!raceError}
-                open={raceMenuOpen}
-                onOpenChange={(open) => {
-                  setRaceMenuOpen(open);
-                  if (!open) setRaceError(null);
-                }}
-                onTurnOff={() => {
-                  stopRaceMode();
-                  ref.current?.focus();
-                }}
-                onDone={() => ref.current?.focus()}
-              />
-            ) : null}
-            {discussActive && discussion && sessionId ? (
-              <DiscussionChip
-                fit={fit}
-                host={discussion}
-                sessionId={sessionId}
-                harness={harness}
-                model={model}
-                pick={discussPick}
-                rounds={discussRounds}
-                role={discussRole}
-                reason={discussError ?? discussReason(draft)}
-                open={discussMenuOpen}
-                onOpenChange={(open) => {
-                  setDiscussMenuOpen(open);
-                  if (!open) setDiscussError(null);
-                }}
-                onPick={(pick) => {
-                  setDiscussPick(pick);
-                  setDiscussError(null);
-                }}
-                onRoundsChange={(rounds) => {
-                  setDiscussRounds(rounds);
-                  saveDiscussionRounds(rounds);
-                }}
-                onRoleChange={setDiscussRole}
-                onTurnOff={() => {
-                  stopDiscussMode();
-                  ref.current?.focus();
-                }}
-                onPreview={() =>
-                  startDiscussion(ref.current?.value ?? "", true)
-                }
-                onDone={() => ref.current?.focus()}
-              />
-            ) : null}
-            <div
-              className="composer-toolbar flex min-w-0 flex-1 items-center"
-              onWheel={(e) => {
-                const el = e.currentTarget;
-                if (el.scrollWidth <= el.clientWidth) return;
-                if (e.deltaX === 0 && e.deltaY !== 0) el.scrollLeft += e.deltaY;
-              }}
-            >
-              {hasValue || busy ? null : (
-                <RecentSkillChips
-                  skills={recentSkillChips}
-                  onPick={pickRecentSkill}
-                />
-              )}
-            </div>
-            {hideAgentPill ? null : (
-              <div className="personal-composer-agent">
-                <AgentPill
-                  fit={fit}
-                  harness={harness}
-                  model={model}
-                  modelSettings={modelSettings}
-                  runtimeMode={runtimeMode}
-                  showAccess={harnessDescriptor(harness).supportsAccessMode}
-                  busy={busy}
-                  hotkeys={hotkeys && enabled}
-                  onModelChange={onModelChange}
-                  onModelSettingsChange={onModelSettingsChange}
-                  onRuntimeModeChange={onRuntimeModeChange}
-                  onClose={focusField}
-                />
-              </div>
-            )}
-
-            {hideTopBar ? null : (
-              <div className="personal-composer-context">
-                <ContextMeter
-                  usage={context}
-                  onCompact={compactSupported ? onCompactContext : undefined}
-                  compactDisabled={busy}
-                />
-              </div>
-            )}
-            <div className="personal-composer-actions flex shrink-0 items-center gap-1">
-              <ComposerAction
-                busy={busy}
-                actionLabel={
-                  jumpInId
-                    ? "Send to both"
-                    : raceActive
-                      ? raceReady
-                        ? `Race ${raceLanes.length} agents`
-                        : "Choose agents to race"
-                      : queueSubmission
-                        ? "Queue message"
-                        : busy
-                          ? STEER_HINT
-                          : "Send"
-                }
-                hasValue={hasValue}
-                onSend={() => submit(ref.current?.value ?? "")}
-                onStop={stopInBar ? undefined : () => onStop?.()}
-              />
-            </div>
-          </div>
         </div>
         {runnerLive && runnerEnabled ? (
           <ComposerRunner
@@ -2491,6 +2397,41 @@ function ComposerComponent({
           />
         ) : null}
       </div>
+      <ComposerHelm
+        enabled={enabled}
+        hotkeys={hotkeys}
+        critterPath={helmPath ?? cwd}
+        harness={harness}
+        model={model}
+        modelSettings={modelSettings}
+        runtimeMode={runtimeMode}
+        showAgent={!hideAgentPill}
+        showAccess={harnessDescriptor(harness).supportsAccessMode}
+        busy={busy}
+        onModelChange={onModelChange}
+        onModelSettingsChange={onModelSettingsChange}
+        onRuntimeModeChange={onRuntimeModeChange}
+        context={hideTopBar ? undefined : context}
+        onCompact={compactSupported ? compactFromHelm : undefined}
+        compactDisabled={busy}
+        attachmentsSupported={attachmentsSupported}
+        onAttach={attachFromHelm}
+        modes={helmModes}
+        modesNote={
+          jumpInId
+            ? "While this chat's discussion runs, what you send goes to both chats. Modes return when it ends."
+            : undefined
+        }
+        modeChip={activeModeChip}
+        recentSkills={hasValue || busy ? NO_SKILLS : recentSkillChips}
+        onPickSkill={pickRecentSkill}
+        hasValue={hasValue}
+        sendLabel={actionLabel}
+        onSend={sendFromHelm}
+        stopInBar={stopInBar}
+        onStop={onStop}
+        onReturnFocus={focusField}
+      />
     </div>
   );
 }
@@ -2582,62 +2523,5 @@ function MentionRuns({
         ),
       )}
     </>
-  );
-}
-
-function ComposerAction({
-  busy,
-  actionLabel,
-  hasValue,
-  onSend,
-  onStop,
-}: {
-  busy: boolean;
-  actionLabel: string;
-  hasValue: boolean;
-  onSend: () => void;
-  /** Absent where the team bar's Stop stops the same thing. */
-  onStop?: () => void;
-}) {
-  if (busy) {
-    return (
-      <>
-        {hasValue ? (
-          <button
-            type="button"
-            title={actionLabel}
-            aria-label={actionLabel}
-            onClick={onSend}
-            className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
-          >
-            <ArrowUp className="size-3.5" strokeWidth={2.25} />
-          </button>
-        ) : null}
-        {onStop ? (
-          <button
-            type="button"
-            title="Stop"
-            aria-label="Stop"
-            onClick={onStop}
-            className="aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
-          >
-            <Square className="size-2.5 fill-current" strokeWidth={0} />
-          </button>
-        ) : null}
-      </>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      title={actionLabel}
-      aria-label={actionLabel}
-      disabled={!hasValue}
-      onClick={onSend}
-      className="composer-send aven-press grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
-    >
-      <ArrowUp className="size-3.5" strokeWidth={2.25} />
-    </button>
   );
 }

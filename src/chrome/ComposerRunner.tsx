@@ -270,6 +270,23 @@ export function ComposerRunner({
           box.getBoundingClientRect(),
           ledge?.getBoundingClientRect() ?? null,
         );
+        // The helm's critter, plane and bubble stand on the same edge at its
+        // right: the runner turns back before them.
+        const helmLeft = Math.min(
+          ...[
+            ...(shell?.querySelectorAll<HTMLElement>(
+              ".composer-helm :is(.helm-perch, .helm-plane:not([hidden]), .helm-say)",
+            ) ?? []),
+          ].map((element) => element.getBoundingClientRect().left),
+        );
+        if (Number.isFinite(helmLeft))
+          cachedTrack = {
+            ...cachedTrack,
+            width: Math.max(
+              0,
+              Math.min(cachedTrack.width, helmLeft - 8 - cachedTrack.left),
+            ),
+          };
         const pane = box.closest("[data-session-drop]");
         const button = pane?.querySelector("[data-jump-to-bottom]");
         cachedObstacle = obstacleFromRects(

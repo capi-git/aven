@@ -550,7 +550,7 @@ function app(flaws: Flaws = {}) {
       running() && focused === talk?.a && !flaws.boxToAgent
         ? JUMP_PLACEHOLDER
         : "Message";
-    const composer = `<div data-composer>${bar}<textarea style="visibility: visible" placeholder="${placeholder}"></textarea><button aria-label="Add files or choose a mode"></button>${chip}</div>`;
+    const composer = `<div data-composer>${bar}<textarea style="visibility: visible" placeholder="${placeholder}"></textarea><button data-helm-critter aria-label="Message settings"></button>${chip}</div>`;
     const drops = state.sessions
       .filter((entry) => opened.has(entry.id))
       .map(
@@ -588,7 +588,7 @@ function app(flaws: Flaws = {}) {
       for (const element of document.querySelectorAll(selector))
         element.addEventListener("click", () => handler(element));
     };
-    on('[aria-label="Add files or choose a mode"]', () => {
+    on("[data-helm-critter]", () => {
       plusOpen = !plusOpen;
       draw();
     });
@@ -824,9 +824,9 @@ describe("the real-app check's discussion step", () => {
     expect(step?.detail).toContain("still (reduced motion)");
   });
 
-  it("fails when the + menu offers no Discuss, or Discuss shows no chip", async () => {
+  it("fails when the critter's modes offer no Discuss, or Discuss shows no chip", async () => {
     expect(await failure({ noEntry: true })).toBe(
-      "The + menu does not offer Discuss",
+      "The critter's modes do not offer Discuss",
     );
     expect(document.querySelector("[data-composer-plus]")).toBeNull();
     expect(await failure({ noChip: true })).toBe(

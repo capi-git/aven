@@ -43,6 +43,8 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   width?: number;
   minHeight?: number;
   maxHeight?: number;
+  /** False keeps `side` however little room it has (see `placePopover`). */
+  flip?: boolean;
   /** Defaults to `LAYER.popover`; a flyout off an open popover wants higher. */
   layer?: number;
   /** Drops the opaque frame and keeps only placement and the content animation. */
@@ -147,6 +149,7 @@ export function Popover({
   width,
   minHeight,
   maxHeight,
+  flip,
   layer = LAYER.popover,
   bare = false,
   panel = false,
@@ -178,12 +181,12 @@ export function Popover({
       rect,
       { width: el.offsetWidth, height: el.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
-      { side, align, gap, padding, width, minHeight, maxHeight },
+      { side, align, gap, padding, width, minHeight, maxHeight, flip },
     );
     setPosition((prev) => (samePosition(prev, next) ? prev : next));
     // `key` stands in for the anchor, which is read through a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, side, align, gap, padding, width, minHeight, maxHeight]);
+  }, [key, side, align, gap, padding, width, minHeight, maxHeight, flip]);
 
   // Content swapped by a re-render, such as a submenu page, is measured and
   // placed again in the same pass, so a resized menu never paints a frame

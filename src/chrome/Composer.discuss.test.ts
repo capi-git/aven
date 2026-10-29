@@ -20,8 +20,10 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [], refresh: async () => true }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./AgentPill", () => ({ AgentPill: () => null }));
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
+vi.mock("./AgentPill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AgentPill")>()),
+  AgentPill: () => null,
+}));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 // The new-chat model menu, reduced to one choice.
 vi.mock("./SecondOpinionButton", async () => {
@@ -173,10 +175,10 @@ async function click(element: Element | null | undefined) {
   if (!element) throw new Error("Nothing to click");
   await act(async () => (element as HTMLElement).click());
 }
+/** The + menu's modes, now a page of the critter's dialog. */
 async function openPlus() {
-  await click(
-    container.querySelector('[aria-label="Add files or choose a mode"]'),
-  );
+  await click(container.querySelector("[data-helm-critter]"));
+  await click(document.body.querySelector('[data-helm-row="modes"]'));
 }
 const discussItem = () =>
   document.body.querySelector<HTMLButtonElement>("[data-composer-discuss]");
@@ -187,14 +189,16 @@ async function turnOn() {
 const openMenu = () => click(chip()?.querySelector("[aria-haspopup]"));
 
 describe("Discuss mode in the composer", () => {
-  it("sits in the + menu with Plan mode and Orchestrator and toggles a chip", async () => {
+  it("sits with Plan mode and Orchestrator in the dialog's modes and toggles a chip", async () => {
     await render();
     await openPlus();
     const item = discussItem()!;
     expect(item.textContent).toContain("Discuss");
-    expect(item.getAttribute("aria-pressed")).toBe("false");
+    expect(item.getAttribute("aria-checked")).toBe("false");
     const modes = [
-      ...document.body.querySelectorAll("[data-composer-plus] button"),
+      ...document.body.querySelectorAll(
+        "[data-composer-plus] [role=menuitemcheckbox]",
+      ),
     ].map((button) => button.textContent ?? "");
     expect(modes.findIndex((text) => text.includes("Orchestrator"))).toBe(
       modes.findIndex((text) => text.startsWith("Discuss")) - 1,
@@ -209,7 +213,7 @@ describe("Discuss mode in the composer", () => {
     expect(menu()).toBeNull();
     expect(field().placeholder).toBe("What should they discuss?");
     await openPlus();
-    expect(discussItem()?.getAttribute("aria-pressed")).toBe("true");
+    expect(discussItem()?.getAttribute("aria-checked")).toBe("true");
     await click(discussItem());
     expect(chip()).toBeNull();
   });
@@ -416,7 +420,7 @@ describe("Discuss mode in the composer", () => {
     await openPlus();
     const plan = [
       ...document.body.querySelectorAll<HTMLButtonElement>(
-        "[data-composer-plus] button",
+        "[data-composer-plus] [role=menuitemcheckbox]",
       ),
     ].find((button) => button.textContent?.includes("Plan mode"))!;
     await click(plan);
@@ -541,6 +545,8 @@ describe("the message box while this chat's discussion runs", () => {
     startHere();
     await render();
     await openPlus();
+    // The modes row says why, and opens no page of modes.
+    expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
     expect(discussItem()).toBeNull();
     expect(document.body.querySelector("[data-composer-race]")).toBeNull();
     expect(

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useProviderUsage } from "../hooks/useProviderUsage";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
+import { OPEN_USAGE_EVENT } from "../lib/composerHelm";
 import { contextPercent, formatTokens } from "../lib/contextUsage";
 import {
   formatUsagePercent,
@@ -109,6 +110,12 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(Date.now);
   useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
+  // The message box's helm offers usage as a fix when a turn fails.
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_USAGE_EVENT, show);
+    return () => window.removeEventListener(OPEN_USAGE_EVENT, show);
+  }, []);
 
   // Opening the details is an explicit request for every account.
   useEffect(() => {

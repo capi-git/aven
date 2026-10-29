@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -41,7 +40,7 @@ import {
   useModelSettingList,
 } from "./ModelSettings";
 import { PanelSection } from "./PanelSection";
-import { Popover } from "./Popover";
+import { Popover, type PopoverAnchor } from "./Popover";
 import "./AgentPill.css";
 
 type Props = {
@@ -72,7 +71,7 @@ type Props = {
  * before it resets, and one-click ways to keep going. Sending is never
  * blocked.
  */
-function UsageWarningLine({
+export function UsageWarningLine({
   warning,
   harness,
   current,
@@ -159,8 +158,190 @@ export function agentPanelLayout(
   return { width, stacked: hasSide && width < PANEL_COLUMNS_MIN_WIDTH };
 }
 
-function noResize() {
-  return () => {};
+/**
+ * The composer's one control for who answers and how: the provider mark, the
+ * model and its effort. It opens a single panel with the model list, the
+ * model's settings and access. Full access stays visible on the pill. Race
+ * is a mode of the message box, in its + menu.
+ *
+ * Memoized with stable props, so typing in the composer never renders it.
+ */
+/**
+ * What the chat's agent is, in words: the model, its effort and fast mode,
+ * whether access is full, and an account about to run out. The agent pill
+ * and the message box's helm both say it.
+ */
+export function useAgentSummary({
+  harness,
+  model,
+  modelSettings,
+  runtimeMode,
+  showAccess,
+}: {
+  harness: HarnessId;
+  model: string;
+  modelSettings: Record<string, string>;
+  runtimeMode: RuntimeMode;
+  showAccess: boolean;
+}) {
+  const current = useCurrentModel(harness, model);
+  const settings = useModelSettingList(harness, model);
+  const summary = useMemo(
+    () => modelSettingsSummary(settings, modelSettings),
+    [settings, modelSettings],
+  );
+  const fullAccess = showAccess && runtimeMode === "full-access";
+  // Stable between usage checks, so typing and streaming never render this.
+  const usageWarning = useUsageWarning(harness);
+  const description = [
+    `${HARNESS_TITLE[current.harness]} ${current.name}`,
+    summary.effort,
+    summary.fast ? "Fast" : null,
+    fullAccess ? "Full access" : null,
+    usageWarning ? "Usage limit close" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { current, settings, summary, fullAccess, usageWarning, description };
+}
+
+/** Where the agent panel puts the keyboard when it opens. */
+export type AgentPanelFocus = "model" | "effort" | "access";
+
+const PANEL_FOCUS: Record<AgentPanelFocus, string> = {
+  model: MODEL_SEARCH_FIELD,
+  effort:
+    "[data-agent-panel-side] :is(button, [role=radio], select, input):not(:disabled)",
+  access:
+    "[data-access-options] :is([aria-checked=true], button):not(:disabled)",
+};
+
+/**
+ * The agent's one panel: the model list, the model's settings and access,
+ * and the usage warning with its ways to keep going. Opened by the agent
+ * pill, or by the helm's Model, Effort and Access rows.
+ */
+export function AgentPanel({
+  anchor,
+  harness,
+  model,
+  modelSettings,
+  runtimeMode,
+  showAccess,
+  busy,
+  focus = "model",
+  onModelChange,
+  onModelSettingsChange,
+  onRuntimeModeChange,
+  onDismiss,
+  align = "end",
+}: {
+  anchor: PopoverAnchor;
+  harness: HarnessId;
+  model: string;
+  modelSettings: Record<string, string>;
+  runtimeMode: RuntimeMode;
+  showAccess: boolean;
+  busy: boolean;
+  focus?: AgentPanelFocus;
+  onModelChange: (harness: HarnessId, model: string) => void;
+  onModelSettingsChange?: (settings: Record<string, string>) => void;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
+  /** `restore` hands the keyboard back to the message. */
+  onDismiss: (restore: boolean) => void;
+  align?: "start" | "end";
+}) {
+  const current = useCurrentModel(harness, model);
+  const settings = useModelSettingList(harness, model);
+  const usageWarning = useUsageWarning(harness);
+  // Opening the panel shows the warning; the pill stays quiet afterwards
+  // until a new window or a faster pace.
+  useEffect(() => {
+    if (usageWarning?.unseen) markUsageWarningSeen(usageWarning);
+  }, [usageWarning]);
+  const hasSide = settings.length > 0 || showAccess;
+  const layout = agentPanelLayout(
+    useSyncExternalStore(subscribeWindowResize, () => window.innerWidth),
+    hasSide,
+  );
+  return (
+    <Popover
+      anchor={anchor}
+      side="top"
+      align={align}
+      width={layout.width}
+      minHeight={PANEL_MIN_HEIGHT}
+      maxHeight={PANEL_MAX_HEIGHT}
+      autoFocus
+      initialFocus={
+        hasSide || focus === "model" ? PANEL_FOCUS[focus] : MODEL_SEARCH_FIELD
+      }
+      onDismiss={(reason) => onDismiss(reason === "escape")}
+      role="dialog"
+      aria-label="Agent options"
+      data-model-picker
+      data-agent-panel
+      data-agent-panel-focus={focus}
+      data-stacked={layout.stacked || undefined}
+      className="agent-panel"
+    >
+      {usageWarning ? (
+        <UsageWarningLine
+          warning={usageWarning}
+          harness={harness}
+          current={current}
+          onPick={(nextHarness, nextModel) => {
+            onModelChange(nextHarness, nextModel);
+            onDismiss(true);
+          }}
+        />
+      ) : null}
+      <div className="agent-panel-body">
+        <section aria-label="Model" className="agent-panel-models">
+          <ModelChooser
+            harness={harness}
+            model={model}
+            onPick={(nextHarness, nextModel) => {
+              onModelChange(nextHarness, nextModel);
+              onDismiss(true);
+            }}
+          />
+        </section>
+        {hasSide ? (
+          <div className="agent-panel-side" data-agent-panel-side>
+            <ModelSettingsSections
+              harness={harness}
+              model={model}
+              values={modelSettings}
+              onChange={(next) => onModelSettingsChange?.(next)}
+            />
+            {showAccess ? (
+              <PanelSection
+                title="Access"
+                note={
+                  busy
+                    ? "Applies from your next message."
+                    : RUNTIME_MODE_HINT[runtimeMode]
+                }
+                data-access-options
+              >
+                <AccessModeOptions
+                  value={runtimeMode}
+                  onSelect={onRuntimeModeChange}
+                  compact
+                />
+              </PanelSection>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </Popover>
+  );
+}
+
+function subscribeWindowResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
 }
 
 /**
@@ -189,21 +370,8 @@ export const AgentPill = memo(function AgentPill({
   const root = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const current = useCurrentModel(harness, model);
-  const settings = useModelSettingList(harness, model);
-  const summary = useMemo(
-    () => modelSettingsSummary(settings, modelSettings),
-    [settings, modelSettings],
-  );
-  const fullAccess = showAccess && runtimeMode === "full-access";
-  // Stable between usage checks, so typing and streaming never render this.
-  const usageWarning = useUsageWarning(harness);
-
-  // Opening the panel shows the warning; the pill stays quiet afterwards
-  // until a new window or a faster pace.
-  useEffect(() => {
-    if (open && usageWarning?.unseen) markUsageWarningSeen(usageWarning);
-  }, [open, usageWarning]);
+  const { current, summary, fullAccess, usageWarning, description } =
+    useAgentSummary({ harness, model, modelSettings, runtimeMode, showAccess });
 
   const dismiss = (restore: boolean) => {
     setOpen(false);
@@ -214,30 +382,6 @@ export const AgentPill = memo(function AgentPill({
     else setOpen(true);
   };
   useModelPickerHotkey(hotkeys, open, toggle);
-
-  const description = [
-    `${HARNESS_TITLE[current.harness]} ${current.name}`,
-    summary.effort,
-    summary.fast ? "Fast" : null,
-    fullAccess ? "Full access" : null,
-    usageWarning ? "Usage limit close" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const hasSide = settings.length > 0 || showAccess;
-  // Follows the window only while the panel is open.
-  const subscribeResize = useCallback(
-    (onChange: () => void) => {
-      if (!open) return noResize();
-      window.addEventListener("resize", onChange);
-      return () => window.removeEventListener("resize", onChange);
-    },
-    [open],
-  );
-  const layout = agentPanelLayout(
-    useSyncExternalStore(subscribeResize, () => window.innerWidth),
-    hasSide,
-  );
 
   return (
     <div ref={root} className="relative min-w-0">
@@ -297,74 +441,19 @@ export const AgentPill = memo(function AgentPill({
         />
       </button>
       {open ? (
-        <Popover
+        <AgentPanel
           anchor={root}
-          side="top"
-          align="end"
-          width={layout.width}
-          minHeight={PANEL_MIN_HEIGHT}
-          maxHeight={PANEL_MAX_HEIGHT}
-          autoFocus
-          initialFocus={MODEL_SEARCH_FIELD}
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="dialog"
-          aria-label="Agent options"
-          data-model-picker
-          data-agent-panel
-          data-stacked={layout.stacked || undefined}
-          className="agent-panel"
-        >
-          {usageWarning ? (
-            <UsageWarningLine
-              warning={usageWarning}
-              harness={harness}
-              current={current}
-              onPick={(nextHarness, nextModel) => {
-                onModelChange(nextHarness, nextModel);
-                dismiss(true);
-              }}
-            />
-          ) : null}
-          <div className="agent-panel-body">
-            <section aria-label="Model" className="agent-panel-models">
-              <ModelChooser
-                harness={harness}
-                model={model}
-                onPick={(nextHarness, nextModel) => {
-                  onModelChange(nextHarness, nextModel);
-                  dismiss(true);
-                }}
-              />
-            </section>
-            {hasSide ? (
-              <div className="agent-panel-side">
-                <ModelSettingsSections
-                  harness={harness}
-                  model={model}
-                  values={modelSettings}
-                  onChange={(next) => onModelSettingsChange?.(next)}
-                />
-                {showAccess ? (
-                  <PanelSection
-                    title="Access"
-                    note={
-                      busy
-                        ? "Applies from your next message."
-                        : RUNTIME_MODE_HINT[runtimeMode]
-                    }
-                    data-access-options
-                  >
-                    <AccessModeOptions
-                      value={runtimeMode}
-                      onSelect={onRuntimeModeChange}
-                      compact
-                    />
-                  </PanelSection>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </Popover>
+          harness={harness}
+          model={model}
+          modelSettings={modelSettings}
+          runtimeMode={runtimeMode}
+          showAccess={showAccess}
+          busy={busy}
+          onModelChange={onModelChange}
+          onModelSettingsChange={onModelSettingsChange}
+          onRuntimeModeChange={onRuntimeModeChange}
+          onDismiss={dismiss}
+        />
       ) : null}
     </div>
   );

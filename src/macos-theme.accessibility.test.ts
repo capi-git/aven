@@ -77,11 +77,6 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/SettingsRail.css", ".settings-nav__search"],
       ["src/chrome/TeamCard.css", ".team-card-button"],
-      ["src/surfaces/SessionRunStatus.css", ".session-run-stop"],
-      [
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer-actions > button",
-      ],
       [
         "src/chrome/BotSettingsSheet.css",
         '.modal-panel[role="dialog"] .bot-sheet-title-field:focus',
@@ -141,10 +136,6 @@ describe("text on an accent fill", () => {
       [
         "src/surfaces/WorkspaceHome.css",
         ".workspace-home-actions .workspace-home-new",
-      ],
-      [
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer-actions > .composer-send",
       ],
     ])
       expect(rule(file, selector)).toContain("color: var(--aven-on-accent");

@@ -298,7 +298,7 @@ function app(flaws: Flaws = {}) {
         : "";
       const composer =
         id === focused
-          ? `<div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button>${chip}${ownStop}</div>`
+          ? `<div data-composer>${bar}<textarea style="visibility: visible"></textarea><button data-helm-critter aria-label="Message settings"></button>${chip}${ownStop}</div>`
           : "";
       return `<div data-session-drop="${id}"${id === focused ? "" : " hidden"}>${review}${composer}</div>`;
     };
@@ -326,7 +326,7 @@ function app(flaws: Flaws = {}) {
       document
         .querySelector(selector)
         ?.addEventListener("click", () => handler());
-    on('[aria-label="Add files or choose a mode"]', () => {
+    on("[data-helm-critter]", () => {
       plusOpen = !plusOpen;
       draw();
     });
@@ -424,9 +424,9 @@ describe("the real-app check's orchestration steps", () => {
     );
   });
 
-  it("fails when the + menu has no Orchestrator", async () => {
+  it("fails when the critter's modes have no Orchestrator", async () => {
     expect(await failure({ noEntry: true })).toBe(
-      "The + menu does not offer Orchestrator",
+      "The critter's modes do not offer Orchestrator",
     );
   });
 

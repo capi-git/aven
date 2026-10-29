@@ -37,6 +37,14 @@ import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
+import { applyUiScale, loadUiScale } from "../lib/uiScale";
+import { composerLineBoxes, lineBoxProblem } from "../lib/composerLineBoxes";
+import {
+  helmDialogProblem,
+  helmStopProblem,
+  helmWorkingProblem,
+  restoringComposer,
+} from "../lib/devSmokeHelm";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
@@ -457,6 +465,46 @@ function chatComposer(sessionId: string): HTMLElement | null {
 }
 
 /**
+ * Open the chat's modes the way a person does: press the critter on the
+ * message box, then its dialog's Modes row (the + menu's old modes).
+ * Returns the modes page.
+ */
+async function openComposerModes(sessionId: string): Promise<HTMLElement> {
+  const critter = await waitFor(
+    () =>
+      chatComposer(sessionId)?.querySelector<HTMLButtonElement>(
+        "[data-helm-critter]",
+      ) ?? null,
+    5_000,
+    "the critter on the chat's message box",
+  );
+  if (!document.querySelector("[data-composer-plus]")) {
+    critter.click();
+    const next = await waitFor(
+      () =>
+        document.querySelector<HTMLElement>("[data-composer-plus]") ??
+        document.querySelector<HTMLElement>('[data-helm-row="modes"]'),
+      5_000,
+      "the critter's dialog",
+    );
+    if (next.matches('[data-helm-row="modes"]')) next.click();
+  }
+  return waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
+    5_000,
+    "the dialog's modes",
+  );
+}
+
+/** Close the critter's dialog, if it is open, as a second press does. */
+function closeComposerModes(sessionId: string) {
+  if (document.querySelector("[data-helm-dialog], [data-composer-plus]"))
+    chatComposer(sessionId)
+      ?.querySelector<HTMLButtonElement>("[data-helm-critter]")
+      ?.click();
+}
+
+/**
  * Why starting a discussion with a new chat did not fold it into one card in
  * the chat that started it, or null: the new chat in no tab or pane, the
  * topic as the user's message, then the live card, and none of the turns
@@ -634,23 +682,11 @@ async function startDiscussionFromComposer(
     document
       .querySelector("[data-discussion-menu]")
       ?.querySelector<T>(selector) ?? null;
-  const plus = await waitFor(
-    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
-    5_000,
-    "the chat's + menu",
-  );
-  plus.click();
-  const menu = await waitFor(
-    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
-    5_000,
-    "the + menu",
-  );
+  const menu = await openComposerModes(sessionId);
   const item = menu.querySelector<HTMLElement>("[data-composer-discuss]");
   if (!item?.textContent?.includes("Discuss")) {
-    inBox<HTMLButtonElement>(
-      '[aria-label="Add files or choose a mode"]',
-    )?.click();
-    throw new Error("The + menu does not offer Discuss");
+    closeComposerModes(sessionId);
+    throw new Error("The critter's modes do not offer Discuss");
   }
   item.click();
   const toggle = () =>
@@ -773,23 +809,11 @@ async function startRaceFromComposer(
   // Everything is looked up again after each press: the box re-renders.
   const inBox = <T extends Element>(selector: string) =>
     chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
-  const plus = await waitFor(
-    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
-    5_000,
-    "the chat's + menu",
-  );
-  plus.click();
-  const menu = await waitFor(
-    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
-    5_000,
-    "the + menu",
-  );
+  const menu = await openComposerModes(sessionId);
   const item = menu.querySelector<HTMLElement>("[data-composer-race]");
   if (!item?.textContent?.includes("Race")) {
-    inBox<HTMLButtonElement>(
-      '[aria-label="Add files or choose a mode"]',
-    )?.click();
-    throw new Error("The + menu does not offer Race");
+    closeComposerModes(sessionId);
+    throw new Error("The critter's modes do not offer Race");
   }
   item.click();
   const toggle = () => inBox<HTMLElement>("[data-race-chip] [aria-haspopup]");
@@ -1815,21 +1839,11 @@ async function startOrchestrationFromComposer(
 ) {
   const inBox = <T extends Element>(selector: string) =>
     chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
-  const plus = await waitFor(
-    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
-    5_000,
-    "the chat's + menu",
-  );
-  plus.click();
-  const menu = await waitFor(
-    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
-    5_000,
-    "the + menu",
-  );
+  const menu = await openComposerModes(sessionId);
   const item = menu.querySelector<HTMLElement>("[data-composer-orchestrator]");
   if (!item?.textContent?.includes("Orchestrator")) {
-    plus.click();
-    throw new Error("The + menu does not offer Orchestrator");
+    closeComposerModes(sessionId);
+    throw new Error("The critter's modes do not offer Orchestrator");
   }
   item.click();
   await waitFor(
@@ -2516,23 +2530,44 @@ export async function runDevSmoke(
       },
     );
 
-  // The composer's agent pill opens one panel with the model list, its
-  // settings and access, focused on the model search; Escape closes it and
-  // hands the keyboard back to the message.
+  // The critter on the message box is its controls. Cmd+. unfurls its
+  // dialog above the box with the ▶ cursor on Model; the Model row opens the
+  // agent's one panel (the model list, its settings and access), focused on
+  // the model search; Escape closes it and hands the keyboard back to the
+  // message.
   if (safe && typedTask && get().utilities)
     await step(
-      "the agent pill opens its panel and Escape returns",
+      "Cmd+. opens the critter's dialog and its Model row the agent panel; Escape returns",
       async () => {
         const composer = await waitFor(
           visibleComposer,
           5_000,
           "the message box",
         );
-        const pill = composer
-          .closest("[data-composer]")
-          ?.querySelector<HTMLButtonElement>("[data-agent-pill]");
-        if (!pill) throw new Error("The composer has no agent pill");
-        pill.click();
+        composer.focus();
+        pressShortcut(".");
+        const dialog = await waitFor(
+          () => document.querySelector<HTMLElement>("[data-helm-dialog]"),
+          5_000,
+          "the critter's dialog",
+        );
+        const model = await waitFor(
+          () =>
+            document.activeElement?.closest('[data-helm-row="model"]')
+              ? (document.activeElement as HTMLElement)
+              : null,
+          5_000,
+          "the ▶ cursor on Model with the keyboard",
+        );
+        const rows = [
+          ...dialog.querySelectorAll<HTMLElement>("[data-helm-row]"),
+        ].map((row) => row.dataset.helmRow);
+        for (const wanted of ["model", "files", "modes", "critter"])
+          if (!rows.includes(wanted))
+            throw new Error(
+              `The dialog has no ${wanted} row (${rows.join(", ")})`,
+            );
+        model.click();
         const panel = await waitFor(
           () => document.querySelector<HTMLElement>("[data-agent-panel]"),
           5_000,
@@ -2564,7 +2599,150 @@ export async function runDevSmoke(
           5_000,
           "the message box to take focus back",
         );
-        return pill.getAttribute("aria-label") ?? undefined;
+        return (
+          composer
+            .closest("[data-composer]")
+            ?.querySelector("[data-helm-critter]")
+            ?.getAttribute("aria-label") ?? undefined
+        );
+      },
+    );
+
+  // Pointing at the critter unfurls its dialog above the message box, never
+  // over the words; while the agent works the critter types at its laptop,
+  // its bubble says what and how long, and holds the chat's one Stop. The
+  // field and the overlay that paints its words keep one line box at 80%,
+  // 100% and 120% interface zoom, so the caret sits on the words.
+  if (safe && typedTask && get().utilities)
+    await step(
+      "pointing at the critter opens its dialog above the box, and a working chat has one Stop",
+      async () => {
+        const composer = await waitFor(
+          visibleComposer,
+          5_000,
+          "the message box",
+        );
+        const root = composer.closest<HTMLElement>("[data-composer]");
+        const box = root?.querySelector<HTMLElement>("[data-composer-box]");
+        const perch = root?.querySelector<HTMLElement>(".helm-perch");
+        if (!root || !box || !perch)
+          throw new Error("The message box has no critter standing on it");
+        // The dialog is a popover in a portal, outside the message box.
+        const dialogOnScreen = () =>
+          document.querySelector<HTMLElement>("[data-helm-dialog]");
+        const clearField = () => {
+          composer.focus();
+          composer.select();
+          document.execCommand("delete");
+        };
+        composer.focus();
+        document.execCommand(
+          "insertText",
+          false,
+          "A line long enough to show where the caret sits against the painted words, twice over: a line long enough to wrap.",
+        );
+        await restoringComposer(
+          {
+            restoreZoom: () => applyUiScale(loadUiScale()),
+            // Escape folds the dialog away and gives the box the keyboard.
+            closeDialog: () =>
+              dialogOnScreen()?.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: "Escape",
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              ),
+            clearField,
+          },
+          async () => {
+            for (const scale of [0.8, 1.2, 1]) {
+              await applyUiScale(scale);
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              const boxes = composerLineBoxes(box);
+              if (!boxes) throw new Error("The message box drew no lines");
+              const problem = lineBoxProblem(boxes);
+              if (problem)
+                throw new Error(
+                  `At ${Math.round(scale * 100)}% zoom, ${problem}`,
+                );
+            }
+            await applyUiScale(loadUiScale());
+            perch.dispatchEvent(
+              new PointerEvent("pointerover", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            const dialog = await waitFor(
+              dialogOnScreen,
+              5_000,
+              "the critter's dialog to unfurl",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            const placed = helmDialogProblem(
+              dialog.getBoundingClientRect(),
+              box.getBoundingClientRect(),
+              composer.getBoundingClientRect(),
+            );
+            if (placed) throw new Error(placed);
+            perch.dispatchEvent(
+              new PointerEvent("pointerout", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            dialog.dispatchEvent(
+              new PointerEvent("pointerout", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            await waitFor(
+              () => !dialogOnScreen(),
+              5_000,
+              "the dialog to fold away when the pointer leaves",
+            );
+          },
+        );
+        // Then work: one Stop, in the bubble.
+        const reply = await startHeldTurn(
+          get,
+          typedTask.id,
+          "Take a moment at the laptop.",
+        );
+        try {
+          let seen: string | null = "the bubble never appeared";
+          await waitFor(
+            () => {
+              const helm = root.querySelector<HTMLElement>("[data-helm]");
+              const frame = helm?.querySelector(".helm-critter-frame-a");
+              seen =
+                helmWorkingProblem(
+                  helm ?? null,
+                  frame ? getComputedStyle(frame).animationName : "none",
+                  prefersReducedMotion(),
+                ) ??
+                helmStopProblem(root.closest("[data-session-drop]") ?? root);
+              return seen === null;
+            },
+            5_000,
+            "the critter to work at its laptop with the chat's one Stop",
+          ).catch(() => {
+            throw new Error(`While the agent worked, ${seen}`);
+          });
+        } finally {
+          await reply();
+        }
+        await waitFor(
+          () =>
+            root
+              .querySelector('[data-helm-say="done"]')
+              ?.textContent?.startsWith("Done"),
+          5_000,
+          "the bubble to say the turn is done",
+        );
+        return "dialog above the box, caret on its words at 80/100/120%, one Stop";
       },
     );
 
