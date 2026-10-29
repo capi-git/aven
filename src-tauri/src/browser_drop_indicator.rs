@@ -29,6 +29,12 @@ pub struct BrowserDropIndicator {
     pub(crate) title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) palette: Option<BrowserDropPalette>,
+    /// The HTML preview's corner radius, in CSS pixels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) radius: Option<f64>,
+    /// The interface zoom: CSS pixels to the native view's points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) zoom: Option<f64>,
 }
 
 impl BrowserDropIndicator {
@@ -49,6 +55,10 @@ impl BrowserDropIndicator {
                 .palette
                 .as_ref()
                 .is_some_and(|palette| !palette.valid())
+            || self
+                .radius
+                .is_some_and(|radius| !(0.0..=64.0).contains(&radius))
+            || self.zoom.is_some_and(|zoom| !(0.5..=2.0).contains(&zoom))
         {
             return Err("Invalid browser drop indicator".into());
         }
@@ -86,6 +96,31 @@ mod tests {
         invalid = valid.clone();
         invalid.title = "🌊".repeat(81);
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn bounds_the_preview_shape() {
+        let mut input = legacy();
+        input["radius"] = json!(6.0);
+        input["zoom"] = json!(0.8);
+        let value: BrowserDropIndicator = serde_json::from_value(input.clone()).unwrap();
+        assert!(value.validate().is_ok());
+        assert_eq!(serde_json::to_value(&value).unwrap(), input);
+        for (key, invalid) in [
+            ("radius", -1.0),
+            ("radius", 65.0),
+            ("radius", f64::NAN),
+            ("zoom", 0.4),
+            ("zoom", 2.1),
+            ("zoom", f64::INFINITY),
+        ] {
+            let mut value = value.clone();
+            match key {
+                "radius" => value.radius = Some(invalid),
+                _ => value.zoom = Some(invalid),
+            }
+            assert!(value.validate().is_err(), "{key} {invalid}");
+        }
     }
 
     #[test]

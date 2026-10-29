@@ -233,6 +233,27 @@ describe("useSortable external drops and cancellation", () => {
     expect(document.body.style.cursor).toBe("");
   });
 
+  it("keeps up with the pointer when WebKit holds animation frames back", async () => {
+    // Over a native page WKWebView may not paint for a while; the copy and
+    // its drop target follow the pointer all the same.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start(false);
+    expect(options.onDragMove).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(16);
+    });
+    expect(options.onDragMove).toHaveBeenCalledExactlyOnceWith(
+      "browser-a",
+      10,
+      120,
+      { screenX: 0, screenY: 0 },
+    );
+    // The frame that comes late does not run it again.
+    await flushFrame();
+    expect(options.onDragMove).toHaveBeenCalledOnce();
+    await pointer(window, "pointerup", 10, 120);
+  });
+
   it("preserves ordinary reordering when an external target does not consume the drop", async () => {
     await start();
     await pointer(window, "pointerup", 10, 15);

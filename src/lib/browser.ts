@@ -246,6 +246,10 @@ export type BrowserDropIndicator = {
   title: string;
   /** Omitted by older callers; native keeps its neutral fallback. */
   palette?: BrowserDropPalette;
+  /** The HTML preview's corner radius, in CSS pixels (0–64). */
+  radius?: number;
+  /** The interface zoom, CSS pixels to native points (0.5–2). */
+  zoom?: number;
 };
 
 export type BrowserMenuOptions = {

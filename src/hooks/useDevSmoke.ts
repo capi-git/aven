@@ -40,6 +40,7 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
+import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
 import {
   agentOpensProblem,
   agentOpensSummary,
@@ -3298,6 +3299,22 @@ export async function runDevSmoke(
           checkLoneTabDrag(config.projectPath, pageUrl, get),
           120_000,
           "moving a page by its header",
+        );
+      },
+    );
+
+  // 0.1.156 at 80% zoom: a strip tab dragged over a page cut a band of the
+  // window's background out of the page, away from the tab, and the tab
+  // vanished under the page.
+  if (IS_MAC && pageUrl && get().loneTab)
+    await step(
+      "a tab dragged over a page is cut out of it under its copy, never elsewhere",
+      () => {
+        get().motion?.showWorkspace?.();
+        return withTimeout(
+          checkPageDragCutOut(config.projectPath, pageUrl, get),
+          150_000,
+          "dragging a tab over a page",
         );
       },
     );

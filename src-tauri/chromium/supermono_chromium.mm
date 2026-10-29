@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <limits>
+#include <utility>
 #include <optional>
 #include <string>
 #include <vector>
@@ -1170,7 +1171,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     });
   }
   bool DropIndicator(Dict command) {
-    if (command->GetType("indicator")==VTYPE_NULL) { [drop_indicator_ clear]; return true; }
+    // The drag left this page: the preview fades where it is.
+    if (command->GetType("indicator")==VTYPE_NULL) { [drop_indicator_ fadeOut]; return true; }
     if (command->GetType("indicator")!=VTYPE_DICTIONARY) return false;
     auto indicator=command->GetDictionary("indicator");
     if (indicator->GetType("title")!=VTYPE_STRING) return false;
@@ -1195,13 +1197,20 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       colors=&palette;
     }
     const double missing=std::numeric_limits<double>::quiet_NaN();
+    // The HTML preview's corner and the interface zoom; older callers send neither.
+    SMBrowserDropShape shape={6,1};
+    for (const auto& [key,value] : {std::pair<const char*,double*>{"radius",&shape.radius},{"zoom",&shape.zoom}}) {
+      if (!indicator->HasKey(key) || indicator->GetType(key)==VTYPE_NULL) continue;
+      if (indicator->GetType(key)!=VTYPE_DOUBLE && indicator->GetType(key)!=VTYPE_INT) return false;
+      *value=Number(indicator,key,missing);
+    }
     NSRect target=NSMakeRect(Number(indicator,"x",missing),Number(indicator,"y",missing),
         Number(indicator,"width",missing),Number(indicator,"height",missing));
     NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
     if (!drop_indicator_) drop_indicator_=[[SMBrowserDropIndicator alloc] initWithFrame:view.frame];
     [drop_indicator_ placeAboveBrowser:view frame:view.frame];
     const BOOL accepted=[drop_indicator_ updateTarget:target edge:Ns(Text(indicator,"edge"))
-        kind:Ns(Text(indicator,"kind")) title:Ns(Text(indicator,"title")) palette:colors];
+        kind:Ns(Text(indicator,"kind")) title:Ns(Text(indicator,"title")) palette:colors shape:&shape];
     if (!visible_ || clip_view_.hidden) [drop_indicator_ clear];
     return accepted;
   }
