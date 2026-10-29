@@ -10860,6 +10860,7 @@ export default function App({
     // sidebar, by name) call it.
     newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
+    stop: (sessionId) => stopSessionRef.current(sessionId),
     utilities: {
       openSearch: onOpenSearch,
       openInbox: onOpenInbox,

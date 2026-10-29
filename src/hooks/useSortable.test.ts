@@ -1080,6 +1080,46 @@ describe("useSortable external drops and cancellation", () => {
       );
     });
 
+    it("moves on a quick release that a busy page handles late", async () => {
+      await press();
+      await hold(250);
+      // Let go 20 ms after reaching the middle; the page gets to the
+      // release 100 ms later. That is a pass, not a rest.
+      now += 20;
+      const release = new PointerEvent("pointerup", {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 250,
+        clientY: 15,
+      });
+      now += 100;
+      await act(async () => window.dispatchEvent(release));
+      expect(options.onDropOnItem).not.toHaveBeenCalled();
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["session-a", "session-b", "browser-a"],
+        "browser-a",
+      );
+    });
+
+    it("counts a rest from when the pointer got there, not when the page drew it", async () => {
+      await press();
+      await pointer(window, "pointermove", 250, 15);
+      // The frame runs 150 ms late.
+      now += 150;
+      await flushFrame();
+      expect(sortable.dropTarget).toBeNull();
+      // 200 ms after the pointer reached the middle, it arms.
+      now += 50;
+      await hold(251);
+      expect(sortable.dropTarget?.id).toBe("session-b");
+      await pointer(window, "pointerup", 251, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+      );
+    });
+
     it("arms once the pointer rests there, and holds a little past its edge", async () => {
       await press();
       await hold(250);

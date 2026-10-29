@@ -607,14 +607,17 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && frame->IsMain()) {
       sleep_.Invalidate();
       if (EditActive()) EditMode(false);
-      // A same-document change (a new fragment) ends without any load.
-      if (!browser->IsLoading()) ++loads_settled_;
+      // A same-document change (a new fragment) commits and ends without
+      // any load.
+      if (!browser->IsLoading()) { ++loads_committed_; ++loads_settled_; }
       context_id_=0; error_.clear(); State();
     }
   }
   void OnTitleChange(CefRefPtr<CefBrowser> browser,const CefString& title) override { if (Main(browser)) { title_=title.ToString(); State(); } }
   void OnLoadStart(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,TransitionType transition) override {
     if (Main(browser) && frame->IsMain()) {
+      // CEF calls this once the main frame has committed its new document.
+      ++loads_committed_;
       if (!notice_action_.empty()) Notice("");
       CancelUpload("The page started loading a new address before a file chooser opened, so nothing was uploaded.");
       // A new document holds no draft. Back, forward and reload can restore
@@ -881,7 +884,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     d->SetString("title",browser_->GetHost()->GetWindowHandle() ? title_ : "");
     d->SetString("favicon",favicon_);
     d->SetBool("loading",browser_->IsLoading()); d->SetBool("canGoBack",browser_->CanGoBack()); d->SetBool("canGoForward",browser_->CanGoForward());
-    // Loads that have ended, so a caller can wait for the one it started.
+    // Loads that have committed a document and that have ended, so a caller
+    // can wait for the one it started.
+    d->SetDouble("loadsCommitted",static_cast<double>(loads_committed_));
     d->SetDouble("loadsSettled",static_cast<double>(loads_settled_));
     d->SetBool("focused",Focused());
     // The user has used this page (or is annotating it): an agent's open
@@ -2313,7 +2318,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool update_prepared_=false, update_attempt_=false, user_input_=false;
   // Unlike user_input_, only the user's own input, and never reset.
   supermono::UserTouch user_touch_;
-  uint64_t loads_settled_=0;
+  uint64_t loads_committed_=0, loads_settled_=0;
   std::string update_url_;
   supermono::BrowserSleepState sleep_;
   std::string sleep_request_;

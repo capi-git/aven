@@ -221,6 +221,30 @@ let windowStrip: ComponentProps<typeof TitleBar>;
 let drops: Array<WorkspaceSurfaceDropTarget | null>;
 
 beforeEach(() => {
+  // A fake clock for timers, animation frames and `performance.now()` (which
+  // also stamps each event): a drag's frames and rests never depend on how
+  // fast the machine runs the test.
+  vi.useFakeTimers({
+    toFake: [
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "performance",
+    ],
+  });
+  // On that clock a test can end mid-animation. Browsers mark a cancelled
+  // animation's finished promise as handled (Web Animations); happy-dom
+  // leaves it to reject unhandled.
+  const cancel = Animation.prototype.cancel;
+  vi.spyOn(Animation.prototype, "cancel").mockImplementation(function (
+    this: Animation,
+  ) {
+    this.finished.catch(() => {});
+    cancel.call(this);
+  });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
@@ -317,6 +341,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   resetHarnessModelOverlays();
   resetPaneHeaders();
 });
@@ -347,9 +372,10 @@ const empty = () => document.querySelector<HTMLElement>("[data-empty]")!;
 const standIn = () => document.querySelector<HTMLElement>("[data-header-grab]");
 const chip = () =>
   document.querySelector<HTMLElement>("[data-sortable-preview]");
+/** Let `ms` pass on the fake clock, running what falls due. */
 const wait = (ms: number) =>
   act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await vi.advanceTimersByTimeAsync(ms);
   });
 /** Let the drag's frame run. */
 const frame = () => wait(40);

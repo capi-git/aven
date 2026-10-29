@@ -55,7 +55,24 @@ let root: Root;
 let container: HTMLDivElement;
 let props: ComponentProps<typeof TitleBar>;
 
+/**
+ * Every wait here runs on a fake clock: timers, animation frames and
+ * `performance.now()` (which also stamps each event) move only when a test
+ * moves them, so a drag's rests and passes never depend on how fast the
+ * machine runs the test.
+ */
+const FAKE_TIME = [
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "performance",
+] as const;
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: [...FAKE_TIME] });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
@@ -100,6 +117,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   resetHarnessModelOverlays();
 });
 
@@ -128,9 +146,10 @@ const menuItem = (text: string) =>
   [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(
     (item) => item.textContent?.trim() === text,
   )!;
+/** Let `ms` pass on the fake clock, running what falls due. */
 const wait = (ms: number) =>
   act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await vi.advanceTimersByTimeAsync(ms);
   });
 
 describe("a split on the window's strip", () => {

@@ -22,9 +22,14 @@ The result says `"reused":"reloaded"` or `"reused":"navigated"` (a page that
 woke for the open counts as reloaded). Overlapping requests from one chat share
 one page, its opens on one site take turns so the page ends on the address
 asked for last, and sleeping tabs wake as needed. An open that reloads or
-navigates the chat's page first lets a load still running finish, then returns
-once the page has loaded (at most about ten seconds each), so the agent's next
-snapshot reads the new page and two navigations never overlap on one page. Another local server, or
+navigates the chat's page first lets a load still running finish (it stops one
+still running after two seconds), then returns once the new page has arrived,
+its document committed, though images and scripts may still be loading. So the
+agent's next snapshot reads the new page and two navigations never overlap on
+one page. A page that does not report its load within about four seconds (a
+hidden page on a busy Mac, for one) is handed back anyway, with a note that it
+is still loading, and the next open of the chat's on that site waits at most
+ten seconds for the one before it. Another local server, or
 another site, gets a page of its own. The page's tab names the chat in its
 tooltip: "Opened by … ; the chat reuses this page".
 
