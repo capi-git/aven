@@ -133,9 +133,11 @@ function describeElement(element: Element | null): string {
  * the dialog.
  */
 export function helmStateWords(root: ParentNode, doc: Document): string {
-  const helm = root.querySelector<HTMLElement>("[data-helm]");
+  // The message box carries data-helm too; the helm is the one the critter
+  // stands in.
+  const perch = root.querySelector(".helm-perch");
+  const helm = perch?.closest<HTMLElement>("[data-helm]") ?? null;
   const dialog = doc.querySelector<HTMLElement>("[data-helm-dialog]");
-  const perch = helm?.querySelector(".helm-perch") ?? null;
   const cursor = dialog?.querySelector<HTMLElement>(
     "[data-helm-row][data-active], [data-helm-item-index][data-active]",
   );

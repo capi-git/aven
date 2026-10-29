@@ -139,7 +139,7 @@ describe("a check that zooms and types", () => {
 describe("a failed helm step's diagnostics", () => {
   it("say how the dialog was opened, where the ▶ and the keyboard are, and where the pointer is", () => {
     document.body.innerHTML = `
-      <div id="box"><div data-helm data-open="keyboard"><div class="helm-perch"><button data-helm-critter aria-label="Message settings"></button></div></div><textarea aria-label="Message"></textarea></div>
+      <div id="box" data-composer data-helm><div data-helm data-open="keyboard"><div class="helm-perch"><button data-helm-critter aria-label="Message settings"></button></div></div><textarea aria-label="Message"></textarea></div>
       <div data-helm-dialog data-page="main" data-popover-side="top"><button data-helm-row="model" data-active>Model</button><button data-helm-row="files">Files</button></div>`;
     document.querySelector<HTMLTextAreaElement>("textarea")!.focus();
     const words = helmStateWords(document.getElementById("box")!, document);
@@ -149,6 +149,8 @@ describe("a failed helm step's diagnostics", () => {
     expect(words).toContain("▶ on: model");
     expect(words).toContain('focus: textarea[aria-label="Message"]');
     expect(words).toContain("pointer over: neither");
+    // Read from the whole document, past the message box's own data-helm.
+    expect(helmStateWords(document, document)).toContain("open: keyboard");
   });
 
   it("say when the dialog is still in its hidden first pass, or gone", () => {
