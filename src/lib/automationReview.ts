@@ -3,25 +3,25 @@
  * something for you to look at: a draft to publish, a preview to check.
  *
  * Runs are unattended, so the agent is asked to save its work as a draft and
- * describe it in a fenced `aven-review` block at the end of its reply. Aven
- * reads that block when the run settles and keeps the card on the run until
- * you act on it or dismiss it. A run that just finished leaves no card.
+ * describe it in one fenced `aven-review` block that ends its final reply.
+ * Aven reads that block when the run settles and keeps the card on the run
+ * until you act on it or take it away. A run that just finished leaves none.
+ *
+ * The agent only describes the card. What its button says, and what pressing
+ * it sends back to the run, are Aven's own words for the card's kind: a card
+ * is text an agent wrote, and pressing it must never send words you did not
+ * see.
  */
 
 export type AutomationReviewStatus = "open" | "done" | "dismissed";
+export type AutomationReviewKind = "review" | "publish";
 
 export type AutomationReview = {
-  /** "publish" when the agent's button publishes; otherwise "review". */
-  kind: "review" | "publish";
+  kind: AutomationReviewKind;
   title: string;
   summary: string;
   /** Where the draft or preview is: an http(s) link. */
   url?: string;
-  /**
-   * The card's button. With a message, pressing it sends the message to the
-   * run's conversation ("Publish the draft now."); without one it opens `url`.
-   */
-  action?: { label: string; message?: string };
   status: AutomationReviewStatus;
   postedAt: number;
   resolvedAt?: number;
@@ -29,18 +29,22 @@ export type AutomationReview = {
 
 export const REVIEW_FENCE = "aven-review";
 
+/** The button on each kind of card, and what pressing it tells the run. */
+export const REVIEW_ACTIONS: Record<
+  AutomationReviewKind,
+  { label: string; message: string }
+> = {
+  publish: { label: "Publish", message: "Publish the draft now." },
+  review: { label: "Approve", message: "Approved. Go ahead." },
+};
+
+export function reviewAction(review: Pick<AutomationReview, "kind">) {
+  return REVIEW_ACTIONS[review.kind];
+}
+
 const TITLE_LIMIT = 120;
 const SUMMARY_LIMIT = 600;
-const LABEL_LIMIT = 40;
-const MESSAGE_LIMIT = 2000;
 const URL_LIMIT = 2048;
-
-const FENCE = new RegExp(
-  "(^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*" +
-    REVIEW_FENCE +
-    "[^\\n]*\\n([\\s\\S]*?)\\n[ \\t]*\\2[ \\t]*(?=\\n|$)",
-  "g",
-);
 
 function clip(value: unknown, limit: number): string {
   if (typeof value !== "string") return "";
@@ -65,39 +69,100 @@ export function reviewUrl(value: unknown): string | undefined {
   }
 }
 
-function actionFrom(
-  label: unknown,
-  message: unknown,
-): AutomationReview["action"] {
-  const text = clip(label, LABEL_LIMIT);
-  if (!text) return undefined;
-  const said =
-    typeof message === "string" ? message.trim().slice(0, MESSAGE_LIMIT) : "";
-  return said ? { label: text, message: said } : { label: text };
+type Fence = { info: string; body: string; start: number; end: number };
+
+const OPENING = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/;
+
+/**
+ * The fenced blocks at the top level of a Markdown reply, as CommonMark
+ * reads them: a fence inside another fence is that fence's text, and a
+ * fence in a quote or a list item does not start at a line's start.
+ * `start` and `end` are line indexes; an unclosed fence runs to the end.
+ */
+function topLevelFences(lines: readonly string[]): Fence[] {
+  const fences: Fence[] = [];
+  let open: { marker: string; info: string; start: number } | null = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (!open) {
+      const match = OPENING.exec(line);
+      if (!match) continue;
+      const marker = match[1]!;
+      const info = match[2]!.trim();
+      // A backtick fence's info string cannot hold a backtick.
+      if (marker[0] === "`" && info.includes("`")) continue;
+      open = { marker, info, start: index };
+      continue;
+    }
+    const close = new RegExp(
+      `^ {0,3}${open.marker[0] === "`" ? "`" : "~"}{${open.marker.length},}[ \\t]*$`,
+    );
+    if (!close.test(line)) continue;
+    fences.push({
+      info: open.info,
+      body: lines.slice(open.start + 1, index).join("\n"),
+      start: open.start,
+      end: index,
+    });
+    open = null;
+  }
+  if (open)
+    fences.push({
+      info: open.info,
+      body: lines.slice(open.start + 1).join("\n"),
+      start: open.start,
+      end: lines.length,
+    });
+  return fences;
 }
 
-function kindFor(
-  value: unknown,
-  action: AutomationReview["action"],
-): AutomationReview["kind"] {
-  if (value === "publish" || value === "review") return value;
-  return action && /publish/i.test(action.label) ? "publish" : "review";
+const isReviewFence = (fence: Fence) =>
+  fence.info.split(/\s/)[0]?.toLowerCase() === REVIEW_FENCE;
+
+/**
+ * The one review block that ends the reply, with where it starts. Null when
+ * there is none, when it is not the last thing in the reply, or when the
+ * reply holds more than one: a block quoted inside another fence, a quote
+ * or a list is text, not a card.
+ */
+function finalReviewFence(
+  text: string,
+): { fence: Fence; lines: string[] } | null {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const fences = topLevelFences(lines).filter(isReviewFence);
+  if (fences.length !== 1) return null;
+  const fence = fences[0]!;
+  if (fence.end >= lines.length) return null;
+  if (lines.slice(fence.end + 1).some((line) => line.trim())) return null;
+  return { fence, lines };
+}
+
+function kindFrom(fields: Record<string, unknown>): AutomationReviewKind {
+  if (fields.kind === "publish" || fields.kind === "review") return fields.kind;
+  // Earlier wording named the button; a Publish button made a publish card.
+  const action =
+    fields.action && typeof fields.action === "object"
+      ? (fields.action as Record<string, unknown>).label
+      : fields.action;
+  return typeof action === "string" && /publish/i.test(action)
+    ? "publish"
+    : "review";
 }
 
 /**
- * The card the agent described in its final reply, or null when it left no
- * block (or the last one is not valid JSON with a title).
+ * The card the agent described at the very end of its final reply, or null
+ * when it left none (or the block is not a JSON object with a title). Only
+ * its kind, title, summary and link are read.
  */
 export function parseAutomationReview(
   text: string,
   postedAt: number,
 ): AutomationReview | null {
-  let body: string | null = null;
-  for (const match of text.matchAll(FENCE)) body = match[3] ?? null;
-  if (body == null) return null;
+  const found = finalReviewFence(text);
+  if (!found) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(body);
+    parsed = JSON.parse(found.fence.body);
   } catch {
     return null;
   }
@@ -106,21 +171,12 @@ export function parseAutomationReview(
   const fields = parsed as Record<string, unknown>;
   const title = clip(fields.title, TITLE_LIMIT);
   if (!title) return null;
-  const nested =
-    fields.action && typeof fields.action === "object"
-      ? (fields.action as Record<string, unknown>)
-      : null;
-  const action = nested
-    ? actionFrom(nested.label, nested.message)
-    : actionFrom(fields.action, fields.message);
   const url = reviewUrl(fields.url);
   return {
-    kind: kindFor(fields.kind, action),
+    kind: kindFrom(fields),
     title,
     summary: clip(fields.summary, SUMMARY_LIMIT),
     ...(url ? { url } : {}),
-    // A button with nothing to send and nowhere to go does nothing.
-    ...(action && (action.message || url) ? { action } : {}),
     status: "open",
     postedAt,
   };
@@ -128,7 +184,9 @@ export function parseAutomationReview(
 
 /** The reply without its review block, for the run's one-line summary. */
 export function stripAutomationReview(text: string): string {
-  return text.replace(FENCE, "$1").trim();
+  const found = finalReviewFence(text);
+  if (!found) return text.trim();
+  return found.lines.slice(0, found.fence.start).join("\n").trim();
 }
 
 export function normalizeAutomationReview(
@@ -147,18 +205,12 @@ export function normalizeAutomationReview(
     review.status === "done" || review.status === "dismissed"
       ? review.status
       : "open";
-  const nested =
-    review.action && typeof review.action === "object"
-      ? (review.action as Record<string, unknown>)
-      : null;
-  const action = nested ? actionFrom(nested.label, nested.message) : undefined;
   const url = reviewUrl(review.url);
   return {
     kind: review.kind === "publish" ? "publish" : "review",
     title,
     summary: clip(review.summary, SUMMARY_LIMIT),
     ...(url ? { url } : {}),
-    ...(action ? { action } : {}),
     status,
     postedAt: review.postedAt,
     ...(typeof review.resolvedAt === "number" &&
@@ -178,14 +230,15 @@ export function reviewHeading(review: Pick<AutomationReview, "kind">): string {
  * leave a card. The chat shows your prompt alone.
  */
 export function automationPrompt(prompt: string): string {
+  const { publish, review } = REVIEW_ACTIONS;
   return `${prompt.trim()}
 
 ---
-Aven runs this automation on a schedule while nobody watches the chat. If you finish with something the user should review or publish (a draft post, a pull request, a preview), do not publish, merge or send it yourself: save it as a draft, then end your reply with one block like this so Aven can put it in their Inbox:
+Aven runs this automation on a schedule while nobody watches the chat. If you finish with something the user should review or publish (a draft post, a pull request, a preview), do not publish, merge or send it yourself: save it as a draft, then end your reply with one block like this, as the very last thing in it, so Aven can put a card in their Inbox:
 
 \`\`\`${REVIEW_FENCE}
-{"title": "Short title", "summary": "One or two sentences on what to check.", "url": "https://link-to-the-draft-or-preview", "action": "Publish", "message": "What to do when they press the button, e.g. Publish the draft now."}
+{"kind": "publish", "title": "Short title", "summary": "One or two sentences on what to check.", "url": "https://link-to-the-draft-or-preview"}
 \`\`\`
 
-"url", "action" and "message" are optional. Leave the block out when there is nothing to review; a plain report needs no card.`;
+Use "kind": "publish" for something ready to go out and "review" for anything else; "summary" and "url" are optional. The card's button sends you "${publish.message}" for a publish card, or "${review.message}" for a review card, in this conversation. Leave the block out when there is nothing to review; a plain report needs no card.`;
 }

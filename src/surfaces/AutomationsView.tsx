@@ -499,7 +499,7 @@ function AutomationRow({
       data-automation-row={item.id}
       data-off={off || !item.agent || undefined}
       aria-current={active ? "true" : undefined}
-      aria-label={`${item.name}: ${status}`}
+      aria-label={`${item.name}: ${status}. ${automationTiming(item)}`}
       title={item.name}
       className="aven-menu-item aven-menu-item-rich automation-row"
       onClick={onSelect}

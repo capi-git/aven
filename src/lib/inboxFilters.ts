@@ -5,6 +5,7 @@ import {
   type InboxKind,
 } from "./githubTasks";
 import { normalizeProjectPath } from "./recents";
+import type { ScheduledRun } from "./scheduledAgents";
 import { timeFilterStart, type SessionTimeFilter } from "./sessionFilters";
 
 export type InboxTimeFilter = SessionTimeFilter;
@@ -44,8 +45,12 @@ export const DEFAULT_INBOX_FILTERS: InboxFilters = {
 const FILTERS_KEY = "monocode.inboxFilters";
 
 export function loadInboxFilters(): InboxFilters {
+  return inboxFiltersFrom(inboxFiltersSnapshot());
+}
+
+/** Saved filters as `loadInboxFilters` reads them, from their stored text. */
+export function inboxFiltersFrom(raw: string | null): InboxFilters {
   try {
-    const raw = localStorage.getItem(FILTERS_KEY);
     if (!raw) return DEFAULT_INBOX_FILTERS;
     const parsed = JSON.parse(raw) as Partial<InboxFilters>;
     return {
@@ -72,12 +77,37 @@ export function loadInboxFilters(): InboxFilters {
   }
 }
 
+const FILTERS_EVENT = "aven:inbox-filters-changed";
+
 export function saveInboxFilters(filters: InboxFilters) {
   try {
     localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
   } catch {
     // private mode / quota
   }
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(FILTERS_EVENT));
+}
+
+/** The saved filters as stored, a stable snapshot for subscribers. */
+export function inboxFiltersSnapshot(): string | null {
+  try {
+    return localStorage.getItem(FILTERS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function subscribeInboxFilters(listener: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === FILTERS_KEY) listener();
+  };
+  window.addEventListener(FILTERS_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(FILTERS_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 export function pruneInboxFilters(
@@ -198,4 +228,32 @@ function isTimeFilter(value: unknown): value is InboxTimeFilter {
   return (
     value === "all" || value === "today" || value === "7d" || value === "30d"
   );
+}
+
+/**
+ * The automation cards the Inbox lists: those in projects its filters show
+ * (filters are pruned to the Inbox's projects, as the list prunes them) and
+ * whose words match the search. The Inbox and its sidebar count share it.
+ */
+export function inboxReviewRuns(
+  runs: readonly ScheduledRun[],
+  filters: InboxFilters,
+  projectPaths: Iterable<string>,
+  search = "",
+): ScheduledRun[] {
+  const hidden = new Set(
+    pruneInboxFilters(filters, projectPaths).hiddenProjects.map((path) =>
+      normalizeProjectPath(path),
+    ),
+  );
+  const query = search.trim().toLowerCase();
+  return runs.filter((run) => {
+    if (run.project && hidden.has(normalizeProjectPath(run.project)))
+      return false;
+    if (!query) return true;
+    return [run.review?.title, run.review?.summary, run.name]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
 }

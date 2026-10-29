@@ -66,6 +66,7 @@ import {
 } from "../lib/githubTasks";
 import {
   applyInboxFilters,
+  inboxReviewRuns,
   hasActiveInboxFilters,
   inboxFetchState,
   loadInboxFilters,
@@ -102,7 +103,6 @@ import {
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
 import { useOpenReviewRuns } from "../hooks/useAutomationChats";
-import { sameProjectPath } from "../lib/recents";
 import type { ScheduledRun } from "../lib/scheduledAgents";
 import { AutomationReviewCard, InboxReviewCard } from "./AutomationReviewCard";
 
@@ -200,24 +200,6 @@ type Props = {
 };
 
 const reviewKey = (run: ScheduledRun) => `review:${run.id}`;
-
-/** Cards whose words match the filter, from projects the filters show. */
-function visibleReviewRuns(
-  runs: readonly ScheduledRun[],
-  hiddenProjects: readonly string[],
-  search: string,
-): ScheduledRun[] {
-  const query = search.trim().toLowerCase();
-  return runs.filter((run) => {
-    if (hiddenProjects.some((path) => sameProjectPath(path, run.project)))
-      return false;
-    if (!query) return true;
-    return [run.review?.title, run.review?.summary, run.name]
-      .join(" ")
-      .toLowerCase()
-      .includes(query);
-  });
-}
 
 export function InboxView({
   onAsk,
@@ -362,8 +344,13 @@ export function InboxView({
   const reviewRuns = useOpenReviewRuns();
   const visibleReviews = useMemo(
     () =>
-      visibleReviewRuns(reviewRuns, activeFilters.hiddenProjects, searchInput),
-    [reviewRuns, activeFilters.hiddenProjects, searchInput],
+      inboxReviewRuns(
+        reviewRuns,
+        activeFilters,
+        projects.map((project) => project.path),
+        searchInput,
+      ),
+    [reviewRuns, activeFilters, projects, searchInput],
   );
   const inboxSeenTick = useInboxSeenTick();
   const seenEntries = useMemo(
@@ -380,6 +367,9 @@ export function InboxView({
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
+  const listed = visibleReviews.length
+    ? "issues or pull requests"
+    : "reviews, issues or pull requests";
   const narrowedByUser = searchNarrowed || filtersActive;
   const fetchError = providerErrors.github ?? null;
 
@@ -507,13 +497,14 @@ export function InboxView({
           </div>
         ) : visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-ui-label text-content/50">
+            {/* Cards shown above: this line speaks for the rest alone. */}
             {narrowedByUser
               ? searchNarrowed
-                ? "No matching issues or pull requests"
-                : "No issues or pull requests match these filters"
+                ? `No matching ${listed}`
+                : `No ${listed} match these filters`
               : projects.length === 0
                 ? "Open a project to fill the inbox"
-                : "No matching issues or pull requests"}
+                : `No matching ${listed}`}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
@@ -590,7 +581,7 @@ export function InboxView({
           />
           <span className="min-w-0 truncate text-content">Inbox</span>
           <span className="truncate text-ui-caption text-content/45">
-            Issues & pull requests
+            Reviews, issues & pull requests
           </span>
         </div>
         {IS_MAC ? null : <WindowControls />}
@@ -661,7 +652,7 @@ function InboxDetailBody({
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
         <Inbox className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
         <p className="text-ui-body text-content/45">
-          Select an issue or pull request
+          Select a review, issue or pull request
         </p>
       </div>
     );

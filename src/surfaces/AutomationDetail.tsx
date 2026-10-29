@@ -28,6 +28,7 @@ import { projectName } from "../lib/paths";
 import {
   deleteScheduledAgent,
   formatRunTime,
+  holdsChat,
   scheduledRunSeenEntry,
   setScheduledAgentEnabled,
   updateScheduledAgent,
@@ -219,7 +220,10 @@ function RunRow({
       type="button"
       data-automation-run={run.id}
       data-unread={unread || undefined}
-      aria-label={`${when}: ${status.toLowerCase()}${unread ? ", new" : ""}`}
+      // Its summary or card line is part of what the row says, as it shows.
+      aria-label={`${when}: ${status.toLowerCase()}${unread ? ", new" : ""}${
+        line ? `. ${line}` : ""
+      }${length ? `. ${length}` : ""}`}
       className="aven-menu-item aven-menu-item-rich automation-run-row"
       onClick={onSelect}
     >
@@ -315,6 +319,8 @@ export function AutomationRunView({
   const length = runLength(run);
   const name = item?.name ?? run.name;
   const sessionId = run.sessionId;
+  // A run from before runs stayed here already has an ordinary chat.
+  const ownChat = holdsChat(run);
   return (
     <div className="automation-run-view" data-automation-run-view={run.id}>
       <header className="automation-run-head">
@@ -348,7 +354,11 @@ export function AutomationRunView({
               type="button"
               disabled={opening}
               className={ACTION_GHOST}
-              title="Continue this run as an ordinary chat, listed with the project's chats"
+              title={
+                ownChat
+                  ? "Continue this run as an ordinary chat, listed with the project's chats"
+                  : "Open this run's chat, which is already among the project's chats"
+              }
               onClick={() => {
                 setOpening(true);
                 void Promise.resolve(onOpenAsChat(run)).finally(() =>
@@ -356,8 +366,8 @@ export function AutomationRunView({
                 );
               }}
             >
-              <MessageSquare className="size-3.5" strokeWidth={1.75} /> Open as
-              chat
+              <MessageSquare className="size-3.5" strokeWidth={1.75} />
+              {ownChat ? "Open as chat" : "Open chat"}
             </button>
           ) : null}
         </span>

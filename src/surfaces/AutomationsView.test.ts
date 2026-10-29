@@ -87,6 +87,7 @@ const finished: ScheduledRun = {
   summary: "Three commits landed; nothing risky.",
   startedAt: Date.now() - 120_000,
   finishedAt: Date.now() - 60_000,
+  inAutomations: true,
 };
 
 /** The run's saved chat, as `session_get` returns it. */
@@ -261,8 +262,8 @@ describe("Automations view", () => {
     // When it runs, in plain words; an automation that is off says so.
     expect(row("daily").textContent).toContain("Every day at 09:00 · Next");
     expect(row("deps").textContent).toContain("Every day at 09:00 · Off");
-    expect(row("daily").getAttribute("aria-label")).toBe(
-      "Morning review: Not run yet",
+    expect(row("daily").getAttribute("aria-label")).toMatch(
+      /^Morning review: Not run yet\. Every day at 09:00 · Next /,
     );
 
     // A folder folds away, and stays folded.
@@ -290,8 +291,8 @@ describe("Automations view", () => {
       finishedAt: finished.finishedAt! - 86_400_000,
     });
     await render();
-    expect(row("daily").getAttribute("aria-label")).toBe(
-      "Morning review: Last run completed 1m ago",
+    expect(row("daily").getAttribute("aria-label")).toMatch(
+      /^Morning review: Last run completed 1m ago\. Every day at 09:00/,
     );
     expect(
       row("daily").querySelector(".automation-dot")?.getAttribute("data-tone"),
@@ -306,6 +307,13 @@ describe("Automations view", () => {
     ]);
     expect(runs[0]!.textContent).toContain("Three commits landed");
     expect(runs[1]!.textContent).toContain("2 tests failed.");
+    // A screen reader hears the row's summary as well as how it went.
+    expect(runs[0]!.getAttribute("aria-label")).toMatch(
+      /: completed, new\. Three commits landed; nothing risky\.\. 1 min$/,
+    );
+    expect(runs[1]!.getAttribute("aria-label")).toContain(
+      "failed, new. 2 tests failed.",
+    );
   });
 
   it("opens a run's conversation inside Automations, and back", async () => {
@@ -368,8 +376,6 @@ describe("Automations view", () => {
   });
 
   it("keeps a deleted automation's runs, and their chats reachable", async () => {
-    // Runs from before runs stayed in Automations: their chats were listed
-    // with the project's, and their automation may be gone.
     saveScheduledRun({ ...finished, scheduleId: "gone", name: "Old report" });
     await render();
     expect(folders()).toEqual([
@@ -385,6 +391,28 @@ describe("Automations view", () => {
     );
     await flush();
     expect(container.querySelector("[data-transcript]")).not.toBeNull();
+  });
+
+  it("lists a run from before runs stayed here, and opens its chat as before", async () => {
+    // An earlier Aven's run: its chat is an ordinary chat, listed with the
+    // project's chats, and stays one.
+    const { inAutomations: _, ...legacy } = finished;
+    saveScheduledAgent(schedule);
+    saveScheduledRun(legacy);
+    await render();
+    expect(automationChatIds().has("session-1")).toBe(false);
+    await click(row("daily"));
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await flush();
+    expect(container.querySelector("[data-transcript]")).not.toBeNull();
+    // Already a chat: the button opens it, and says so.
+    expect(() => button("Open as chat")).toThrow();
+    await click(button("Open chat"));
+    expect(onOpenRunAsChat.mock.calls[0]![0]).toMatchObject({ id: "run-1" });
   });
 
   it("creates an automation from a blank form", async () => {
@@ -671,7 +699,6 @@ describe("Inbox without the Scheduled tab", () => {
         title: "October changelog",
         summary: "Saved as a draft in Framer.",
         url: "https://framer.com/projects/site",
-        action: { label: "Publish", message: "Publish the draft now." },
         status: "open",
         postedAt: Date.now(),
       },
@@ -699,6 +726,10 @@ describe("Inbox without the Scheduled tab", () => {
     const detail = container.querySelector('[data-review-detail="run-2"]')!;
     expect(detail.textContent).toContain("Saved as a draft in Framer.");
     expect(detail.textContent).toContain("framer.com/projects/site");
+    // The button is Aven's, and says what it sends.
+    expect(button("Publish").title).toBe(
+      "Sends “Publish the draft now.” to the run",
+    );
     await click(button("Publish"));
     expect(onReviewAction).toHaveBeenCalledTimes(1);
     expect(onReviewAction.mock.calls[0]![0]).toMatchObject({ id: "run-2" });
@@ -708,6 +739,69 @@ describe("Inbox without the Scheduled tab", () => {
     await click(button("Done"));
     expect(container.querySelector("[data-review-card]")).toBeNull();
     expect(getScheduledRun("run-2")!.review!.status).toBe("done");
+  });
+
+  it("names reviews in its header and its empty list", async () => {
+    await renderInbox();
+    await flush();
+    expect(container.textContent).toContain("Reviews, issues & pull requests");
+    expect(container.textContent).toContain(
+      "No matching reviews, issues or pull requests",
+    );
+  });
+
+  it("keeps a card's button off while its run is working", async () => {
+    saveScheduledRun({
+      ...finished,
+      id: "run-3",
+      status: "running",
+      finishedAt: undefined,
+      review: {
+        kind: "review",
+        title: "Preview",
+        summary: "",
+        status: "open",
+        postedAt: Date.now(),
+      },
+    });
+    const onReviewAction = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(InboxView, {
+          onAsk: async () => "",
+          onAskRestart: async () => "",
+          onAskMount: () => {},
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 1 }],
+          onReviewAction,
+        }),
+      ),
+    );
+    const approve = button("Approve");
+    expect(approve.disabled).toBe(true);
+    expect(approve.title).toBe("The run is still working");
+    await click(approve);
+    expect(onReviewAction).not.toHaveBeenCalled();
+  });
+
+  it("hides a card from a project the Inbox's filters hide", async () => {
+    saveScheduledRun({
+      ...finished,
+      id: "run-4",
+      review: {
+        kind: "review",
+        title: "Preview",
+        summary: "",
+        status: "open",
+        postedAt: Date.now(),
+      },
+    });
+    localStorage.setItem(
+      "monocode.inboxFilters",
+      JSON.stringify({ hiddenProjects: [PROJECT] }),
+    );
+    await renderInbox();
+    expect(container.querySelector("[data-review-card]")).toBeNull();
   });
 
   it("ignores a palette request for a new automation", async () => {

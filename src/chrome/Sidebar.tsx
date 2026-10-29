@@ -164,10 +164,7 @@ import {
   type BotPickerProject,
 } from "./BotPicker";
 import { projectAppearance } from "../lib/projectAppearance";
-import {
-  useAutomationChatIds,
-  useOpenReviewRuns,
-} from "../hooks/useAutomationChats";
+import { useAutomationChatIds } from "../hooks/useAutomationChats";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -319,6 +316,8 @@ export type SidebarProps = {
   homeActive?: boolean;
   /** Failed automation runs nobody has opened, counted on its tile. */
   automationsUnread?: number;
+  /** Cards automations left that the Inbox lists, counted on its tile. */
+  inboxCount?: number;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
@@ -477,6 +476,7 @@ function SidebarComponent({
   notesActive = false,
   homeActive = false,
   automationsUnread = 0,
+  inboxCount = 0,
   notesEnabled = true,
   unseenFinishedIds: unseenFinishedIdsProp,
   settingsOpen = false,
@@ -702,7 +702,6 @@ function SidebarComponent({
   // A bot's chat is its pinned row, and an automation run's chat stays in
   // Automations: neither is one of the project's chats.
   const automationChats = useAutomationChatIds();
-  const reviewCards = useOpenReviewRuns();
   const hiddenChats = useMemo(
     () =>
       new Set([
@@ -1835,7 +1834,7 @@ function SidebarComponent({
       showInbox={!settingsOpen && !!onOpenInbox}
       inboxActive={inboxActive}
       onOpenInbox={onOpenInbox}
-      inboxCount={reviewCards.length}
+      inboxCount={inboxCount}
       showAutomations={!settingsOpen && !!onOpenAutomations}
       automationsActive={automationsActive}
       onOpenAutomations={onOpenAutomations}

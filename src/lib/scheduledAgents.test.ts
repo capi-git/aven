@@ -22,7 +22,12 @@ import {
   saveScheduledAgent,
   saveScheduledRun,
   scheduledAgentProblem,
+  automationNoticeChatId,
+  automationRunTarget,
+  chatsToArchive,
   onScheduledRunsTrimmed,
+  runIdOfNoticeChat,
+  withoutAutomationChats,
   SCHEDULED_RUN_LIMIT,
   SCHEDULED_RUNS_PER_AUTOMATION,
   SCHEDULED_RUN_TIMEOUT_MS,
@@ -299,6 +304,7 @@ describe("runs", () => {
         id: "with-card",
         scheduleId: "busy",
         startedAt: -1,
+        inAutomations: true,
         review: {
           kind: "review",
           title: "Draft post",
@@ -316,6 +322,7 @@ describe("runs", () => {
           scheduleId: "busy",
           startedAt: index,
           sessionId: `chat-${index}`,
+          inAutomations: true,
         }),
       );
     off();
@@ -334,6 +341,48 @@ describe("runs", () => {
         (runs as ScheduledRun[]).map((item) => item.id),
       ),
     ).toEqual(["busy-1", "busy-2", "busy-3"]);
+  });
+
+  it("archives only a let-go run's own chat that is not open anywhere", () => {
+    const own = (id: string, patch: Partial<ScheduledRun> = {}) =>
+      run({ id, sessionId: `chat-${id}`, inAutomations: true, ...patch });
+    const dropped = [
+      own("idle"),
+      own("in-a-tab"),
+      own("opened", { openedAsChat: true }),
+      own("still-held"),
+      // From before runs stayed in Automations: an ordinary chat.
+      run({ id: "legacy", sessionId: "chat-legacy" }),
+      run({ id: "never-started" }),
+    ];
+    expect(
+      chatsToArchive(
+        dropped,
+        new Set(["chat-in-a-tab"]),
+        new Set(["chat-still-held"]),
+      ),
+    ).toEqual(["chat-idle"]);
+  });
+
+  it("names a run that never started by its notice, to open it", () => {
+    const notice = automationNoticeChatId("run-7");
+    expect(runIdOfNoticeChat(notice)).toBe("run-7");
+    expect(automationRunTarget(notice)).toBe("run-7");
+    expect(runIdOfNoticeChat("chat-1")).toBeUndefined();
+    saveScheduledRun(
+      run({ id: "held", sessionId: "chat-held", inAutomations: true }),
+    );
+    expect(automationRunTarget("chat-held")).toBe("held");
+    expect(automationRunTarget("chat-1")).toBeUndefined();
+  });
+
+  it("leaves the run's own chats out of a list of chats", () => {
+    saveScheduledRun(
+      run({ id: "held", sessionId: "chat-held", inAutomations: true }),
+    );
+    expect(
+      withoutAutomationChats([{ id: "chat-held" }, { id: "chat-mine" }]),
+    ).toEqual([{ id: "chat-mine" }]);
   });
 
   it("shortens long replies at a word", () => {
@@ -386,6 +435,33 @@ describe("runs", () => {
     });
     expect(runs.stuck!.error).toMatch(/stopped waiting/);
     expect(runs.fresh!.status).toBe("running");
+  });
+
+  it("tells the check which runs it gave up on, to post them", async () => {
+    saveScheduledRun(run({ id: "stuck", status: "running", startedAt: 0 }));
+    // A turn sent later from its card counts from when it started.
+    saveScheduledRun(
+      run({
+        id: "answered",
+        status: "running",
+        startedAt: 0,
+        turnStartedAt: SCHEDULED_RUN_TIMEOUT_MS,
+      }),
+    );
+    const expired = vi.fn();
+    await runDueScheduledAgents({
+      now: SCHEDULED_RUN_TIMEOUT_MS + 1,
+      claim: async () => true,
+      fire: vi.fn(),
+      expired,
+    });
+    expect(expired).toHaveBeenCalledTimes(1);
+    expect(
+      (expired.mock.calls[0]![0] as ScheduledRun[]).map((item) => item.id),
+    ).toEqual(["stuck"]);
+    expect(
+      listScheduledRuns().find((item) => item.id === "answered")!.status,
+    ).toBe("running");
   });
 });
 

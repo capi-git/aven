@@ -8,6 +8,8 @@ import {
   saveScheduledRun,
   type ScheduledRun,
 } from "../lib/scheduledAgents";
+import { useInboxReviewCount } from "../hooks/useAutomationChats";
+import { loadInboxFilters, saveInboxFilters } from "../lib/inboxFilters";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 vi.mock("./TitleBar", () => ({
@@ -59,6 +61,7 @@ const run = (patch: Partial<ScheduledRun>): ScheduledRun => ({
   summary: "Quiet day.",
   startedAt: 5,
   finishedAt: 6,
+  inAutomations: true,
   ...patch,
 });
 
@@ -127,26 +130,62 @@ it("keeps an automation run's chat out of the chats list until it is opened as a
   ]);
 });
 
-it("counts the cards automations left on the Inbox, and failed runs on Automations", async () => {
+it("keeps the chat of a run from before runs stayed in Automations listed", async () => {
+  const { inAutomations: _, ...legacy } = run({});
+  saveScheduledRun(legacy);
+  await act(async () => root.render(createElement(Sidebar, props)));
+  expect(chatRows()).toEqual([
+    "Scheduled · Morning briefing",
+    "Claude Code · Login bug",
+  ]);
+});
+
+it("shows the counts it is given on the Inbox and Automations tiles", async () => {
   await act(async () => root.render(createElement(Sidebar, props)));
   expect(tileCount("inbox")).toBeNull();
   expect(tileCount("automations")).toBeNull();
   await act(async () =>
-    saveScheduledRun(
-      run({
-        review: {
-          kind: "review",
-          title: "Preview",
-          summary: "",
-          status: "open",
-          postedAt: 7,
-        },
-      }),
+    root.render(
+      createElement(Sidebar, { ...props, inboxCount: 1, automationsUnread: 2 }),
     ),
   );
   expect(tileCount("inbox")).toBe("1");
-  await act(async () =>
-    root.render(createElement(Sidebar, { ...props, automationsUnread: 2 })),
-  );
   expect(tileCount("automations")).toBe("2");
+});
+
+it("counts on the Inbox tile only the cards the Inbox lists", async () => {
+  const other = "/tmp/other-project";
+  let count = -1;
+  function Probe() {
+    count = useInboxReviewCount(
+      [
+        { path: cwd, openedAt: 2 },
+        { path: other, openedAt: 1 },
+      ],
+      cwd,
+    );
+    return null;
+  }
+  const card = {
+    kind: "review" as const,
+    title: "Preview",
+    summary: "",
+    status: "open" as const,
+    postedAt: 7,
+  };
+  saveScheduledRun(run({ id: "here", review: card }));
+  saveScheduledRun(
+    run({ id: "there", sessionId: "chat-2", project: other, review: card }),
+  );
+  await act(async () => root.render(createElement(Probe)));
+  expect(count).toBe(2);
+  // The reviewer's case: the Inbox hid a project's cards, the tile did not.
+  await act(async () =>
+    saveInboxFilters({ ...loadInboxFilters(), hiddenProjects: [other] }),
+  );
+  expect(count).toBe(1);
+  await act(async () =>
+    saveInboxFilters({ ...loadInboxFilters(), hiddenProjects: [] }),
+  );
+  expect(count).toBe(2);
 });

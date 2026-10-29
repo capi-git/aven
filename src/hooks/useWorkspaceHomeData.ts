@@ -7,6 +7,8 @@ import {
   noteActiveDays,
 } from "../lib/activityStreak";
 import { projectRailItems, type RecentProject } from "../lib/recents";
+import { withoutAutomationChats } from "../lib/scheduledAgents";
+import { useAutomationChatIds } from "./useAutomationChats";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
 import { groupHomeRunning } from "../lib/teamGrouping";
@@ -102,6 +104,18 @@ export function useWorkspaceHomeData({
   if (stable.current !== next && !equalChromeData(stable.current, next))
     stable.current = next;
   const live = stable.current;
+  // An automation run's own chat is in Automations: Home lists it neither
+  // among recent chats, nor as working, nor as a project's chat to resume.
+  // What it waits on you for still shows in Needs you, and opens the run.
+  const runChats = useAutomationChatIds();
+  const listedHistory = useMemo(
+    () => withoutAutomationChats(history, runChats),
+    [history, runChats],
+  );
+  const listedLive = useMemo(
+    () => withoutAutomationChats(live, runChats),
+    [live, runChats],
+  );
 
   // The sidebar's order: pinned first, then the saved order.
   const ordered = useMemo(
@@ -121,9 +135,9 @@ export function useWorkspaceHomeData({
     useMemo(
       () =>
         enabled
-          ? homeRecentSessions(history, live, scope, index)
+          ? homeRecentSessions(listedHistory, listedLive, scope, index)
           : EMPTY.recent,
-      [enabled, history, live, scope, index],
+      [enabled, listedHistory, listedLive, scope, index],
     ),
   );
   const needsYou = useStable(
@@ -140,18 +154,18 @@ export function useWorkspaceHomeData({
     useMemo(
       () =>
         enabled
-          ? groupHomeRunning(homeRunning(live, scope), teams)
+          ? groupHomeRunning(homeRunning(listedLive, scope), teams)
           : EMPTY.running,
-      [enabled, live, scope, teams],
+      [enabled, listedLive, scope, teams],
     ),
   );
   const cards = useStable(
     useMemo(
       () =>
         enabled
-          ? homeProjects(ordered, recent, activity, live, index, teams)
+          ? homeProjects(ordered, recent, activity, listedLive, index, teams)
           : EMPTY.projects,
-      [enabled, ordered, recent, activity, live, index, teams],
+      [enabled, ordered, recent, activity, listedLive, index, teams],
     ),
   );
   const finished = useStable(

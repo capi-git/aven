@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import {
   automationChatTitle,
+  canAnswerCard,
   continueAutomationRun,
   startAutomationRun,
   type AutomationRunDeps,
@@ -16,16 +17,24 @@ import type { ControlOutcome } from "./orchestration";
 import {
   automationChatIds,
   automationRunForChat,
+  automationRunTarget,
+  chatsToArchive,
   EVERY_DAY,
+  expireStaleScheduledRuns,
   getScheduledRun,
   listScheduledAgents,
   listScheduledRuns,
   markRunOpenedAsChat,
+  onScheduledRunsTrimmed,
+  resolveRunReview,
+  saveScheduledRun,
   type ScheduledAgent,
+  type ScheduledRun,
 } from "./scheduledAgents";
 import type { Block, Session } from "./session";
 
 const PROJECT = "/work/site";
+const HOUR = 60 * 60 * 1000;
 const SCRATCH = "/app/projectless-workspaces/personal";
 
 const agent: ScheduledAgent = {
@@ -112,6 +121,7 @@ describe("starting an automation run", () => {
       scheduleId: "changelog",
       sessionId: chat!.id,
       status: "running",
+      inAutomations: true,
     });
     // The chat belongs to the run: kept out of the chats list.
     expect(automationChatIds().has(chat!.id)).toBe(true);
@@ -202,32 +212,49 @@ describe("starting an automation run", () => {
     expect(listScheduledRuns().map((item) => item.id)).toEqual([run.id]);
   });
 
-  it("sends the card's message to the run's chat, and the card is done", async () => {
+  it("tells you when a run cannot start, with no chat to point at", async () => {
+    const space = workspace({
+      problem: async () => "Claude is not installed.",
+    });
+    const run = await startAutomationRun(agent, space.deps);
+    expect(space.notify).toHaveBeenCalledTimes(1);
+    expect(space.notify.mock.calls[0]![0]).toEqual({ kind: "failed", run });
+  });
+
+  it("answers a card with Aven's words, once, and never while it works", async () => {
     const space = workspace();
     const run = await startAutomationRun(agent, space.deps);
     space.finish(
-      '```aven-review\n{"title":"Draft","action":"Publish","message":"Publish it now."}\n```',
+      // The agent asks its button to send something else entirely.
+      '```aven-review\n{"title":"Draft","action":"Publish","message":"git push --force"}\n```',
     );
     const sent: string[] = [];
     let settle: ((outcome: ControlOutcome) => void) | undefined;
-    continueAutomationRun(getScheduledRun(run.id)!, "Publish it now.", {
-      session: space.chats[0]!,
-      submit: (id, text, done) => {
-        expect(id).toBe(run.sessionId);
-        sent.push(text);
-        settle = done;
-      },
-      blocks: () => [
-        { id: "a", role: "assistant", text: "Published." } as Block,
-      ],
-      notify: space.notify,
-      now: () => 2_000,
-    });
-    expect(sent).toEqual(["Publish it now."]);
+    const answer = (now: number) =>
+      continueAutomationRun(run.id, {
+        session: space.chats[0]!,
+        submit: (id, text, done) => {
+          expect(id).toBe(run.sessionId);
+          sent.push(text);
+          settle = done;
+        },
+        blocks: () => [
+          { id: "a", role: "assistant", text: "Published." } as Block,
+        ],
+        notify: space.notify,
+        now: () => now,
+      });
+    expect(canAnswerCard(getScheduledRun(run.id))).toBe(true);
+    expect(answer(2_000)).toBe(true);
+    // The reviewer's proof: a second press with the same card sent again.
+    expect(answer(2_001)).toBe(false);
+    expect(sent).toEqual(["Publish the draft now."]);
     expect(getScheduledRun(run.id)).toMatchObject({
       status: "running",
+      turnStartedAt: 2_000,
       review: { status: "done", resolvedAt: 2_000 },
     });
+    expect(canAnswerCard(getScheduledRun(run.id))).toBe(false);
     settle!({ status: "completed", text: "Published." });
     expect(getScheduledRun(run.id)).toMatchObject({
       status: "completed",
@@ -237,10 +264,62 @@ describe("starting an automation run", () => {
     // The card was the news; its answer finishing is not.
     expect(space.notify).toHaveBeenCalledTimes(1);
   });
+
+  it("sends nothing for a card that is done, or while the run works", async () => {
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    const press = () =>
+      continueAutomationRun(run.id, {
+        session: space.chats[0]!,
+        submit: () => {
+          throw new Error("sent");
+        },
+        blocks: () => [],
+      });
+    // Still running its first turn, with no card yet.
+    expect(press()).toBe(false);
+    space.finish('```aven-review\n{"title":"Draft"}\n```');
+    resolveRunReview(run.id, "done");
+    expect(press()).toBe(false);
+  });
+
+  it("gives up on a card's turn four hours after it started, not the run", async () => {
+    // The reviewer's proof: Publish pressed hours after the run started read
+    // as Failed within one check, while the turn was still working.
+    const space = workspace({ now: () => 0 });
+    const run = await startAutomationRun(agent, space.deps);
+    space.finish('```aven-review\n{"title":"Draft","kind":"publish"}\n```');
+    continueAutomationRun(run.id, {
+      session: space.chats[0]!,
+      submit: () => undefined,
+      blocks: () => [],
+      now: () => 9 * HOUR,
+    });
+    expect(expireStaleScheduledRuns(9 * HOUR + 30_000)).toEqual([]);
+    expect(getScheduledRun(run.id)!.status).toBe("running");
+    const given = expireStaleScheduledRuns(13 * HOUR);
+    expect(given.map((item) => item.id)).toEqual([run.id]);
+    expect(getScheduledRun(run.id)).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/stopped waiting/),
+    });
+  });
 });
 
 describe("data from before runs stayed in Automations", () => {
-  it("reads the stored automations and runs as they were, under the same keys", () => {
+  const legacyRun = (index: number) => ({
+    id: `old-run-${index}`,
+    scheduleId: "brief",
+    name: "Morning briefing",
+    project: PROJECT,
+    sessionId: `old-chat-${index}`,
+    status: "completed",
+    summary: "Quiet day.",
+    startedAt: 1_000 + index,
+    finishedAt: 1_001 + index,
+  });
+
+  it("keeps their chats ordinary chats, under the same keys", () => {
     // As an earlier Aven saved them: no card, no "opened as chat".
     store.set(
       "aven.scheduledAgents.v1",
@@ -249,17 +328,7 @@ describe("data from before runs stayed in Automations", () => {
     store.set(
       "aven.scheduledRuns.v1",
       JSON.stringify([
-        {
-          id: "old-run",
-          scheduleId: "brief",
-          name: "Morning briefing",
-          project: PROJECT,
-          sessionId: "old-chat",
-          status: "completed",
-          summary: "Quiet day.",
-          startedAt: 10,
-          finishedAt: 20,
-        },
+        legacyRun(0),
         {
           id: "never-started",
           scheduleId: "brief",
@@ -274,24 +343,53 @@ describe("data from before runs stayed in Automations", () => {
     );
     const before = new Map(store);
     expect(listScheduledAgents().map((item) => item.id)).toEqual(["brief"]);
+    // Listed under their automation...
     expect(listScheduledRuns().map((item) => item.id)).toEqual([
-      "old-run",
+      "old-run-0",
       "never-started",
     ]);
-    // Its chat, once in the chats list, is now listed under its automation.
-    expect(automationChatIds()).toEqual(new Set(["old-chat"]));
-    expect(automationRunForChat("old-chat")?.id).toBe("old-run");
+    // ...while their chats stay where they were: listed with the project's
+    // chats, opened from Activity, banners and search as before.
+    expect(automationChatIds().size).toBe(0);
+    expect(automationRunForChat("old-chat-0")).toBeUndefined();
+    expect(automationRunTarget("old-chat-0")).toBeUndefined();
     // Reading changes nothing and adds no key; nothing under monocode.* or
     // supermono.* is touched.
     expect(store).toEqual(before);
-    markRunOpenedAsChat("old-run");
+    markRunOpenedAsChat("old-run-0");
     expect([...store.keys()].sort()).toEqual([
       "aven.scheduledAgents.v1",
       "aven.scheduledRuns.v1",
     ]);
-    expect(JSON.parse(store.get("aven.scheduledRuns.v1")!)[0]).toMatchObject({
-      id: "old-run",
-      openedAsChat: true,
+  });
+
+  it("never archives their chats, and keeps the 100 an earlier Aven kept", () => {
+    // The reviewer's proof: the first save after the upgrade let go of 51
+    // run chats of a busy automation, which were then archived.
+    store.set(
+      "aven.scheduledRuns.v1",
+      JSON.stringify(
+        Array.from({ length: 100 }, (_, index) => legacyRun(index)),
+      ),
+    );
+    const dropped: ScheduledRun[] = [];
+    const off = onScheduledRunsTrimmed((runs) => dropped.push(...runs));
+    saveScheduledRun({
+      id: "new",
+      scheduleId: "brief",
+      name: "Morning briefing",
+      project: PROJECT,
+      sessionId: "chat-new",
+      status: "running",
+      summary: "",
+      startedAt: 5_000,
+      inAutomations: true,
     });
+    off();
+    expect(dropped).toEqual([]);
+    expect(listScheduledRuns()).toHaveLength(101);
+    expect(chatsToArchive(dropped, new Set())).toEqual([]);
+    // Only the new run's chat is the run's own.
+    expect([...automationChatIds()]).toEqual(["chat-new"]);
   });
 });

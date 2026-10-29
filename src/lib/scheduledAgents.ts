@@ -58,6 +58,18 @@ export type ScheduledRun = {
   startedAt: number;
   finishedAt?: number;
   /**
+   * When its latest turn started: the run's own, or a later one sent from
+   * its card. A turn is given up on four hours after this, not after the
+   * run started.
+   */
+  turnStartedAt?: number;
+  /**
+   * The run's chat stays in Automations: set on every run started since runs
+   * stayed there. Runs from before keep their chats where they were, among
+   * the project's chats.
+   */
+  inAutomations?: true;
+  /**
    * You chose Open as chat: the run's chat is an ordinary chat from then on,
    * listed with the project's chats. Until then it is the run's alone.
    */
@@ -304,16 +316,23 @@ export function normalizeScheduledRun(value: unknown): ScheduledRun | null {
     ...(typeof run.finishedAt === "number" && Number.isFinite(run.finishedAt)
       ? { finishedAt: run.finishedAt }
       : {}),
+    ...(typeof run.turnStartedAt === "number" &&
+    Number.isFinite(run.turnStartedAt)
+      ? { turnStartedAt: run.turnStartedAt }
+      : {}),
+    ...(run.inAutomations === true ? { inAutomations: true as const } : {}),
     ...(run.openedAsChat === true ? { openedAsChat: true as const } : {}),
     ...(review ? { review } : {}),
   };
 }
 
 /**
- * Newest first: at most `SCHEDULED_RUNS_PER_AUTOMATION` for each
- * automation, so a busy one never pushes a quiet one's runs out, and at most
- * `SCHEDULED_RUN_LIMIT` in all. A run still running, or with a card waiting
- * for you, is always kept.
+ * Newest first: at most `SCHEDULED_RUNS_PER_AUTOMATION` runs kept in
+ * Automations for each automation, so a busy one never pushes a quiet one's
+ * runs out, and at most `SCHEDULED_RUN_LIMIT` in all. A run still running,
+ * or with a card waiting for you, is always kept. Runs from before runs
+ * stayed in Automations count only towards the overall limit, which is
+ * above the 100 an earlier Aven kept.
  */
 export function trimScheduledRuns(
   runs: readonly ScheduledRun[],
@@ -325,11 +344,11 @@ export function trimScheduledRuns(
     const count = perAutomation.get(run.scheduleId) ?? 0;
     if (
       !pinned &&
-      (count >= SCHEDULED_RUNS_PER_AUTOMATION ||
+      ((run.inAutomations && count >= SCHEDULED_RUNS_PER_AUTOMATION) ||
         kept.length >= SCHEDULED_RUN_LIMIT)
     )
       continue;
-    perAutomation.set(run.scheduleId, count + 1);
+    if (run.inAutomations) perAutomation.set(run.scheduleId, count + 1);
     kept.push(run);
   }
   return kept;
@@ -524,26 +543,34 @@ export function updateScheduledRun(id: string, patch: Partial<ScheduledRun>) {
 
 export const subscribeScheduledRuns = runs.subscribe;
 
+/** A run whose chat is still its own, in Automations. */
+export function holdsChat(
+  run: ScheduledRun,
+): run is ScheduledRun & { sessionId: string } {
+  return !!run.sessionId && !!run.inAutomations && !run.openedAsChat;
+}
+
 /**
  * The run that holds a chat, while the chat is still the run's: it stays in
  * Automations and out of the chats list and the tabs. Undefined for every
- * other chat, including a run's chat you opened as a chat.
+ * other chat, including a run's chat you opened as a chat and the chats of
+ * runs from before runs stayed in Automations, which stay ordinary chats.
  */
 export function automationRunForChat(
   sessionId: string | undefined,
   all: readonly ScheduledRun[] = listScheduledRuns(),
 ): ScheduledRun | undefined {
   if (!sessionId) return undefined;
-  return all.find((run) => run.sessionId === sessionId && !run.openedAsChat);
+  return all.find((run) => run.sessionId === sessionId && holdsChat(run));
 }
 
 let chatIds: { source: ScheduledRun[]; ids: ReadonlySet<string> } | null = null;
 
 /**
- * Chats that belong to automation runs, kept out of the chats list. This
- * covers the chats runs started before runs stayed in Automations too: they
- * are listed under their automation instead. The same set is returned until
- * the runs change.
+ * Chats that belong to automation runs, kept out of chat lists, Home and
+ * the palette. The chats of runs from before runs stayed in Automations are
+ * not among them: they stay where they were, and their runs are listed under
+ * their automation as well. The same set is returned until the runs change.
  */
 export function automationChatIds(): ReadonlySet<string> {
   const source = listScheduledRuns();
@@ -551,12 +578,63 @@ export function automationChatIds(): ReadonlySet<string> {
     chatIds = {
       source,
       ids: new Set(
-        source.flatMap((run) =>
-          run.sessionId && !run.openedAsChat ? [run.sessionId] : [],
-        ),
+        source.flatMap((run) => (holdsChat(run) ? [run.sessionId] : [])),
       ),
     };
   return chatIds.ids;
+}
+
+/** Rows (chats) with the automation runs' own chats left out. */
+export function withoutAutomationChats<T extends { id: string }>(
+  rows: readonly T[],
+  hidden: ReadonlySet<string> = automationChatIds(),
+): T[] {
+  return hidden.size ? rows.filter((row) => !hidden.has(row.id)) : [...rows];
+}
+
+/**
+ * The chats a save let go of that should be archived: chats that were their
+ * run's own, that no run still holds, and that are not open anywhere (a tab,
+ * or loaded for a turn). A chat from before runs stayed in Automations, or
+ * one opened as a chat, is never archived.
+ */
+export function chatsToArchive(
+  dropped: readonly ScheduledRun[],
+  open: ReadonlySet<string>,
+  held: ReadonlySet<string> = automationChatIds(),
+): string[] {
+  return [
+    ...new Set(
+      dropped.flatMap((run) =>
+        holdsChat(run) && !held.has(run.sessionId) && !open.has(run.sessionId)
+          ? [run.sessionId]
+          : [],
+      ),
+    ),
+  ];
+}
+
+/**
+ * The Activity row for a run's notice when the run has no chat to point at
+ * (it could not start): its id names the run, and opening it shows the run.
+ */
+const NOTICE_CHAT = "aven-automation-run-";
+export function automationNoticeChatId(runId: string): string {
+  return `${NOTICE_CHAT}${runId}`;
+}
+export function runIdOfNoticeChat(sessionId: string): string | undefined {
+  return sessionId.startsWith(NOTICE_CHAT)
+    ? sessionId.slice(NOTICE_CHAT.length) || undefined
+    : undefined;
+}
+
+/**
+ * The run that opening a chat (from any list, Activity or a banner) should
+ * show in Automations instead: the run whose own chat it is, or the run a
+ * notice names. Undefined for every other chat.
+ */
+export function automationRunTarget(sessionId: string): string | undefined {
+  return runIdOfNoticeChat(sessionId) ?? automationRunForChat(sessionId)?.id;
 }
 
 /** Open as chat: from now on the run's chat is listed with the others. */
@@ -598,29 +676,32 @@ export function scheduledRunSeenEntry(run: ScheduledRun) {
   };
 }
 
-/** Mark runs nobody will settle (a closed window, a lost turn) as failed. */
-export function expireStaleScheduledRuns(now = Date.now()) {
+/**
+ * Mark runs nobody will settle (a closed window, a lost turn) as failed,
+ * four hours after their latest turn started. Returns the runs it failed.
+ */
+export function expireStaleScheduledRuns(now = Date.now()): ScheduledRun[] {
   const all = runs.read();
   const stale = all.filter(
     (run) =>
       run.status === "running" &&
-      now - run.startedAt >= SCHEDULED_RUN_TIMEOUT_MS,
+      now - (run.turnStartedAt ?? run.startedAt) >= SCHEDULED_RUN_TIMEOUT_MS,
   );
-  if (!stale.length) return;
-  const ids = new Set(stale.map((run) => run.id));
-  runs.write(
-    all.map((run) =>
-      ids.has(run.id)
-        ? {
-            ...run,
-            status: "failed" as const,
-            finishedAt: now,
-            error:
-              "Aven stopped waiting for this run. Open it to see where it got to.",
-          }
-        : run,
-    ),
+  if (!stale.length) return [];
+  const failed = new Map(
+    stale.map((run) => [
+      run.id,
+      {
+        ...run,
+        status: "failed" as const,
+        finishedAt: now,
+        error:
+          "Aven stopped waiting for this run. Open it to see where it got to.",
+      },
+    ]),
   );
+  runs.write(all.map((run) => failed.get(run.id) ?? run));
+  return [...failed.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -738,6 +819,8 @@ export type DueCheck = {
   now: number;
   claim: (slot: string) => Promise<boolean>;
   fire: (agent: ScheduledAgent) => void;
+  /** Runs given up on in this check, to tell you about. */
+  expired?: (runs: ScheduledRun[]) => void;
 };
 
 /**
@@ -749,8 +832,10 @@ export async function runDueScheduledAgents({
   now,
   claim,
   fire,
+  expired,
 }: DueCheck): Promise<number> {
-  expireStaleScheduledRuns(now);
+  const given = expireStaleScheduledRuns(now);
+  if (given.length) expired?.(given);
   let fired = 0;
   for (const agent of listScheduledAgents()) {
     const dueAt = agent.nextRunAt;

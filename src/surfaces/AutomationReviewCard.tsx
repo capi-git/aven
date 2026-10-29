@@ -1,11 +1,13 @@
 import "./AutomationReviewCard.css";
-import { useState } from "react";
+import { useCallback, useContext, useState, useSyncExternalStore } from "react";
 import { Clock, ExternalLink } from "../chrome/icons";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { isNoProject, NO_PROJECT_NAME } from "../lib/automationFolders";
-import { reviewHeading } from "../lib/automationReview";
+import { reviewAction, reviewHeading } from "../lib/automationReview";
+import { canAnswerCard } from "../lib/automationRuns";
 import { formatRelativeTime } from "../lib/githubTasks";
 import { openInAppUrl } from "../lib/inAppLinks";
+import { LiveSessionsContext } from "../lib/liveSessions";
 import { projectName } from "../lib/paths";
 import { resolveRunReview, type ScheduledRun } from "../lib/scheduledAgents";
 
@@ -15,8 +17,22 @@ const ACTION =
 const ACTION_FILLED = `${ACTION} h-7 bg-content text-background-base hover:bg-(--aven-inverse-hover)`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-(--aven-control-bg) hover:text-content`;
 
+/** Whether the run's chat is taking a turn, while it is loaded. */
+function useChatBusy(sessionId: string | undefined): boolean {
+  const store = useContext(LiveSessionsContext);
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      store && sessionId ? store.subscribe(sessionId, listener) : () => {},
+    [store, sessionId],
+  );
+  return useSyncExternalStore(subscribe, () =>
+    store && sessionId ? !!store.session(sessionId)?.busy : false,
+  );
+}
+
 // The card a run leaves when it has something for you: in the Inbox, and at
-// the top of the run.
+// the top of the run. Its button is Aven's for the card's kind, and says
+// what it sends; the agent only wrote the card's words.
 
 export function AutomationReviewCard({
   run,
@@ -24,12 +40,14 @@ export function AutomationReviewCard({
   onOpenRun,
 }: {
   run: ScheduledRun;
-  /** Sends the card's message to the run's conversation. */
+  /** Sends the card's fixed answer to the run's conversation. */
   onAction?: (run: ScheduledRun) => unknown;
   onOpenRun?: (run: ScheduledRun) => void;
 }) {
   const review = run.review;
   const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const busy = useChatBusy(run.sessionId);
   if (!review) return null;
   const open = (url: string) => {
     setError("");
@@ -37,8 +55,8 @@ export function AutomationReviewCard({
       setError(reason instanceof Error ? reason.message : String(reason)),
     );
   };
-  const action = review.action;
-  const sends = !!action?.message && !!onAction && !!run.sessionId;
+  const action = reviewAction(review);
+  const ready = canAnswerCard(run) && !busy && !sending;
   const project = isNoProject(run.project)
     ? NO_PROJECT_NAME
     : projectName(run.project);
@@ -70,13 +88,22 @@ export function AutomationReviewCard({
         </button>
       ) : null}
       <div className="automation-review-actions">
-        {action && (sends || review.url) ? (
+        {onAction && run.sessionId ? (
           <button
             type="button"
-            className={ACTION_FILLED}
+            className={`${ACTION_FILLED} disabled:cursor-default disabled:opacity-40`}
+            disabled={!ready}
+            title={
+              busy || run.status === "running"
+                ? "The run is still working"
+                : `Sends “${action.message}” to the run`
+            }
             onClick={() => {
-              if (sends) void onAction?.(run);
-              else if (review.url) open(review.url);
+              if (!ready) return;
+              setSending(true);
+              void Promise.resolve(onAction(run)).finally(() =>
+                setSending(false),
+              );
             }}
           >
             {action.label}

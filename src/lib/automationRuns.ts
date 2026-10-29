@@ -1,6 +1,7 @@
 import {
   automationPrompt,
   parseAutomationReview,
+  reviewAction,
   stripAutomationReview,
 } from "./automationReview";
 import type { ControlOutcome } from "./orchestration";
@@ -20,16 +21,19 @@ import { newSession, type Block, type Session } from "./session";
  * Starting an automation run. The run gets a chat of its own, which stays in
  * Automations: it is added to the workspace with no tab, kept out of the
  * chats list (see `automationChatIds`), and its turn posts nothing to
- * Activity. You hear about a run only when it needs you: it failed, or it
- * left a card to review. Approvals and questions still reach you as they do
- * from any chat.
+ * Activity. You hear about a run only when it needs you: it failed (or could
+ * not start), or it left a card to review. Approvals and questions still
+ * reach you as they do from any chat.
  */
 
-/** Why a run tells you about itself, if it does. */
+/**
+ * Why a run tells you about itself, if it does. A run that could not start
+ * has no chat (`session` is absent).
+ */
 export type AutomationRunNotice = {
   kind: "failed" | "review";
   run: ScheduledRun;
-  session: Session;
+  session?: Session;
 };
 
 export type AutomationRunDeps = {
@@ -87,6 +91,22 @@ export function settleAutomationRun(
   return getScheduledRun(runId);
 }
 
+/** Calls `notify` for a settled turn that needs you. */
+function noticeFor(
+  saved: ScheduledRun,
+  session: Session,
+  turnStartedAt: number,
+  notify: AutomationRunDeps["notify"],
+) {
+  if (saved.status === "failed")
+    notify?.({ kind: "failed", run: saved, session });
+  else if (
+    saved.review?.status === "open" &&
+    saved.review.postedAt >= turnStartedAt
+  )
+    notify?.({ kind: "review", run: saved, session });
+}
+
 /** Start one run of `agent` now. Resolves with the run as first saved. */
 export async function startAutomationRun(
   agent: ScheduledAgent,
@@ -101,9 +121,9 @@ export async function startAutomationRun(
     project: agent.project,
     summary: "",
     startedAt: now(),
+    inAutomations: true as const,
   };
   let folder = agent.project;
-  let problem: string | null = null;
   if (!folder.trim()) {
     try {
       folder = await deps.noProjectFolder();
@@ -111,7 +131,7 @@ export async function startAutomationRun(
       folder = "";
     }
   }
-  problem = await (
+  const problem = await (
     deps.problem ??
     ((item, where) => scheduledAgentProblem(item, undefined, where))
   )(agent, folder);
@@ -123,6 +143,8 @@ export async function startAutomationRun(
       finishedAt: now(),
     };
     saveScheduledRun(failed);
+    // It needs you as much as a run that failed on its way.
+    deps.notify?.({ kind: "failed", run: failed });
     return failed;
   }
   const session: Session = {
@@ -148,14 +170,7 @@ export async function startAutomationRun(
       deps.blocks(session.id),
       now(),
     );
-    if (!saved) return;
-    if (saved.status === "failed")
-      deps.notify?.({ kind: "failed", run: saved, session });
-    else if (
-      saved.review?.status === "open" &&
-      saved.review.postedAt >= run.startedAt
-    )
-      deps.notify?.({ kind: "review", run: saved, session });
+    if (saved) noticeFor(saved, session, run.startedAt, deps.notify);
   };
   try {
     const accepted = deps.submit(
@@ -180,13 +195,26 @@ export async function startAutomationRun(
 }
 
 /**
- * Your answer to a run's card ("Publish"): sent to the run's chat as a new
- * turn, which stays in Automations like the run did. The run reads as
- * running again, then as the turn ends; the card is done.
+ * Whether a card's button can be pressed: the card is still open and the
+ * run is not already taking a turn.
+ */
+export function canAnswerCard(run: ScheduledRun | undefined): boolean {
+  return (
+    !!run?.sessionId &&
+    run.review?.status === "open" &&
+    run.status !== "running"
+  );
+}
+
+/**
+ * Your answer to a run's card: Aven's own words for the card's kind
+ * ("Publish the draft now."), never the agent's, sent to the run's chat as a
+ * new turn that stays in Automations like the run did. The card is done at
+ * once, so a second press sends nothing; the run reads as running from now,
+ * then as the turn ends. Returns whether anything was sent.
  */
 export function continueAutomationRun(
-  run: ScheduledRun,
-  message: string,
+  runId: string,
   deps: Pick<AutomationRunDeps, "blocks" | "notify" | "now"> & {
     submit: (
       sessionId: string,
@@ -195,40 +223,36 @@ export function continueAutomationRun(
     ) => boolean | void;
     session: Session;
   },
-) {
+): boolean {
   const now = deps.now ?? Date.now;
-  if (!run.sessionId) return;
-  const review = run.review
-    ? { ...run.review, status: "done" as const, resolvedAt: now() }
-    : undefined;
-  updateScheduledRun(run.id, {
+  // Read again: the card may have been answered, or the run may be working,
+  // since the button was drawn.
+  const run = getScheduledRun(runId);
+  if (!canAnswerCard(run) || run!.sessionId !== deps.session.id) return false;
+  const review = run!.review!;
+  const sessionId = run!.sessionId!;
+  const turnStartedAt = now();
+  updateScheduledRun(runId, {
     status: "running",
     error: undefined,
     finishedAt: undefined,
-    ...(review ? { review } : {}),
+    turnStartedAt,
+    review: { ...review, status: "done", resolvedAt: turnStartedAt },
   });
-  const startedAt = now();
   let settled = false;
   const settle = (outcome: ControlOutcome) => {
     if (settled) return;
     settled = true;
     const saved = settleAutomationRun(
-      run.id,
+      runId,
       outcome,
-      deps.blocks(run.sessionId!),
+      deps.blocks(sessionId),
       now(),
     );
-    if (!saved) return;
-    if (saved.status === "failed")
-      deps.notify?.({ kind: "failed", run: saved, session: deps.session });
-    else if (
-      saved.review?.status === "open" &&
-      saved.review.postedAt >= startedAt
-    )
-      deps.notify?.({ kind: "review", run: saved, session: deps.session });
+    if (saved) noticeFor(saved, deps.session, turnStartedAt, deps.notify);
   };
   try {
-    if (deps.submit(run.sessionId, message, settle) === false)
+    if (deps.submit(sessionId, reviewAction(review).message, settle) === false)
       settle({
         status: "failed",
         text: "",
@@ -241,4 +265,5 @@ export function continueAutomationRun(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  return true;
 }
