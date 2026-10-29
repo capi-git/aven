@@ -1,5 +1,5 @@
 import { Fragment, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { CREW_ROLE_INFO, type CrewRole } from "../lib/crews";
+import { CREW_ROLE_INFO } from "../lib/crews";
 import type { CrewMemberView, CrewStatus } from "../lib/crewView";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ChevronRight } from "./icons";
@@ -76,7 +76,8 @@ export function SidebarCrewRows({
   crews: readonly SidebarCrew[];
   activeSessionId?: string | null;
   onOpenCrew?: (path: string) => void;
-  onOpenMember?: (path: string, role: CrewRole) => void;
+  /** Open a member's chat, by its id. */
+  onOpenMember?: (path: string, who: string) => void;
   onAction?: (path: string, action: SidebarCrewAction) => void;
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(loadOpen);
@@ -103,8 +104,12 @@ export function SidebarCrewRows({
     <>
       {crews.map((crew) => {
         const expanded = open.has(crew.path);
-        const roles = crew.members.map((member) => member.role);
-        const working = crew.members.find((member) => member.active)?.role;
+        const roles = crew.members.map((member) => ({
+          id: member.id,
+          role: member.role,
+          ...(member.critter ? { critter: member.critter } : {}),
+        }));
+        const working = crew.members.find((member) => member.active)?.id;
         return (
           <Fragment key={`crew:${crew.path}`}>
             <div
@@ -147,22 +152,24 @@ export function SidebarCrewRows({
               >
                 {crew.members.map((member) => (
                   <button
-                    key={member.role}
+                    key={member.id}
                     type="button"
                     className="personal-other-task personal-task-card personal-bot-row personal-crew-member"
-                    data-crew-member={member.role}
-                    title={`${member.name} · ${member.roleLabel}\n${CREW_ROLE_INFO[member.role].job}${member.line ? `\n${member.line}` : ""}`}
+                    data-crew-member={member.id}
+                    data-crew-role={member.role}
+                    title={`${member.name} · ${member.roleLabel}\n${member.job ?? CREW_ROLE_INFO[member.role].job}${member.line ? `\n${member.line}` : ""}`}
                     aria-current={
                       member.sessionId && member.sessionId === activeSessionId
                         ? "true"
                         : undefined
                     }
-                    onClick={() => onOpenMember?.(crew.path, member.role)}
+                    onClick={() => onOpenMember?.(crew.path, member.id)}
                     onContextMenu={(event) => showMenu(event, crew)}
                   >
                     <CrewCritter
                       path={crew.path}
                       role={member.role}
+                      {...(member.critter ? { critter: member.critter } : {})}
                       active={member.active}
                     />
                     <span className="personal-crew-member-text">

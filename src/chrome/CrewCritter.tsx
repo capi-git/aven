@@ -42,26 +42,30 @@ export function CrewRoleBadge({ role }: { role: CrewRole }) {
 export const CrewCritter = memo(function CrewCritter({
   path,
   role,
+  critter,
   active = false,
   badge = true,
   className = "crew-critter",
 }: {
   path: string;
   role: CrewRole;
+  /** The critter you chose for this member, when not its role's. */
+  critter?: string;
   /** Steps its two frames while it works. */
   active?: boolean;
   badge?: boolean;
   className?: string;
 }) {
   const info = CREW_ROLE_INFO[role];
+  const drawn = critter ?? info.critter;
   return (
     <span className="crew-critter-wrap" data-crew-critter={role}>
-      {role === "fixer" || !info.critter ? (
+      {role === "fixer" || !drawn ? (
         <BotCritter path={path} active={active} className={className} />
       ) : (
         <ProjectMascot
           project={`crew:${role}`}
-          name={info.critter}
+          name={drawn}
           color={info.color}
           active={active}
           className={className}
@@ -72,6 +76,10 @@ export const CrewCritter = memo(function CrewCritter({
   );
 });
 
+/** One critter in a row: a role, or a member with its own id and critter. */
+export type CrewFace =
+  CrewRole | { id: string; role: CrewRole; critter?: string };
+
 /** A crew's critters side by side, the most a row shows, then "+2". */
 export function CrewCritters({
   path,
@@ -81,23 +89,29 @@ export function CrewCritters({
   className,
 }: {
   path: string;
-  roles: readonly CrewRole[];
-  /** The one that moves. */
-  active?: CrewRole | boolean;
+  roles: readonly CrewFace[];
+  /** The one that moves: its role, or its member id. */
+  active?: string | boolean;
   max?: number;
   className?: string;
 }) {
-  const shown = roles.slice(0, max);
-  const more = roles.length - shown.length;
+  const faces = roles.map((face) =>
+    typeof face === "string" ? { id: face, role: face } : face,
+  );
+  const shown = faces.slice(0, max);
+  const more = faces.length - shown.length;
   return (
     <span className={`crew-critters ${className ?? ""}`} aria-hidden="true">
-      {shown.map((role) => (
+      {shown.map((face) => (
         <CrewCritter
-          key={role}
+          key={face.id}
           path={path}
-          role={role}
+          role={face.role}
+          {...("critter" in face && face.critter
+            ? { critter: face.critter }
+            : {})}
           badge={false}
-          active={active === true || active === role}
+          active={active === true || active === face.id || active === face.role}
         />
       ))}
       {more > 0 ? <span className="crew-critters-more">+{more}</span> : null}

@@ -161,7 +161,6 @@ import {
   type SidebarCrew,
   type SidebarCrewAction,
 } from "./SidebarCrews";
-import type { CrewRole } from "../lib/crews";
 import { botsAvailable, type BotStatus } from "../lib/projectBots";
 import { botProjectStates } from "../lib/projectBotCopy";
 import {
@@ -300,7 +299,7 @@ export type SidebarProps = {
   /** Open a crew: its project's Board with the crew on it. */
   onOpenCrew?: (path: string) => void;
   /** Open one crew member's chat. */
-  onOpenCrewMember?: (path: string, role: CrewRole) => void;
+  onOpenCrewMember?: (path: string, who: string) => void;
   /** A crew's right-click menu. */
   onCrewAction?: (path: string, action: SidebarCrewAction) => void;
   /** Turn a project's crew on (New crew). */

@@ -1,8 +1,13 @@
 import { crewStageDetail, crewStageLabel } from "./crewLoop";
 import {
-  CREW_ROLE_INFO,
+  cardBuilder,
+  cardChecker,
+  cardHolderId,
   cardInCopy,
+  crewMemberById,
   crewMembers,
+  memberCritter,
+  memberLabel,
   type Crew,
   type CrewCard,
   type CrewIdea,
@@ -82,10 +87,16 @@ export function crewStatus(
 }
 
 export type CrewMemberView = {
+  /** Its member id: the sidebar's and strip's key, and what opens its chat. */
+  id: string;
   role: CrewRole;
+  /** The critter it is drawn as, when not its role's. */
+  critter?: string;
   name: string;
-  /** "Builder". */
+  /** "Builder", or a custom member's own title. */
   roleLabel: string;
+  /** A custom member's own job line. */
+  job?: string;
   status?: CrewStatus;
   /** What it is doing: "Fixing Dark mode toggle · round 2". */
   line?: string;
@@ -100,19 +111,25 @@ export type CrewMemberView = {
 export function crewMemberViews(
   crew: Crew,
   input: {
-    name: (role: CrewRole) => string;
+    /** A member's name, by its id. */
+    name: (who: string) => string;
     fixer?: { status: BotStatus; line?: string; sessionId?: string };
   },
 ): CrewMemberView[] {
   const card = cardInCopy(crew);
+  const holderId = card ? cardHolderId(crew, card) : undefined;
   return crewMembers(crew)
     .filter((member) => member.role !== "fixer" || !!input.fixer)
     .filter((member) => member.role === "fixer" || crew.on)
     .map((member): CrewMemberView => {
+      const critter = member.critter ? memberCritter(member) : undefined;
       const base = {
+        id: member.id,
         role: member.role,
-        name: input.name(member.role),
-        roleLabel: CREW_ROLE_INFO[member.role].label,
+        ...(critter ? { critter } : {}),
+        name: input.name(member.id),
+        roleLabel: memberLabel(member),
+        ...(member.job ? { job: member.job } : {}),
       };
       if (member.role === "fixer") {
         const status = FIXER_STATUS[input.fixer!.status];
@@ -135,7 +152,7 @@ export function crewMemberViews(
       }
       const holds =
         !!card &&
-        card.holder === member.role &&
+        holderId === member.id &&
         (card.stage === "building" ||
           card.stage === "checking" ||
           card.stage === "stuck");
@@ -196,8 +213,14 @@ export type CrewBoardInfo = {
   column?: "idea" | "building" | "review" | "shipped";
   /** The critters drawn on it: who works on it, or who found it. */
   roles: CrewRole[];
+  /** The same, as members (a chosen critter included), when known. */
+  members?: { id: string; role: CrewRole; critter?: string }[];
   /** The bot at work on it now, whose critter moves. */
   holder?: "builder" | "checker";
+  /** That bot's member id, whose chat Watch opens. */
+  holderId?: string;
+  /** Who it went to, and what you set for it: "Mole builds · Owl checks · Opus, high · 2 rounds". */
+  assigned?: string;
   /** "Fixing", in bold, then "round 2 of 3". */
   label?: string;
   detail?: string;
@@ -262,14 +285,42 @@ function fixingLine(card: CrewCard, checker: string): string | undefined {
 export function crewBoardInfo(
   card: CrewCard,
   names: { builder: string; checker: string },
+  who?: {
+    builder?: { id: string; critter?: string };
+    checker?: { id: string; critter?: string };
+    holderId?: string;
+    /** "Mole builds · Owl checks · Opus, high": shown while the crew has it. */
+    assigned?: string;
+  },
 ): CrewBoardInfo {
   const roles: CrewRole[] =
     card.stage === "queued" ? ["builder"] : ["builder", "checker"];
+  const members = who
+    ? roles
+        .map((role) => {
+          const member = who[role as "builder" | "checker"];
+          return member
+            ? {
+                id: member.id,
+                role,
+                ...(member.critter ? { critter: member.critter } : {}),
+              }
+            : null;
+        })
+        .filter((member): member is NonNullable<typeof member> => !!member)
+    : undefined;
+  const live =
+    card.stage !== "ready" &&
+    card.stage !== "applied" &&
+    card.stage !== "discarded";
   const base = {
     column: stageColumn(card),
     roles,
+    ...(members?.length ? { members } : {}),
     label: crewStageLabel(card),
     detail: crewStageDetail(card),
+    ...(who?.holderId ? { holderId: who.holderId } : {}),
+    ...(live && who?.assigned ? { assigned: who.assigned } : {}),
   };
   const turnChat = card.turn?.sessionId;
   switch (card.stage) {
@@ -396,12 +447,81 @@ const BOARD_COLUMN_ORDER: readonly BoardColumn[] = [
  * puts it in, whatever was saved; a card in Ideas offers Give to crew. A
  * card the crew finished is an ordinary card again.
  */
+/**
+ * A card's Builder and Checker, as its face shows them: who it went to (or
+ * the rules' pick while it waits), their critters, and what you set for it.
+ */
+export function crewCardWho(
+  crew: Crew,
+  card: CrewCard,
+  name: (who: string) => string,
+  modelName: (id: string) => string = (id) => id,
+): {
+  names: { builder: string; checker: string };
+  who: NonNullable<Parameters<typeof crewBoardInfo>[2]>;
+} {
+  const builder =
+    crewMemberById(crew, card.builderId) ?? cardBuilder(crew, card);
+  const checker =
+    crewMemberById(crew, card.checkerId) ?? cardChecker(crew, card);
+  const names = {
+    builder: name(builder?.id ?? "builder"),
+    checker: name(checker?.id ?? "checker"),
+  };
+  const several = (role: CrewRole) =>
+    crew.members.filter((member) => member.role === role).length > 1;
+  const chose =
+    !!card.builderId ||
+    !!card.checkerId ||
+    !!card.override ||
+    card.maxRounds !== crew.limits.roundsPerCard ||
+    several("builder") ||
+    several("checker");
+  const assigned = chose
+    ? [
+        `${names.builder} builds`,
+        `${names.checker} checks`,
+        [
+          card.override?.model ? modelName(card.override.model) : "",
+          card.override?.effort ?? "",
+        ]
+          .filter(Boolean)
+          .join(", "),
+        card.maxRounds !== crew.limits.roundsPerCard
+          ? `${card.maxRounds} ${card.maxRounds === 1 ? "round" : "rounds"}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
+  const face = (member: typeof builder) =>
+    member
+      ? {
+          id: member.id,
+          ...(member.critter ? { critter: memberCritter(member) } : {}),
+        }
+      : undefined;
+  const holderId = cardHolderId(crew, card);
+  return {
+    names,
+    who: {
+      ...(face(builder) ? { builder: face(builder) } : {}),
+      ...(face(checker) ? { checker: face(checker) } : {}),
+      ...(holderId ? { holderId } : {}),
+      ...(assigned ? { assigned } : {}),
+    },
+  };
+}
+
 export function crewBoardColumns<
   C extends { id: string; column: BoardColumn; crew?: CrewBoardInfo },
 >(
   columns: Readonly<Record<BoardColumn, readonly C[]>>,
   crew: Crew,
   names: { builder: string; checker: string; scout: string },
+  /** A member's name by id, and a model's: each card names its own Builder and Checker. */
+  name?: (who: string) => string,
+  modelName?: (id: string) => string,
 ): Record<BoardColumn, C[]> {
   const out: Record<BoardColumn, C[]> = {
     idea: [],
@@ -418,7 +538,10 @@ export function crewBoardColumns<
     for (const card of columns[column]) {
       const held = live.get(card.id);
       if (held) {
-        const info = crewBoardInfo(held, names);
+        const faced = name ? crewCardWho(crew, held, name, modelName) : null;
+        const info = faced
+          ? crewBoardInfo(held, faced.names, faced.who)
+          : crewBoardInfo(held, names);
         const target = info.column ?? column;
         out[target].push({ ...card, column: target, crew: info });
       } else if (column === "idea")

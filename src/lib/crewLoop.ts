@@ -38,6 +38,36 @@ export type LoopEvent =
 
 export type LoopStep = { card: CrewCard; event: LoopEvent };
 
+/** The most rounds a card may get. */
+export const CREW_MAX_ROUNDS = 5;
+
+/**
+ * A Builder kept to its scope: a change to files outside it is a must-fix,
+ * whatever the Checker said, so it never lands as Ready. Aven adds it from
+ * the copy's own diff, not from any bot's words.
+ */
+export function withScopeCheck(
+  verdict: CrewVerdict | null,
+  outside: readonly string[],
+  input: { builder: string; scope: readonly string[] },
+): CrewVerdict | null {
+  if (!verdict || !outside.length) return verdict;
+  const shown = outside.slice(0, 5).join(", ");
+  const finding: CrewFinding = {
+    text: `${input.builder} changed files outside its scope (${input.scope.join(", ")}): ${shown}${
+      outside.length > 5 ? `, and ${outside.length - 5} more` : ""
+    }. Undo those changes, or keep the work inside its scope.`,
+  };
+  const already = verdict.mustFix.some((item) => item.text === finding.text);
+  return {
+    ...verdict,
+    pass: false,
+    mustFix: already
+      ? verdict.mustFix
+      : [...verdict.mustFix.slice(0, 4), finding],
+  };
+}
+
 /** A Board card given to the crew: it waits its turn in Building. */
 export function queueCard(
   input: {
@@ -48,9 +78,21 @@ export function queueCard(
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
+    /** You chose who builds and checks it (else the crew's rules do). */
+    builderId?: string;
+    checkerId?: string;
+    /** For this card only: the Builder's model and effort. */
+    override?: { model?: string; effort?: string };
   },
   now: number,
 ): CrewCard {
+  const override =
+    input.override?.model || input.override?.effort
+      ? {
+          ...(input.override.model ? { model: input.override.model } : {}),
+          ...(input.override.effort ? { effort: input.override.effort } : {}),
+        }
+      : undefined;
   return {
     id: input.id,
     title: input.title,
@@ -58,9 +100,12 @@ export function queueCard(
     from: input.from,
     ...(input.size ? { size: input.size } : {}),
     ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
+    ...(input.builderId ? { builderId: input.builderId } : {}),
+    ...(input.checkerId ? { checkerId: input.checkerId } : {}),
+    ...(override ? { override } : {}),
     stage: "queued",
     round: 0,
-    maxRounds: Math.max(1, input.maxRounds),
+    maxRounds: Math.min(CREW_MAX_ROUNDS, Math.max(1, input.maxRounds)),
     rounds: [],
     later: [],
     runs: 0,

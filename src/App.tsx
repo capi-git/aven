@@ -885,18 +885,18 @@ import {
 } from "./lib/crewActions";
 import { crewRunsLine } from "./lib/crewLimits";
 import { crewMemberViews, crewStatus } from "./lib/crewView";
+import { crewChatModel } from "./lib/crewModels";
 import {
   crewForChat,
-  crewMember,
   crewMemberApp,
+  crewMemberById,
   crewMemberName,
   getCrew,
   isCrewChat,
   updateCrew,
   useCrewsStore,
-  withMember,
+  withMemberId,
   type Crew,
-  type CrewRole,
 } from "./lib/crews";
 import { isHarnessAvailable } from "./lib/harness/availability";
 import { pickerModelsFor } from "./lib/models";
@@ -10999,19 +10999,56 @@ export default function App({
   // window launches their chats with a bot's rules (installBotPermissions).
   /** A crew member's chat, loaded or made, without a tab, in the crew's copy. */
   const ensureCrewChat = useCallback(
-    async (crew: Crew, role: Exclude<CrewRole, "fixer">) => {
+    async (
+      crew: Crew,
+      memberId: string,
+      override?: { model?: string; effort?: string },
+    ) => {
       const copy = crew.copy?.path;
       if (!copy) return null;
-      const member = crewMember(crew, role);
+      const member = crewMemberById(crew, memberId);
+      if (!member || member.role === "fixer") return null;
       // Its app now: a Checker that couldn't be locked down on Codex runs on
       // Claude for this session.
       const app = crewMemberApp(member);
       const harness = app.harness;
-      const model = () => app.model ?? preferredModelId(harness);
-      let loaded = member?.sessionId
+      const wanted = crewChatModel({
+        harness,
+        memberModel: app.model,
+        // A fallback's effort is Claude's own default.
+        memberEffort: member.fallback ? undefined : member.effort,
+        override,
+        preferred: preferredModelId(harness),
+      });
+      const model = () => wanted.model;
+      /** The chat on the member's (or the card's) model and effort, unless it's busy. */
+      const withModel = (chat: Session): Session => {
+        if (chat.busy || chat.harness !== harness) return chat;
+        const effort = wanted.effort;
+        const sameEffort =
+          !effort || chat.modelSettings?.[effort.id] === effort.value;
+        if (chat.model === wanted.model && sameEffort) return chat;
+        return {
+          ...chat,
+          model: wanted.model,
+          modelSettings: {
+            ...chat.modelSettings,
+            ...(effort ? { [effort.id]: effort.value } : {}),
+          },
+        };
+      };
+      const save = (chat: Session) => {
+        const next = sessionsRef.current.map((session) =>
+          session.id === chat.id ? chat : session,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+        return chat;
+      };
+      let loaded = member.sessionId
         ? sessionsRef.current.find((session) => session.id === member.sessionId)
         : undefined;
-      if (member?.sessionId && !loaded) {
+      if (member.sessionId && !loaded) {
         let saved: Session | null;
         try {
           saved = await getSession(member.sessionId);
@@ -11030,27 +11067,25 @@ export default function App({
           () => preferredModelId("claude"),
           { harness, model },
         );
-        if (!fix || (fix.restart && loaded.busy)) return loaded;
+        if (!fix || (fix.restart && loaded.busy)) {
+          const tuned = withModel(loaded);
+          return tuned === loaded ? loaded : save(tuned);
+        }
         if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
-        const next = sessionsRef.current.map((session) =>
-          session.id === fix.chat.id ? fix.chat : session,
-        );
-        sessionsRef.current = next;
-        setSessions(next);
-        return fix.chat;
+        return save(withModel(fix.chat));
       }
-      const session: Session = {
+      const session: Session = withModel({
         ...newSession(harness, crew.path, model(), "auto"),
-        ...(member?.sessionId ? { id: member.sessionId } : {}),
-        title: crewMemberName(crew, role),
+        ...(member.sessionId ? { id: member.sessionId } : {}),
+        title: crewMemberName(crew, member.id),
         worktreeCwd: copy,
-      };
+      });
       const next = [...sessionsRef.current, session];
       sessionsRef.current = next;
       setSessions(next);
-      if (member?.sessionId !== session.id)
+      if (member.sessionId !== session.id)
         updateCrew(crew.path, (current) =>
-          withMember(current, role, (entry) => ({
+          withMemberId(current, member.id, (entry) => ({
             ...entry,
             sessionId: session.id,
           })),
@@ -11090,11 +11125,16 @@ export default function App({
   );
   /** Show a crew member's chat; the Fixer's is the project bot's. */
   const openCrewChat = useCallback(
-    async (path: string, role: CrewRole) => {
-      if (role === "fixer") return void openBotChat(path);
+    async (path: string, who: string) => {
       const crew = getCrew(path);
-      if (!crew?.on) return;
-      const chat = await ensureCrewChat(crew, role);
+      const member = crew
+        ? (crewMemberById(crew, who) ??
+          crew.members.find((entry) => entry.role === who))
+        : undefined;
+      if (who === "fixer" || member?.role === "fixer")
+        return void openBotChat(path);
+      if (!crew?.on || !member) return;
+      const chat = await ensureCrewChat(crew, member.id);
       if (!chat) return;
       setHomeViewOpen(false);
       await onSelectHistorySession(chat.id);
@@ -11189,7 +11229,7 @@ export default function App({
         runsLine: crewRunsLine(crew, now, fixerRuns),
         paused: !!crew.paused,
         members: crewMemberViews(crew, {
-          name: (role) => crewMemberName(crew, role, fixerName),
+          name: (who) => crewMemberName(crew, who, fixerName),
           ...(fixerStatus
             ? {
                 fixer: {
@@ -11211,9 +11251,9 @@ export default function App({
     [closeUtilityViews, onOpenBoard],
   );
   const onOpenCrewMember = useCallback(
-    (path: string, role: CrewRole) => {
+    (path: string, who: string) => {
       closeUtilityViews();
-      void openCrewChat(path, role);
+      void openCrewChat(path, who);
     },
     [closeUtilityViews, openCrewChat],
   );
@@ -12560,6 +12600,14 @@ export default function App({
                     : undefined;
                 })()}
                 onTurnOn={turnOnCrewFor}
+                onAddFixer={(path) => {
+                  setCrewSheet(null);
+                  onAddBot(path);
+                }}
+                onFixerSettings={(path) => {
+                  setCrewSheet(null);
+                  setBotSheet(path);
+                }}
                 onClose={() => setCrewSheet(null)}
               />
             ) : null}

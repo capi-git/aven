@@ -13,7 +13,7 @@ import {
 } from "react";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { MoreHorizontal } from "../chrome/icons";
+import { ChevronDown, MoreHorizontal } from "../chrome/icons";
 import { TeamCardButton, TeamMiniFaces } from "../chrome/TeamCard";
 import { useBoardDrag } from "../hooks/useBoardDrag";
 import { useCardGlide } from "../hooks/useCardGlide";
@@ -60,6 +60,8 @@ import {
 import { homeElapsed } from "../lib/workspaceHome";
 import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
+import { findModel } from "../lib/models";
+import { CrewGiveChooser } from "./CrewGiveChooser";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
@@ -71,13 +73,7 @@ import {
   setCrewCardPaused,
   stopCrewCard,
 } from "../lib/crewActions";
-import {
-  crewCard,
-  crewMemberName,
-  useCrew,
-  type Crew,
-  type CrewRole,
-} from "../lib/crews";
+import { crewCard, crewMemberName, useCrew, type Crew } from "../lib/crews";
 import {
   crewBoardColumns,
   crewCardMenu,
@@ -195,11 +191,17 @@ export function WorkBoard({
   const columns = useMemo(
     () =>
       crewOn && crew
-        ? crewBoardColumns(shown.columns, crew, {
-            builder: crewMemberName(crew, "builder"),
-            checker: crewMemberName(crew, "checker"),
-            scout: crewMemberName(crew, "scout"),
-          })
+        ? crewBoardColumns(
+            shown.columns,
+            crew,
+            {
+              builder: crewMemberName(crew, "builder"),
+              checker: crewMemberName(crew, "checker"),
+              scout: crewMemberName(crew, "scout"),
+            },
+            (who) => crewMemberName(crew, who),
+            (id) => findModel(id)?.name ?? id,
+          )
         : shown.columns,
     [crewOn, crew, shown.columns],
   );
@@ -287,6 +289,11 @@ export const WorkBoardView = memo(function WorkBoardView({
       `${column.id}:${columns[column.id].map((card) => card.id).join(",")}`,
   ).join("|");
   const { remember } = useCardGlide(scroller, layoutKey);
+  /** Give to crew ▾: who builds and checks a card, and how. */
+  const [choosing, setChoosing] = useState<{
+    cardId: string;
+    anchor: HTMLElement;
+  } | null>(null);
   const [menu, setMenu] = useState<{
     cardId: string;
     anchor: HTMLElement;
@@ -311,7 +318,7 @@ export const WorkBoardView = memo(function WorkBoardView({
     [],
   );
   const crewName = useCallback(
-    (role: CrewRole) => (crew ? crewMemberName(crew, role, fixer?.name) : role),
+    (who: string) => (crew ? crewMemberName(crew, who, fixer?.name) : who),
     [crew, fixer?.name],
   );
   /** What a crew button on a card does: Aven's action, never a bot's words. */
@@ -334,7 +341,10 @@ export const WorkBoardView = memo(function WorkBoardView({
           return;
         case "watch":
         case "open":
-          workspace?.openChat(project, info?.holder ?? "builder");
+          workspace?.openChat(
+            project,
+            info?.holderId ?? info?.holder ?? "builder",
+          );
           return;
         case "review":
           setReadyCard(card.id);
@@ -350,11 +360,18 @@ export const WorkBoardView = memo(function WorkBoardView({
         case "answer":
           // A turn waiting on a question or an approval: answer it in its chat.
           if (info?.sessionId)
-            workspace?.openChat(project, info.holder ?? "builder");
+            workspace?.openChat(
+              project,
+              info.holderId ?? info.holder ?? "builder",
+            );
           else setAnswering(card.id);
           return;
         case "take-over":
-          workspace?.openChat(project, "builder");
+          workspace?.openChat(
+            project,
+            info?.members?.find((member) => member.role === "builder")?.id ??
+              "builder",
+          );
           return;
         case "back-to-ideas":
           void discardCrewCard(project, card.id, "ideas").then((problem) =>
@@ -501,6 +518,17 @@ export const WorkBoardView = memo(function WorkBoardView({
                         onEditDone={stopEditing}
                         onAnswerDone={() => setAnswering(null)}
                         onCrewAction={crew ? crewAction : undefined}
+                        onCrewChoose={
+                          crew
+                            ? (cardId, anchor) =>
+                                setChoosing((open) =>
+                                  open?.cardId === cardId
+                                    ? null
+                                    : { cardId, anchor },
+                                )
+                            : undefined
+                        }
+                        choosing={choosing?.cardId === card.id}
                         onPointerDown={startDrag}
                       />
                     </li>
@@ -533,6 +561,30 @@ export const WorkBoardView = memo(function WorkBoardView({
         })}
         {crew ? <CrewFeed crew={crew} name={crewName} /> : null}
       </div>
+      {crew && choosing && cardById(choosing.cardId) ? (
+        <CrewGiveChooser
+          crew={crew}
+          card={cardById(choosing.cardId)!}
+          anchor={choosing.anchor}
+          onClose={() => setChoosing(null)}
+          onGive={(choice) => {
+            const card = cardById(choosing.cardId)!;
+            setChoosing(null);
+            noteProblem(card.id, null);
+            void giveCardToCrew(
+              project,
+              {
+                id: card.id,
+                title: card.title,
+                ...(card.note ? { note: card.note } : {}),
+                ...(card.source ? { sourceUrl: card.source.url } : {}),
+              },
+              Date.now(),
+              choice,
+            ).then((problem) => noteProblem(card.id, problem));
+          }}
+        />
+      ) : null}
       {menu && menuCard ? (
         <ExplorerMenu
           x={0}
@@ -730,6 +782,8 @@ const BoardCardView = memo(function BoardCardView({
   onEditDone,
   onAnswerDone,
   onCrewAction,
+  onCrewChoose,
+  choosing = false,
   onPointerDown,
 }: {
   project: string;
@@ -747,6 +801,10 @@ const BoardCardView = memo(function BoardCardView({
   onEditDone: () => void;
   onAnswerDone?: () => void;
   onCrewAction?: (card: BoardCard, action: CrewBoardActionId) => void;
+  /** Give to crew ▾: choose who builds and checks it. */
+  onCrewChoose?: (cardId: string, anchor: HTMLElement) => void;
+  /** Its chooser is open. */
+  choosing?: boolean;
   onPointerDown: (
     event: ReactPointerEvent<HTMLElement>,
     cardId: string,
@@ -809,8 +867,8 @@ const BoardCardView = memo(function BoardCardView({
               {crew?.roles.length ? (
                 <CrewCritters
                   path={project}
-                  roles={crew.roles}
-                  active={live ? crew.holder : undefined}
+                  roles={crew.members ?? crew.roles}
+                  active={live ? (crew.holderId ?? crew.holder) : undefined}
                 />
               ) : card.faces.length ? (
                 <TeamMiniFaces
@@ -873,15 +931,40 @@ const BoardCardView = memo(function BoardCardView({
                 </BoardButton>
               ))}
               {crew && !answering
-                ? crew.actions.map((action) => (
-                    <BoardButton
-                      key={`crew:${action.id}`}
-                      primary={!!action.primary}
-                      onClick={() => onCrewAction?.(card, action.id)}
-                    >
-                      {action.label}
-                    </BoardButton>
-                  ))
+                ? crew.actions.map((action) =>
+                    action.id === "give" && onCrewChoose ? (
+                      <span key="crew:give" className="crew-give-split">
+                        <BoardButton
+                          primary={!!action.primary}
+                          onClick={() => onCrewAction?.(card, action.id)}
+                        >
+                          {action.label}
+                        </BoardButton>
+                        <button
+                          type="button"
+                          className="crew-give-more"
+                          data-crew-give-more
+                          aria-label={`Choose who builds “${card.title}”`}
+                          title="Choose who builds and checks it"
+                          aria-haspopup="dialog"
+                          aria-expanded={choosing || false}
+                          onClick={(event) =>
+                            onCrewChoose(card.id, event.currentTarget)
+                          }
+                        >
+                          <ChevronDown size={12} />
+                        </button>
+                      </span>
+                    ) : (
+                      <BoardButton
+                        key={`crew:${action.id}`}
+                        primary={!!action.primary}
+                        onClick={() => onCrewAction?.(card, action.id)}
+                      >
+                        {action.label}
+                      </BoardButton>
+                    ),
+                  )
                 : null}
               {source ? (
                 <TeamCardButton

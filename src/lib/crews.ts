@@ -97,9 +97,30 @@ export const CREW_ROLE_ORDER: readonly CrewRole[] = [
 ];
 
 export type CrewMember = {
+  /**
+   * Stable within its crew. Members from before ids keep their role's name
+   * ("builder", "checker"…), so older crews read unchanged.
+   */
+  id: string;
   role: CrewRole;
   /** A name the user gave it; its critter's otherwise. */
   name?: string;
+  /** Its critter (a mascot's name); its role's otherwise. */
+  critter?: string;
+  /** A custom role's own name and job: "Designer", "Makes it look right". */
+  label?: string;
+  job?: string;
+  /** Effort for its model, as the model's own effort setting names it. */
+  effort?: string;
+  /** Standing rules for this member, in your words. */
+  instructions?: string;
+  /**
+   * Paths (or areas) it works in. A Builder stays inside them; a change
+   * outside a Builder's paths is a must-fix for its Checker.
+   */
+  scope?: string[];
+  /** The Scout's rhythm: off, once a day or once a week. */
+  schedule?: CrewScoutSchedule;
   /** Its own chat. The Fixer has none here: its chat is the project bot's. */
   sessionId?: string;
   /** The app and model it runs on, picked when the crew is made. */
@@ -111,9 +132,25 @@ export type CrewMember = {
    * Codex gets one more try each session.
    */
   fallback?: { harness: "claude"; model?: string; at: number };
+  /** Off: it takes no turns (a Builder gets no cards, a Scout doesn't look). */
   paused?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
+};
+
+export type CrewScoutSchedule = "off" | "daily" | "weekly";
+
+/** The agents a crew member may run on: the apps that enforce its rules. */
+export const CREW_AGENTS = ["claude", "codex"] as const;
+export type CrewAgent = (typeof CREW_AGENTS)[number];
+
+/** "If the card mentions ui, css or design, give it to Designer." */
+export type CrewRoute = {
+  id: string;
+  /** Words or labels; any one matching the card's title or note. */
+  words: string[];
+  /** The Builder's member id. */
+  to: string;
 };
 
 /** The app and model a member runs on now: its fallback while it has one. */
@@ -151,7 +188,7 @@ export type CrewLimits = {
 };
 
 export const CREW_DEFAULT_RUNS_PER_DAY = 20;
-/** Every crew together, a day: a hard ceiling. */
+/** Every crew together, a day: a hard ceiling (you can set it). */
 export const CREW_ALL_RUNS_PER_DAY = 60;
 export const CREW_DEFAULT_ROUNDS = 3;
 export const CREW_DEFAULT_AUTO_STARTS = 3;
@@ -160,6 +197,18 @@ export const CREW_DEFAULT_PAUSE_PERCENT = 80;
 export const CREW_DEFAULT_TURN_MINUTES = 20;
 /** "Allow 10 more today". */
 export const CREW_EXTRA_RUNS = 10;
+
+/** What each limit may be set to, lowest and highest. */
+export const CREW_LIMIT_RANGES = {
+  roundsPerCard: [1, 5],
+  runsPerDay: [1, 200],
+  autoStartsPerDay: [0, 20],
+  ideasPerDay: [0, 10],
+  turnMinutes: [5, 120],
+  pauseAtPercent: [10, 100],
+} as const satisfies Record<string, readonly [number, number]>;
+export type CrewLimitName = keyof typeof CREW_LIMIT_RANGES;
+export const CREW_ALL_RUNS_RANGE = [1, 500] as const;
 
 export function defaultCrewLimits(): CrewLimits {
   return {
@@ -296,6 +345,11 @@ export type CrewCard = {
   stuck?: { reason: CrewStuckReason; text: string };
   /** Your words with One more round or Send back, for the Builder's next turn. */
   note?: string;
+  /** The Builder and Checker it was given to (by you, a rule, or the default). */
+  builderId?: string;
+  checkerId?: string;
+  /** For this card only: the Builder's model and effort. */
+  override?: { model?: string; effort?: string };
   /** The commit the copy was synced to when the card started: changes are measured from it. */
   base?: string;
   /** The Ready change: Apply lands exactly this fingerprint. */
@@ -348,6 +402,8 @@ export type CrewFeedEntry = {
   at: number;
   kind: CrewFeedKind;
   who?: CrewRole | "you" | "aven";
+  /** The member it was, when the crew has more than one of a role. */
+  member?: string;
   to?: CrewRole;
   cardId?: string;
   title?: string;
@@ -359,16 +415,30 @@ export type CrewFeedEntry = {
 export type CrewNote = { id: string; at: number; text: string };
 
 export type CrewHoldReason =
-  "paused" | "quiet-hours" | "daily-cap" | "all-crews-cap" | "usage";
+  | "paused"
+  | "quiet-hours"
+  | "daily-cap"
+  | "all-crews-cap"
+  | "usage"
+  | "no-member";
 
 export type Crew = {
   /** The project's folder. */
   path: string;
+  /** Ordered: the first whose words a card mentions picks its Builder. */
+  routes?: CrewRoute[];
+  /** The Builder a card goes to when no rule matches. */
+  defaultBuilder?: string;
   /**
    * Members of roles this build doesn't know (a later build's Keeper, a
    * custom role), kept as they were and written back with the rest.
    */
   otherMembers?: unknown[];
+  /**
+   * Chats of members you removed: still the crew's, so they never start as
+   * ordinary chats in its copy (each is refused, see `crewChatPermissions`).
+   */
+  retired?: { sessionId: string; role: CrewRole }[];
   /** The Builder, Checker and Scout are at work. The Fixer has its own switch. */
   on: boolean;
   onAt?: number;
@@ -410,6 +480,8 @@ export type Crew = {
 type Store = {
   version: 1;
   crews: Record<string, Crew>;
+  /** Every crew's runs a day together, Fixers included: a hard ceiling. */
+  allRunsPerDay?: number;
   /** Crews this build could not read: written back untouched. */
   others: Record<string, unknown>;
 };
@@ -433,7 +505,11 @@ export function newCrew(path: string, now = Date.now()): Crew {
     path: normalizeProjectPath(path),
     on: false,
     createdAt: now,
-    members: [{ role: "builder" }, { role: "checker" }, { role: "scout" }],
+    members: [
+      { id: "builder", role: "builder" },
+      { id: "checker", role: "checker" },
+      { id: "scout", role: "scout" },
+    ],
     limits: defaultCrewLimits(),
     cards: [],
     feed: [],
@@ -512,6 +588,7 @@ const HOLDS = new Set<CrewHoldReason>([
   "daily-cap",
   "all-crews-cap",
   "usage",
+  "no-member",
 ]);
 
 export function readRan(value: unknown): CrewRan[] {
@@ -694,6 +771,22 @@ export function readCrewCard(value: unknown): CrewCard | null {
       ? { stuck: { reason: stuck.reason, text: stuck.text.slice(0, 400) } }
       : {}),
     ...(note ? { note } : {}),
+    ...(text(raw.builderId, 60) ? { builderId: text(raw.builderId, 60) } : {}),
+    ...(text(raw.checkerId, 60) ? { checkerId: text(raw.checkerId, 60) } : {}),
+    ...(raw.override &&
+    typeof raw.override === "object" &&
+    (text(raw.override.model, 200) || text(raw.override.effort, 40))
+      ? {
+          override: {
+            ...(text(raw.override.model, 200)
+              ? { model: text(raw.override.model, 200) }
+              : {}),
+            ...(text(raw.override.effort, 40)
+              ? { effort: text(raw.override.effort, 40) }
+              : {}),
+          },
+        }
+      : {}),
     ...(text(raw.base, 64) ? { base: text(raw.base, 64) } : {}),
     ...(fix ? { fix } : {}),
     ...(turn &&
@@ -723,18 +816,47 @@ export function readCrewCard(value: unknown): CrewCard | null {
   };
 }
 
-function readMember(value: unknown): CrewMember | null {
+export const CREW_INSTRUCTIONS_MAX = 2_000;
+const SCOPE_KEPT = 20;
+const RETIRED_KEPT = 40;
+
+function readMember(value: unknown):
+  | (Omit<CrewMember, "id"> & {
+      id?: string;
+    })
+  | null {
   const raw = value as Partial<CrewMember> | null;
   if (!raw || !ROLES.has(raw.role as CrewRole)) return null;
+  const id = text(raw.id, 60);
   const name = text(raw.name, 40);
+  const critter = text(raw.critter, 40);
+  const label = text(raw.label, 40);
+  const job = text(raw.job, 120);
+  const effort = text(raw.effort, 40);
+  const instructions = text(raw.instructions, CREW_INSTRUCTIONS_MAX);
+  const scope = strings(raw.scope, SCOPE_KEPT, 200);
+  const schedule =
+    raw.schedule === "off" ||
+    raw.schedule === "daily" ||
+    raw.schedule === "weekly"
+      ? raw.schedule
+      : undefined;
   const sessionId = text(raw.sessionId, 256);
   const model = text(raw.model, 200);
   const doing = raw.doing as CrewMember["doing"] | undefined;
   const fallback = raw.fallback as CrewMember["fallback"] | undefined;
   const fallbackModel = text(fallback?.model, 200);
   return {
+    ...(id ? { id } : {}),
     role: raw.role as CrewRole,
     ...(name ? { name } : {}),
+    ...(critter ? { critter } : {}),
+    ...(label ? { label } : {}),
+    ...(job ? { job } : {}),
+    ...(effort ? { effort } : {}),
+    ...(instructions ? { instructions } : {}),
+    ...(scope.length ? { scope } : {}),
+    ...(schedule ? { schedule } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(raw.harness === "claude" || raw.harness === "codex"
       ? { harness: raw.harness }
@@ -768,16 +890,31 @@ export function readCrew(value: unknown): Crew | null {
   const base = newCrew(raw.path, finite(raw.createdAt, 0, 8.64e15, 0));
   const limits = raw.limits as Partial<CrewLimits> | undefined;
   const quiet = limits?.quiet as Partial<BotQuietHours> | undefined;
+  const limit = (name: CrewLimitName) =>
+    finite(
+      limits?.[name],
+      CREW_LIMIT_RANGES[name][0],
+      CREW_LIMIT_RANGES[name][1],
+      base.limits[name],
+    );
   const members: CrewMember[] = [];
   const otherMembers: unknown[] = [];
   if (Array.isArray(raw.members))
     for (const item of raw.members) {
-      const member = readMember(item);
-      // One member per role.
-      if (member && !members.some((entry) => entry.role === member.role))
-        members.push(member);
-      else if (
-        !member &&
+      const read = readMember(item);
+      // Several Builders and Checkers; one Scout and one Fixer.
+      const single = read?.role === "scout" || read?.role === "fixer";
+      if (
+        read &&
+        !(single && members.some((entry) => entry.role === read.role))
+      ) {
+        // A member from before ids takes its role's name, then role-2…
+        let id = read.id ?? read.role;
+        for (let n = 2; members.some((entry) => entry.id === id); n += 1)
+          id = `${read.role}-${n}`;
+        members.push({ ...read, id });
+      } else if (
+        !read &&
         item &&
         typeof item === "object" &&
         typeof (item as { role?: unknown }).role === "string" &&
@@ -785,7 +922,38 @@ export function readCrew(value: unknown): Crew | null {
       )
         otherMembers.push(item);
     }
+  const retired = Array.isArray(raw.retired)
+    ? raw.retired
+        .map((item) => {
+          const entry = item as { sessionId?: unknown; role?: unknown } | null;
+          const sessionId = text(entry?.sessionId, 256);
+          return sessionId && ROLES.has(entry?.role as CrewRole)
+            ? { sessionId, role: entry!.role as CrewRole }
+            : null;
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => !!entry)
+        .slice(-RETIRED_KEPT)
+    : [];
   const copy = raw.copy as Crew["copy"] | undefined;
+  const memberIds = new Set(members.map((member) => member.id));
+  const routes = Array.isArray(raw.routes)
+    ? raw.routes
+        .map((item): CrewRoute | null => {
+          const route = item as Partial<CrewRoute> | null;
+          const words = strings(route?.words, 12, 40).map((word) =>
+            word.toLowerCase(),
+          );
+          return route &&
+            typeof route.id === "string" &&
+            typeof route.to === "string" &&
+            memberIds.has(route.to) &&
+            words.length
+            ? { id: route.id.slice(0, 60), words, to: route.to }
+            : null;
+        })
+        .filter((route): route is CrewRoute => !!route)
+        .slice(0, 12)
+    : [];
   const ideas: Record<string, CrewIdea> = {};
   if (raw.ideas && typeof raw.ideas === "object")
     for (const [id, item] of Object.entries(raw.ideas).slice(-IDEAS_KEPT)) {
@@ -821,6 +989,7 @@ export function readCrew(value: unknown): Crew | null {
             return null;
           const title = text(entry.title, 200);
           const who = entry.who;
+          const member = text(entry.member, 60);
           return {
             id: entry.id,
             at: entry.at,
@@ -828,6 +997,7 @@ export function readCrew(value: unknown): Crew | null {
             ...(who === "you" || who === "aven" || ROLES.has(who as CrewRole)
               ? { who }
               : {}),
+            ...(member ? { member } : {}),
             ...(ROLES.has(entry.to as CrewRole)
               ? { to: entry.to as CrewRole }
               : {}),
@@ -866,30 +1036,21 @@ export function readCrew(value: unknown): Crew | null {
     on: raw.on === true,
     ...(typeof raw.onAt === "number" ? { onAt: raw.onAt } : {}),
     members: members.length ? members : base.members,
+    ...(routes.length ? { routes } : {}),
+    ...(typeof raw.defaultBuilder === "string" &&
+    memberIds.has(raw.defaultBuilder)
+      ? { defaultBuilder: raw.defaultBuilder }
+      : {}),
     ...(otherMembers.length ? { otherMembers: otherMembers.slice(0, 20) } : {}),
+    ...(retired.length ? { retired } : {}),
     limits: {
-      runsPerDay: finite(limits?.runsPerDay, 1, 200, base.limits.runsPerDay),
-      roundsPerCard: finite(
-        limits?.roundsPerCard,
-        1,
-        5,
-        base.limits.roundsPerCard,
-      ),
-      autoStartsPerDay: finite(
-        limits?.autoStartsPerDay,
-        0,
-        20,
-        base.limits.autoStartsPerDay,
-      ),
-      ideasPerDay: finite(limits?.ideasPerDay, 0, 10, base.limits.ideasPerDay),
+      runsPerDay: limit("runsPerDay"),
+      roundsPerCard: limit("roundsPerCard"),
+      autoStartsPerDay: limit("autoStartsPerDay"),
+      ideasPerDay: limit("ideasPerDay"),
       cardsAtOnce: 1,
-      pauseAtPercent: finite(
-        limits?.pauseAtPercent,
-        10,
-        100,
-        base.limits.pauseAtPercent,
-      ),
-      turnMinutes: finite(limits?.turnMinutes, 1, 120, base.limits.turnMinutes),
+      pauseAtPercent: limit("pauseAtPercent"),
+      turnMinutes: limit("turnMinutes"),
       quiet: {
         on: typeof quiet?.on === "boolean" ? quiet.on : base.limits.quiet.on,
         start: finite(quiet?.start, 0, 1439, base.limits.quiet.start),
@@ -963,7 +1124,24 @@ function parse(raw: string | null): { store: Store; foreign: boolean } {
       if (crew) crews[projectKey(crew.path)] = crew;
       else others[key] = value;
     }
-    return { store: { version: 1, crews, others }, foreign: false };
+    const allRunsPerDay =
+      typeof parsed.allRunsPerDay === "number"
+        ? finite(
+            parsed.allRunsPerDay,
+            CREW_ALL_RUNS_RANGE[0],
+            CREW_ALL_RUNS_RANGE[1],
+            CREW_ALL_RUNS_PER_DAY,
+          )
+        : undefined;
+    return {
+      store: {
+        version: 1,
+        crews,
+        others,
+        ...(allRunsPerDay !== undefined ? { allRunsPerDay } : {}),
+      },
+      foreign: false,
+    };
   } catch {
     return { store: EMPTY_STORE, foreign: true };
   }
@@ -977,8 +1155,8 @@ export const CREWS_BACKUP_KEY = `${CREWS_KEY}.backup`;
 
 let cache: Store = EMPTY_STORE;
 let cacheRaw: string | null | undefined;
-/** Session id → [project key, role], for crews that are on. */
-let chatIndex: Map<string, [string, CrewRole]> | null = null;
+/** Session id → its crew and member, for every crew, on or off. */
+let chatIndex: Map<string, ChatEntry> | null = null;
 const listeners = new Set<() => void>();
 
 /** Storage holds a store this build can't read: saves stay in this window. */
@@ -1034,6 +1212,9 @@ function write(store: Store) {
   const raw = JSON.stringify({
     version: 1,
     crews: { ...store.others, ...crews },
+    ...(store.allRunsPerDay !== undefined
+      ? { allRunsPerDay: store.allRunsPerDay }
+      : {}),
   });
   cache = store;
   chatIndex = null;
@@ -1103,7 +1284,10 @@ export function resetCrewsCache() {
  */
 export function crewFromBot(bot: Pick<ProjectBot, "path" | "createdAt">): Crew {
   const crew = newCrew(bot.path, bot.createdAt);
-  return { ...crew, members: [...crew.members, { role: "fixer" }] };
+  return {
+    ...crew,
+    members: [...crew.members, { id: "fixer", role: "fixer" }],
+  };
 }
 
 /**
@@ -1124,7 +1308,10 @@ export function withBotsAsFixers(
       next[key] = crewFromBot(bot);
     } else if (!crew.members.some((member) => member.role === "fixer")) {
       next ??= { ...crews };
-      next[key] = { ...crew, members: [...crew.members, { role: "fixer" }] };
+      next[key] = {
+        ...crew,
+        members: [...crew.members, { id: "fixer", role: "fixer" }],
+      };
     }
   }
   return next ?? (crews as Record<string, Crew>);
@@ -1190,6 +1377,29 @@ export function updateCrew(path: string, update: (crew: Crew) => Crew): Crew {
   return next;
 }
 
+/** Every crew's runs a day together, Fixers included. */
+export function crewsAllRunsPerDay(): number {
+  return read().allRunsPerDay ?? CREW_ALL_RUNS_PER_DAY;
+}
+
+export function setCrewsAllRunsPerDay(value: number) {
+  const store = read();
+  const next = Math.min(
+    CREW_ALL_RUNS_RANGE[1],
+    Math.max(CREW_ALL_RUNS_RANGE[0], Math.round(value)),
+  );
+  if (!Number.isFinite(next) || store.allRunsPerDay === next) return;
+  write({ ...store, allRunsPerDay: next });
+}
+
+export function useCrewsAllRunsPerDay(): number {
+  return useSyncExternalStore(
+    subscribeCrews,
+    crewsAllRunsPerDay,
+    crewsAllRunsPerDay,
+  );
+}
+
 export function forgetCrew(path: string) {
   const store = read();
   const key = projectKey(normalizeProjectPath(path));
@@ -1204,18 +1414,93 @@ export function forgetCrew(path: string) {
 
 /**
  * A member's name: its own, or its critter's ("Beetle", "Owl", "Fox"). The
- * Fixer's is its bot's, which the caller passes.
+ * Fixer's is its bot's, which the caller passes. `who` is a member's id, or
+ * a role for the first member of it.
  */
 export function crewMemberName(
   crew: Pick<Crew, "members">,
-  role: CrewRole,
+  who: string,
   fixerName = CREW_ROLE_INFO.fixer.label,
 ): string {
+  const member =
+    crewMemberById(crew, who) ??
+    (ROLES.has(who as CrewRole)
+      ? crewMember(crew, who as CrewRole)
+      : undefined);
+  const role =
+    member?.role ??
+    (ROLES.has(who as CrewRole) ? (who as CrewRole) : "builder");
   if (role === "fixer") return fixerName;
-  const own = crew.members.find((member) => member.role === role)?.name;
-  if (own) return own;
-  const critter = CREW_ROLE_INFO[role].critter ?? CREW_ROLE_INFO[role].label;
-  return critter[0]!.toUpperCase() + critter.slice(1);
+  if (member?.name) return member.name;
+  const critter = memberCritter(member ?? { role });
+  return critter
+    ? critter[0]!.toUpperCase() + critter.slice(1)
+    : CREW_ROLE_INFO[role].label;
+}
+
+/** The critter a member is drawn as: yours, or its role's. None for the Fixer. */
+export function memberCritter(
+  member: Pick<CrewMember, "role" | "critter">,
+): string | undefined {
+  if (member.role === "fixer") return undefined;
+  return member.critter ?? CREW_ROLE_INFO[member.role].critter;
+}
+
+/** "Builder", or a custom member's own title ("Designer"). */
+export function memberLabel(
+  member: Pick<CrewMember, "role" | "label">,
+): string {
+  return member.label ?? CREW_ROLE_INFO[member.role].label;
+}
+
+/** Its job line: a custom member's own, or its role's. */
+export function memberJob(member: Pick<CrewMember, "role" | "job">): string {
+  return member.job ?? CREW_ROLE_INFO[member.role].job;
+}
+
+// ---------------------------------------------------------------------------
+// Scope
+
+function scopeEntry(entry: string): string {
+  return entry
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+/** Whether a changed path (relative to the project) is inside one of `scope`'s paths or globs. */
+export function inScope(path: string, scope: readonly string[]): boolean {
+  if (!scope.length) return true;
+  const target = scopeEntry(path);
+  return scope.some((raw) => {
+    const entry = scopeEntry(raw);
+    if (!entry) return false;
+    if (entry.includes("*")) {
+      const pattern = entry
+        .split(/(\*\*\/?|\*)/)
+        .map((part) =>
+          part.startsWith("**")
+            ? "(?:.*/)?"
+            : part === "*"
+              ? "[^/]*"
+              : part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"),
+        )
+        .join("");
+      return new RegExp(`^${pattern}(?:/.*)?$`).test(target);
+    }
+    return target === entry || target.startsWith(`${entry}/`);
+  });
+}
+
+/** The changed paths outside a member's scope (none when it has none). */
+export function outsideScope(
+  paths: readonly string[],
+  scope: readonly string[] | undefined,
+): string[] {
+  if (!scope?.length) return [];
+  return paths.filter((path) => !inScope(path, scope));
 }
 
 export function crewMember(
@@ -1232,18 +1517,135 @@ export function crewMembers(crew: Pick<Crew, "members">): CrewMember[] {
   );
 }
 
+/** Change the first member of a role (made, when the crew has none). */
 export function withMember(
   crew: Crew,
   role: CrewRole,
   update: (member: CrewMember) => CrewMember,
 ): Crew {
-  const current = crewMember(crew, role) ?? { role };
+  const known = crewMember(crew, role);
+  const current = known ?? { id: newMemberId(crew, role), role };
   const next = update(current);
-  if (next === current && crewMember(crew, role)) return crew;
+  if (next === current && known) return crew;
   return {
     ...crew,
-    members: [...crew.members.filter((member) => member.role !== role), next],
+    members: known
+      ? crew.members.map((member) => (member === known ? next : member))
+      : [...crew.members, next],
   };
+}
+
+/** Change one member by its id; a member that isn't there changes nothing. */
+export function withMemberId(
+  crew: Crew,
+  id: string,
+  update: (member: CrewMember) => CrewMember,
+): Crew {
+  const known = crew.members.find((member) => member.id === id);
+  if (!known) return crew;
+  const next = update(known);
+  if (next === known) return crew;
+  return {
+    ...crew,
+    members: crew.members.map((member) => (member === known ? next : member)),
+  };
+}
+
+/** An id no member of the crew has: the role's name first, then role-2… */
+export function newMemberId(
+  crew: Pick<Crew, "members">,
+  role: CrewRole,
+): string {
+  let id: string = role;
+  for (let n = 2; crew.members.some((member) => member.id === id); n += 1)
+    id = `${role}-${n}`;
+  return id;
+}
+
+export function crewMemberById(
+  crew: Pick<Crew, "members">,
+  id: string | undefined,
+): CrewMember | undefined {
+  return id ? crew.members.find((member) => member.id === id) : undefined;
+}
+
+/** A member is on unless you switched it off. */
+export const memberOn = (member: CrewMember | undefined): boolean =>
+  !!member && !member.paused;
+
+/** The Builder a card goes to when no rule picks one: yours, or the first that's on. */
+export function defaultBuilder(crew: Crew): CrewMember | undefined {
+  const chosen = crewMemberById(crew, crew.defaultBuilder);
+  if (chosen?.role === "builder" && memberOn(chosen)) return chosen;
+  return crew.members.find(
+    (member) => member.role === "builder" && memberOn(member),
+  );
+}
+
+/** A card's words as a rule reads them: its title and note, lower-cased. */
+function cardWords(card: { title: string; brief?: string; note?: string }) {
+  return `${card.title}\n${card.brief ?? ""}\n${card.note ?? ""}`.toLowerCase();
+}
+
+/** Whether a card mentions a rule's word (a whole word, or a #label). */
+export function cardMentions(text: string, word: string): boolean {
+  const escaped = word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])#?${escaped}([^a-z0-9]|$)`).test(text);
+}
+
+/**
+ * The Builder a card goes to: the first rule whose words the card mentions
+ * (and whose Builder is on), else the default Builder.
+ */
+export function routeCard(
+  crew: Crew,
+  card: { title: string; brief?: string; note?: string },
+): CrewMember | undefined {
+  const text = cardWords(card);
+  for (const route of crew.routes ?? []) {
+    const to = crewMemberById(crew, route.to);
+    if (to?.role !== "builder" || !memberOn(to)) continue;
+    if (route.words.some((word) => cardMentions(text, word))) return to;
+  }
+  return defaultBuilder(crew);
+}
+
+/** The Builder working a card: the one it was given to while on, else by the rules. */
+export function cardBuilder(
+  crew: Crew,
+  card: CrewCard,
+): CrewMember | undefined {
+  const given = crewMemberById(crew, card.builderId);
+  if (given?.role === "builder" && memberOn(given)) return given;
+  return routeCard(crew, card);
+}
+
+/** The member whose turn a card is on now: by its chat while a turn runs, else by the rules. */
+export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
+  if (!card.holder) return undefined;
+  if (card.turn) {
+    const by = crew.members.find(
+      (member) => member.sessionId === card.turn!.sessionId,
+    );
+    if (by) return by.id;
+  }
+  return (
+    card.holder === "builder"
+      ? cardBuilder(crew, card)
+      : cardChecker(crew, card)
+  )?.id;
+}
+
+/** The Checker checking a card: the one it was given to while on, else the first on. */
+export function cardChecker(
+  crew: Crew,
+  card: CrewCard,
+): CrewMember | undefined {
+  const given = crewMemberById(crew, card.checkerId);
+  if (given?.role === "checker" && memberOn(given)) return given;
+  return crew.members.find(
+    (member) => member.role === "checker" && memberOn(member),
+  );
 }
 
 /**
@@ -1260,12 +1662,21 @@ export function withCheckerOnClaude(
   crew: Crew,
   model: string | undefined,
   now: number,
+  /** The Checker; the crew's first when not given. */
+  memberId?: string,
 ): Crew {
-  const checker = crewMember(crew, "checker");
-  if (!checker || crewMemberApp(checker).harness === "claude") return crew;
-  const name = crewMemberName(crew, "checker");
+  const checker = memberId
+    ? crewMemberById(crew, memberId)
+    : crewMember(crew, "checker");
+  if (
+    !checker ||
+    checker.role !== "checker" ||
+    crewMemberApp(checker).harness === "claude"
+  )
+    return crew;
+  const name = crewMemberName(crew, checker.id);
   return withFeed(
-    withMember(crew, "checker", (member) => ({
+    withMemberId(crew, checker.id, (member) => ({
       ...member,
       fallback: { harness: "claude", ...(model ? { model } : {}), at: now },
     })),
@@ -1273,9 +1684,49 @@ export function withCheckerOnClaude(
       at: now,
       kind: "note",
       who: "aven",
+      member: checker.id,
       text: `${name} is checking with Claude: Codex couldn't be locked down here.`,
     },
   );
+}
+
+/**
+ * Remove a member: its routes go, cards it had go back to the rules, and
+ * its chat stays the crew's (refused from now on), so it can never start
+ * as an ordinary chat in the crew's copy.
+ */
+export function withoutMember(crew: Crew, id: string): Crew {
+  const member = crewMemberById(crew, id);
+  if (!member) return crew;
+  const retired = member.sessionId
+    ? [
+        ...(crew.retired ?? []).filter(
+          (entry) => entry.sessionId !== member.sessionId,
+        ),
+        { sessionId: member.sessionId, role: member.role },
+      ].slice(-RETIRED_KEPT)
+    : crew.retired;
+  const routes = (crew.routes ?? []).filter((route) => route.to !== id);
+  const next: Crew = {
+    ...crew,
+    members: crew.members.filter((entry) => entry.id !== id),
+    ...(retired?.length ? { retired } : {}),
+    routes: routes.length ? routes : undefined,
+    defaultBuilder:
+      crew.defaultBuilder === id ? undefined : crew.defaultBuilder,
+    cards: crew.cards.map((card) =>
+      card.builderId === id || card.checkerId === id
+        ? {
+            ...card,
+            builderId: card.builderId === id ? undefined : card.builderId,
+            checkerId: card.checkerId === id ? undefined : card.checkerId,
+          }
+        : card,
+    ),
+  };
+  if (!next.routes) delete next.routes;
+  if (!next.defaultBuilder) delete next.defaultBuilder;
+  return next;
 }
 
 /** Every Checker back on its own app: Aven started again, Codex gets a try. */
@@ -1292,28 +1743,52 @@ export function withoutFallbacks(crew: Crew): Crew {
   };
 }
 
-function chats(): Map<string, [string, CrewRole]> {
+type ChatEntry = {
+  key: string;
+  role: CrewRole;
+  /** Its member's id; none for a removed member's chat. */
+  memberId?: string;
+};
+
+function chats(): Map<string, ChatEntry> {
   read();
   if (chatIndex) return chatIndex;
   chatIndex = new Map();
   for (const [key, crew] of Object.entries(cache.crews)) {
+    for (const entry of crew.retired ?? [])
+      if (entry.role !== "fixer")
+        chatIndex.set(entry.sessionId, { key, role: entry.role });
     for (const member of crew.members)
       if (member.sessionId && member.role !== "fixer")
-        chatIndex.set(member.sessionId, [key, member.role]);
+        chatIndex.set(member.sessionId, {
+          key,
+          role: member.role,
+          memberId: member.id,
+        });
   }
   return chatIndex;
 }
 
-/** The crew and member whose chat this is, on or off. */
+/**
+ * The crew and member whose chat this is, on or off. A removed member's
+ * chat is still the crew's, with `retired` set and its role kept.
+ */
 export function crewForChat(
   sessionId: string | undefined,
-): { crew: Crew; member: CrewMember } | undefined {
+): { crew: Crew; member: CrewMember; retired?: true } | undefined {
   if (!sessionId) return undefined;
   const found = chats().get(sessionId);
   if (!found) return undefined;
-  const crew = cache.crews[found[0]];
-  const member = crew ? crewMember(crew, found[1]) : undefined;
-  return crew && member ? { crew, member } : undefined;
+  const crew = cache.crews[found.key];
+  if (!crew) return undefined;
+  if (!found.memberId)
+    return {
+      crew,
+      member: { id: `retired:${sessionId}`, role: found.role, sessionId },
+      retired: true,
+    };
+  const member = crewMemberById(crew, found.memberId);
+  return member ? { crew, member } : undefined;
 }
 
 export function isCrewChat(sessionId: string | undefined): boolean {
@@ -1518,10 +1993,17 @@ export function useCrew(path: string | null | undefined): Crew | undefined {
   return useSyncExternalStore(subscribeCrews, getSnapshot, getSnapshot);
 }
 
-/** The crew member whose chat this is, while its crew is on. */
+export type CrewChatOf = {
+  path: string;
+  role: CrewRole;
+  /** Its member; none for a removed member's chat. */
+  memberId?: string;
+};
+
+/** The crew member whose chat this is. */
 export function useCrewChat(
   sessionId: string | undefined,
-): { path: string; role: CrewRole } | undefined {
+): CrewChatOf | undefined {
   const getSnapshot = () => {
     if (!sessionId) return undefined;
     const found = chats().get(sessionId);
@@ -1530,13 +2012,17 @@ export function useCrewChat(
   return useSyncExternalStore(subscribeCrews, getSnapshot, getSnapshot);
 }
 
-const chatMemo = new Map<string, { path: string; role: CrewRole }>();
-function memoChat([key, role]: [string, CrewRole]) {
-  const crew = cache.crews[key];
-  const id = `${key}\n${role}`;
+const chatMemo = new Map<string, CrewChatOf>();
+function memoChat(entry: ChatEntry): CrewChatOf {
+  const crew = cache.crews[entry.key];
+  const id = `${entry.key}\n${entry.role}\n${entry.memberId ?? ""}`;
   const known = chatMemo.get(id);
   if (known && crew && known.path === crew.path) return known;
-  const next = { path: crew?.path ?? key, role };
+  const next: CrewChatOf = {
+    path: crew?.path ?? entry.key,
+    role: entry.role,
+    ...(entry.memberId ? { memberId: entry.memberId } : {}),
+  };
   chatMemo.set(id, next);
   return next;
 }

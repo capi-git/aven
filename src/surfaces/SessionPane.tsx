@@ -278,7 +278,7 @@ export const SessionPane = memo(function SessionPane({
   const botLabel =
     projectBotLabel ??
     (crewChat && crewOfChat
-      ? crewMemberName(crewOfChat, crewChat.role)
+      ? crewMemberName(crewOfChat, crewChat.memberId ?? crewChat.role)
       : undefined);
   // Never in a lane, partner, worker, bot or Inbox chat, nor during its own run.
   const offersMemoryKeeper =
@@ -793,6 +793,7 @@ export const SessionPane = memo(function SessionPane({
         <CrewChatHeader
           path={crewChat.path}
           role={crewChat.role}
+          {...(crewChat.memberId ? { memberId: crewChat.memberId } : {})}
           working={busy}
         />
       ) : null}
@@ -803,7 +804,13 @@ export const SessionPane = memo(function SessionPane({
               {projectBot ? (
                 <BotIntro path={projectBot} />
               ) : crewChat ? (
-                <CrewIntro path={crewChat.path} role={crewChat.role} />
+                <CrewIntro
+                  path={crewChat.path}
+                  role={crewChat.role}
+                  {...(crewChat.memberId
+                    ? { memberId: crewChat.memberId }
+                    : {})}
+                />
               ) : null}
             </div>
           ) : session.inboxAsk ? (

@@ -129,9 +129,14 @@ describe("crew chats launch with their rules from any window", () => {
       ...crew,
       on: true,
       members: [
-        { role: "builder", sessionId: "b-chat" },
-        { role: "checker", sessionId: "c-chat", harness: "codex" },
-        { role: "scout", sessionId: "s-chat" },
+        { id: "builder", role: "builder", sessionId: "b-chat" },
+        {
+          id: "checker",
+          role: "checker",
+          sessionId: "c-chat",
+          harness: "codex",
+        },
+        { id: "scout", role: "scout", sessionId: "s-chat" },
       ],
     }));
     const builder = sessionPermissions("b-chat")!;
@@ -196,7 +201,7 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
       ...current,
       ...crew,
       on: true,
-      members: [{ role: "builder", sessionId: "b-chat" }],
+      members: [{ id: "builder", role: "builder", sessionId: "b-chat" }],
     }));
     expect(sessionPermissions("b-chat")?.noMcp).toBe(true);
     stop();
@@ -253,8 +258,13 @@ describe("a crew's or bot's chat stays on its own app", () => {
       ...crew,
       on: true,
       members: [
-        { role: "builder", sessionId: "b-chat" },
-        { role: "checker", sessionId: "c-chat", harness: "codex" },
+        { id: "builder", role: "builder", sessionId: "b-chat" },
+        {
+          id: "checker",
+          role: "checker",
+          sessionId: "c-chat",
+          harness: "codex",
+        },
       ],
     }));
     expect(teammateHarness("b-chat")).toBe("claude");

@@ -101,6 +101,7 @@ const crew: SidebarCrew = {
   paused: false,
   members: [
     {
+      id: "builder",
       role: "builder",
       name: "Beetle",
       roleLabel: "Builder",
@@ -110,14 +111,22 @@ const crew: SidebarCrew = {
       active: true,
     },
     {
+      id: "checker",
       role: "checker",
       name: "Owl",
       roleLabel: "Checker",
       sessionId: "checker-chat",
       active: false,
     },
-    { role: "scout", name: "Fox", roleLabel: "Scout", active: false },
     {
+      id: "scout",
+      role: "scout",
+      name: "Fox",
+      roleLabel: "Scout",
+      active: false,
+    },
+    {
+      id: "fixer",
       role: "fixer",
       name: "Jelly",
       roleLabel: "Fixer",

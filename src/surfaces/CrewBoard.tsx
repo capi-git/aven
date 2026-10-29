@@ -27,11 +27,15 @@ import {
   turnOffCrew,
   useCrewWorkspace,
 } from "../lib/crewActions";
-import { crewGate, crewLimitsLine } from "../lib/crewLimits";
+import { crewGate, crewLimitsLine, crewNoMemberGate } from "../lib/crewLimits";
 import {
   CREW_ROLE_INFO,
+  cardBuilder,
+  cardChecker,
   cardInCopy,
+  crewMemberById,
   crewMembers,
+  memberCritter,
   crewCard,
   queuedCards,
   updateCrew,
@@ -39,7 +43,6 @@ import {
   type Crew,
   type CrewCard,
   type CrewFeedEntry,
-  type CrewRole,
 } from "../lib/crews";
 import type { CrewBoardInfo, CrewMemberView } from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
@@ -87,7 +90,11 @@ export const CrewHeader = memo(function CrewHeader({
   const name = projectDisplayName(crew.path, labels);
   const roles = crewMembers(crew)
     .filter((member) => member.role !== "fixer" || fixerRuns >= 0)
-    .map((member) => member.role);
+    .map((member) => ({
+      id: member.id,
+      role: member.role,
+      ...(member.critter ? { critter: memberCritter(member) } : {}),
+    }));
   const gate = crewGate({
     crew,
     now,
@@ -179,15 +186,27 @@ export function CrewHoldLine({
   now: number;
   fixerRuns: number;
 }) {
-  const gate = crewGate({
+  const workspace = useCrewWorkspace();
+  const limit = crewGate({
     crew,
     now,
     weeklyUsed: claudeWeeklyUsed(now),
     fixerRuns,
     allRuns: 0,
   });
-  if (gate.ok) return null;
   const waiting = cardInCopy(crew) ?? queuedCards(crew)[0];
+  // Every Builder (or Checker) the card needs is off or removed.
+  const role = waiting?.holder === "checker" ? "checker" : "builder";
+  const unmanned =
+    !!waiting &&
+    (waiting.stage === "queued" ||
+      waiting.stage === "building" ||
+      waiting.stage === "checking") &&
+    !(role === "checker"
+      ? cardChecker(crew, waiting)
+      : cardBuilder(crew, waiting));
+  const gate = limit.ok && unmanned ? crewNoMemberGate(role) : limit;
+  if (gate.ok) return null;
   if (!waiting && gate.reason !== "paused") return null;
   const waits = waiting
     ? ` ${waiting.title} waits in ${waiting.stage === "ready" ? "Review" : "Building"}.`
@@ -216,6 +235,13 @@ export function CrewHoldLine({
         >
           Resume
         </TeamCardButton>
+      ) : gate.reason === "no-member" && workspace ? (
+        <TeamCardButton
+          size="compact"
+          onClick={() => workspace.openSettings(crew.path)}
+        >
+          Settings
+        </TeamCardButton>
       ) : null}
     </div>
   );
@@ -234,18 +260,20 @@ export function CrewStrip({
     <div className="crew-strip" role="list" aria-label="The crew">
       {members.map((member) => (
         <button
-          key={member.role}
+          key={member.id}
           type="button"
           role="listitem"
           className="crew-strip-tile"
-          data-crew-tile={member.role}
+          data-crew-tile={member.id}
+          data-crew-role={member.role}
           data-working={member.active || undefined}
           title={`Open ${member.name}'s chat`}
-          onClick={() => workspace?.openChat(path, member.role)}
+          onClick={() => workspace?.openChat(path, member.id)}
         >
           <CrewCritter
             path={path}
             role={member.role}
+            {...(member.critter ? { critter: member.critter } : {})}
             active={member.active}
             className="crew-strip-critter"
           />
@@ -256,7 +284,7 @@ export function CrewStrip({
               {member.status ? <CrewStatusPill status={member.status} /> : null}
             </span>
             <span className="crew-strip-line">
-              {member.line ?? CREW_ROLE_INFO[member.role].job}
+              {member.line ?? member.job ?? CREW_ROLE_INFO[member.role].job}
             </span>
           </span>
         </button>
@@ -296,6 +324,11 @@ export function CrewCardFace({
           {info.since !== undefined
             ? homeElapsed(info.since, Math.max(now, info.since))
             : null}
+        </span>
+      ) : null}
+      {info.assigned ? (
+        <span className="crew-card-assigned" data-crew-assigned>
+          {info.assigned}
         </span>
       ) : null}
       {info.change ? (
@@ -366,18 +399,30 @@ export function CrewAnswerBox({
 // ---------------------------------------------------------------------------
 // The Feed
 
-function whoName(
-  entry: CrewFeedEntry,
-  name: (role: CrewRole) => string,
-): string {
+function whoName(entry: CrewFeedEntry, name: (who: string) => string): string {
   if (entry.who === "you") return "You";
   if (entry.who === "aven" || !entry.who) return "Aven";
-  return name(entry.who);
+  return name(entry.member ?? entry.who);
 }
 
-function FeedMark({ path, entry }: { path: string; entry: CrewFeedEntry }) {
+function FeedMark({
+  path,
+  entry,
+  critter,
+}: {
+  path: string;
+  entry: CrewFeedEntry;
+  critter?: string;
+}) {
   if (entry.who && entry.who !== "you" && entry.who !== "aven")
-    return <CrewCritter path={path} role={entry.who} badge={false} />;
+    return (
+      <CrewCritter
+        path={path}
+        role={entry.who}
+        {...(critter ? { critter } : {})}
+        badge={false}
+      />
+    );
   return (
     <span className="crew-feed-you" aria-hidden="true">
       {entry.who === "you" ? "Y" : "A"}
@@ -386,6 +431,18 @@ function FeedMark({ path, entry }: { path: string; entry: CrewFeedEntry }) {
 }
 
 const QUOTED = new Set(["handoff", "verdict", "note", "stuck"]);
+
+/** The critter a line's member was drawn as, when you chose one. */
+function feedCritter(crew: Crew, entry: CrewFeedEntry): { critter?: string } {
+  const member = entry.member ? crewMemberById(crew, entry.member) : undefined;
+  return member?.critter ? { critter: memberCritter(member) } : {};
+}
+
+/** Who a handoff or verdict went to: its card's Checker or Builder. */
+function feedTo(crew: Crew, entry: CrewFeedEntry): string | undefined {
+  const card = entry.cardId ? crewCard(crew, entry.cardId) : undefined;
+  return entry.to === "checker" ? card?.checkerId : card?.builderId;
+}
 
 /**
  * The crew's feed: handoffs, verdicts, new ideas, holds and your notes, the
@@ -397,7 +454,8 @@ export function CrewFeed({
   name,
 }: {
   crew: Crew;
-  name: (role: CrewRole) => string;
+  /** A member's name, by its id or its role. */
+  name: (who: string) => string;
 }) {
   const [text, setText] = useState("");
   const entries = crew.feed.slice(-40);
@@ -436,8 +494,11 @@ export function CrewFeed({
                 divider={divider}
                 path={crew.path}
                 entry={entry}
+                {...feedCritter(crew, entry)}
                 who={whoName(entry, name)}
-                to={entry.to ? name(entry.to) : undefined}
+                to={
+                  entry.to ? name(feedTo(crew, entry) ?? entry.to) : undefined
+                }
                 pinned={!!note}
                 onUnpin={
                   note
@@ -489,6 +550,7 @@ function FeedRow({
   divider,
   path,
   entry,
+  critter,
   who,
   to,
   pinned,
@@ -497,6 +559,8 @@ function FeedRow({
   divider: React.ReactNode;
   path: string;
   entry: CrewFeedEntry;
+  /** The critter its member was drawn as, when you chose one. */
+  critter?: string;
   who: string;
   to?: string;
   pinned: boolean;
@@ -534,7 +598,7 @@ function FeedRow({
     <>
       {divider}
       <li className="crew-feed-entry" data-feed-kind={entry.kind}>
-        <FeedMark path={path} entry={entry} />
+        <FeedMark path={path} entry={entry} {...(critter ? { critter } : {})} />
         <div className="crew-feed-body">
           <p className="crew-feed-head">
             <span className="crew-feed-who">{headline}</span>

@@ -122,6 +122,7 @@ describe("migrating project bots into crews", () => {
     const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
     expect(Object.keys(saved.crews)).toHaveLength(1);
     expect(saved.crews[Object.keys(saved.crews)[0]].members).toContainEqual({
+      id: "fixer",
       role: "fixer",
     });
     // The bot's own store is untouched: its fix, runs, chat and copy stay.
@@ -171,11 +172,22 @@ describe("migrating project bots into crews", () => {
     const crew = readCrew({
       path: PROJECT,
       on: true,
-      members: [{ role: "builder" }, { role: "builder" }, { role: "nope" }],
+      members: [
+        { role: "builder" },
+        { id: "builder", role: "builder" },
+        { role: "scout" },
+        { id: "scout-2", role: "scout" },
+        { role: "nope" },
+      ],
       limits: { runsPerDay: 9_999, roundsPerCard: 0 },
       cards: [{ id: "x", title: "Card", stage: "flying" }],
     })!;
-    expect(crew.members).toEqual([{ role: "builder" }]);
+    // Several Builders, each with its own id; one Scout.
+    expect(crew.members).toEqual([
+      { id: "builder", role: "builder" },
+      { id: "builder-2", role: "builder" },
+      { id: "scout", role: "scout" },
+    ]);
     expect(crew.limits.runsPerDay).toBe(200);
     expect(crew.limits.roundsPerCard).toBe(1);
     expect(crew.cards).toEqual([]);
@@ -191,7 +203,7 @@ describe("migrating project bots into crews", () => {
           [PROJECT]: {
             path: PROJECT,
             members: [
-              { role: "builder" },
+              { id: "builder", role: "builder" },
               { role: "keeper", name: "Hedgehog" },
             ],
           },
@@ -199,12 +211,17 @@ describe("migrating project bots into crews", () => {
       }),
     );
     resetCrewsCache();
-    expect(getCrew(PROJECT)!.members).toEqual([{ role: "builder" }]);
+    expect(getCrew(PROJECT)!.members).toEqual([
+      { id: "builder", role: "builder" },
+    ]);
     updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
     const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
     expect(Object.values(saved.crews)[0]).toMatchObject({
       on: true,
-      members: [{ role: "builder" }, { role: "keeper", name: "Hedgehog" }],
+      members: [
+        { id: "builder", role: "builder" },
+        { role: "keeper", name: "Hedgehog" },
+      ],
     });
   });
 
@@ -247,8 +264,8 @@ describe("crew chats are bot chats", () => {
       ...crew,
       on: true,
       members: [
-        { role: "builder", sessionId: "builder-chat" },
-        { role: "checker", sessionId: "checker-chat" },
+        { id: "builder", role: "builder", sessionId: "builder-chat" },
+        { id: "checker", role: "checker", sessionId: "checker-chat" },
       ],
       copy: {
         path: "/data/bots/crew-1",

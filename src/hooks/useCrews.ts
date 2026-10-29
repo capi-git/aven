@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { claudeCheckerModel } from "../lib/crewModels";
-import { CrewRunner, type CrewChatRole } from "../lib/crewRunner";
+import { CrewRunner } from "../lib/crewRunner";
 import {
   anyCrewOn,
   crewMemberName,
@@ -39,8 +39,15 @@ async function copySources(copy: string): Promise<string[]> {
 }
 
 export type CrewsHost = {
-  /** Load a member's chat, or make it, without a tab, in the crew's copy. */
-  ensureChat: (crew: Crew, role: CrewChatRole) => Promise<Session | null>;
+  /**
+   * Load a member's chat, or make it, without a tab, in the crew's copy, on
+   * its app with its model and effort (or the card's own, for a Builder).
+   */
+  ensureChat: (
+    crew: Crew,
+    memberId: string,
+    override?: { model?: string; effort?: string },
+  ) => Promise<Session | null>;
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
@@ -72,7 +79,8 @@ export function useCrews(
       setTimer: (run, ms) => window.setTimeout(run, ms),
       clearTimer: (id) => window.clearTimeout(id),
       sessions: () => sessionsRef.current,
-      ensureChat: (crew, role) => hostRef.current.ensureChat(crew, role),
+      ensureChat: (crew, memberId, override) =>
+        hostRef.current.ensureChat(crew, memberId, override),
       send: (sessionId, text, options) =>
         hostRef.current.send(sessionId, text, options),
       stopChat: (sessionId) => hostRef.current.stopChat(sessionId),
@@ -99,11 +107,11 @@ export function useCrews(
         move: (project, id, column) => moveFeatureCard(project, id, column, ""),
         add: (project, drafts) => addFeatureCards(project, drafts),
       },
-      name: (crew, role) => {
+      name: (crew, who) => {
         const bot = getProjectBot(crew.path);
         return crewMemberName(
           crew,
-          role,
+          who,
           bot ? botName(bot, projectAppearance(crew.path).mascot) : undefined,
         );
       },

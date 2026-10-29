@@ -23,13 +23,27 @@ import {
   withFeed,
   withIdea,
   withCheckerOnClaude,
-  withMember,
+  CREW_AGENTS,
+  CREW_INSTRUCTIONS_MAX,
+  CREW_LIMIT_RANGES,
+  CREW_ROLE_INFO,
+  crewMemberById,
+  memberCritter,
+  newMemberId,
+  withMemberId,
   withNote,
   withoutCard,
+  withoutMember,
   type Crew,
+  type CrewAgent,
   type CrewCard,
+  type CrewLimitName,
+  type CrewMember,
   type CrewRole,
+  type CrewRoute,
+  type CrewScoutSchedule,
 } from "./crews";
+import { PROJECT_MASCOTS } from "./projectMascots";
 import { logError } from "./errors";
 import {
   deleteFeatureCard,
@@ -83,16 +97,28 @@ export function pickCrewModels(input: {
   };
 }
 
-/** Turn the crew on: its members get their models, and it starts working. */
+/**
+ * Turn the crew on, and it starts working. A member without an app or model
+ * yet gets its role's pick; one you set keeps yours.
+ */
 export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
   updateCrew(path, (crew) => {
     let next: Crew = { ...crew, on: true, onAt: now, paused: undefined };
-    for (const role of ["builder", "checker", "scout"] as const)
-      next = withMember(next, role, (member) => ({
-        ...member,
-        harness: models[role].harness,
-        model: models[role].model,
-      }));
+    for (const member of crew.members) {
+      if (member.role === "fixer") continue;
+      const pick = models[member.role];
+      next = withMemberId(next, member.id, (current) =>
+        current.harness && current.model
+          ? current
+          : current.harness && current.harness !== pick.harness
+            ? current
+            : {
+                ...current,
+                harness: current.harness ?? pick.harness,
+                model: current.model ?? pick.model,
+              },
+      );
+    }
     return withFeed(next, {
       at: now,
       kind: "note",
@@ -198,10 +224,48 @@ export function tellCrew(path: string, text: string, now = Date.now()) {
  * Give a Board card to the crew: it waits in Building as Queued, and starts
  * when the crew's copy is free. Resolves with why it couldn't, or null.
  */
+/**
+ * Who a card goes to, and how, when you choose (Give to crew ▾): a Builder
+ * and a Checker (else the crew's rules pick), the Builder's model and
+ * effort for this card only, and its rounds. Anything left out is the
+ * crew's own.
+ */
+export type CrewCardChoice = {
+  builderId?: string;
+  checkerId?: string;
+  model?: string;
+  effort?: string;
+  maxRounds?: number;
+};
+
+/** A choice as the crew can take it: only its own members, and rounds in range. */
+export function crewCardChoice(
+  crew: Crew,
+  choice: CrewCardChoice | undefined,
+): Required<Pick<CrewCardChoice, "maxRounds">> & CrewCardChoice {
+  const builder = crewMemberById(crew, choice?.builderId);
+  const checker = crewMemberById(crew, choice?.checkerId);
+  const [low, high] = CREW_LIMIT_RANGES.roundsPerCard;
+  const rounds =
+    typeof choice?.maxRounds === "number" && Number.isFinite(choice.maxRounds)
+      ? Math.min(high, Math.max(low, Math.round(choice.maxRounds)))
+      : crew.limits.roundsPerCard;
+  const model = choice?.model?.trim().slice(0, 200);
+  const effort = choice?.effort?.trim().slice(0, 40);
+  return {
+    ...(builder?.role === "builder" ? { builderId: builder.id } : {}),
+    ...(checker?.role === "checker" ? { checkerId: checker.id } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    maxRounds: rounds,
+  };
+}
+
 export async function giveCardToCrew(
   path: string,
   card: Pick<FeatureCard, "id" | "title" | "note" | "sourceUrl">,
   now = Date.now(),
+  choice?: CrewCardChoice,
 ): Promise<string | null> {
   const crew = getCrew(path);
   if (!crew?.on) return "Turn the crew on first.";
@@ -209,8 +273,12 @@ export async function giveCardToCrew(
   if (known && known.stage !== "applied" && known.stage !== "discarded")
     return null;
   const idea = crew.ideas?.[card.id];
-  updateCrew(path, (current) =>
-    withFeed(
+  updateCrew(path, (current) => {
+    const chosen = crewCardChoice(current, choice);
+    const to = chosen.builderId
+      ? ` for ${crewMemberName(current, chosen.builderId)}`
+      : "";
+    return withFeed(
       withCard(
         withoutCard(current, card.id),
         queueCard(
@@ -221,7 +289,17 @@ export async function giveCardToCrew(
             from: idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
-            maxRounds: current.limits.roundsPerCard,
+            maxRounds: chosen.maxRounds,
+            ...(chosen.builderId ? { builderId: chosen.builderId } : {}),
+            ...(chosen.checkerId ? { checkerId: chosen.checkerId } : {}),
+            ...(chosen.model || chosen.effort
+              ? {
+                  override: {
+                    ...(chosen.model ? { model: chosen.model } : {}),
+                    ...(chosen.effort ? { effort: chosen.effort } : {}),
+                  },
+                }
+              : {}),
           },
           now,
         ),
@@ -232,10 +310,10 @@ export async function giveCardToCrew(
         who: "you",
         cardId: card.id,
         title: card.title,
-        text: `You gave the crew “${card.title}”`,
+        text: `You gave the crew “${card.title}”${to}`,
       },
-    ),
-  );
+    );
+  });
   await moveFeatureCard(path, card.id, "building", "");
   return null;
 }
@@ -314,7 +392,12 @@ export function resumeCrewCard(
       card.holder === "checker" &&
       isCodexToolsOpen(card.stuck.text)
     ) {
-      crew = withCheckerOnClaude(crew, claudeCheckerModel(crew), now);
+      crew = withCheckerOnClaude(
+        crew,
+        claudeCheckerModel(crew),
+        now,
+        card.checkerId,
+      );
       card = crewCard(crew, cardId)!;
     }
     const resumed = withInboxResolved(
@@ -357,7 +440,7 @@ export async function markCrewFixChanged(
     const card = crewCard(crew, cardId);
     if (!card || card.stage !== "ready") return crew;
     moved = true;
-    const checker = crewMemberName(crew, "checker");
+    const checker = crewMemberName(crew, card.checkerId ?? "checker");
     const stuck = changedAfterCheck(withInboxResolved(card, "dismissed", now), {
       now,
       checker,
@@ -404,7 +487,7 @@ export async function applyCrewCard(
   } catch (error) {
     if (isFixChanged(error)) {
       await markCrewFixChanged(path, cardId, now);
-      return `The change moved after ${crewMemberName(crew, "checker")}'s check, so it wasn't applied. One more round checks it again.`;
+      return `The change moved after ${crewMemberName(crew, card.checkerId ?? "checker")}'s check, so it wasn't applied. One more round checks it again.`;
     }
     logError("Apply crew card", error);
     const text = botCopyError(error);
@@ -501,11 +584,310 @@ export function dismissCrewInbox(
 }
 
 // ---------------------------------------------------------------------------
+// Members: who is in the crew and how each works
+
+/** What you can add: a role's member, or one of your own that works as a Builder or Checker. */
+export type CrewTemplate = "builder" | "checker" | "scout" | "custom";
+
+export type CrewNewMember = {
+  /** For a custom member: whether it builds or checks. */
+  role?: "builder" | "checker";
+  name?: string;
+  /** A custom member's title and job: "Designer", "Makes it look right". */
+  label?: string;
+  job?: string;
+  harness?: string;
+  model?: string;
+  instructions?: string;
+};
+
+/** The settings you can change on a member; its role never changes. */
+export type CrewMemberChange = {
+  name?: string | null;
+  critter?: string | null;
+  label?: string | null;
+  job?: string | null;
+  harness?: string;
+  model?: string | null;
+  effort?: string | null;
+  instructions?: string | null;
+  /** Paths or globs, as a list or as you typed them (one per line, or commas). */
+  scope?: readonly string[] | string | null;
+  schedule?: CrewScoutSchedule;
+  /** Off: it takes no turns. */
+  paused?: boolean;
+};
+
+/** Whether a member may run on this app: only the apps that enforce its rules. */
+export function crewAgentAllowed(harness: string): harness is CrewAgent {
+  return (CREW_AGENTS as readonly string[]).includes(harness);
+}
+
+function cleanText(value: string | null | undefined, max: number) {
+  const text = value?.trim().slice(0, max);
+  return text || undefined;
+}
+
+/** Scope as you typed it: one path or glob per line (or comma), tidied. */
+export function crewScopeList(
+  value: readonly string[] | string | null | undefined,
+): string[] {
+  const items =
+    typeof value === "string" ? value.split(/[\n,]/) : (value ?? []);
+  const seen = new Set<string>();
+  for (const item of items) {
+    const entry = item
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\.\//, "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "")
+      .slice(0, 200);
+    if (entry && !entry.split("/").includes("..")) seen.add(entry);
+    if (seen.size >= 20) break;
+  }
+  return [...seen];
+}
+
+const CRITTERS = new Set(PROJECT_MASCOTS.map((mascot) => mascot.name));
+
+/** A critter none of the crew is drawn as yet, the role's own first. */
+function freeCritter(crew: Crew, role: CrewRole): string | undefined {
+  const used = new Set(
+    crew.members.map((member) => memberCritter(member)).filter(Boolean),
+  );
+  const own = CREW_ROLE_INFO[role].critter;
+  if (own && !used.has(own)) return undefined;
+  return PROJECT_MASCOTS.map((mascot) => mascot.name).find(
+    (name) => !used.has(name),
+  );
+}
+
+/**
+ * Add a member from a template. Several Builders and Checkers; one Scout
+ * (and the Fixer is the project's bot, added from its own switch). Resolves
+ * with the new member's id, or why it couldn't.
+ */
+export function addCrewMember(
+  path: string,
+  template: CrewTemplate,
+  input: CrewNewMember = {},
+): { id: string } | { error: string } {
+  const crew = getCrew(path);
+  if (!crew) return { error: "This project has no crew." };
+  const role: Exclude<CrewRole, "fixer"> =
+    template === "custom" ? (input.role ?? "builder") : template;
+  if (
+    role === "scout" &&
+    crew.members.some((member) => member.role === "scout")
+  )
+    return { error: "This crew already has a Scout." };
+  if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
+    return { error: "A crew has at most 8 members." };
+  const harness =
+    input.harness && crewAgentAllowed(input.harness)
+      ? input.harness
+      : undefined;
+  const label = template === "custom" ? cleanText(input.label, 40) : undefined;
+  const job = template === "custom" ? cleanText(input.job, 120) : undefined;
+  if (template === "custom" && !label)
+    return { error: "Give your member a title, like Designer." };
+  let id = "";
+  updateCrew(path, (current) => {
+    id = newMemberId(current, role);
+    const critter = freeCritter(current, role);
+    const name = cleanText(input.name, 40);
+    const model = harness ? cleanText(input.model, 200) : undefined;
+    const instructions = cleanText(input.instructions, CREW_INSTRUCTIONS_MAX);
+    const member: CrewMember = {
+      id,
+      role,
+      ...(name ? { name } : {}),
+      ...(critter ? { critter } : {}),
+      ...(label ? { label } : {}),
+      ...(job ? { job } : {}),
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
+      ...(instructions ? { instructions } : {}),
+    };
+    return { ...current, members: [...current.members, member] };
+  });
+  return { id };
+}
+
+/**
+ * Change a member's settings. Its app can only be one that enforces its
+ * rules; none of these change what it may do (its sandbox, rules and copy
+ * come from its role alone). Resolves with why it couldn't, or null.
+ */
+export function updateCrewMember(
+  path: string,
+  id: string,
+  change: CrewMemberChange,
+): string | null {
+  const crew = getCrew(path);
+  const member = crew ? crewMemberById(crew, id) : undefined;
+  if (!crew || !member) return "That member isn't in the crew.";
+  if (member.role === "fixer") return "The Fixer is set in its own settings.";
+  if (change.harness !== undefined && !crewAgentAllowed(change.harness))
+    return "Crews run only on apps that keep their rules: Claude Code or Codex.";
+  if (change.critter && !CRITTERS.has(change.critter))
+    return "That critter isn't one of Aven's.";
+  updateCrew(path, (current) =>
+    withMemberId(current, id, (entry) => {
+      const next: CrewMember = { ...entry };
+      const set = <K extends keyof CrewMember>(
+        key: K,
+        value: CrewMember[K],
+      ) => {
+        if (value === undefined) delete next[key];
+        else next[key] = value;
+      };
+      if (change.name !== undefined) set("name", cleanText(change.name, 40));
+      if (change.critter !== undefined)
+        set("critter", change.critter ?? undefined);
+      if (change.label !== undefined) set("label", cleanText(change.label, 40));
+      if (change.job !== undefined) set("job", cleanText(change.job, 120));
+      if (change.harness !== undefined && change.harness !== entry.harness) {
+        // Another app: its model and effort were the old app's.
+        set("harness", change.harness as CrewAgent);
+        set("model", undefined);
+        set("effort", undefined);
+        set("fallback", undefined);
+      }
+      if (change.model !== undefined)
+        set("model", cleanText(change.model, 200));
+      if (change.effort !== undefined)
+        set("effort", cleanText(change.effort, 40));
+      if (change.instructions !== undefined)
+        set(
+          "instructions",
+          cleanText(change.instructions, CREW_INSTRUCTIONS_MAX),
+        );
+      if (change.scope !== undefined) {
+        const scope = crewScopeList(change.scope);
+        set("scope", scope.length ? scope : undefined);
+      }
+      if (change.schedule !== undefined && entry.role === "scout")
+        set(
+          "schedule",
+          change.schedule === "daily" ? undefined : change.schedule,
+        );
+      if (change.paused !== undefined)
+        set("paused", change.paused || undefined);
+      return next;
+    }),
+  );
+  return null;
+}
+
+/**
+ * Remove a member. The last Builder or Checker stays (a crew needs one of
+ * each), and one at work stays until its card is stopped. Its chat stays
+ * the crew's and never starts again. Resolves with why it couldn't, or null.
+ */
+export function removeCrewMember(path: string, id: string): string | null {
+  const crew = getCrew(path);
+  const member = crew ? crewMemberById(crew, id) : undefined;
+  if (!crew || !member) return null;
+  if (member.role === "fixer")
+    return "The Fixer is the project's bot: turn it off in its own settings.";
+  if (
+    (member.role === "builder" || member.role === "checker") &&
+    crew.members.filter((entry) => entry.role === member.role).length <= 1
+  )
+    return `A crew needs a ${CREW_ROLE_INFO[member.role].label}.`;
+  const working =
+    !!member.doing ||
+    crew.cards.some(
+      (card) => !!card.turn && card.turn.sessionId === member.sessionId,
+    );
+  if (working) return "It's working on a card. Stop the card first.";
+  updateCrew(path, (current) => withoutMember(current, id));
+  return null;
+}
+
+/** Make sure a list of routing rules only names the crew's own Builders. */
+export function crewRoutesFor(
+  crew: Crew,
+  routes: readonly {
+    id?: string;
+    words: readonly string[] | string;
+    to: string;
+  }[],
+): CrewRoute[] {
+  const builders = new Set(
+    crew.members
+      .filter((member) => member.role === "builder")
+      .map((member) => member.id),
+  );
+  const out: CrewRoute[] = [];
+  routes.forEach((route, index) => {
+    const raw =
+      typeof route.words === "string"
+        ? route.words.split(/[,\n]/)
+        : route.words;
+    const words = [
+      ...new Set(
+        raw
+          .map((word) =>
+            word.trim().replace(/^#/, "").toLowerCase().slice(0, 40),
+          )
+          .filter(Boolean),
+      ),
+    ].slice(0, 12);
+    if (!words.length || !builders.has(route.to) || out.length >= 12) return;
+    out.push({ id: route.id || `rule-${index + 1}`, words, to: route.to });
+  });
+  return out;
+}
+
+/** Your routing rules, in order: the first a card mentions picks its Builder. */
+export function setCrewRoutes(
+  path: string,
+  routes: readonly {
+    id?: string;
+    words: readonly string[] | string;
+    to: string;
+  }[],
+) {
+  updateCrew(path, (crew) => {
+    const next = crewRoutesFor(crew, routes);
+    const out: Crew = { ...crew, routes: next };
+    if (!next.length) delete out.routes;
+    return out;
+  });
+}
+
+/** The Builder a card goes to when no rule matches. */
+export function setDefaultBuilder(path: string, id: string | null) {
+  updateCrew(path, (crew) => {
+    const member = id ? crewMemberById(crew, id) : undefined;
+    const next: Crew = { ...crew };
+    if (member?.role === "builder") next.defaultBuilder = member.id;
+    else delete next.defaultBuilder;
+    return next;
+  });
+}
+
+/** Set one of the crew's limits, kept within what it may be. */
+export function setCrewLimit(path: string, name: CrewLimitName, value: number) {
+  if (!Number.isFinite(value)) return;
+  const [low, high] = CREW_LIMIT_RANGES[name];
+  const next = Math.min(high, Math.max(low, Math.round(value)));
+  updateCrew(path, (crew) =>
+    crew.limits[name] === next
+      ? crew
+      : { ...crew, limits: { ...crew.limits, [name]: next } },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // What the crew UI needs from the main workspace, supplied by App.
 
 export type CrewWorkspace = {
-  /** Show a member's chat in a tab. */
-  openChat: (path: string, role: CrewRole) => void;
+  /** Show a member's chat in a tab: by its id, or a role for its first. */
+  openChat: (path: string, who: string) => void;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
   /** Open the crew's settings (turning it on, when it is off). */

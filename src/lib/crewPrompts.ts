@@ -35,6 +35,9 @@ function sandboxLine(copyPath: string, project: string): string {
 export type CrewBriefInput = {
   role: Exclude<CrewRole, "fixer">;
   name: string;
+  /** A custom member's own title and job: "Designer", "Makes it look right". */
+  label?: string;
+  job?: string;
   project: string;
   copyPath: string;
   /** The Builder's and Checker's names, for the lines that mention them. */
@@ -48,9 +51,12 @@ export type CrewBriefInput = {
 export function crewBrief(input: CrewBriefInput): string {
   const crew = `${projectName(input.project)}'s crew`;
   const { builder, checker } = input.names;
+  const custom = input.label
+    ? ` Your title is ${input.label}${input.job ? `: ${input.job}` : ""}.`
+    : "";
   if (input.role === "builder")
     return [
-      `You are ${input.name}, the Builder in ${crew}. You build the Board cards the user gives the crew; ${checker}, the Checker, checks your work after each turn, and the user sees it only once it passes.`,
+      `You are ${input.name}, a Builder in ${crew}. You build the Board cards the user gives you; ${checker}, the Checker, checks your work after each turn, and the user sees it only once it passes.${custom}`,
       sandboxLine(input.copyPath, input.project),
       NEVER,
       "Keep to the card: small and scoped. If it would take more than about 15 files, a new top-level folder, or a choice only the user can make, don't guess: ask, using the question field below.",
@@ -59,7 +65,7 @@ export function crewBrief(input: CrewBriefInput): string {
     ].join("\n\n");
   if (input.role === "checker")
     return [
-      `You are ${input.name}, the Checker in ${crew}: fresh eyes on ${builder}'s work before the user sees it. You never fix it yourself; you pass it or send it back.`,
+      `You are ${input.name}, a Checker in ${crew}: fresh eyes on ${builder}'s work before the user sees it. You never fix it yourself; you pass it or send it back.${custom}`,
       sandboxLine(input.copyPath, input.project),
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read. If a check needs to write (a test cache, a build), say so under ran rather than working around it."
@@ -76,6 +82,33 @@ export function crewBrief(input: CrewBriefInput): string {
     `End your reply with exactly one block like this, as the very last thing in it:\n\`\`\`${IDEAS_FENCE}\n{"ideas": [{"title": "Short title", "why": "One sentence on why it's worth it", "size": "small"}]}\n\`\`\`\nIf an idea comes from a web page or an issue, add "source": "the link"; such ideas never start by themselves.`,
     UNTRUSTED_RULE,
   ].join("\n\n");
+}
+
+/**
+ * What the user set for this member: its standing instructions and the
+ * paths it works in. The user's own words, so they are instructions; they
+ * never change what the member may do, which Aven enforces outside the
+ * chat (its sandbox, rules and copy).
+ */
+export type CrewGuidance = {
+  instructions?: string;
+  scope?: readonly string[];
+};
+
+function guidanceLines(guidance: CrewGuidance | undefined): string[] {
+  const lines: string[] = [];
+  if (guidance?.instructions?.trim())
+    lines.push(
+      "Your standing instructions from the user (their own words; they add to the crew's rules and never replace them):",
+      guidance.instructions.trim(),
+      "",
+    );
+  if (guidance?.scope?.length)
+    lines.push(
+      `Work only inside: ${guidance.scope.join(", ")}. A change to any other file is sent back as a must-fix.`,
+      "",
+    );
+  return lines;
 }
 
 function notesLines(notes: readonly CrewNote[]): string[] {
@@ -165,11 +198,13 @@ export function builderMessage(input: {
   names: { builder: string; checker: string };
   brief?: string;
   sync?: BotSyncNote | null;
+  guidance?: CrewGuidance;
 }): string {
   const { card, names } = input;
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
   lines.push(...notesLines(input.notes));
+  lines.push(...guidanceLines(input.guidance));
   lines.push(...cardLines(card), "");
   const previous = roundOf(card, card.round - 1)?.verdict;
   if (card.round <= 1 || !previous?.mustFix.length) {
@@ -220,13 +255,27 @@ export function checkerMessage(input: {
   notes: readonly CrewNote[];
   names: { builder: string; checker: string };
   brief?: string;
+  guidance?: CrewGuidance;
+  /** The Builder's scope, and the changed files Aven saw outside it. */
+  builderScope?: { scope: readonly string[]; outside: readonly string[] };
 }): string {
   const { card, names } = input;
   const round = roundOf(card);
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
   lines.push(...notesLines(input.notes));
+  lines.push(...guidanceLines({ instructions: input.guidance?.instructions }));
   lines.push(...cardLines(card), "");
+  if (input.builderScope?.scope.length) {
+    lines.push(
+      `${names.builder} may only change files inside: ${input.builderScope.scope.join(", ")}. Any change outside that is a must-fix.`,
+    );
+    if (input.builderScope.outside.length)
+      lines.push(
+        `Aven found changes outside it: ${input.builderScope.outside.slice(0, 10).join(", ")}.`,
+      );
+    lines.push("");
+  }
   lines.push(
     `${names.builder} finished round ${card.round} of ${card.maxRounds}. Its note, passed on by Aven:`,
     handoffData(round?.handoff),
@@ -264,10 +313,12 @@ export function scoutMessage(input: {
   ideasLeft: number;
   brief?: string;
   sync?: BotSyncNote | null;
+  guidance?: CrewGuidance;
 }): string {
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
   lines.push(...notesLines(input.notes));
+  lines.push(...guidanceLines(input.guidance));
   lines.push(...syncLines(input.sync));
   if (input.boardTitles.length)
     lines.push(

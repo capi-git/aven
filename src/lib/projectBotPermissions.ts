@@ -306,17 +306,22 @@ export function crewChatPermissions(
   const found = crewForChat(sessionId);
   if (!found || found.member.role === "fixer") return undefined;
   const { crew } = found;
+  // Only the member's role decides what it may do: never its app, model,
+  // instructions or scope, which you can change.
   const role = found.member.role;
   const readOnly = !CREW_ROLE_INFO[role].edits;
-  const refuse = !crew.on
-    ? "This crew is off, so its chat didn't start. Turn the crew on to use it."
-    : !crew.copy
-      ? "The crew's copy isn't ready yet, so its chat didn't start."
-      : undefined;
+  const refuse = found.retired
+    ? "This chat's crew member was removed, so it didn't start."
+    : !crew.on
+      ? "This crew is off, so its chat didn't start. Turn the crew on to use it."
+      : !crew.copy
+        ? "The crew's copy isn't ready yet, so its chat didn't start."
+        : undefined;
   return {
     mode: "auto",
     rules: crewPermissionRules(crew, role),
     sandbox: crewSandbox(crew, role),
+    noEscalation: true,
     noMcp: true,
     ...(crew.copy ? { workFolder: crew.copy.path } : {}),
     ...(readOnly ? { readOnly: true } : {}),

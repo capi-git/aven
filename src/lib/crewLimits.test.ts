@@ -202,7 +202,11 @@ describe("Scout ideas start themselves, within limits", () => {
 
   it("lets the Scout look once a day, with ideas left, while idle", () => {
     const fresh = crew({
-      members: [{ role: "builder" }, { role: "checker" }, { role: "scout" }],
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout" },
+      ],
     });
     expect(scoutShouldLook(fresh, NOON, false)).toBe(true);
     expect(scoutShouldLook(fresh, NOON, true)).toBe(false);
@@ -217,7 +221,7 @@ describe("Scout ideas start themselves, within limits", () => {
     expect(scoutShouldLook(full, NOON, false)).toBe(false);
     const paused = {
       ...fresh,
-      members: [{ role: "scout" as const, paused: true }],
+      members: [{ id: "scout", role: "scout" as const, paused: true }],
     };
     expect(scoutShouldLook(paused, NOON, false)).toBe(false);
   });

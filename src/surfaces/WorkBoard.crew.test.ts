@@ -339,18 +339,26 @@ describe("the crew view: the Board with the crew on it", () => {
     );
     const mine = card(boards[0].id);
     expect(
-      [...mine.querySelectorAll(".work-board-card-actions button")].map(
-        (item) => item.textContent,
-      ),
+      [
+        ...mine.querySelectorAll(
+          ".work-board-card-actions button:not([data-crew-give-more])",
+        ),
+      ].map((item) => item.textContent),
     ).toEqual(["Build", "Give to crew"]);
+    // ▾ beside it chooses who builds and checks it.
+    expect(
+      mine.querySelector("[data-crew-give-more]")?.getAttribute("aria-label"),
+    ).toBe(`Choose who builds “${boards[0].title}”`);
     const scouted = card(boards[1].id);
     expect(scouted.querySelector(".crew-card-line")?.textContent).toBe(
       "From Fox · small",
     );
     expect(
-      [...scouted.querySelectorAll(".work-board-card-actions button")].map(
-        (item) => item.textContent,
-      ),
+      [
+        ...scouted.querySelectorAll(
+          ".work-board-card-actions button:not([data-crew-give-more])",
+        ),
+      ].map((item) => item.textContent),
     ).toEqual(["Give to crew", "Not now"]);
     await act(async () => button(mine, "Give to crew")!.click());
     expect(actions.giveCardToCrew).toHaveBeenCalledWith(PROJECT, {
@@ -359,6 +367,67 @@ describe("the crew view: the Board with the crew on it", () => {
     });
     await act(async () => button(scouted, "Not now")!.click());
     expect(actions.notNowIdea).toHaveBeenCalledWith(PROJECT, boards[1].id);
+  });
+
+  it("Give to crew ▾ chooses who builds and checks a card, and the card says so", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(
+        crew,
+        queueCard(
+          {
+            id: boards[2].id,
+            title: boards[2].title,
+            brief: boards[2].title,
+            from: "you",
+            maxRounds: 2,
+            builderId: "builder-2",
+            override: { effort: "high" },
+          },
+          NOW,
+        ),
+      ),
+      members: [
+        ...crew.members,
+        { id: "builder-2", role: "builder", name: "Mole", critter: "hedgehog" },
+      ],
+      routes: [{ id: "r1", words: ["pricing"], to: "builder-2" }],
+    }));
+    // The queued card shows who it went to and what you set for it.
+    expect(
+      card(boards[2].id).querySelector("[data-crew-assigned]")?.textContent,
+    ).toBe("Mole builds · Owl checks · high · 2 rounds");
+    const idea = card(boards[0].id);
+    await act(async () =>
+      idea.querySelector<HTMLButtonElement>("[data-crew-give-more]")!.click(),
+    );
+    const chooser = document.querySelector<HTMLElement>(
+      "[data-crew-give-chooser]",
+    )!;
+    expect(chooser).toBeTruthy();
+    const selects = [...chooser.querySelectorAll("select")];
+    // Auto names the Builder the rules pick: "pricing" sends it to Mole.
+    expect(selects[0].options[0].textContent).toBe("Auto · Mole");
+    expect([...selects[0].options].map((option) => option.value)).toEqual([
+      "",
+      "builder",
+      "builder-2",
+    ]);
+    await act(async () => {
+      selects[0].value = "builder";
+      selects[0].dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const rounds = [...chooser.querySelectorAll("select")].at(-1)!;
+    await act(async () => {
+      rounds.value = "4";
+      rounds.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button(chooser, "Give to crew")!.click());
+    expect(actions.giveCardToCrew).toHaveBeenCalledWith(
+      PROJECT,
+      { id: boards[0].id, title: "Pricing page" },
+      expect.any(Number),
+      { builderId: "builder", maxRounds: 4 },
+    );
   });
 
   it("Apply on a Ready card applies it; Review opens what changed and what was checked", async () => {

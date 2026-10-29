@@ -10,10 +10,12 @@ import {
   crewCard,
   crewMember,
   crewMemberApp,
+  crewMemberName,
   defaultCrewLimits,
   getCrew,
   resetCrewsCache,
   updateCrew,
+  withCard,
   withIdea,
   type Crew,
 } from "./crews";
@@ -99,6 +101,10 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   const board = new Map<string, FeatureCard>();
   const moves: { id: string; column: FeatureColumn }[] = [];
   const roleOf = new Map<string, Role>();
+  const ensured: {
+    memberId: string;
+    override?: { model?: string; effort?: string };
+  }[] = [];
 
   const diff = (): BotDiff =>
     copyState
@@ -145,9 +151,12 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     },
     clearTimer: (id) => void timers.delete(id),
     sessions: () => sessions,
-    ensureChat: async (_crew: Crew, role) => {
-      const id = `${role}-chat`;
+    ensureChat: async (crew: Crew, memberId, override) => {
+      const role = (crew.members.find((member) => member.id === memberId)
+        ?.role ?? memberId) as Role;
+      const id = `${memberId}-chat`;
       roleOf.set(id, role);
+      ensured.push({ memberId, ...(override ? { override } : {}) });
       if (!sessions.some((chat) => chat.id === id))
         sessions = [
           ...sessions,
@@ -243,10 +252,15 @@ function harness(agents: Partial<Record<Role, Agent>>) {
           return card;
         }),
     },
-    name: (_crew, role) =>
-      ({ builder: "Beetle", checker: "Owl", scout: "Fox", fixer: "Jelly" })[
-        role
-      ],
+    name: (crew, who) =>
+      (
+        ({
+          builder: "Beetle",
+          checker: "Owl",
+          scout: "Fox",
+          fixer: "Jelly",
+        }) as Record<string, string>
+      )[who] ?? crewMemberName(crew, who),
     onWorking: () => {},
     checkerFallbackModel: () => "claude:other",
     freshConversation: (sessionId) => {
@@ -281,6 +295,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   return {
     runner,
     sent,
+    ensured,
     stopped,
     fresh,
     copy,
@@ -597,8 +612,8 @@ describe("fresh eyes", () => {
     expect(card("first").stage).toBe("ready");
     // First card: both chats were new, so nothing to forget yet; each got its role.
     expect(h.fresh).toEqual([]);
-    expect(h.sent[0].text).toContain("You are Beetle, the Builder");
-    expect(h.sent[1].text).toContain("You are Owl, the Checker");
+    expect(h.sent[0].text).toContain("You are Beetle, a Builder");
+    expect(h.sent[1].text).toContain("You are Owl, a Checker");
     // Round 2 keeps its conversation: no role again, no fresh start.
     expect(h.sent[2].text).not.toContain("You are Beetle");
     expect(h.sent[3].text).not.toContain("You are Owl");
@@ -613,8 +628,8 @@ describe("fresh eyes", () => {
     await h.advance(10 * MINUTE);
     // The next card starts both on new conversations, with their roles.
     expect(h.fresh).toEqual(["builder-chat", "checker-chat"]);
-    expect(h.sent[4].text).toContain("You are Beetle, the Builder");
-    expect(h.sent[5].text).toContain("You are Owl, the Checker");
+    expect(h.sent[4].text).toContain("You are Beetle, a Builder");
+    expect(h.sent[5].text).toContain("You are Owl, a Checker");
     h.runner.stop();
   });
 });
@@ -840,9 +855,14 @@ describe("a Checker Codex can't lock down here", () => {
     });
     onCrew({
       members: [
-        { role: "builder", model: "claude:opus" },
-        { role: "checker", harness: "codex", model: "codex:gpt" },
-        { role: "scout" },
+        { id: "builder", role: "builder", model: "claude:opus" },
+        {
+          id: "checker",
+          role: "checker",
+          harness: "codex",
+          model: "codex:gpt",
+        },
+        { id: "scout", role: "scout" },
       ],
     });
     give();
@@ -891,9 +911,9 @@ describe("a Checker Codex can't lock down here", () => {
     });
     onCrew({
       members: [
-        { role: "builder" },
-        { role: "checker", harness: "codex" },
-        { role: "scout" },
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker", harness: "codex" },
+        { id: "scout", role: "scout" },
       ],
     });
     give();
@@ -901,6 +921,200 @@ describe("a Checker Codex can't lock down here", () => {
     await h.advance(10 * MINUTE);
     expect(card().stuck?.reason).toBe("failed");
     expect(crewMember(getCrew(PATH)!, "checker")?.fallback).toBeUndefined();
+    h.runner.stop();
+  });
+});
+
+describe("members you set up", () => {
+  const twoBuilders = (extra: Partial<Crew> = {}) =>
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        {
+          id: "builder-2",
+          role: "builder",
+          name: "Mole",
+          instructions: "Match the design tokens.",
+          scope: ["src/ui"],
+        },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout" },
+      ],
+      routes: [{ id: "r1", words: ["css", "ui"], to: "builder-2" }],
+      ...extra,
+    });
+
+  it("routes a card by what it mentions, and its Builder keeps to its scope", async () => {
+    const h = harness({
+      // Mole's first round touches a file outside src/ui; its second keeps inside.
+      builder: (_text, nth) => ({
+        text: handoff(nth === 1 ? "Styled it" : "Undid the outside change"),
+        copy:
+          nth === 1
+            ? { hash: "h1", files: ["src/ui/Button.css", "src/server.ts"] }
+            : { hash: "h2", files: ["src/ui/Button.css"] },
+      }),
+      // The Checker passes both: Aven still sends round 1 back.
+      checker: () => ({ text: verdict([]) }),
+    });
+    twoBuilders();
+    give("card-1", "Button CSS focus ring");
+    h.runner.start();
+    await h.advance(0);
+    expect(h.sent[0].sessionId).toBe("builder-2-chat");
+    expect(h.sent[0].text).toContain("Match the design tokens.");
+    expect(h.sent[0].text).toContain("Work only inside: src/ui.");
+    expect(card().builderId).toBe("builder-2");
+    await h.advance(MINUTE + 5_000);
+    expect(h.sent[1].role).toBe("checker");
+    expect(h.sent[1].text).toContain(
+      "Mole may only change files inside: src/ui.",
+    );
+    expect(h.sent[1].text).toContain(
+      "Aven found changes outside it: src/server.ts.",
+    );
+    await h.advance(MINUTE + 5_000);
+    // A pass with files outside the scope is a must-fix, not Ready.
+    expect(card()).toMatchObject({ stage: "building", round: 2 });
+    expect(card().rounds[0].verdict?.mustFix.at(-1)?.text).toContain(
+      "Mole changed files outside its scope (src/ui): src/server.ts",
+    );
+    expect(h.sent[2].sessionId).toBe("builder-2-chat");
+    await h.advance(2 * (MINUTE + 5_000));
+    expect(card()).toMatchObject({ stage: "ready", round: 2 });
+    const feed = getCrew(PATH)!.feed;
+    expect(feed.find((entry) => entry.kind === "start")).toMatchObject({
+      who: "builder",
+      member: "builder-2",
+      text: "Mole started “Button CSS focus ring”",
+    });
+    h.runner.stop();
+  });
+
+  it("sends a card without a matching rule to the default Builder, and one you chose to yours", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    twoBuilders({ defaultBuilder: "builder-2" });
+    give("card-1", "Search inside notes");
+    h.runner.start();
+    await h.advance(0);
+    expect(h.sent[0].sessionId).toBe("builder-2-chat");
+    h.runner.stop();
+
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      cards: [],
+      defaultBuilder: undefined,
+    }));
+    const g = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    updateCrew(PATH, (crew) =>
+      withCard(
+        crew,
+        queueCard(
+          {
+            id: "card-2",
+            title: "A ui card for Beetle",
+            brief: "A ui card for Beetle",
+            from: "you",
+            maxRounds: 3,
+            builderId: "builder",
+          },
+          NOON,
+        ),
+      ),
+    );
+    g.runner.start();
+    await g.advance(0);
+    // Its rule says Mole, but you gave it to Beetle.
+    expect(g.sent[0].sessionId).toBe("builder-chat");
+    g.runner.stop();
+  });
+
+  it("uses a card's own model and effort for its Builder, never for its Checker", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([{ text: "Broken" }]) }),
+    });
+    onCrew();
+    updateCrew(PATH, (crew) =>
+      withCard(
+        crew,
+        queueCard(
+          {
+            id: "card-1",
+            title: "Dark mode toggle",
+            brief: "Dark mode toggle",
+            from: "you",
+            maxRounds: 1,
+            override: { model: "claude:big", effort: "high" },
+          },
+          NOON,
+        ),
+      ),
+    );
+    h.runner.start();
+    await h.advance(3 * (MINUTE + 5_000));
+    expect(h.ensured[0]).toEqual({
+      memberId: "builder",
+      override: { model: "claude:big", effort: "high" },
+    });
+    expect(h.ensured.find((item) => item.memberId === "checker")).toEqual({
+      memberId: "checker",
+    });
+    // One round, as the card asked: a must-fix stops it there.
+    expect(card()).toMatchObject({ stage: "stuck", round: 1 });
+    expect(card().stuck?.reason).toBe("rounds");
+    h.runner.stop();
+  });
+
+  it("holds a card, and says why, while every Builder is off", async () => {
+    const h = harness({});
+    onCrew({
+      members: [
+        { id: "builder", role: "builder", paused: true },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(MINUTE);
+    expect(h.sent).toEqual([]);
+    expect(getCrew(PATH)!.hold?.reason).toBe("no-member");
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "No Builder is on. Turn one on, or add one, in the crew's settings. The card waits.",
+    );
+    h.runner.stop();
+  });
+
+  it("lets the Scout look once a week, or never", async () => {
+    const h = harness({
+      scout: () => ({ text: fence("aven-ideas", { ideas: [] }) }),
+    });
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout", schedule: "off" },
+      ],
+    });
+    h.runner.start();
+    await h.advance(MINUTE);
+    expect(h.sent).toEqual([]);
     h.runner.stop();
   });
 });

@@ -2,6 +2,7 @@ import { parseHandoff, parseIdeas, parseVerdict } from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import {
   crewGate,
+  crewNoMemberGate,
   ideaMayAutoStart,
   ideasLeft,
   nextAutoStart,
@@ -17,6 +18,7 @@ import {
   startCard,
   turnFailed,
   turnTimedOut,
+  withScopeCheck,
   type LoopStep,
 } from "./crewLoop";
 import {
@@ -29,11 +31,16 @@ import {
 import {
   activeCrews,
   bumpToday,
+  cardBuilder,
+  cardChecker,
   cardInCopy,
   claimCrewJob,
   crewCard,
   crewMember,
   crewMemberApp,
+  crewMemberById,
+  crewsAllRunsPerDay,
+  outsideScope,
   crewRunsToday,
   crewsSnapshot,
   getCrew,
@@ -47,6 +54,7 @@ import {
   withFeed,
   withIdea,
   withMember,
+  withMemberId,
   withCheckerOnClaude,
   withoutFallbacks,
   type Crew,
@@ -108,8 +116,16 @@ export type CrewRunnerDeps = {
   clearTimer: (id: number) => void;
   /** The window's loaded chats now. */
   sessions: () => readonly Session[];
-  /** Load the member's chat, or make it, without a tab, in the crew's copy. */
-  ensureChat: (crew: Crew, role: CrewChatRole) => Promise<Session | null>;
+  /**
+   * Load the member's chat, or make it, without a tab, in the crew's copy,
+   * on the member's app with its model and effort (or the card's, for a
+   * Builder's turn on a card you gave its own).
+   */
+  ensureChat: (
+    crew: Crew,
+    memberId: string,
+    override?: { model?: string; effort?: string },
+  ) => Promise<Session | null>;
   /** Send a message into a chat; false when it could not go. */
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
   /** Stop a chat's turn. */
@@ -135,8 +151,8 @@ export type CrewRunnerDeps = {
       drafts: readonly FeatureCardDraft[],
     ) => Promise<readonly FeatureCard[]>;
   };
-  /** A member's name: its own, or its critter's. */
-  name: (crew: Crew, role: CrewRole) => string;
+  /** A member's name (by its id, or a role for its first): its own, or its critter's. */
+  name: (crew: Crew, who: string) => string;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
@@ -167,6 +183,8 @@ export function resetCrewRunnerSession() {
 
 type LiveTurn = {
   role: CrewChatRole;
+  /** The member taking it. */
+  memberId: string;
   /** The card it works on; none for the Scout. */
   cardId?: string;
   sessionId: string;
@@ -410,6 +428,7 @@ export class CrewRunner {
       weeklyUsed: this.deps.weeklyUsed(now),
       fixerRuns: this.deps.fixerRuns(crew.path, now),
       allRuns,
+      allRunsCap: crewsAllRunsPerDay(),
     });
   }
 
@@ -459,17 +478,26 @@ export class CrewRunner {
         return this.clearHold(crew);
       // A turn sent before (by an earlier page, say) whose end was never read.
       if (inCopy.turn) return this.recover(crew, inCopy);
+      const role = inCopy.holder ?? "builder";
+      const member =
+        role === "builder"
+          ? cardBuilder(crew, inCopy)
+          : cardChecker(crew, inCopy);
+      // Every Builder (or Checker) is off or gone: the card waits, and says why.
+      if (!member) return this.hold(crew, crewNoMemberGate(role));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
-      return this.sendCardTurn(path, inCopy.id, inCopy.holder ?? "builder");
+      return this.sendCardTurn(path, inCopy.id, role, member.id);
     }
     const next = nextCardToStart(crew);
     if (next) {
+      const builder = cardBuilder(crew, crewCard(crew, next)!);
+      if (!builder) return this.hold(crew, crewNoMemberGate("builder"));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
-      return this.sendCardTurn(path, next, "builder");
+      return this.sendCardTurn(path, next, "builder", builder.id);
     }
     // Idle. A Scout idea may start by itself, or the Scout may look. The
     // Board is read only when one of them could go.
@@ -541,10 +569,31 @@ export class CrewRunner {
     this.schedule();
   }
 
-  private names(crew: Crew) {
+  /** The names of a card's Builder and Checker: who it was given to, or the rules' pick. */
+  private names(
+    crew: Crew,
+    card?: CrewCard,
+    taking?: { role: CrewLoopRole; memberId: string },
+  ) {
+    const builder =
+      (taking?.role === "builder" ? taking.memberId : undefined) ??
+      (card?.builderId && crewMemberById(crew, card.builderId)
+        ? card.builderId
+        : card
+          ? cardBuilder(crew, card)?.id
+          : undefined) ??
+      "builder";
+    const checker =
+      (taking?.role === "checker" ? taking.memberId : undefined) ??
+      (card?.checkerId && crewMemberById(crew, card.checkerId)
+        ? card.checkerId
+        : card
+          ? cardChecker(crew, card)?.id
+          : undefined) ??
+      "checker";
     return {
-      builder: this.deps.name(crew, "builder"),
-      checker: this.deps.name(crew, "checker"),
+      builder: this.deps.name(crew, builder),
+      checker: this.deps.name(crew, checker),
     };
   }
 
@@ -705,7 +754,12 @@ export class CrewRunner {
   }
 
   /** Send the card's holder its turn: the Builder's round, or the Checker's check. */
-  private async sendCardTurn(path: string, cardId: string, role: CrewLoopRole) {
+  private async sendCardTurn(
+    path: string,
+    cardId: string,
+    role: CrewLoopRole,
+    memberId: string,
+  ) {
     const key = projectKey(path);
     const now = this.deps.now();
     const before = getCrew(path);
@@ -713,6 +767,7 @@ export class CrewRunner {
     const onAt = before.onAt;
     const turn: LiveTurn = {
       role,
+      memberId,
       cardId,
       sessionId: "",
       turnId: this.newId(),
@@ -735,9 +790,18 @@ export class CrewRunner {
       if (fresh) card = { ...startCard(card, now), base: prepared.base };
       if (!card.base)
         throw new Error("The card has no starting point in the copy.");
-      const chat = await this.deps.ensureChat(crew, role);
+      // Switched off or removed meanwhile: the next look picks again.
+      const member = crewMemberById(crew, memberId);
+      if (!member || member.paused) return this.endTurn(path, turn);
+      const chat = await this.deps.ensureChat(
+        crew,
+        memberId,
+        role === "builder" ? card.override : undefined,
+      );
       if (!chat)
-        throw new Error(`Couldn't open ${this.deps.name(crew, role)}'s chat.`);
+        throw new Error(
+          `Couldn't open ${this.deps.name(crew, memberId)}'s chat.`,
+        );
       if (!this.stillOn(path, onAt)) return this.endTurn(path, turn);
       if (chatAtWork(chat)) {
         // You are talking to it, or it waits on you: the card waits too.
@@ -751,7 +815,7 @@ export class CrewRunner {
       }
       turn.sessionId = chat.id;
       this.updateWorking();
-      const names = this.names(crew);
+      const names = this.names(crew, card, { role, memberId });
       // A new card's first build, and its first check, start a new
       // conversation; later rounds keep theirs, so a re-check remembers.
       const freshTalk = card.round <= 1 && (role === "builder" ? fresh : true);
@@ -762,17 +826,35 @@ export class CrewRunner {
           ? undefined
           : crewBrief({
               role,
-              name: this.deps.name(crew, role),
+              name: this.deps.name(crew, memberId),
+              ...(member.label ? { label: member.label } : {}),
+              ...(member.job ? { job: member.job } : {}),
               project: crew.path,
               copyPath: crew.copy?.path ?? "",
               names,
-              harness: crewMemberApp(crewMember(crew, role)).harness,
+              harness: crewMemberApp(member).harness,
               maxRounds: card.maxRounds,
             });
       let hashBefore: string | undefined;
-      if (role === "checker")
-        hashBefore = (await this.deps.copy.diff(crew.copy!.path, card.base))
-          .hash;
+      let builderScope:
+        { scope: readonly string[]; outside: readonly string[] } | undefined;
+      if (role === "checker") {
+        const diff = await this.deps.copy.diff(crew.copy!.path, card.base);
+        hashBefore = diff.hash;
+        const scope = crewMemberById(crew, card.builderId ?? "")?.scope;
+        if (scope?.length)
+          builderScope = {
+            scope,
+            outside: outsideScope(
+              diff.files.map((file) => file.path),
+              scope,
+            ),
+          };
+      }
+      const guidance = {
+        ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.scope?.length ? { scope: member.scope } : {}),
+      };
       const text =
         role === "builder"
           ? builderMessage({
@@ -781,8 +863,16 @@ export class CrewRunner {
               names,
               brief,
               sync: prepared.sync,
+              guidance,
             })
-          : checkerMessage({ card, notes: crew.notes, names, brief });
+          : checkerMessage({
+              card,
+              notes: crew.notes,
+              names,
+              brief,
+              guidance,
+              ...(builderScope ? { builderScope } : {}),
+            });
       const label = crewTurnLabel({
         role,
         card,
@@ -807,7 +897,7 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, role)} the card.`,
+          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
         );
       turn.sentAt = this.deps.now();
       const started = card;
@@ -819,6 +909,9 @@ export class CrewRunner {
         let next = withCrewRun(current, turn.sentAt!);
         next = withCard(next, {
           ...started,
+          ...(role === "builder"
+            ? { builderId: memberId }
+            : { checkerId: memberId }),
           turn: {
             role,
             sessionId: chat.id,
@@ -829,7 +922,7 @@ export class CrewRunner {
           runs: started.runs + 1,
           updatedAt: turn.sentAt!,
         });
-        next = withMember(next, role, (member) => ({
+        next = withMemberId(next, memberId, (member) => ({
           ...member,
           sessionId: chat.id,
           doing: {
@@ -845,6 +938,7 @@ export class CrewRunner {
               at: turn.sentAt!,
               kind: "start",
               who: "builder",
+              member: memberId,
               cardId: started.id,
               title: started.title,
               round: 1,
@@ -874,10 +968,11 @@ export class CrewRunner {
             role,
             error: errorText(error),
             now,
-            name: this.deps.name(current, role),
+            name: this.deps.name(current, memberId),
           }),
           role,
           now,
+          memberId,
         );
       });
       this.endTurn(path, turn);
@@ -890,9 +985,15 @@ export class CrewRunner {
    */
   private async recover(crew: Crew, card: CrewCard) {
     const sent = card.turn!;
+    const member =
+      crew.members.find((entry) => entry.sessionId === sent.sessionId) ??
+      (sent.role === "builder"
+        ? cardBuilder(crew, card)
+        : cardChecker(crew, card));
+    if (!member) return;
     const chat =
       this.chatNow(sent.sessionId) ??
-      (await this.deps.ensureChat(crew, sent.role).catch(() => null));
+      (await this.deps.ensureChat(crew, member.id).catch(() => null));
     if (!chat || chatAtWork(chat)) return;
     if (!chat.blocks.some((block) => block.id === sent.turnId)) {
       updateCrew(crew.path, (current) => {
@@ -907,6 +1008,7 @@ export class CrewRunner {
     if (!claimCrewJob(crew.path, this.deps.owner, now)) return;
     const turn: LiveTurn = {
       role: sent.role,
+      memberId: member.id,
       cardId: card.id,
       sessionId: chat.id,
       turnId: sent.turnId,
@@ -953,20 +1055,20 @@ export class CrewRunner {
     if (!card || card.turn?.turnId !== turn.turnId) return;
     const role = turn.role as CrewLoopRole;
     const now = this.deps.now();
-    const names = this.names(crew);
+    const names = this.names(crew, card, { role, memberId: turn.memberId });
     let step: LoopStep;
     if (turn.timedOut)
       step = turnTimedOut(card, {
         role,
         minutes: crew.limits.turnMinutes,
         now,
-        name: this.deps.name(crew, role),
+        name: this.deps.name(crew, turn.memberId),
       });
     else if (
       role === "checker" &&
       outcome?.status === "failed" &&
       isCodexToolsOpen(`${outcome.error ?? ""} ${outcome.text ?? ""}`) &&
-      crewMemberApp(crewMember(crew, "checker")).harness === "codex"
+      crewMemberApp(crewMemberById(crew, turn.memberId)).harness === "codex"
     ) {
       // Codex couldn't be locked down here: never run it unlocked. The
       // Checker checks with Claude for this session, and the same check
@@ -980,6 +1082,7 @@ export class CrewRunner {
             current,
             this.deps.checkerFallbackModel?.(current),
             now,
+            turn.memberId,
           ),
           { ...known, turn: undefined, updatedAt: now },
         );
@@ -991,7 +1094,7 @@ export class CrewRunner {
         error:
           outcome.status === "cancelled" ? "it was stopped" : outcome.error,
         now,
-        name: this.deps.name(crew, role),
+        name: this.deps.name(crew, turn.memberId),
       });
     else {
       const reply =
@@ -1019,11 +1122,23 @@ export class CrewRunner {
         const edited =
           !diff ||
           (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
+        // A Builder kept to its scope: changes outside it are a must-fix,
+        // from the copy's own diff, whatever the verdict says.
+        const builder = crewMemberById(crew, card.builderId ?? "");
+        const scope = builder?.scope ?? [];
+        const outside = outsideScope(
+          diff?.files.map((file) => file.path) ?? [],
+          scope,
+        );
         step = afterCheck(card, {
-          verdict: parseVerdict(reply, {
-            round: card.round,
-            earlier: earlierFindings(card),
-          }),
+          verdict: withScopeCheck(
+            parseVerdict(reply, {
+              round: card.round,
+              earlier: earlierFindings(card),
+            }),
+            outside,
+            { builder: names.builder, scope },
+          ),
           edited,
           // A pass makes exactly what the Checker saw the fix.
           seen: edited ? null : changeFrom(diff, card.base ?? ""),
@@ -1033,7 +1148,9 @@ export class CrewRunner {
       }
     }
     if (!this.stillOn(path, turn.onAt)) return;
-    updateCrew(path, (current) => this.commit(current, step, role, now));
+    updateCrew(path, (current) =>
+      this.commit(current, step, role, now, turn.memberId),
+    );
     if (step.event.kind === "ready")
       await Promise.resolve(this.deps.board.move(path, step.card.id, "review"));
   }
@@ -1044,11 +1161,13 @@ export class CrewRunner {
     step: LoopStep,
     role: CrewLoopRole,
     now: number,
+    memberId: string,
   ): Crew {
     const { event } = step;
     let card = step.card;
-    const builder = this.deps.name(crew, "builder");
-    const checker = this.deps.name(crew, "checker");
+    const { builder, checker } = this.names(crew, card, { role, memberId });
+    const builderId = role === "builder" ? memberId : card.builderId;
+    const checkerId = role === "checker" ? memberId : card.checkerId;
     const entry: Omit<CrewFeedEntry, "id"> = {
       at: now,
       kind: "handoff",
@@ -1062,6 +1181,7 @@ export class CrewRunner {
         Object.assign(entry, {
           kind: "handoff",
           who: "builder",
+          ...(builderId ? { member: builderId } : {}),
           to: "checker",
           round: event.round,
           text:
@@ -1076,6 +1196,7 @@ export class CrewRunner {
         Object.assign(entry, {
           kind: "verdict",
           who: "checker",
+          ...(checkerId ? { member: checkerId } : {}),
           to: "builder",
           round: event.round - 1,
           text: `${event.mustFix} must-fix: ${(verdict?.mustFix ?? [])
@@ -1088,6 +1209,7 @@ export class CrewRunner {
         Object.assign(entry, {
           kind: "ready",
           who: "checker",
+          ...(checkerId ? { member: checkerId } : {}),
           round: event.round,
           text: `Ready for you · passed ${checker}'s check in round ${event.round}`,
         });
@@ -1097,6 +1219,9 @@ export class CrewRunner {
         Object.assign(entry, {
           kind: "stuck",
           who: event.kind === "question" ? "builder" : "aven",
+          ...(event.kind === "question" && builderId
+            ? { member: builderId }
+            : {}),
           text: event.text,
         });
         break;
@@ -1111,7 +1236,7 @@ export class CrewRunner {
         inbox: crewInboxCard(card, now, { checker }),
       };
     let next = withFeed(withCard(crew, card), entry);
-    next = withMember(next, role, (member) =>
+    next = withMemberId(next, memberId, (member) =>
       member.doing ? { ...member, doing: undefined } : member,
     );
     return next;
@@ -1125,8 +1250,11 @@ export class CrewRunner {
     const now = this.deps.now();
     const before = getCrew(path);
     if (!before || !claimCrewJob(path, this.deps.owner, now)) return;
+    const scout = crewMember(before, "scout");
+    if (!scout) return releaseCrewJob(path, this.deps.owner);
     const turn: LiveTurn = {
       role: "scout",
+      memberId: scout.id,
       sessionId: "",
       turnId: this.newId(),
       onAt: before.onAt,
@@ -1138,10 +1266,12 @@ export class CrewRunner {
       if (!prepared || !this.stillOn(path, turn.onAt))
         return this.endTurn(path, turn);
       const crew = prepared.crew;
-      const chat = await this.deps.ensureChat(crew, "scout");
+      const member = crewMemberById(crew, turn.memberId);
+      if (!member || member.paused) return this.endTurn(path, turn);
+      const chat = await this.deps.ensureChat(crew, turn.memberId);
       if (!chat)
         throw new Error(
-          `Couldn't open ${this.deps.name(crew, "scout")}'s chat.`,
+          `Couldn't open ${this.deps.name(crew, turn.memberId)}'s chat.`,
         );
       if (chatAtWork(chat)) return this.endTurn(path, turn);
       turn.sessionId = chat.id;
@@ -1160,13 +1290,17 @@ export class CrewRunner {
             ? undefined
             : crewBrief({
                 role: "scout",
-                name: this.deps.name(crew, "scout"),
+                name: this.deps.name(crew, turn.memberId),
                 project: crew.path,
                 copyPath: crew.copy?.path ?? "",
                 names: this.names(crew),
                 maxRounds: crew.limits.roundsPerCard,
               }),
         sync: prepared.sync,
+        guidance: {
+          ...(member.instructions ? { instructions: member.instructions } : {}),
+          ...(member.scope?.length ? { scope: member.scope } : {}),
+        },
       });
       const label = crewTurnLabel({ role: "scout" });
       // Last look before it goes (see `mayStillSend`): and still idle.
@@ -1288,7 +1422,7 @@ export class CrewRunner {
       const waiting = chatNeedsYou(chat);
       const now = this.deps.now();
       if (waiting && card.stage !== "stuck") {
-        const who = this.deps.name(crew, turn.role);
+        const who = this.deps.name(crew, turn.memberId);
         const text = `${who} is waiting on ${waiting}`;
         updateCrew(crew.path, (current) => {
           const known = crewCard(current, card.id);
@@ -1302,12 +1436,13 @@ export class CrewRunner {
           return withFeed(
             withCard(current, {
               ...stuck,
-              inbox: crewInboxCard(stuck, now, this.names(current)),
+              inbox: crewInboxCard(stuck, now, this.names(current, stuck)),
             }),
             {
               at: now,
               kind: "stuck",
               who: turn.role,
+              member: turn.memberId,
               cardId: card.id,
               title: card.title,
               text,

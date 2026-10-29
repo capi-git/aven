@@ -52,6 +52,8 @@ export type CrewGateInput = {
   fixerRuns: number;
   /** Every crew's runs today, Fixers included. */
   allRuns: number;
+  /** Every crew's runs a day together (your setting; 60 unless you changed it). */
+  allRunsCap?: number;
 };
 
 /** The crew's runs today, its Fixer's included. */
@@ -108,14 +110,28 @@ export function crewGate(input: CrewGateInput): CrewGate {
       title: `Today's ${allowed} runs are used`,
       detail: "The crew picks up again tomorrow.",
     };
-  if (input.allRuns >= CREW_ALL_RUNS_PER_DAY)
+  const cap = input.allRunsCap ?? CREW_ALL_RUNS_PER_DAY;
+  if (input.allRuns >= cap)
     return {
       ok: false,
       reason: "all-crews-cap",
-      title: `All crews' ${CREW_ALL_RUNS_PER_DAY} runs today are used`,
+      title: `All crews' ${cap} runs today are used`,
       detail: "Crews pick up again tomorrow.",
     };
   return { ok: true };
+}
+
+/** Every Builder (or Checker) is off or removed: the card waits, and says why. */
+export function crewNoMemberGate(
+  role: "builder" | "checker",
+): Exclude<CrewGate, { ok: true }> {
+  const label = CREW_ROLE_INFO[role].label;
+  return {
+    ok: false,
+    reason: "no-member",
+    title: `No ${label} is on`,
+    detail: `Turn one on, or add one, in the crew's settings. The card waits.`,
+  };
 }
 
 /**
@@ -180,21 +196,26 @@ export function ideasLeft(crew: Crew, now: number): number {
   );
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
 /**
- * Whether the Scout looks for ideas now: once a day at most by itself, while
- * the crew is idle with nothing it could start, and with ideas left today.
+ * Whether the Scout looks for ideas now: as often as you set it (once a
+ * day, once a week, or never), while the crew is idle with nothing it could
+ * start, and with ideas left today.
  */
 export function scoutShouldLook(
   crew: Crew,
   now: number,
   hasIdeaToStart: boolean,
 ): boolean {
-  if (!crew.members.some((member) => member.role === "scout" && !member.paused))
-    return false;
+  const scout = crew.members.find((member) => member.role === "scout");
+  if (!scout || scout.paused || scout.schedule === "off") return false;
   if (cardInCopy(crew) || queuedCards(crew).length || hasIdeaToStart)
     return false;
   if (ideasLeft(crew, now) <= 0) return false;
-  return !crew.scoutAt || localDay(crew.scoutAt) !== localDay(now);
+  if (!crew.scoutAt) return true;
+  if (scout.schedule === "weekly") return now - crew.scoutAt >= WEEK_MS;
+  return localDay(crew.scoutAt) !== localDay(now);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +241,11 @@ export function crewLimitsLine(crew: Crew, now: number, fixerRuns = 0): string {
     .join(" · ");
 }
 
-/** The fixed limits, as the settings sheet lists them. */
-export function crewLimitRows(crew: Crew): { title: string; detail: string }[] {
+/** The limits in words. */
+export function crewLimitRows(
+  crew: Crew,
+  allRunsCap = CREW_ALL_RUNS_PER_DAY,
+): { title: string; detail: string }[] {
   const builder = CREW_ROLE_INFO.builder.label;
   const checker = CREW_ROLE_INFO.checker.label;
   return [
@@ -230,7 +254,7 @@ export function crewLimitRows(crew: Crew): { title: string; detail: string }[] {
       detail: "Then it stops and asks you",
     },
     {
-      title: `${crew.limits.runsPerDay} runs a day per crew · ${CREW_ALL_RUNS_PER_DAY} for all crews`,
+      title: `${crew.limits.runsPerDay} runs a day per crew · ${allRunsCap} for all crews`,
       detail: `One run is one bot turn. ${builder} + ${checker} × ${crew.limits.roundsPerCard} rounds = ${crew.limits.roundsPerCard * 2}`,
     },
     {

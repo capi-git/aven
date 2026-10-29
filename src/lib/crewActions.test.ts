@@ -519,8 +519,13 @@ describe("a check that failed because Codex couldn't be locked down", () => {
           ...crew,
           on: true,
           members: [
-            { role: "builder", model: "claude:opus" },
-            { role: "checker", harness: "codex", model: "codex:gpt" },
+            { id: "builder", role: "builder", model: "claude:opus" },
+            {
+              id: "checker",
+              role: "checker",
+              harness: "codex",
+              model: "codex:gpt",
+            },
           ],
         },
         card,
