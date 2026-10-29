@@ -50,13 +50,11 @@ export const SETTINGS = {
   }),
   agentConnections: defineSetting({
     section: "connections",
-    label: "Agent connections",
+    label: "MCP servers",
     description:
-      "Extra tools your agents can use: add, remove, and sign in to MCP servers for Claude and Codex.",
+      "Extra tools Claude and Codex can use: add, sign in to, turn off, or remove MCP servers.",
     keywords:
-      "mcp servers connectors apps sign in login add remove claude.ai chatgpt integration status",
-    rowDescription:
-      "Extra tools your agents can use. Add, remove, and sign in to the MCP servers Claude and Codex can reach. Each provider keeps its own settings and sign-in.",
+      "agent connections connectors apps sign in login add remove turn off disable hide claude.ai chatgpt integration status",
   }),
   defaultTaskAccess: defineSetting({
     section: "tasks",

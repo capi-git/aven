@@ -1,105 +1,387 @@
-.provider-connections li {
-  align-items: center;
+/* Settings → MCP servers. Groups use the shared grouped card; rows inside
+   it are the shared list rows (chrome/Menu.css): no lines between them, a
+   grey lift under the pointer, a 6px corner inset 4px from the card. Colour
+   is only the small status dot. */
+.mcp-page {
+  min-width: 0;
+  scroll-margin-top: 24px;
 }
-.provider-connections strong {
+.mcp-page:focus {
+  outline: none;
+}
+
+/* The page's two actions, with what is being checked beside them. */
+.mcp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: -6px 0 10px;
+}
+.mcp-toolbar-status {
+  min-width: 0;
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.mcp-toolbar-actions {
   display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 2px 9px 2px 8px;
-  border: 1px solid var(--provider-state-edge, var(--aven-line));
-  border-radius: var(--aven-radius-capsule);
-  background: var(--provider-state-fill, transparent);
-  color: var(--color-content);
-  font-size: var(--text-ui-caption);
-  font-weight: 500;
-  line-height: 16px;
-  text-align: right;
 }
-/* Each state gets a colored dot; the label stays in the content color. */
-.provider-connections strong::before {
-  content: "";
+.mcp-toolbar .settings-button,
+.mcp-action {
+  min-height: 26px;
+  padding-block: 2px;
+  font-size: var(--text-ui-caption);
+}
+.mcp-notice {
+  margin: -4px 0 14px;
+  padding: 8px 12px;
+  border-radius: var(--aven-radius-md);
+  background: var(--aven-fill-quaternary);
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mcp-notice[data-tone="error"] {
+  color: var(--aven-danger-text);
+}
+
+.mcp-count {
+  margin-left: 2px;
+  color: var(--aven-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.mcp-group .settings-group-surface {
+  padding: var(--aven-menu-inset);
+}
+.mcp-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Status: a 6px dot in the state's colour; the words stay quiet. */
+.mcp-row,
+.mcp-fold-item {
+  --mcp-dot: var(--aven-label-secondary, var(--aven-muted));
+}
+.mcp-row[data-state="ready"] {
+  --mcp-dot: var(--color-emerald-400, #34c759);
+}
+.mcp-row[data-state="needs-sign-in"],
+.mcp-fold-item[data-state="needs-sign-in"] {
+  --mcp-dot: var(--aven-needs-you);
+}
+.mcp-row[data-state="failed"] {
+  --mcp-dot: var(--color-red-400, #ff453a);
+}
+.mcp-row[data-state="off"],
+.mcp-row[data-state="hidden"] {
+  --mcp-dot: transparent;
+}
+.mcp-dot {
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
-  flex-shrink: 0;
   border-radius: 50%;
-  background: var(--provider-state-dot, var(--aven-muted));
+  background: var(--mcp-dot);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--aven-label-secondary) 70%, transparent);
 }
-.provider-connections li[data-state="ready"] {
-  --provider-state-dot: #34c759;
+.mcp-row:is(
+    [data-state="ready"],
+    [data-state="needs-sign-in"],
+    [data-state="failed"]
+  )
+  .mcp-dot,
+.mcp-fold-item .mcp-dot {
+  box-shadow: none;
 }
-.provider-connections li[data-state="needs-sign-in"] {
-  --provider-state-dot: #ffb340;
-  --provider-state-fill: color-mix(in srgb, #ffb340 12%, transparent);
-  --provider-state-edge: color-mix(in srgb, #ffb340 30%, transparent);
+.mcp-row[data-state="starting"] .mcp-dot {
+  animation: mcp-dot-pulse 1.2s ease-in-out infinite;
 }
-.provider-connections li[data-state="failed"] {
-  --provider-state-dot: #ff5f57;
-  --provider-state-fill: color-mix(in srgb, #ff5f57 12%, transparent);
-  --provider-state-edge: color-mix(in srgb, #ff5f57 30%, transparent);
-}
-.provider-connections li[data-state="starting"] strong::before {
-  animation: provider-state-pulse 1.2s ease-in-out infinite;
-}
-@keyframes provider-state-pulse {
+@keyframes mcp-dot-pulse {
   50% {
     opacity: 0.3;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .provider-connections li[data-state="starting"] strong::before {
+  .mcp-row[data-state="starting"] .mcp-dot {
     animation: none;
   }
 }
-.provider-connection-name {
+
+.mcp-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 16px;
+  min-height: 48px;
+  padding: 7px 10px;
+  border-radius: var(--aven-radius-row);
+  transition: background-color 120ms ease;
+}
+.mcp-row:hover,
+.mcp-row:focus-within,
+.mcp-row[data-open] {
+  background: var(--aven-menu-highlight);
+}
+.mcp-row-text {
+  display: grid;
   min-width: 0;
-  flex: 1;
+  gap: 1px;
+}
+.mcp-row-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-content);
-  font-size: var(--text-ui-label);
+  font-size: var(--text-ui-body);
   font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.provider-connection-source {
-  font-weight: 400;
-}
-.provider-connection-source {
+.mcp-row-context {
+  min-width: 0;
   color: var(--aven-muted);
-}
-.provider-connection-detail {
-  display: block;
-  margin-top: 2px;
-  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
   overflow-wrap: anywhere;
 }
-.provider-connections-heading {
-  align-items: center;
+/* What is wrong and the fix: the one sentence that matters on the row. */
+.mcp-row-problem,
+.mcp-row-note {
+  max-width: 68ch;
+  margin: 4px 0 0;
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
 }
-.provider-connections-actions,
-.provider-row-confirm,
-.provider-form-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+.mcp-row-note {
+  margin-top: 3px;
+  color: var(--aven-muted);
 }
-.provider-connections-heading .settings-button,
-.provider-row-action {
-  min-height: 26px;
-  padding-block: 2px;
-  font-size: var(--text-ui-caption);
+/* An inline text action: Details, Hide copy. */
+.mcp-link {
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--aven-label-secondary, var(--aven-muted));
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
-.provider-row-action {
-  flex-shrink: 0;
-}
-.skills-tool p.provider-connection-notice {
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-md);
-  background: var(--aven-field-bg);
+.mcp-link:hover {
   color: var(--color-content);
 }
-.skills-tool p.provider-connection-notice[data-tone="error"] {
-  border-color: color-mix(in srgb, #ef4444 45%, var(--aven-line));
+.mcp-link:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: 1px;
+}
+/* The agent's own words, for whoever wants them. */
+.mcp-row-details {
+  max-width: 100%;
+  margin: 6px 0 2px;
+  padding: 7px 9px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-fill-quaternary);
+  color: var(--aven-label-secondary, var(--aven-muted));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-caption);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Status and actions, centred on the name and its context line. */
+.mcp-row-side {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 34px;
+}
+.mcp-row-status,
+.mcp-row-question {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  white-space: nowrap;
+}
+.mcp-row-question {
+  color: var(--color-content);
+}
+.mcp-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-more {
+  width: 26px;
+  padding-inline: 0;
+}
+/* At rest a row shows its state, and every status lines up on the right.
+   Under the pointer or the keyboard its actions take the status's place.
+   A row that needs you keeps its fix in view beside the status; its menu
+   joins it then. */
+.mcp-row:not([data-pinned]):not(:hover, :focus-within, [data-open])
+  .mcp-row-actions,
+.mcp-row[data-pinned]:not(:hover, :focus-within, [data-open]) .mcp-more {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.mcp-row:not([data-pinned], [data-busy]):is(:hover, :focus-within, [data-open])
+  .mcp-row-status {
+  display: none;
+}
+@media (hover: none) {
+  .mcp-row:not([data-pinned]) .mcp-row-actions {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
+  .mcp-row[data-pinned] .mcp-more {
+    position: static;
+    width: 26px;
+    height: auto;
+    clip-path: none;
+  }
+}
+
+/* A folded group of rows: the sign-ins, and the turned-off section. */
+.mcp-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.mcp-fold:hover {
+  background: var(--aven-menu-highlight);
+}
+.mcp-fold:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: -2px;
+}
+.mcp-fold-chevron {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--aven-muted);
+  transition: transform 150ms ease;
+}
+.mcp-fold[aria-expanded="true"] .mcp-fold-chevron {
+  transform: rotate(90deg);
+}
+.mcp-fold-label {
+  flex: 0 0 auto;
+  font-weight: 500;
+}
+.mcp-fold-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-list-nested {
+  padding-left: 20px;
+}
+/* The turned-off section's title is its own fold, chevron last, so its
+   words line up with the other titles. */
+.mcp-group-fold {
+  width: auto;
+  min-height: 0;
+  gap: 6px;
+  margin: -2px 0 -2px -8px;
+  padding: 2px 8px;
+  font-size: inherit;
+  font-weight: inherit;
+}
+.mcp-group-fold:hover {
+  background: var(--aven-fill-quaternary);
+}
+.mcp-group-off .settings-group-header {
+  display: block;
+}
+.mcp-group-off .settings-group-header p {
+  margin-top: 2px;
+}
+
+.mcp-footnote {
+  max-width: 68ch;
+  margin: 4px 0 0;
+  padding: 0 var(--settings-inset, 14px);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.6;
+}
+.mcp-empty p {
+  margin: 0;
+  padding: 14px 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* While the first check runs: quiet bars where rows will be. */
+.mcp-skeleton .mcp-row-text {
+  gap: 7px;
+  padding-block: 4px;
+}
+.mcp-skeleton-bar {
+  display: block;
+  width: 38%;
+  height: 9px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-quaternary);
+}
+.mcp-skeleton-short {
+  width: 22%;
+}
+
+@container settings-shell (max-width: 440px) {
+  .mcp-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mcp-row-side {
+    justify-content: flex-start;
+    min-height: 0;
+  }
+  .mcp-fold-preview {
+    display: none;
+  }
 }
 
 .provider-server-form {
@@ -148,7 +430,11 @@
   color: var(--color-content);
 }
 .provider-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 @container settings-shell (max-width: 560px) {
