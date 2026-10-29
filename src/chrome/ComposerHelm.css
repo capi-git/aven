@@ -364,8 +364,13 @@ html.theme-light .composer-helm {
 }
 @container composer-helm (max-width: 420px) {
   .helm-say-quiet,
+  .helm-say-dots,
   .helm-say [data-helm-agents] {
     display: none;
+  }
+  .helm-say {
+    gap: 6px;
+    padding-left: 9px;
   }
 }
 
@@ -373,7 +378,8 @@ html.theme-light .composer-helm {
 .helm-dialog {
   position: absolute;
   right: -10px;
-  bottom: calc(100% + 16px);
+  /* Clear of the room bar, so the tail points at the critter over it. */
+  bottom: calc(100% + 22px);
   z-index: 40;
   width: min(324px, calc(100cqw - 16px));
   /* The unfurl sets the frame's size in a few held steps: keep that layout
@@ -498,7 +504,7 @@ html.theme-light .composer-helm {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.helm-value > span {
+.helm-value > span:not(.helm-room) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
