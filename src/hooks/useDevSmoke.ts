@@ -43,6 +43,7 @@ import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import {
   agentOpensProblem,
   agentOpensSummary,
+  agentOpensTooSlow,
   readAgentOpens,
 } from "../lib/devSmokePages";
 import { sameProjectPath } from "../lib/recents";
@@ -3438,7 +3439,7 @@ export async function runDevSmoke(
             )?.text ?? "";
         const { opens, failure } = readAgentOpens(text);
         if (failure) throw new Error(failure);
-        const problem = agentOpensProblem(opens);
+        const problem = agentOpensProblem(opens) ?? agentOpensTooSlow(opens);
         if (problem) throw new Error(problem);
         const own = agentPagesOf(config.projectPath).filter(
           (page) => page.agentChat === chat.id,
