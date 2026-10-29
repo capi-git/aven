@@ -48,10 +48,24 @@ function withNetwork(
   };
 }
 
+/**
+ * A chat that may only read (a crew's Checker): Codex's read-only sandbox,
+ * no network, and nothing ever escalates, so a command that would write
+ * fails instead of asking.
+ */
+export const CODEX_READ_ONLY_CONFIG: CodexThreadConfig = {
+  approvalPolicy: "never",
+  sandbox: "read-only",
+  approvalsReviewer: "user",
+  sandboxPolicy: { type: "readOnly" },
+};
+
 export function runtimeModeToCodexConfig(
   mode: RuntimeMode,
   controlsAgents?: boolean,
+  readOnly?: boolean,
 ): CodexThreadConfig {
+  if (readOnly) return CODEX_READ_ONLY_CONFIG;
   return withNetwork(baseCodexConfig(mode), controlsAgents);
 }
 
@@ -92,6 +106,8 @@ export function buildThreadStartParams(input: {
   cwd: string;
   runtimeMode: RuntimeMode;
   controlsAgents?: boolean;
+  /** Read-only, whatever the mode (see `CODEX_READ_ONLY_CONFIG`). */
+  readOnly?: boolean;
   model?: string;
   serviceTier?: string;
   /** Merged host/config instructions; isolated text helpers leave this unset. */
@@ -100,6 +116,7 @@ export function buildThreadStartParams(input: {
   const config = runtimeModeToCodexConfig(
     input.runtimeMode,
     input.controlsAgents,
+    input.readOnly,
   );
   return {
     cwd: input.cwd,
@@ -189,6 +206,8 @@ export function buildTurnStartParams(input: {
   threadId: string;
   runtimeMode: RuntimeMode;
   controlsAgents?: boolean;
+  /** Read-only, whatever the mode or intent (see `CODEX_READ_ONLY_CONFIG`). */
+  readOnly?: boolean;
   prompt?: string;
   attachments?: CodexAttachmentInput[];
   model?: string;
@@ -203,8 +222,9 @@ export function buildTurnStartParams(input: {
     input.runtimeMode,
     input.controlsAgents,
   );
-  const config: CodexThreadConfig =
-    input.intent === "plan"
+  const config: CodexThreadConfig = input.readOnly
+    ? CODEX_READ_ONLY_CONFIG
+    : input.intent === "plan"
       ? withNetwork(
           {
             approvalPolicy: "never",

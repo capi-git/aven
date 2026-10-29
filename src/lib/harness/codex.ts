@@ -48,6 +48,12 @@ import {
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
+import { sessionPermissions } from "./sessionPermissions";
+
+/** A chat that may only read (a crew's Checker), whatever its mode says. */
+function readOnlyChat(sessionId: string): boolean {
+  return sessionPermissions(sessionId)?.readOnly === true;
+}
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -508,6 +514,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             browserHostInstructions,
             runtimeMode: input.runtimeMode,
             controlsAgents: input.controlsAgents,
+            readOnly: readOnlyChat(input.sessionId),
             model,
             serviceTier,
           }),
@@ -526,6 +533,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
               browserHostInstructions,
               runtimeMode: input.runtimeMode,
               controlsAgents: input.controlsAgents,
+              readOnly: readOnlyChat(input.sessionId),
               model,
               serviceTier,
             }),
@@ -557,6 +565,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           browserHostInstructions,
           runtimeMode: input.runtimeMode,
           controlsAgents: input.controlsAgents,
+          readOnly: readOnlyChat(input.sessionId),
           model,
           serviceTier,
         }),
@@ -646,6 +655,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     threadId: live.threadId,
     runtimeMode: input.runtimeMode,
     controlsAgents: input.controlsAgents,
+    readOnly: readOnlyChat(input.sessionId),
     prompt: text.trim() || undefined,
     attachments,
     model,

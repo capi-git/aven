@@ -43,6 +43,12 @@ export type SessionPermissions = {
   mode: "auto";
   rules: ClaudePermissionRules;
   sandbox?: ClaudeSandboxSettings;
+  /**
+   * The chat may read and run commands but never write (a crew's Checker or
+   * Scout). Claude gets it through `rules` and `sandbox`; Codex runs the
+   * chat in its read-only sandbox, never asking to escalate.
+   */
+  readOnly?: boolean;
 };
 
 type Resolver = (sessionId: string) => SessionPermissions | undefined;
@@ -73,6 +79,7 @@ export function permissionRulesKey(
         permissions.rules.ask ?? [],
         permissions.rules.deny ?? [],
         permissions.sandbox ?? null,
+        permissions.readOnly ?? false,
       ])
     : "";
 }

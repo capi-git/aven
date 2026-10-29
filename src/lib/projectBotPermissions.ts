@@ -4,6 +4,7 @@ import {
 } from "./harness/sessionPermissions";
 import { slash } from "./paths";
 import { botForChat, type ProjectBot } from "./projectBots";
+import { CREW_ROLE_INFO, crewForChat, type Crew, type CrewRole } from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
 import type { ClaudeSandboxSettings } from "./harness/sessionPermissions";
@@ -228,8 +229,72 @@ export function botSandbox(
 }
 
 /**
- * Every window launches bot chats with their rules, sandbox and auto mode,
- * from any spawn path (a message, a resume, a compaction).
+ * A crew member's rules. The Builder's are a bot's: it changes files only
+ * in the crew's copy, and never pushes, opens pull requests, publishes or
+ * deploys. The Checker and Scout may only read: editing the copy, or your
+ * folder, is denied outright rather than asked, so a check can never "fix
+ * it itself" or weaken a test to pass.
+ */
+export function crewPermissionRules(
+  crew: Pick<Crew, "path" | "copy">,
+  role: Exclude<CrewRole, "fixer">,
+): ClaudePermissionRules {
+  const rules = botPermissionRules({ path: crew.path });
+  if (CREW_ROLE_INFO[role].edits) return rules;
+  return {
+    deny: [
+      ...(rules.deny ?? []),
+      `Edit(${absolutePathRule(crew.path)})`,
+      ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+    ],
+    ask: (rules.ask ?? []).filter((rule) => !rule.startsWith("Edit(")),
+  };
+}
+
+/**
+ * A crew member's sandbox: a bot's, in the crew's copy. For the Checker and
+ * Scout, commands may not write the copy's own files either (its top-level
+ * entries Git doesn't ignore), while caches, build output and the temp
+ * folder stay writable so tests still run. Aven also compares the copy's
+ * fingerprint before and after a check, so anything that slips past voids
+ * the verdict (see `afterCheck`).
+ */
+export function crewSandbox(
+  crew: Pick<Crew, "copy">,
+  role: Exclude<CrewRole, "fixer">,
+  browserSocket = agentBrowserSocket(),
+): ClaudeSandboxSettings {
+  const sandbox = botSandbox({ copy: crew.copy }, browserSocket);
+  if (CREW_ROLE_INFO[role].edits || !crew.copy?.sources?.length) return sandbox;
+  return {
+    ...sandbox,
+    filesystem: {
+      denyWrite: [
+        ...(sandbox.filesystem?.denyWrite ?? []),
+        ...crew.copy.sources.map((path) => slash(path).replace(/\/+$/, "")),
+      ],
+    },
+  };
+}
+
+/** What a crew member's chat launches with, or undefined for any other chat. */
+export function crewChatPermissions(sessionId: string) {
+  const found = crewForChat(sessionId);
+  if (!found || found.member.role === "fixer") return undefined;
+  const role = found.member.role;
+  const readOnly = !CREW_ROLE_INFO[role].edits;
+  return {
+    mode: "auto" as const,
+    rules: crewPermissionRules(found.crew, role),
+    sandbox: crewSandbox(found.crew, role),
+    ...(readOnly ? { readOnly: true } : {}),
+  };
+}
+
+/**
+ * Every window launches bot chats (a crew's included) with their rules,
+ * sandbox and auto mode, from any spawn path (a message, a resume, a
+ * compaction).
  */
 export function installBotPermissions(): () => void {
   return installSessionPermissions((sessionId) => {
@@ -240,6 +305,6 @@ export function installBotPermissions(): () => void {
           rules: botPermissionRules(bot),
           sandbox: botSandbox(bot),
         }
-      : undefined;
+      : crewChatPermissions(sessionId);
   });
 }
