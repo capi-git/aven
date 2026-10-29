@@ -289,3 +289,52 @@ it("gives a renamed session one time and its current title everywhere", async ()
   });
   expect(again).toBe(data);
 });
+
+it("leaves an automation run's own chat out of Home's lists, but not what it asks", async () => {
+  // The run's chat is its own: it is in Automations.
+  storage.set(
+    "aven.scheduledRuns.v1",
+    JSON.stringify([
+      {
+        id: "run-1",
+        scheduleId: "brief",
+        name: "Morning briefing",
+        project: APP,
+        sessionId: "run-chat",
+        status: "running",
+        summary: "",
+        startedAt: 1,
+        inAutomations: true,
+      },
+    ]),
+  );
+  const runChat = { ...session("run-chat", [user, reply("Hel")], true) };
+  const saved = (id: string): SessionSummary => ({
+    id,
+    cwd: APP,
+    harness: "codex",
+    model: "gpt-5",
+    runtimeMode: "full-access",
+    title: `Task ${id}`,
+    createdAt: 1,
+    updatedAt: 9,
+  });
+  const working = await render({
+    enabled: true,
+    sessions: [runChat, session("b", [user])],
+    inFlightIds: new Set(["run-chat"]),
+    history: [saved("run-chat"), saved("b")],
+  });
+  expect(working.recent.map((row) => row.id)).toEqual(["b"]);
+  expect(working.running).toEqual([]);
+  expect(working.projects[0]!.resumeId).toBe("b");
+  // When it waits on you, Needs you lists it: opening it shows the run.
+  const asking = await render({
+    enabled: true,
+    sessions: [{ ...runChat, blocks: [user, approval] }, session("b", [user])],
+    inFlightIds: new Set(["run-chat"]),
+    history: [saved("run-chat"), saved("b")],
+  });
+  expect(asking.needsYou.map((row) => row.id)).toEqual(["run-chat"]);
+  expect(asking.recent.map((row) => row.id)).toEqual(["b"]);
+});

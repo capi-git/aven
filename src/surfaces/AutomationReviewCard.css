@@ -1,0 +1,78 @@
+/* The card an automation run leaves when it has something for you to
+   review or publish: in the Inbox, and atop its run in Automations. A
+   resting card of flat greys; its one filled button is its action. */
+.automation-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 760px;
+  padding: 14px 16px;
+  border: 1px solid var(--aven-resting-card-edge, transparent);
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
+}
+.automation-review-kind {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.automation-review-kind > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.automation-review-mark {
+  width: 14px;
+  height: 14px;
+}
+.automation-review h2 {
+  margin: 0;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.automation-review > p:not(.automation-review-kind) {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+}
+.automation-review-link {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--aven-radius-xs);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.automation-review-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.automation-review-link:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.automation-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.automation-review-error {
+  margin: 0;
+  color: var(--aven-danger-text);
+  font-size: var(--text-ui-label);
+}

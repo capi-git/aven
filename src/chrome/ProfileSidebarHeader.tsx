@@ -38,10 +38,12 @@ type Props = {
   showInbox?: boolean;
   inboxActive?: boolean;
   onOpenInbox?: () => void;
+  /** Cards automations left for you to review or publish. */
+  inboxCount?: number;
   showAutomations?: boolean;
   automationsActive?: boolean;
   onOpenAutomations?: () => void;
-  /** Finished automation runs nobody has opened yet. */
+  /** Failed automation runs nobody has opened yet. */
   automationsUnread?: number;
 };
 
@@ -81,6 +83,7 @@ export function ProfileSidebarHeader({
   showInbox,
   inboxActive,
   onOpenInbox,
+  inboxCount = 0,
   showAutomations,
   automationsActive,
   onOpenAutomations,
@@ -114,6 +117,7 @@ export function ProfileSidebarHeader({
             title: "Inbox: your GitHub issues and pull requests",
             active: inboxActive,
             onClick: onOpenInbox,
+            count: inboxCount,
           },
         ]
       : []),
