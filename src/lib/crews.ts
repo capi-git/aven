@@ -272,6 +272,8 @@ export type CrewCard = {
   stuck?: { reason: CrewStuckReason; text: string };
   /** Your words with One more round or Send back, for the Builder's next turn. */
   note?: string;
+  /** The commit the copy was synced to when the card started: changes are measured from it. */
+  base?: string;
   /** The Ready change: Apply lands exactly this fingerprint. */
   fix?: CrewChange;
   turn?: CrewTurn;
@@ -660,6 +662,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
       ? { stuck: { reason: stuck.reason, text: stuck.text.slice(0, 400) } }
       : {}),
     ...(note ? { note } : {}),
+    ...(text(raw.base, 64) ? { base: text(raw.base, 64) } : {}),
     ...(fix ? { fix } : {}),
     ...(turn &&
     (turn.role === "builder" || turn.role === "checker") &&

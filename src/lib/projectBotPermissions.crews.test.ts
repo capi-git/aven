@@ -91,7 +91,7 @@ describe("no push, no publish, for every crew member", () => {
     expect(ask).toContain(`Edit(/${PROJECT}/**)`);
     expect(deny).not.toContain(`Edit(/${COPY}/**)`);
     expect(
-      crewSandbox(crew, "builder", null).filesystem?.denyWrite,
+      crewSandbox(crew, "builder", undefined).filesystem?.denyWrite,
     ).not.toContain(`${COPY}/src`);
   });
 
@@ -101,7 +101,7 @@ describe("no push, no publish, for every crew member", () => {
       expect(deny).toContain(`Edit(/${COPY}/**)`);
       expect(deny).toContain(`Edit(/${PROJECT}/**)`);
       expect(ask.some((rule) => rule.startsWith("Edit("))).toBe(false);
-      const sandbox = crewSandbox(crew, role, null);
+      const sandbox = crewSandbox(crew, role, undefined);
       expect(sandbox.allowUnsandboxedCommands).toBe(false);
       expect(sandbox.failIfUnavailable).toBe(true);
       // Its commands can't write the copy's own files…
