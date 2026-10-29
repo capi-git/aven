@@ -164,6 +164,10 @@ import {
   type BotPickerProject,
 } from "./BotPicker";
 import { projectAppearance } from "../lib/projectAppearance";
+import {
+  useAutomationChatIds,
+  useOpenReviewRuns,
+} from "../hooks/useAutomationChats";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -313,7 +317,7 @@ export type SidebarProps = {
   automationsActive?: boolean;
   notesActive?: boolean;
   homeActive?: boolean;
-  /** Finished automation runs nobody has opened, counted on its row. */
+  /** Failed automation runs nobody has opened, counted on its tile. */
   automationsUnread?: number;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
@@ -695,18 +699,24 @@ function SidebarComponent({
   // An open race is one row: its lanes fold into the chat it came from,
   // wherever that chat's row is listed. Several races can start from one.
   const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
-  // A bot's chat is its pinned row, never one of the project's chats.
-  const botChats = useMemo(
+  // A bot's chat is its pinned row, and an automation run's chat stays in
+  // Automations: neither is one of the project's chats.
+  const automationChats = useAutomationChatIds();
+  const reviewCards = useOpenReviewRuns();
+  const hiddenChats = useMemo(
     () =>
-      new Set(bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : []))),
-    [bots],
+      new Set([
+        ...bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : [])),
+        ...automationChats,
+      ]),
+    [bots, automationChats],
   );
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
     openSessions,
     sessionFolders,
   ).filter(
-    (session) => !session.orchestrationLeadId && !botChats.has(session.id),
+    (session) => !session.orchestrationLeadId && !hiddenChats.has(session.id),
   );
   const visibleSessions = foldTeamRows(
     filterSessionsByQuery(
@@ -1825,6 +1835,7 @@ function SidebarComponent({
       showInbox={!settingsOpen && !!onOpenInbox}
       inboxActive={inboxActive}
       onOpenInbox={onOpenInbox}
+      inboxCount={reviewCards.length}
       showAutomations={!settingsOpen && !!onOpenAutomations}
       automationsActive={automationsActive}
       onOpenAutomations={onOpenAutomations}
@@ -2015,7 +2026,9 @@ function SidebarComponent({
                         {foldTeamRows(
                           standaloneSessions.filter(
                             (session) =>
-                              !session.archived && !session.orchestrationLeadId,
+                              !session.archived &&
+                              !session.orchestrationLeadId &&
+                              !hiddenChats.has(session.id),
                           ),
                           teams,
                         )
@@ -2069,7 +2082,9 @@ function SidebarComponent({
                         {foldTeamRows(
                           standaloneSessions.filter(
                             (session) =>
-                              !session.archived && !session.orchestrationLeadId,
+                              !session.archived &&
+                              !session.orchestrationLeadId &&
+                              !hiddenChats.has(session.id),
                           ),
                           teams,
                         ).length > SESSION_LIST_PAGE ? (
@@ -2136,7 +2151,7 @@ function SidebarComponent({
                             (session) =>
                               !session.archived &&
                               !session.orchestrationLeadId &&
-                              !botChats.has(session.id),
+                              !hiddenChats.has(session.id),
                           ),
                           teams,
                         ).sort(compareSessionSummaries)

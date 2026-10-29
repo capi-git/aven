@@ -287,15 +287,23 @@ import {
   type RaceWorkspace,
 } from "./lib/race";
 import {
-  finalAssistantText,
-  getScheduledRun,
+  automationChatIds,
+  automationRunForChat,
+  listScheduledRuns,
+  markRunOpenedAsChat,
+  onScheduledRunsTrimmed,
+  requestAutomationRun,
   requestScheduleEditor,
-  runSummary,
-  saveScheduledRun,
-  scheduledAgentProblem,
-  updateScheduledRun,
+  subscribeScheduledRuns,
   type ScheduledAgent,
+  type ScheduledRun,
 } from "./lib/scheduledAgents";
+import {
+  continueAutomationRun,
+  startAutomationRun,
+  type AutomationRunNotice,
+} from "./lib/automationRuns";
+import { reviewHeading } from "./lib/automationReview";
 import {
   DEV_PALETTE_COMMANDS,
   PALETTE_COMMANDS,
@@ -1227,6 +1235,9 @@ export default function App({
     () => {},
   );
   useScheduledAgents((agent) => startScheduledAgentRef.current(agent));
+  const automationReviewActionRef = useRef<
+    (run: ScheduledRun) => Promise<void>
+  >(async () => {});
   useAutomationsKeepAwake();
   const onRaceFromChat = useCallback(
     (
@@ -3488,6 +3499,30 @@ export default function App({
     [discussionList, panelChats],
   );
 
+  const scheduledRuns = useSyncExternalStore(
+    subscribeScheduledRuns,
+    listScheduledRuns,
+  );
+  const runningAutomationChats = useMemo(
+    () =>
+      scheduledRuns.flatMap((run) =>
+        run.status === "running" && run.sessionId ? [run.sessionId] : [],
+      ),
+    [scheduledRuns],
+  );
+  // A run let go of (its automation has too many) leaves its chat archived,
+  // not back among the project's chats, which it never was in.
+  useEffect(
+    () =>
+      onScheduledRunsTrimmed((dropped) => {
+        const kept = automationChatIds();
+        for (const run of dropped)
+          if (run.sessionId && !run.openedAsChat && !kept.has(run.sessionId))
+            void setSessionArchived(run.sessionId, true).catch(() => {});
+      }),
+    [],
+  );
+
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
@@ -3512,6 +3547,9 @@ export default function App({
         ...sessions
           .filter((session) => !session.blocks.length && isBotChat(session.id))
           .map((session) => session.id),
+        // An automation run's chat has no tab: it stays loaded while the
+        // run works, then is parked like any chat.
+        ...runningAutomationChats,
       ],
     );
     const keepUnseen = liveAgentsEnabled;
@@ -3551,6 +3589,7 @@ export default function App({
     orchestrationRuns,
     keptDiscussionKey,
     botWorkingChats,
+    runningAutomationChats,
   ]);
 
   const activateTab = useCallback(
@@ -8705,8 +8744,36 @@ export default function App({
     [enqueueHarnessEvent, flushHarnessEvents, onSubmit],
   );
 
+  /**
+   * Shows one automation run in Automations: where Activity, a banner or the
+   * Inbox take you for a run's chat, which has no tab of its own.
+   */
+  const showAutomationRun = useCallback(
+    async (runId: string): Promise<boolean> => {
+      requestAutomationRun(runId);
+      flushSync(() => {
+        setHomeViewOpen(false);
+        leaveExpandedPreview();
+        onOpenAutomations();
+      });
+      try {
+        const appWindow = getCurrentWindow();
+        await appWindow.unminimize();
+        await appWindow.show();
+        await appWindow.setFocus();
+      } catch {
+        // The view is open; a window that cannot be raised stays where it is.
+      }
+      return true;
+    },
+    [leaveExpandedPreview, onOpenAutomations, setHomeViewOpen],
+  );
+
   const onOpenApprovalSession = useCallback(
     async (sessionId: string): Promise<boolean> => {
+      // A run's chat stays in Automations until it is opened as a chat.
+      const automationRun = automationRunForChat(sessionId);
+      if (automationRun) return showAutomationRun(automationRun.id);
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
@@ -8747,7 +8814,21 @@ export default function App({
       focusOpenSession,
       onSelectHistorySession,
       leaveExpandedPreview,
+      showAutomationRun,
     ],
+  );
+
+  /**
+   * Open as chat: the run's chat becomes an ordinary chat, listed with the
+   * project's chats, and opens in a tab to continue.
+   */
+  const onOpenRunAsChat = useCallback(
+    (run: ScheduledRun): Promise<boolean> => {
+      if (!run.sessionId) return Promise.resolve(false);
+      markRunOpenedAsChat(run.id);
+      return onOpenApprovalSession(run.sessionId);
+    },
+    [onOpenApprovalSession],
   );
 
   useEffect(() => {
@@ -10107,57 +10188,70 @@ export default function App({
     return true;
   };
   startRaceRef.current = startRace;
-  /** Opens behind the user: no tab, project or focus change. */
-  const startScheduledAgent = async (agent: ScheduledAgent) => {
-    const run = {
-      id: crypto.randomUUID(),
-      scheduleId: agent.id,
-      name: agent.name,
-      project: agent.project,
-      summary: "",
-      startedAt: Date.now(),
-    };
-    const problem = await scheduledAgentProblem(agent);
-    if (problem) {
-      saveScheduledRun({
-        ...run,
-        status: "failed",
-        error: problem,
-        finishedAt: Date.now(),
-      });
-      return;
-    }
-    const session: Session = {
-      ...newSession(
-        agent.harness,
-        agent.project,
-        agent.model,
-        agent.runtimeMode,
-      ),
-      title: `Scheduled · ${agent.name}`,
-    };
-    setSessions((previous) => [...previous, session]);
-    appendTab(newTab(session.id), agent.project);
-    saveScheduledRun({ ...run, sessionId: session.id, status: "running" });
-    submitManagedTurn(
-      (settle) => onSubmit(session.id, agent.prompt, [], { onSettled: settle }),
-      (outcome) => {
-        if (!getScheduledRun(run.id)) return;
-        const finished = sessionsRef.current.find(
-          (item) => item.id === session.id,
-        );
-        updateScheduledRun(run.id, {
-          status: outcome.status,
-          summary: runSummary(
-            finalAssistantText(finished?.blocks ?? []) || outcome.text,
-          ),
-          error: outcome.error,
-          finishedAt: Date.now(),
-        });
-      },
+  /**
+   * A run you hear about: it failed, or it left a card to review. Its own
+   * turn posts nothing (see `startAutomationRun`), so this is its one entry.
+   */
+  const announceAutomationRun = ({
+    kind,
+    run,
+    session,
+  }: AutomationRunNotice) => {
+    const chat =
+      sessionsRef.current.find((entry) => entry.id === session.id) ?? session;
+    announceActivity(
+      chat,
+      kind === "failed"
+        ? {
+            id: `${session.id}:automation:${run.id}:failed:${run.finishedAt ?? 0}`,
+            outcome: "failed",
+            summary: run.error || run.summary || "The run failed.",
+          }
+        : {
+            id: `${session.id}:automation:${run.id}:review:${run.review?.postedAt ?? 0}`,
+            outcome: "completed",
+            summary: run.review
+              ? `${reviewHeading(run.review)}: ${run.review.title}`
+              : run.summary,
+          },
     );
   };
+  /**
+   * Starts a run behind the user: its chat gets no tab, stays out of the
+   * chats list and changes no project or focus. It is in Automations.
+   */
+  const startScheduledAgent = (agent: ScheduledAgent) =>
+    startAutomationRun(agent, {
+      noProjectFolder: async () =>
+        (await ensureProjectlessWorkspace(profilesRef.current.activeProfileId))
+          .cwd,
+      addChat: (session) => setSessions((previous) => [...previous, session]),
+      submit: (session, turn, settle) =>
+        onSubmit(session.id, turn.text, [], {
+          displayText: turn.displayText,
+          quiet: true,
+          onSettled: settle,
+        }),
+      blocks: (id) =>
+        sessionsRef.current.find((item) => item.id === id)?.blocks,
+      notify: announceAutomationRun,
+    });
   startScheduledAgentRef.current = (agent) => void startScheduledAgent(agent);
+  /** A card's button: its message goes to the run's chat, in Automations. */
+  automationReviewActionRef.current = async (run: ScheduledRun) => {
+    const message = run.review?.action?.message;
+    if (!message || !run.sessionId) return;
+    const session = await ensureOpenSession(run.sessionId);
+    if (!session) return;
+    continueAutomationRun(run, message, {
+      session,
+      submit: (id, text, settle) =>
+        onSubmit(id, text, [], { quiet: true, onSettled: settle }),
+      blocks: (id) =>
+        sessionsRef.current.find((item) => item.id === id)?.blocks,
+      notify: announceAutomationRun,
+    });
+  };
   /** The race's overview tab, opened or brought forward in its project. */
   const showRaceOverview = (raceId: string) => {
     const race = getRace(raceId);
@@ -11784,7 +11878,12 @@ export default function App({
                           besideRail
                           onClose={onLeaveSearch}
                           onOpenFile={onOpenFile}
-                          onOpenSession={onSelectHistorySession}
+                          onOpenSession={(id) => {
+                            // A run's chat opens in Automations, under its run.
+                            const run = automationRunForChat(id);
+                            if (run) void showAutomationRun(run.id);
+                            else void onSelectHistorySession(id);
+                          }}
                           onOpenProject={onSelectProject}
                         />
                       </LazyViewSlot>
@@ -11826,6 +11925,12 @@ export default function App({
                           onAsk={onAskInboxItem}
                           onAskRestart={onRestartInboxAsk}
                           onAskMount={setInboxAskPortal}
+                          onReviewAction={(run) =>
+                            automationReviewActionRef.current(run)
+                          }
+                          onOpenAutomationRun={(id) =>
+                            void showAutomationRun(id)
+                          }
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -11841,7 +11946,12 @@ export default function App({
                           onRunAutomation={(agent) =>
                             startScheduledAgentRef.current(agent)
                           }
-                          onOpenChat={onOpenApprovalSession}
+                          onOpenRunAsChat={onOpenRunAsChat}
+                          onApproval={onApproval}
+                          onStopRun={onStop}
+                          onReviewAction={(run) =>
+                            automationReviewActionRef.current(run)
+                          }
                         />
                       </LazyViewSlot>
                     ) : null}

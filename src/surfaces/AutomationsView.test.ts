@@ -14,17 +14,29 @@ vi.mock("../lib/platform", async (original) => ({
   ...(await original<typeof import("../lib/platform")>()),
   IS_MAC: true,
 }));
+// The run's conversation, as the transcript would draw it.
+vi.mock("./AgentTranscript", () => ({
+  AgentTranscript: ({ blocks }: { blocks: { text: string }[] }) =>
+    createElement(
+      "div",
+      { "data-transcript": "" },
+      blocks.map((block) => block.text).join(" | "),
+    ),
+}));
 
 import { AUTOMATION_EXAMPLES } from "../lib/automationExamples";
 import { isInboxEntryUnread } from "../lib/inboxSeen";
 import {
+  automationChatIds,
   EVERY_DAY,
+  getScheduledRun,
   listScheduledAgents,
+  requestAutomationRun,
   requestScheduleEditor,
   saveScheduledAgent,
   saveScheduledRun,
   scheduledRunSeenEntry,
-  takeScheduleEditorRequest,
+  takeAutomationsRequest,
   type ScheduledAgent,
   type ScheduledRun,
 } from "../lib/scheduledAgents";
@@ -49,6 +61,7 @@ function mockLocalStorage() {
 }
 
 const PROJECT = "/work/site";
+const NOTES = "/work/notes";
 
 const schedule: ScheduledAgent = {
   id: "daily",
@@ -76,10 +89,27 @@ const finished: ScheduledRun = {
   finishedAt: Date.now() - 60_000,
 };
 
+/** The run's saved chat, as `session_get` returns it. */
+const savedChat = {
+  id: "session-1",
+  cwd: PROJECT,
+  harness: "claude",
+  model: "claude:sonnet-5",
+  modelSettings: {},
+  runtimeMode: "auto",
+  title: "Scheduled · Morning review",
+  blocks: [
+    { id: "u1", role: "user", text: "Review yesterday's commits" },
+    { id: "a1", role: "assistant", text: "Three commits landed." },
+  ],
+  createdAt: 1,
+  updatedAt: 2,
+};
+
 let root: Root;
 let container: HTMLDivElement;
 const onRun = vi.fn();
-const onOpenChat = vi.fn();
+const onOpenRunAsChat = vi.fn();
 const onClose = vi.fn();
 
 async function render() {
@@ -87,10 +117,13 @@ async function render() {
     root.render(
       createElement(AutomationsView, {
         cwd: PROJECT,
-        recents: [{ path: PROJECT, openedAt: 1 }],
+        recents: [
+          { path: PROJECT, openedAt: 2 },
+          { path: NOTES, openedAt: 1 },
+        ],
         onClose,
         onRunAutomation: onRun,
-        onOpenChat,
+        onOpenRunAsChat,
       }),
     ),
   );
@@ -138,15 +171,49 @@ function pressedDays() {
   ].map((day) => day.getAttribute("aria-label"));
 }
 
+/** Each folder's name and its automations' names, top to bottom. */
+function folders() {
+  return [
+    ...container.querySelectorAll<HTMLElement>("[data-automation-folder]"),
+  ].map((folder) => ({
+    name: folder.querySelector(".aven-menu-label")?.textContent,
+    count: folder.querySelector(".automation-folder-count")?.textContent,
+    items: [
+      ...folder.querySelectorAll<HTMLElement>(
+        "[data-automation-row] .automation-row-name",
+      ),
+    ].map((row) => row.textContent),
+  }));
+}
+
+function row(id: string) {
+  return container.querySelector<HTMLButtonElement>(
+    `[data-automation-row="${id}"]`,
+  )!;
+}
+
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
   host.invoke.mockReset();
-  host.invoke.mockResolvedValue([]);
+  host.invoke.mockImplementation(async (command: string, args?: unknown) => {
+    if (command === "session_get")
+      return (args as { sessionId: string }).sessionId === savedChat.id
+        ? savedChat
+        : null;
+    return [];
+  });
   host.ask.mockReset();
   onRun.mockReset();
-  onOpenChat.mockReset();
+  onOpenRunAsChat.mockReset();
   onClose.mockReset();
+  takeAutomationsRequest();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -167,6 +234,157 @@ describe("Automations view", () => {
     // No Inbox source tabs or filters here.
     expect(container.querySelector('[role="tab"]')).toBeNull();
     expect(container.querySelector('[aria-label="Filter inbox"]')).toBeNull();
+  });
+
+  it("lists one folder per project, then No project, with counts", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledAgent({ ...schedule, id: "tests", name: "Nightly tests" });
+    saveScheduledAgent({
+      ...schedule,
+      id: "deps",
+      name: "Dependency check",
+      project: NOTES,
+      enabled: false,
+    });
+    saveScheduledAgent({
+      ...schedule,
+      id: "inbox",
+      name: "Triage",
+      project: "",
+    });
+    await render();
+    expect(folders()).toEqual([
+      { name: "notes", count: "1", items: ["Dependency check"] },
+      { name: "site", count: "2", items: ["Morning review", "Nightly tests"] },
+      { name: "No project", count: "1", items: ["Triage"] },
+    ]);
+    // When it runs, in plain words; an automation that is off says so.
+    expect(row("daily").textContent).toContain("Every day at 09:00 · Next");
+    expect(row("deps").textContent).toContain("Every day at 09:00 · Off");
+    expect(row("daily").getAttribute("aria-label")).toBe(
+      "Morning review: Not run yet",
+    );
+
+    // A folder folds away, and stays folded.
+    const site = container.querySelector<HTMLButtonElement>(
+      '[data-automation-folder="/work/site"] [aria-expanded]',
+    )!;
+    await click(site);
+    expect(site.getAttribute("aria-expanded")).toBe("false");
+    expect(row("daily")).toBeNull();
+    expect(localStorage.getItem("aven.automations.collapsedFolders.v1")).toBe(
+      JSON.stringify(["/work/site"]),
+    );
+  });
+
+  it("shows each automation's last run, and its runs when chosen", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    saveScheduledRun({
+      ...finished,
+      id: "run-0",
+      sessionId: "session-0",
+      status: "failed",
+      error: "2 tests failed.",
+      startedAt: finished.startedAt - 86_400_000,
+      finishedAt: finished.finishedAt! - 86_400_000,
+    });
+    await render();
+    expect(row("daily").getAttribute("aria-label")).toBe(
+      "Morning review: Last run completed 1m ago",
+    );
+    expect(
+      row("daily").querySelector(".automation-dot")?.getAttribute("data-tone"),
+    ).toBe("completed");
+    await click(row("daily"));
+    const runs = [
+      ...container.querySelectorAll<HTMLElement>("[data-automation-run]"),
+    ];
+    expect(runs.map((item) => item.dataset.automationRun)).toEqual([
+      "run-1",
+      "run-0",
+    ]);
+    expect(runs[0]!.textContent).toContain("Three commits landed");
+    expect(runs[1]!.textContent).toContain("2 tests failed.");
+  });
+
+  it("opens a run's conversation inside Automations, and back", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    await render();
+    await click(row("daily"));
+    expect(isInboxEntryUnread(scheduledRunSeenEntry(finished))).toBe(true);
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await flush();
+    const view = container.querySelector("[data-automation-run-view]")!;
+    expect(view.querySelector("[data-transcript]")?.textContent).toBe(
+      "Review yesterday's commits | Three commits landed.",
+    );
+    expect(host.invoke).toHaveBeenCalledWith("session_get", {
+      sessionId: "session-1",
+    });
+    // Opening it reads it.
+    expect(isInboxEntryUnread(scheduledRunSeenEntry(finished))).toBe(false);
+    // Still Automations: nothing asked to open a chat.
+    expect(onOpenRunAsChat).not.toHaveBeenCalled();
+    await click(button("Back to Morning review"));
+    expect(container.querySelector("[data-automation-run-view]")).toBeNull();
+    expect(container.querySelector("[data-automation-runs]")).not.toBeNull();
+  });
+
+  it("opens a run as a chat only when asked", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    await render();
+    await click(row("daily"));
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await click(button("Open as chat"));
+    expect(onOpenRunAsChat).toHaveBeenCalledTimes(1);
+    expect(onOpenRunAsChat.mock.calls[0]![0]).toMatchObject({ id: "run-1" });
+  });
+
+  it("shows the run asked for elsewhere, opening its folder", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    localStorage.setItem(
+      "aven.automations.collapsedFolders.v1",
+      JSON.stringify(["/work/site"]),
+    );
+    requestAutomationRun("run-1");
+    await render();
+    await flush();
+    expect(
+      container.querySelector('[data-automation-run-view="run-1"]'),
+    ).not.toBeNull();
+    expect(row("daily").getAttribute("aria-current")).toBe("true");
+  });
+
+  it("keeps a deleted automation's runs, and their chats reachable", async () => {
+    // Runs from before runs stayed in Automations: their chats were listed
+    // with the project's, and their automation may be gone.
+    saveScheduledRun({ ...finished, scheduleId: "gone", name: "Old report" });
+    await render();
+    expect(folders()).toEqual([
+      { name: "site", count: "1", items: ["Old report"] },
+    ]);
+    expect(automationChatIds().has("session-1")).toBe(true);
+    await click(row("gone"));
+    expect(container.textContent).toContain("This automation was deleted");
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await flush();
+    expect(container.querySelector("[data-transcript]")).not.toBeNull();
   });
 
   it("creates an automation from a blank form", async () => {
@@ -195,19 +413,58 @@ describe("Automations view", () => {
     });
     expect(saved!.nextRunAt).toBeGreaterThan(Date.now());
     expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
-    expect(
-      container.querySelector('ul[aria-label="Automations"] li')?.textContent,
-    ).toContain("Morning review");
+    // It is in the open project's folder, and shown.
+    expect(folders()).toEqual([
+      { name: "site", count: "1", items: ["Morning review"] },
+    ]);
+    expect(row(saved!.id).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("creates an automation in the folder whose + was pressed", async () => {
+    saveScheduledAgent({ ...schedule, project: NOTES });
+    await render();
+    await click(button("New automation in notes"));
+    await type("Name", "Lint");
+    await type("Prompt", "Run the linter");
+    await click(button("Create automation"));
+    const lint = listScheduledAgents().find((item) => item.name === "Lint")!;
+    expect(lint.project).toBe(NOTES);
+    expect(folders()).toEqual([
+      { name: "notes", count: "2", items: ["Lint", "Morning review"] },
+    ]);
+  });
+
+  it("moves an automation to another project's folder", async () => {
+    saveScheduledAgent(schedule);
+    await render();
+    await click(row("daily"));
+    await click(button("Edit Morning review"));
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-scheduled-editor] [aria-label="Project"]',
+      )!,
+    );
+    await click(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (option) => option.textContent?.includes("notes"),
+      )!,
+    );
+    await click(button("Save"));
+    expect(listScheduledAgents()[0]!.project).toBe(NOTES);
+    expect(folders()).toEqual([
+      { name: "notes", count: "1", items: ["Morning review"] },
+    ]);
   });
 
   it("turns an automation off and back on, and runs it now", async () => {
     saveScheduledAgent(schedule);
     await render();
+    await click(row("daily"));
     const toggle = button("Run Morning review on schedule");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     await click(toggle);
     expect(listScheduledAgents()[0]!.enabled).toBe(false);
-    expect(container.textContent).toContain("Off");
+    expect(row("daily").textContent).toContain("Off");
     await click(button("Run Morning review on schedule"));
     expect(listScheduledAgents()[0]!.enabled).toBe(true);
 
@@ -220,6 +477,7 @@ describe("Automations view", () => {
   it("edits an automation without moving its next run", async () => {
     saveScheduledAgent(schedule);
     await render();
+    await click(row("daily"));
     await click(button("Edit Morning review"));
     // Examples only prefill new automations.
     expect(
@@ -236,6 +494,7 @@ describe("Automations view", () => {
   it("deletes an automation only after confirmation", async () => {
     saveScheduledAgent(schedule);
     await render();
+    await click(row("daily"));
     host.ask.mockResolvedValueOnce(false);
     await click(button("Delete Morning review"));
     expect(host.ask).toHaveBeenCalledTimes(1);
@@ -245,28 +504,6 @@ describe("Automations view", () => {
     expect(listScheduledAgents()).toHaveLength(0);
     // Back to the empty state, with the examples.
     expect(container.textContent).toContain("Start from an example");
-  });
-
-  it("shows a new run as unread until it is opened", async () => {
-    await render();
-    await act(async () => saveScheduledRun(finished));
-    const card = () =>
-      container.querySelector<HTMLButtonElement>(
-        "[data-unread], [title='Morning review']",
-      )!;
-    expect(card().getAttribute("aria-label")).toBe(
-      "Morning review: completed, new",
-    );
-    expect(isInboxEntryUnread(scheduledRunSeenEntry(finished))).toBe(true);
-    // The newest run is shown without marking it read.
-    expect(container.textContent).toContain("Three commits landed");
-
-    await click(card());
-    expect(card().getAttribute("aria-label")).toBe("Morning review: completed");
-    expect(isInboxEntryUnread(scheduledRunSeenEntry(finished))).toBe(false);
-
-    await click(button("Open chat"));
-    expect(onOpenChat).toHaveBeenCalledWith("session-1");
   });
 
   it("opens a blank automation from the command palette request", async () => {
@@ -418,6 +655,61 @@ describe("Inbox without the Scheduled tab", () => {
     expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
   });
 
+  it("shows a card an automation left, and nothing for a plain run", async () => {
+    saveScheduledRun(finished);
+    await renderInbox();
+    expect(container.querySelector("[data-review-card]")).toBeNull();
+
+    const onReviewAction = vi.fn();
+    const onOpenAutomationRun = vi.fn();
+    saveScheduledRun({
+      ...finished,
+      id: "run-2",
+      sessionId: "session-2",
+      review: {
+        kind: "publish",
+        title: "October changelog",
+        summary: "Saved as a draft in Framer.",
+        url: "https://framer.com/projects/site",
+        action: { label: "Publish", message: "Publish the draft now." },
+        status: "open",
+        postedAt: Date.now(),
+      },
+    });
+    await act(async () =>
+      root.render(
+        createElement(InboxView, {
+          onAsk: async () => "",
+          onAskRestart: async () => "",
+          onAskMount: () => {},
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 1 }],
+          onReviewAction,
+          onOpenAutomationRun,
+        }),
+      ),
+    );
+    const card = container.querySelector<HTMLElement>(
+      '[data-review-card="run-2"]',
+    )!;
+    expect(card.getAttribute("aria-label")).toBe(
+      "Ready to publish: October changelog, from Morning review",
+    );
+    // Shown first, with its link and its button.
+    const detail = container.querySelector('[data-review-detail="run-2"]')!;
+    expect(detail.textContent).toContain("Saved as a draft in Framer.");
+    expect(detail.textContent).toContain("framer.com/projects/site");
+    await click(button("Publish"));
+    expect(onReviewAction).toHaveBeenCalledTimes(1);
+    expect(onReviewAction.mock.calls[0]![0]).toMatchObject({ id: "run-2" });
+    await click(button("Open run"));
+    expect(onOpenAutomationRun).toHaveBeenCalledWith("run-2");
+    // Done takes it out of the Inbox; the run keeps it, marked done.
+    await click(button("Done"));
+    expect(container.querySelector("[data-review-card]")).toBeNull();
+    expect(getScheduledRun("run-2")!.review!.status).toBe("done");
+  });
+
   it("ignores a palette request for a new automation", async () => {
     await renderInbox();
     await act(async () => requestScheduleEditor());
@@ -426,6 +718,6 @@ describe("Inbox without the Scheduled tab", () => {
       container.querySelector('input[aria-label="Filter inbox"]'),
     ).not.toBeNull();
     // Still waiting for the Automations view to take it.
-    expect(takeScheduleEditorRequest()).toBe(true);
+    expect(takeAutomationsRequest()).toEqual({ kind: "new" });
   });
 });

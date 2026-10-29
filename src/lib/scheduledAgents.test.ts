@@ -22,7 +22,9 @@ import {
   saveScheduledAgent,
   saveScheduledRun,
   scheduledAgentProblem,
+  onScheduledRunsTrimmed,
   SCHEDULED_RUN_LIMIT,
+  SCHEDULED_RUNS_PER_AUTOMATION,
   SCHEDULED_RUN_TIMEOUT_MS,
   scheduledRunSeenEntry,
   setScheduledAgentEnabled,
@@ -272,13 +274,66 @@ describe("stored schedules", () => {
 
 describe("runs", () => {
   it("keeps the most recent runs, newest first", () => {
+    // Spread over enough automations that only the overall limit applies.
+    const per = SCHEDULED_RUNS_PER_AUTOMATION;
     for (let index = 0; index < SCHEDULED_RUN_LIMIT + 5; index += 1)
-      saveScheduledRun(run({ id: `run-${index}`, startedAt: index }));
+      saveScheduledRun(
+        run({
+          id: `run-${index}`,
+          scheduleId: `schedule-${index % (SCHEDULED_RUN_LIMIT / per + 1)}`,
+          startedAt: index,
+        }),
+      );
     const runs = listScheduledRuns();
     expect(runs).toHaveLength(SCHEDULED_RUN_LIMIT);
     expect(runs[0]!.id).toBe(`run-${SCHEDULED_RUN_LIMIT + 4}`);
     expect(runs.at(-1)!.id).toBe("run-5");
     expect(listScheduledRuns()).toBe(runs);
+  });
+
+  it("keeps each automation's own recent runs, and runs that wait on you", () => {
+    const trimmed = vi.fn();
+    const off = onScheduledRunsTrimmed(trimmed);
+    saveScheduledRun(
+      run({
+        id: "with-card",
+        scheduleId: "busy",
+        startedAt: -1,
+        review: {
+          kind: "review",
+          title: "Draft post",
+          summary: "",
+          status: "open",
+          postedAt: 1,
+        },
+      }),
+    );
+    saveScheduledRun(run({ id: "quiet", scheduleId: "quiet", startedAt: 0 }));
+    for (let index = 1; index <= SCHEDULED_RUNS_PER_AUTOMATION + 3; index += 1)
+      saveScheduledRun(
+        run({
+          id: `busy-${index}`,
+          scheduleId: "busy",
+          startedAt: index,
+          sessionId: `chat-${index}`,
+        }),
+      );
+    off();
+    const ids = listScheduledRuns().map((item) => item.id);
+    // A busy automation does not push a quiet one's run out.
+    expect(ids).toContain("quiet");
+    // An open card is kept however old its run.
+    expect(ids).toContain("with-card");
+    expect(ids.filter((id) => id.startsWith("busy-"))).toHaveLength(
+      SCHEDULED_RUNS_PER_AUTOMATION,
+    );
+    expect(ids).not.toContain("busy-1");
+    // The runs let go are reported, so their chats can be archived.
+    expect(
+      trimmed.mock.calls.flatMap(([runs]) =>
+        (runs as ScheduledRun[]).map((item) => item.id),
+      ),
+    ).toEqual(["busy-1", "busy-2", "busy-3"]);
   });
 
   it("shortens long replies at a word", () => {
