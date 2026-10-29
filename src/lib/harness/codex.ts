@@ -511,6 +511,10 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
   );
 
   try {
+    // Again, with nothing awaited before the spawn: a bot or crew turned
+    // off (or its rules gone) while this was prepared never starts.
+    const lateRefusal = launchRefusal(input.sessionId, input.cwd);
+    if (lateRefusal) throw new Error(lateRefusal);
     await spawnChild(
       input.sessionId,
       path,

@@ -570,6 +570,13 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     },
   );
 
+  // Again, with nothing awaited before the spawn: a bot or crew turned off
+  // (or its rules gone) while this process was being prepared never starts.
+  const lateRefusal = launchRefusal(input.sessionId, input.cwd);
+  if (lateRefusal) {
+    unwatchChild(input.sessionId);
+    throw new Error(lateRefusal);
+  }
   await spawnChild(
     input.sessionId,
     path,

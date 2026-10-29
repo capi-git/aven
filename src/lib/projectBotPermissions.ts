@@ -3,7 +3,7 @@ import {
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
 import { slash } from "./paths";
-import { botForChat, type ProjectBot } from "./projectBots";
+import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import { CREW_ROLE_INFO, crewForChat, type Crew, type CrewRole } from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
@@ -346,6 +346,16 @@ export function botChatPermissions(
 export function installBotPermissions(): () => void {
   return installSessionPermissions((sessionId) => {
     const bot = botForChat(sessionId);
-    return bot ? botChatPermissions(bot) : crewChatPermissions(sessionId);
+    if (bot) return botChatPermissions(bot);
+    // Turned off while its copy is still there (mid-start, or while it is
+    // being removed): its rules, and refused outright. Once the copy is
+    // gone its chat is an ordinary chat in your folder again.
+    const off = botForAnyChat(sessionId);
+    if (off && !off.on && off.copy)
+      return {
+        ...botChatPermissions(off),
+        refuse: "This bot is off, so its chat didn't start.",
+      };
+    return crewChatPermissions(sessionId);
   });
 }

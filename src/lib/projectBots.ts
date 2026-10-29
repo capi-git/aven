@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { registerGuardedChats } from "./harness/sessionPermissions";
 import { isEqualOrInside, projectKey } from "./paths";
 import { projectMascot } from "./projectMascots";
 import { IS_WIN } from "./platform";
@@ -567,6 +568,19 @@ export function botForChat(
   return key ? cache.bots[key] : undefined;
 }
 
+/**
+ * The bot whose chat this is, on or off. An off bot's chat is an ordinary
+ * chat once its copy is gone (see `turnOffProjectBot`); until then it never
+ * launches (see `botChatPermissions` and the guard below).
+ */
+export function botForAnyChat(
+  sessionId: string | undefined,
+): ProjectBot | undefined {
+  if (!sessionId) return undefined;
+  read();
+  return Object.values(cache.bots).find((bot) => bot.sessionId === sessionId);
+}
+
 /** A bot's chat: the project bot's, or a crew member's. */
 export function isBotChat(sessionId: string | undefined): boolean {
   if (!sessionId) return false;
@@ -1026,3 +1040,10 @@ export function formatClockMinutes(minutes: number): string {
     ? `${twelve}:${String(minute).padStart(2, "0")} ${suffix}`
     : `${twelve} ${suffix}`;
 }
+
+// A launch in a bot's copy, or for an off bot's chat while its copy is
+// still there (turned off mid-start), never runs without rules: it is
+// refused (see `launchRefusal`).
+registerGuardedChats(
+  (sessionId, cwd) => isBotCopyPath(cwd) || !!botForAnyChat(sessionId)?.copy,
+);
