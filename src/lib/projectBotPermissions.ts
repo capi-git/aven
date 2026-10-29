@@ -157,10 +157,15 @@ export const ALWAYS_ASKS_LINE =
  * own setting and other apps still ask per app, as in any chat.
  */
 export function botPermissionRules(
-  bot: Pick<ProjectBot, "path">,
+  bot: Pick<ProjectBot, "path"> & { copy?: { path: string } },
 ): ClaudePermissionRules {
   return {
-    deny: [...NEVER_GIT, ...DEPLOY_AND_PUBLISH],
+    deny: [
+      ...NEVER_GIT,
+      ...DEPLOY_AND_PUBLISH,
+      // Settings in its copy that an app would run as the user.
+      ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
+    ],
     ask: [
       // Changing the user's own files, rather than its copy. Elsewhere,
       // edits outside its working folder go to auto mode's checks, which
@@ -193,6 +198,22 @@ export const BOT_ALLOWED_HOSTS = [
 ];
 
 /**
+ * Files and folders in a copy that an app would load as settings and run
+ * as the user. No bot or crew member may write them; Aven removes any it
+ * finds there (see `bot_copy_planted`).
+ */
+export const COPY_SETTINGS = [".claude", ".mcp.json", ".vscode"] as const;
+
+/** Edit rules for a copy's settings files and folders, which no bot may write. */
+export function copySettingsRules(copy: string): string[] {
+  const root = absolutePathRule(copy).replace(/\/\*\*$/, "");
+  return COPY_SETTINGS.flatMap((name) => [
+    `Edit(${root}/${name})`,
+    `Edit(${root}/${name}/**)`,
+  ]);
+}
+
+/**
  * Claude Code's sandbox for a bot's commands. They run in its copy (the
  * chat's working folder), so they can write there and in the temp folder
  * only, never in your folder; and not to the repository's refs, which the
@@ -210,6 +231,7 @@ export function botSandbox(
         bot.copy.gitDir ?? `${slash(bot.copy.root).replace(/\/+$/, "")}/.git`,
       ).replace(/\/+$/, "")
     : null;
+  const copy = bot.copy ? slash(bot.copy.path).replace(/\/+$/, "") : null;
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -222,7 +244,7 @@ export function botSandbox(
       // approvals (uploads, desktop consent): one socket, not all of them.
       ...(browserSocket ? { allowUnixSockets: [browserSocket] } : {}),
     },
-    ...(gitDir
+    ...(gitDir && copy
       ? {
           filesystem: {
             denyWrite: [
@@ -231,6 +253,14 @@ export function botSandbox(
               `${gitDir}/logs`,
               `${gitDir}/HEAD`,
               `${gitDir}/index`,
+              // What git runs, and how it finds the copy's repository.
+              `${gitDir}/hooks`,
+              `${gitDir}/config`,
+              `${gitDir}/worktrees`,
+              `${copy}/.git`,
+              // Settings an app would load from the copy and run as the
+              // user: Claude's, MCP servers, the editor's tasks.
+              ...COPY_SETTINGS.map((name) => `${copy}/${name}`),
             ],
           },
         }
@@ -255,7 +285,10 @@ export function crewPermissionRules(
   crew: Pick<Crew, "path" | "copy">,
   role: Exclude<CrewRole, "fixer">,
 ): ClaudePermissionRules {
-  const rules = botPermissionRules({ path: crew.path });
+  const rules = botPermissionRules({
+    path: crew.path,
+    ...(crew.copy ? { copy: crew.copy } : {}),
+  });
   if (CREW_ROLE_INFO[role].edits) return rules;
   return {
     deny: [
@@ -322,6 +355,7 @@ export function crewChatPermissions(
     rules: crewPermissionRules(crew, role),
     sandbox: crewSandbox(crew, role),
     noEscalation: true,
+    userSettingsOnly: true,
     noMcp: true,
     ...(crew.copy ? { workFolder: crew.copy.path } : {}),
     ...(readOnly ? { readOnly: true } : {}),
@@ -340,6 +374,7 @@ export function botChatPermissions(
     mode: "auto",
     rules: botPermissionRules(bot),
     sandbox: botSandbox(bot),
+    userSettingsOnly: true,
     noMcp: true,
     ...(bot.copy
       ? { workFolder: bot.copy.path }

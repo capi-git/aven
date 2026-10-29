@@ -15,7 +15,6 @@ import {
   bumpToday,
   cardInCopy,
   crewCard,
-  crewMember,
   crewMemberName,
   getCrew,
   updateCrew,
@@ -25,6 +24,7 @@ import {
   withCheckerOnClaude,
   CREW_AGENTS,
   CREW_INSTRUCTIONS_MAX,
+  crewAgentsFor,
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
   crewMemberById,
@@ -44,6 +44,9 @@ import {
   type CrewScoutSchedule,
 } from "./crews";
 import { PROJECT_MASCOTS } from "./projectMascots";
+import { isHarnessAvailable } from "./harness/availability";
+import { pickerModelsFor, preferredModelId } from "./models";
+import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
 import { logError } from "./errors";
 import {
   deleteFeatureCard,
@@ -98,6 +101,28 @@ export function pickCrewModels(input: {
 }
 
 /**
+ * The apps and models crew roles get on this Mac: the Checker (and
+ * Security) on Codex when it is installed, else on another Claude model.
+ */
+export function crewModelsHere(): CrewModels {
+  const codex = isHarnessAvailable("codex");
+  return pickCrewModels({
+    codex,
+    claudeModels: pickerModelsFor("claude").map((model) => model.id),
+    preferredClaude: preferredModelId("claude"),
+    ...(codex ? { preferredCodex: preferredModelId("codex") } : {}),
+  });
+}
+
+/** A role's pick from `crewModelsHere`: Security reads like the Checker. */
+export function crewModelFor(
+  models: CrewModels,
+  role: Exclude<CrewRole, "fixer">,
+): { harness: "claude" | "codex"; model: string } {
+  return models[role === "security" ? "checker" : role];
+}
+
+/**
  * Turn the crew on, and it starts working. A member without an app or model
  * yet gets its role's pick; one you set keeps yours.
  */
@@ -106,7 +131,8 @@ export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
     let next: Crew = { ...crew, on: true, onAt: now, paused: undefined };
     for (const member of crew.members) {
       if (member.role === "fixer") continue;
-      const pick = models[member.role];
+      // Security, like the Checker, reads with other eyes than the Builder's.
+      const pick = models[member.role === "security" ? "checker" : member.role];
       next = withMemberId(next, member.id, (current) =>
         current.harness && current.model
           ? current
@@ -172,11 +198,16 @@ export async function stopCrewNow(path: string) {
   const card = crew ? cardInCopy(crew) : undefined;
   if (card && (card.stage === "building" || card.stage === "checking"))
     await stopCrewCard(path, card.id);
-  const scout = crew ? crewMember(crew, "scout") : undefined;
-  if (scout?.doing && scout.sessionId)
-    await crewWorkspace()
-      ?.stop(scout.sessionId)
-      .catch((error) => logError("Stop crew", error));
+  // A Scout's look or Security's sweep has no card of its own.
+  for (const member of crew?.members ?? [])
+    if (
+      (member.role === "scout" || member.role === "security") &&
+      member.doing &&
+      member.sessionId
+    )
+      await crewWorkspace()
+        ?.stop(member.sessionId)
+        .catch((error) => logError("Stop crew", error));
 }
 
 export function setCrewQuietHours(path: string, quiet: BotQuietHours) {
@@ -286,7 +317,7 @@ export async function giveCardToCrew(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: idea ? "scout" : "you",
+            from: idea?.by === "security" ? "security" : idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: chosen.maxRounds,
@@ -389,14 +420,16 @@ export function resumeCrewCard(
     // again with the Checker on Claude: never on an unlocked Codex.
     if (
       card.stuck?.reason === "failed" &&
-      card.holder === "checker" &&
+      (card.holder === "checker" || card.holder === "security") &&
       isCodexToolsOpen(card.stuck.text)
     ) {
       crew = withCheckerOnClaude(
         crew,
         claudeCheckerModel(crew),
         now,
-        card.checkerId,
+        card.holder === "security"
+          ? crew.members.find((member) => member.role === "security")?.id
+          : card.checkerId,
       );
       card = crewCard(crew, cardId)!;
     }
@@ -587,7 +620,8 @@ export function dismissCrewInbox(
 // Members: who is in the crew and how each works
 
 /** What you can add: a role's member, or one of your own that works as a Builder or Checker. */
-export type CrewTemplate = "builder" | "checker" | "scout" | "custom";
+export type CrewTemplate =
+  "builder" | "checker" | "security" | "scout" | "custom";
 
 export type CrewNewMember = {
   /** For a custom member: whether it builds or checks. */
@@ -614,6 +648,8 @@ export type CrewMemberChange = {
   /** Paths or globs, as a list or as you typed them (one per line, or commas). */
   scope?: readonly string[] | string | null;
   schedule?: CrewScoutSchedule;
+  /** Security's weekly sweep of the whole project. */
+  sweep?: "off" | "weekly";
   /** Off: it takes no turns. */
   paused?: boolean;
 };
@@ -631,22 +667,35 @@ function cleanText(value: string | null | undefined, max: number) {
 /** Scope as you typed it: one path or glob per line (or comma), tidied. */
 export function crewScopeList(
   value: readonly string[] | string | null | undefined,
-): string[] {
+  /** The project's folder: an absolute path inside it is made relative. */
+  project?: string,
+): { scope: string[] } | { error: string } {
   const items =
     typeof value === "string" ? value.split(/[\n,]/) : (value ?? []);
+  const root = project?.replace(/\\/g, "/").replace(/\/+$/, "");
   const seen = new Set<string>();
   for (const item of items) {
-    const entry = item
-      .trim()
-      .replace(/\\/g, "/")
-      .replace(/^\.\//, "")
-      .replace(/^\/+/, "")
-      .replace(/\/+$/, "")
-      .slice(0, 200);
-    if (entry && !entry.split("/").includes("..")) seen.add(entry);
+    let entry = item.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!entry) continue;
+    if (entry.startsWith("/") || /^[A-Za-z]:\//.test(entry)) {
+      // Inside the project: from its folder. Anywhere else can't be a scope.
+      if (root && (entry === root || entry.startsWith(`${root}/`)))
+        entry = entry.slice(root.length).replace(/^\/+/, "");
+      else
+        return {
+          error: `“${item.trim()}” is outside the project. Use paths inside it, like src/ui.`,
+        };
+      if (!entry) return { scope: [] };
+    }
+    entry = entry.replace(/^\.\//, "").slice(0, 200);
+    if (entry.split("/").includes(".."))
+      return {
+        error: `“${item.trim()}” leaves the project with “..”. Use paths inside it, like src/ui.`,
+      };
+    seen.add(entry);
     if (seen.size >= 20) break;
   }
-  return [...seen];
+  return { scope: [...seen] };
 }
 
 const CRITTERS = new Set(PROJECT_MASCOTS.map((mascot) => mascot.name));
@@ -678,14 +727,18 @@ export function addCrewMember(
   const role: Exclude<CrewRole, "fixer"> =
     template === "custom" ? (input.role ?? "builder") : template;
   if (
-    role === "scout" &&
-    crew.members.some((member) => member.role === "scout")
+    (role === "scout" || role === "security") &&
+    crew.members.some((member) => member.role === role)
   )
-    return { error: "This crew already has a Scout." };
+    return {
+      error: `This crew already has ${role === "scout" ? "a Scout" : "Security"}.`,
+    };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
     return { error: "A crew has at most 8 members." };
   const harness =
-    input.harness && crewAgentAllowed(input.harness)
+    input.harness &&
+    crewAgentAllowed(input.harness) &&
+    crewAgentsFor(role).includes(input.harness)
       ? input.harness
       : undefined;
   const label = template === "custom" ? cleanText(input.label, 40) : undefined;
@@ -731,8 +784,18 @@ export function updateCrewMember(
   if (member.role === "fixer") return "The Fixer is set in its own settings.";
   if (change.harness !== undefined && !crewAgentAllowed(change.harness))
     return "Crews run only on apps that keep their rules: Claude Code or Codex.";
+  if (
+    change.harness !== undefined &&
+    !crewAgentsFor(member.role).includes(change.harness as CrewAgent)
+  )
+    return "A Builder runs on Claude Code: Codex can't keep it out of the copy's settings yet.";
   if (change.critter && !CRITTERS.has(change.critter))
     return "That critter isn't one of Aven's.";
+  const scoped =
+    change.scope !== undefined
+      ? crewScopeList(change.scope, crew.path)
+      : undefined;
+  if (scoped && "error" in scoped) return scoped.error;
   updateCrew(path, (current) =>
     withMemberId(current, id, (entry) => {
       const next: CrewMember = { ...entry };
@@ -764,21 +827,88 @@ export function updateCrewMember(
           "instructions",
           cleanText(change.instructions, CREW_INSTRUCTIONS_MAX),
         );
-      if (change.scope !== undefined) {
-        const scope = crewScopeList(change.scope);
-        set("scope", scope.length ? scope : undefined);
-      }
+      if (scoped && "scope" in scoped)
+        set("scope", scoped.scope.length ? scoped.scope : undefined);
       if (change.schedule !== undefined && entry.role === "scout")
         set(
           "schedule",
           change.schedule === "daily" ? undefined : change.schedule,
         );
+      if (change.sweep !== undefined && entry.role === "security")
+        set("sweep", change.sweep === "weekly" ? "weekly" : undefined);
       if (change.paused !== undefined)
         set("paused", change.paused || undefined);
       return next;
     }),
   );
   return null;
+}
+
+/**
+ * Whether a ready-made member is in the crew already: added from it, or (for
+ * the plain Builder, Checker, Scout and Security) a member of its role drawn
+ * as its critter, with no title of its own.
+ */
+export function presetInCrew(crew: Crew, preset: CrewPreset): boolean {
+  return crew.members.some(
+    (member) =>
+      member.preset === preset.key ||
+      (preset.role === "security" && member.role === "security") ||
+      (preset.role === "scout" && member.role === "scout") ||
+      (!preset.label &&
+        member.role === preset.role &&
+        !member.label &&
+        memberCritter(member) === preset.critter),
+  );
+}
+
+/**
+ * Add a ready-made member in one click: its role, critter, title, job,
+ * instructions and paths, on the app and model given (else its role's
+ * usual). Everything stays editable. Resolves with its id, or why not.
+ */
+export function addCrewPreset(
+  path: string,
+  key: string,
+  app?: { harness?: string; model?: string },
+): { id: string } | { error: string } {
+  const preset = CREW_PRESETS.find((item) => item.key === key);
+  const crew = getCrew(path);
+  if (!preset || !crew) return { error: "That member isn't available." };
+  if (presetInCrew(crew, preset)) return { error: "It's in the crew already." };
+  if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
+    return { error: "A crew has at most 8 members." };
+  if (
+    (preset.role === "scout" || preset.role === "security") &&
+    crew.members.some((member) => member.role === preset.role)
+  )
+    return { error: "It's in the crew already." };
+  const harness =
+    app?.harness &&
+    crewAgentAllowed(app.harness) &&
+    crewAgentsFor(preset.role).includes(app.harness)
+      ? app.harness
+      : undefined;
+  const model = harness ? cleanText(app?.model, 200) : undefined;
+  let id = "";
+  updateCrew(path, (current) => {
+    id = newMemberId(current, preset.role);
+    const member: CrewMember = {
+      id,
+      role: preset.role,
+      preset: preset.key,
+      ...(preset.critter !== CREW_ROLE_INFO[preset.role].critter
+        ? { critter: preset.critter }
+        : {}),
+      ...(preset.label ? { label: preset.label, job: preset.job } : {}),
+      instructions: preset.instructions,
+      ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
+    };
+    return { ...current, members: [...current.members, member] };
+  });
+  return { id };
 }
 
 /**
@@ -803,6 +933,17 @@ export function removeCrewMember(path: string, id: string): string | null {
       (card) => !!card.turn && card.turn.sessionId === member.sessionId,
     );
   if (working) return "It's working on a card. Stop the card first.";
+  // A card in the copy keeps who built and checked it (and so its scope).
+  const holding = crew.cards.find(
+    (card) =>
+      (card.stage === "building" ||
+        card.stage === "checking" ||
+        card.stage === "ready" ||
+        card.stage === "stuck") &&
+      (card.builderId === id || card.checkerId === id),
+  );
+  if (holding)
+    return `“${holding.title}” is still in the crew's copy. Apply it, send it back to Ideas or throw it away first.`;
   updateCrew(path, (current) => withoutMember(current, id));
   return null;
 }

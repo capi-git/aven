@@ -8,12 +8,19 @@ import {
   nextAutoStart,
   nextCardToStart,
   scoutShouldLook,
+  securitySweepDue,
   type CrewGate,
 } from "./crewLimits";
 import {
   afterBuild,
   afterCheck,
+  afterSecurity,
+  cardScope,
   earlierFindings,
+  earlierSecurityFindings,
+  reviewMoved,
+  roundLimit,
+  withBuilderScope,
   queueCard,
   startCard,
   turnFailed,
@@ -27,6 +34,9 @@ import {
   crewBrief,
   crewTurnLabel,
   scoutMessage,
+  securityMessage,
+  sweepMessage,
+  SWEEP_CARDS,
 } from "./crewPrompts";
 import {
   activeCrews,
@@ -34,6 +44,7 @@ import {
   cardBuilder,
   cardChecker,
   cardInCopy,
+  cardSecurity,
   claimCrewJob,
   crewCard,
   crewMember,
@@ -53,7 +64,6 @@ import {
   withCrewRun,
   withFeed,
   withIdea,
-  withMember,
   withMemberId,
   withCheckerOnClaude,
   withoutFallbacks,
@@ -136,6 +146,11 @@ export type CrewRunnerDeps = {
     diff: (copy: string, base: string) => Promise<BotDiff>;
     /** The copy's own files: its top-level entries Git doesn't ignore. */
     sources: (copy: string) => Promise<string[]>;
+    /**
+     * Settings files an agent left in the copy that an app would run as
+     * the user; with `remove`, removed. Checked before every turn.
+     */
+    planted: (copy: string, remove: boolean) => Promise<string[]>;
   };
   /** The Claude week's use, percent, when known. */
   weeklyUsed: (now: number) => number | null;
@@ -185,6 +200,8 @@ type LiveTurn = {
   role: CrewChatRole;
   /** The member taking it. */
   memberId: string;
+  /** Security's sweep of the whole project, not a card's review. */
+  sweep?: boolean;
   /** The card it works on; none for the Scout. */
   cardId?: string;
   sessionId: string;
@@ -482,7 +499,9 @@ export class CrewRunner {
       const member =
         role === "builder"
           ? cardBuilder(crew, inCopy)
-          : cardChecker(crew, inCopy);
+          : role === "security"
+            ? cardSecurity(crew)
+            : cardChecker(crew, inCopy);
       // Every Builder (or Checker) is off or gone: the card waits, and says why.
       if (!member) return this.hold(crew, crewNoMemberGate(role));
       const gate = this.gate(crew, now);
@@ -503,7 +522,8 @@ export class CrewRunner {
     // Board is read only when one of them could go.
     const startable = Object.values(crew.ideas ?? {}).some(ideaMayAutoStart);
     const scoutDue = scoutShouldLook(crew, now, false);
-    if (!startable && !scoutDue) return this.clearHold(crew);
+    const sweepDue = securitySweepDue(crew, now);
+    if (!startable && !scoutDue && !sweepDue) return this.clearHold(crew);
     let cards: readonly FeatureCard[] = [];
     try {
       cards = await this.deps.board.cards(path);
@@ -527,6 +547,12 @@ export class CrewRunner {
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
       return this.sendScoutTurn(path, cards);
+    }
+    if (securitySweepDue(crew, now)) {
+      const gate = this.gate(crew, now);
+      if (!gate.ok) return this.hold(crew, gate);
+      this.clearHold(crew);
+      return this.sendScoutTurn(path, cards, "security");
     }
     this.clearHold(crew);
   }
@@ -591,9 +617,14 @@ export class CrewRunner {
           ? cardChecker(crew, card)?.id
           : undefined) ??
       "checker";
+    const security =
+      (taking?.role === "security" ? taking.memberId : undefined) ??
+      cardSecurity(crew)?.id ??
+      "security";
     return {
       builder: this.deps.name(crew, builder),
       checker: this.deps.name(crew, checker),
+      security: this.deps.name(crew, security),
     };
   }
 
@@ -641,6 +672,7 @@ export class CrewRunner {
     if (!sync) return { crew: saved, sync: null };
     try {
       const synced = await this.deps.copy.sync(path, copy.path, copy.branch);
+      if (synced.planted?.length) this.notePlanted(path, synced.planted);
       saved = getCrew(path) ?? saved;
       return {
         crew: saved,
@@ -658,6 +690,19 @@ export class CrewRunner {
         `Couldn't update the crew's copy: ${botCopyError(error)}`,
       );
     }
+  }
+
+  /** Settings an agent left in the copy were removed: the feed says so. */
+  private notePlanted(path: string, files: readonly string[]) {
+    const now = this.deps.now();
+    updateCrew(path, (crew) =>
+      withFeed(crew, {
+        at: now,
+        kind: "hold",
+        who: "aven",
+        text: `Aven removed ${files.join(", ")} from the crew's copy: settings there could run commands as you.`,
+      }),
+    );
   }
 
   private beginTurn(key: string, turn: LiveTurn) {
@@ -777,6 +822,8 @@ export class CrewRunner {
     const queued = crewCard(before, cardId);
     // Where the card stood: everything below holds only while it still does.
     const from = queued ? cardAt(queued) : undefined;
+    /** The card as this turn started it (with its base), if it got that far. */
+    let begun: CrewCard | undefined;
     try {
       if (!queued || !from || !cardStillAt(queued, from))
         return this.endTurn(path, turn);
@@ -788,11 +835,21 @@ export class CrewRunner {
       let card = crewCard(crew, cardId);
       if (!card) return this.endTurn(path, turn);
       if (fresh) card = { ...startCard(card, now), base: prepared.base };
+      begun = card;
       if (!card.base)
         throw new Error("The card has no starting point in the copy.");
       // Switched off or removed meanwhile: the next look picks again.
       const member = crewMemberById(crew, memberId);
       if (!member || member.paused) return this.endTurn(path, turn);
+      // Settings an agent left in the copy (hooks, MCP servers) would run as
+      // you: removed, and this turn doesn't start.
+      const planted = await this.deps.copy.planted(crew.copy!.path, true);
+      if (planted.length)
+        throw new Error(
+          `Aven found ${planted.join(", ")} in the crew's copy and removed ${
+            planted.length === 1 ? "it" : "them"
+          }: settings there could run commands as you. Look over the card before you try again.`,
+        );
       const chat = await this.deps.ensureChat(
         crew,
         memberId,
@@ -818,7 +875,10 @@ export class CrewRunner {
       const names = this.names(crew, card, { role, memberId });
       // A new card's first build, and its first check, start a new
       // conversation; later rounds keep theirs, so a re-check remembers.
-      const freshTalk = card.round <= 1 && (role === "builder" ? fresh : true);
+      const freshTalk =
+        role === "security"
+          ? !card.rounds.some((round) => round.security)
+          : card.round <= 1 && (role === "builder" ? fresh : true);
       if (freshTalk && chat.providerSessionId)
         this.deps.freshConversation?.(chat.id);
       const brief =
@@ -833,16 +893,37 @@ export class CrewRunner {
               copyPath: crew.copy?.path ?? "",
               names,
               harness: crewMemberApp(member).harness,
-              maxRounds: card.maxRounds,
+              maxRounds: roundLimit(card),
             });
       let hashBefore: string | undefined;
       let builderScope:
         { scope: readonly string[]; outside: readonly string[] } | undefined;
+      if (role === "security") {
+        const diff = await this.deps.copy.diff(crew.copy!.path, card.base);
+        hashBefore = diff.hash;
+        // Security reviews exactly what the Checker passed, or nothing.
+        if (card.reviewing && diff.hash !== card.reviewing.hash) {
+          const now = this.deps.now();
+          updateCrew(path, (current) =>
+            cardStillAt(crewCard(current, cardId), from)
+              ? this.commit(
+                  current,
+                  reviewMoved(card, { now, checker: names.checker }),
+                  role,
+                  now,
+                  memberId,
+                )
+              : current,
+          );
+          return this.endTurn(path, turn);
+        }
+      }
       if (role === "checker") {
         const diff = await this.deps.copy.diff(crew.copy!.path, card.base);
         hashBefore = diff.hash;
-        const scope = crewMemberById(crew, card.builderId ?? "")?.scope;
-        if (scope?.length)
+        // Every scope that built a round of it: kept on the card.
+        const scope = cardScope(card);
+        if (scope.length)
           builderScope = {
             scope,
             outside: outsideScope(
@@ -865,14 +946,22 @@ export class CrewRunner {
               sync: prepared.sync,
               guidance,
             })
-          : checkerMessage({
-              card,
-              notes: crew.notes,
-              names,
-              brief,
-              guidance,
-              ...(builderScope ? { builderScope } : {}),
-            });
+          : role === "security"
+            ? securityMessage({
+                card,
+                notes: crew.notes,
+                names,
+                brief,
+                guidance,
+              })
+            : checkerMessage({
+                card,
+                notes: crew.notes,
+                names,
+                brief,
+                guidance,
+                ...(builderScope ? { builderScope } : {}),
+              });
       const label = crewTurnLabel({
         role,
         card,
@@ -910,8 +999,13 @@ export class CrewRunner {
         next = withCard(next, {
           ...started,
           ...(role === "builder"
-            ? { builderId: memberId }
-            : { checkerId: memberId }),
+            ? {
+                builderId: memberId,
+                ...withBuilderScope(started, member.scope),
+              }
+            : role === "checker"
+              ? { checkerId: memberId }
+              : {}),
           turn: {
             role,
             sessionId: chat.id,
@@ -930,7 +1024,9 @@ export class CrewRunner {
             text:
               role === "checker"
                 ? `Checking ${started.title} · round ${started.round}`
-                : `${started.round > 1 ? "Fixing" : "Building"} ${started.title} · round ${started.round}`,
+                : role === "security"
+                  ? `Reviewing ${started.title} for security · round ${started.round}`
+                  : `${started.round > 1 ? "Fixing" : "Building"} ${started.title} · round ${started.round}`,
           },
         }));
         return fresh
@@ -961,7 +1057,9 @@ export class CrewRunner {
         const card = crewCard(current, cardId);
         // You stopped or moved it meanwhile: that stands.
         if (!card || !from || !cardStillAt(card, from)) return current;
-        const started = card.stage === "queued" ? startCard(card, now) : card;
+        // Started with its base when it got that far, so Try again goes on.
+        const started =
+          card.stage === "queued" ? (begun ?? startCard(card, now)) : card;
         return this.commit(
           current,
           turnFailed(started, {
@@ -989,7 +1087,9 @@ export class CrewRunner {
       crew.members.find((entry) => entry.sessionId === sent.sessionId) ??
       (sent.role === "builder"
         ? cardBuilder(crew, card)
-        : cardChecker(crew, card));
+        : sent.role === "security"
+          ? cardSecurity(crew)
+          : cardChecker(crew, card));
     if (!member) return;
     const chat =
       this.chatNow(sent.sessionId) ??
@@ -1034,7 +1134,8 @@ export class CrewRunner {
   async afterTurn(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
     if (!this.markHandled(turn.turnId)) return;
     try {
-      if (turn.role === "scout") await this.afterScout(path, turn, outcome);
+      if (turn.role === "scout" || turn.sweep)
+        await this.afterScout(path, turn, outcome);
       else await this.afterCardTurn(path, turn, outcome);
     } catch (error) {
       logError("Crew", error);
@@ -1065,7 +1166,7 @@ export class CrewRunner {
         name: this.deps.name(crew, turn.memberId),
       });
     else if (
-      role === "checker" &&
+      (role === "checker" || role === "security") &&
       outcome?.status === "failed" &&
       isCodexToolsOpen(`${outcome.error ?? ""} ${outcome.text ?? ""}`) &&
       crewMemberApp(crewMemberById(crew, turn.memberId)).harness === "codex"
@@ -1110,7 +1211,22 @@ export class CrewRunner {
                 return null;
               })
           : null;
-      if (role === "builder")
+      if (role === "security") {
+        const edited =
+          !diff ||
+          (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
+        const earlier = earlierSecurityFindings(card);
+        step = afterSecurity(card, {
+          verdict: parseVerdict(reply, {
+            // Its first review reads the whole change.
+            round: earlier.length ? card.round : 1,
+            earlier,
+          }),
+          edited,
+          now,
+          names,
+        });
+      } else if (role === "builder")
         step = afterBuild(card, {
           handoff: parseHandoff(reply),
           change: changeFrom(diff, card.base ?? ""),
@@ -1124,8 +1240,7 @@ export class CrewRunner {
           (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
         // A Builder kept to its scope: changes outside it are a must-fix,
         // from the copy's own diff, whatever the verdict says.
-        const builder = crewMemberById(crew, card.builderId ?? "");
-        const scope = builder?.scope ?? [];
+        const scope = cardScope(card);
         const outside = outsideScope(
           diff?.files.map((file) => file.path) ?? [],
           scope,
@@ -1142,6 +1257,8 @@ export class CrewRunner {
           edited,
           // A pass makes exactly what the Checker saw the fix.
           seen: edited ? null : changeFrom(diff, card.base ?? ""),
+          // With Security on, a pass goes to it before Ready.
+          security: !!cardSecurity(crew),
           now,
           names,
         });
@@ -1165,9 +1282,15 @@ export class CrewRunner {
   ): Crew {
     const { event } = step;
     let card = step.card;
-    const { builder, checker } = this.names(crew, card, { role, memberId });
+    const { builder, checker, security } = this.names(crew, card, {
+      role,
+      memberId,
+    });
     const builderId = role === "builder" ? memberId : card.builderId;
     const checkerId = role === "checker" ? memberId : card.checkerId;
+    const securityId = role === "security" ? memberId : cardSecurity(crew)?.id;
+    const secured = !!card.rounds.find((item) => item.n === card.round)
+      ?.security;
     const entry: Omit<CrewFeedEntry, "id"> = {
       at: now,
       kind: "handoff",
@@ -1189,14 +1312,30 @@ export class CrewRunner {
             replyHeadline(`${builder} handed over round ${event.round}`),
         });
         break;
-      case "to-builder": {
-        const verdict = card.rounds.find(
-          (item) => item.n === event.round - 1,
-        )?.verdict;
+      case "to-security":
         Object.assign(entry, {
-          kind: "verdict",
+          kind: "handoff",
           who: "checker",
           ...(checkerId ? { member: checkerId } : {}),
+          to: "security",
+          round: event.round,
+          text: `${checker} passed round ${event.round}; ${security} reviews it for security`,
+        });
+        break;
+      case "to-builder": {
+        const last = card.rounds.find((item) => item.n === event.round - 1);
+        const bySecurity = event.from === "security";
+        const verdict = bySecurity ? last?.security : last?.verdict;
+        Object.assign(entry, {
+          kind: "verdict",
+          who: bySecurity ? "security" : "checker",
+          ...(bySecurity
+            ? securityId
+              ? { member: securityId }
+              : {}
+            : checkerId
+              ? { member: checkerId }
+              : {}),
           to: "builder",
           round: event.round - 1,
           text: `${event.mustFix} must-fix: ${(verdict?.mustFix ?? [])
@@ -1208,10 +1347,18 @@ export class CrewRunner {
       case "ready":
         Object.assign(entry, {
           kind: "ready",
-          who: "checker",
-          ...(checkerId ? { member: checkerId } : {}),
+          who: secured ? "security" : "checker",
+          ...(secured
+            ? securityId
+              ? { member: securityId }
+              : {}
+            : checkerId
+              ? { member: checkerId }
+              : {}),
           round: event.round,
-          text: `Ready for you · passed ${checker}'s check in round ${event.round}`,
+          text: secured
+            ? `Ready for you · passed ${checker}'s check and ${security}'s security review in round ${event.round}`
+            : `Ready for you · passed ${checker}'s check in round ${event.round}`,
         });
         break;
       case "question":
@@ -1233,7 +1380,10 @@ export class CrewRunner {
     )
       card = {
         ...withInboxResolved(card, "dismissed", now),
-        inbox: crewInboxCard(card, now, { checker }),
+        inbox: crewInboxCard(card, now, {
+          checker,
+          ...(secured ? { security } : {}),
+        }),
       };
     let next = withFeed(withCard(crew, card), entry);
     next = withMemberId(next, memberId, (member) =>
@@ -1245,16 +1395,27 @@ export class CrewRunner {
   // -------------------------------------------------------------------------
   // The Scout
 
-  private async sendScoutTurn(path: string, cards: readonly FeatureCard[]) {
+  /**
+   * The Scout's look, or Security's weekly sweep: a turn with no card, in the
+   * idle copy, whose ideas land in Ideas.
+   */
+  private async sendScoutTurn(
+    path: string,
+    cards: readonly FeatureCard[],
+    by: "scout" | "security" = "scout",
+  ) {
     const key = projectKey(path);
     const now = this.deps.now();
     const before = getCrew(path);
     if (!before || !claimCrewJob(path, this.deps.owner, now)) return;
-    const scout = crewMember(before, "scout");
-    if (!scout) return releaseCrewJob(path, this.deps.owner);
+    const looker =
+      by === "security" ? cardSecurity(before) : crewMember(before, "scout");
+    if (!looker) return releaseCrewJob(path, this.deps.owner);
+    const sweep = by === "security";
     const turn: LiveTurn = {
-      role: "scout",
-      memberId: scout.id,
+      role: by,
+      memberId: looker.id,
+      ...(sweep ? { sweep: true } : {}),
       sessionId: "",
       turnId: this.newId(),
       onAt: before.onAt,
@@ -1279,37 +1440,50 @@ export class CrewRunner {
       const left = ideasLeft(crew, now);
       // Each look starts a new conversation.
       if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
-      const text = scoutMessage({
-        notes: crew.notes,
-        boardTitles: cards
-          .filter((card) => card.column !== "shipped")
-          .map((card) => card.title),
-        ideasLeft: left,
-        brief:
-          chat.providerSessionId && !this.deps.freshConversation
-            ? undefined
-            : crewBrief({
-                role: "scout",
-                name: this.deps.name(crew, turn.memberId),
-                project: crew.path,
-                copyPath: crew.copy?.path ?? "",
-                names: this.names(crew),
-                maxRounds: crew.limits.roundsPerCard,
-              }),
-        sync: prepared.sync,
-        guidance: {
-          ...(member.instructions ? { instructions: member.instructions } : {}),
-          ...(member.scope?.length ? { scope: member.scope } : {}),
-        },
-      });
-      const label = crewTurnLabel({ role: "scout" });
+      const brief =
+        chat.providerSessionId && !this.deps.freshConversation
+          ? undefined
+          : crewBrief({
+              role: by,
+              name: this.deps.name(crew, turn.memberId),
+              project: crew.path,
+              copyPath: crew.copy?.path ?? "",
+              names: this.names(crew),
+              harness: crewMemberApp(member).harness,
+              maxRounds: crew.limits.roundsPerCard,
+            });
+      const boardTitles = cards
+        .filter((card) => card.column !== "shipped")
+        .map((card) => card.title);
+      const guidance = {
+        ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.scope?.length ? { scope: member.scope } : {}),
+      };
+      const text = sweep
+        ? sweepMessage({
+            notes: crew.notes,
+            boardTitles,
+            brief,
+            sync: prepared.sync,
+            guidance,
+          })
+        : scoutMessage({
+            notes: crew.notes,
+            boardTitles,
+            ideasLeft: left,
+            brief,
+            sync: prepared.sync,
+            guidance,
+          });
+      const label = crewTurnLabel({ role: by });
       // Last look before it goes (see `mayStillSend`): and still idle.
       const idle = getCrew(path);
       if (
         !this.mayStillSend(path, turn.onAt) ||
         !idle ||
         cardInCopy(idle) ||
-        crewMember(idle, "scout")?.paused
+        !crewMemberById(idle, turn.memberId) ||
+        crewMemberById(idle, turn.memberId)?.paused
       )
         return this.endTurn(path, turn);
       const sent = this.deps.send(chat.id, text, {
@@ -1318,33 +1492,50 @@ export class CrewRunner {
         blockId: turn.turnId,
         onSettled: (outcome) => void this.afterTurn(path, turn, outcome),
       });
-      if (!sent) throw new Error("Couldn't send the Scout its turn.");
+      if (!sent)
+        throw new Error(
+          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+        );
       turn.sentAt = this.deps.now();
       updateCrew(path, (current) =>
-        withMember(
-          { ...withCrewRun(current, turn.sentAt!), scoutAt: turn.sentAt },
-          "scout",
-          (member) => ({
-            ...member,
+        withMemberId(
+          {
+            ...withCrewRun(current, turn.sentAt!),
+            ...(sweep ? { sweepAt: turn.sentAt } : { scoutAt: turn.sentAt }),
+          },
+          turn.memberId,
+          (entry) => ({
+            ...entry,
             sessionId: chat.id,
-            doing: { at: turn.sentAt!, text: "Looking for ideas" },
+            doing: {
+              at: turn.sentAt!,
+              text: sweep
+                ? "Sweeping for security problems"
+                : "Looking for ideas",
+            },
           }),
         ),
       );
       this.armTimeout(path, turn, crew.limits.turnMinutes);
     } catch (error) {
-      logError("Crew scout", error);
+      logError(sweep ? "Crew security sweep" : "Crew scout", error);
       updateCrew(path, (current) => ({
         ...current,
-        // It looked today, even if it failed: no retry loop.
-        scoutAt: this.deps.now(),
+        // It looked, even if it failed: no retry loop.
+        ...(sweep
+          ? { sweepAt: this.deps.now() }
+          : { scoutAt: this.deps.now() }),
         lastError: { at: this.deps.now(), text: errorText(error) },
       }));
       this.endTurn(path, turn);
     }
   }
 
-  /** The Scout's ideas land in Ideas, at most the day's ideas left. */
+  /**
+   * The Scout's ideas land in Ideas, at most the day's ideas left. A sweep's
+   * security cards land there too, a few at most, marked so that none ever
+   * starts by itself.
+   */
   private async afterScout(
     path: string,
     turn: LiveTurn,
@@ -1353,6 +1544,7 @@ export class CrewRunner {
     const crew = getCrew(path);
     if (!crew?.on || !this.stillOn(path, turn.onAt)) return;
     const now = this.deps.now();
+    const sweep = !!turn.sweep;
     const reply =
       replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
       outcome?.text?.trim() ||
@@ -1360,7 +1552,10 @@ export class CrewRunner {
     const ideas =
       outcome?.status === "failed" || turn.timedOut
         ? []
-        : parseIdeas(reply).slice(0, ideasLeft(crew, now));
+        : parseIdeas(reply).slice(
+            0,
+            sweep ? SWEEP_CARDS : ideasLeft(crew, now),
+          );
     const added = ideas.length
       ? await this.deps.board.add(
           path,
@@ -1372,9 +1567,9 @@ export class CrewRunner {
           })),
         )
       : [];
-    const scout = this.deps.name(crew, "scout");
+    const who = this.deps.name(crew, turn.memberId);
     updateCrew(path, (current) => {
-      let next = withMember(current, "scout", (member) =>
+      let next = withMemberId(current, turn.memberId, (member) =>
         member.doing ? { ...member, doing: undefined } : member,
       );
       added.forEach((card, index) => {
@@ -1385,20 +1580,28 @@ export class CrewRunner {
           ...(idea.why ? { why: idea.why } : {}),
           ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
           ...(idea.outside ? { outside: true } : {}),
+          ...(sweep ? { by: "security" as const } : {}),
         });
       });
       if (!added.length) return next;
-      next = {
-        ...next,
-        ideasAdded: bumpToday(next.ideasAdded, now, added.length),
-      };
+      if (!sweep)
+        next = {
+          ...next,
+          ideasAdded: bumpToday(next.ideasAdded, now, added.length),
+        };
+      const what = sweep
+        ? added.length === 1
+          ? "a security card"
+          : `${added.length} security cards`
+        : added.length === 1
+          ? "an idea"
+          : `${added.length} ideas`;
       return withFeed(next, {
         at: now,
         kind: "idea",
-        who: "scout",
-        text: `${scout} added ${added.length === 1 ? "an idea" : `${added.length} ideas`}: ${added
-          .map((card) => card.title)
-          .join(" · ")}`,
+        who: sweep ? "security" : "scout",
+        member: turn.memberId,
+        text: `${who} added ${what}: ${added.map((card) => card.title).join(" · ")}`,
       });
     });
   }
@@ -1459,7 +1662,7 @@ export class CrewRunner {
           if (!known || known.stage !== "stuck" || !known.turn) return current;
           return withCard(current, {
             ...withInboxResolved(known, "done", now),
-            stage: turn.role === "checker" ? "checking" : "building",
+            stage: turn.role === "builder" ? "building" : "checking",
             stuck: undefined,
             updatedAt: now,
           });

@@ -31,7 +31,13 @@ export type CodexThreadConfig = {
   approvalsReviewer: "user" | "auto_review";
   sandboxPolicy:
     | { type: "readOnly"; networkAccess?: boolean }
-    | { type: "workspaceWrite"; networkAccess?: boolean }
+    | {
+        type: "workspaceWrite";
+        networkAccess?: boolean;
+        /** Not even the shared temp folders: only the working folder. */
+        excludeSlashTmp?: boolean;
+        excludeTmpdirEnvVar?: boolean;
+      }
     | { type: "dangerFullAccess" };
 };
 
@@ -69,7 +75,12 @@ export const CODEX_NO_ESCALATION_CONFIG: CodexThreadConfig = {
   approvalPolicy: "never",
   sandbox: "workspace-write",
   approvalsReviewer: "user",
-  sandboxPolicy: { type: "workspaceWrite" },
+  // Its working folder only: not the temp folders other processes share.
+  sandboxPolicy: {
+    type: "workspaceWrite",
+    excludeSlashTmp: true,
+    excludeTmpdirEnvVar: true,
+  },
 };
 
 export function runtimeModeToCodexConfig(
@@ -241,20 +252,21 @@ export function buildTurnStartParams(input: {
     input.runtimeMode,
     input.controlsAgents,
   );
+  // Read-only, then never escalating, win over a plan turn's own sandbox.
   const config: CodexThreadConfig = input.readOnly
     ? CODEX_READ_ONLY_CONFIG
-    : input.intent === "plan"
-      ? withNetwork(
-          {
-            approvalPolicy: "never",
-            sandbox: "read-only",
-            approvalsReviewer: "auto_review",
-            sandboxPolicy: { type: "readOnly" },
-          },
-          input.controlsAgents,
-        )
-      : input.noEscalation
-        ? CODEX_NO_ESCALATION_CONFIG
+    : input.noEscalation
+      ? CODEX_NO_ESCALATION_CONFIG
+      : input.intent === "plan"
+        ? withNetwork(
+            {
+              approvalPolicy: "never",
+              sandbox: "read-only",
+              approvalsReviewer: "auto_review",
+              sandboxPolicy: { type: "readOnly" },
+            },
+            input.controlsAgents,
+          )
         : runtimeConfig;
   const turnInput: Array<Record<string, unknown>> = [];
   if (input.prompt) {

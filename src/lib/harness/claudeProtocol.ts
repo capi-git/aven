@@ -40,6 +40,11 @@ export const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 export const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 
 export const CLAUDE_SETTING_SOURCES = "user,project,local";
+/**
+ * A bot's or crew's chat: the user's own settings only. Project and local
+ * settings live in the folder an agent works in, where it could plant hooks.
+ */
+export const CLAUDE_USER_SETTING_SOURCES = "user";
 
 export const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
   "image/gif",
@@ -273,6 +278,11 @@ export function buildClaudeSpawnArgs(input: {
    * so none the user connected elsewhere loads.
    */
   noMcp?: boolean;
+  /**
+   * The user's own settings only, and no hooks (a bot's or crew's chat):
+   * nothing from the folder it works in can run as the user.
+   */
+  userSettingsOnly?: boolean;
 }): string[] {
   const args = [
     "--output-format",
@@ -306,7 +316,9 @@ export function buildClaudeSpawnArgs(input: {
   // whatever the caller decided so `~/.claude` hooks keep working.
   const settings: ClaudeCliSettings = {
     ...input.settings,
-    ...(input.isolated ? { disableAllHooks: true } : {}),
+    ...(input.isolated || input.userSettingsOnly
+      ? { disableAllHooks: true }
+      : {}),
   };
   if (input.isolated) {
     args.push("--no-session-persistence");
@@ -317,7 +329,13 @@ export function buildClaudeSpawnArgs(input: {
     // `--tools ""` is Claude Code's documented way to offer no tools at all.
     if (input.tools) args.push("--tools", input.tools.join(","));
   } else {
-    args.push(`--setting-sources=${CLAUDE_SETTING_SOURCES}`);
+    args.push(
+      `--setting-sources=${
+        input.userSettingsOnly
+          ? CLAUDE_USER_SETTING_SOURCES
+          : CLAUDE_SETTING_SOURCES
+      }`,
+    );
     args.push("--settings", JSON.stringify(settings));
     if (input.noMcp) {
       args.push("--strict-mcp-config");

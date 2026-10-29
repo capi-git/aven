@@ -507,6 +507,27 @@ export function codexOpenTools(response: unknown): string[] {
   return open;
 }
 
+/**
+ * The project settings folders a `config/read` response (with its layers)
+ * applies: Codex loads a folder's `.codex` settings, hooks and rules only
+ * for a trusted project, and says so on the layers it leaves out. Exported
+ * for tests.
+ */
+export function enabledProjectLayers(response: unknown): string[] {
+  const layers = asRecord(response)?.layers;
+  if (!Array.isArray(layers)) return [];
+  return layers
+    .map((layer) => asRecord(layer))
+    .filter((layer) => {
+      const name = asRecord(layer?.name);
+      return name?.type === "project" && !layer?.disabledReason;
+    })
+    .map((layer) => {
+      const folder = asRecord(layer?.name)?.dotCodexFolder;
+      return typeof folder === "string" ? folder : "the project";
+    });
+}
+
 /** What a reused process must still match: its closed tools and rules. */
 function toolsKey(sessionId: string): string {
   const permissions = sessionPermissions(sessionId);
@@ -654,7 +675,8 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
     try {
       effectiveConfig = await rpc.request(
         "config/read",
-        { cwd: input.cwd, includeLayers: false },
+        // A closed chat also checks where its settings came from.
+        { cwd: input.cwd, includeLayers: noMcp },
         3000,
       );
     } catch {
@@ -668,7 +690,14 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
     for (const name of enabledPlugins(effectiveConfig)) knownPlugins.add(name);
     // A closed chat starts only once Codex itself reports everything off.
     if (noMcp) {
-      const open = codexOpenTools(effectiveConfig);
+      const open = [
+        ...codexOpenTools(effectiveConfig),
+        // Settings from the folder it runs in (a crew's copy, where an
+        // agent could have written them) never apply to a closed chat.
+        ...enabledProjectLayers(effectiveConfig).map(
+          (folder) => `project settings in ${folder}`,
+        ),
+      ];
       if (open.length) throw new ToolsStillOpen(open.join(", "));
     }
     // Preserve effective developer instructions without logging or editing them.

@@ -64,6 +64,7 @@ beforeEach(() => {
     members: [
       { id: "builder", role: "builder", sessionId: "b-chat" },
       { id: "checker", role: "checker", sessionId: "c-chat" },
+      { id: "security", role: "security", sessionId: "x-chat" },
       { id: "scout", role: "scout", sessionId: "s-chat" },
     ],
   }));
@@ -75,9 +76,10 @@ afterEach(() => {
   resetCrewsCache();
 });
 
-const CHAT: Record<"builder" | "checker" | "scout", string> = {
+const CHAT: Record<"builder" | "checker" | "security" | "scout", string> = {
   builder: "b-chat",
   checker: "c-chat",
+  security: "x-chat",
   scout: "s-chat",
 };
 
@@ -101,7 +103,7 @@ const CHANGES: CrewMemberChange[] = [
 
 describe("a member's settings never weaken its rules", () => {
   it("launches each role's chat with the same rules, whatever you change", () => {
-    for (const role of ["builder", "checker", "scout"] as const) {
+    for (const role of ["builder", "checker", "security", "scout"] as const) {
       const before = sessionPermissions(CHAT[role]);
       expect(before).toBeDefined();
       expect(before).toMatchObject({
@@ -119,6 +121,37 @@ describe("a member's settings never weaken its rules", () => {
         expect(sessionPermissions(CHAT[role])).toEqual(before);
       }
     }
+  });
+
+  it("locks Security down exactly as the Checker, whatever you set on it", () => {
+    const checker = sessionPermissions("c-chat");
+    expect(sessionPermissions("x-chat")).toEqual(checker);
+    expect(checker).toMatchObject({
+      readOnly: true,
+      noMcp: true,
+      noEscalation: true,
+      userSettingsOnly: true,
+      workFolder: COPY,
+    });
+    // No web for a role that only reads.
+    expect(checker?.rules.deny).toEqual(
+      expect.arrayContaining(["WebFetch", "WebSearch"]),
+    );
+    for (const change of [...CHANGES, { sweep: "weekly" as const }]) {
+      updateCrewMember(PROJECT, "security", change);
+      expect(sessionPermissions("x-chat")).toEqual(checker);
+    }
+    // On Codex too: read-only, never escalating.
+    updateCrewMember(PROJECT, "security", { harness: "codex" });
+    expect(teammateHarness("x-chat")).toBe("codex");
+    expect(
+      buildThreadStartParams({
+        cwd: COPY,
+        runtimeMode: "full-access",
+        readOnly: sessionPermissions("x-chat")?.readOnly,
+        noEscalation: sessionPermissions("x-chat")?.noEscalation,
+      }),
+    ).toMatchObject({ approvalPolicy: "never", sandbox: "read-only" });
   });
 
   it("never stores an app that can't keep the rules, by any path", () => {

@@ -56,6 +56,12 @@ export type SessionPermissions = {
    */
   noEscalation?: boolean;
   /**
+   * Only the user's own settings (a bot's or crew's chat): Claude never
+   * loads project or local settings from the folder it runs in (an agent
+   * could have written them there), and runs no hooks at all.
+   */
+  userSettingsOnly?: boolean;
+  /**
    * No MCP servers: the agent launches with an empty, strict MCP config, so
    * nothing the user connected elsewhere can act for a bot.
    */
@@ -171,6 +177,7 @@ export function permissionRulesKey(
         permissions.sandbox ?? null,
         permissions.readOnly ?? false,
         permissions.noEscalation ?? false,
+        permissions.userSettingsOnly ?? false,
         permissions.noMcp ?? false,
         permissions.workFolder ?? "",
       ])

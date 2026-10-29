@@ -74,10 +74,25 @@ pub struct RaceChoice {
     pub paths: Vec<String>,
 }
 
+/// Settings that keep Aven's own git commands from running anything a
+/// checkout's configuration names: no file-system monitor, no hooks and no
+/// fetching through any transport (diffs also pass `--no-ext-diff` and
+/// `--no-textconv`). A bot's
+/// copy is written by an agent, so its configuration is never trusted.
+pub(crate) const SAFE_GIT: &[&str] = &[
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "protocol.allow=never",
+];
+
 pub(crate) fn git(dir: &Path) -> Command {
     let mut cmd = Command::new("git");
     crate::hide_window_console(&mut cmd);
     cmd.arg("--no-pager")
+        .args(SAFE_GIT)
         .arg("-C")
         .arg(dir)
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -326,13 +341,29 @@ pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
     let numstat = String::from_utf8_lossy(&run_staged(
         worktree,
         &index,
-        &["diff", "--cached", "--no-renames", "--numstat", base],
+        &[
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--numstat",
+            base,
+        ],
     )?)
     .to_string();
     let names = String::from_utf8_lossy(&run_staged(
         worktree,
         &index,
-        &["diff", "--cached", "--no-renames", "--name-status", base],
+        &[
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-status",
+            base,
+        ],
     )?)
     .to_string();
     let statuses = parse_name_status(&names);
@@ -377,7 +408,15 @@ pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
     run_staged(
         worktree,
         &index,
-        &["diff", "--cached", "--binary", "--no-renames", base],
+        &[
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--binary",
+            "--no-renames",
+            base,
+        ],
     )
 }
 
@@ -399,9 +438,12 @@ pub fn file_diff(worktree: &Path, base: &str, path: &str) -> Result<RaceFileDiff
     if !is_sha(base) {
         return Err("Invalid race base".into());
     }
-    let original = run(worktree, &["show", &format!("{base}:{path}")])
-        .ok()
-        .and_then(readable);
+    let original = run(
+        worktree,
+        &["show", "--no-textconv", &format!("{base}:{path}")],
+    )
+    .ok()
+    .and_then(readable);
     let current = std::fs::read(worktree.join(&path)).ok().and_then(readable);
     Ok(RaceFileDiff { original, current })
 }

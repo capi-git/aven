@@ -14,7 +14,9 @@ import {
   stopCard,
   turnFailed,
   turnTimedOut,
+  roundLimit,
 } from "./crewLoop";
+import { readCrewCard } from "./crews";
 import type { CrewCard, CrewChange, CrewHandoff, CrewVerdict } from "./crews";
 
 const names = { builder: "Beetle", checker: "Owl" };
@@ -101,7 +103,12 @@ describe("the work → check → work loop", () => {
       now: 4_000,
       names,
     });
-    expect(step.event).toEqual({ kind: "to-builder", round: 2, mustFix: 2 });
+    expect(step.event).toEqual({
+      kind: "to-builder",
+      from: "checker",
+      round: 2,
+      mustFix: 2,
+    });
     expect(step.card).toMatchObject({
       stage: "building",
       holder: "builder",
@@ -290,11 +297,19 @@ describe("the work → check → work loop", () => {
     }).card;
     expect(current.stuck?.reason).toBe("rounds");
     const more = resumeCard(current, { note: "Try an index.", now: 3 });
+    // Its own rounds stay as given (1 to 5); the one you allowed is kept apart.
     expect(more).toMatchObject({
       stage: "building",
       round: 2,
-      maxRounds: 2,
+      maxRounds: 1,
+      granted: 1,
       note: "Try an index.",
+    });
+    expect(roundLimit(more)).toBe(2);
+    // Read back, rounds stay within 1–5 and what you allowed stays too.
+    expect(readCrewCard({ ...more, maxRounds: 9 })).toMatchObject({
+      maxRounds: 5,
+      granted: 1,
     });
   });
 

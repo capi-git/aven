@@ -36,15 +36,22 @@ export function crewInboxHeading(card: Pick<CrewCard, "stage">): string {
  */
 export function crewInboxSummary(
   card: CrewCard,
-  names: { checker: string } = { checker: CREW_ROLE_INFO.checker.label },
+  names: { checker: string; security?: string } = {
+    checker: CREW_ROLE_INFO.checker.label,
+  },
 ): string {
   if (card.stage === "ready") {
     const fix = card.fix;
     const files = fix
       ? `${plural(fix.files, "file")} · +${fix.additions} −${fix.deletions}`
       : "";
+    const secured = card.rounds.some(
+      (round) => round.n === card.round && round.security,
+    );
     return [
-      `Passed ${names.checker}'s check in round ${card.round}`,
+      secured
+        ? `Passed ${names.checker}'s check and ${names.security ?? CREW_ROLE_INFO.security.label}'s security review in round ${card.round}`
+        : `Passed ${names.checker}'s check in round ${card.round}`,
       files,
       plural(card.runs, "run"),
     ]
@@ -60,7 +67,7 @@ export function crewInboxSummary(
 export function crewInboxCard(
   card: CrewCard,
   now: number,
-  names?: { checker: string },
+  names?: { checker: string; security?: string },
 ): AutomationReview {
   return {
     kind: "review",

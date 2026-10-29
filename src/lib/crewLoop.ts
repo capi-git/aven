@@ -31,15 +31,51 @@ import {
 /** What a step did, for the crew's feed and the Inbox. */
 export type LoopEvent =
   | { kind: "to-checker"; round: number }
-  | { kind: "to-builder"; round: number; mustFix: number }
+  | { kind: "to-security"; round: number }
+  | {
+      kind: "to-builder";
+      round: number;
+      mustFix: number;
+      /** Who sent it back: the Checker, or Security after the Checker passed it. */
+      from?: "checker" | "security";
+    }
   | { kind: "ready"; round: number }
   | { kind: "stuck"; reason: CrewStuckReason; text: string }
   | { kind: "question"; text: string };
 
 export type LoopStep = { card: CrewCard; event: LoopEvent };
 
-/** The most rounds a card may get. */
+/** The most rounds a card may be given. */
 export const CREW_MAX_ROUNDS = 5;
+
+/** The rounds a card gets: those it was given, and any you allowed on top. */
+export function roundLimit(
+  card: Pick<CrewCard, "maxRounds" | "granted">,
+): number {
+  return card.maxRounds + (card.granted ?? 0);
+}
+
+/**
+ * A Builder's scope joins the card's: the card keeps every scope that
+ * built a round of it, so a change outside them stays a must-fix even after
+ * another Builder takes it, or its first one is removed. A Builder without
+ * a scope opens it to the whole project.
+ */
+export function withBuilderScope(
+  card: CrewCard,
+  scope: readonly string[] | undefined,
+): CrewCard {
+  if (card.anywhere) return card;
+  if (!scope?.length) return { ...card, anywhere: true, scope: undefined };
+  return { ...card, scope: [...new Set([...(card.scope ?? []), ...scope])] };
+}
+
+/** The paths a card's change must keep to: none means anywhere. */
+export function cardScope(
+  card: Pick<CrewCard, "scope" | "anywhere">,
+): string[] {
+  return card.anywhere ? [] : (card.scope ?? []);
+}
 
 /**
  * A Builder kept to its scope: a change to files outside it is a must-fix,
@@ -74,7 +110,7 @@ export function queueCard(
     id: string;
     title: string;
     brief: string;
-    from: "you" | "scout";
+    from: "you" | "scout" | "security";
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
@@ -237,6 +273,8 @@ export function afterCheck(
     edited: boolean;
     /** The copy as the Checker saw it: a pass makes exactly this the fix. */
     seen?: CrewChange | null;
+    /** The crew's Security is on: a pass goes to it before Ready. */
+    security?: boolean;
     now: number;
     names?: Partial<Record<CrewLoopRole, string>>;
   },
@@ -268,19 +306,32 @@ export function afterCheck(
   const checked: CrewCard = { ...next, rounds, later };
   if (!verdict.mustFix.length) {
     const fix = input.seen ?? roundOf(checked)?.change;
+    // Security reviews exactly what the Checker passed before it is Ready.
+    if (input.security)
+      return {
+        card: {
+          ...checked,
+          stage: "checking",
+          holder: "security",
+          stuck: undefined,
+          ...(fix ? { reviewing: fix } : {}),
+        },
+        event: { kind: "to-security", round: card.round },
+      };
     return {
       card: {
         ...checked,
         stage: "ready",
         holder: undefined,
         stuck: undefined,
+        reviewing: undefined,
         ...(fix ? { fix } : {}),
         endedAt: now,
       },
       event: { kind: "ready", round: card.round },
     };
   }
-  if (card.round >= card.maxRounds) {
+  if (card.round >= roundLimit(card)) {
     const text = `Stuck after ${card.round} ${card.round === 1 ? "round" : "rounds"}`;
     return {
       card: { ...stuck(checked, "rounds", text, now), holder: undefined },
@@ -296,8 +347,122 @@ export function afterCheck(
       round,
       rounds: [...rounds, { n: round }],
       stuck: undefined,
+      reviewing: undefined,
     },
-    event: { kind: "to-builder", round, mustFix: verdict.mustFix.length },
+    event: {
+      kind: "to-builder",
+      round,
+      mustFix: verdict.mustFix.length,
+      from: "checker",
+    },
+  };
+}
+
+/**
+ * Security's turn ended, on the change the Checker passed. An edit to the
+ * copy during it voids it; a reply without a verdict stops the card. No
+ * must-fix item: Ready, with exactly the reviewed change as the fix, both
+ * checks passed. Must-fix items: back to the Builder, which counts as a
+ * round, or Stuck after the last one.
+ */
+export function afterSecurity(
+  card: CrewCard,
+  input: {
+    verdict: CrewVerdict | null;
+    /** The copy changed during the review. */
+    edited: boolean;
+    now: number;
+    names?: Partial<Record<CrewLoopRole, string>>;
+  },
+): LoopStep {
+  const { now } = input;
+  const security = input.names?.security ?? NAME("security");
+  const next: CrewCard = { ...card, turn: undefined, updatedAt: now };
+  if (input.edited) {
+    const text = `${security} changed files during its review, so its verdict wasn't used`;
+    return {
+      card: stuck(next, "checker-edited", text, now),
+      event: { kind: "stuck", reason: "checker-edited", text },
+    };
+  }
+  if (!input.verdict) {
+    const text = `${security}'s review ended without a verdict`;
+    return {
+      card: stuck(next, "no-verdict", text, now),
+      event: { kind: "stuck", reason: "no-verdict", text },
+    };
+  }
+  const verdict = input.verdict;
+  const later = [...new Set([...card.later, ...verdict.later])].slice(-20);
+  const rounds = withRound(card, card.round, (round) => ({
+    ...round,
+    security: verdict,
+    securedAt: now,
+  }));
+  const reviewed: CrewCard = { ...next, rounds, later };
+  if (!verdict.mustFix.length) {
+    const fix = card.reviewing ?? roundOf(reviewed)?.change;
+    return {
+      card: {
+        ...reviewed,
+        stage: "ready",
+        holder: undefined,
+        stuck: undefined,
+        reviewing: undefined,
+        ...(fix ? { fix } : {}),
+        endedAt: now,
+      },
+      event: { kind: "ready", round: card.round },
+    };
+  }
+  if (card.round >= roundLimit(card)) {
+    const text = `Stuck after ${card.round} ${card.round === 1 ? "round" : "rounds"}: ${security} found a security problem`;
+    return {
+      card: {
+        ...stuck(reviewed, "rounds", text, now),
+        holder: undefined,
+        reviewing: undefined,
+      },
+      event: { kind: "stuck", reason: "rounds", text },
+    };
+  }
+  const round = card.round + 1;
+  return {
+    card: {
+      ...reviewed,
+      stage: "building",
+      holder: "builder",
+      round,
+      rounds: [...rounds, { n: round }],
+      stuck: undefined,
+      reviewing: undefined,
+    },
+    event: {
+      kind: "to-builder",
+      round,
+      mustFix: verdict.mustFix.length,
+      from: "security",
+    },
+  };
+}
+
+/**
+ * The change moved between the Checker's pass and Security's turn: Security
+ * never reviews something the Checker didn't see. It waits on you, and Try
+ * again checks it from the Checker.
+ */
+export function reviewMoved(
+  card: CrewCard,
+  input: { now: number; checker?: string },
+): LoopStep {
+  const text = `The change moved after ${input.checker ?? NAME("checker")}'s check, so Security didn't review it`;
+  return {
+    card: {
+      ...stuck(card, "changed", text, input.now),
+      holder: "checker",
+      reviewing: undefined,
+    },
+    event: { kind: "stuck", reason: "changed", text },
   };
 }
 
@@ -362,7 +527,7 @@ export function resumeCard(
     const holder = card.holder ?? "builder";
     return {
       ...card,
-      stage: holder === "checker" ? "checking" : "building",
+      stage: holder === "builder" ? "building" : "checking",
       holder,
       stuck: undefined,
       ...(note ? { note } : {}),
@@ -377,11 +542,13 @@ export function resumeCard(
     stage: "building",
     holder: "builder",
     round,
-    maxRounds: Math.max(card.maxRounds, round),
+    // A card past its rounds gets exactly one more, kept apart from those it was given.
+    ...(round > roundLimit(card) ? { granted: round - card.maxRounds } : {}),
     rounds: [...card.rounds.filter((item) => item.n < round), { n: round }],
     stuck: undefined,
     ...(note ? { note } : {}),
     fix: undefined,
+    reviewing: undefined,
     endedAt: undefined,
     updatedAt: input.now,
   };
@@ -450,6 +617,18 @@ export function earlierFindings(card: CrewCard): CrewFinding[] {
 }
 
 /**
+ * Security's earlier must-fix items, which it re-checks from round 2: those
+ * of the last round it sent back. None: it reviews the whole change.
+ */
+export function earlierSecurityFindings(card: CrewCard): CrewFinding[] {
+  for (let n = card.round - 1; n >= 1; n -= 1) {
+    const found = roundOf(card, n)?.security?.mustFix;
+    if (found?.length) return found;
+  }
+  return [];
+}
+
+/**
  * The files whose change differs from the round before, with the paths the
  * Builder's change touched in round 1: what the Checker looks at from round 2.
  */
@@ -480,7 +659,7 @@ export function changedSinceLastRound(card: CrewCard): string[] {
 // Words
 
 function roundsText(card: CrewCard): string {
-  return `round ${card.round} of ${card.maxRounds}`;
+  return `round ${card.round} of ${roundLimit(card)}`;
 }
 
 /** Where the card stands, as its Board line says it. */
@@ -491,7 +670,7 @@ export function crewStageLabel(card: CrewCard): string {
     case "building":
       return card.round > 1 ? "Fixing" : "Building";
     case "checking":
-      return "Checking";
+      return card.holder === "security" ? "Security check" : "Checking";
     case "ready":
       return "Ready";
     case "stuck":

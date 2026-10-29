@@ -97,6 +97,15 @@ it("sandboxes a bot's commands: its copy and temp only, never the shared refs, r
     "/Users/me/Orbit/.git/logs",
     "/Users/me/Orbit/.git/HEAD",
     "/Users/me/Orbit/.git/index",
+    // What git runs, and where the copy finds its repository.
+    "/Users/me/Orbit/.git/hooks",
+    "/Users/me/Orbit/.git/config",
+    "/Users/me/Orbit/.git/worktrees",
+    "/data/bots/orbit-1a2b/.git",
+    // Settings an app would load from the copy and run as you.
+    "/data/bots/orbit-1a2b/.claude",
+    "/data/bots/orbit-1a2b/.mcp.json",
+    "/data/bots/orbit-1a2b/.vscode",
   ]);
   // Aven's own browser and desktop commands: that one socket, once known.
   expect(sandbox.network?.allowUnixSockets).toBeUndefined();

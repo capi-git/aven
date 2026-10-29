@@ -123,7 +123,7 @@ export function crewGate(input: CrewGateInput): CrewGate {
 
 /** Every Builder (or Checker) is off or removed: the card waits, and says why. */
 export function crewNoMemberGate(
-  role: "builder" | "checker",
+  role: "builder" | "checker" | "security",
 ): Exclude<CrewGate, { ok: true }> {
   const label = CREW_ROLE_INFO[role].label;
   return {
@@ -163,7 +163,9 @@ export function ideaMayAutoStart(idea: CrewIdea | undefined): boolean {
     !idea.sourceUrl &&
     !idea.outside &&
     !idea.declined &&
-    !idea.autoStarted
+    !idea.autoStarted &&
+    // Security's sweep cards always wait for you.
+    idea.by !== "security"
   );
 }
 
@@ -216,6 +218,17 @@ export function scoutShouldLook(
   if (!crew.scoutAt) return true;
   if (scout.schedule === "weekly") return now - crew.scoutAt >= WEEK_MS;
   return localDay(crew.scoutAt) !== localDay(now);
+}
+
+/**
+ * Whether Security sweeps the project now: only when you set it weekly, a
+ * week after its last sweep, with Security on and the crew idle.
+ */
+export function securitySweepDue(crew: Crew, now: number): boolean {
+  const security = crew.members.find((member) => member.role === "security");
+  if (!security || security.paused || security.sweep !== "weekly") return false;
+  if (cardInCopy(crew) || queuedCards(crew).length) return false;
+  return !crew.sweepAt || now - crew.sweepAt >= WEEK_MS;
 }
 
 // ---------------------------------------------------------------------------

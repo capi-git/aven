@@ -22,6 +22,7 @@ import {
   cardMentions,
   crewCard,
   crewForChat,
+  crewMemberApp,
   crewMemberById,
   crewMemberName,
   crewsAllRunsPerDay,
@@ -59,8 +60,19 @@ afterEach(() => {
   resetCrewsCache();
 });
 
+/** The crew on, with a Builder, a Checker and a Scout unless the test says. */
 function crewWith(patch: Partial<Crew> = {}): Crew {
-  return updateCrew(PATH, (crew) => ({ ...crew, on: true, onAt: 1, ...patch }));
+  return updateCrew(PATH, (crew) => ({
+    ...crew,
+    on: true,
+    onAt: 1,
+    members: [
+      { id: "builder", role: "builder" },
+      { id: "checker", role: "checker" },
+      { id: "scout", role: "scout" },
+    ],
+    ...patch,
+  }));
 }
 
 const MOLE = {
@@ -177,8 +189,9 @@ describe("adding and removing members", () => {
   it("adds several Builders and Checkers, each with its own id and a free critter", () => {
     crewWith();
     const first = addCrewMember(PATH, "builder");
+    // A Builder runs on Claude Code: Codex isn't kept for it.
     const second = addCrewMember(PATH, "builder", { harness: "codex" });
-    const checker = addCrewMember(PATH, "checker");
+    const checker = addCrewMember(PATH, "checker", { harness: "codex" });
     expect(first).toEqual({ id: "builder-2" });
     expect(second).toEqual({ id: "builder-3" });
     expect(checker).toEqual({ id: "checker-2" });
@@ -187,7 +200,8 @@ describe("adding and removing members", () => {
       (member) => member.critter ?? member.role,
     );
     expect(new Set(critters).size).toBe(critters.length);
-    expect(crewMemberById(crew, "builder-3")?.harness).toBe("codex");
+    expect(crewMemberById(crew, "builder-3")?.harness).toBeUndefined();
+    expect(crewMemberById(crew, "checker-2")?.harness).toBe("codex");
     expect(crewMemberName(crew, "builder-2")).not.toBe(
       crewMemberName(crew, "builder"),
     );
@@ -308,14 +322,29 @@ describe("changing a member", () => {
       /Claude Code or Codex/,
     );
     expect(crewMemberById(getCrew(PATH)!, "builder")?.harness).toBe("claude");
-    expect(updateCrewMember(PATH, "builder", { harness: "codex" })).toBeNull();
-    expect(crewMemberById(getCrew(PATH)!, "builder")).toEqual({
-      id: "builder",
-      role: "builder",
-      harness: "codex",
+    // A Builder writes in the copy: only Claude Code keeps it out of the
+    // copy's settings, so it never runs on Codex, even stored that way.
+    expect(updateCrewMember(PATH, "builder", { harness: "codex" })).toMatch(
+      /Builder runs on Claude Code/,
+    );
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.id === "builder" ? { ...member, harness: "codex" } : member,
+      ),
+    }));
+    expect(crewMemberApp(crewMemberById(getCrew(PATH)!, "builder"))).toEqual({
+      harness: "claude",
     });
+    // A new app for a Checker starts from that app's own model.
     expect(updateCrewMember(PATH, "checker", { harness: "claude" })).toBeNull();
     expect(crewMemberById(getCrew(PATH)!, "checker")?.fallback).toBeUndefined();
+    expect(updateCrewMember(PATH, "checker", { harness: "codex" })).toBeNull();
+    expect(crewMemberById(getCrew(PATH)!, "checker")).toEqual({
+      id: "checker",
+      role: "checker",
+      harness: "codex",
+    });
   });
 
   it("tidies names, critters, instructions, scope and the Scout's rhythm", () => {
@@ -327,7 +356,7 @@ describe("changing a member", () => {
       name: "  Mole  ",
       critter: "hedgehog",
       instructions: "x".repeat(5_000),
-      scope: "./src/ui/\n/src/styles/*.css, ../secrets, src/ui",
+      scope: `./src/ui/\n${PATH}/src/styles/*.css, src/ui`,
       paused: true,
     });
     updateCrewMember(PATH, "builder", { schedule: "weekly" });
@@ -349,7 +378,16 @@ describe("changing a member", () => {
       critter: "hedgehog",
       instructions: "x".repeat(2_000),
     });
-    expect(crewScopeList(["a/../b", "src//", "  "])).toEqual(["src"]);
+    expect(crewScopeList(["src//", "  "])).toEqual({ scope: ["src"] });
+    // A path that leaves the project, or is outside it, is refused, never
+    // saved as "anywhere".
+    expect(
+      updateCrewMember(PATH, "builder", { scope: "src/ui\n../secrets" }),
+    ).toMatch(/leaves the project/);
+    expect(updateCrewMember(PATH, "builder", { scope: "/etc" })).toMatch(
+      /outside the project/,
+    );
+    expect(crewScopeList(["a/../b"])).toHaveProperty("error");
   });
 
   it("keeps your app and model when the crew turns on again", () => {

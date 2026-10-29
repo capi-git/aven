@@ -1837,6 +1837,7 @@ function launchOptions(
   settings?: ClaudeCliSettings;
   projectMemory?: string;
   noMcp?: boolean;
+  userSettingsOnly?: boolean;
 } {
   const native = nativeModelId(input.model);
   const effortRaw = input.modelSettings?.effort;
@@ -1859,6 +1860,9 @@ function launchOptions(
   const permissions = sessionPermissions(input.sessionId);
   if (permissions) settings.permissions = permissions.rules;
   if (permissions?.sandbox) settings.sandbox = permissions.sandbox;
+  // Nothing in the folder it works in may run as the user: no hooks, and
+  // no project or local settings.
+  if (permissions?.userSettingsOnly) settings.disableAllHooks = true;
   return {
     model: resolveClaudeApiModelId(native, context),
     effort: normalizeClaudeCliEffort(effortRaw, native),
@@ -1871,6 +1875,7 @@ function launchOptions(
     settings: Object.keys(settings).length > 0 ? settings : undefined,
     projectMemory: launchMemory(input),
     ...(permissions?.noMcp ? { noMcp: true } : {}),
+    ...(permissions?.userSettingsOnly ? { userSettingsOnly: true } : {}),
   };
 }
 

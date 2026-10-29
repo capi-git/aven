@@ -290,6 +290,7 @@ describe("Apply lands exactly the reviewed change", () => {
           hash: "e",
         }),
         sources: async () => [],
+        planted: async () => [],
       },
       weeklyUsed: () => null,
       fixerRuns: () => 0,

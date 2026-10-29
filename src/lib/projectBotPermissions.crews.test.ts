@@ -11,6 +11,9 @@ import {
 import { resetCrewsCache, updateCrew, type Crew } from "./crews";
 import {
   botChatPermissions,
+  botPermissionRules,
+  botSandbox,
+  crewChatPermissions,
   crewPermissionRules,
   crewSandbox,
   installBotPermissions,
@@ -37,6 +40,20 @@ function memoryStorage(): Storage {
 
 const PROJECT = "/Users/me/aven-site";
 const COPY = "/data/bots/aven-site-crew-1";
+
+/** A crew member's chat permissions, for a crew that is on with its copy. */
+function crewChatPermissionsFor(role: "builder" | "checker") {
+  updateCrew(PROJECT, (current) => ({
+    ...current,
+    on: true,
+    copy: crew.copy,
+    members: [
+      { id: "builder", role: "builder", sessionId: "b-chat" },
+      { id: "checker", role: "checker", sessionId: "c-chat" },
+    ],
+  }));
+  return crewChatPermissions(role === "builder" ? "b-chat" : "c-chat");
+}
 
 const crew: Pick<Crew, "path" | "copy"> = {
   path: PROJECT,
@@ -227,6 +244,66 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
     expect(args).toContain("--strict-mcp-config");
     expect(JSON.parse(args[at + 1])).toEqual({ mcpServers: {} });
     expect(buildClaudeSpawnArgs({})).not.toContain("--strict-mcp-config");
+  });
+
+  it("starts a bot's or crew's Claude with the user's settings only and no hooks", () => {
+    // Project and local settings live in the copy, where an agent could
+    // plant a hook that would run as you, unsandboxed.
+    const args = buildClaudeSpawnArgs({
+      userSettingsOnly: true,
+      noMcp: true,
+      settings: { sandbox: crewSandbox(crew, "builder", undefined) },
+    });
+    expect(args).toContain("--setting-sources=user");
+    expect(args.some((arg) => arg.includes("project,local"))).toBe(false);
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    expect(settings.disableAllHooks).toBe(true);
+    // Ordinary chats keep the user's project settings and hooks.
+    const plain = buildClaudeSpawnArgs({});
+    expect(plain).toContain("--setting-sources=user,project,local");
+    expect(
+      JSON.parse(plain[plain.indexOf("--settings") + 1]).disableAllHooks,
+    ).toBeUndefined();
+  });
+
+  it("keeps every crew member and bot out of the copy's settings and git internals", () => {
+    const bot = { path: PROJECT, copy: crew.copy! };
+    for (const sandbox of [
+      crewSandbox(crew, "builder", undefined),
+      crewSandbox(crew, "checker", undefined),
+      crewSandbox(crew, "security", undefined),
+      botSandbox(bot, undefined),
+    ])
+      expect(sandbox.filesystem?.denyWrite).toEqual(
+        expect.arrayContaining([
+          `${COPY}/.claude`,
+          `${COPY}/.mcp.json`,
+          `${COPY}/.vscode`,
+          `${COPY}/.git`,
+          `${PROJECT}/.git/hooks`,
+          `${PROJECT}/.git/config`,
+          `${PROJECT}/.git/worktrees`,
+        ]),
+      );
+    for (const rules of [
+      crewPermissionRules(crew, "builder"),
+      crewPermissionRules(crew, "checker"),
+      botPermissionRules(bot),
+    ])
+      expect(rules.deny).toEqual(
+        expect.arrayContaining([
+          `Edit(/${COPY}/.claude)`,
+          `Edit(/${COPY}/.claude/**)`,
+          `Edit(/${COPY}/.mcp.json)`,
+          `Edit(/${COPY}/.vscode/**)`,
+        ]),
+      );
+    for (const permissions of [
+      botChatPermissions(bot),
+      crewChatPermissionsFor("builder"),
+      crewChatPermissionsFor("checker"),
+    ])
+      expect(permissions).toMatchObject({ userSettingsOnly: true });
   });
 
   it("starts Codex with each MCP server it knows switched off", () => {

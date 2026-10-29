@@ -20,6 +20,7 @@ import {
   type Crew,
 } from "./crews";
 import { queueCard } from "./crewLoop";
+import { resumeCrewCard } from "./crewActions";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import type { BotDiff } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -51,7 +52,7 @@ const BASE = "b".repeat(40);
 const NOON = new Date(2026, 9, 29, 12, 0).getTime();
 const MINUTE = 60_000;
 
-type Role = "builder" | "checker" | "scout";
+type Role = "builder" | "checker" | "security" | "scout";
 type Reply = {
   text: string;
   /** What the copy holds after the turn: its fingerprint and files. */
@@ -94,7 +95,12 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     text: string;
     options: BotSendOptions;
   }[] = [];
-  const counts: Record<Role, number> = { builder: 0, checker: 0, scout: 0 };
+  const counts: Record<Role, number> = {
+    builder: 0,
+    checker: 0,
+    security: 0,
+    scout: 0,
+  };
   const stopped: string[] = [];
   const fresh: string[] = [];
   let copyState: { hash: string; files: string[] } | null = null;
@@ -135,6 +141,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     }),
     diff: vi.fn(async () => diff()),
     sources: vi.fn(async () => [`${COPY}/src`, `${COPY}/package.json`]),
+    planted: vi.fn(async (): Promise<string[]> => []),
   };
 
   const update = (id: string, change: (chat: Session) => Session) => {
@@ -305,6 +312,10 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     get sessions() {
       return sessions;
     },
+    /** What the copy holds now, as if something wrote it between turns. */
+    setCopy: (state: { hash: string; files: string[] } | null) => {
+      copyState = state;
+    },
     get now() {
       return now;
     },
@@ -314,11 +325,17 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   };
 }
 
+/** The crew on, with a Builder, a Checker and a Scout unless the test says. */
 function onCrew(patch: Partial<Crew> = {}) {
   updateCrew(PATH, (crew) => ({
     ...crew,
     on: true,
     onAt: 1,
+    members: [
+      { id: "builder", role: "builder" },
+      { id: "checker", role: "checker" },
+      { id: "scout", role: "scout" },
+    ],
     ...patch,
   }));
 }
@@ -1115,6 +1132,263 @@ describe("members you set up", () => {
     h.runner.start();
     await h.advance(MINUTE);
     expect(h.sent).toEqual([]);
+    h.runner.stop();
+  });
+});
+
+describe("Security", () => {
+  const withSecurity = (extra: Partial<Crew> = {}) =>
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "security", role: "security", instructions: "Look for secrets." },
+      ],
+      ...extra,
+    });
+
+  it("reviews what the Checker passed; a must-fix is a round; Ready needs both passes", async () => {
+    const h = harness({
+      builder: (_text, nth) => ({
+        text: handoff(nth === 1 ? "Added the export" : "Moved the key out"),
+        copy: { hash: `h${nth}`, files: ["src/export.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+      security: (_text, nth) =>
+        nth === 1
+          ? {
+              text: verdict(
+                [
+                  {
+                    text: "An API key is written into export.ts",
+                    where: "src/export.ts:3",
+                  },
+                ],
+                ["Rotate the key"],
+              ),
+            }
+          : { text: verdict([]) },
+    });
+    withSecurity();
+    give();
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    expect(h.sent.map((item) => item.role)).toEqual(["builder", "checker"]);
+    await h.advance(MINUTE + 5_000);
+    // The Checker passed round 1: Security has the same change.
+    expect(card()).toMatchObject({
+      stage: "checking",
+      holder: "security",
+      round: 1,
+      reviewing: { hash: "h1" },
+    });
+    expect(h.sent[2].role).toBe("security");
+    expect(h.sent[2].text).toContain("Look for secrets.");
+    expect(h.sent[2].text).toContain("Review the whole change for security");
+    expect(h.sent[2].options.botWake?.label).toBe(
+      "Security · Dark mode toggle · round 1",
+    );
+    await h.advance(MINUTE + 5_000);
+    // Its must-fix sends the card back: a new round.
+    expect(card()).toMatchObject({ stage: "building", round: 2 });
+    expect(h.sent[3].role).toBe("builder");
+    expect(h.sent[3].text).toContain(
+      "reviewed it for security and asked for these fixes",
+    );
+    expect(h.sent[3].text).toContain("An API key is written into export.ts");
+    await h.advance(2 * (MINUTE + 5_000));
+    expect(h.sent[5].role).toBe("security");
+    expect(h.sent[5].text).toContain("This is a re-check");
+    await h.advance(MINUTE + 5_000);
+    const ready = card();
+    expect(ready).toMatchObject({ stage: "ready", round: 2 });
+    expect(ready.fix?.hash).toBe("h2");
+    expect(ready.rounds[1].verdict?.pass).toBe(true);
+    expect(ready.rounds[1].security?.pass).toBe(true);
+    expect(ready.later).toContain("Rotate the key");
+    expect(ready.inbox?.summary).toContain(
+      "Passed Owl's check and Hedgehog's security review in round 2",
+    );
+    const feed = getCrew(PATH)!.feed.map((entry) => entry.text);
+    expect(feed).toContain(
+      "Owl passed round 1; Hedgehog reviews it for security",
+    );
+    expect(feed.at(-1)).toBe(
+      "Ready for you · passed Owl's check and Hedgehog's security review in round 2",
+    );
+    h.runner.stop();
+  });
+
+  it("never reviews a change that moved after the Checker passed it", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+      security: () => ({ text: verdict([]) }),
+    });
+    withSecurity();
+    give();
+    h.runner.start();
+    await h.advance(0);
+    // The Checker passes h1; then something writes the copy before
+    // Security's turn reads it (its 4th read: built, before and after the
+    // check, then Security's).
+    const read = h.copy.diff.getMockImplementation()!;
+    let reads = 0;
+    h.copy.diff.mockImplementation(async () => {
+      reads += 1;
+      if (reads >= 4)
+        h.setCopy({ hash: "moved", files: ["src/a.ts", "src/b.ts"] });
+      return read();
+    });
+    await h.advance(3 * MINUTE);
+    expect(h.sent.filter((item) => item.role === "security")).toEqual([]);
+    expect(card()).toMatchObject({
+      stage: "stuck",
+      holder: "checker",
+      stuck: { reason: "changed" },
+    });
+    expect(card().fix).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("sweeps weekly when you set it; its cards never start by themselves", async () => {
+    const h = harness({
+      security: () => ({
+        text: fence("aven-ideas", {
+          ideas: [
+            { title: "Stop logging session tokens", size: "small" },
+            { title: "Pin the registry in .npmrc", size: "small" },
+          ],
+        }),
+      }),
+    });
+    withSecurity({
+      limits: { ...defaultCrewLimits(), autoStartsPerDay: 20 },
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "security", role: "security", sweep: "weekly" },
+      ],
+    });
+    h.runner.start();
+    await h.advance(0);
+    expect(h.sent[0]).toMatchObject({ role: "security" });
+    expect(h.sent[0].text).toContain("This is your security sweep");
+    expect(h.sent[0].options.botWake?.label).toBe("Security sweep");
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    const ideas = Object.values(crew.ideas ?? {});
+    expect(ideas).toHaveLength(2);
+    expect(ideas.every((idea) => idea.by === "security")).toBe(true);
+    // Small, and auto-starts are allowed: still nothing started.
+    expect(crew.cards).toEqual([]);
+    expect(h.sent).toHaveLength(1);
+    expect(crew.feed.at(-1)?.text).toBe(
+      "Hedgehog added 2 security cards: Stop logging session tokens · Pin the registry in .npmrc",
+    );
+    h.runner.stop();
+  });
+});
+
+describe("what an agent leaves in the copy", () => {
+  it("doesn't start a turn while settings an agent wrote are in the copy, and removes them", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+    });
+    onCrew();
+    give();
+    h.copy.planted.mockResolvedValueOnce([".claude/settings.local.json"]);
+    h.runner.start();
+    await h.advance(0);
+    expect(h.copy.planted).toHaveBeenCalledWith(COPY, true);
+    expect(h.sent).toEqual([]);
+    expect(card().stuck?.reason).toBe("failed");
+    expect(card().stuck?.text).toContain(
+      "Aven found .claude/settings.local.json in the crew's copy and removed it",
+    );
+    // Removed: Try again goes ahead.
+    resumeCrewCard(PATH, card().id);
+    await h.advance(1_000);
+    expect(h.sent.map((item) => item.role)).toEqual(["builder"]);
+    h.runner.stop();
+  });
+
+  it("keeps a Builder's scope on the card, whoever builds next", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Styled it"),
+        copy: { hash: "h1", files: ["src/ui/a.css", "src/server.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({
+      members: [
+        { id: "builder", role: "builder", scope: ["src/ui"] },
+        { id: "checker", role: "checker" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(0);
+    expect(card().scope).toEqual(["src/ui"]);
+    // Its scope is cleared before the check: the card still keeps it.
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.id === "builder" ? { ...member, scope: undefined } : member,
+      ),
+    }));
+    await h.advance(2 * (MINUTE + 5_000));
+    expect(card().rounds[0].verdict?.mustFix.at(-1)?.text).toContain(
+      "changed files outside its scope (src/ui): src/server.ts",
+    );
+    h.runner.stop();
+  });
+});
+
+describe("Security on Codex", () => {
+  it("reviews with Claude when Codex can't be locked down here, never unlocked", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+      security: (_text, nth) =>
+        nth === 1
+          ? {
+              text: "",
+              status: "failed",
+              error:
+                "Codex couldn't be locked down here: MCP github stayed on, so this chat didn't start.",
+            }
+          : { text: verdict([]) },
+    });
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "security", role: "security", harness: "codex" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(crewMemberApp(crewMember(crew, "security"))).toEqual({
+      harness: "claude",
+      model: "claude:other",
+    });
+    expect(h.sent.filter((item) => item.role === "security")).toHaveLength(2);
+    expect(card()).toMatchObject({ stage: "ready" });
+    expect(card().rounds[0].security?.pass).toBe(true);
     h.runner.stop();
   });
 });

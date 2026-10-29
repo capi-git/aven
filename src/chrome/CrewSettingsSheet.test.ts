@@ -71,7 +71,7 @@ describe("the crew's settings", () => {
     const rows = [
       ...sheet().querySelectorAll<HTMLElement>("[data-crew-member-row]"),
     ].map((row) => row.dataset.crewMemberRow);
-    expect(rows).toEqual(["builder", "checker", "scout"]);
+    expect(rows).toEqual(["builder", "checker", "security"]);
     const switches = [...sheet().querySelectorAll(".settings-toggle")];
     expect(switches.length).toBeGreaterThan(0);
     for (const item of switches)
@@ -104,10 +104,17 @@ describe("the crew's settings", () => {
         .querySelector<HTMLButtonElement>("[data-crew-add-member]")!
         .click(),
     );
-    const scout = sheet().querySelector<HTMLElement>(
-      '[data-crew-template="scout"]',
-    )!;
-    expect(scout.getAttribute("aria-disabled")).toBe("true");
+    // Ready-made members above; one already in the crew is greyed.
+    expect(
+      sheet()
+        .querySelector('[data-crew-preset="security"]')
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      sheet()
+        .querySelector('[data-crew-preset="scout"]')
+        ?.getAttribute("aria-disabled"),
+    ).toBeNull();
     await act(async () =>
       sheet()
         .querySelector<HTMLButtonElement>('[data-crew-template="builder"]')!

@@ -13,6 +13,7 @@ import {
   type BotQuietHours,
   type ProjectBot,
 } from "./projectBots";
+import { SECURITY_INSTRUCTIONS } from "./crewPresets";
 import { normalizeProjectPath } from "./recents";
 import type { AutomationReview } from "./automationReview";
 import { registerGuardedChats } from "./harness/sessionPermissions";
@@ -37,10 +38,10 @@ export const CREWS_KEY = "aven.crews.v1";
  * here, to `CREW_ROLE_INFO`, and to the runner's wake rules; members of a
  * role this build does not know are kept in storage as they are.
  */
-export type CrewRole = "builder" | "checker" | "scout" | "fixer";
+export type CrewRole = "builder" | "checker" | "security" | "scout" | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
-export type CrewLoopRole = "builder" | "checker";
+export type CrewLoopRole = "builder" | "checker" | "security";
 
 export type CrewRoleInfo = {
   role: CrewRole;
@@ -72,6 +73,14 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     job: "Checks every build before you see it",
     edits: false,
   },
+  security: {
+    role: "security",
+    label: "Security",
+    critter: "hedgehog",
+    color: "hsl(30 32% 64%)",
+    job: "Reviews each passed build for security before you see it",
+    edits: false,
+  },
   scout: {
     role: "scout",
     label: "Scout",
@@ -92,6 +101,7 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
 export const CREW_ROLE_ORDER: readonly CrewRole[] = [
   "builder",
   "checker",
+  "security",
   "scout",
   "fixer",
 ];
@@ -121,6 +131,10 @@ export type CrewMember = {
   scope?: string[];
   /** The Scout's rhythm: off, once a day or once a week. */
   schedule?: CrewScoutSchedule;
+  /** Security's own look at the whole project, off unless you set it weekly. */
+  sweep?: "weekly";
+  /** The ready-made member it was added from ("designer", "tester"…). */
+  preset?: string;
   /** Its own chat. The Fixer has none here: its chat is the project bot's. */
   sessionId?: string;
   /** The app and model it runs on, picked when the crew is made. */
@@ -144,6 +158,16 @@ export type CrewScoutSchedule = "off" | "daily" | "weekly";
 export const CREW_AGENTS = ["claude", "codex"] as const;
 export type CrewAgent = (typeof CREW_AGENTS)[number];
 
+/**
+ * The apps a role may run on. A Builder writes in the copy, and only Claude
+ * Code's sandbox keeps it out of the copy's settings files (Codex can't be
+ * told to), so a Builder runs on Claude Code; a role that only reads may
+ * also run on Codex, locked down.
+ */
+export function crewAgentsFor(role: CrewRole): readonly CrewAgent[] {
+  return CREW_ROLE_INFO[role].edits ? ["claude"] : CREW_AGENTS;
+}
+
 /** "If the card mentions ui, css or design, give it to Designer." */
 export type CrewRoute = {
   id: string;
@@ -163,8 +187,12 @@ export function crewMemberApp(member: CrewMember | undefined): {
       harness: member.fallback.harness,
       ...(member.fallback.model ? { model: member.fallback.model } : {}),
     };
+  const harness = member?.harness ?? "claude";
+  // A role that writes runs only on an app that keeps it to its rules.
+  if (member && !crewAgentsFor(member.role).includes(harness))
+    return { harness: "claude" };
   return {
-    harness: member?.harness ?? "claude",
+    harness,
     ...(member?.model ? { model: member.model } : {}),
   };
 }
@@ -308,6 +336,9 @@ export type CrewRound = {
   change?: CrewChange;
   builtAt?: number;
   checkedAt?: number;
+  /** Security's verdict on the change the Checker passed. */
+  security?: CrewVerdict;
+  securedAt?: number;
 };
 
 /** A turn Aven sent for a card, so a restart and other windows know. */
@@ -327,7 +358,8 @@ export type CrewCard = {
   title: string;
   /** What to build: the card's title and note. */
   brief: string;
-  from: "you" | "scout";
+  /** You, or an idea from the Scout or Security's sweep (quoted as data). */
+  from: "you" | "scout" | "security";
   /** The Scout's size for its idea. */
   size?: CrewIdeaSize;
   /** Where the card came from (an issue, a page): outside words. */
@@ -335,7 +367,17 @@ export type CrewCard = {
   stage: CrewStage;
   /** 1-based once started; 0 while queued. */
   round: number;
+  /** Its rounds (1–5), as given; see `granted` for more you allowed. */
   maxRounds: number;
+  /** Rounds you allowed past `maxRounds` (One more round, Send back). */
+  granted?: number;
+  /**
+   * Every scope a Builder that built a round of it worked in, together: a
+   * change outside them is a must-fix, whoever builds it next. `anywhere`
+   * once a Builder without a scope built a round.
+   */
+  scope?: string[];
+  anywhere?: boolean;
   paused?: boolean;
   /** Who holds it now. */
   holder?: CrewLoopRole;
@@ -354,6 +396,8 @@ export type CrewCard = {
   base?: string;
   /** The Ready change: Apply lands exactly this fingerprint. */
   fix?: CrewChange;
+  /** The change the Checker passed, which Security reviews as it is. */
+  reviewing?: CrewChange;
   turn?: CrewTurn;
   /** Turns it took. */
   runs: number;
@@ -382,6 +426,8 @@ export type CrewIdea = {
   declined?: boolean;
   /** It started by itself. */
   autoStarted?: boolean;
+  /** Security's sweep found it: it never starts by itself. */
+  by?: "security";
 };
 
 export type CrewFeedKind =
@@ -467,6 +513,8 @@ export type Crew = {
   /** Ideas the Scout added today, and when it last looked. */
   ideasAdded?: { day: string; count: number };
   scoutAt?: number;
+  /** When Security last swept the project. */
+  sweepAt?: number;
   ideas?: Record<string, CrewIdea>;
   cards: CrewCard[];
   feed: CrewFeedEntry[];
@@ -499,7 +547,11 @@ const RAN_KEPT = 8;
 
 const EMPTY_STORE: Store = { version: 1, crews: {}, others: {} };
 
-/** A new crew: off, with a Builder, a Checker and a Scout, and the Fixer if the project has a bot. */
+/**
+ * A new crew: off, with a Builder, a Checker and Security, and the Fixer if
+ * the project has a bot. A Scout is yours to add. Crews made before keep
+ * the members they have.
+ */
 export function newCrew(path: string, now = Date.now()): Crew {
   return {
     path: normalizeProjectPath(path),
@@ -508,7 +560,11 @@ export function newCrew(path: string, now = Date.now()): Crew {
     members: [
       { id: "builder", role: "builder" },
       { id: "checker", role: "checker" },
-      { id: "scout", role: "scout" },
+      {
+        id: "security",
+        role: "security",
+        instructions: SECURITY_INSTRUCTIONS,
+      },
     ],
     limits: defaultCrewLimits(),
     cards: [],
@@ -725,6 +781,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
           if (!round || typeof round.n !== "number") return null;
           const handoff = readHandoff(round.handoff);
           const verdict = readVerdict(round.verdict);
+          const security = readVerdict(round.security);
           const change = readChange(round.change);
           return {
             n: finite(round.n, 1, 20, 1),
@@ -737,6 +794,10 @@ export function readCrewCard(value: unknown): CrewCard | null {
             ...(typeof round.checkedAt === "number"
               ? { checkedAt: round.checkedAt }
               : {}),
+            ...(security ? { security } : {}),
+            ...(typeof round.securedAt === "number"
+              ? { securedAt: round.securedAt }
+              : {}),
           };
         })
         .filter((item): item is CrewRound => !!item)
@@ -745,6 +806,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const stuck = raw.stuck as CrewCard["stuck"] | undefined;
   const turn = raw.turn as CrewTurn | undefined;
   const fix = readChange(raw.fix);
+  const reviewing = readChange(raw.reviewing);
   const inbox = readReview(raw.inbox);
   const note = text(raw.note, CREW_NOTE_MAX);
   const sourceUrl = text(raw.sourceUrl, 2048);
@@ -753,16 +815,25 @@ export function readCrewCard(value: unknown): CrewCard | null {
     id,
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
-    from: raw.from === "scout" ? "scout" : "you",
+    from: raw.from === "scout" || raw.from === "security" ? raw.from : "you",
     ...(SIZES.has(raw.size as CrewIdeaSize)
       ? { size: raw.size as CrewIdeaSize }
       : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
     stage: raw.stage as CrewStage,
     round: finite(raw.round, 0, 20, 0),
-    maxRounds: finite(raw.maxRounds, 1, 10, CREW_DEFAULT_ROUNDS),
+    maxRounds: finite(raw.maxRounds, 1, 5, CREW_DEFAULT_ROUNDS),
+    ...(typeof raw.granted === "number" && raw.granted > 0
+      ? { granted: finite(raw.granted, 0, 20, 0) }
+      : {}),
+    ...(strings(raw.scope, 40, 200).length
+      ? { scope: strings(raw.scope, 40, 200) }
+      : {}),
+    ...(raw.anywhere === true ? { anywhere: true } : {}),
     ...(raw.paused === true ? { paused: true } : {}),
-    ...(raw.holder === "builder" || raw.holder === "checker"
+    ...(raw.holder === "builder" ||
+    raw.holder === "checker" ||
+    raw.holder === "security"
       ? { holder: raw.holder }
       : {}),
     rounds,
@@ -789,8 +860,11 @@ export function readCrewCard(value: unknown): CrewCard | null {
       : {}),
     ...(text(raw.base, 64) ? { base: text(raw.base, 64) } : {}),
     ...(fix ? { fix } : {}),
+    ...(reviewing ? { reviewing } : {}),
     ...(turn &&
-    (turn.role === "builder" || turn.role === "checker") &&
+    (turn.role === "builder" ||
+      turn.role === "checker" ||
+      turn.role === "security") &&
     typeof turn.sessionId === "string" &&
     typeof turn.turnId === "string" &&
     typeof turn.sentAt === "number"
@@ -841,6 +915,7 @@ function readMember(value: unknown):
     raw.schedule === "weekly"
       ? raw.schedule
       : undefined;
+  const preset = text(raw.preset, 40);
   const sessionId = text(raw.sessionId, 256);
   const model = text(raw.model, 200);
   const doing = raw.doing as CrewMember["doing"] | undefined;
@@ -857,6 +932,8 @@ function readMember(value: unknown):
     ...(instructions ? { instructions } : {}),
     ...(scope.length ? { scope } : {}),
     ...(schedule ? { schedule } : {}),
+    ...(raw.sweep === "weekly" ? { sweep: "weekly" as const } : {}),
+    ...(preset ? { preset } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(raw.harness === "claude" || raw.harness === "codex"
       ? { harness: raw.harness }
@@ -903,7 +980,10 @@ export function readCrew(value: unknown): Crew | null {
     for (const item of raw.members) {
       const read = readMember(item);
       // Several Builders and Checkers; one Scout and one Fixer.
-      const single = read?.role === "scout" || read?.role === "fixer";
+      const single =
+        read?.role === "scout" ||
+        read?.role === "fixer" ||
+        read?.role === "security";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -969,6 +1049,7 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
+        ...(idea.by === "security" ? { by: "security" as const } : {}),
       };
     }
   const cards = Array.isArray(raw.cards)
@@ -1079,6 +1160,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(autoStarts ? { autoStarts } : {}),
     ...(ideasAdded ? { ideasAdded } : {}),
     ...(typeof raw.scoutAt === "number" ? { scoutAt: raw.scoutAt } : {}),
+    ...(typeof raw.sweepAt === "number" ? { sweepAt: raw.sweepAt } : {}),
     ...(Object.keys(ideas).length ? { ideas } : {}),
     cards,
     feed,
@@ -1623,6 +1705,7 @@ export function cardBuilder(
 /** The member whose turn a card is on now: by its chat while a turn runs, else by the rules. */
 export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   if (!card.holder) return undefined;
+  if (card.holder === "security" && !card.turn) return cardSecurity(crew)?.id;
   if (card.turn) {
     const by = crew.members.find(
       (member) => member.sessionId === card.turn!.sessionId,
@@ -1634,6 +1717,13 @@ export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
       ? cardBuilder(crew, card)
       : cardChecker(crew, card)
   )?.id;
+}
+
+/** Security for a card: the crew's, while it is on. */
+export function cardSecurity(crew: Crew): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "security" && memberOn(member),
+  );
 }
 
 /** The Checker checking a card: the one it was given to while on, else the first on. */
@@ -1670,7 +1760,7 @@ export function withCheckerOnClaude(
     : crewMember(crew, "checker");
   if (
     !checker ||
-    checker.role !== "checker" ||
+    (checker.role !== "checker" && checker.role !== "security") ||
     crewMemberApp(checker).harness === "claude"
   )
     return crew;

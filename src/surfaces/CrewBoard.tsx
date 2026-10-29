@@ -713,7 +713,7 @@ export function CrewReadySheet({
 }: {
   crew: Crew;
   cardId: string;
-  names: { builder: string; checker: string };
+  names: { builder: string; checker: string; security?: string };
   onClose: () => void;
 }) {
   const card = crewCard(crew, cardId);
@@ -744,7 +744,38 @@ export function CrewReadySheet({
         : []),
     ];
   }, [card]);
+  /** Security's review of the same change, when the crew has Security. */
+  const secured = useMemo(() => {
+    if (!card) return null;
+    const verdict = card.rounds.find(
+      (round) => round.n === card.round,
+    )?.security;
+    if (!verdict) return null;
+    const earlier = [...card.rounds]
+      .filter((round) => round.n < card.round)
+      .reverse()
+      .find((round) => round.security?.mustFix.length)?.security
+      ?.mustFix.length;
+    return {
+      verdict,
+      ran: [
+        ...verdict.ran,
+        ...(earlier
+          ? [
+              {
+                command:
+                  earlier === 1
+                    ? "Its earlier security must-fix"
+                    : `All ${earlier} of its earlier security must-fixes`,
+                ok: true,
+              },
+            ]
+          : []),
+      ],
+    };
+  }, [card]);
   if (!card || card.stage !== "ready") return null;
+  const security = names.security ?? "Security";
   const minutes =
     card.startedAt && card.endedAt
       ? Math.max(1, Math.round((card.endedAt - card.startedAt) / 60_000))
@@ -764,14 +795,25 @@ export function CrewReadySheet({
       onClose={onClose}
       title={card.title}
       description={[
-        `Passed ${names.checker}'s check in round ${card.round}`,
+        secured
+          ? `Passed ${names.checker}'s check and ${security}'s security review in round ${card.round}`
+          : `Passed ${names.checker}'s check in round ${card.round}`,
         minutes ? `${minutes} min` : "",
         plural(card.runs, "run"),
       ]
         .filter(Boolean)
         .join(" · ")}
       className="crew-sheet"
-      leading={<CrewCritters path={crew.path} roles={["builder", "checker"]} />}
+      leading={
+        <CrewCritters
+          path={crew.path}
+          roles={
+            secured
+              ? ["builder", "checker", "security"]
+              : ["builder", "checker"]
+          }
+        />
+      }
       trailing={<CrewStatusPill status="ready" />}
     >
       <div className="crew-sheet-body" data-crew-ready={card.id}>
@@ -800,6 +842,27 @@ export function CrewReadySheet({
             <h3>What {names.checker} checked</h3>
             <ul className="crew-sheet-checks">
               {checked.map((ran, index) => (
+                <li key={index} data-ok={ran.ok || undefined}>
+                  <span className="crew-check-mark" aria-hidden="true">
+                    {ran.ok ? "✓" : "×"}
+                  </span>
+                  <span>
+                    {ran.command}
+                    {"note" in ran && ran.note ? ` · ${ran.note}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {secured ? (
+          <section className="crew-sheet-section" data-crew-security-check>
+            <h3>Security: passed · what {security} checked</h3>
+            <ul className="crew-sheet-checks">
+              {(secured.ran.length
+                ? secured.ran
+                : [{ command: "Read the change", ok: true }]
+              ).map((ran, index) => (
                 <li key={index} data-ok={ran.ok || undefined}>
                   <span className="crew-check-mark" aria-hidden="true">
                     {ran.ok ? "✓" : "×"}

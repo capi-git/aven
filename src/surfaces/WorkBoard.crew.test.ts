@@ -292,7 +292,7 @@ describe("the crew view: the Board with the crew on it", () => {
       [...container.querySelectorAll("[data-crew-tile]")].map(
         (tile) => (tile as HTMLElement).dataset.crewTile,
       ),
-    ).toEqual(["builder", "checker", "scout"]);
+    ).toEqual(["builder", "checker", "security"]);
     const feed = container.querySelector<HTMLElement>("[data-crew-feed]")!;
     expect(feed.textContent).toContain("Beetle → Owl · round 1");
     expect(feed.textContent).toContain(
@@ -447,6 +447,49 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(button(sheet, "Add as idea")).toBeTruthy();
     expect(sheet.textContent).toContain(
       "Applies to your files only when you press Apply.",
+    );
+  });
+
+  it("a Ready card that passed Security says so, with what it checked", async () => {
+    const boards = await setUp((boards) => (crew) => {
+      const ready = crewCardFor(boards[3], "ready");
+      return withCard(crew, {
+        ...ready,
+        rounds: ready.rounds.map((round) =>
+          round.n === ready.round
+            ? {
+                ...round,
+                security: {
+                  pass: true,
+                  summary: "No secrets or injection.",
+                  mustFix: [],
+                  later: [],
+                  ran: [
+                    { command: "Read the change for secrets", ok: true },
+                    { command: "Checked the new fetch for SSRF", ok: true },
+                  ],
+                },
+              }
+            : round,
+        ),
+      });
+    });
+    const ready = card(boards[3].id);
+    expect(ready.querySelector(".crew-card-line")?.textContent).toContain(
+      "Owl passed it · Security: passed",
+    );
+    await act(async () => button(ready, "Review")!.click());
+    const sheet = document.querySelector<HTMLElement>(
+      `[data-crew-ready="${boards[3].id}"]`,
+    )!;
+    expect(sheet.textContent).toContain("pnpm test · 48 passed");
+    const security = sheet.querySelector<HTMLElement>(
+      "[data-crew-security-check]",
+    )!;
+    expect(security.textContent).toContain("Security: passed");
+    expect(security.textContent).toContain("Checked the new fetch for SSRF");
+    expect(document.querySelector(".crew-sheet")?.textContent ?? "").toContain(
+      "security review in round",
     );
   });
 

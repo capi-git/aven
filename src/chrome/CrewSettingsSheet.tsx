@@ -9,7 +9,11 @@ import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { Toggle } from "../surfaces/SettingsControls";
 import {
   addCrewMember,
+  addCrewPreset,
   crewAgentAllowed,
+  crewModelFor,
+  crewModelsHere,
+  presetInCrew,
   removeCrewMember,
   setCrewLimit,
   setCrewPaused,
@@ -28,6 +32,7 @@ import {
   CREW_ALL_RUNS_RANGE,
   CREW_INSTRUCTIONS_MAX,
   CREW_ROLE_INFO,
+  crewAgentsFor,
   crewMemberApp,
   crewMemberById,
   crewMemberName,
@@ -61,6 +66,7 @@ import {
   useProjectBot,
 } from "../lib/projectBots";
 import { PROJECT_MASCOTS } from "../lib/projectMascots";
+import { CREW_PRESETS } from "../lib/crewPresets";
 import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { BotCritter } from "./BotCritter";
 import { CrewCritter, CrewCritters } from "./CrewCritter";
@@ -448,6 +454,9 @@ function memberSummary(crew: Crew, member: CrewMember): string {
     member.effort ?? "",
     member.scope?.length ? `in ${member.scope.join(", ")}` : "",
     scout,
+    member.role === "security" && member.sweep === "weekly"
+      ? "sweeps weekly"
+      : "",
     member.role === "builder" &&
     crew.members.filter((entry) => entry.role === "builder").length > 1 &&
     defaultBuilder(crew)?.id === member.id
@@ -862,6 +871,8 @@ function agentProblem(id: HarnessId, role: CrewRole): string | null {
     return role === "builder"
       ? "Can't be held to the crew's rules yet"
       : "Can't be locked to read-only";
+  if (!crewAgentsFor(role).includes(id))
+    return "Can't keep a Builder out of the copy's settings yet";
   if (id !== "claude" && !isHarnessAvailable(id)) return "Not installed";
   return null;
 }
@@ -905,9 +916,8 @@ function MemberBody({
         onRemoved={onBack}
       />
       <p className="bot-sheet-note">
-        Whatever you set here, {name} keeps a{" "}
-        {CREW_ROLE_INFO[member.role].label}
-        {"'s"} rules:{" "}
+        Whatever you set here, {name} keeps the{" "}
+        {CREW_ROLE_INFO[member.role].label} role{"'s"} rules:{" "}
         {CREW_ROLE_INFO[member.role].edits
           ? "it changes files only in the crew's copy"
           : "it only reads"}
@@ -1185,6 +1195,40 @@ function WhenItWorks({
         </div>
       </Section>
     );
+  if (member.role === "security")
+    return (
+      <Section title="When it works">
+        <p className="bot-sheet-small crew-settings-hint">
+          Reviews each build once the Checker passes it: the same change, before
+          you see it. A must-fix sends the card back to its Builder and counts
+          as a round.
+        </p>
+        <div className="bot-sheet-row crew-settings-limit">
+          <span>
+            Security sweep
+            <small>
+              Reads the whole project and adds security cards to Ideas. They
+              wait for you
+            </small>
+          </span>
+          <select
+            className="aven-field crew-settings-select"
+            aria-label="Security sweep"
+            value={member.sweep ?? "off"}
+            onChange={(event) =>
+              onProblem(
+                updateCrewMember(path, member.id, {
+                  sweep: event.target.value === "weekly" ? "weekly" : "off",
+                }),
+              )
+            }
+          >
+            <option value="off">Off</option>
+            <option value="weekly">Once a week</option>
+          </select>
+        </div>
+      </Section>
+    );
   if (member.role === "checker")
     return (
       <Section title="When it works">
@@ -1424,6 +1468,77 @@ const TEMPLATES: readonly {
   },
 ];
 
+/**
+ * Ready-made members: one click adds one, on its role's usual app and
+ * model; its name, instructions and paths stay editable. One already in
+ * the crew is greyed.
+ */
+function Gallery({
+  crew,
+  onAdded,
+  onProblem,
+}: {
+  crew: Crew;
+  onAdded: (id: string) => void;
+  onProblem: (problem: string | null) => void;
+}) {
+  useSyncExternalStore(
+    subscribeHarnessAvailability,
+    getHarnessAvailabilitySnapshot,
+    getHarnessAvailabilitySnapshot,
+  );
+  const models = crewModelsHere();
+  return (
+    <>
+      <h3 className="crew-settings-heading">Ready-made</h3>
+      <div role="list" className="crew-gallery" data-crew-gallery>
+        {CREW_PRESETS.map((preset) => {
+          const inCrew = presetInCrew(crew, preset);
+          const app = crewModelFor(models, preset.role);
+          const name =
+            preset.critter[0]!.toUpperCase() + preset.critter.slice(1);
+          return (
+            <button
+              key={preset.key}
+              type="button"
+              role="listitem"
+              className="crew-gallery-item"
+              data-crew-preset={preset.key}
+              aria-disabled={inCrew || undefined}
+              title={inCrew ? `${name} is in the crew` : `Add ${name}`}
+              onClick={() => {
+                if (inCrew) return;
+                const added = addCrewPreset(crew.path, preset.key, app);
+                if ("error" in added) onProblem(added.error);
+                else onAdded(added.id);
+              }}
+            >
+              <CrewCritter
+                path={crew.path}
+                role={preset.role}
+                critter={preset.critter}
+              />
+              <span className="crew-gallery-text">
+                <strong>
+                  {name}{" "}
+                  <small className="crew-settings-role">
+                    {preset.label ?? CREW_ROLE_INFO[preset.role].label}
+                  </small>
+                </strong>
+                <small>{inCrew ? "In the crew" : preset.job}</small>
+                <small className="crew-gallery-app">
+                  {HARNESS_TITLE[app.harness]} · {modelName(app.model)}
+                  {preset.scope?.length ? " · its own paths" : ""}
+                </small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function AddBody({
   crew,
   custom,
@@ -1466,48 +1581,54 @@ function AddBody({
           onCancel={() => onCustom(false)}
         />
       ) : (
-        <div role="list" className="crew-templates">
-          {TEMPLATES.map((item) => {
-            const blocked = blockedBy(item.template);
-            return (
-              <button
-                key={item.template}
-                type="button"
-                role="listitem"
-                className="bot-sheet-row crew-settings-member"
-                data-crew-template={item.template}
-                aria-disabled={!!blocked || undefined}
-                onClick={() => {
-                  if (blocked) return;
-                  if (item.template === "fixer") {
-                    onAddFixer?.(crew.path);
-                    return;
-                  }
-                  if (item.template === "custom") {
-                    onCustom(true);
-                    return;
-                  }
-                  const added = addCrewMember(crew.path, item.template);
-                  if ("error" in added) setProblem(added.error);
-                  else onAdded(added.id);
-                }}
-              >
-                {item.template === "custom" ? (
-                  <span className="crew-template-plus" aria-hidden="true">
-                    <Plus className="size-4" />
+        <>
+          <Gallery crew={crew} onAdded={onAdded} onProblem={setProblem} />
+          <h3 className="crew-settings-heading crew-blank-heading">
+            Start from blank
+          </h3>
+          <div role="list" className="crew-templates">
+            {TEMPLATES.map((item) => {
+              const blocked = blockedBy(item.template);
+              return (
+                <button
+                  key={item.template}
+                  type="button"
+                  role="listitem"
+                  className="bot-sheet-row crew-settings-member"
+                  data-crew-template={item.template}
+                  aria-disabled={!!blocked || undefined}
+                  onClick={() => {
+                    if (blocked) return;
+                    if (item.template === "fixer") {
+                      onAddFixer?.(crew.path);
+                      return;
+                    }
+                    if (item.template === "custom") {
+                      onCustom(true);
+                      return;
+                    }
+                    const added = addCrewMember(crew.path, item.template);
+                    if ("error" in added) setProblem(added.error);
+                    else onAdded(added.id);
+                  }}
+                >
+                  {item.template === "custom" ? (
+                    <span className="crew-template-plus" aria-hidden="true">
+                      <Plus className="size-4" />
+                    </span>
+                  ) : (
+                    <CrewCritter path={crew.path} role={item.role} />
+                  )}
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{blocked ?? item.job}</small>
                   </span>
-                ) : (
-                  <CrewCritter path={crew.path} role={item.role} />
-                )}
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>{blocked ?? item.job}</small>
-                </span>
-                <ChevronRight className="crew-settings-chevron size-3.5" />
-              </button>
-            );
-          })}
-        </div>
+                  <ChevronRight className="crew-settings-chevron size-3.5" />
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
       {problem ? (
         <p className="bot-sheet-problem" role="alert">

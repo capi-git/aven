@@ -198,6 +198,7 @@ export function WorkBoard({
               builder: crewMemberName(crew, "builder"),
               checker: crewMemberName(crew, "checker"),
               scout: crewMemberName(crew, "scout"),
+              security: crewMemberName(crew, "security"),
             },
             (who) => crewMemberName(crew, who),
             (id) => findModel(id)?.name ?? id,
@@ -605,10 +606,14 @@ export const WorkBoardView = memo(function WorkBoardView({
         <CrewReadySheet
           crew={crew}
           cardId={readyCard}
-          names={{
-            builder: crewName("builder"),
-            checker: crewName("checker"),
-          }}
+          names={(() => {
+            const held = crewCard(crew, readyCard);
+            return {
+              builder: crewName(held?.builderId ?? "builder"),
+              checker: crewName(held?.checkerId ?? "checker"),
+              security: crewName("security"),
+            };
+          })()}
           onClose={() => setReadyCard(null)}
         />
       ) : null}

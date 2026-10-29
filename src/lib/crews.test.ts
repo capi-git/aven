@@ -109,10 +109,11 @@ describe("migrating project bots into crews", () => {
 
     const crew = getCrew(PROJECT)!;
     expect(crew.on).toBe(false);
+    // A new crew: Builder, Checker, Security and the Fixer; a Scout is yours to add.
     expect(crewMembers(crew).map((member) => member.role)).toEqual([
       "builder",
       "checker",
-      "scout",
+      "security",
       "fixer",
     ]);
 

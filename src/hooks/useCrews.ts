@@ -92,6 +92,7 @@ export function useCrews(
         sync: botCopyHost.sync,
         diff: botCopyHost.diff,
         sources: copySources,
+        planted: botCopyHost.planted,
       },
       weeklyUsed: claudeWeeklyUsed,
       fixerRuns: (path, now) => {

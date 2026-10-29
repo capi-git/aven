@@ -1,8 +1,9 @@
-import { crewStageDetail, crewStageLabel } from "./crewLoop";
+import { crewStageDetail, crewStageLabel, roundLimit } from "./crewLoop";
 import {
   cardBuilder,
   cardChecker,
   cardHolderId,
+  cardSecurity,
   cardInCopy,
   crewMemberById,
   crewMembers,
@@ -11,6 +12,7 @@ import {
   type Crew,
   type CrewCard,
   type CrewIdea,
+  type CrewLoopRole,
   type CrewRole,
 } from "./crews";
 import type { BotStatus } from "./projectBots";
@@ -216,7 +218,7 @@ export type CrewBoardInfo = {
   /** The same, as members (a chosen critter included), when known. */
   members?: { id: string; role: CrewRole; critter?: string }[];
   /** The bot at work on it now, whose critter moves. */
-  holder?: "builder" | "checker";
+  holder?: CrewLoopRole;
   /** That bot's member id, whose chat Watch opens. */
   holderId?: string;
   /** Who it went to, and what you set for it: "Mole builds · Owl checks · Opus, high · 2 rounds". */
@@ -284,21 +286,29 @@ function fixingLine(card: CrewCard, checker: string): string | undefined {
  */
 export function crewBoardInfo(
   card: CrewCard,
-  names: { builder: string; checker: string },
+  names: { builder: string; checker: string; security?: string },
   who?: {
     builder?: { id: string; critter?: string };
     checker?: { id: string; critter?: string };
+    security?: { id: string; critter?: string };
     holderId?: string;
     /** "Mole builds · Owl checks · Opus, high": shown while the crew has it. */
     assigned?: string;
   },
 ): CrewBoardInfo {
+  // Security joins once the Checker has passed it.
+  const secured =
+    card.holder === "security" || card.rounds.some((round) => round.security);
   const roles: CrewRole[] =
-    card.stage === "queued" ? ["builder"] : ["builder", "checker"];
+    card.stage === "queued"
+      ? ["builder"]
+      : secured
+        ? ["builder", "checker", "security"]
+        : ["builder", "checker"];
   const members = who
     ? roles
         .map((role) => {
-          const member = who[role as "builder" | "checker"];
+          const member = who[role as "builder" | "checker" | "security"];
           return member
             ? {
                 id: member.id,
@@ -333,13 +343,13 @@ export function crewBoardInfo(
         return {
           ...base,
           label: "Paused",
-          rounds: { current: card.round, total: card.maxRounds },
+          rounds: { current: card.round, total: roundLimit(card) },
           actions: [A.resume],
         };
       return {
         ...base,
         holder,
-        rounds: { current: card.round, total: card.maxRounds },
+        rounds: { current: card.round, total: roundLimit(card) },
         ...(holder === "builder" && card.round > 1
           ? { line: fixingLine(card, names.checker) }
           : {}),
@@ -351,6 +361,13 @@ export function crewBoardInfo(
     case "ready":
       return {
         ...base,
+        ...(card.rounds.some(
+          (round) => round.n === card.round && round.security,
+        )
+          ? {
+              line: `${names.checker} passed it · Security: passed`,
+            }
+          : {}),
         ...(card.fix
           ? {
               change: {
@@ -364,7 +381,7 @@ export function crewBoardInfo(
       };
     case "stuck": {
       const question = card.stuck?.reason === "question";
-      const rounds = { current: card.round, total: card.maxRounds };
+      const rounds = { current: card.round, total: roundLimit(card) };
       if (question)
         return {
           ...base,
@@ -406,8 +423,16 @@ export function crewBoardInfo(
 export function crewIdeaInfo(
   idea: CrewIdea | undefined,
   scout: string,
+  security = "Security",
 ): CrewBoardInfo {
   if (!idea) return { roles: [], actions: [A.give] };
+  // A sweep's security card waits for you: it never starts by itself.
+  if (idea.by === "security")
+    return {
+      roles: ["security"],
+      line: `From ${security} · security`,
+      actions: idea.declined ? [A.give] : [A.give, A.notNow],
+    };
   const from = [
     `From ${scout}`,
     idea.size,
@@ -464,9 +489,11 @@ export function crewCardWho(
     crewMemberById(crew, card.builderId) ?? cardBuilder(crew, card);
   const checker =
     crewMemberById(crew, card.checkerId) ?? cardChecker(crew, card);
+  const security = cardSecurity(crew);
   const names = {
     builder: name(builder?.id ?? "builder"),
     checker: name(checker?.id ?? "checker"),
+    security: name(security?.id ?? "security"),
   };
   const several = (role: CrewRole) =>
     crew.members.filter((member) => member.role === role).length > 1;
@@ -507,6 +534,7 @@ export function crewCardWho(
     who: {
       ...(face(builder) ? { builder: face(builder) } : {}),
       ...(face(checker) ? { checker: face(checker) } : {}),
+      ...(face(security) ? { security: face(security) } : {}),
       ...(holderId ? { holderId } : {}),
       ...(assigned ? { assigned } : {}),
     },
@@ -518,7 +546,7 @@ export function crewBoardColumns<
 >(
   columns: Readonly<Record<BoardColumn, readonly C[]>>,
   crew: Crew,
-  names: { builder: string; checker: string; scout: string },
+  names: { builder: string; checker: string; scout: string; security?: string },
   /** A member's name by id, and a model's: each card names its own Builder and Checker. */
   name?: (who: string) => string,
   modelName?: (id: string) => string,
@@ -547,7 +575,11 @@ export function crewBoardColumns<
       } else if (column === "idea")
         out.idea.push({
           ...card,
-          crew: crewIdeaInfo(crew.ideas?.[card.id], names.scout),
+          crew: crewIdeaInfo(
+            crew.ideas?.[card.id],
+            names.scout,
+            names.security,
+          ),
         });
       else out[column].push(card);
     }

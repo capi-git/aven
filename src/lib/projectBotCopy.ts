@@ -24,6 +24,8 @@ export type BotSyncResult = {
   base: string;
   uncommitted: boolean;
   untracked: boolean;
+  /** Settings files an agent had left in the copy, now removed. */
+  planted?: string[];
 };
 
 export const botCopyHost = {
@@ -37,6 +39,13 @@ export const botCopyHost = {
     invoke<BotSyncResult>("bot_copy_sync", { cwd, copy, branch }),
   diff: (copy: string, base: string) =>
     invoke<BotDiff>("bot_copy_diff", { copy, base }),
+  /**
+   * Settings files an agent left in the copy that an app would run as the
+   * user (Claude's project and local settings, MCP servers); with `remove`,
+   * they are removed.
+   */
+  planted: (copy: string, remove: boolean) =>
+    invoke<string[]>("bot_copy_planted", { copy, remove }),
   fileDiff: (copy: string, base: string, path: string) =>
     invoke<RaceFileDiff>("bot_copy_file_diff", { copy, base, path }),
   /**

@@ -20,6 +20,8 @@ const BADGE_PATHS: Readonly<Record<CrewRole, string>> = {
   // A hammer, a check mark, a spark and a wrench, on an 8-unit grid.
   builder: "M2 2.6h4M4 2.6v3.4",
   checker: "M2.2 4.2l1.3 1.3 2.4-2.8",
+  // A shield.
+  security: "M4 1.9l1.9.8v1.4c0 1.1-.8 1.8-1.9 2.2-1.1-.4-1.9-1.1-1.9-2.2V2.7z",
   scout: "M4 2v4M2 4h4",
   fixer: "M2.6 5.4l2.8-2.8M4.6 2.4l1 1",
 };
