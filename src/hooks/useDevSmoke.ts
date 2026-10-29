@@ -43,6 +43,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
+  restoringComposer,
 } from "../lib/devSmokeHelm";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
@@ -2626,60 +2627,85 @@ export async function runDevSmoke(
         const perch = root?.querySelector<HTMLElement>(".helm-perch");
         if (!root || !box || !perch)
           throw new Error("The message box has no critter standing on it");
+        // The dialog is a popover in a portal, outside the message box.
+        const dialogOnScreen = () =>
+          document.querySelector<HTMLElement>("[data-helm-dialog]");
+        const clearField = () => {
+          composer.focus();
+          composer.select();
+          document.execCommand("delete");
+        };
         composer.focus();
         document.execCommand(
           "insertText",
           false,
           "A line long enough to show where the caret sits against the painted words, twice over: a line long enough to wrap.",
         );
-        for (const scale of [0.8, 1.2, 1]) {
-          await applyUiScale(scale);
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          const boxes = composerLineBoxes(box);
-          if (!boxes) throw new Error("The message box drew no lines");
-          const problem = lineBoxProblem(boxes);
-          if (problem)
-            throw new Error(`At ${Math.round(scale * 100)}% zoom, ${problem}`);
-        }
-        await applyUiScale(loadUiScale());
-        perch.dispatchEvent(
-          new PointerEvent("pointerover", {
-            bubbles: true,
-            relatedTarget: document.body,
-          }),
+        await restoringComposer(
+          {
+            restoreZoom: () => applyUiScale(loadUiScale()),
+            // Escape folds the dialog away and gives the box the keyboard.
+            closeDialog: () =>
+              dialogOnScreen()?.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: "Escape",
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              ),
+            clearField,
+          },
+          async () => {
+            for (const scale of [0.8, 1.2, 1]) {
+              await applyUiScale(scale);
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              const boxes = composerLineBoxes(box);
+              if (!boxes) throw new Error("The message box drew no lines");
+              const problem = lineBoxProblem(boxes);
+              if (problem)
+                throw new Error(
+                  `At ${Math.round(scale * 100)}% zoom, ${problem}`,
+                );
+            }
+            await applyUiScale(loadUiScale());
+            perch.dispatchEvent(
+              new PointerEvent("pointerover", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            const dialog = await waitFor(
+              dialogOnScreen,
+              5_000,
+              "the critter's dialog to unfurl",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            const placed = helmDialogProblem(
+              dialog.getBoundingClientRect(),
+              box.getBoundingClientRect(),
+              composer.getBoundingClientRect(),
+            );
+            if (placed) throw new Error(placed);
+            perch.dispatchEvent(
+              new PointerEvent("pointerout", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            dialog.dispatchEvent(
+              new PointerEvent("pointerout", {
+                bubbles: true,
+                relatedTarget: document.body,
+              }),
+            );
+            await waitFor(
+              () => !dialogOnScreen(),
+              5_000,
+              "the dialog to fold away when the pointer leaves",
+            );
+          },
         );
-        const dialog = await waitFor(
-          () => root.querySelector<HTMLElement>("[data-helm-dialog]"),
-          5_000,
-          "the critter's dialog to unfurl",
-        );
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        const placed = helmDialogProblem(
-          dialog.getBoundingClientRect(),
-          box.getBoundingClientRect(),
-          composer.getBoundingClientRect(),
-        );
-        if (placed) throw new Error(placed);
-        perch.dispatchEvent(
-          new PointerEvent("pointerout", {
-            bubbles: true,
-            relatedTarget: document.body,
-          }),
-        );
-        dialog.dispatchEvent(
-          new PointerEvent("pointerout", {
-            bubbles: true,
-            relatedTarget: document.body,
-          }),
-        );
-        await waitFor(
-          () => !root.querySelector("[data-helm-dialog]"),
-          5_000,
-          "the dialog to fold away when the pointer leaves",
-        );
-        // Clear the line, then work: one Stop, in the bubble.
-        composer.select();
-        document.execCommand("delete");
+        // Then work: one Stop, in the bubble.
         const reply = await startHeldTurn(
           get,
           typedTask.id,

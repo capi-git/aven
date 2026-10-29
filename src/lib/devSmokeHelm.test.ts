@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
+  restoringComposer,
 } from "./devSmokeHelm";
 
 const rect = (top: number, bottom: number, left = 0, right = 800) => ({
@@ -90,5 +91,45 @@ describe("a working critter", () => {
     expect(helmWorkingProblem(helm(working), "none", false)).toBe(
       "the laptop frames: its animation is none, expected helm-frame-a",
     );
+  });
+});
+
+describe("a check that zooms and types", () => {
+  const cleanup = () => ({
+    restoreZoom: vi.fn(async () => undefined),
+    closeDialog: vi.fn(),
+    clearField: vi.fn(),
+  });
+
+  it("leaves the app at its zoom with an empty box when it passes", async () => {
+    const steps = cleanup();
+    expect(await restoringComposer(steps, async () => "ok")).toBe("ok");
+    expect(steps.restoreZoom).toHaveBeenCalledOnce();
+    expect(steps.closeDialog).toHaveBeenCalledOnce();
+    expect(steps.clearField).toHaveBeenCalledOnce();
+  });
+
+  it("does the same when it fails midway, and reports the check's failure", async () => {
+    const steps = cleanup();
+    steps.restoreZoom.mockRejectedValue(new Error("no webview"));
+    await expect(
+      restoringComposer(steps, async () => {
+        throw new Error("At 80% zoom, line 1 is painted 9px above");
+      }),
+    ).rejects.toThrow("At 80% zoom, line 1 is painted 9px above");
+    expect(steps.restoreZoom).toHaveBeenCalledOnce();
+    expect(steps.closeDialog).toHaveBeenCalledOnce();
+    expect(steps.clearField).toHaveBeenCalledOnce();
+  });
+
+  it("still clears the box when closing the dialog throws", async () => {
+    const steps = cleanup();
+    steps.closeDialog.mockImplementation(() => {
+      throw new Error("gone");
+    });
+    await expect(restoringComposer(steps, async () => 1)).rejects.toThrow(
+      "gone",
+    );
+    expect(steps.clearField).toHaveBeenCalledOnce();
   });
 });

@@ -80,3 +80,29 @@ export function helmWorkingProblem(
   );
   return stepping ? `the laptop frames: ${stepping}` : null;
 }
+
+/**
+ * Run a check that zooms the interface and types into the message box, and
+ * leave the app as later steps expect it whatever happens: at its own zoom,
+ * with the critter's dialog closed and the box empty. The first failure
+ * (the check's, before any of the cleanup's) is the one thrown.
+ */
+export async function restoringComposer<T>(
+  cleanup: {
+    restoreZoom: () => Promise<unknown>;
+    closeDialog: () => void;
+    clearField: () => void;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } finally {
+    await cleanup.restoreZoom().catch(() => undefined);
+    try {
+      cleanup.closeDialog();
+    } finally {
+      cleanup.clearField();
+    }
+  }
+}
