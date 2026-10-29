@@ -547,6 +547,7 @@ function PreferencesPage({
   const browserMemorySaver = useSetting(SETTINGS.browserMemorySaver);
   const browserLowMemory = useSetting(SETTINGS.browserLowMemory);
   const devPreviewAutoOpen = useSetting(SETTINGS.devPreviewAutoOpen);
+  const agentsReadAnyTab = useSetting(SETTINGS.agentsReadAnyTab);
   const browserEngineRestart = useSyncExternalStore(
     subscribeBrowserEngineRestart,
     browserEngineRestartNeeded,
@@ -787,6 +788,18 @@ function PreferencesPage({
   if (page === "browser")
     return (
       <>
+        <SettingsGroup
+          title="Agents and your tabs"
+          description="Whether agents can use pages you have open in Aven."
+        >
+          <Row {...SETTINGS.agentsReadAnyTab.row}>
+            <Toggle
+              label={SETTINGS.agentsReadAnyTab.label}
+              on={agentsReadAnyTab}
+              onChange={SETTINGS.agentsReadAnyTab.save}
+            />
+          </Row>
+        </SettingsGroup>
         <SettingsGroup
           title="Dev previews"
           description="When a dev server starts in a terminal or an agent's command, Aven offers its page beside the chat."

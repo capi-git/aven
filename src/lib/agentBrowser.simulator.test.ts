@@ -44,6 +44,8 @@ describe("agent iPhone guidance", () => {
       sessionId: "session-a",
       simulatorProject: "/project",
       browserIds: [],
+      anyTab: true,
+      workDir: "/project",
     });
     expect(withPane).toContain("<aven-iphone>");
     expect(withPane).toContain(
@@ -60,6 +62,8 @@ describe("agent iPhone guidance", () => {
     expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
       sessionId: "session-a",
       browserIds: [],
+      anyTab: true,
+      workDir: "/project",
     });
     expect(without).not.toContain("aven-iphone");
     expect(without).not.toContain("--aven-simulator");

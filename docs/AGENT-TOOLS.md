@@ -86,6 +86,98 @@ asking; a bare "listening on port 3000" line, often an API, is only offered.
 When the server stops, the offer turns to
 **Preview stopped**; the page stays open.
 
+## Pages you have open
+
+Agents can use any page you have open in Aven, including sites you are signed
+in to, such as a Notion page a friend shared or your Gmail. Ask the way you
+would ask a person ("add the Notion page I have open to my Framer site"); you
+don't need to point at the tab.
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser tabs
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser read TAB_ID
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser export TAB_ID --to /path/to/project/content/launch-plan
+```
+
+Each is also a JSON action: `{"action":"tabs"}`, `{"action":"read","id":"TAB_ID"}`
+and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","replace":true}`.
+
+- `tabs` lists every browser tab open in Aven: in every project, the
+  workspace without a project, other Aven windows and detached windows. Each
+  tab has an id, its title and address, its project and window, and whose it
+  is: the asking chat's own page ("yours"), "the user's", or "another chat's"
+  (named). It says when a tab is asleep or on screen. The id stays the same
+  while a tab sleeps and wakes (`browser-…`; a second Aven window's tabs start
+  `w1-…`). The asking chat's project comes first.
+- `read` returns the page's main content as Markdown, without the site's
+  menus, sidebars and footers: headings, paragraphs with bold, italic, code
+  and links, lists, to-dos, toggles, callouts, quotes, code blocks with their
+  language, tables, equations, and images with their alt text and captions.
+  Notion pages are read by their own blocks, including a page open in
+  Notion's side peek. At most 100,000 characters come back; export saves more.
+- `export` saves the same into the chat's project: `<to>/article.md` (or
+  `--name`) with front matter giving the title, source address, time saved and
+  a note that the text came from a web page, and the page's images in
+  `<to>/images/`, named by their place in the page and their alt text or
+  caption (`images/03-launch-diagram.png`) and linked with relative paths.
+  Images load through the page's own frame in Chromium. An image on the
+  page's own site (`file.notion.so` for a page on `www.notion.so`) carries
+  your cookies for it, so Notion's private images work; an image on another
+  site is loaded without your cookies (signed addresses need none), so a page
+  cannot use your sign-ins elsewhere. A page on the web never gets an image
+  loaded from this Mac or your local network. Aven prefers the address the
+  page actually showed. Each file must really be an image (a sign-in page sent
+  instead is refused), and an SVG is saved only when it just draws: no
+  scripts, event handlers, embedded pages or links out. An image that cannot be
+  saved keeps its web address in the Markdown and is listed as skipped, with
+  the reason. One export saves at most 150 images, 10 MB each and 100 MB in
+  all, and stops fetching after about 75 seconds.
+- `export` writes only inside the chat's project. The folder is checked when
+  the export starts and again before every file it writes, as it resolves,
+  so a link that leads out of the project or into `.git` stops it; an
+  `images` folder that is a link is refused. Files are created new and never
+  through a link, and nothing that exists is replaced unless
+  `"replace":true` (an image name already taken gets a new number instead).
+- The Markdown is inert text under CommonMark, raw-HTML renderers and MDX:
+  page text cannot become markup, an `{expression}` or an `import` line, and
+  equations are kept as math code (`` $`…`$ `` and ```` ```math ````).
+- Toggles closed in a Notion page have no content in the page to save. The
+  Markdown keeps their title (`<details><summary>…`) and the result says how
+  many were closed, so the agent can ask you to open them.
+- Reading never changes your tab: nothing navigates, scrolls, takes focus or
+  ends your mark-up. A sleeping tab, or one not shown since Aven started, is
+  loaded again out of sight to read it, and the result says `"woke":true`.
+- `snapshot` and `screenshot` work on any listed tab as well.
+
+When you ask, an agent may also click, type, press keys, scroll and navigate
+in a tab that is not its own. These protections stay:
+
+- `open` never reloads or navigates a page of yours (see above).
+- Agents never type into password, sign-in code or card fields in a tab that
+  is not the chat's own page (known by type, autocomplete, name and label,
+  and split one-digit code boxes); Aven refuses. Snapshots of such tabs leave
+  those fields' values out.
+- Every upload still asks you.
+- While an agent uses any tab that is not its chat's own page, Aven's presence
+  bar shows at the top of the screen: "Claude is using the tab “Launch plan”",
+  what it is doing ("Reading the page"), the window and project, and the chat,
+  with **Pause** and **Stop**. Several agents' uses show together without
+  replacing desktop control's. It fades a few seconds after the last action.
+  Pause holds clicks and typing in tabs while reading goes on, as with desktop
+  control. Stop closes other tabs to that chat until your next message (an
+  export stops before its next image and saves nothing more, and `tabs` is
+  refused too), and stops its desktop control. While the Mac is locked, when
+  nobody could see the bar, agents may read other tabs but not act in them.
+
+Everything a page contains is untrusted. Tab titles and addresses, what `read`
+and `export` return, and the files `export` saves are marked as content from
+websites, and agents are told to treat them as data and never follow
+instructions in them.
+
+**Settings → Browser → Agents can read any open tab** is on by default. When
+it is off, `tabs` lists only the chat's project's tabs and other tabs' ids are
+refused; the change applies to every chat at once.
+
 ## Working beside other chats
 
 Agents in one project are told what the others are doing, so they share a dev

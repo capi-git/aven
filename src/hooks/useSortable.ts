@@ -7,7 +7,14 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { flushSync } from "react-dom";
-import { setGrabbing, suppressTextSelection } from "../lib/drag";
+import {
+  clientRectScales,
+  noteDragEnd,
+  pointInRects,
+  setGrabbing,
+  suppressTextSelection,
+  type DragEnd,
+} from "../lib/drag";
 import { moveItem } from "../lib/reorder";
 import { SortableMotion } from "../lib/sortableMotion";
 import type { MorphOrigin } from "../lib/stripMorph";
@@ -671,8 +678,11 @@ export function useSortable(
 
   /**
    * The item of another sortable on the channel whose middle is under
-   * (x, y) and takes `moving`. Over a sortable but not on a middle, none.
-   * `held` is the armed item, whose zone holds a little wider.
+   * (x, y), the pointer in the viewport's pixels, and takes `moving`. Over
+   * a sortable but not on a middle, none. `held` is the armed item, whose
+   * zone holds a little wider. Each sortable is hit-tested in its own
+   * reported pixels (`scaleOf`): the window's strip is CSS-zoomed, pane
+   * rows are not.
    */
   const linkedDropAt = useCallback(
     (
@@ -681,6 +691,7 @@ export function useSortable(
       y: number,
       readBounds: ReadBounds,
       held: { zone: LinkedZone; id: string } | null,
+      scaleOf: (element: HTMLElement) => number,
     ): {
       zone: LinkedZone;
       target: SortableDropTarget;
@@ -693,21 +704,22 @@ export function useSortable(
         const box = zone.container();
         if (!box) continue;
         const rect = readBounds(box);
+        const at = pointInRects({ x, y }, scaleOf(box));
         if (
           rect.width <= 0 ||
           rect.height <= 0 ||
-          x < rect.left ||
-          x > rect.right ||
-          y < rect.top ||
-          y > rect.bottom
+          at.x < rect.left ||
+          at.x > rect.right ||
+          at.y < rect.top ||
+          at.y > rect.bottom
         )
           continue;
         const hit = itemDropAt(
           zone.ids(),
           zone.nodes(),
           zone.axis,
-          x,
-          y,
+          at.x,
+          at.y,
           readBounds,
           held?.zone === zone ? held.id : null,
           (id) => id !== moving && zone.accepts(moving, id),
@@ -791,6 +803,12 @@ export function useSortable(
       let scrollFrame: number | null = null;
       let scrollFallback: ReturnType<typeof setTimeout> | null = null;
       let armTimer: ReturnType<typeof setTimeout> | null = null;
+      // Hit tests compare the pointer with rects as reported: under the
+      // window strip's CSS zoom, older WebKit reports them divided by it.
+      const rectScale = clientRectScales();
+      const stripScale = rectScale(
+        container.current ?? nodes.current.get(id) ?? handle,
+      );
       /** Look again once a drop zone the pointer rests on has armed. */
       const armLater = (wait: number) => {
         if (armTimer !== null) clearTimeout(armTimer);
@@ -812,7 +830,8 @@ export function useSortable(
         // moved it there, else (the strip scrolled under it) now.
         const movedAt = current.at ?? performance.now();
         current.at = null;
-        current.inStrip = inStrip(current.x, current.y, readBounds);
+        const at = pointInRects(current, stripScale);
+        current.inStrip = inStrip(at.x, at.y, readBounds);
         if (current.part && !current.inStrip && !current.torn) {
           current.torn = true;
           setDraggingPartId(current.part.id);
@@ -827,8 +846,8 @@ export function useSortable(
             ? null
             : dropTargetAt(
                 id,
-                current.x,
-                current.y,
+                at.x,
+                at.y,
                 readBounds,
                 delay > 0 && !armedZone ? armed : null,
                 current.torn ? current.part?.id : undefined,
@@ -844,6 +863,7 @@ export function useSortable(
             delay > 0 && armedZone && armed
               ? { zone: armedZone, id: armed }
               : null,
+            rectScale,
           );
           if (linked) {
             hit = linked;
@@ -858,8 +878,8 @@ export function useSortable(
         current.over = target?.kind === "tab" ? { id: target.id, zone } : null;
         current.toIndex = indexAt(
           id,
-          current.x,
-          current.y,
+          at.x,
+          at.y,
           readBounds,
           current.over && !zone
             ? { id: current.over.id, previous: current.toIndex }
@@ -918,13 +938,29 @@ export function useSortable(
               },
             ]
           : [];
-      /** The box the copy dissolves into, while it would join an item. */
-      const joinBox = (current: DragState, readBounds: ReadBounds) =>
-        current.into &&
-        current.dropTarget?.kind === "tab" &&
-        current.dropTarget.allowed
-          ? readBounds(current.into)
-          : null;
+      /**
+       * The box the copy dissolves into, while it would join an item, in
+       * the viewport's pixels, where the copy follows the pointer.
+       */
+      const joinBox = (current: DragState, readBounds: ReadBounds) => {
+        const into = current.into;
+        if (
+          !into ||
+          current.dropTarget?.kind !== "tab" ||
+          !current.dropTarget.allowed
+        )
+          return null;
+        const rect = readBounds(into);
+        const scale = rectScale(into);
+        return scale === 1
+          ? rect
+          : new DOMRect(
+              rect.x * scale,
+              rect.y * scale,
+              rect.width * scale,
+              rect.height * scale,
+            );
+      };
       /**
        * Preview the item the drag would join (or none): here, as the
        * consumer's `dropTarget`; in another sortable on the channel, as
@@ -1022,28 +1058,33 @@ export function useSortable(
           candidates.push(container.current);
         for (const element of candidates) {
           const rect = readBounds(element);
+          const at = pointInRects(current, rectScale(element));
           if (
             rect.width > 0 &&
             rect.height > 0 &&
-            current.x >= rect.left &&
-            current.x <= rect.right &&
-            current.y >= rect.top &&
-            current.y <= rect.bottom
+            at.x >= rect.left &&
+            at.x <= rect.right &&
+            at.y >= rect.top &&
+            at.y <= rect.bottom
           )
-            return { element, rect };
+            return { element, rect, at };
         }
         return null;
       };
-      const scrollSpeed = (element: HTMLElement, rect: DOMRect) => {
+      const scrollSpeed = (
+        element: HTMLElement,
+        rect: DOMRect,
+        at: { x: number; y: number },
+      ) => {
         const current = drag.current;
         if (!current?.active) return 0;
-        const cross = axis === "x" ? current.y : current.x;
+        const cross = axis === "x" ? at.y : at.x;
         if (
           cross < (axis === "x" ? rect.top : rect.left) ||
           cross > (axis === "x" ? rect.bottom : rect.right)
         )
           return 0;
-        const pos = axis === "x" ? current.x : current.y;
+        const pos = axis === "x" ? at.x : at.y;
         const start = axis === "x" ? rect.left : rect.top;
         const end = axis === "x" ? rect.right : rect.bottom;
         if (pos < start || pos > end) return 0;
@@ -1069,7 +1110,9 @@ export function useSortable(
           scrollFallback = null;
           const readBounds = measureBounds();
           const scroll = scrollContainerAt(readBounds);
-          const speed = scroll ? scrollSpeed(scroll.element, scroll.rect) : 0;
+          const speed = scroll
+            ? scrollSpeed(scroll.element, scroll.rect, scroll.at)
+            : 0;
           let scrolled = false;
           if (scroll && speed) {
             const { element } = scroll;
@@ -1135,25 +1178,37 @@ export function useSortable(
         const releasedAt = eventTime(ev);
         current.at = releasedAt;
         if (current.active) locate(current, measureBounds(), releasedAt);
-        stop(true);
+        stop(true, "release");
       };
+      // The window's own blur ends a drag (its listener is not a capturing
+      // one, so an element losing focus to the press never does), as do a
+      // cancelled pointer and lost capture.
       const onCancel = (event?: Event) => {
         if (
           event instanceof PointerEvent &&
           event.pointerId !== state.pointerId
         )
           return;
-        stop(false);
+        const how = event?.type;
+        stop(
+          false,
+          how === "blur" ||
+            how === "pointercancel" ||
+            how === "lostpointercapture"
+            ? how
+            : "cancel",
+        );
       };
       const onKey = (ev: KeyboardEvent) => {
         if (ev.key === "Escape") {
           ev.preventDefault();
-          stop(false);
+          stop(false, "Escape");
         }
       };
 
-      function stop(commit: boolean) {
+      function stop(commit: boolean, how: DragEnd["how"]) {
         if (!drag.current) return;
+        noteDragEnd(how);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);

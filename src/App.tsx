@@ -18,6 +18,7 @@ import {
 import { useAccountUsageProviders } from "./hooks/useAccountUsageProviders";
 import { useAutomaticModelCatalogs } from "./hooks/useAutomaticModelCatalogs";
 import {
+  getRegisteredAgentBrowserPage,
   installAgentBrowserHost,
   prepareAgentBrowserPrompt,
   refreshAgentBrowserScopes,
@@ -122,6 +123,7 @@ import {
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import { projectDisplayName } from "./hooks/useProjectLabels";
+import { agentBrowserTabs } from "./lib/agentBrowserTabs";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import {
@@ -1358,6 +1360,8 @@ export default function App({
   const [agentBrowserSurfaces, setAgentBrowserSurfaces] = useState<Set<string>>(
     () => new Set(),
   );
+  // Browser tabs on screen now, for an agent's list of open tabs.
+  const onScreenBrowsersRef = useRef<ReadonlySet<string>>(new Set());
   const [agentBrowserRouter] = useState(createAgentBrowserRouter);
   const detachedBrowserBridge = useRef<
     (
@@ -1409,6 +1413,38 @@ export default function App({
           return project && sameProjectPath(project, session.cwd)
             ? project
             : null;
+        },
+        tabs() {
+          const sessions = sessionsRef.current;
+          const labels = loadTabGroupLabels();
+          return agentBrowserTabs({
+            workspaces: browserWorkspacesRef.current,
+            detached: detachedIdsRef.current,
+            onScreen: onScreenBrowsersRef.current,
+            projectName: (project) =>
+              isProjectlessCwd(project)
+                ? ""
+                : projectDisplayName(project, labels),
+            chatName: (id) => {
+              const session = sessions.find((entry) => entry.id === id);
+              if (!session) return undefined;
+              const title = conversationTitle(session);
+              const agent = HARNESS_TITLE[session.harness];
+              return title ? `${agent} · ${title}` : agent;
+            },
+          });
+        },
+        reach(surfaceId) {
+          // A tab not shown since Aven started has no page yet: load it out
+          // of sight, as an agent's own page in another project loads.
+          if (getRegisteredAgentBrowserPage(surfaceId)) return;
+          flushSync(() =>
+            setAgentBrowserSurfaces((current) =>
+              current.has(surfaceId)
+                ? current
+                : new Set([...current, surfaceId]),
+            ),
+          );
         },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(
@@ -2119,6 +2155,13 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
+  onScreenBrowsersRef.current = new Set(
+    workspaceVisible
+      ? browserSurfaces
+          .filter((tab) => visibleSurfaceIds.includes(tab.surfaceId))
+          .map((tab) => tab.surfaceId)
+      : [],
+  );
   // The footer shows outside the full-window views; while it does, shrunk
   // teams sit in it rather than floating over the workspace.
   const footerShown =

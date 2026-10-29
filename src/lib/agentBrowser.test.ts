@@ -59,6 +59,8 @@ describe("agent browser session connection", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_bind", {
       sessionId: "session-a",
       browserIds: ["native-mine"],
+      anyTab: true,
+      workDir: "/project",
     });
     expect(text).toContain("--aven-browser");
     expect(text).toContain("<aven-browser>");
@@ -203,6 +205,8 @@ describe("agent browser session connection", () => {
     expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
       sessionId: "s",
       browserIds: ["new"],
+      anyTab: true,
+      workDir: "/p",
     });
   });
   it("opens in the owning workspace, binds the created native page, then acknowledges", async () => {
@@ -721,6 +725,8 @@ describe("agent browser session connection", () => {
     expect([...mocks.handlers.keys()].sort()).toEqual([
       "browser-agent-open",
       "browser-agent-open-file",
+      "browser-agent-reach",
+      "browser-agent-tabs",
       "browser-agent-wake",
     ]);
     dispose();
@@ -922,11 +928,15 @@ it.each(["codex", "claude"])(
       sessionId: "identity",
       browserIds: [],
       actor: { harness, title: "Fix desktop control" },
+      anyTab: true,
+      workDir: "/p",
     });
     await api.refreshAgentBrowserScopes();
     expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
       sessionId: "identity",
       browserIds: [],
+      anyTab: true,
+      workDir: "/p",
     });
   },
 );

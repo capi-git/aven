@@ -239,6 +239,22 @@ export const SETTINGS = {
     rowDescription:
       "When a dev server starts in a terminal or an agent's command, show its page beside the chat once, without asking. When off, a Preview ready chip offers it instead.",
   }),
+  agentsReadAnyTab: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.agentsReadAnyTab",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:agents-read-any-tab-change",
+      storageChanges: true,
+    }),
+    section: "browser",
+    label: "Agents can read any open tab",
+    description:
+      "Let Claude, Codex and other agents find and read any page open in Aven, including sites you're signed in to, and save it into a project.",
+    keywords:
+      "privacy agents tabs read pages notion gmail signed in export save copy content claude codex access",
+    rowDescription:
+      "Agents can find any page you have open in Aven, in any project or window, read it and save it into a project with its images. A bar shows which agent is using which tab. When off, an agent sees only its own project's tabs.",
+  }),
   sounds: defineSetting({
     section: "notifications",
     label: "Sounds",
