@@ -46,6 +46,9 @@ pub(crate) const SCREEN_LOCKED: &str = "The Mac is locked. Desktop control is pa
 pub(crate) const SESSION_AWAY: &str = "The user's Mac session is not on screen (another user may be signed in). Desktop control is paused until the user returns; keep working in Aven's browser or code, or wait.";
 pub(crate) const UPLOAD_LOCKED: &str = "The Mac is locked, so Aven cannot ask the user to approve this upload. Nothing was uploaded; keep working, or wait for the user to unlock, then retry.";
 pub(crate) const UPLOAD_AWAY: &str = "The user's Mac session is not on screen, so Aven cannot ask them to approve this upload. Nothing was uploaded; wait for the user to return, then retry.";
+pub(crate) const TABS_LOCKED: &str = "The Mac is locked, so Aven does not act in tabs that are not this chat's own: nobody can see the bar naming you or press Stop. Reading still works; act after the user unlocks.";
+pub(crate) const TABS_AWAY: &str = "The user's Mac session is not on screen, so Aven does not act in tabs that are not this chat's own. Reading still works; act after the user returns.";
+pub(crate) const TABS_STOPPED: &str = "The user pressed Stop while you were using one of their tabs, so tabs that are not this chat's own are closed to you until their next message. Do not retry; ask in the chat.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -175,9 +178,22 @@ pub(crate) enum Step {
     SettingValue,
     SelectingText,
     OpeningMenu,
+    /// In a browser tab that is not the chat's own (see `begin_tab`).
+    ReadingPage,
+    SavingPage,
+    CapturingPage,
+    Navigating,
 }
 
 impl Step {
+    /// Looking only: nothing on the Mac or in a tab changes.
+    pub(crate) fn observes(self) -> bool {
+        matches!(
+            self,
+            Self::Looking | Self::ReadingPage | Self::SavingPage | Self::CapturingPage
+        )
+    }
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Looking => "Looking at the screen",
@@ -191,6 +207,10 @@ impl Step {
             Self::SettingValue => "Setting a value",
             Self::SelectingText => "Selecting text",
             Self::OpeningMenu => "Opening a menu",
+            Self::ReadingPage => "Reading the page",
+            Self::SavingPage => "Saving the page into the project",
+            Self::CapturingPage => "Taking a screenshot of the page",
+            Self::Navigating => "Going to another address",
         }
     }
 
@@ -234,7 +254,7 @@ pub(crate) fn step_for(request: &Request) -> Option<Step> {
 
 /// Input changes the user's desktop (including focus); observation does not.
 pub(crate) fn is_input(request: &Request) -> bool {
-    step_for(request).is_some_and(|step| step != Step::Looking)
+    step_for(request).is_some_and(|step| !step.observes())
 }
 
 /// The app an input action would affect. `key` is a bundle ID when known.
@@ -548,6 +568,29 @@ impl Ticket {
     }
 }
 
+/// One agent's use of a browser tab that is not its chat's own, shown in
+/// the bar while it runs and briefly after. Several can run at once (one per
+/// chat); none of them replaces desktop control's activity.
+struct TabActivity {
+    scope: String,
+    step: Step,
+    /// "the tab “Launch plan”"
+    tab: String,
+    /// Where the tab is ("Main window · Notes").
+    place: Option<String>,
+    in_flight: bool,
+    last: Instant,
+    stopped: bool,
+}
+
+/// Held by one use of a tab; checked again while it runs.
+#[derive(Clone, Debug)]
+pub(crate) struct TabTicket {
+    id: u64,
+    scope: String,
+    input: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UserEvent {
     Pointer,
@@ -668,6 +711,12 @@ pub(crate) struct Presence {
     /// Declined apps per chat, until the user's next message in that chat.
     denied: HashMap<String, HashSet<String>>,
     stopped: HashSet<String>,
+    /// Chats the user stopped while they used a tab that is not their own:
+    /// such tabs are closed to them until the user's next message.
+    tabs_stopped: HashSet<String>,
+    /// Uses of tabs that are not the chats' own, by ticket.
+    tab_uses: std::collections::BTreeMap<u64, TabActivity>,
+    next_tab: u64,
     paused: Option<Pause>,
     activity: Option<Activity>,
     prompt: Option<Prompt>,
@@ -688,6 +737,7 @@ impl Presence {
         if let Some(actor) = actor {
             self.actors.insert(scope.into(), actor);
             self.denied.remove(scope);
+            self.tabs_stopped.remove(scope);
         }
     }
 
@@ -698,6 +748,8 @@ impl Presence {
         self.allowed.retain(|id, _| !matches(id));
         self.denied.retain(|id, _| !matches(id));
         self.stopped.retain(|id| !matches(id));
+        self.tabs_stopped.retain(|id| !matches(id));
+        self.tab_uses.retain(|_, tab| !matches(&tab.scope));
         if self
             .prompt
             .as_ref()
@@ -898,7 +950,7 @@ impl Presence {
                 .filter(|activity| activity.scope == scope)
                 .and_then(|activity| activity.app.clone())
         });
-        let input = step != Step::Looking;
+        let input = !step.observes();
         if step == Step::Looking && self.paused.is_some() {
             return Ticket {
                 scope: scope.into(),
@@ -923,6 +975,124 @@ impl Presence {
             epoch: self.epoch,
             input,
         }
+    }
+
+    /// Whether a chat may use a browser tab that is not its own now. After
+    /// the user pressed Stop on such a use, none until their next message.
+    /// Reading goes on while desktop control is paused or the Mac is locked;
+    /// acting in the tab (clicks, typing, navigation) waits, since nobody
+    /// could see the bar or press Stop.
+    pub(crate) fn admit_tab(&self, scope: &str, step: Step) -> Result<(), String> {
+        if self.tabs_stopped.contains(scope) {
+            return Err(TABS_STOPPED.into());
+        }
+        if step.observes() {
+            return Ok(());
+        }
+        match self.session {
+            Session::Active => {}
+            Session::Locked => return Err(TABS_LOCKED.into()),
+            Session::Away => return Err(TABS_AWAY.into()),
+        }
+        match self.paused {
+            Some(pause) => Err(pause.message().into()),
+            None => Ok(()),
+        }
+    }
+
+    /// A chat is using a browser tab that is not its own: the bar names the
+    /// agent, the tab and where it is, with Pause and Stop. The user's own
+    /// mouse and keyboard never pause it (nothing is shared with them), and
+    /// it leaves desktop control's activity as it is.
+    pub(crate) fn begin_tab(
+        &mut self,
+        scope: &str,
+        step: Step,
+        title: &str,
+        place: &str,
+        now: Instant,
+    ) -> TabTicket {
+        self.tab_uses.retain(|_, tab| {
+            tab.in_flight || now.saturating_duration_since(tab.last) < IDLE_FADE.max(STOP_NOTICE)
+        });
+        let title = clean_label(title, TITLE_LIMIT).unwrap_or_else(|| "Untitled".into());
+        self.next_tab = self.next_tab.wrapping_add(1);
+        let id = self.next_tab;
+        self.tab_uses.insert(
+            id,
+            TabActivity {
+                scope: scope.into(),
+                step,
+                tab: format!("the tab \u{201c}{title}\u{201d}"),
+                place: clean_label(place, TITLE_LIMIT * 2),
+                in_flight: true,
+                last: now,
+                stopped: false,
+            },
+        );
+        TabTicket {
+            id,
+            scope: scope.into(),
+            input: !step.observes(),
+        }
+    }
+
+    /// Whether a use of a tab may go on: checked again before each step of
+    /// a long one (an export's images), so Stop ends it at once.
+    pub(crate) fn check_tab(&self, ticket: &TabTicket) -> Result<(), String> {
+        if self.tabs_stopped.contains(&ticket.scope)
+            || self.tab_uses.get(&ticket.id).is_some_and(|tab| tab.stopped)
+        {
+            return Err(TABS_STOPPED.into());
+        }
+        if ticket.input {
+            if self.session != Session::Active {
+                return Err(TABS_LOCKED.into());
+            }
+            if let Some(pause) = self.paused {
+                return Err(pause.message().into());
+            }
+        }
+        Ok(())
+    }
+
+    /// The use ended; its line fades from the bar shortly after.
+    pub(crate) fn end_tab(&mut self, ticket: &TabTicket, now: Instant) {
+        if let Some(tab) = self.tab_uses.get_mut(&ticket.id) {
+            if !tab.stopped {
+                tab.in_flight = false;
+                tab.last = now;
+            }
+        }
+    }
+
+    /// The tab uses still on the bar, the latest first.
+    fn live_tabs(&self, now: Instant) -> Vec<&TabActivity> {
+        let mut live: Vec<(&u64, &TabActivity)> = self
+            .tab_uses
+            .iter()
+            .filter(|(_, tab)| {
+                !tab.stopped
+                    && (tab.in_flight || now.saturating_duration_since(tab.last) < IDLE_FADE)
+            })
+            .collect();
+        live.sort_by_key(|(id, tab)| std::cmp::Reverse((tab.in_flight, tab.last, **id)));
+        live.into_iter().map(|(_, tab)| tab).collect()
+    }
+
+    /// "Also: Codex is reading the tab “Inbox”" for the bar's other lines.
+    fn tab_lines(&self, tabs: &[&TabActivity]) -> Vec<String> {
+        tabs.iter()
+            .take(3)
+            .map(|tab| {
+                format!(
+                    "Also: {} \u{2014} {} ({})",
+                    self.actor(&tab.scope).name,
+                    tab.step.label().to_lowercase(),
+                    tab.tab
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn set_delivery(&mut self, ticket: &Ticket, shared: bool, pid: Option<i32>) {
@@ -1088,6 +1258,12 @@ impl Presence {
     /// next check; drags release their button on that error path.
     pub(crate) fn stop(&mut self, scope: &str, now: Instant) {
         self.stopped.insert(scope.into());
+        self.tabs_stopped.insert(scope.into());
+        for tab in self.tab_uses.values_mut().filter(|tab| tab.scope == scope) {
+            tab.stopped = true;
+            tab.in_flight = false;
+            tab.last = now;
+        }
         self.allowed.remove(scope);
         self.epoch = self.epoch.wrapping_add(1);
         // A pause caused by the user's own activity existed only to yield to
@@ -1281,26 +1457,51 @@ impl Presence {
                 buttons: vec![],
             });
         }
+        if let Some(tab) = self
+            .tab_uses
+            .values()
+            .filter(|tab| tab.stopped && now.saturating_duration_since(tab.last) < STOP_NOTICE)
+            .max_by_key(|tab| tab.last)
+        {
+            let actor = self.actor(&tab.scope);
+            return Some(BarModel {
+                lines: vec![],
+                kind: BarKind::Stopped,
+                color: actor.color,
+                title: format!("Stopped {}", actor.name),
+                detail: "It can\u{2019}t use your other tabs until your next message".into(),
+                buttons: vec![],
+            });
+        }
         let current = self.activity.as_ref().filter(|activity| !activity.stopped);
+        let tabs = self.live_tabs(now);
         if let Some(pause) = self.paused {
-            let actor = current.map(|activity| self.actor(&activity.scope));
+            // Whoever the bar would show: desktop control first, else a tab.
+            let scope = current
+                .map(|activity| activity.scope.clone())
+                .or_else(|| tabs.first().map(|tab| tab.scope.clone()));
+            let actor = scope.as_deref().map(|scope| self.actor(scope));
             let name = actor.as_ref().map_or(FALLBACK_NAME, |actor| &actor.name);
+            // Observation goes on while paused; only input waits.
             let (title, detail) = match pause {
                 Pause::UserActive => (
                     "Paused \u{2014} you\u{2019}re using your Mac".to_owned(),
-                    format!("{name} will wait until you resume"),
+                    format!("{name} can still look and read, but won\u{2019}t click or type until you resume"),
                 ),
-                Pause::ByUser => ("Paused".to_owned(), format!("{name} is waiting")),
+                Pause::ByUser => (
+                    "Paused".to_owned(),
+                    format!("{name} can still look and read, but won\u{2019}t click or type until you resume"),
+                ),
             };
             let mut buttons = vec![BarButton {
                 label: "Resume",
                 action: ButtonAction::Resume,
                 style: ButtonStyle::Prominent,
             }];
-            if let Some(activity) = current {
+            if let Some(scope) = scope {
                 buttons.push(BarButton {
                     label: "Stop",
-                    action: ButtonAction::Stop(activity.scope.clone()),
+                    action: ButtonAction::Stop(scope),
                     style: ButtonStyle::Destructive,
                 });
             }
@@ -1313,24 +1514,8 @@ impl Presence {
                 buttons,
             });
         }
-        let activity = current.filter(|activity| {
-            activity.in_flight || now.saturating_duration_since(activity.last) < IDLE_FADE
-        })?;
-        let actor = self.actor(&activity.scope);
-        let app = activity.app.as_deref().unwrap_or(UNKNOWN_APP_NAME);
-        Some(BarModel {
-            lines: vec![],
-            kind: BarKind::Acting,
-            color: actor.color,
-            title: format!("{} is using {app}", actor.name),
-            detail: {
-                let step = activity.step.describe(activity.element.as_deref());
-                match &actor.title {
-                    Some(title) => format!("{step} \u{b7} {title}"),
-                    None => step,
-                }
-            },
-            buttons: vec![
+        let buttons = |scope: &str| {
+            vec![
                 BarButton {
                     label: "Pause",
                     action: ButtonAction::Pause,
@@ -1338,10 +1523,46 @@ impl Presence {
                 },
                 BarButton {
                     label: "Stop",
-                    action: ButtonAction::Stop(activity.scope.clone()),
+                    action: ButtonAction::Stop(scope.to_owned()),
                     style: ButtonStyle::Destructive,
                 },
-            ],
+            ]
+        };
+        if let Some(activity) = current.filter(|activity| {
+            activity.in_flight || now.saturating_duration_since(activity.last) < IDLE_FADE
+        }) {
+            let actor = self.actor(&activity.scope);
+            let app = activity.app.as_deref().unwrap_or(UNKNOWN_APP_NAME);
+            let step = activity.step.describe(activity.element.as_deref());
+            return Some(BarModel {
+                lines: self.tab_lines(&tabs),
+                kind: BarKind::Acting,
+                color: actor.color,
+                title: format!("{} is using {app}", actor.name),
+                detail: match &actor.title {
+                    Some(title) => format!("{step} \u{b7} {title}"),
+                    None => step,
+                },
+                buttons: buttons(&activity.scope),
+            });
+        }
+        let (tab, others) = tabs.split_first()?;
+        let actor = self.actor(&tab.scope);
+        Some(BarModel {
+            lines: self.tab_lines(others),
+            kind: BarKind::Acting,
+            color: actor.color,
+            title: format!("{} is using {}", actor.name, tab.tab),
+            detail: [
+                Some(tab.step.label().to_owned()),
+                tab.place.clone(),
+                actor.title.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" \u{b7} "),
+            buttons: buttons(&tab.scope),
         })
     }
 
@@ -1356,6 +1577,13 @@ impl Presence {
                 due.push(activity.last + STOP_NOTICE);
             } else if !activity.in_flight && self.paused.is_none() {
                 due.push(activity.last + IDLE_FADE);
+            }
+        }
+        for tab in self.tab_uses.values() {
+            if tab.stopped {
+                due.push(tab.last + STOP_NOTICE);
+            } else if !tab.in_flight {
+                due.push(tab.last + IDLE_FADE);
             }
         }
         due.into_iter()
@@ -2836,5 +3064,158 @@ mod tests {
         // Stop revokes it until the user allows the chat again.
         state.stop("chat", now);
         assert_eq!(state.check(&ticket).unwrap_err(), STOPPED);
+    }
+
+    #[test]
+    fn a_tab_that_is_not_the_chats_own_shows_who_uses_it_and_where() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("claude", Some("Grab the Notion page"))));
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        let ticket = presence.begin_tab(
+            "chat",
+            Step::ReadingPage,
+            "Launch plan \u{202e}evil",
+            "Main window \u{b7} Notes",
+            now,
+        );
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Acting);
+        assert_eq!(
+            bar.title,
+            "Claude is using the tab \u{201c}Launch plan evil\u{201d}"
+        );
+        assert_eq!(
+            bar.detail,
+            "Reading the page \u{b7} Main window \u{b7} Notes \u{b7} Grab the Notion page"
+        );
+        assert!(bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::Stop("chat".into())));
+        // It fades shortly after the read ends.
+        presence.end_tab(&ticket, now);
+        assert!(presence.model(now + IDLE_FADE).is_none());
+        assert_eq!(presence.next_refresh(now), Some(IDLE_FADE));
+        // The user's own typing never pauses it: nothing is shared.
+        presence.begin_tab("chat", Step::Typing, "Form", "Window 2 \u{b7} App", now);
+        for step in 0..40 {
+            let at = now + Duration::from_millis(step * 100);
+            assert_eq!(
+                presence.user_input_in_app(UserEvent::Key, at, None),
+                InputEffect::None
+            );
+        }
+    }
+
+    #[test]
+    fn tab_uses_by_several_chats_show_together_and_never_replace_desktop_control() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("desk", Some(actor("claude", None)));
+        presence.bind("reader", Some(actor("codex", None)));
+        presence.bind("saver", Some(actor("claude", None)));
+        let desk = presence.begin("desk", Step::Clicking, Some("Safari".into()), now);
+        presence.set_delivery(&desk, true, Some(42));
+        let read = presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main window", now);
+        let save = presence.begin_tab("saver", Step::SavingPage, "Launch plan", "Window 2", now);
+        // Desktop control keeps its own activity, shared pointer included.
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.title, "Claude is using Safari");
+        assert_eq!(bar.lines.len(), 2);
+        assert!(bar.lines.iter().any(|line| line.contains("Codex")));
+        let activity = presence.activity.as_ref().unwrap();
+        assert!(activity.shared_input && activity.scope == "desk");
+        // One use ending leaves the others on the bar.
+        presence.end(&desk, now);
+        let later = now + IDLE_FADE;
+        let bar = presence.model(later).unwrap();
+        assert_eq!(
+            bar.title,
+            "Claude is using the tab \u{201c}Launch plan\u{201d}"
+        );
+        assert_eq!(bar.lines.len(), 1);
+        assert!(bar.lines[0].contains("Codex"));
+        presence.end_tab(&read, later);
+        assert!(presence.model(later + IDLE_FADE).unwrap().lines.is_empty());
+        assert!(presence.check_tab(&save).is_ok());
+        // Stopping one chat stops only its uses.
+        presence.stop("saver", now);
+        assert_eq!(presence.check_tab(&save).unwrap_err(), TABS_STOPPED);
+        assert!(presence.check_tab(&read).is_ok());
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Stopped);
+        assert!(bar.detail.contains("other tabs"));
+    }
+
+    #[test]
+    fn stop_closes_other_tabs_until_the_users_next_message_and_pause_holds_actions() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("codex", None)));
+        let reading = presence.begin_tab(
+            "chat",
+            Step::ReadingPage,
+            "Inbox",
+            "Main window \u{b7} No project",
+            now,
+        );
+        presence.stop("chat", now);
+        // A use already running sees the Stop at its next check.
+        assert_eq!(presence.check_tab(&reading).unwrap_err(), TABS_STOPPED);
+        for step in [Step::ReadingPage, Step::Clicking] {
+            assert_eq!(presence.admit_tab("chat", step).unwrap_err(), TABS_STOPPED);
+        }
+        assert!(presence.admit_tab("other chat", Step::ReadingPage).is_ok());
+        // A passive rebind keeps it closed; the user's next message opens it.
+        presence.bind("chat", None);
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_err());
+        presence.bind("chat", Some(actor("codex", None)));
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        presence.pause(Pause::ByUser);
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        assert!(presence.admit_tab("chat", Step::SavingPage).is_ok());
+        assert_eq!(
+            presence.admit_tab("chat", Step::Navigating).unwrap_err(),
+            PAUSED_BY_USER
+        );
+        let later = now + STOP_NOTICE;
+        let reading = presence.begin_tab("chat", Step::ReadingPage, "Inbox", "Main", later);
+        assert!(presence.check_tab(&reading).is_ok());
+        // The paused bar says reading goes on and offers Stop for the tab.
+        let bar = presence.model(later).unwrap();
+        assert_eq!(bar.kind, BarKind::Paused);
+        assert!(
+            bar.detail.contains("can still look and read"),
+            "{}",
+            bar.detail
+        );
+        assert!(bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::Stop("chat".into())));
+    }
+
+    #[test]
+    fn no_acting_in_other_tabs_while_the_mac_is_locked_or_away() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let typing = presence.begin_tab("chat", Step::Typing, "Form", "Main", now);
+        presence.set_session(Session::Locked);
+        assert_eq!(
+            presence.admit_tab("chat", Step::Clicking).unwrap_err(),
+            TABS_LOCKED
+        );
+        assert_eq!(presence.check_tab(&typing).unwrap_err(), TABS_LOCKED);
+        // Reading goes on; nothing is drawn over the lock screen.
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        assert!(presence.model(now).is_none());
+        presence.set_session(Session::Away);
+        assert_eq!(
+            presence.admit_tab("chat", Step::Navigating).unwrap_err(),
+            TABS_AWAY
+        );
+        presence.set_session(Session::Active);
+        assert!(presence.admit_tab("chat", Step::Navigating).is_ok());
     }
 }

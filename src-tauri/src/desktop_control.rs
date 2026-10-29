@@ -1268,6 +1268,64 @@ pub(crate) fn ask_upload(
     })
 }
 
+/// While an agent reads or acts in a browser tab that is not its chat's own
+/// page, Aven's presence bar names the agent and the tab, with Pause and
+/// Stop. Dropping this ends that use; its line fades shortly after. Uses by
+/// several chats show together and never replace desktop control's own.
+pub(crate) struct TabUse {
+    ticket: presence::TabTicket,
+}
+
+impl TabUse {
+    /// Whether this use may go on: the user has not pressed Stop, and an
+    /// action in the tab is not paused or running while the Mac is locked.
+    pub(crate) fn check(&self) -> Result<(), String> {
+        let read = platform::session_state();
+        if presence::with(|state| state.observe_session(read)) {
+            platform::session_changed();
+        }
+        presence::with(|state| state.check_tab(&self.ticket))
+    }
+}
+
+impl Drop for TabUse {
+    fn drop(&mut self) {
+        presence::with(|state| state.end_tab(&self.ticket, std::time::Instant::now()));
+        platform::presence_changed();
+    }
+}
+
+/// Whether a chat may use a tab that is not its own now, before anything is
+/// looked up or woken: refused after the user pressed Stop on such a use
+/// (until their next message), and for actions in the tab while desktop
+/// control is paused or the Mac is locked. Desktop control's own switch and
+/// permissions are not needed: this only shows the bar.
+pub(crate) fn tab_use_allowed(scope: &str, step: presence::Step) -> Result<(), String> {
+    let read = platform::session_state();
+    if presence::with(|state| state.observe_session(read)) {
+        platform::session_changed();
+    }
+    presence::with(|state| state.admit_tab(scope, step))
+}
+
+/// Starts a chat's use of a tab that is not its own, or refuses it as
+/// [`tab_use_allowed`] does.
+pub(crate) fn begin_tab_use(
+    scope: &str,
+    step: presence::Step,
+    title: &str,
+    place: &str,
+) -> Result<TabUse, String> {
+    tab_use_allowed(scope, step)?;
+    let ticket = presence::with(|state| {
+        state.admit_tab(scope, step)?;
+        Ok::<_, String>(state.begin_tab(scope, step, title, place, std::time::Instant::now()))
+    })?;
+    // The bar is a courtesy on screen; a Mac without one still reads.
+    let _ = platform::presence_show(None, false);
+    Ok(TabUse { ticket })
+}
+
 /// Binds a chat's scope. `actor` is supplied by the frontend once per user
 /// turn; other rebinds pass None and keep the previous actor.
 pub(crate) fn bind_session(
