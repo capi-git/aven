@@ -419,7 +419,7 @@ export function SettingsView({
                   {section === "skills"
                     ? "Project instructions · device tools"
                     : section === "connections"
-                      ? "Provider connections for this project · device services"
+                      ? "Checked in the open project"
                       : "Your preferences are saved automatically"}
                 </span>
               </div>
@@ -446,7 +446,9 @@ export function SettingsView({
               </div>
             ) : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
-            {section === "connections" ? <ConnectionsPage cwd={cwd} /> : null}
+            {section === "connections" ? (
+              <ProviderConnections cwd={cwd} />
+            ) : null}
             {section === "archive" ? (
               <ArchivePage
                 cwd={cwd}
@@ -925,19 +927,6 @@ function AutosaveRow() {
         onChange={(next) => void saveAutosave(next)}
       />
     </Row>
-  );
-}
-
-function ConnectionsPage({ cwd }: { cwd: string }) {
-  return (
-    <SettingsGroup
-      title={SETTINGS.agentConnections.label}
-      id={SETTINGS.agentConnections.id}
-      description={SETTINGS.agentConnections.row.description}
-      scope="Project"
-    >
-      <ProviderConnections cwd={cwd} />
-    </SettingsGroup>
   );
 }
 

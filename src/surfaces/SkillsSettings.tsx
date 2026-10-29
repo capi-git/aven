@@ -509,7 +509,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           ) : null}
         </div>
         <p className="skills-note skills-catalog-footer">
-          A skill adds instructions, not tools. Add MCP servers in Connections.
+          A skill adds instructions, not tools. Add tools in MCP servers.
           Project and personal copies win over provider copies with the same
           name.
         </p>

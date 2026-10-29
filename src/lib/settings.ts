@@ -86,8 +86,9 @@ export const SETTINGS_SECTIONS: {
   {
     id: "connections",
     group: "Integrations",
-    label: "Connections",
-    description: "Services Aven connects to on your behalf.",
+    label: "MCP servers",
+    description:
+      "Extra tools Claude and Codex can use. When a server asks something, the chat shows it.",
   },
   {
     id: "browser",

@@ -123,14 +123,14 @@ describe("settings search", () => {
   });
 
   it("exposes only the public result fields and deterministic anchors", () => {
-    const [result] = searchSettings("Agent connections");
+    const [result] = searchSettings("MCP servers");
     expect(Object.keys(result).sort()).toEqual([
       "description",
       "id",
       "label",
       "section",
     ]);
-    expect(result.id).toBe("setting-agent-connections");
+    expect(result.id).toBe("setting-mcp-servers");
     expect(settingSearchAnchor("  Follow-up behavior! ")).toBe(
       "setting-follow-up-behavior",
     );

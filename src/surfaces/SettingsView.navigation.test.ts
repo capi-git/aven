@@ -378,7 +378,7 @@ describe("settings navigation", () => {
       "Chats & review",
       "Skills & tools",
       "Git",
-      "Connections",
+      "MCP servers",
       "Browser",
       "Archive",
     ]);
@@ -500,7 +500,7 @@ describe("settings navigation", () => {
     for (const [label, category, id] of [
       ["Version", "General", "setting-version"],
       ["Memory saver", "Browser", "setting-memory-saver"],
-      ["Agent connections", "Connections", "setting-agent-connections"],
+      ["MCP servers", "MCP servers", "setting-mcp-servers"],
       ["Accent colour", "Appearance", "setting-accent-colour"],
       ["Chat background", "Appearance", "setting-chat-background"],
       ["Keybindings", "Keyboard shortcuts", "setting-keybindings"],

@@ -1,7 +1,7 @@
 # Browser, files and desktop control
 
 Aven supplies these routes automatically to ordinary agent turns and follow-ups.
-Use **Settings → Skills & tools** to inspect the installed tools and their status. Use **Settings → Connections** to add, remove, and sign in to MCP servers. Aven makes those changes through `claude mcp` and `codex mcp`, so each provider's own configuration stays authoritative.
+Use **Settings → Skills & tools** to inspect the installed tools and their status. Use **Settings → MCP servers** to add, remove, sign in to, and turn off MCP servers. Aven makes those changes through `claude mcp` and `codex mcp`, and turns servers off with each provider's own switch: Claude Code's `mcp_toggle` (the same as `/mcp disable`, saved for the open project only) and Codex's config writer (`enabled = false` on that server's entry in `config.toml`, removed again when turned on). Each provider's own configuration stays authoritative. A server a provider can't turn off, such as ChatGPT apps, can be hidden from the page instead; Aven keeps that list under `aven.mcpHidden`, and the provider still loads the server.
 The same setup works when Aven is the project you are developing.
 
 ## Websites and previews
