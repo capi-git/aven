@@ -43,6 +43,8 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
+  closeHelmDialog,
+  helmStateWords,
   restoringComposer,
 } from "../lib/devSmokeHelm";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
@@ -2544,67 +2546,102 @@ export async function runDevSmoke(
           5_000,
           "the message box",
         );
+        const root =
+          composer.closest<HTMLElement>("[data-composer]") ?? document;
+        const state = () => helmStateWords(root, document);
+        // Start from a closed helm, whatever an earlier step left.
+        if (closeHelmDialog(document))
+          await waitFor(
+            () => !document.querySelector("[data-helm-dialog]"),
+            5_000,
+            "an open dialog from an earlier step to close",
+          );
         composer.focus();
-        pressShortcut(".");
-        const dialog = await waitFor(
-          () => document.querySelector<HTMLElement>("[data-helm-dialog]"),
-          5_000,
-          "the critter's dialog",
-        );
-        const model = await waitFor(
-          () =>
-            document.activeElement?.closest('[data-helm-row="model"]')
-              ? (document.activeElement as HTMLElement)
-              : null,
-          5_000,
-          "the ▶ cursor on Model with the keyboard",
-        );
-        const rows = [
-          ...dialog.querySelectorAll<HTMLElement>("[data-helm-row]"),
-        ].map((row) => row.dataset.helmRow);
-        for (const wanted of ["model", "files", "modes", "critter"])
-          if (!rows.includes(wanted))
-            throw new Error(
-              `The dialog has no ${wanted} row (${rows.join(", ")})`,
+        try {
+          return await keyboardChecks();
+        } catch (error) {
+          throw new Error(`${errorText(error)} (${state()})`);
+        } finally {
+          // Leave the helm closed and the box with the keyboard.
+          if (closeHelmDialog(document))
+            await waitFor(
+              () => !document.querySelector("[data-helm-dialog]"),
+              2_000,
+              "the dialog to close",
+            ).catch(() => undefined);
+          document
+            .querySelector<HTMLElement>("[data-agent-panel]")
+            ?.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "Escape",
+                bubbles: true,
+                cancelable: true,
+              }),
             );
-        model.click();
-        const panel = await waitFor(
-          () => document.querySelector<HTMLElement>("[data-agent-panel]"),
-          5_000,
-          "the agent panel",
-        );
-        await waitFor(
-          () =>
-            document.activeElement?.getAttribute("aria-label") ===
-            "Search models",
-          5_000,
-          "the model search to take focus",
-        );
-        if (!panel.querySelector("[data-access-options]"))
-          throw new Error("The agent panel has no access options");
-        document.activeElement?.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Escape",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        await waitFor(
-          () => !document.querySelector("[data-agent-panel]"),
-          5_000,
-          "the agent panel to close",
-        );
-        await waitFor(
-          () => document.activeElement === composer,
-          5_000,
-          "the message box to take focus back",
-        );
-        return (
-          composer
-            .closest("[data-composer]")
-            ?.querySelector("[data-helm-critter]")
-            ?.getAttribute("aria-label") ?? undefined
-        );
+        }
+
+        async function keyboardChecks() {
+          pressShortcut(".");
+          const dialog = await waitFor(
+            () => document.querySelector<HTMLElement>("[data-helm-dialog]"),
+            5_000,
+            "the critter's dialog",
+          );
+          const model = await waitFor(
+            () =>
+              document.activeElement?.closest('[data-helm-row="model"]')
+                ? (document.activeElement as HTMLElement)
+                : null,
+            5_000,
+            "the ▶ cursor on Model with the keyboard",
+          );
+          const rows = [
+            ...dialog.querySelectorAll<HTMLElement>("[data-helm-row]"),
+          ].map((row) => row.dataset.helmRow);
+          for (const wanted of ["model", "files", "modes", "critter"])
+            if (!rows.includes(wanted))
+              throw new Error(
+                `The dialog has no ${wanted} row (${rows.join(", ")})`,
+              );
+          model.click();
+          const panel = await waitFor(
+            () => document.querySelector<HTMLElement>("[data-agent-panel]"),
+            5_000,
+            "the agent panel",
+          );
+          await waitFor(
+            () =>
+              document.activeElement?.getAttribute("aria-label") ===
+              "Search models",
+            5_000,
+            "the model search to take focus",
+          );
+          if (!panel.querySelector("[data-access-options]"))
+            throw new Error("The agent panel has no access options");
+          document.activeElement?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          await waitFor(
+            () => !document.querySelector("[data-agent-panel]"),
+            5_000,
+            "the agent panel to close",
+          );
+          await waitFor(
+            () => document.activeElement === composer,
+            5_000,
+            "the message box to take focus back",
+          );
+          return (
+            composer
+              .closest("[data-composer]")
+              ?.querySelector("[data-helm-critter]")
+              ?.getAttribute("aria-label") ?? undefined
+          );
+        }
       },
     );
 
@@ -2635,6 +2672,32 @@ export async function runDevSmoke(
           composer.select();
           document.execCommand("delete");
         };
+        const state = () => helmStateWords(root, document);
+        // Moves the pointer as the browser reports it: out of one element,
+        // over the next.
+        const movePointer = (from: Element, to: Element) => {
+          from.dispatchEvent(
+            new PointerEvent("pointerout", {
+              bubbles: true,
+              relatedTarget: to,
+            }),
+          );
+          to.dispatchEvent(
+            new PointerEvent("pointerover", {
+              bubbles: true,
+              relatedTarget: from,
+            }),
+          );
+        };
+        const critter = root.querySelector<HTMLElement>("[data-helm-critter]");
+        if (!critter) throw new Error("The critter has no button");
+        // Start from a closed helm, whatever an earlier step left.
+        if (closeHelmDialog(document))
+          await waitFor(
+            () => !dialogOnScreen(),
+            5_000,
+            `an open dialog from an earlier step to close (${state()})`,
+          );
         composer.focus();
         document.execCommand(
           "insertText",
@@ -2668,17 +2731,19 @@ export async function runDevSmoke(
                 );
             }
             await applyUiScale(loadUiScale());
-            perch.dispatchEvent(
-              new PointerEvent("pointerover", {
-                bubbles: true,
-                relatedTarget: document.body,
-              }),
-            );
+            movePointer(document.body, critter);
             const dialog = await waitFor(
               dialogOnScreen,
               5_000,
-              "the critter's dialog to unfurl",
+              `the critter's dialog to unfurl (${state()})`,
             );
+            if (
+              root.querySelector<HTMLElement>("[data-helm]")?.dataset.open !==
+              "hover"
+            )
+              throw new Error(
+                `The pointer did not open the dialog (${state()})`,
+              );
             await new Promise((resolve) => setTimeout(resolve, 400));
             const placed = helmDialogProblem(
               dialog.getBoundingClientRect(),
@@ -2686,23 +2751,28 @@ export async function runDevSmoke(
               composer.getBoundingClientRect(),
             );
             if (placed) throw new Error(placed);
-            perch.dispatchEvent(
-              new PointerEvent("pointerout", {
-                bubbles: true,
-                relatedTarget: document.body,
-              }),
-            );
-            dialog.dispatchEvent(
-              new PointerEvent("pointerout", {
-                bubbles: true,
-                relatedTarget: document.body,
-              }),
-            );
+            // Up from the critter onto a row of the dialog (in its portal):
+            // that is not leaving, so it stays.
+            const row =
+              dialog.querySelector<HTMLElement>('[data-helm-row="files"]') ??
+              dialog;
+            movePointer(critter, row);
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            if (!dialogOnScreen())
+              throw new Error(
+                `The dialog folded away on the way from the critter into it (${state()})`,
+              );
+            // Then off the dialog to the page: it folds away.
+            movePointer(row, document.body);
             await waitFor(
               () => !dialogOnScreen(),
               5_000,
               "the dialog to fold away when the pointer leaves",
-            );
+            ).catch(() => {
+              throw new Error(
+                `The dialog stayed when the pointer left it (${state()})`,
+              );
+            });
           },
         );
         // Then work: one Stop, in the bubble.
