@@ -160,7 +160,8 @@ describe("a segment pulled out of its split onto the strip", () => {
   it("stands alone where it was let go; a split left with one pane comes apart", () => {
     const next = detachStripTab(strip(), "chat", "notes");
     expect(keys(next)).toEqual(["chat", "notes", "web", "docs", "board"]);
-    expect(next.front).toBe("notes");
+    // What was just moved is what is shown.
+    expect(next.front).toBe("chat");
     expect(keys(detachStripTab(strip(), "chat", null))).toEqual([
       "notes",
       "web",
@@ -170,12 +171,13 @@ describe("a segment pulled out of its split onto the strip", () => {
     ]);
   });
 
-  it("keeps focus with the tab that had it", () => {
-    // The split in front had focus on web: it comes apart with web in front.
-    expect(detachStripTab(strip("aven-space:s1"), "chat", null).front).toBe(
-      "web",
-    );
-    // Pulling out the focused tab itself brings it forward alone.
+  it("brings the tab it pulled out to the front, whichever had focus", () => {
+    // The split in front had focus on web: the tab pulled out comes
+    // forward, and web stays on its own where the split was.
+    const apart = detachStripTab(strip("aven-space:s1"), "chat", null);
+    expect(apart.front).toBe("chat");
+    expect(keys(apart)).toEqual(["notes", "web", "docs", "board", "chat"]);
+    // Pulling out the focused tab itself brings it forward alone too.
     const three: WorkspaceStrip = addStripPane(
       strip(),
       "aven-space:s1",

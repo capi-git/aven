@@ -147,23 +147,58 @@ describe("applyWorkspaceIntent", () => {
     expect(keep).toEqual(["chat-a", "chat-b"]);
   });
 
-  it("minimizes a side and restores the original split", () => {
+  it("collapses a side to a rail beside the others, and opens it again", () => {
     const before = grouped();
-    const minimized = applyWorkspaceIntent(before, {
+    const collapsed = applyWorkspaceIntent(before, {
       type: "minimize",
       split: "columns",
       index: 0,
       side: "after",
     });
-    expect(leafIds(minimized.view.layout!)).toEqual(["chat-a"]);
-    expect(minimized.view.hiddenGroups).toEqual({
-      "chat-b": ["chat-b", "browser-b", "chat-c"],
+    // Both panes stay in the arrangement; the right one is on a rail that
+    // remembers its share, and the left takes its room.
+    expect(leafIds(collapsed.view.layout!)).toEqual(["chat-a", "chat-b"]);
+    expect(collapsed.view.hiddenGroups).toBeUndefined();
+    const layout = collapsed.view.layout as Extract<
+      LayoutNode,
+      { type: "split" }
+    >;
+    expect(layout.children[1].rail).toBeCloseTo(0.6);
+    expect(layout.sizes[0]).toBeGreaterThan(0.95);
+    expect(collapsed.view.groups).toEqual(before.groups);
+    expect(collapsed.keep).toEqual([]);
+    // Focus was on the open pane and stays there.
+    expect(collapsed.view.focusedId).toBe("chat-a");
+    const opened = applyWorkspaceIntent(collapsed.view, {
+      type: "unrail",
+      id: "browser-b",
     });
-    expect(minimized.keep).toEqual([]);
-    const restored = applyWorkspaceIntent(minimized.view, { type: "restore" });
-    expect(restored.view.layout).toEqual(before.layout);
-    expect(restored.view.groups).toEqual(before.groups);
-    expect(restored.keep).toEqual([]);
+    const reopened = opened.view.layout as Extract<
+      LayoutNode,
+      { type: "split" }
+    >;
+    expect(reopened.children[1].rail).toBeUndefined();
+    expect(reopened.sizes[0]).toBeCloseTo(0.4);
+    expect(reopened.sizes[1]).toBeCloseTo(0.6);
+    // Opening it by a tab behind its front shows that tab, focused.
+    expect(opened.view.focusedId).toBe("browser-b");
+    expect(opened.view.groups["browser-b"]).toEqual([
+      "chat-b",
+      "browser-b",
+      "chat-c",
+    ]);
+  });
+
+  it("moves focus off a pane a divider folds to a rail", () => {
+    const before = { ...grouped(), focusedId: "chat-b" };
+    const layout: LayoutNode = {
+      ...columns,
+      sizes: [0.97, 0.03],
+      children: [leaf("chat-a"), { ...leaf("chat-b"), rail: 0.6 }],
+    };
+    const { view } = applyWorkspaceIntent(before, { type: "resize", layout });
+    expect(view.layout).toEqual(layout);
+    expect(view.focusedId).toBe("chat-a");
   });
 
   it("replaces only the layout when panes are resized", () => {
@@ -219,13 +254,21 @@ describe("neighborCombineTargets", () => {
 });
 
 describe("hiddenSplitStatus", () => {
+  // Tucked away by an earlier Aven's minimize, restored from storage.
   const minimized = () =>
-    applyWorkspaceIntent(grouped(), {
-      type: "minimize",
-      split: "columns",
-      index: 0,
-      side: "after",
-    }).view;
+    resolveWorkspaceView(
+      {
+        layout: leaf("chat-a"),
+        focusedId: "chat-a",
+        order: ids,
+        groups: { "chat-a": ["chat-a", "browser-a"] },
+        hiddenGroups: { "chat-b": ["chat-b", "browser-b", "chat-c"] },
+        restoreView: grouped(),
+        minimizedEdge: "right",
+      },
+      ids,
+      "chat-a",
+    );
   const tab = (id: string, busy = false, needsInput = false) => ({
     id,
     needsInput,

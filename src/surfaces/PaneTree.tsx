@@ -148,6 +148,11 @@ type PaneDrag = {
 };
 
 const DRAG_THRESHOLD = 5;
+/**
+ * The least room a pane inside a tab keeps while its divider is dragged
+ * (a chat beside its terminal, say), so none is squeezed out of sight.
+ */
+const INNER_PANE_MIN_PX = 160;
 
 function PaneTreeComponent({
   visible,
@@ -527,6 +532,10 @@ function Sash({
     .slice(0, sash.index + 1)
     .reduce((sum, size) => sum + size, 0);
   const group = sash.group;
+  const before = sash.sizes
+    .slice(0, sash.index)
+    .reduce((sum, size) => sum + size, 0);
+  const after = before + sash.sizes[sash.index] + sash.sizes[sash.index + 1];
 
   return (
     <div
@@ -576,6 +585,12 @@ function Sash({
             ? rect.left + group.x * rect.width
             : rect.top + group.y * rect.height;
           const span = row ? group.w * rect.width : group.h * rect.height;
+          // Each pane of the pair keeps its minimum, or half the pair when
+          // the pair is smaller than two minimums.
+          const least =
+            span > 0
+              ? Math.min(INNER_PANE_MIN_PX / span, (after - before) / 2)
+              : 0;
           let nextBoundary = boundary;
           let moved = false;
           let frame: number | null = null;
@@ -584,7 +599,10 @@ function Sash({
             const pos = row ? ev.clientX : ev.clientY;
             if (span <= 0) return;
             moved = true;
-            nextBoundary = (pos - origin) / span;
+            nextBoundary = Math.min(
+              after - least,
+              Math.max(before + least, (pos - origin) / span),
+            );
             if (frame != null) return;
             frame = requestAnimationFrame(() => {
               frame = null;
@@ -621,6 +639,8 @@ function Sash({
           handle.addEventListener("pointercancel", cancel);
           window.addEventListener("keydown", keydown);
         }}
+        // Even out the two panes beside it.
+        onDoubleClick={() => onCommit((before + after) / 2)}
       />
     </div>
   );

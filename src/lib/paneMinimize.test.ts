@@ -19,10 +19,10 @@ describe("hiding a pane beside its divider", () => {
     };
     const controls = paneMinimizeControls(layout);
     expect(controls.get("left")?.map(paneMinimizeLabel)).toEqual([
-      "Hide left pane",
+      "Collapse left pane",
     ]);
     expect(controls.get("right")?.map(paneMinimizeLabel)).toEqual([
-      "Hide right pane",
+      "Collapse right pane",
     ]);
     expect(controls.get("left")?.map(paneMinimizeKey)).toEqual([
       "root:0:before",
@@ -39,10 +39,10 @@ describe("hiding a pane beside its divider", () => {
     };
     const controls = paneMinimizeControls(layout);
     expect(controls.get("top")?.map(paneMinimizeLabel)).toEqual([
-      "Hide upper pane",
+      "Collapse upper pane",
     ]);
     expect(controls.get("bottom")?.map(paneMinimizeLabel)).toEqual([
-      "Hide lower pane",
+      "Collapse lower pane",
     ]);
     expect(paneMinimizeControls(leaf("only")).size).toBe(0);
     expect(paneMinimizeControls(null).size).toBe(0);

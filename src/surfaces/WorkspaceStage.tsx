@@ -6,18 +6,35 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
   layoutLeaves,
   layoutSashes,
-  setSplitRatio,
   type LayoutNode,
   type LayoutRect,
   type LayoutSash,
+  type SplitDir,
 } from "../lib/layout";
-import { effectiveCssZoom, suppressTextSelection } from "../lib/drag";
+import {
+  clientRectScale,
+  effectiveCssZoom,
+  suppressTextSelection,
+} from "../lib/drag";
+import {
+  defaultPaneMinimum,
+  fitLayout,
+  fitShares,
+  resizeSash,
+  sashOffset,
+  stepSash,
+  type FitSash,
+  type LayoutFit,
+  type PaneMinimum,
+} from "../lib/paneFit";
+import { evenSplit, railedLeafIds, unrailLeaf } from "../lib/paneRails";
 import {
   captureScrollOffsets,
   HiddenSurfaceClock,
@@ -87,8 +104,9 @@ export type WorkspaceStageProps = {
     side: "before" | "after",
   ) => void;
   /**
-   * Each pane offers Hide in its own "…" (paneMinimizeControls), so the
-   * headers draw no hide arrows; dragging a divider to the edge still hides.
+   * Each pane offers Collapse in its own "…" (paneMinimizeControls), so the
+   * headers draw no collapse arrows; dragging a divider past a pane's
+   * minimum still folds it to a rail.
    */
   hideInMenu?: boolean;
   onRestoreSplit?: () => void;
@@ -116,6 +134,20 @@ export type WorkspaceStageProps = {
    * restored pane, a Move): each pane glides from its old place to its new.
    */
   glide?: number;
+  /**
+   * The least room the pane whose tab in front is `id` needs (paneFit.ts).
+   * Dividers stop there, and a pane dragged well past it collapses to a rail.
+   */
+  paneMinimum?: PaneMinimum;
+  /** What a collapsed pane's rail shows: its tabs, and a name for it. */
+  railContent?: (id: string) => { label: string; content: ReactNode } | null;
+  /** A rail was clicked: open its pane and focus it. */
+  onRestoreRail?: (id: string) => void;
+  /**
+   * The pane a tab just moved into (by its tab in front): its title row
+   * glows once, as its strip entry does. A new `nonce` plays it again.
+   */
+  landed?: { id: string; nonce: number } | null;
 };
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
@@ -385,10 +417,17 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const top = (rect.y > epsilon ? GUTTER : EDGE) + inset;
   const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : EDGE) + inset;
   const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : EDGE) + inset;
+  // Percentages to a millionth of a percent: enough for any screen, and no
+  // float noise ("2.8000000000000003%") in the style.
+  const percent = (fraction: number) => Math.round(fraction * 1e8) / 1e6;
   const position = (fraction: number, inset: number) =>
-    inset ? `calc(${fraction * 100}% + ${inset}px)` : `${fraction * 100}%`;
+    inset
+      ? `calc(${percent(fraction)}% + ${inset}px)`
+      : `${percent(fraction)}%`;
   const size = (fraction: number, inset: number) =>
-    inset ? `calc(${fraction * 100}% - ${inset}px)` : `${fraction * 100}%`;
+    inset
+      ? `calc(${percent(fraction)}% - ${inset}px)`
+      : `${percent(fraction)}%`;
   return {
     left: position(rect.x, left),
     top: position(rect.y, top),
@@ -409,28 +448,121 @@ const headerStyle = (rect: LayoutRect): CSSProperties => ({
   ...surfaceStyle(rect),
   height: "32px",
 });
-const sashKey = (sash: LayoutSash) => `${sash.splitId}:${sash.index}`;
+const sashKey = (sash: { splitId: string; index: number }) =>
+  `${sash.splitId}:${sash.index}`;
 const sashBoundary = (sash: LayoutSash) =>
   sash.sizes.slice(0, sash.index + 1).reduce((sum, size) => sum + size, 0);
-function sashStyle(sash: LayoutSash): CSSProperties {
-  const boundary = sashBoundary(sash);
+/**
+ * A divider as the stage draws it: where it stands as shares of the stage,
+ * and, when the stage is measured, the split's lengths in pixels.
+ */
+type StageSash = {
+  key: string;
+  splitId: string;
+  index: number;
+  dir: SplitDir;
+  /** Its split's box and its place along it, as shares of the stage. */
+  group: LayoutRect;
+  at: number;
+  /** Where it stands within its split, 0–100, for assistive technology. */
+  value: number;
+  fit?: FitSash;
+};
+const share = (value: number) => Math.round(value * 1e6) / 1e6;
+function stageSashes(
+  layout: LayoutNode | null,
+  fit: LayoutFit | null,
+): StageSash[] {
+  if (!layout) return [];
+  if (fit?.adjusted)
+    return fit.sashes.map((sash) => {
+      const offset = sashOffset(sash);
+      const row = sash.dir === "right";
+      const span = row ? sash.group.w : sash.group.h;
+      return {
+        key: sashKey(sash),
+        splitId: sash.splitId,
+        index: sash.index,
+        dir: sash.dir,
+        group: {
+          x: share(sash.group.x / fit.width),
+          y: share(sash.group.y / fit.height),
+          w: share(sash.group.w / fit.width),
+          h: share(sash.group.h / fit.height),
+        },
+        at: share(
+          row
+            ? (sash.group.x + offset) / fit.width
+            : (sash.group.y + offset) / fit.height,
+        ),
+        value: Math.round((offset / Math.max(1, span)) * 100),
+        fit: sash,
+      };
+    });
+  const fitted = new Map(
+    (fit?.sashes ?? []).map((sash) => [sashKey(sash), sash]),
+  );
+  return layoutSashes(layout).map((sash) => {
+    const boundary = sashBoundary(sash);
+    const row = sash.dir === "right";
+    return {
+      key: sashKey(sash),
+      splitId: sash.splitId,
+      index: sash.index,
+      dir: sash.dir,
+      group: sash.group,
+      at: row
+        ? sash.group.x + boundary * sash.group.w
+        : sash.group.y + boundary * sash.group.h,
+      value: Math.round(boundary * 100),
+      fit: fitted.get(sashKey(sash)),
+    };
+  });
+}
+function sashStyle(sash: StageSash): CSSProperties {
   return sash.dir === "right"
     ? {
-        left: `${(sash.group.x + boundary * sash.group.w) * 100}%`,
+        left: `${sash.at * 100}%`,
         top: `${sash.group.y * 100}%`,
         height: `${sash.group.h * 100}%`,
       }
     : {
         left: `${sash.group.x * 100}%`,
-        top: `${(sash.group.y + boundary * sash.group.h) * 100}%`,
+        top: `${sash.at * 100}%`,
         width: `${sash.group.w * 100}%`,
       };
 }
-function balancedBoundary(sash: LayoutSash) {
-  return (
-    sash.sizes.slice(0, sash.index).reduce((sum, size) => sum + size, 0) +
-    (sash.sizes[sash.index] + sash.sizes[sash.index + 1]) / 2
-  );
+/** Panes as shares of the stage: fitted when anything is held to a size. */
+function stagePlaces(
+  layout: LayoutNode | null,
+  fit: LayoutFit | null,
+): Map<string, LayoutRect> {
+  if (!layout) return new Map();
+  if (fit?.adjusted) return fitShares(fit);
+  return new Map(layoutLeaves(layout).map((leaf) => [leaf.id, leaf.rect]));
+}
+/** The axis each collapsed leaf's rail is thin along. */
+function railAxes(layout: LayoutNode | null): Map<string, "x" | "y"> {
+  const axes = new Map<string, "x" | "y">();
+  const walk = (node: LayoutNode, axis?: "x" | "y") => {
+    if (node.type === "leaf") {
+      if (axis) axes.set(node.id, axis);
+      return;
+    }
+    const own = node.dir === "right" ? "x" : "y";
+    for (const child of node.children)
+      walk(child, axis ?? (child.rail !== undefined ? own : undefined));
+  };
+  if (layout) walk(layout);
+  return axes;
+}
+/** The stage's size in its own CSS pixels, on either WebKit. */
+function stageSize(stage: HTMLElement): { width: number; height: number } {
+  if (stage.clientWidth > 0 && stage.clientHeight > 0)
+    return { width: stage.clientWidth, height: stage.clientHeight };
+  const bounds = stage.getBoundingClientRect();
+  const local = clientRectScale(stage) / (effectiveCssZoom(stage) || 1);
+  return { width: bounds.width * local, height: bounds.height * local };
 }
 const SurfaceContent = memo(function SurfaceContent({
   content,
@@ -473,8 +605,57 @@ export function WorkspaceStage({
   zoomedId = null,
   arrangement = null,
   glide = 0,
+  paneMinimum = defaultPaneMinimum,
+  railContent,
+  onRestoreRail,
+  landed = null,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
+  // The stage's size in CSS pixels, so panes keep their minimums and rails
+  // their width as the window changes. Unmeasured (0), panes take their
+  // shares as they are. Kept in a ref, read without forcing a layout; the
+  // stage draws again on a resize only when a pane is held to a size (a
+  // rail, a minimum), since shares alone follow the window by themselves.
+  const sizeRef = useRef({ width: 0, height: 0 });
+  const [, setSizeDrawn] = useState(sizeRef.current);
+  useLayoutEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    const held = (box: { width: number; height: number }) => {
+      const tree = current.current.layout;
+      return (
+        !!tree &&
+        box.width > 0 &&
+        box.height > 0 &&
+        fitLayout(tree, box.width, box.height, current.current.paneMinimum)
+          .adjusted
+      );
+    };
+    const measure = (width: number, height: number) => {
+      const previous = sizeRef.current;
+      if (
+        Math.abs(previous.width - width) < 0.5 &&
+        Math.abs(previous.height - height) < 0.5
+      )
+        return;
+      const next = { width, height };
+      sizeRef.current = next;
+      if (held(previous) || held(next)) setSizeDrawn(next);
+    };
+    measure(element.clientWidth, element.clientHeight);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.contentRect;
+      if (box) measure(box.width, box.height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // A divider dragged past a pane's minimum shows it on a rail at once;
+  // these are the leaves on rails while the drag lasts.
+  const [draftRails, setDraftRails] = useState<ReadonlySet<string> | null>(
+    null,
+  );
   // Publish only committed destination changes; native pages draw their own
   // pointer-transparent counterpart above Chromium without hiding the page.
   useLayoutEffect(() => {
@@ -505,6 +686,7 @@ export function WorkspaceStage({
   const surfaceNodes = useRef(new Map<string, HTMLDivElement>());
   const headerNodes = useRef(new Map<string, HTMLDivElement>());
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
+  const railNodes = useRef(new Map<string, HTMLButtonElement>());
   const lastMinimizedSash = useRef<string | null>(null);
   const pendingFocus = useRef<"restore" | "split" | null>(null);
   useLayoutEffect(() => {
@@ -532,12 +714,43 @@ export function WorkspaceStage({
     const localPosition = (position - rect.left) / zoom;
     marker.style.left = `${Math.max(1, Math.min(rect.width / zoom - 2, localPosition))}px`;
   }, [dragging, dragTarget]);
-  const current = useRef({ layout, onFocus, onLayoutChange, onMinimizeSide });
-  current.current = { layout, onFocus, onLayoutChange, onMinimizeSide };
+  const current = useRef({
+    layout,
+    onFocus,
+    onLayoutChange,
+    onMinimizeSide,
+    paneMinimum,
+  });
+  current.current = {
+    layout,
+    onFocus,
+    onLayoutChange,
+    onMinimizeSide,
+    paneMinimum,
+  };
   const stopResize = useRef<((commit: boolean) => void) | null>(null);
-  const leaves = layout ? layoutLeaves(layout) : [];
+  const size = sizeRef.current;
+  const fit =
+    layout && size.width > 0 && size.height > 0
+      ? fitLayout(layout, size.width, size.height, paneMinimum)
+      : null;
+  const places = stagePlaces(layout, fit);
+  const committedRails = new Set(railedLeafIds(layout));
+  const railed = draftRails ?? committedRails;
+  // Open panes only: a collapsed one is drawn as its rail.
+  const leaves = (layout ? layoutLeaves(layout) : [])
+    .filter((leaf) => !railed.has(leaf.id))
+    .map((leaf) => ({ ...leaf, rect: places.get(leaf.id) ?? leaf.rect }));
   const positions = new Map(leaves.map((leaf) => [leaf.id, leaf.rect]));
-  const sashes = layout ? layoutSashes(layout) : [];
+  // Open as committed: what a drag shows mid-way must not remount headers.
+  const committedOpen = (layout ? layoutLeaves(layout) : []).filter(
+    (leaf) => !committedRails.has(leaf.id),
+  );
+  const axes = railAxes(layout);
+  const rails = [...places]
+    .filter(([id]) => railed.has(id))
+    .map(([id, rect]) => ({ id, rect, axis: axes.get(id) ?? "x" }));
+  const sashes = stageSashes(layout, fit);
   function minimizePane(sash: LayoutSash, side: "before" | "after") {
     if (!current.current.onMinimizeSide) return;
     lastMinimizedSash.current = sashKey(sash);
@@ -552,20 +765,6 @@ export function WorkspaceStage({
     onMinimizeSide && !hideInMenu
       ? paneMinimizes
       : new Map<string, PaneMinimize[]>();
-  /** The pane beside a divider's side, for the drag's cue. */
-  function adjacentHeader(sash: LayoutSash, side: "before" | "after") {
-    for (const [id, controls] of paneMinimizes)
-      if (
-        controls.some(
-          (control) =>
-            control.side === side &&
-            control.sash.splitId === sash.splitId &&
-            control.sash.index === sash.index,
-        )
-      )
-        return id;
-    return undefined;
-  }
   const restoreHeaderId = onRestoreSplit
     ? [...leaves].sort((a, b) => {
         if (restoreEdge === "right")
@@ -585,7 +784,7 @@ export function WorkspaceStage({
   // still gets an empty one where it holds a minimize or restore control.
   const displayHeaders = [...headers];
   if (onMinimizeSide || onRestoreSplit) {
-    for (const { id } of leaves) {
+    for (const { id } of committedOpen) {
       if (
         !displayHeaders.some((header) => header.id === id) &&
         (minimizeControls.has(id) || id === restoreHeaderId)
@@ -600,7 +799,10 @@ export function WorkspaceStage({
     if (!visible || !pendingFocus.current) return;
     const target =
       pendingFocus.current === "restore"
-        ? stage.current?.querySelector<HTMLElement>(".workspace-pane-restore")
+        ? (stage.current?.querySelector<HTMLElement>(
+            ".workspace-pane-restore",
+          ) ??
+          stage.current?.querySelector<HTMLElement>(".workspace-pane-rail"))
         : ((lastMinimizedSash.current
             ? sashNodes.current.get(lastMinimizedSash.current)
             : null) ??
@@ -812,7 +1014,8 @@ export function WorkspaceStage({
       demotedScroll.current.delete(id);
     }
   });
-  const headerIds = leaves
+  // From the committed layout: a rail shown mid-drag must not end the drag.
+  const headerIds = committedOpen
     .filter(({ id }) => headerContents.has(id))
     .map(({ id }) => id)
     .join("\0");
@@ -826,18 +1029,47 @@ export function WorkspaceStage({
         element.style.setProperty(name, value);
   }
 
-  function paint(tree: LayoutNode) {
-    for (const leaf of layoutLeaves(tree)) {
-      paintSurface(leaf.id, leaf.rect);
-      const header = headerNodes.current.get(leaf.id);
+  /** Fit `tree` to the stage as measured now (or at a drag's start). */
+  function fitNow(
+    tree: LayoutNode,
+    measured?: { width: number; height: number },
+  ): LayoutFit | null {
+    // The size last measured; a stage not measured yet is read once.
+    const box =
+      measured ??
+      (sizeRef.current.width > 0
+        ? sizeRef.current
+        : stage.current
+          ? stageSize(stage.current)
+          : { width: 0, height: 0 });
+    return box.width > 0 && box.height > 0
+      ? fitLayout(tree, box.width, box.height, current.current.paneMinimum)
+      : null;
+  }
+
+  function paint(
+    tree: LayoutNode,
+    measured?: { width: number; height: number },
+  ) {
+    const fitted = fitNow(tree, measured);
+    const placed = stagePlaces(tree, fitted);
+    const onRails = new Set(railedLeafIds(tree));
+    for (const [id, rect] of placed) {
+      if (onRails.has(id)) {
+        const rail = railNodes.current.get(id);
+        if (rail) applyGeometry(rail, surfaceStyle(rect));
+        continue;
+      }
+      paintSurface(id, rect);
+      const header = headerNodes.current.get(id);
       if (header && header.dataset.workspaceHeaderHosted !== "toolbar")
-        applyGeometry(header, headerStyle(leaf.rect));
+        applyGeometry(header, headerStyle(rect));
     }
-    for (const sash of layoutSashes(tree)) {
-      const element = sashNodes.current.get(sashKey(sash));
+    for (const sash of stageSashes(tree, fitted)) {
+      const element = sashNodes.current.get(sash.key);
       if (!element) continue;
       applyGeometry(element, sashStyle(sash));
-      const value = String(Math.round(sashBoundary(sash) * 100));
+      const value = String(sash.value);
       if (element.getAttribute("aria-valuenow") !== value)
         element.setAttribute("aria-valuenow", value);
     }
@@ -855,6 +1087,23 @@ export function WorkspaceStage({
     }
     if (visible && layout) paint(layout);
   }, [layout, visible, headerIds]);
+  // Where a moved tab landed: its pane's title row glows once.
+  useLayoutEffect(() => {
+    if (!landed || !visible) return;
+    playMotion(headerNodes.current.get(landed.id), "land");
+    // Only a new landing plays it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landed?.nonce]);
+  // A rail shown or taken away mid-drag mounts or unmounts nodes: draw them
+  // where the drag has them.
+  const dragDraft = useRef<{
+    tree: LayoutNode;
+    size: { width: number; height: number };
+  } | null>(null);
+  useLayoutEffect(() => {
+    const draft = dragDraft.current;
+    if (draft) paint(draft.tree, draft.size);
+  }, [draftRails]);
   useEffect(() => () => stopResize.current?.(false), []);
 
   const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
@@ -1277,28 +1526,35 @@ export function WorkspaceStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, dragging, dragTarget?.id, dragTarget?.edge, hintZone, layout]);
 
+  /** The divider `sash` as fitted to the stage now, in pixels. */
+  function measuredSash(
+    tree: LayoutNode,
+    sash: StageSash,
+    measured: { width: number; height: number },
+  ): FitSash | undefined {
+    return fitNow(tree, measured)?.sashes.find(
+      (candidate) =>
+        candidate.splitId === sash.splitId && candidate.index === sash.index,
+    );
+  }
+
   function startResize(
     event: ReactPointerEvent<HTMLDivElement>,
-    sash: LayoutSash,
+    sash: StageSash,
   ) {
     const tree = current.current.layout;
     const container = stage.current;
     if (!visible || event.button !== 0 || !tree || !container) return;
     stopResize.current?.(false);
-    const bounds = container.getBoundingClientRect();
+    const measured = stageSize(container);
+    const fitted = measuredSash(tree, sash, measured);
+    if (!fitted) return;
     const horizontal = sash.dir === "right";
     const startPointer = horizontal ? event.clientX : event.clientY;
-    const startBoundary = sashBoundary(sash);
-    const localZoom = effectiveCssZoom(container);
-    const beforeEdge = sash.sizes
-      .slice(0, sash.index)
-      .reduce((sum, size) => sum + size, 0);
-    const afterEdge =
-      beforeEdge + sash.sizes[sash.index] + sash.sizes[sash.index + 1];
-    const span = horizontal
-      ? sash.group.w * bounds.width
-      : sash.group.h * bounds.height;
-    if (span <= 0) return;
+    // Pointer travel is in the viewport's pixels; the panes are laid out in
+    // the stage's own, which CSS zoom scales.
+    const localZoom = effectiveCssZoom(container) || 1;
+    const startOffset = sashOffset(fitted);
     event.preventDefault();
     event.stopPropagation();
     const handle = event.currentTarget;
@@ -1309,13 +1565,11 @@ export function WorkspaceStage({
     const previousCursor = document.body.style.cursor;
     document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
     container.dataset.resizing = "true";
-    let boundary = sashBoundary(sash);
+    let offset = startOffset;
+    let drawnRails = railedLeafIds(tree).join("\0");
     let moved = false;
-    let minimizeSide: "before" | "after" | null = null;
-    let cue: HTMLElement | null = null;
     let frame: number | null = null;
     let fallback: number | null = null;
-    const draft = () => setSplitRatio(tree, sash.splitId, sash.index, boundary);
     const cancelPaint = () => {
       if (frame !== null) cancelAnimationFrame(frame);
       if (fallback !== null) window.clearTimeout(fallback);
@@ -1324,48 +1578,22 @@ export function WorkspaceStage({
     };
     const flush = () => {
       cancelPaint();
-      paint(draft());
+      const next = resizeSash(tree, fitted, offset).layout;
+      dragDraft.current = { tree: next, size: measured };
+      // A pane folding to its rail, or opening from it, shows at once.
+      const rails = railedLeafIds(next);
+      if (rails.join("\0") !== drawnRails) {
+        drawnRails = rails.join("\0");
+        setDraftRails(new Set(rails));
+      }
+      paint(next, measured);
     };
     const readPointer = (event: PointerEvent) => {
       const travel =
-        (horizontal ? event.clientX : event.clientY) - startPointer;
-      boundary = startBoundary + travel / span;
-      moved = moved || Math.abs(boundary - sashBoundary(sash)) > 0.0001;
-      // Layout resizing retains its minimum widths. Only a deliberate release
-      // near the raw divider's outside edge requests hiding an adjacent pane.
-      const next =
-        current.current.onMinimizeSide && Math.abs(travel) >= 12 * localZoom
-          ? travel < 0 &&
-            (boundary - beforeEdge) * span <= 24 * localZoom + 1e-6
-            ? "before"
-            : travel > 0 &&
-                (afterEdge - boundary) * span <= 24 * localZoom + 1e-6
-              ? "after"
-              : null
-          : null;
-      if (next !== minimizeSide) {
-        if (cue) cue.hidden = true;
-        cue = null;
-        minimizeSide = next;
-        if (next) {
-          // The hidden side can be narrower than the label. Put feedback in
-          // the surviving neighbor's header, beside the divider being dragged.
-          const id = adjacentHeader(
-            sash,
-            next === "before" ? "after" : "before",
-          );
-          cue = id
-            ? (headerNodes.current
-                .get(id)
-                ?.querySelector<HTMLElement>("[data-minimize-cue]") ?? null)
-            : null;
-          if (cue) {
-            cue.textContent = `Release to hide ${horizontal ? (next === "before" ? "left" : "right") : next === "before" ? "upper" : "lower"} pane`;
-            cue.dataset.align = next === "before" ? "left" : "right";
-            cue.hidden = false;
-          }
-        }
-      }
+        ((horizontal ? event.clientX : event.clientY) - startPointer) /
+        localZoom;
+      offset = startOffset + travel;
+      moved = moved || Math.abs(travel) > 0.5;
     };
     const move = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
@@ -1375,7 +1603,7 @@ export function WorkspaceStage({
         fallback = window.setTimeout(flush, DRAG_FRAME_DEADLINE_MS);
       }
     };
-    const finish = (commit: boolean, allowMinimize = false) => {
+    const finish = (commit: boolean) => {
       if (stopResize.current !== finish) return;
       stopResize.current = null;
       cancelPaint();
@@ -1393,27 +1621,19 @@ export function WorkspaceStage({
       restoreSelection();
       document.body.style.cursor = previousCursor;
       delete container.dataset.resizing;
-      if (cue) cue.hidden = true;
-      if (
-        commit &&
-        allowMinimize &&
-        minimizeSide &&
-        current.current.onMinimizeSide
-      ) {
-        // Restore committed geometry before removing a pane so retained drafts
-        // and native page owners keep the pre-drag measurements for restoration.
-        if (current.current.layout) paint(current.current.layout);
-        minimizePane(sash, minimizeSide);
-      } else if (commit && moved) {
-        const next = draft();
-        paint(next);
-        current.current.onLayoutChange(next);
+      dragDraft.current = null;
+      setDraftRails(null);
+      if (commit && moved) {
+        const next = resizeSash(tree, fitted, offset).layout;
+        paint(next, measured);
+        if (JSON.stringify(next) !== JSON.stringify(tree))
+          current.current.onLayoutChange(next);
       } else if (current.current.layout) paint(current.current.layout);
     };
     const up = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
       readPointer(event);
-      finish(true, true);
+      finish(true);
     };
     const cancel = (event: PointerEvent) => {
       if (event.pointerId === pointerId) finish(false);
@@ -1433,6 +1653,43 @@ export function WorkspaceStage({
     window.addEventListener("blur", blur);
     window.addEventListener("keydown", key);
     handle.addEventListener("lostpointercapture", lost);
+  }
+
+  /** Arrow keys move a divider; Home and End fold a side; = evens them. */
+  function keyResize(
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    sash: StageSash,
+  ) {
+    const tree = current.current.layout;
+    const container = stage.current;
+    if (!tree || !container) return;
+    const row = sash.dir === "right";
+    const decrease = row ? "ArrowLeft" : "ArrowUp";
+    const increase = row ? "ArrowRight" : "ArrowDown";
+    if (![decrease, increase, "Home", "End", "="].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "=") {
+      onLayoutChange(evenSplit(tree, sash.splitId));
+      return;
+    }
+    const fitted = measuredSash(tree, sash, stageSize(container));
+    if (!fitted) return;
+    const start = fitted.lengths
+      .slice(0, fitted.index)
+      .reduce((sum, length) => sum + length, 0);
+    const pair =
+      fitted.lengths[fitted.index] + fitted.lengths[fitted.index + 1];
+    const span = fitted.lengths.reduce((sum, length) => sum + length, 0);
+    const step = Math.max(16, span * 0.02) * (event.shiftKey ? 5 : 1);
+    const next =
+      event.key === "Home"
+        ? resizeSash(tree, fitted, start)
+        : event.key === "End"
+          ? resizeSash(tree, fitted, start + pair)
+          : stepSash(tree, fitted, event.key === decrease ? -step : step);
+    if (JSON.stringify(next.layout) !== JSON.stringify(tree))
+      onLayoutChange(next.layout);
   }
 
   return (
@@ -1622,14 +1879,14 @@ export function WorkspaceStage({
                       : before
                         ? "upper"
                         : "lower";
-                    const label = `Hide ${direction} pane`;
+                    const label = `Collapse ${direction} pane`;
                     return (
                       <button
                         key={`${sashKey(sash)}:${side}`}
                         type="button"
                         className="workspace-pane-toggle"
                         aria-label={label}
-                        title={`${label} (or drag the divider to the edge)`}
+                        title={`${label} (or drag the divider past it)`}
                         onPointerDown={(event) => event.stopPropagation()}
                         onDoubleClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
@@ -1642,14 +1899,6 @@ export function WorkspaceStage({
                 </div>
               ) : null,
             )}
-            {onMinimizeSide ? (
-              <span
-                className="workspace-minimize-cue"
-                data-minimize-cue
-                hidden
-                aria-hidden="true"
-              />
-            ) : null}
             {dragging &&
             dragTarget?.id === id &&
             dragTarget.edge === "tab" &&
@@ -1663,12 +1912,46 @@ export function WorkspaceStage({
           </div>
         );
       })}
+      {rails.map(({ id, rect, axis }) => {
+        const rail = railContent?.(id);
+        const label = rail?.label ?? "pane";
+        return (
+          <button
+            key={`rail:${id}`}
+            ref={(element) => {
+              if (element) railNodes.current.set(id, element);
+              else railNodes.current.delete(id);
+            }}
+            type="button"
+            className="workspace-pane-rail"
+            data-pane-rail={id}
+            data-axis={axis}
+            aria-label={`Open ${label}`}
+            title={`${label}. Click to open`}
+            style={surfaceStyle(rect)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => {
+              if (onRestoreRail) {
+                onRestoreRail(id);
+                return;
+              }
+              // Without a handler of its own, the stage opens the pane and
+              // focuses it as a rail's click always does.
+              if (!layout) return;
+              onLayoutChange(unrailLeaf(layout, id));
+              onFocus(id);
+            }}
+          >
+            {rail?.content ?? null}
+          </button>
+        );
+      })}
       {sashes.map((sash) => (
         <div
-          key={sashKey(sash)}
+          key={sash.key}
           ref={(element) => {
-            if (element) sashNodes.current.set(sashKey(sash), element);
-            else sashNodes.current.delete(sashKey(sash));
+            if (element) sashNodes.current.set(sash.key, element);
+            else sashNodes.current.delete(sash.key);
           }}
           className="workspace-stage-sash"
           data-native-hit-margin=""
@@ -1683,42 +1966,14 @@ export function WorkspaceStage({
           aria-orientation={sash.dir === "right" ? "vertical" : "horizontal"}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={Math.round(sashBoundary(sash) * 100)}
+          aria-valuenow={sash.value}
           style={sashStyle(sash)}
           onPointerDown={(event) => startResize(event, sash)}
           onDoubleClick={() => {
-            if (layout)
-              onLayoutChange(
-                setSplitRatio(
-                  layout,
-                  sash.splitId,
-                  sash.index,
-                  balancedBoundary(sash),
-                ),
-              );
+            // Even out the panes on both sides, opening any collapsed one.
+            if (layout) onLayoutChange(evenSplit(layout, sash.splitId));
           }}
-          onKeyDown={(event) => {
-            const decrease = sash.dir === "right" ? "ArrowLeft" : "ArrowUp";
-            const increase = sash.dir === "right" ? "ArrowRight" : "ArrowDown";
-            if (
-              !layout ||
-              ![decrease, increase, "Home", "End"].includes(event.key)
-            )
-              return;
-            event.preventDefault();
-            event.stopPropagation();
-            const boundary =
-              event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? 1
-                  : sashBoundary(sash) +
-                    (event.key === decrease ? -0.02 : 0.02) *
-                      (event.shiftKey ? 5 : 1);
-            onLayoutChange(
-              setSplitRatio(layout, sash.splitId, sash.index, boundary),
-            );
-          }}
+          onKeyDown={(event) => keyResize(event, sash)}
         />
       ))}
       {/* Captured drags use geometric drop targets. Keep native pages live;

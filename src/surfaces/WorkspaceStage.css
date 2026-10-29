@@ -188,31 +188,113 @@ html.has-chat-background:not(.chat-background-empty-only)
 .workspace-pane-restore[data-status="attention"] .workspace-pane-status {
   background: var(--color-warning, #d99a45);
 }
-.workspace-minimize-cue {
+/* A collapsed pane: a slim rail where it stood, never nothing. It shows a
+   mark for each of its tabs (the one in front first) and its name along it;
+   the whole rail is one button that opens the pane at its last size. Grey,
+   like the rest of the workspace; it fades in where the pane folded. */
+.workspace-pane-rail {
   position: absolute;
-  inset: 4px auto 4px 3px;
-  z-index: 1;
+  z-index: 30;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: max-content;
-  max-width: calc(100% - 6px);
-  padding: 0 8px;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  border: 0;
   overflow: hidden;
-  border-radius: 5px;
-  background: var(--color-background-base, #242a31);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  color: var(--aven-label-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color var(--aven-motion-fast) ease;
+  animation: aven-fade var(--aven-motion-base) var(--aven-ease-out) backwards;
+}
+.workspace-pane-rail:hover {
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
   color: var(--color-content);
+}
+.workspace-pane-rail:active {
+  background: color-mix(in srgb, var(--color-content) 11%, transparent);
+}
+.workspace-pane-rail:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}
+.aven-pane-rail {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-pane-rail[data-axis="x"] .aven-pane-rail {
+  flex-direction: column;
+  padding: 8px 0;
+}
+.workspace-pane-rail[data-axis="y"] .aven-pane-rail {
+  flex-direction: row;
+  padding: 0 8px;
+}
+.aven-pane-rail-marks {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-pane-rail[data-axis="x"] .aven-pane-rail-marks {
+  flex-direction: column;
+}
+.aven-pane-rail-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
+}
+.aven-pane-rail-mark[data-front] {
+  opacity: 1;
+}
+.aven-pane-rail-mark :is(img, svg) {
+  max-width: 14px;
+  max-height: 14px;
+}
+.aven-pane-rail-needs-you {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-warning, #d99a45);
+}
+.aven-pane-rail-more {
   font-size: var(--text-ui-caption);
-  line-height: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.aven-pane-rail-label {
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
   white-space: nowrap;
-  pointer-events: none;
+  text-overflow: ellipsis;
 }
-.workspace-minimize-cue[data-align="right"] {
-  left: auto;
-  right: 3px;
+.workspace-pane-rail[data-axis="x"] .aven-pane-rail-label {
+  writing-mode: vertical-rl;
 }
-.workspace-minimize-cue[hidden] {
-  display: none;
+.aven-pane-rail-critter {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-block-start: auto;
+}
+.workspace-pane-rail[data-axis="y"] .aven-pane-rail-critter {
+  margin-block-start: 0;
+  margin-inline-start: auto;
 }
 .workspace-stage-header[data-drop-target="true"]::after {
   content: "";

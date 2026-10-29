@@ -22,13 +22,24 @@ export type SplitDir = "right" | "down";
 export type FocusDir = "left" | "right" | "up" | "down";
 
 export type LayoutNode =
-  | { type: "leaf"; id: string }
+  | {
+      type: "leaf";
+      id: string;
+      /** Collapsed to a rail; see `rail` on a split. */
+      rail?: number;
+    }
   | {
       type: "split";
       id: string;
       dir: SplitDir;
       children: LayoutNode[];
       sizes: number[];
+      /**
+       * Collapsed to a slim rail beside its neighbours (paneRails.ts): the
+       * share of its parent it had before, which restoring it gives back.
+       * Absent for a pane that is open.
+       */
+      rail?: number;
     };
 
 export type PlanTabSource = {
@@ -896,12 +907,27 @@ export function replaceLeafId(
 ): LayoutNode {
   if (fromId === toId) return node;
   if (node.type === "leaf") {
-    return node.id === fromId ? leaf(toId) : node;
+    // A pane on a rail stays there when the tab in front of it changes.
+    return node.id === fromId ? { ...node, id: toId } : node;
   }
   return {
     ...node,
     children: node.children.map((child) => replaceLeafId(child, fromId, toId)),
   };
+}
+
+/**
+ * The one child left of a split takes the split's place, and with it the
+ * split's rail: a rail along its old parent's axis means nothing in the
+ * new one.
+ */
+export function liftOnlyChild(
+  split: Extract<LayoutNode, { type: "split" }>,
+  child: LayoutNode,
+): LayoutNode {
+  if (child.rail === split.rail) return child;
+  const { rail: _rail, ...rest } = child;
+  return split.rail === undefined ? rest : { ...rest, rail: split.rail };
 }
 
 /** Drop a leaf. Parent splits collapse to the remaining child. */
@@ -917,7 +943,7 @@ export function removePane(
     if (child) kept.push({ child, size: node.sizes[i] ?? 0 });
   }
   if (kept.length === 0) return null;
-  if (kept.length === 1) return kept[0].child;
+  if (kept.length === 1) return liftOnlyChild(node, kept[0].child);
   return {
     ...node,
     children: kept.map((item) => item.child),
@@ -1237,7 +1263,8 @@ function extractLeaf(
 
   if (!leaf) return null;
   if (children.length === 0) return { tree: null, leaf };
-  if (children.length === 1) return { tree: children[0], leaf };
+  if (children.length === 1)
+    return { tree: liftOnlyChild(node, children[0]), leaf };
   return {
     tree: { ...node, children, sizes: normalize(sizes) },
     leaf,
@@ -1305,6 +1332,17 @@ function wrapBeside(
  * around the target; dropping onto a pane in another group of the
  * same axis relocates the leaf there.
  */
+/** Every node on the way to leaf `id` opened off its rail, sizes kept. */
+export function openPathTo(node: LayoutNode, id: string): LayoutNode {
+  if (!leafIds(node).includes(id)) return node;
+  const { rail: _rail, ...open } = node;
+  if (open.type === "leaf") return open;
+  return {
+    ...open,
+    children: open.children.map((child) => openPathTo(child, id)),
+  };
+}
+
 export function movePane(
   node: LayoutNode,
   fromId: string,
@@ -1312,6 +1350,8 @@ export function movePane(
   edge: PaneEdge,
 ): LayoutNode {
   if (fromId === toId) return node;
+  // A pane let go beside a collapsed one opens it: the two stand together.
+  node = openPathTo(node, toId);
   const fromAt = leafParent(node, fromId);
   const toAt = leafParent(node, toId);
   if (!fromAt || !toAt) return node;
@@ -1330,11 +1370,13 @@ export function movePane(
   const extracted = extractLeaf(node, fromId);
   if (!extracted?.tree) return node;
   if (!leafIds(extracted.tree).includes(toId)) return node;
+  // A pane moved somewhere new opens there, off any rail it was on.
+  const moved = leaf(extracted.leaf.id);
   const targetAt = leafParent(extracted.tree, toId);
   if (targetAt?.dir === dir) {
-    return insertBeside(extracted.tree, toId, extracted.leaf, place);
+    return insertBeside(extracted.tree, toId, moved, place);
   }
-  return wrapBeside(extracted.tree, toId, extracted.leaf, dir, place);
+  return wrapBeside(extracted.tree, toId, moved, dir, place);
 }
 
 /**
@@ -1351,6 +1393,7 @@ export function placePane(
   const ids = leafIds(node);
   if (!ids.includes(toId)) return node;
   if (ids.includes(sessionId)) return movePane(node, sessionId, toId, edge);
+  node = openPathTo(node, toId);
 
   const { dir, place } = edgeSplit(edge);
   const incoming = leaf(sessionId);

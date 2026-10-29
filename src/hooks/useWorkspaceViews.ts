@@ -6,6 +6,7 @@ import {
   combineStripTabs,
   detachStripTab,
   focusStripTab,
+  healWorkspaceStrip,
   insertStripPane,
   isSpaceKey,
   joinStripSplit,
@@ -118,8 +119,13 @@ export function useWorkspaceViews(
   const idsKey = ids.join("\0");
   // A + on the strip asked for its next new tab to stand on the strip.
   const stripNext = useRef(0);
-  const newcomersOnStrip = () =>
-    Date.now() - stripNext.current < STRIP_NEWCOMER_MS;
+  // Projects whose stored strip has been read back since Aven started. Until
+  // it is, a tab the stored strip does not hold was lost from it (a crash
+  // before a save, say): it stands on the strip, never tucked into a split.
+  const readBack = useRef(new Set<string>());
+  const newcomersOnStrip = (target: string) =>
+    Date.now() - stripNext.current < STRIP_NEWCOMER_MS ||
+    !readBack.current.has(target);
   const strip = useMemo(
     () =>
       resolveStrip(
@@ -128,7 +134,7 @@ export function useWorkspaceViews(
         ids,
         requestedFocus,
         initialLayout,
-        newcomersOnStrip(),
+        newcomersOnStrip(key),
       ),
     // `ids` is compared by content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,7 +155,8 @@ export function useWorkspaceViews(
       update: (strip: WorkspaceStrip) => WorkspaceStrip,
       extraIds: readonly string[] = [],
     ) => {
-      const onStrip = Date.now() - stripNext.current < STRIP_NEWCOMER_MS;
+      const opened = Date.now() - stripNext.current < STRIP_NEWCOMER_MS;
+      const lost = !readBack.current.has(target);
       setStore((all) => {
         const context = current.current;
         const here = target === context.key;
@@ -165,7 +172,7 @@ export function useWorkspaceViews(
           [...seen],
           here ? context.requestedFocus : "",
           here ? context.initialLayout : undefined,
-          here && onStrip,
+          (here && opened) || lost,
         );
         const exists = new Set(existingRef.current);
         const next = keepUnseenStripEntries(
@@ -346,12 +353,21 @@ export function useWorkspaceViews(
       mutate(key, (resolved) => resolved);
       if (fresh) stripNext.current = 0;
     }
+    // Read back: from now on a new tab joins the entry in front as before.
+    readBack.current.add(key);
   }, [key, store, strip, mutate]);
   useEffect(() => {
     try {
+      // Saved healed: each tab a strip records, in exactly one place.
+      const strips = Object.fromEntries(
+        Object.entries(store.strips).map(([project, saved]) => [
+          project,
+          healWorkspaceStrip(saved, recordedStripIds(saved)),
+        ]),
+      );
       localStorage.setItem(
         WORKSPACE_SPACES_KEY,
-        JSON.stringify({ version: 1, projects: store.strips }),
+        JSON.stringify({ version: 1, projects: strips }),
       );
       const legacy: Record<string, WorkspaceView> = { ...store.legacy };
       for (const [project, saved] of Object.entries(store.strips))

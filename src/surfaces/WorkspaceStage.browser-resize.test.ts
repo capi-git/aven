@@ -244,11 +244,12 @@ describe("workspace divider and native page presentation", () => {
     );
     const resized = { ...bounds, x: 0, width: 1000, height: 416 };
     native.bounds.mockReturnValue(resized);
+    // Two moves within the chat's minimum below, coalesced into one paint.
     await act(async () =>
-      window.dispatchEvent(pointer("pointermove", 500, 362)),
+      window.dispatchEvent(pointer("pointermove", 500, 332)),
     );
     await act(async () =>
-      window.dispatchEvent(pointer("pointermove", 500, 422)),
+      window.dispatchEvent(pointer("pointermove", 500, 362)),
     );
     await act(async () => vi.advanceTimersByTime(16));
     expect(native.layout).toHaveBeenCalledExactlyOnceWith(
@@ -259,8 +260,8 @@ describe("workspace divider and native page presentation", () => {
     expect(
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!
         .style.height,
-    ).toBe("calc(70% - 0.5px)");
-    await act(async () => window.dispatchEvent(pointer("pointerup", 500, 422)));
+    ).toBe("calc(60% - 0.5px)");
+    await act(async () => window.dispatchEvent(pointer("pointerup", 500, 362)));
     await flushFrames();
     expect(native.create).toHaveBeenCalledOnce();
     expect(native.close).not.toHaveBeenCalled();

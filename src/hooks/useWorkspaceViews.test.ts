@@ -617,7 +617,8 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
           entry.kind === "item" ? entry.id : entry.kind,
         ),
       ).toEqual(["b-docs", "b-chat", "b-web"]);
-      expect(current.strip.front).toBe("b-chat");
+      // The tab pulled out is what is shown.
+      expect(current.strip.front).toBe("b-docs");
     });
 
     it("undoes a layout change in the split it was made in", async () => {
@@ -701,6 +702,78 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
         ),
       ).toEqual(["b-chat", "b-web", "b-docs"]);
       expect(current.view.layout).toEqual(leaf("b-docs"));
+    });
+  });
+
+  describe("reading a strip back", () => {
+    const stored = (strip: WorkspaceStrip) =>
+      storage.set(
+        WORKSPACE_SPACES_KEY,
+        JSON.stringify({ version: 1, projects: { [projectB]: strip } }),
+      );
+    const kinds = () =>
+      current.strip.entries.map((entry) =>
+        entry.kind === "item" ? entry.id : `split(${viewIds(entry.view)})`,
+      );
+    const viewIds = (view: WorkspaceView) =>
+      view.layout ? leafIds(view.layout).join("|") : "";
+    const split: WorkspaceStrip = {
+      entries: [
+        {
+          kind: "space",
+          id: "s",
+          view: {
+            layout: {
+              type: "split",
+              id: "row",
+              dir: "right",
+              sizes: [0.5, 0.5],
+              children: [leaf("b-web"), leaf("b-docs")],
+            },
+            focusedId: "b-web",
+            order: ["b-web", "b-docs"],
+            groups: { "b-web": ["b-web"], "b-docs": ["b-docs"] },
+          },
+        },
+      ],
+      front: "aven-space:s",
+    };
+
+    it("puts a tab the stored strip lost on the strip, not inside the split in front", async () => {
+      stored(split);
+      await render({
+        project: projectB,
+        ids: ["b-web", "b-docs", "b-chat"],
+        requestedFocus: "b-web",
+      });
+      expect(kinds()).toEqual(["split(b-web|b-docs)", "b-chat"]);
+      expect(current.strip.front).toBe("aven-space:s");
+      // Saved that way, so it holds after the next restart.
+      expect(spaces().projects[projectB].entries).toHaveLength(2);
+      // Once read back, a new tab joins the split in front as before.
+      await render({ ids: ["b-web", "b-docs", "b-chat", "b-new"] });
+      expect(kinds()).toEqual(["split(b-web|b-docs)", "b-chat"]);
+      expect(current.view.groups["b-web"]).toContain("b-new");
+    });
+
+    it("saves each tab in exactly one place, in every project's strip", async () => {
+      // Another project's strip holds a tab twice (an older Aven, a bug).
+      stored({
+        entries: [
+          ...split.entries,
+          { kind: "item", id: "b-docs" },
+          { kind: "item", id: "b-chat" },
+        ],
+        front: "b-chat",
+      });
+      await render();
+      const raw = spaces().projects[projectB];
+      expect(
+        raw.entries.map((entry) =>
+          entry.kind === "item" ? entry.id : entry.kind,
+        ),
+      ).toEqual(["space", "b-chat"]);
+      expect(raw.front).toBe("b-chat");
     });
   });
 

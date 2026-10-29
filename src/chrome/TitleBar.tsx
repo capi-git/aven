@@ -108,6 +108,7 @@ import {
 } from "../lib/surfaceGroups";
 import { BotCritter } from "./BotCritter";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
+import { playMotion } from "../lib/motion";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
 import { isSpaceKey } from "../lib/workspaceSpaces";
 import "./TitleBar.css";
@@ -333,6 +334,12 @@ export type TitleBarProps = {
   onDetachFromSplit?: (id: string, before: string | null) => void;
   /** The split's tabs stand on the strip as single tabs again. */
   onSeparateSplit?: (splitId: string) => void;
+  /**
+   * Where a tab just moved to: its entry (`entry`, a strip key) glows once,
+   * or, in a split, the segment of the tab's pane (`segment`). A new
+   * `nonce` plays it again.
+   */
+  landed?: { entry: string; segment?: string; nonce: number } | null;
   onCloseSplit?: (splitId: string) => void;
   onCloseBrowser?: (id?: string) => void;
   onBrowserModeChange?: (mode: "tab" | "split") => void;
@@ -487,7 +494,8 @@ function TabDeck({ children }: { children: ReactNode }) {
 }
 
 /** A tab's kind at a glance: a bot's critter, its agents, or its file. */
-function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
+/** A tab's mark as the strip draws it: its agents, a board, a file, a terminal. */
+export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];
   return (
     <span
@@ -1777,6 +1785,7 @@ function TitleBarComponent({
   onTogglePaneZoom,
   paneMoves,
   onMovePane,
+  landed = null,
   stackOnStrip = false,
   frontNamedBelow = false,
   frontOwnHeader = false,
@@ -2057,6 +2066,24 @@ function TitleBarComponent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
+  // A tab that just moved: the entry or segment it landed in glows once, so
+  // the eye follows it (motion.css, "land").
+  useLayoutEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip || !landed) return;
+    const slot = [
+      ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
+    ].find((node) => node.dataset.motionSlot === landed.entry);
+    const segment = landed.segment
+      ? [
+          ...(slot?.querySelectorAll<HTMLElement>("[data-split-segment]") ??
+            []),
+        ].find((node) => node.dataset.splitSegment === landed.segment)
+      : undefined;
+    playMotion(segment ?? slot, "land");
+    // Only a new landing plays it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landed?.nonce]);
   // Where a segment pulled out of its split would stand if let go on the
   // strip: before the first entry whose middle is past the pointer, or at
   // the end. `x` places the insertion line along the strip's content.

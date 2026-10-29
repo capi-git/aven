@@ -130,6 +130,42 @@
   animation: aven-sweep calc(var(--aven-motion-glide) * 2) var(--aven-ease-out);
 }
 
+/* Where a moved tab landed: a soft grey glow comes up on its strip entry
+   (or its split's segment) and on the pane it is in, then fades, so the
+   eye finds it. Opacity only, on an overlay of its own. */
+@keyframes aven-land {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.aven-tab[data-motion-slot][data-aven-motion="land"]::after,
+.aven-split-segment[data-aven-motion="land"]::after,
+.workspace-stage-header[data-aven-motion="land"]::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: 2;
+  border-radius: var(--aven-radius-xs);
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-content) 34%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: aven-land calc(var(--aven-motion-glide) * 6) var(--aven-ease-out);
+}
+
+.workspace-stage-header[data-aven-motion="land"]::before {
+  inset: 0;
+  border-radius: 0;
+}
+
 /* Popups, menus, dialogs and the floating team panel spring in. Each frame
    is solid from its first frame; only its scale moves, and its contents
    settle from partly visible so the two read as one surface appearing.

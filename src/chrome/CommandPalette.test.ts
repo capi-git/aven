@@ -234,3 +234,66 @@ it("reopens with the text of a race that couldn't start", async () => {
   expect(input().value).toBe("fix the redirect loop");
   expect(text()).toContain("Race it");
 });
+
+it("says where an open tab lives, and goes straight there", async () => {
+  const onOpenTab = vi.fn();
+  props = {
+    ...props,
+    tabs: [
+      {
+        id: "page-1",
+        title: "Pricing — WorkOS",
+        location: "In the split with “Add sign-up flow” · right pane",
+        kind: "page",
+      },
+      {
+        id: "file-1",
+        title: "README.md",
+        location: "On the strip",
+        kind: "file",
+        fileName: "README.md",
+      },
+    ],
+    chatLocations: new Map([
+      ["c1", "In the split with “Pricing — WorkOS” · left pane"],
+    ]),
+    onOpenTab,
+  };
+  await act(async () => root.render(createElement(CommandPalette, props)));
+  await type("pricing");
+  const rows = [
+    ...document.body.querySelectorAll<HTMLElement>("[role=option]"),
+  ].map((row) => row.textContent);
+  // The open page comes first, with where it is, above the chats.
+  const page = rows.findIndex((row) => row?.startsWith("Pricing — WorkOS"));
+  expect(rows[page]).toContain(
+    "In the split with “Add sign-up flow” · right pane",
+  );
+  expect(page).toBeLessThan(
+    rows.findIndex((row) => row?.startsWith("Pricing page")),
+  );
+  const target = [
+    ...document.body.querySelectorAll<HTMLElement>("[role=option]"),
+  ][page];
+  await act(async () => target.click());
+  expect(onOpenTab).toHaveBeenCalledWith("page-1");
+  expect(props.onClose).toHaveBeenCalled();
+});
+
+it("shows where an open chat lives in place of its project", async () => {
+  props = {
+    ...props,
+    chatLocations: new Map([
+      ["c1", "In the split with “Pricing — WorkOS” · left pane"],
+    ]),
+    onOpenTab: vi.fn(),
+  };
+  await act(async () => root.render(createElement(CommandPalette, props)));
+  await type("redirect");
+  const row = [
+    ...document.body.querySelectorAll<HTMLElement>("[role=option]"),
+  ].find((option) => option.textContent?.includes("Fix login redirect"));
+  expect(row?.querySelector("[data-palette-location]")?.textContent).toBe(
+    "In the split with “Pricing — WorkOS” · left pane",
+  );
+});

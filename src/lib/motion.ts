@@ -30,7 +30,14 @@ export const MOTION_ATTRIBUTE = "data-aven-motion";
 /** On the root: "reduce" or "full". */
 export const MOTION_ROOT_ATTRIBUTE = "data-motion";
 
-export type MotionName = "rise" | "fade" | "roll" | "flash" | "pane-in";
+export type MotionName =
+  | "rise"
+  | "fade"
+  | "roll"
+  | "flash"
+  | "pane-in"
+  /** Where a moved tab landed: its strip entry, segment or pane glows once. */
+  | "land";
 
 const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
 
