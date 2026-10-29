@@ -13,10 +13,13 @@ import {
   tellCrew,
   turnOnCrew,
 } from "./crewActions";
-import { crewInboxCard } from "./crewInbox";
+import { crewInboxCard, openCrewInboxItems } from "./crewInbox";
+import { CrewRunner } from "./crewRunner";
+import type { Session } from "./session";
 import { afterBuild, afterCheck, queueCard, startCard } from "./crewLoop";
 import {
   crewCard,
+  crewsSnapshot,
   getCrew,
   resetCrewsCache,
   updateCrew,
@@ -133,7 +136,7 @@ async function crewWithReadyCard() {
 }
 
 describe("Apply lands exactly the reviewed change", () => {
-  it("applies by the fingerprint, ships the card and syncs the copy", async () => {
+  it("applies by the fingerprint and ships the card, leaving the copy to the next card", async () => {
     const id = await crewWithReadyCard();
     host.apply.mockResolvedValue({ files: [], additions: 0, deletions: 0 });
     expect(await applyCrewCard(PATH, id, NOON)).toBeNull();
@@ -147,35 +150,180 @@ describe("Apply lands exactly the reviewed change", () => {
     expect(card.stage).toBe("applied");
     expect(card.inbox?.status).toBe("done");
     expect(featureBoardState(PATH).cards[0].column).toBe("shipped");
-    expect(host.sync).toHaveBeenCalledWith(PATH, COPY, "aven/bot/crew-1");
+    // Apply never resets the copy: the next card syncs it itself, under its
+    // own turn, so this can't race a card already started.
+    expect(host.sync).not.toHaveBeenCalled();
   });
 
-  it("refuses a change that moved since you looked, and records the new one", async () => {
+  // crews-review/apply-refresh: two Apply clicks must never land a change
+  // nobody checked.
+  it("never re-stamps a change that moved after its check: it waits for another check", async () => {
     const id = await crewWithReadyCard();
-    host.apply.mockRejectedValue(
-      new Error("The fix changed since you looked."),
+    let copyHash = "unchecked";
+    host.apply.mockImplementation(
+      async (_cwd: string, _copy: string, _base: string, hash: string) => {
+        if (hash !== copyHash)
+          throw new Error("The fix changed since you looked.");
+        return { files: [], additions: 0, deletions: 0 };
+      },
     );
     host.diff.mockResolvedValue({
       files: [
         {
-          path: "src/theme.ts",
+          path: "src/evil.ts",
           status: "modified",
-          additions: 10,
-          deletions: 2,
+          additions: 99,
+          deletions: 0,
           binary: false,
         },
       ],
-      additions: 10,
-      deletions: 2,
-      hash: "newer-hash",
+      additions: 99,
+      deletions: 0,
+      hash: copyHash,
     });
+    // Click 1: refused, and the card says why instead of claiming a pass.
     expect(await applyCrewCard(PATH, id, NOON)).toBe(
-      "The change moved since you looked. Review it again, then apply.",
+      "The change moved after Owl's check, so it wasn't applied. One more round checks it again.",
     );
     const card = crewCard(getCrew(PATH)!, id)!;
-    expect(card.stage).toBe("ready");
-    expect(card.fix?.hash).toBe("newer-hash");
-    expect(featureBoardState(PATH).cards[0].column).toBe("review");
+    expect(card.stage).toBe("stuck");
+    expect(card.stuck).toEqual({
+      reason: "changed",
+      text: "The change moved after Owl's check, so it wasn't applied",
+    });
+    expect(card.fix).toBeUndefined();
+    expect(card.holder).toBe("checker");
+    // Its Ready card left the Inbox; a Needs you card says what happened.
+    const inbox = openCrewInboxItems(crewsSnapshot());
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0].card.stage).toBe("stuck");
+    expect(inbox[0].review.summary).not.toMatch(/Passed/);
+    expect(inbox[0].review.summary).toMatch(/moved after Owl's check/);
+    expect(featureBoardState(PATH).cards[0].column).toBe("building");
+    // Click 2 lands nothing.
+    expect(await applyCrewCard(PATH, id, NOON + 1)).toBe(
+      "This card is no longer ready.",
+    );
+    expect(host.apply).toHaveBeenCalledTimes(1);
+    // One more round checks the copy as it is now.
+    copyHash = "still-unchecked";
+    resumeCrewCard(PATH, id, undefined, NOON + 2);
+    expect(crewCard(getCrew(PATH)!, id)).toMatchObject({
+      stage: "checking",
+      holder: "checker",
+    });
+  });
+
+  // crews-review/apply-sync-race: Apply must never reset the copy under a
+  // card the runner already gave to the Builder.
+  it("leaves the copy alone while the runner starts the next card", async () => {
+    const log: string[] = [];
+    const [ready, next] = await addFeatureCards(PATH, [
+      { title: "Ready one", column: "review" },
+      { title: "Next one", column: "building" },
+    ]);
+    updateCrew(PATH, (crew) =>
+      withCard(
+        withCard(
+          {
+            ...crew,
+            on: true,
+            onAt: 1,
+            copy: { path: COPY, branch: "aven/bot/crew-1", root: PATH },
+          },
+          readyCard(ready.id),
+        ),
+        queueCard(
+          {
+            id: next.id,
+            title: "Next one",
+            brief: "y",
+            from: "you",
+            maxRounds: 3,
+          },
+          5,
+        ),
+      ),
+    );
+    host.apply.mockResolvedValue({ files: [], additions: 0, deletions: 0 });
+    host.sync.mockImplementation(async () => {
+      log.push("apply: reset the copy");
+      return { root: PATH, base: "b3", uncommitted: false, untracked: false };
+    });
+    const session = {
+      id: "s-builder",
+      blocks: [],
+      busy: false,
+    } as unknown as Session;
+    const runner = new CrewRunner({
+      owner: "me",
+      now: () => NOON,
+      setTimer: (run, ms) => setTimeout(run, ms) as unknown as number,
+      clearTimer: (id) => clearTimeout(id),
+      sessions: () => [session],
+      ensureChat: async () => session,
+      send: () => {
+        log.push("runner: sent the next card");
+        return true;
+      },
+      stopChat: () => {},
+      copy: {
+        prepare: async (_cwd, _key, branch) => ({
+          path: COPY,
+          branch,
+          root: PATH,
+          gitDir: `${PATH}/.git`,
+        }),
+        sync: async () => {
+          log.push("runner: sync for the next card");
+          return {
+            root: PATH,
+            base: "b2",
+            uncommitted: false,
+            untracked: false,
+          };
+        },
+        diff: async () => ({
+          files: [],
+          additions: 0,
+          deletions: 0,
+          hash: "e",
+        }),
+        sources: async () => [],
+      },
+      weeklyUsed: () => null,
+      fixerRuns: () => 0,
+      fixerBranch: () => undefined,
+      board: {
+        cards: async () => [],
+        move: () => undefined,
+        add: async () => [],
+      },
+      name: () => "Bot",
+      onWorking: () => {},
+    });
+    runner.start();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await applyCrewCard(PATH, ready.id, NOON)).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    runner.stop();
+    expect(log).toEqual([
+      "runner: sync for the next card",
+      "runner: sent the next card",
+    ]);
+    expect(crewCard(getCrew(PATH)!, next.id)!.base).toBe("b2");
+  });
+
+  it("won't apply while the crew is still working", async () => {
+    const id = await crewWithReadyCard();
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      job: { owner: "other", since: NOON, heartbeat: NOON },
+    }));
+    expect(await applyCrewCard(PATH, id, NOON + 1_000)).toBe(
+      "The crew is still working. Apply once it finishes.",
+    );
+    expect(host.apply).not.toHaveBeenCalled();
   });
 
   it("keeps the card when your files conflict, and says why", async () => {

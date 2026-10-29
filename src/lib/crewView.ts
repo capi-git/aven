@@ -349,7 +349,7 @@ export function crewIdeaInfo(
   const from = [
     `From ${scout}`,
     idea.size,
-    idea.sourceUrl ? "from outside" : "",
+    idea.sourceUrl || idea.outside ? "from outside" : "",
   ]
     .filter(Boolean)
     .join(" · ");

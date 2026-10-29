@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { withInboxResolved } from "./crewInbox";
+import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import {
+  changedAfterCheck,
   markApplied,
   markDiscarded,
   queueCard,
@@ -13,6 +14,7 @@ import {
   cardInCopy,
   crewCard,
   crewMember,
+  crewMemberName,
   getCrew,
   updateCrew,
   withCard,
@@ -34,7 +36,7 @@ import {
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
 import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
-import type { BotQuietHours } from "./projectBots";
+import { jobIsLive, type BotQuietHours } from "./projectBots";
 
 /**
  * What you do with a crew and its cards: Give to crew, Not now, Pause and
@@ -323,14 +325,54 @@ export function resumeCrewCard(
 }
 
 const NOT_READY = "This card is no longer ready.";
-const FIX_CHANGED_TEXT =
-  "The change moved since you looked. Review it again, then apply.";
+const STILL_WORKING = "The crew is still working. Apply once it finishes.";
 
 /**
- * Bring a Ready card's change into your files: only the exact change you
- * reviewed, by its fingerprint, as a project bot's Fix ready. A conflict
- * changes nothing; resolves with why, or null once applied. The card moves
- * to Shipped, and the copy is matched to your files for the next card.
+ * A Ready card whose change moved after its check: never re-stamped as
+ * Ready. It goes to Needs you with why (One more round checks it again),
+ * its Ready card leaves the Inbox and a Needs you card takes its place, and
+ * it goes back to Building.
+ */
+export async function markCrewFixChanged(
+  path: string,
+  cardId: string,
+  now = Date.now(),
+): Promise<void> {
+  let moved = false;
+  updateCrew(path, (crew) => {
+    const card = crewCard(crew, cardId);
+    if (!card || card.stage !== "ready") return crew;
+    moved = true;
+    const checker = crewMemberName(crew, "checker");
+    const stuck = changedAfterCheck(withInboxResolved(card, "dismissed", now), {
+      now,
+      checker,
+    });
+    return withFeed(
+      withCard(crew, {
+        ...stuck,
+        inbox: crewInboxCard(stuck, now, { checker }),
+      }),
+      {
+        at: now,
+        kind: "stuck",
+        who: "aven",
+        cardId,
+        title: card.title,
+        text: stuck.stuck!.text,
+      },
+    );
+  });
+  if (moved) await moveFeatureCard(path, cardId, "building", "");
+}
+
+/**
+ * Bring a Ready card's change into your files: only the exact change its
+ * Checker passed, by its fingerprint, as a project bot's Fix ready. Not
+ * while the crew is at work. If the copy moved since the check, nothing
+ * lands and the card asks for another check (see `markCrewFixChanged`); a
+ * conflict changes nothing either. Resolves with why, or null once applied.
+ * The copy isn't touched afterwards: the next card matches it to your files.
  */
 export async function applyCrewCard(
   path: string,
@@ -341,14 +383,14 @@ export async function applyCrewCard(
   const card = crew ? crewCard(crew, cardId) : undefined;
   if (!crew?.copy || !card || card.stage !== "ready" || !card.fix)
     return NOT_READY;
+  if (card.turn || jobIsLive(crew.job, now)) return STILL_WORKING;
   const fix = card.fix;
   try {
     await botCopyHost.apply(path, crew.copy.path, fix.base, fix.hash);
   } catch (error) {
     if (isFixChanged(error)) {
-      // Show what the copy holds now: what Review shows next is what lands.
-      const problem = await refreshCrewFix(path, cardId);
-      return problem ?? FIX_CHANGED_TEXT;
+      await markCrewFixChanged(path, cardId, now);
+      return `The change moved after ${crewMemberName(crew, "checker")}'s check, so it wasn't applied. One more round checks it again.`;
     }
     logError("Apply crew card", error);
     const text = botCopyError(error);
@@ -378,49 +420,7 @@ export async function applyCrewCard(
   });
   notifyGitChanged(path);
   await moveFeatureCard(path, cardId, "shipped", "");
-  try {
-    await botCopyHost.sync(path, crew.copy.path, crew.copy.branch);
-  } catch (error) {
-    logError("Crew copy sync", error);
-  }
   return null;
-}
-
-/** Read a Ready card's change again: its new fingerprint, or why it's gone. */
-export async function refreshCrewFix(
-  path: string,
-  cardId: string,
-): Promise<string | null> {
-  const crew = getCrew(path);
-  const card = crew ? crewCard(crew, cardId) : undefined;
-  if (!crew?.copy || !card?.fix) return NOT_READY;
-  try {
-    const diff = await botCopyHost.diff(crew.copy.path, card.fix.base);
-    if (!diff.files.length) return NOT_READY;
-    updateCrew(path, (current) => {
-      const known = crewCard(current, cardId);
-      if (!known?.fix) return current;
-      return withCard(current, {
-        ...known,
-        fix: {
-          ...known.fix,
-          hash: diff.hash,
-          files: diff.files.length,
-          additions: diff.additions,
-          deletions: diff.deletions,
-          paths: diff.files.slice(0, 40).map((file) => ({
-            path: file.path,
-            additions: file.additions,
-            deletions: file.deletions,
-          })),
-        },
-      });
-    });
-    return null;
-  } catch (error) {
-    logError("Crew fix", error);
-    return botCopyError(error);
-  }
 }
 
 /**

@@ -19,7 +19,7 @@ import {
   allowMoreRunsToday,
   applyCrewCard,
   discardCrewCard,
-  refreshCrewFix,
+  markCrewFixChanged,
   resumeCrewCard,
   setCrewPaused,
   stopCrewNow,
@@ -579,9 +579,10 @@ function CrewDiff({
     let live = true;
     void (async () => {
       const diff = await botCopyHost.diff(copy, fix.base);
-      // The copy moved since the card was made: record what is there now.
+      // The copy moved since its check: it is never shown as this card's
+      // change. The card asks for another check instead.
       if (diff.hash !== fix.hash) {
-        await refreshCrewFix(path, card.id);
+        await markCrewFixChanged(path, card.id);
         return;
       }
       const models = await Promise.all(

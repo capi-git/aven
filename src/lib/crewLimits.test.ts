@@ -169,6 +169,8 @@ describe("Scout ideas start themselves, within limits", () => {
       ideaMayAutoStart(idea(1, { sourceUrl: "https://example.com/issue" })),
     ).toBe(false);
     expect(ideaMayAutoStart(idea(1, { autoStarted: true }))).toBe(false);
+    // Aven's own check found a link or an issue in its words.
+    expect(ideaMayAutoStart(idea(1, { outside: true }))).toBe(false);
     expect(ideaMayAutoStart(idea(1))).toBe(true);
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   afterBuild,
   afterCheck,
+  changedAfterCheck,
   changedSinceLastRound,
   crewStageDetail,
   crewStageLabel,
@@ -357,5 +358,37 @@ describe("the re-check's scope", () => {
       "src/theme.ts",
       "src/Toggle.css",
     ]);
+  });
+});
+
+describe("a Ready change that moved after its check", () => {
+  it("is never Ready again without another check", () => {
+    const built = afterBuild(card(), {
+      handoff,
+      change: change("h1"),
+      now: 1,
+      names,
+    });
+    const ready = afterCheck(built.card, {
+      verdict: verdict([]),
+      edited: false,
+      // What the Checker saw becomes the fix.
+      seen: change("seen-by-owl"),
+      now: 2,
+      names,
+    }).card;
+    expect(ready.fix?.hash).toBe("seen-by-owl");
+    const moved = changedAfterCheck(ready, { now: 3, checker: "Owl" });
+    expect(moved).toMatchObject({ stage: "stuck", holder: "checker" });
+    expect(moved.fix).toBeUndefined();
+    expect(moved.stuck?.text).toBe(
+      "The change moved after Owl's check, so it wasn't applied",
+    );
+    // One more round checks it again, in the same round.
+    expect(resumeCard(moved, { now: 4 })).toMatchObject({
+      stage: "checking",
+      holder: "checker",
+      round: 1,
+    });
   });
 });

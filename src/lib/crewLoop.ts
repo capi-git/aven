@@ -190,6 +190,8 @@ export function afterCheck(
     verdict: CrewVerdict | null;
     /** The copy changed during the check. */
     edited: boolean;
+    /** The copy as the Checker saw it: a pass makes exactly this the fix. */
+    seen?: CrewChange | null;
     now: number;
     names?: Partial<Record<CrewLoopRole, string>>;
   },
@@ -220,7 +222,7 @@ export function afterCheck(
   }));
   const checked: CrewCard = { ...next, rounds, later };
   if (!verdict.mustFix.length) {
-    const fix = roundOf(checked)?.change;
+    const fix = input.seen ?? roundOf(checked)?.change;
     return {
       card: {
         ...checked,
@@ -308,7 +310,8 @@ export function resumeCard(
       (card.stuck?.reason === "failed" ||
         card.stuck?.reason === "timeout" ||
         card.stuck?.reason === "stopped" ||
-        card.stuck?.reason === "no-verdict") &&
+        card.stuck?.reason === "no-verdict" ||
+        card.stuck?.reason === "changed") &&
       card.holder !== undefined);
   if (sameRound) {
     const holder = card.holder ?? "builder";
@@ -334,6 +337,31 @@ export function resumeCard(
     stuck: undefined,
     ...(note ? { note } : {}),
     fix: undefined,
+    endedAt: undefined,
+    updatedAt: input.now,
+  };
+}
+
+/**
+ * A Ready card whose change moved after its check (you chatted with the
+ * Builder, or something it left running wrote to the copy): it is never
+ * re-stamped as Ready. It waits on you, and One more round checks it again.
+ */
+export function changedAfterCheck(
+  card: CrewCard,
+  input: { now: number; checker?: string },
+): CrewCard {
+  if (card.stage !== "ready") return card;
+  return {
+    ...card,
+    stage: "stuck",
+    holder: "checker",
+    fix: undefined,
+    stuck: {
+      reason: "changed",
+      text: `The change moved after ${input.checker ?? NAME("checker")}'s check, so it wasn't applied`,
+    },
+    turn: undefined,
     endedAt: undefined,
     updatedAt: input.now,
   };

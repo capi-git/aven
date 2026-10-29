@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MUST_FIX_MAX,
+  looksFromOutside,
   parseHandoff,
   parseIdeas,
   parseVerdict,
@@ -169,6 +170,7 @@ describe("the Scout's ideas", () => {
         why: "",
         size: "small",
         sourceUrl: "https://github.com/o/r/issues/12",
+        outside: true,
       },
     ]);
   });
@@ -183,5 +185,37 @@ describe("the Scout's ideas", () => {
         }),
       )[0].sourceUrl,
     ).toBeUndefined();
+  });
+});
+
+describe("ideas from outside the project", () => {
+  it("marks an idea whose words point outside, whatever the Scout claims", () => {
+    const ideas = parseIdeas(
+      reply("aven-ideas", {
+        ideas: [
+          { title: "Fix the crash from #42", size: "small" },
+          {
+            title: "Add dark mode",
+            why: "Asked for at https://example.com/forum",
+            size: "small",
+          },
+          {
+            title: "Tidy the settings page",
+            why: "It has three spacing values",
+            size: "small",
+          },
+        ],
+      }),
+    );
+    expect(ideas.map((idea) => !!idea.outside)).toEqual([true, true, false]);
+    expect(looksFromOutside("Port the fix from stackoverflow")).toBe(true);
+  });
+
+  it("knows links, issue numbers and trackers", () => {
+    expect(looksFromOutside("see www.example.org")).toBe(true);
+    expect(looksFromOutside("ABC-123 in the tracker")).toBe(true);
+    expect(looksFromOutside("a pull request comment")).toBe(true);
+    expect(looksFromOutside("Rename the theme helper")).toBe(false);
+    expect(looksFromOutside("Read vite.config.ts")).toBe(false);
   });
 });

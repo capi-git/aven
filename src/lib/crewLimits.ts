@@ -145,6 +145,7 @@ export function ideaMayAutoStart(idea: CrewIdea | undefined): boolean {
     !!idea &&
     idea.size === "small" &&
     !idea.sourceUrl &&
+    !idea.outside &&
     !idea.declined &&
     !idea.autoStarted
   );

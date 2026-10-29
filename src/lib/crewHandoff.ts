@@ -150,7 +150,24 @@ export type ScoutIdea = {
   size: CrewIdeaSize;
   /** Outside material it is based on: such an idea never starts by itself. */
   sourceUrl?: string;
+  /**
+   * Its words point outside the project (a link, an issue or pull request):
+   * Aven's own check, whatever the Scout said. It never starts by itself.
+   */
+  outside?: boolean;
 };
+
+/**
+ * Signs an idea comes from outside the project: a web address, a domain, an
+ * issue or pull request number, or words naming one.
+ */
+const OUTSIDE =
+  /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|dev|app|co|ai)\b|github|gitlab|stack ?overflow|\b(?:issue|pull request|PR|ticket|bug report)s?\b|#\d+|\b[A-Z]{2,}-\d+\b/i;
+
+/** Whether an idea's words point outside the project. */
+export function looksFromOutside(...texts: readonly string[]): boolean {
+  return texts.some((text) => OUTSIDE.test(text));
+}
 
 const SIZES = new Set<CrewIdeaSize>(["small", "medium", "large"]);
 
@@ -174,11 +191,18 @@ export function parseIdeas(text: string): ScoutIdea[] {
     if (ideas.some((idea) => idea.title.toLowerCase() === title.toLowerCase()))
       continue;
     const sourceUrl = reviewUrl(raw.source ?? raw.sourceUrl);
+    const why = botLine(raw.why, 300);
+    // Read before cleaning: a link in the raw words counts too.
+    const rawWords = [raw.title, raw.why, raw.source, raw.sourceUrl]
+      .filter((value): value is string => typeof value === "string")
+      .join("\n");
+    const outside = !!sourceUrl || looksFromOutside(title, why, rawWords);
     ideas.push({
       title,
-      why: botLine(raw.why, 300),
+      why,
       size: size as CrewIdeaSize,
       ...(sourceUrl ? { sourceUrl } : {}),
+      ...(outside ? { outside: true } : {}),
     });
     if (ideas.length >= IDEAS_PER_TURN) break;
   }
