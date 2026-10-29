@@ -1046,8 +1046,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             aria-label="Message settings"
             data-helm-dialog
             data-page={page}
+            // Inside the perch: leaving the dialog for the critter is not
+            // leaving the helm.
             onPointerEnter={() => clearTimer()}
-            onPointerLeave={scheduleClose}
             onKeyDown={onDialogKey}
           >
             <div ref={frameRef} className="helm-dialog-frame">

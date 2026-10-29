@@ -261,6 +261,17 @@ describe("the critter's states", () => {
     });
     expect(dialog()).not.toBeNull();
     expect(helm().dataset.pose).toBe("hover");
+    // Moving from the dialog back to the critter keeps it open.
+    await act(async () => {
+      dialog()!.dispatchEvent(
+        new MouseEvent("pointerout", {
+          bubbles: true,
+          relatedTarget: critter(),
+        }),
+      );
+      vi.advanceTimersByTime(400);
+    });
+    expect(dialog()).not.toBeNull();
     await act(async () => {
       host.querySelector(".helm-perch")!.dispatchEvent(
         new MouseEvent("pointerout", {
