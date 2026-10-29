@@ -98,6 +98,43 @@
   color: var(--aven-muted);
   font-size: var(--text-ui-caption);
 }
+/* What a chosen template does, under its chip. */
+.scheduled-note {
+  max-width: 64ch;
+  margin: -2px 0 0 96px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.5;
+}
+/* A template's prompt, folded: read-only until the automation exists. */
+.scheduled-prompt-preview {
+  min-width: 0;
+  padding-top: 4px;
+}
+.scheduled-prompt-preview > summary {
+  width: fit-content;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  cursor: default;
+}
+.scheduled-prompt-preview > summary:hover,
+.scheduled-prompt-preview[open] > summary {
+  color: var(--color-content);
+}
+.scheduled-prompt-preview > pre {
+  max-height: 280px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-inset-card, var(--aven-hover));
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+  font-family: inherit;
+  font-size: var(--text-ui-caption);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .scheduled-footer {
   display: flex;
   align-items: center;
@@ -227,7 +264,8 @@
   .scheduled-field > span:first-child {
     padding-top: 0;
   }
-  .scheduled-warning {
+  .scheduled-warning,
+  .scheduled-note {
     margin-left: 0;
   }
 }
