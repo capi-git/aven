@@ -25,6 +25,8 @@ import {
 import {
   MCP_AGENT_LABEL,
   buildMcpOverview,
+  canTurnOffHere,
+  entryLabel,
   mcpHiddenSetting,
   setMcpHidden,
   type McpAction,
@@ -95,6 +97,8 @@ function joinAnd(items: string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
+
+const ids = (entries: McpEntry[]) => entries.map((entry) => entry.id);
 
 const agentNames = (entries: McpEntry[]) =>
   joinAnd(
@@ -212,9 +216,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       if (ids.includes(provider.id)) load(provider, true);
   };
 
+  // Claude turns servers off per project, so it needs one open.
+  const claudeProject = !!cwd;
   const overview = useMemo(
-    () => buildMcpOverview(inventories, hidden),
-    [inventories, hidden],
+    () => buildMcpOverview(inventories, hidden, { claudeProject }),
+    [inventories, hidden, claudeProject],
   );
 
   /** One change at a time, reported in plain words, then a fresh check. */
@@ -245,13 +251,17 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
 
   const onAction = (row: McpRow, action: McpAction) => {
     const label = `${action.kind}:${row.id}`;
+    // Exactly the entries the action names; never the rest of the row.
+    const targets = [...row.entries, ...row.copies].filter((entry) =>
+      action.targets.includes(entry.id),
+    );
     switch (action.kind) {
       case "check":
         setNotice(null);
-        refresh(row.agent ? [row.agent] : providersOf(row.entries));
+        refresh(row.agent ? [row.agent] : providersOf(targets));
         return;
       case "sign-in": {
-        const entry = row.entries.find((item) => item.connection.canSignIn);
+        const entry = targets[0];
         if (!entry) return;
         void run(label, async () => {
           await manageMcpServer(
@@ -267,14 +277,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         return;
       }
       case "remove": {
-        const entries = row.entries.filter(
-          (entry) => entry.connection.removable,
-        );
         void run(
           label,
           async () => {
             const done: McpEntry[] = [];
-            for (const entry of entries) {
+            for (const entry of targets) {
               try {
                 await manageMcpServer(
                   {
@@ -291,36 +298,36 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
               } catch (error) {
                 throw new Error(
                   done.length
-                    ? `Removed ${row.name} from ${agentNames(done)}, but ${MCP_AGENT_LABEL[entry.provider]} failed: ${errorText(error)}`
+                    ? `Removed ${row.name} from ${joinAnd(done.map(entryLabel))}, but ${entryLabel(entry)} failed: ${errorText(error)}`
                     : errorText(error),
                 );
               }
             }
-            return `Removed ${row.name} from ${agentNames(entries)}.`;
+            return `Removed ${row.name} from ${joinAnd(targets.map(entryLabel))}.`;
           },
-          providersOf(entries),
+          providersOf(targets),
         );
         return;
       }
       case "turn-off":
       case "hide": {
-        // A folded-in copy goes with its row, so Turn on brings both back.
-        const on = [...row.entries, ...row.copies].filter(
-          (entry) => entry.connection.state !== "off",
-        );
+        const on = targets.filter((entry) => entry.connection.state !== "off");
         const switchable =
           action.kind === "turn-off"
-            ? on.filter((entry) => entry.connection.canTurnOff)
+            ? on.filter((entry) => canTurnOffHere(entry, claudeProject))
             : [];
         const tucked = on.filter((entry) => !switchable.includes(entry));
+        // Claude could turn it off in a project, just not without one.
+        const needsProject = tucked.some(
+          (entry) => entry.provider === "claude" && entry.connection.canTurnOff,
+        )
+          ? " Open a project to turn it off for Claude there."
+          : "";
         if (!switchable.length) {
-          setMcpHidden(
-            tucked.map((entry) => entry.id),
-            true,
-          );
+          setMcpHidden(ids(tucked), true);
           setNotice({
             tone: "ok",
-            text: `Hid ${row.name} in Aven. ${agentNames(tucked)} still ${tucked.length > 1 ? "load" : "loads"} it.`,
+            text: `Hid ${row.name} in Aven. ${agentNames(tucked)} still ${tucked.length > 1 ? "load" : "loads"} it.${needsProject}`,
           });
           return;
         }
@@ -332,15 +339,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
               const result = await setServerEnabled(entry, folder, false);
               if (result?.note) notes.push(result.note);
             }
-            if (tucked.length)
-              setMcpHidden(
-                tucked.map((entry) => entry.id),
-                true,
-              );
+            if (tucked.length) setMcpHidden(ids(tucked), true);
             return [
               `Turned off ${row.name} ${turnedOffWhere(switchable)}.`,
               tucked.length
-                ? `${agentNames(tucked)} can’t turn it off, so Aven hides it there.`
+                ? `${agentNames(tucked)} can’t turn it off here, so Aven hides it there.${needsProject}`
                 : "",
               ...notes,
             ]
@@ -352,13 +355,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         return;
       }
       case "turn-on": {
-        const off = row.entries.filter(
-          (entry) => entry.connection.state === "off",
+        const off = targets.filter((entry) => entry.connection.state === "off");
+        const shown = ids([...row.entries, ...row.copies]).filter((id) =>
+          hidden.includes(id),
         );
-        const ids = [...row.entries, ...row.copies]
-          .map((entry) => entry.id)
-          .filter((id) => hidden.includes(id));
-        if (ids.length) setMcpHidden(ids, false);
+        if (shown.length) setMcpHidden(shown, false);
         if (!off.length) return;
         void run(
           label,
@@ -375,10 +376,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         return;
       }
       case "show":
-        setMcpHidden(
-          [...row.entries, ...row.copies].map((entry) => entry.id),
-          false,
-        );
+        setMcpHidden(action.targets, false);
         setNotice({ tone: "ok", text: `${row.name} is listed again.` });
         return;
     }
@@ -613,7 +611,7 @@ function McpOffGroup({ rows, ...rowProps }: { rows: McpRow[] } & RowProps) {
     row.entries.some((entry) => entry.provider === "codex"),
   );
   const explain = [
-    claude ? "Claude turns a server off for this project only." : "",
+    claude ? "Claude turns a server off for one project at a time." : "",
     codex ? "Codex turns it off in every project." : "",
     hiddenRows.length
       ? "Hidden servers still run; Aven just doesn’t list them."
@@ -695,18 +693,23 @@ function McpRowView({
   onHideCopies,
 }: { row: McpRow; pinned?: boolean } & RowProps) {
   const [details, setDetails] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  // The Remove being confirmed, with exactly the entries it removes.
+  const [confirming, setConfirming] = useState<McpAction | null>(null);
   const [menu, setMenu] = useState(false);
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const detailsId = useId();
   const working = busy?.endsWith(`:${row.id}`) ? busy.split(":")[0] : null;
   const disabled = busy !== null;
-  const removeFrom = agentNames(
-    row.entries.filter((entry) => entry.connection.removable),
-  );
+  const removeFrom = confirming
+    ? joinAnd(
+        row.entries
+          .filter((entry) => confirming.targets.includes(entry.id))
+          .map(entryLabel),
+      )
+    : "";
 
   const pick = (action: McpAction) => {
-    if (action.kind === "remove") setConfirming(true);
+    if (action.kind === "remove") setConfirming(action);
     else onAction(row, action);
   };
 
@@ -715,7 +718,7 @@ function McpRowView({
       className="mcp-row"
       data-state={row.state}
       data-pinned={pinned || undefined}
-      data-open={menu || confirming || undefined}
+      data-open={menu || !!confirming || undefined}
       data-busy={working ? true : undefined}
     >
       <div className="mcp-row-text">
@@ -754,6 +757,7 @@ function McpRowView({
             </button>
           </p>
         ) : null}
+        {row.hint ? <p className="mcp-row-note">{row.hint}</p> : null}
         {details ? (
           <pre className="mcp-row-details" id={detailsId}>
             {row.details.join("\n")}
@@ -769,8 +773,8 @@ function McpRowView({
               className="settings-button settings-button-danger mcp-action"
               disabled={disabled}
               onClick={() => {
-                setConfirming(false);
-                onAction(row, { kind: "remove", label: "Remove" });
+                setConfirming(null);
+                onAction(row, confirming);
               }}
             >
               Remove
@@ -778,7 +782,7 @@ function McpRowView({
             <button
               type="button"
               className="settings-button mcp-action"
-              onClick={() => setConfirming(false)}
+              onClick={() => setConfirming(null)}
             >
               Keep
             </button>

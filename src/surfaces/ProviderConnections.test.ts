@@ -239,7 +239,7 @@ describe("MCP servers page", () => {
     expect(notice()).toBe("Signed in to Gmail.");
 
     await click(button("Remove scape"));
-    expect(container.textContent).toContain("Remove from Claude?");
+    expect(container.textContent).toContain("Remove from Claude (Personal)?");
     expect(invoke).toHaveBeenCalledTimes(1);
     await click(button("Remove"));
     expect(invoke).toHaveBeenLastCalledWith("provider_mcp", {
@@ -251,7 +251,7 @@ describe("MCP servers page", () => {
       },
       cwd: expect.any(String),
     });
-    expect(notice()).toBe("Removed scape from Claude.");
+    expect(notice()).toBe("Removed scape from Claude (Personal).");
     expect(claude.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
@@ -278,7 +278,7 @@ describe("MCP servers page", () => {
     expect(group("Turned off")!.querySelector(".mcp-row")).toBeNull();
     await click(button("Turned off 1"));
     expect(group("Turned off")!.textContent).toContain(
-      "Claude turns a server off for this project only. Codex turns it off in every project.",
+      "Claude turns a server off for one project at a time. Codex turns it off in every project.",
     );
     await click(button("Turn on rea"));
     expect(setClaude).toHaveBeenLastCalledWith(expect.any(String), "rea", true);
@@ -303,6 +303,64 @@ describe("MCP servers page", () => {
       ["plugin:design:gmail", false],
     ]);
     expect(stored.get("aven.mcpHidden")).toBeUndefined();
+  });
+
+  it("removes only the broken entry when the same server works in another agent", async () => {
+    claude.mockResolvedValue([
+      {
+        name: "db",
+        key: "db",
+        state: "failed",
+        source: "Personal",
+        scope: "user",
+        removable: true,
+        canTurnOff: true,
+        detail: "spawn /old/bin/db-mcp ENOENT",
+      },
+    ]);
+    codex.mockResolvedValue([
+      {
+        name: "db",
+        key: "db",
+        state: "ready",
+        source: "Personal",
+        removable: true,
+        canTurnOff: true,
+        toolCount: 3,
+      },
+    ]);
+    await mount();
+    await click(button("Remove db"));
+    expect(container.textContent).toContain("Remove from Claude (Personal)?");
+    await click(button("Remove"));
+    expect(invoke.mock.calls.map(([, args]) => args.request)).toEqual([
+      { action: "remove", provider: "claude", name: "db", scope: "user" },
+    ]);
+    expect(notice()).toBe("Removed db from Claude (Personal).");
+  });
+
+  it("doesn't turn Claude's servers off with no project open, and says why", async () => {
+    await act(async () =>
+      root.render(createElement(ProviderConnections, { cwd: "" })),
+    );
+    expect(button("Turn off rea")).toBeDefined();
+    await click(button("More for scape"));
+    // Claude saves a turn-off per project: with none open it can only hide.
+    expect(menuItem("Hide")).toBeDefined();
+    expect(menuItem("Turn off")).toBeUndefined();
+    await click(menuItem("Hide"));
+    expect(setClaude).not.toHaveBeenCalled();
+    expect(JSON.parse(stored.get("aven.mcpHidden")!)).toEqual(["claude:scape"]);
+    expect(notice()).toBe(
+      "Hid scape in Aven. Claude still loads it. Open a project to turn it off for Claude there.",
+    );
+    // rea also runs in Codex, which turns it off everywhere.
+    await click(button("Turn off rea"));
+    expect(setCodex).toHaveBeenCalledWith(expect.any(String), "rea", false);
+    expect(setClaude).not.toHaveBeenCalled();
+    expect(notice()).toBe(
+      "Turned off rea in Codex. Claude can’t turn it off here, so Aven hides it there. Open a project to turn it off for Claude there.",
+    );
   });
 
   it("hides what an agent can't turn off, in Aven only, and shows it again", async () => {

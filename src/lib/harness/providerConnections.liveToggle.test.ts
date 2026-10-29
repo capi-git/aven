@@ -136,16 +136,74 @@ describe.skipIf(!LIVE)("real providers, fixture settings", () => {
     expect(on.find((row) => row.key === "scape")?.state).toBe("failed");
   }, 90_000);
 
-  it("Codex: enabled = false in its config file, then the file as it was", async () => {
-    await setCodexServerEnabled(project, "computer-use", false);
-    expect(readFileSync(codexConfig, "utf8")).toContain("enabled = false");
-    const off = await listCodexConnections(project);
-    expect(off.find((row) => row.key === "computer-use")).toMatchObject({
-      state: "off",
-      canTurnOff: true,
-    });
+  /** Every way to write a server that Codex's writer keeps as it is. */
+  const WRITABLE: [string, string][] = [
+    [
+      "its own table, with comments",
+      `# Fixture Codex settings\nmodel = "gpt-5"\n\n# work tools\n[mcp_servers.tools] # note\ncommand = "/usr/bin/true" # cmd\nargs = []\n\n[other]\nx = 1\n`,
+    ],
+    [
+      "dotted keys at the top",
+      `model = "gpt-5"\n# work tools\nmcp_servers.tools.command = "/usr/bin/true"\nmcp_servers.tools.args = []\n\n[other]\nx = 1\n`,
+    ],
+    [
+      "dotted keys under [mcp_servers]",
+      `model = "gpt-5"\n\n[mcp_servers]\n# work tools\ntools.command = "/usr/bin/true"\ntools.args = []\n`,
+    ],
+  ];
 
-    await setCodexServerEnabled(project, "computer-use", true);
+  it.each(WRITABLE)(
+    "Codex, %s: enabled = false, then the same bytes again",
+    async (_form, text) => {
+      writeFileSync(codexConfig, text);
+      const before = await listCodexConnections(project);
+      expect(before.find((row) => row.key === "tools")?.canTurnOff).toBe(true);
+
+      await setCodexServerEnabled(project, "tools", false);
+      const off = readFileSync(codexConfig, "utf8");
+      expect(off).toContain("enabled = false");
+      // Only that one line was added.
+      expect(
+        off
+          .split("\n")
+          .filter(
+            (line) =>
+              !/^(mcp_servers\.tools\.|tools\.)?enabled = false$/.test(line),
+          )
+          .join("\n"),
+      ).toBe(text);
+      const listed = await listCodexConnections(project);
+      expect(listed.find((row) => row.key === "tools")).toMatchObject({
+        state: "off",
+        canTurnOff: true,
+      });
+
+      await setCodexServerEnabled(project, "tools", true);
+      expect(readFileSync(codexConfig, "utf8")).toBe(text);
+    },
+    90_000,
+  );
+
+  it("Codex, a commented inline table: not offered, and never written", async () => {
+    // Codex's writer turns this into "[# work tools\nmcp_servers.tools ]",
+    // which Codex then can't read.
+    const text = `model = "gpt-5"\n\n[mcp_servers]\n# work tools\ntools = { command = "/usr/bin/true" }\n`;
+    writeFileSync(codexConfig, text);
+    const listed = await listCodexConnections(project);
+    const row = listed.find((item) => item.key === "tools");
+    expect(row?.source).toBe("Personal");
+    expect(row?.canTurnOff).toBeUndefined();
+    await expect(
+      setCodexServerEnabled(project, "tools", false),
+    ).rejects.toThrow("own [mcp_servers.tools] table");
+    expect(readFileSync(codexConfig, "utf8")).toBe(text);
+  }, 90_000);
+
+  it("Codex: turning on a server the user's file doesn't define writes nothing", async () => {
+    writeFileSync(codexConfig, CODEX_CONFIG);
+    await expect(setCodexServerEnabled(project, "ghost", true)).rejects.toThrow(
+      "settings file Aven doesn't change",
+    );
     expect(readFileSync(codexConfig, "utf8")).toBe(CODEX_CONFIG);
   }, 90_000);
 });

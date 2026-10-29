@@ -103,7 +103,9 @@ const CODEX_STATUS = [
   pluginId: null,
   ...row,
 }));
-const user = { name: { type: "user", file: "/Users/me/.codex/config.toml" } };
+const user = {
+  name: { type: "user", file: "/Users/me/.codex/config.toml", profile: null },
+};
 const CODEX_CONFIG = {
   mcp_servers: {
     node_repl: { command: "node" },
@@ -116,6 +118,20 @@ const CODEX_CONFIG = {
     "mcp_servers.openaiDeveloperDocs.url": user,
     "mcp_servers.rea.command": user,
     "mcp_servers.computer-use.command": user,
+  },
+  userFile: {
+    path: "/Users/me/.codex/config.toml",
+    text: [
+      "[mcp_servers.node_repl]",
+      'command = "node"',
+      "[mcp_servers.openaiDeveloperDocs]",
+      'url = "https://developers.openai.com/mcp"',
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      "[mcp_servers.computer-use]",
+      'command = "computer-use"',
+      "",
+    ].join("\n"),
   },
 };
 
@@ -237,7 +253,7 @@ describe("grouping by what needs doing", () => {
       expect.objectContaining({
         id: "agent:claude",
         agent: "claude",
-        primary: { kind: "check", label: "Check again" },
+        primary: { kind: "check", label: "Check again", targets: [] },
         details: ["Claude Code stopped before it answered"],
       }),
     ]);
@@ -275,11 +291,58 @@ describe("duplicates", () => {
     expect(names(overview.needsYou)).not.toContain("gmail");
   });
 
-  it("matches names however they are written", () => {
-    expect(normalizeServerName("Google Calendar")).toBe(
-      normalizeServerName("google_calendar"),
+  it("merges names that differ only by case or spacing, not punctuation", () => {
+    expect(normalizeServerName("Google  Calendar")).toBe(
+      normalizeServerName("google calendar"),
     );
-    expect(normalizeServerName("google-calendar")).toBe("googlecalendar");
+    expect(normalizeServerName("my-db")).not.toBe(normalizeServerName("my_db"));
+    const overview = buildMcpOverview({
+      claude: loaded([
+        { name: "my-db", key: "my-db", state: "ready", toolCount: 1 },
+      ]),
+      codex: loaded([
+        { name: "my_db", key: "my_db", state: "ready", toolCount: 1 },
+      ]),
+    });
+    expect(names(overview.working)).toEqual(["my_db", "my-db"]);
+  });
+
+  it("folds a copy only beside a working entry in the same agent", () => {
+    // Claude's only Slack is broken; Codex's own Slack works.
+    const claude = claudeConnectionsFromStatus({
+      mcpServers: [
+        {
+          name: "plugin:design:slack",
+          status: "failed",
+          scope: "dynamic",
+          error: NO_URL,
+        },
+      ],
+    });
+    const codex = codexConnectionsFromStatus([
+      { name: "slack", tools: { a: {} } },
+    ]);
+    const overview = buildMcpOverview({
+      claude: loaded(claude),
+      codex: loaded(codex),
+    });
+    expect(overview.working).toEqual([]);
+    expect(overview.needsYou).toHaveLength(1);
+    const slack = overview.needsYou[0]!;
+    expect(slack).toMatchObject({
+      copies: [],
+      problem: {
+        kind: "no-address",
+        text: "Claude: This entry has no address.",
+      },
+    });
+    expect(slack.note).toBeUndefined();
+    // Its fix touches Claude's broken entry only.
+    expect(slack.primary).toEqual({
+      kind: "turn-off",
+      label: "Turn off",
+      targets: ["claude:plugin:design:slack"],
+    });
   });
 
   it("keeps a copy with no address as a problem when nothing else works", () => {
@@ -334,13 +397,13 @@ describe("plain-language errors", () => {
       }),
     ).toEqual({
       kind: "sign-in-broken",
-      text: "GitHub’s sign-in is broken. Put a new token in GITHUB_PERSONAL_ACCESS_TOKEN, then check again.",
+      text: "GitHub’s sign-in is broken. Its plugin signs in with GITHUB_PERSONAL_ACCESS_TOKEN, which apps opened from the Dock don’t get. To use GitHub, add it with your token through Add server, then turn this one off.",
     });
     expect(failed("HTTP 401 Unauthorized", { canSignIn: true }).text).toBe(
       "Scape’s sign-in is broken. Sign in again.",
     );
     expect(failed("invalid_token").text).toBe(
-      "Scape’s sign-in is broken. Give it a new token, then check again.",
+      "Scape’s sign-in is broken. Add it again with a new token through Add server, then turn this one off.",
     );
     expect(
       failed("rejected", { errorCode: "CLAUDEAI_BEARER_REJECTED" }).kind,
@@ -376,9 +439,10 @@ describe("actions per state", () => {
       primary: { kind: "remove", label: "Remove" },
       more: [{ kind: "turn-off", label: "Turn off" }],
     });
+    // A token Aven can't hand over: turning it off is the fix.
     expect(row(overview, "GitHub")).toMatchObject({
-      primary: { kind: "check", label: "Check again" },
-      more: [{ kind: "turn-off", label: "Turn off" }],
+      primary: { kind: "turn-off", label: "Turn off" },
+      more: [],
     });
     expect(row(overview, "Slack")).toMatchObject({
       primary: { kind: "sign-in", label: "Sign in" },
@@ -437,6 +501,116 @@ describe("actions per state", () => {
   });
 });
 
+describe("actions on rows with a problem", () => {
+  it("leaves the user's working GitHub alone when the plugin's GitHub is broken", () => {
+    const claude = claudeConnectionsFromStatus({
+      mcpServers: [
+        {
+          name: "plugin:github:github",
+          status: "failed",
+          scope: "dynamic",
+          error:
+            "Error POSTing to endpoint: bad request: Authorization header is badly formatted",
+        },
+        { name: "github", status: "connected", scope: "user", tools: tools(1) },
+      ],
+    });
+    const github = buildMcpOverview({
+      claude: loaded(claude),
+      codex: loaded([]),
+    }).needsYou[0]!;
+    expect(github.entries.map((entry) => entry.id)).toEqual([
+      "claude:plugin:github:github",
+      "claude:github",
+    ]);
+    const actions = [github.primary!, ...github.more];
+    expect(actions).toEqual([
+      {
+        kind: "turn-off",
+        label: "Turn off",
+        targets: ["claude:plugin:github:github"],
+      },
+    ]);
+  });
+
+  it("removes only the agent whose program is missing", () => {
+    const overview = buildMcpOverview({
+      claude: loaded(
+        claudeConnectionsFromStatus({
+          mcpServers: [
+            {
+              name: "db",
+              status: "failed",
+              scope: "user",
+              error: "spawn /old/bin/db-mcp ENOENT",
+            },
+          ],
+        }),
+      ),
+      codex: loaded(
+        codexConnectionsFromStatus([{ name: "db", tools: { a: {} } }]),
+      ),
+    });
+    const db = overview.needsYou[0]!;
+    expect(db.problem!.text).toBe(
+      "Claude: Db’s program isn’t on this Mac anymore.",
+    );
+    expect(db.primary).toEqual({
+      kind: "remove",
+      label: "Remove",
+      targets: ["claude:db"],
+    });
+    expect(db.more).toEqual([
+      { kind: "turn-off", label: "Turn off", targets: ["claude:db"] },
+    ]);
+  });
+
+  it("offers Turn on only where the agent can, and says where it is off otherwise", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([]),
+      codex: loaded([
+        {
+          name: "policy",
+          key: "policy",
+          state: "off",
+          offNote: "Turned off in this project’s .codex/config.toml.",
+        },
+      ]),
+    });
+    expect(overview.off[0]).toMatchObject({
+      name: "policy",
+      state: "off",
+      hint: "Turned off in this project’s .codex/config.toml.",
+      more: [],
+    });
+    expect(overview.off[0]!.primary).toBeUndefined();
+  });
+
+  it("with no project open, only hides Claude's servers but still turns them on", () => {
+    const claude = claudeConnectionsFromStatus({
+      mcpServers: [
+        { name: "a", status: "connected", scope: "user", tools: tools(1) },
+        { name: "b", status: "disabled", scope: "user" },
+      ],
+    });
+    const overview = buildMcpOverview(
+      { claude: loaded(claude), codex: loaded([]) },
+      [],
+      { claudeProject: false },
+    );
+    expect(row(overview, "a").primary).toEqual({
+      kind: "hide",
+      label: "Hide",
+      targets: ["claude:a"],
+    });
+    expect(row(overview, "b").primary).toEqual({
+      kind: "turn-on",
+      label: "Turn on",
+      targets: ["claude:b"],
+    });
+  });
+});
+
 describe("hidden servers", () => {
   // Some Node versions give tests a working localStorage and some do not.
   beforeEach(() => {
@@ -469,12 +643,16 @@ describe("hidden servers", () => {
       })),
     ).toEqual([
       {
-        id: "hidden:chatgptapps",
+        id: "hidden:chatgpt apps",
         name: "ChatGPT apps",
         state: "hidden",
         status: "Hidden",
         context: "ChatGPT · Codex",
-        primary: { kind: "show", label: "Show" },
+        primary: {
+          kind: "show",
+          label: "Show",
+          targets: ["codex:codex_apps"],
+        },
       },
       {
         id: "hidden:gmail",
@@ -482,7 +660,11 @@ describe("hidden servers", () => {
         state: "hidden",
         status: "Hidden",
         context: "design plugin · Claude",
-        primary: { kind: "show", label: "Show" },
+        primary: {
+          kind: "show",
+          label: "Show",
+          targets: ["claude:plugin:design:gmail"],
+        },
       },
     ]);
   });

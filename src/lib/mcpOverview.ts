@@ -43,7 +43,12 @@ export type McpProblem = {
 export type McpActionKind =
   "sign-in" | "remove" | "turn-off" | "hide" | "turn-on" | "show" | "check";
 
-export type McpAction = { kind: McpActionKind; label: string };
+export type McpAction = {
+  kind: McpActionKind;
+  label: string;
+  /** The entries it acts on, by id: on a row with a problem, only those. */
+  targets: string[];
+};
 
 export type McpRowState = ConnectionState | "hidden";
 
@@ -65,6 +70,8 @@ export type McpRow = {
   details: string[];
   /** Which entry is used, when a copy was folded in. */
   note?: string;
+  /** Where it is turned off, when Aven can't turn it back on. */
+  hint?: string;
   primary?: McpAction;
   more: McpAction[];
   /** For an agent Aven couldn't check: that agent. */
@@ -131,9 +138,12 @@ export function setMcpHidden(ids: readonly string[], hidden: boolean): void {
 // ---------------------------------------------------------------------------
 // Names
 
-/** "Google Calendar", "google calendar" and "google_calendar" match. */
+/**
+ * Rows merge on the name alone, ignoring case and spacing: "Google Calendar"
+ * and "google calendar" match, but "my-db" and "my_db" stay apart.
+ */
 export function normalizeServerName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 /** Plugins ship lower-case names for services that have their own casing. */
@@ -158,7 +168,7 @@ const BRANDS: Record<string, string> = {
 function displayName(entry: McpEntry): string {
   const { name, plugin, account } = entry.connection;
   if (!plugin && !account) return name;
-  return BRANDS[normalizeServerName(name)] ?? name;
+  return BRANDS[name.toLowerCase().replace(/[^a-z0-9]+/g, "")] ?? name;
 }
 
 function possessive(name: string): string {
@@ -209,11 +219,14 @@ export function explainMcpProblem(
       text: `${possessive(name)} program isn’t on this Mac anymore.`,
     };
   if (SIGN_IN_BROKEN.test(raw)) {
+    // The GitHub plugin sends GITHUB_PERSONAL_ACCESS_TOKEN as its sign-in.
+    // An app opened from the Dock doesn't get the shell's variables, so
+    // setting it there doesn't reach the agents Aven starts.
     const fix = connection.canSignIn
       ? "Sign in again."
       : connection.key === "plugin:github:github"
-        ? "Put a new token in GITHUB_PERSONAL_ACCESS_TOKEN, then check again."
-        : "Give it a new token, then check again.";
+        ? "Its plugin signs in with GITHUB_PERSONAL_ACCESS_TOKEN, which apps opened from the Dock don’t get. To use GitHub, add it with your token through Add server, then turn this one off."
+        : "Add it again with a new token through Add server, then turn this one off.";
     return {
       kind: "sign-in-broken",
       text: `${possessive(name)} sign-in is broken. ${fix}`,
@@ -250,11 +263,15 @@ const usable = (entry: McpEntry) =>
   entry.connection.state === "needs-sign-in" ||
   entry.connection.state === "starting";
 
+/** A plugin's entry with no address, beside one in the same agent that works. */
 const isCopy = (entry: McpEntry, cluster: McpEntry[]) =>
   !!entry.connection.plugin &&
   entry.connection.state === "failed" &&
   NO_ADDRESS.test(entry.connection.detail ?? "") &&
-  cluster.some((other) => other !== entry && usable(other));
+  cluster.some(
+    (other) =>
+      other !== entry && other.provider === entry.provider && usable(other),
+  );
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
@@ -268,6 +285,23 @@ function joinAnd(items: string[]): string {
 function agentsOf(entries: McpEntry[]): McpProvider[] {
   return MCP_AGENTS.filter((agent) =>
     entries.some((entry) => entry.provider === agent),
+  );
+}
+
+/** One entry exactly: its agent and where that agent keeps it. */
+export function entryLabel(entry: McpEntry): string {
+  const source = entry.connection.source;
+  return `${MCP_AGENT_LABEL[entry.provider]}${source ? ` (${source})` : ""}`;
+}
+
+/**
+ * The agent can turn this entry off here. Claude saves its choice per
+ * project, so with no project open Aven doesn't offer it for Claude.
+ */
+export function canTurnOffHere(entry: McpEntry, claudeProject = true): boolean {
+  return (
+    !!entry.connection.canTurnOff &&
+    (entry.provider !== "claude" || claudeProject)
   );
 }
 
@@ -302,69 +336,125 @@ function context(
   return parts.join(" · ");
 }
 
+const ids = (entries: McpEntry[]) => entries.map((entry) => entry.id);
+
 /** Turn off where the agent can; hide in Aven where it can't. */
-function quietAction(entries: McpEntry[]): McpAction {
-  return entries.some((entry) => entry.connection.canTurnOff)
-    ? { kind: "turn-off", label: "Turn off" }
-    : { kind: "hide", label: "Hide" };
+function quietAction(targets: McpEntry[], claudeProject: boolean): McpAction {
+  return targets.some((entry) => canTurnOffHere(entry, claudeProject))
+    ? { kind: "turn-off", label: "Turn off", targets: ids(targets) }
+    : { kind: "hide", label: "Hide", targets: ids(targets) };
 }
 
-const REMOVE: McpAction = { kind: "remove", label: "Remove" };
-const SIGN_IN: McpAction = { kind: "sign-in", label: "Sign in" };
-const CHECK: McpAction = { kind: "check", label: "Check again" };
+/**
+ * The entries a row's actions act on. On a row with a problem that is only
+ * the entries with the problem, so a working copy elsewhere is left alone.
+ */
+export type McpRowScope = {
+  /** On entries: not turned off, not folded-in copies. */
+  on: McpEntry[];
+  off: McpEntry[];
+  copies: McpEntry[];
+};
 
 /** The fix for a row (or its usual action) first, then the rest. */
 export function rowActions(
   state: McpRowState,
   problem: McpProblem | undefined,
-  entries: McpEntry[],
-  offEntries: McpEntry[] = [],
+  { on, off, copies }: McpRowScope,
+  claudeProject = true,
 ): { primary?: McpAction; more: McpAction[] } {
-  const removable = entries.some((entry) => entry.connection.removable);
-  const canSignIn = entries.some((entry) => entry.connection.canSignIn);
-  const quiet = quietAction(entries);
-  const partlyOff = offEntries.length > 0 && entries.length > 0;
-  const turnOnPart: McpAction[] = partlyOff
-    ? [
-        {
-          kind: "turn-on",
-          label: `Turn on in ${joinAnd(agentsOf(offEntries).map((agent) => MCP_AGENT_LABEL[agent]))}`,
-        },
-      ]
-    : [];
+  // Turning on goes back through the same switch, which needs no project.
+  const reversible = off.filter((entry) => entry.connection.canTurnOff);
+  if (state === "hidden")
+    return {
+      primary: { kind: "show", label: "Show", targets: ids([...on, ...off]) },
+      more: [],
+    };
+  if (state === "off") {
+    const removable = off.filter((entry) => entry.connection.removable);
+    return {
+      ...(reversible.length
+        ? {
+            primary: {
+              kind: "turn-on",
+              label: "Turn on",
+              targets: ids(reversible),
+            },
+          }
+        : {}),
+      more: removable.length
+        ? [{ kind: "remove", label: "Remove", targets: ids(removable) }]
+        : [],
+    };
+  }
+
+  const affected =
+    state === "failed"
+      ? on.filter((entry) => entry.connection.state === "failed")
+      : state === "needs-sign-in"
+        ? on.filter((entry) => entry.connection.state === "needs-sign-in")
+        : on;
+  // A folded-in copy goes with its own agent's entries.
+  const quietTargets = [
+    ...affected,
+    ...(state === "failed"
+      ? []
+      : copies.filter((copy) =>
+          affected.some((entry) => entry.provider === copy.provider),
+        )),
+  ];
+  const quiet = quietAction(quietTargets, claudeProject);
+  const removable = affected.filter((entry) => entry.connection.removable);
+  const remove: McpAction | false = removable.length > 0 && {
+    kind: "remove",
+    label: "Remove",
+    targets: ids(removable),
+  };
+  const signing = affected.find((entry) => entry.connection.canSignIn);
+  const signIn: McpAction | false = !!signing && {
+    kind: "sign-in",
+    label: "Sign in",
+    targets: [signing.id],
+  };
+  const check: McpAction = {
+    kind: "check",
+    label: "Check again",
+    targets: ids(affected),
+  };
+  const turnOnPart: McpAction[] =
+    reversible.length && on.length
+      ? [
+          {
+            kind: "turn-on",
+            label: `Turn on in ${joinAnd(agentsOf(reversible).map((agent) => MCP_AGENT_LABEL[agent]))}`,
+            targets: ids(reversible),
+          },
+        ]
+      : [];
   const rest = (...actions: (McpAction | false)[]) =>
     [...actions, ...turnOnPart].filter(
       (action): action is McpAction => !!action,
     );
 
-  if (state === "hidden")
-    return { primary: { kind: "show", label: "Show" }, more: [] };
-  if (state === "off") {
-    const offRemovable = offEntries.some((entry) => entry.connection.removable);
-    return {
-      primary: { kind: "turn-on", label: "Turn on" },
-      more: offRemovable ? [REMOVE] : [],
-    };
-  }
   if (state === "failed") {
     switch (problem?.kind) {
       case "missing-program":
-        return removable
-          ? { primary: REMOVE, more: rest(quiet) }
+        return remove
+          ? { primary: remove, more: rest(quiet) }
           : { primary: quiet, more: rest() };
       case "sign-in-broken":
-        return canSignIn
-          ? { primary: SIGN_IN, more: rest(quiet, removable && REMOVE) }
-          : { primary: CHECK, more: rest(quiet, removable && REMOVE) };
+        if (signIn) return { primary: signIn, more: rest(quiet, remove) };
+        // A token Aven can't hand over: quieting it is the fix here.
+        return { primary: quiet, more: rest(remove) };
       case "no-address":
-        return { primary: quiet, more: rest(removable && REMOVE) };
+        return { primary: quiet, more: rest(remove) };
       default:
-        return { primary: CHECK, more: rest(quiet, removable && REMOVE) };
+        return { primary: check, more: rest(quiet, remove) };
     }
   }
-  if (state === "needs-sign-in" && canSignIn)
-    return { primary: SIGN_IN, more: rest(quiet, removable && REMOVE) };
-  return { primary: quiet, more: rest(removable && REMOVE) };
+  if (state === "needs-sign-in" && signIn)
+    return { primary: signIn, more: rest(quiet, remove) };
+  return { primary: quiet, more: rest(remove) };
 }
 
 function urgentState(entries: McpEntry[]): ConnectionState {
@@ -378,7 +468,8 @@ function urgentState(entries: McpEntry[]): ConnectionState {
 function rowFor(
   id: string,
   visible: McpEntry[],
-  hidden = false,
+  hidden: boolean,
+  claudeProject: boolean,
 ): McpRow | null {
   if (!visible.length) return null;
   const copies = hidden
@@ -419,16 +510,28 @@ function rowFor(
         ? `${MCP_AGENT_LABEL[entry.provider]}: ${entry.connection.detail}`
         : entry.connection.detail!,
     );
-  const users = on.length ? on : off;
+  // Which one the copy's own agent uses.
+  const used = copies.length
+    ? on.find(
+        (entry) => entry.provider === copies[0]!.provider && usable(entry),
+      )
+    : undefined;
   const note =
-    copies.length && users[0]
-      ? `${joinAnd(agentsOf(copies).map((agent) => MCP_AGENT_LABEL[agent]))} uses the ${users[0].connection.source ?? "working"} one; ${joinAnd(unique(copies.map((copy) => `the ${copy.connection.plugin} plugin’s copy`)))} ${copies.length === 1 ? "has" : "have"} no address.`
+    copies.length && used
+      ? `${MCP_AGENT_LABEL[used.provider]} uses the ${used.connection.source ?? "working"} one; ${joinAnd(unique(copies.map((copy) => `the ${copy.connection.plugin} plugin’s copy`)))} ${copies.length === 1 ? "has" : "have"} no address.`
       : undefined;
+  const offNotes = unique(
+    off
+      .filter((entry) => !entry.connection.canTurnOff)
+      .map((entry) => entry.connection.offNote)
+      .filter((text): text is string => !!text),
+  );
+  const hint = !hidden && offNotes.length ? offNotes.join(" ") : undefined;
   const { primary, more } = rowActions(
     state,
     problem,
-    hidden ? rest : on,
-    hidden ? [] : off,
+    hidden ? { on: rest, off: [], copies: [] } : { on, off, copies },
+    claudeProject,
   );
   return {
     id,
@@ -444,6 +547,7 @@ function rowFor(
     ...(problem ? { problem } : {}),
     details,
     ...(note ? { note } : {}),
+    ...(hint ? { hint } : {}),
     ...(primary ? { primary } : {}),
     more,
   };
@@ -456,6 +560,7 @@ function byName(a: McpRow, b: McpRow): number {
 export function buildMcpOverview(
   inventories: Record<McpProvider, McpInventory>,
   hiddenIds: ReadonlySet<string> | readonly string[] = [],
+  { claudeProject = true }: { claudeProject?: boolean } = {},
 ): McpOverview {
   const hidden = new Set(hiddenIds);
   const shown = new Map<string, McpEntry[]>();
@@ -485,7 +590,7 @@ export function buildMcpOverview(
           text: `Aven couldn’t start ${MCP_AGENT_LABEL[provider]} to check its servers.`,
         },
         details: inventory.message ? [inventory.message] : [],
-        primary: CHECK,
+        primary: { kind: "check", label: "Check again", targets: [] },
         more: [],
         agent: provider,
       });
@@ -509,7 +614,7 @@ export function buildMcpOverview(
   const working: McpRow[] = [];
   const off: McpRow[] = [];
   for (const [id, entries] of shown) {
-    const row = rowFor(id, entries);
+    const row = rowFor(id, entries, false, claudeProject);
     if (!row) continue;
     if (row.state === "failed") needsYou.push(row);
     else if (row.state === "needs-sign-in") signIn.push(row);
@@ -517,7 +622,7 @@ export function buildMcpOverview(
     else working.push(row);
   }
   for (const [id, entries] of tucked) {
-    const row = rowFor(`hidden:${id}`, entries, true);
+    const row = rowFor(`hidden:${id}`, entries, true, claudeProject);
     if (row) off.push(row);
   }
 

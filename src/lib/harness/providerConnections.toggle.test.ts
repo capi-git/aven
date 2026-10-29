@@ -83,12 +83,22 @@ let configToml = CODEX_FIXTURE;
 function codexTables(): Map<string, Record<string, string>> {
   const tables = new Map<string, Record<string, string>>();
   let current: Record<string, string> | null = null;
+  let parent = false;
   for (const line of configToml.split("\n")) {
     const header = line.match(/^\[mcp_servers\.([^\]]+)\]$/);
+    const inline = line.match(/^([\w-]+) = \{ command = ("[^"]*") \}$/);
     if (header) {
       current = {};
+      parent = false;
       tables.set(header[1]!, current);
-    } else if (line.startsWith("[")) current = null;
+    } else if (line === "[mcp_servers]") {
+      current = null;
+      parent = true;
+    } else if (line.startsWith("[")) {
+      current = null;
+      parent = false;
+    } else if (parent && inline)
+      tables.set(inline[1]!, { command: inline[2]! });
     else if (current && line.includes(" = ")) {
       const [key, value] = line.split(" = ");
       current[key!] = value!;
@@ -115,9 +125,23 @@ function writeEnabled(name: string, value: boolean | null) {
   configToml = lines.join("\n");
 }
 
+const CODEX_FILE = "/fixture/.codex/config.toml";
+/** Codex's layer version: a hash of the file's contents. */
+const version = () =>
+  `sha256:${[...configToml].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 7)}`;
+/** Like Codex's writer on an inline table: the next write breaks the file. */
+const codexFaults = { breakNextWrite: false };
+const encode = (text: string) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+const decode = (data: string) =>
+  new TextDecoder().decode(
+    Uint8Array.from(atob(data), (char) => char.charCodeAt(0)),
+  );
+
 function codexAnswer(message: { method?: string; params?: unknown }) {
   const params = (message.params ?? {}) as Record<string, unknown>;
   const tables = codexTables();
+  const user = { type: "user", file: CODEX_FILE, profile: null };
   switch (message.method) {
     case "initialize":
       return { result: {} };
@@ -135,43 +159,86 @@ function codexAnswer(message: { method?: string; params?: unknown }) {
           nextCursor: null,
         },
       };
-    case "config/read":
+    case "config/read": {
+      // A header Codex's own writer mangled: the file no longer parses.
+      if (configToml.includes("[#"))
+        return {
+          error: {
+            code: -32603,
+            message: "failed to read configuration layers",
+          },
+        };
+      const servers = Object.fromEntries(
+        [...tables].map(([name, table]) => [
+          name,
+          {
+            command: JSON.parse(table.command!),
+            ...(table.enabled ? { enabled: table.enabled === "true" } : {}),
+          },
+        ]),
+      );
       return {
         result: {
-          config: {
-            mcp_servers: Object.fromEntries(
-              [...tables].map(([name, table]) => [
-                name,
-                {
-                  command: JSON.parse(table.command!),
-                  ...(table.enabled
-                    ? { enabled: table.enabled === "true" }
-                    : {}),
-                },
-              ]),
-            ),
-          },
+          config: { mcp_servers: servers },
           origins: Object.fromEntries(
             [...tables.keys()].map((name) => [
               `mcp_servers.${name}.command`,
-              { name: { type: "user", file: "/fixture/.codex/config.toml" } },
+              { name: user, version: version() },
             ]),
           ),
+          layers: params.includeLayers
+            ? [
+                {
+                  name: user,
+                  version: version(),
+                  config: { mcp_servers: servers },
+                  disabledReason: null,
+                },
+              ]
+            : null,
         },
       };
+    }
+    case "fs/readFile":
+      return params.path === CODEX_FILE
+        ? { result: { dataBase64: encode(configToml) } }
+        : { error: { code: -32603, message: "not found" } };
+    case "fs/writeFile":
+      if (params.path !== CODEX_FILE)
+        return { error: { code: -32603, message: "unexpected file" } };
+      configToml = decode(String(params.dataBase64));
+      return { result: {} };
     case "config/value/write": {
       const key = String(params.keyPath).match(
         /^mcp_servers\.([^.]+)\.enabled$/,
       );
-      if (!key || params.mergeStrategy !== "replace")
+      if (
+        !key ||
+        params.mergeStrategy !== "replace" ||
+        params.filePath !== CODEX_FILE
+      )
         return { error: { code: -32600, message: "unexpected write" } };
+      if (params.expectedVersion !== version())
+        return {
+          error: { code: -32600, message: "config file changed since read" },
+        };
+      if (codexFaults.breakNextWrite) {
+        codexFaults.breakNextWrite = false;
+        configToml = configToml.replace(
+          `[mcp_servers.${key[1]}]`,
+          `[# work tools\nmcp_servers.${key[1]} ]`,
+        );
+        return {
+          result: { status: "ok", version: version(), filePath: CODEX_FILE },
+        };
+      }
       try {
         writeEnabled(key[1]!, params.value as boolean | null);
       } catch (error) {
         return { error: { code: -32600, message: (error as Error).message } };
       }
       return {
-        result: { status: "ok", version: "sha256:x", filePath: "/fixture" },
+        result: { status: "ok", version: version(), filePath: CODEX_FILE },
       };
     }
     default:
@@ -296,8 +363,20 @@ describe("turning Claude Code servers off and on", () => {
 });
 
 describe("turning Codex servers off and on", () => {
-  it("writes enabled through Codex's config writer and leaves the file as it was", async () => {
+  it("writes enabled through Codex's config writer, only if the file is unchanged, and back", async () => {
     await setCodexServerEnabled(PROJECT, "computer-use", false);
+    const methods = sent
+      .map(({ message }) => message.method)
+      .filter((method) => method !== "initialized");
+    // Read, keep the bytes, write, then read back in the same session.
+    expect(methods).toEqual([
+      "initialize",
+      "config/read",
+      "fs/readFile",
+      "config/value/write",
+      "config/read",
+      "fs/readFile",
+    ]);
     const write = sent.find(
       ({ message }) => message.method === "config/value/write",
     )!;
@@ -305,6 +384,8 @@ describe("turning Codex servers off and on", () => {
       keyPath: "mcp_servers.computer-use.enabled",
       value: false,
       mergeStrategy: "replace",
+      filePath: CODEX_FILE,
+      expectedVersion: expect.stringMatching(/^sha256:/),
     });
     expect(configToml).toContain(
       '[mcp_servers.computer-use]\ncommand = "/usr/local/bin/computer-use"\nenabled = false\n',
@@ -326,13 +407,38 @@ describe("turning Codex servers off and on", () => {
     expect(on.find((row) => row.key === "computer-use")!.state).toBe("ready");
   });
 
-  it("refuses names Codex can't address and passes on Codex's own errors", async () => {
+  it("puts the file's bytes back when Codex can't read what it wrote", async () => {
+    codexFaults.breakNextWrite = true;
+    await expect(
+      setCodexServerEnabled(PROJECT, "computer-use", false),
+    ).rejects.toThrow("Aven put its config file back as it was");
+    expect(configToml).toBe(CODEX_FIXTURE);
+    expect(
+      sent.filter(({ message }) => message.method === "fs/writeFile"),
+    ).toHaveLength(1);
+  });
+
+  it("refuses names Codex can't address and servers the user's file doesn't define, without writing", async () => {
     await expect(
       setCodexServerEnabled(PROJECT, "has.dot", false),
     ).rejects.toThrow("can't turn this server off");
-    await expect(setCodexServerEnabled(PROJECT, "nope", false)).rejects.toThrow(
-      "invalid transport",
+    await expect(setCodexServerEnabled(PROJECT, "nope", true)).rejects.toThrow(
+      "settings file Aven doesn't change",
     );
     expect(configToml).toBe(CODEX_FIXTURE);
+    expect(
+      sent.some(({ message }) =>
+        ["config/value/write", "fs/writeFile"].includes(String(message.method)),
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves an inline-table entry alone and doesn't offer to turn it off", async () => {
+    configToml = `${CODEX_FIXTURE}\n[mcp_servers]\n# work tools\ntools = { command = "/usr/bin/true" }\n`;
+    const before = configToml;
+    await expect(
+      setCodexServerEnabled(PROJECT, "tools", false),
+    ).rejects.toThrow("own [mcp_servers.tools] table");
+    expect(configToml).toBe(before);
   });
 });

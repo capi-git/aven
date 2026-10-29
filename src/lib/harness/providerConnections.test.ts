@@ -3,6 +3,7 @@ import {
   claudeConnectionsFromStatus,
   claudeInventoryArgs,
   codexConnectionsFromStatus,
+  codexEntryForms,
 } from "./providerConnections";
 
 describe("Claude connection inventory", () => {
@@ -212,17 +213,34 @@ describe("Codex connection inventory", () => {
     ]);
   });
 
-  it("reads which servers the user's config defines and which are turned off", () => {
-    const user = { name: { type: "user", file: "/u/.codex/config.toml" } };
-    const project = {
-      name: { type: "project", file: "/p/.codex/config.toml" },
-    };
+  it("reads which servers the user's config defines, how, and which are turned off", () => {
+    const FILE = "/u/.codex/config.toml";
+    const user = { name: { type: "user", file: FILE, profile: null } };
+    const project = { name: { type: "project", dotCodexFolder: "/p/.codex" } };
+    const text = [
+      'model = "gpt-5"',
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      "[mcp_servers.quiet]",
+      'command = "q"',
+      "enabled = false",
+      "[mcp_servers.gone]",
+      'command = "g"',
+      "enabled = false",
+      "[mcp_servers]",
+      "# work tools",
+      'tools = { command = "t" }',
+      'dotted.name = { command = "d" }',
+      "",
+    ].join("\n");
     const rows = codexConnectionsFromStatus(
       [
         { name: "rea", tools: { a: {} }, authStatus: "unsupported" },
         { name: "quiet", tools: {}, authStatus: "unsupported" },
         { name: "shared", tools: { a: {} }, authStatus: "unsupported" },
+        { name: "tools", tools: { a: {} }, authStatus: "unsupported" },
         { name: "dotted.name", tools: { a: {} }, authStatus: "unsupported" },
+        { name: "policy", tools: {}, authStatus: "unsupported" },
         {
           name: "figma",
           tools: { a: {} },
@@ -235,16 +253,22 @@ describe("Codex connection inventory", () => {
           rea: { command: "rea" },
           quiet: { command: "q", enabled: false },
           shared: { url: "https://x" },
+          tools: { command: "t" },
           "dotted.name": { command: "d" },
           gone: { command: "g", enabled: false },
+          policy: { command: "p", enabled: false },
         },
         origins: {
           "mcp_servers.rea.command": user,
           "mcp_servers.quiet.command": user,
           "mcp_servers.shared.url": project,
+          "mcp_servers.tools.command": user,
           "mcp_servers.dotted.name.command": user,
           "mcp_servers.gone.command": user,
+          "mcp_servers.policy.command": project,
+          "mcp_servers.policy.enabled": project,
         },
+        userFile: { path: FILE, text },
       },
     );
     const row = (key: string) => rows.find((item) => item.key === key)!;
@@ -254,8 +278,12 @@ describe("Codex connection inventory", () => {
       canTurnOff: true,
     });
     expect(row("quiet")).toMatchObject({ state: "off", canTurnOff: true });
+    expect(row("quiet").offNote).toBeUndefined();
     // Defined by a project's config: Aven would have to write elsewhere.
     expect(row("shared").canTurnOff).toBeUndefined();
+    // An inline table: Codex's writer would rewrite it, or break the file.
+    expect(row("tools")).toMatchObject({ source: "Personal", state: "ready" });
+    expect(row("tools").canTurnOff).toBeUndefined();
     // Codex addresses keys by dots, so this name can't be targeted.
     expect(row("dotted.name").canTurnOff).toBeUndefined();
     expect(row("figma")).toMatchObject({
@@ -263,6 +291,12 @@ describe("Codex connection inventory", () => {
       source: "figma plugin",
     });
     expect(row("figma").canTurnOff).toBeUndefined();
+    // Turned off where Aven doesn't write: no Turn on, but it says where.
+    expect(row("policy")).toMatchObject({
+      state: "off",
+      offNote: "Turned off in this project’s .codex/config.toml.",
+    });
+    expect(row("policy").canTurnOff).toBeUndefined();
     // Turned off in the file but not listed by the app server.
     expect(row("gone")).toMatchObject({
       state: "off",
@@ -270,5 +304,61 @@ describe("Codex connection inventory", () => {
       canTurnOff: true,
     });
     expect(rows.at(-1)!.state).toBe("off");
+  });
+
+  it("offers nothing to turn off when the user's file couldn't be read", () => {
+    const [rea] = codexConnectionsFromStatus(
+      [{ name: "rea", tools: { a: {} } }],
+      {
+        mcp_servers: { rea: { command: "rea" } },
+        origins: {
+          "mcp_servers.rea.command": {
+            name: { type: "user", file: "/u/c.toml", profile: null },
+          },
+        },
+        userFile: { path: "/u/c.toml" },
+      },
+    );
+    expect(rea!.canTurnOff).toBeUndefined();
+  });
+});
+
+describe("how a Codex server is written", () => {
+  const forms = (text: string, key = "tools") => [
+    ...codexEntryForms(text, key),
+  ];
+
+  it("tells its own table and dotted keys from an inline table", () => {
+    expect(
+      forms('# work tools\n[mcp_servers.tools] # note\ncommand = "x"\n'),
+    ).toEqual(["table"]);
+    expect(forms('[mcp_servers."tools"]\ncommand = "x"\n')).toEqual(["table"]);
+    expect(forms('[mcp_servers.tools.env]\nA = "1"\n')).toEqual(["table"]);
+    expect(forms('mcp_servers.tools.command = "x"\n')).toEqual(["dotted"]);
+    expect(forms('[mcp_servers]\ntools.command = "x"\n')).toEqual(["dotted"]);
+    expect(forms('[mcp_servers]\n# c\ntools = { command = "x" }\n')).toEqual([
+      "inline",
+    ]);
+    expect(forms('mcp_servers.tools = { command = "x" }\n')).toEqual([
+      "inline",
+    ]);
+    expect(forms('[mcp_servers.other]\ncommand = "x"\n')).toEqual([]);
+  });
+
+  it("isn't fooled by multi-line strings and arrays", () => {
+    const text = [
+      'instructions = """',
+      "[mcp_servers.tools]",
+      'tools = { command = "x" }',
+      '"""',
+      "[mcp_servers.rea]",
+      "args = [",
+      '  "tools = 1",',
+      "]",
+      "[mcp_servers.tools]",
+      'command = "x"',
+      "",
+    ].join("\n");
+    expect(forms(text)).toEqual(["table"]);
   });
 });

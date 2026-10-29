@@ -53,6 +53,8 @@ export type ProviderConnection = {
   detail?: string;
   /** Claude Code's own reason for a failure, when it gives one. */
   errorCode?: string;
+  /** Where a server is turned off, when Aven can't turn it on itself. */
+  offNote?: string;
 };
 
 const PROBE_TIMEOUT_MS = 25_000;
@@ -410,10 +412,8 @@ function inventoryCodex(cwd: string): Promise<ProviderConnection[]> {
       cursor = page.nextCursor ?? null;
     } while (cursor);
     // Which servers are turned off, and which ones the user's own config file
-    // defines. Without it the list still shows, just without Turn off.
-    const config = await rpc
-      .request<unknown>("config/read", { cwd }, REQUEST_TIMEOUT_MS)
-      .then(codexMcpConfig, () => undefined);
+    // defines and how. Without it the list still shows, just without Turn off.
+    const config = await readCodexMcpConfig(rpc, cwd).catch(() => undefined);
     return codexConnectionsFromStatus(rows, config);
   });
 }
@@ -423,31 +423,200 @@ export type CodexMcpConfig = {
   mcp_servers?: Record<string, unknown>;
   /** Where each effective key came from, by dotted key path. */
   origins?: Record<string, unknown>;
+  /** The user's own config.toml, the only file Aven changes. */
+  userFile?: {
+    path: string;
+    version?: string;
+    /** That file's own mcp_servers, before other layers apply. */
+    servers?: Record<string, unknown>;
+    text?: string;
+  };
 };
 
 export function codexMcpConfig(response: unknown): CodexMcpConfig {
   const read = asRecord(response);
+  const layers = Array.isArray(read?.layers) ? read.layers : [];
+  // The base user file; a profile's file is not where Codex writes by default.
+  const user = layers
+    .map((layer) => asRecord(layer))
+    .find((layer) => {
+      const name = asRecord(layer?.name);
+      return (
+        stringField(name, "type") === "user" && !stringField(name, "profile")
+      );
+    });
+  const path = stringField(asRecord(user?.name), "file");
+  const version = stringField(user, "version");
+  const servers = asRecord(asRecord(user?.config)?.mcp_servers) ?? {};
   return {
     mcp_servers: asRecord(asRecord(read?.config)?.mcp_servers) ?? {},
     origins: asRecord(read?.origins) ?? {},
+    ...(path
+      ? { userFile: { path, servers, ...(version ? { version } : {}) } }
+      : {}),
   };
+}
+
+/** config/read with its layers, plus the user's file as text. */
+async function readCodexMcpConfig(
+  rpc: JsonRpcClient,
+  cwd: string,
+): Promise<CodexMcpConfig & { bytes?: string }> {
+  const config = codexMcpConfig(
+    await rpc.request<unknown>(
+      "config/read",
+      { cwd, includeLayers: true },
+      REQUEST_TIMEOUT_MS,
+    ),
+  );
+  if (!config.userFile) return config;
+  const bytes = await rpc
+    .request<unknown>(
+      "fs/readFile",
+      { path: config.userFile.path },
+      REQUEST_TIMEOUT_MS,
+    )
+    .then((read) => stringField(asRecord(read), "dataBase64") ?? "")
+    .catch(() => undefined);
+  if (bytes === undefined) return config;
+  return {
+    ...config,
+    userFile: { ...config.userFile, text: decodeBase64(bytes) },
+    bytes,
+  };
+}
+
+function decodeBase64(data: string): string {
+  const binary = atob(data);
+  return new TextDecoder().decode(
+    Uint8Array.from(binary, (char) => char.charCodeAt(0)),
+  );
 }
 
 /** Codex splits key paths on dots, so only these names can be addressed. */
 const CODEX_KEY_RE = /^[A-Za-z0-9_-]+$/;
 
-/** The server is defined in the user's own config file, not a project's. */
+/** The server is defined in the user's own base config file. */
 function inUserCodexConfig(config: CodexMcpConfig, name: string): boolean {
   return ["command", "url"].some((field) => {
-    const origin = asRecord(config.origins?.[`mcp_servers.${name}.${field}`]);
-    return stringField(asRecord(origin?.name), "type") === "user";
+    const origin = asRecord(
+      asRecord(config.origins?.[`mcp_servers.${name}.${field}`])?.name,
+    );
+    return (
+      stringField(origin, "type") === "user" &&
+      !stringField(origin, "profile") &&
+      (!config.userFile || stringField(origin, "file") === config.userFile.path)
+    );
   });
 }
 
+export type CodexEntryForm = "table" | "dotted" | "inline";
+
+const BARE_OR_QUOTED_KEY = String.raw`(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')`;
+const KEY_VALUE = new RegExp(
+  String.raw`^(${BARE_OR_QUOTED_KEY}(?:\s*\.\s*${BARE_OR_QUOTED_KEY})*)\s*=\s*(.*)$`,
+);
+
+function splitKeyPath(path: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (const char of path) {
+    if (quote) {
+      if (char === quote) quote = null;
+      else current += char;
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === ".") {
+      parts.push(current.trim());
+      current = "";
+    } else current += char;
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+/** Open brackets and braces left by a value, outside strings and comments. */
+function openBrackets(value: string): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i]!;
+    if (quote) {
+      if (char === "\\" && quote === '"') i++;
+      else if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "#") break;
+    else if (char === "[" || char === "{") depth++;
+    else if (char === "]" || char === "}") depth--;
+  }
+  return depth;
+}
+
 /**
- * Turns one server off or on in Codex's own config file, through Codex's own
- * config writer: off sets `enabled = false` on that server's entry, and on
- * removes the key again, so the file ends as it started.
+ * How a server's entry is written in a Codex config file: its own
+ * `[mcp_servers.<name>]` table, dotted keys (`mcp_servers.<name>.command`),
+ * or an inline table (`<name> = { … }`). Codex's writer keeps the first two
+ * as they are, but rewrites an inline table into a table and can leave the
+ * file unreadable, so Aven only turns off the first two.
+ */
+export function codexEntryForms(
+  text: string,
+  key: string,
+): Set<CodexEntryForm> {
+  const forms = new Set<CodexEntryForm>();
+  let table: string[] = [];
+  let multiline: string | null = null;
+  let depth = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (multiline) {
+      if (line.includes(multiline)) multiline = null;
+      continue;
+    }
+    if (depth > 0) {
+      depth += openBrackets(line);
+      continue;
+    }
+    if (!line || line.startsWith("#")) continue;
+    const arrayHeader = line.match(/^\[\[(.+?)\]\]\s*(?:#.*)?$/);
+    const header = arrayHeader ? null : line.match(/^\[(.+?)\]\s*(?:#.*)?$/);
+    if (arrayHeader || header) {
+      table = splitKeyPath((arrayHeader ?? header)![1]!);
+      if (header && table[0] === "mcp_servers" && table[1] === key)
+        forms.add("table");
+      continue;
+    }
+    const pair = line.match(KEY_VALUE);
+    if (!pair) continue;
+    const path = [...table, ...splitKeyPath(pair[1]!)];
+    const value = pair[2]!;
+    const inOwnTable =
+      table[0] === "mcp_servers" && table[1] === key && table.length >= 2;
+    if (path[0] === "mcp_servers" && path[1] === key && !inOwnTable)
+      forms.add(path.length === 2 ? "inline" : "dotted");
+    for (const quote of ['"""', "'''"]) {
+      if (value.startsWith(quote) && value.split(quote).length === 2)
+        multiline = quote;
+    }
+    if (!multiline) depth = Math.max(0, openBrackets(value));
+  }
+  return forms;
+}
+
+/** Codex's writer leaves this entry readable and in the same form. */
+function codexEntryWritable(text: string | undefined, key: string): boolean {
+  if (text === undefined) return false;
+  const forms = codexEntryForms(text, key);
+  return !forms.has("inline") && (forms.has("table") || forms.has("dotted"));
+}
+
+/**
+ * Turns one server off or on in the user's own Codex config file, through
+ * Codex's own config writer: off sets `enabled = false` on that server's
+ * entry, and on removes the key again. Only entries written as their own
+ * table or as dotted keys are changed. Aven keeps the file's bytes first,
+ * writes only if the file hasn't changed since, checks that Codex can still
+ * read it, and puts the bytes back exactly if it can't.
  */
 export function setCodexServerEnabled(
   cwd: string,
@@ -457,17 +626,45 @@ export function setCodexServerEnabled(
   if (!CODEX_KEY_RE.test(key))
     return Promise.reject(new Error("Codex can't turn this server off."));
   return withCodexAppServer(cwd, "toggle", async (rpc) => {
-    const written = asRecord(
-      await rpc.request<unknown>(
-        "config/value/write",
-        {
-          keyPath: `mcp_servers.${key}.enabled`,
-          value: enabled ? null : false,
-          mergeStrategy: "replace",
-        },
+    const config = await readCodexMcpConfig(rpc, cwd);
+    const file = config.userFile;
+    if (!file || !inUserCodexConfig(config, key))
+      throw new Error(
+        "Codex keeps this server in a settings file Aven doesn't change.",
+      );
+    if (config.bytes === undefined || !codexEntryWritable(file.text, key))
+      throw new Error(
+        `Aven only changes servers written as their own [mcp_servers.${key}] table in ${file.path}. Change this one there.`,
+      );
+    const restore = async () => {
+      await rpc.request(
+        "fs/writeFile",
+        { path: file.path, dataBase64: config.bytes },
         REQUEST_TIMEOUT_MS,
-      ),
-    );
+      );
+    };
+    let written: Record<string, unknown> | null;
+    try {
+      written = asRecord(
+        await rpc.request<unknown>(
+          "config/value/write",
+          {
+            keyPath: `mcp_servers.${key}.enabled`,
+            value: enabled ? null : false,
+            mergeStrategy: "replace",
+            filePath: file.path,
+            ...(file.version ? { expectedVersion: file.version } : {}),
+          },
+          REQUEST_TIMEOUT_MS,
+        ),
+      );
+    } catch (error) {
+      // Codex refuses before writing (a changed file, an invalid result);
+      // put the bytes back anyway in case it got part of the way.
+      await verifyOrRestore(rpc, cwd, key, enabled, restore, true);
+      throw error;
+    }
+    await verifyOrRestore(rpc, cwd, key, enabled, restore, false);
     // Saved, but a project's or an administrator's setting wins over it.
     const overridden = stringField(
       asRecord(written?.overriddenMetadata),
@@ -477,6 +674,39 @@ export function setCodexServerEnabled(
       ? { note: overridden ?? "Another Codex setting overrides this one." }
       : {};
   });
+}
+
+/**
+ * Reads the config back in the same session. If Codex can't read it, or the
+ * server's entry isn't what was asked for, the original bytes go back.
+ */
+async function verifyOrRestore(
+  rpc: JsonRpcClient,
+  cwd: string,
+  key: string,
+  enabled: boolean,
+  restore: () => Promise<void>,
+  failed: boolean,
+): Promise<void> {
+  const after = await readCodexMcpConfig(rpc, cwd).catch(() => undefined);
+  const entry = asRecord(after?.userFile?.servers?.[key]);
+  const fine =
+    !!after?.userFile &&
+    codexEntryWritable(after.userFile.text, key) &&
+    !!entry &&
+    (failed || (enabled ? entry.enabled !== false : entry.enabled === false));
+  if (fine) return;
+  try {
+    await restore();
+  } catch (error) {
+    throw new Error(
+      `Codex's config file may be damaged and Aven couldn't put it back: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!failed)
+    throw new Error(
+      "Codex couldn't save that cleanly, so Aven put its config file back as it was.",
+    );
 }
 
 const CODEX_NAMES: Record<string, string> = {
@@ -514,6 +744,8 @@ export function codexConnectionsFromStatus(
     // ChatGPT apps follow the Codex account sign-in, not an MCP login.
     const builtIn = name in CODEX_NAMES;
     const personal = !!config && inUserCodexConfig(config, name);
+    const switchable =
+      personal && !plugin && !builtIn && codexSwitchable(config!, name);
     const pluginName = plugin?.split("@")[0];
     const source = builtIn
       ? "ChatGPT"
@@ -532,11 +764,12 @@ export function codexConnectionsFromStatus(
         ...(source ? { source } : {}),
         ...(pluginName ? { plugin: pluginName } : {}),
         ...(builtIn ? { account: true } : {}),
-        ...(personal && !plugin && !builtIn && CODEX_KEY_RE.test(name)
-          ? { canTurnOff: true }
-          : {}),
+        ...(switchable ? { canTurnOff: true } : {}),
         ...(state === "ready" ? { toolCount: tools } : {}),
         ...(error && state !== "off" ? { detail: error.trim() } : {}),
+        ...(state === "off" && !switchable
+          ? { offNote: codexOffNote(config, name) }
+          : {}),
       },
     ];
   });
@@ -544,16 +777,46 @@ export function codexConnectionsFromStatus(
   for (const [name, value] of Object.entries(config?.mcp_servers ?? {})) {
     if (listed.has(name) || asRecord(value)?.enabled !== false) continue;
     const personal = inUserCodexConfig(config!, name);
+    const switchable = personal && codexSwitchable(config!, name);
     connections.push({
       name,
       key: name,
       removable: true,
       state: "off",
       ...(personal ? { source: "Personal" } : {}),
-      ...(personal && CODEX_KEY_RE.test(name) ? { canTurnOff: true } : {}),
+      ...(switchable
+        ? { canTurnOff: true }
+        : { offNote: codexOffNote(config, name) }),
     });
   }
   return sortConnections(connections);
+}
+
+/** Aven can turn this server off and on in the user's own file. */
+function codexSwitchable(config: CodexMcpConfig, name: string): boolean {
+  return (
+    CODEX_KEY_RE.test(name) && codexEntryWritable(config.userFile?.text, name)
+  );
+}
+
+/** Where a server Aven can't turn back on is turned off, in plain words. */
+function codexOffNote(
+  config: CodexMcpConfig | undefined,
+  name: string,
+): string {
+  const origin = asRecord(
+    asRecord(config?.origins?.[`mcp_servers.${name}.enabled`])?.name,
+  );
+  switch (stringField(origin, "type")) {
+    case "project":
+      return "Turned off in this project’s .codex/config.toml.";
+    case "user":
+      return "Turned off in your Codex config.toml.";
+    case undefined:
+      return "Turned off by Codex.";
+    default:
+      return "Turned off by your organization’s Codex settings.";
+  }
 }
 
 // ---------------------------------------------------------------------------

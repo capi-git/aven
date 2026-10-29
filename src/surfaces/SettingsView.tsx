@@ -419,7 +419,9 @@ export function SettingsView({
                   {section === "skills"
                     ? "Project instructions · device tools"
                     : section === "connections"
-                      ? "Checked in the open project"
+                      ? cwd
+                        ? "Checked in the open project"
+                        : "Checked in your home folder"
                       : "Your preferences are saved automatically"}
                 </span>
               </div>
