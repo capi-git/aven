@@ -33,6 +33,7 @@ import {
   claimCrewJob,
   crewCard,
   crewMember,
+  crewMemberApp,
   crewRunsToday,
   crewsSnapshot,
   getCrew,
@@ -46,6 +47,8 @@ import {
   withFeed,
   withIdea,
   withMember,
+  withCheckerOnClaude,
+  withoutFallbacks,
   type Crew,
   type CrewCard,
   type CrewChange,
@@ -65,6 +68,7 @@ import type { BotCopyInfo, BotDiff, BotSyncResult } from "./projectBotCopy";
 import { botCopyError } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
+import { isCodexToolsOpen } from "./harness/codexLockdown";
 import type { BotSyncNote } from "./projectBotWake";
 import { replyHeadline } from "./projectBotWake";
 import type { Session } from "./session";
@@ -141,8 +145,25 @@ export type CrewRunnerDeps = {
    * so a check is never coloured by an earlier card and no context piles up.
    */
   freshConversation?: (sessionId: string) => void;
+  /**
+   * The Claude model a Checker falls back to when Codex can't be locked
+   * down here: a different one from the Builder's.
+   */
+  checkerFallbackModel?: (crew: Crew) => string | undefined;
   newId?: () => string;
 };
+
+/**
+ * Whether this page has started a runner yet: a Checker's fallback to
+ * Claude lasts for the session it was decided in, and the next session
+ * gives Codex a try again.
+ */
+let sessionStarted = false;
+
+/** Test seam: the next runner start is a new session. */
+export function resetCrewRunnerSession() {
+  sessionStarted = false;
+}
 
 type LiveTurn = {
   role: CrewChatRole;
@@ -274,6 +295,12 @@ export class CrewRunner {
     if (this.running) return;
     this.running = true;
     migrateBotsIntoCrews();
+    if (!sessionStarted) {
+      sessionStarted = true;
+      for (const crew of activeCrews())
+        if (crew.members.some((member) => member.fallback))
+          updateCrew(crew.path, withoutFallbacks);
+    }
     // Turns an earlier page left behind died with it.
     for (const crew of activeCrews())
       if (crew.job && crew.job.owner !== this.deps.owner)
@@ -739,7 +766,7 @@ export class CrewRunner {
               project: crew.path,
               copyPath: crew.copy?.path ?? "",
               names,
-              harness: crewMember(crew, role)?.harness,
+              harness: crewMemberApp(crewMember(crew, role)).harness,
               maxRounds: card.maxRounds,
             });
       let hashBefore: string | undefined;
@@ -935,7 +962,30 @@ export class CrewRunner {
         now,
         name: this.deps.name(crew, role),
       });
-    else if (outcome?.status === "failed" || outcome?.status === "cancelled")
+    else if (
+      role === "checker" &&
+      outcome?.status === "failed" &&
+      isCodexToolsOpen(`${outcome.error ?? ""} ${outcome.text ?? ""}`) &&
+      crewMemberApp(crewMember(crew, "checker")).harness === "codex"
+    ) {
+      // Codex couldn't be locked down here: never run it unlocked. The
+      // Checker checks with Claude for this session, and the same check
+      // goes again at once.
+      if (!this.stillOn(path, turn.onAt)) return;
+      updateCrew(path, (current) => {
+        const known = crewCard(current, card.id);
+        if (!known || known.turn?.turnId !== turn.turnId) return current;
+        return withCard(
+          withCheckerOnClaude(
+            current,
+            this.deps.checkerFallbackModel?.(current),
+            now,
+          ),
+          { ...known, turn: undefined, updatedAt: now },
+        );
+      });
+      return;
+    } else if (outcome?.status === "failed" || outcome?.status === "cancelled")
       step = turnFailed(card, {
         role,
         error:

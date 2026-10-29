@@ -888,6 +888,7 @@ import { crewMemberViews, crewStatus } from "./lib/crewView";
 import {
   crewForChat,
   crewMember,
+  crewMemberApp,
   crewMemberName,
   getCrew,
   isCrewChat,
@@ -6945,16 +6946,17 @@ export default function App({
       const copy = bot ? bot.copy?.path : crew?.crew.copy?.path;
       if (!copy)
         return "The bot's copy isn't ready yet. Try again in a moment.";
-      // A crew's Checker may run on Codex; everyone else on Claude.
-      const member = crew?.member;
+      // A crew's Checker may run on Codex (or on Claude, when Codex couldn't
+      // be locked down here); everyone else on Claude.
+      const app = crew ? crewMemberApp(crew.member) : undefined;
       const fix = botChatInCopy(
         session,
         copy,
         () => preferredModelId("claude"),
-        member?.harness && member.harness !== "claude"
+        app
           ? {
-              harness: member.harness,
-              model: () => member.model ?? preferredModelId(member.harness!),
+              harness: app.harness,
+              model: () => app.model ?? preferredModelId(app.harness),
             }
           : undefined,
       );
@@ -11001,8 +11003,11 @@ export default function App({
       const copy = crew.copy?.path;
       if (!copy) return null;
       const member = crewMember(crew, role);
-      const harness = member?.harness ?? "claude";
-      const model = () => member?.model ?? preferredModelId(harness);
+      // Its app now: a Checker that couldn't be locked down on Codex runs on
+      // Claude for this session.
+      const app = crewMemberApp(member);
+      const harness = app.harness;
+      const model = () => app.model ?? preferredModelId(harness);
       let loaded = member?.sessionId
         ? sessionsRef.current.find((session) => session.id === member.sessionId)
         : undefined;
@@ -11023,7 +11028,7 @@ export default function App({
           loaded,
           copy,
           () => preferredModelId("claude"),
-          harness === "claude" ? undefined : { harness, model },
+          { harness, model },
         );
         if (!fix || (fix.restart && loaded.busy)) return loaded;
         if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);

@@ -323,11 +323,22 @@ export function crewBoardInfo(
           ...(turnChat ? { sessionId: turnChat } : {}),
           actions: [A.answer],
         };
+      // A turn that didn't finish runs again in the same round: Try again.
+      const retry =
+        card.stuck?.reason === "failed" ||
+        card.stuck?.reason === "timeout" ||
+        card.stuck?.reason === "stopped" ||
+        card.stuck?.reason === "no-verdict";
       return {
         ...base,
         needsYou: true,
         rounds,
-        actions: [A.more, A.takeOver, A.backToIdeas, A.throwAway],
+        actions: [
+          retry ? { ...A.more, label: "Try again" } : A.more,
+          A.takeOver,
+          A.backToIdeas,
+          A.throwAway,
+        ],
       };
     }
     case "applied":

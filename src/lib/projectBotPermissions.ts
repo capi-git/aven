@@ -5,7 +5,13 @@ import {
 } from "./harness/sessionPermissions";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
-import { CREW_ROLE_INFO, crewForChat, type Crew, type CrewRole } from "./crews";
+import {
+  CREW_ROLE_INFO,
+  crewForChat,
+  crewMemberApp,
+  type Crew,
+  type CrewRole,
+} from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
 import type {
@@ -369,7 +375,7 @@ export function teammateHarness(sessionId: string): string | undefined {
   if (botForChat(sessionId)) return "claude";
   const crew = crewForChat(sessionId);
   if (!crew || crew.member.role === "fixer") return undefined;
-  return crew.member.harness ?? "claude";
+  return crewMemberApp(crew.member).harness;
 }
 
 /**

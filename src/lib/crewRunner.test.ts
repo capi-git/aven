@@ -1,8 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CrewRunner, crewBranch, replyForTurn } from "./crewRunner";
+import {
+  CrewRunner,
+  crewBranch,
+  replyForTurn,
+  resetCrewRunnerSession,
+} from "./crewRunner";
 import {
   crewCard,
+  crewMember,
+  crewMemberApp,
   defaultCrewLimits,
   getCrew,
   resetCrewsCache,
@@ -48,6 +55,7 @@ type Reply = {
   /** What the copy holds after the turn: its fingerprint and files. */
   copy?: { hash: string; files: string[] } | null;
   status?: "completed" | "failed";
+  error?: string;
   /** The turn waits on you (a question) instead of ending. */
   asks?: boolean;
 };
@@ -198,6 +206,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
           options.onSettled({
             status: reply.status ?? "completed",
             text: reply.text,
+            ...(reply.error ? { error: reply.error } : {}),
           });
         },
       });
@@ -239,6 +248,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
         role
       ],
     onWorking: () => {},
+    checkerFallbackModel: () => "claude:other",
     freshConversation: (sessionId) => {
       fresh.push(sessionId);
       update(sessionId, (chat) => ({ ...chat, providerSessionId: undefined }));
@@ -323,6 +333,7 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   resetProjectBotsCache();
   resetCrewsCache();
+  resetCrewRunnerSession();
 });
 
 afterEach(() => {
@@ -809,5 +820,87 @@ describe("reading a turn", () => {
     } as unknown as Session;
     expect(replyForTurn(chat, "t1")).toBe("Final");
     expect(replyForTurn(chat, "missing")).toBe("");
+  });
+});
+
+describe("a Checker Codex can't lock down here", () => {
+  const lockedOut =
+    "Codex couldn't be locked down here: plugin github@openai-curated, plugin browser@openai-bundled, plugin pdf@openai-primary-runtime and 12 more stayed on, so this chat didn't start.";
+
+  it("checks with Claude instead, says so once, and keeps that for the session", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: (_text, nth) =>
+        nth === 1
+          ? { text: "", status: "failed", error: lockedOut }
+          : { text: verdict([]) },
+    });
+    onCrew({
+      members: [
+        { role: "builder", model: "claude:opus" },
+        { role: "checker", harness: "codex", model: "codex:gpt" },
+        { role: "scout" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    // Never an unlocked Codex: the Checker moved to Claude, a different model.
+    expect(crewMemberApp(crewMember(crew, "checker"))).toEqual({
+      harness: "claude",
+      model: "claude:other",
+    });
+    // The same check went again at once, and passed: no stuck card.
+    expect(h.sent.filter((item) => item.role === "checker")).toHaveLength(2);
+    expect(card()).toMatchObject({ stage: "ready", round: 1 });
+    expect(
+      crew.feed.filter((entry) =>
+        entry.text.includes(
+          "Owl is checking with Claude: Codex couldn't be locked down here.",
+        ),
+      ),
+    ).toHaveLength(1);
+    // Starting again in this session keeps it on Claude…
+    h.runner.stop();
+    h.runner.start();
+    expect(crewMember(getCrew(PATH)!, "checker")?.fallback?.harness).toBe(
+      "claude",
+    );
+    h.runner.stop();
+    // …and the next session gives Codex a try again.
+    resetCrewRunnerSession();
+    h.runner.start();
+    expect(crewMember(getCrew(PATH)!, "checker")?.fallback).toBeUndefined();
+    expect(crewMemberApp(crewMember(getCrew(PATH)!, "checker")).harness).toBe(
+      "codex",
+    );
+    h.runner.stop();
+  });
+
+  it("leaves any other failed check stuck, as before", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: "", status: "failed", error: "No network" }),
+    });
+    onCrew({
+      members: [
+        { role: "builder" },
+        { role: "checker", harness: "codex" },
+        { role: "scout" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card().stuck?.reason).toBe("failed");
+    expect(crewMember(getCrew(PATH)!, "checker")?.fallback).toBeUndefined();
+    h.runner.stop();
   });
 });

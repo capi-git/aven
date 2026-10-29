@@ -105,10 +105,32 @@ export type CrewMember = {
   /** The app and model it runs on, picked when the crew is made. */
   harness?: "claude" | "codex";
   model?: string;
+  /**
+   * The app it runs on for now instead (a Checker that couldn't be locked
+   * down on Codex here runs on Claude). Cleared when Aven starts again, so
+   * Codex gets one more try each session.
+   */
+  fallback?: { harness: "claude"; model?: string; at: number };
   paused?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
 };
+
+/** The app and model a member runs on now: its fallback while it has one. */
+export function crewMemberApp(member: CrewMember | undefined): {
+  harness: "claude" | "codex";
+  model?: string;
+} {
+  if (member?.fallback)
+    return {
+      harness: member.fallback.harness,
+      ...(member.fallback.model ? { model: member.fallback.model } : {}),
+    };
+  return {
+    harness: member?.harness ?? "claude",
+    ...(member?.model ? { model: member.model } : {}),
+  };
+}
 
 export type CrewLimits = {
   /** Bot turns a day, every member's (the Fixer's included). */
@@ -708,6 +730,8 @@ function readMember(value: unknown): CrewMember | null {
   const sessionId = text(raw.sessionId, 256);
   const model = text(raw.model, 200);
   const doing = raw.doing as CrewMember["doing"] | undefined;
+  const fallback = raw.fallback as CrewMember["fallback"] | undefined;
+  const fallbackModel = text(fallback?.model, 200);
   return {
     role: raw.role as CrewRole,
     ...(name ? { name } : {}),
@@ -716,6 +740,15 @@ function readMember(value: unknown): CrewMember | null {
       ? { harness: raw.harness }
       : {}),
     ...(model ? { model } : {}),
+    ...(fallback?.harness === "claude" && typeof fallback.at === "number"
+      ? {
+          fallback: {
+            harness: "claude" as const,
+            ...(fallbackModel ? { model: fallbackModel } : {}),
+            at: fallback.at,
+          },
+        }
+      : {}),
     ...(raw.paused === true ? { paused: true } : {}),
     ...(doing && typeof doing.at === "number" && typeof doing.text === "string"
       ? { doing: { at: doing.at, text: doing.text.slice(0, 200) } }
@@ -1218,6 +1251,47 @@ export function withMember(
  * always a crew's chat, so it can never launch as an ordinary one (see
  * `crewChatPermissions`, which refuses while the crew is off).
  */
+/**
+ * The Checker runs on Claude for this session (Codex couldn't be locked down
+ * here), with `model` (a different one from the Builder's). The feed says so
+ * once; a Checker already on Claude is left as it is.
+ */
+export function withCheckerOnClaude(
+  crew: Crew,
+  model: string | undefined,
+  now: number,
+): Crew {
+  const checker = crewMember(crew, "checker");
+  if (!checker || crewMemberApp(checker).harness === "claude") return crew;
+  const name = crewMemberName(crew, "checker");
+  return withFeed(
+    withMember(crew, "checker", (member) => ({
+      ...member,
+      fallback: { harness: "claude", ...(model ? { model } : {}), at: now },
+    })),
+    {
+      at: now,
+      kind: "note",
+      who: "aven",
+      text: `${name} is checking with Claude: Codex couldn't be locked down here.`,
+    },
+  );
+}
+
+/** Every Checker back on its own app: Aven started again, Codex gets a try. */
+export function withoutFallbacks(crew: Crew): Crew {
+  if (!crew.members.some((member) => member.fallback)) return crew;
+  return {
+    ...crew,
+    members: crew.members.map((member) => {
+      if (!member.fallback) return member;
+      const rest = { ...member };
+      delete rest.fallback;
+      return rest;
+    }),
+  };
+}
+
 function chats(): Map<string, [string, CrewRole]> {
   read();
   if (chatIndex) return chatIndex;

@@ -469,3 +469,76 @@ describe("crew controls", () => {
     });
   });
 });
+
+describe("a check that failed because Codex couldn't be locked down", () => {
+  it("goes again on Try again, with the Checker on Claude", async () => {
+    const [board] = await addFeatureCards(PATH, [
+      { title: "Dark mode", column: "building" },
+    ]);
+    let card = startCard(
+      queueCard(
+        {
+          id: board.id,
+          title: "Dark mode",
+          brief: "x",
+          from: "you",
+          maxRounds: 3,
+        },
+        1,
+      ),
+      2,
+    );
+    card = afterBuild(
+      { ...card, base: "base-1" },
+      {
+        handoff: { summary: "Done", howToCheck: [], ran: [] },
+        change: {
+          base: "base-1",
+          hash: "h",
+          files: 1,
+          additions: 1,
+          deletions: 0,
+          paths: [],
+        },
+        now: 3,
+      },
+    ).card;
+    // As the user's card failed in the earlier build's words.
+    card = {
+      ...card,
+      stage: "stuck",
+      holder: "checker",
+      stuck: {
+        reason: "failed",
+        text: "Owl's turn didn't finish: Codex couldn't start with its tools switched off (plugin github@openai-curated, plugin codex-app-tools@openai-bundled)",
+      },
+    };
+    updateCrew(PATH, (crew) =>
+      withCard(
+        {
+          ...crew,
+          on: true,
+          members: [
+            { role: "builder", model: "claude:opus" },
+            { role: "checker", harness: "codex", model: "codex:gpt" },
+          ],
+        },
+        card,
+      ),
+    );
+    resumeCrewCard(PATH, board.id, undefined, NOON);
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, board.id)).toMatchObject({
+      stage: "checking",
+      holder: "checker",
+      round: 1,
+    });
+    expect(
+      crew.members.find((member) => member.role === "checker")?.fallback
+        ?.harness,
+    ).toBe("claude");
+    expect(
+      crew.feed.some((entry) => entry.text.includes("checking with Claude")),
+    ).toBe(true);
+  });
+});

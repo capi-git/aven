@@ -48,6 +48,7 @@ import {
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
+import { CODEX_TOOLS_OPEN, shortList } from "./codexLockdown";
 import {
   launchRefusal,
   permissionRulesKey,
@@ -421,12 +422,18 @@ export function enabledPlugins(response: unknown): string[] {
   return enabledEntries(asRecord(asRecord(response)?.config)?.plugins);
 }
 
-const codexName = (name: string) => /^[A-Za-z0-9_-]+$/.test(name);
+/**
+ * Whether Codex's `-c` can name it. Its key parser splits on every dot and
+ * keeps quotes as part of the name, so a name is written bare: `@`, `-` and
+ * the like are fine (`github@openai-curated`), a dot, quote, space or `=`
+ * isn't. Such a name stays on, and a closed chat then can't start (see
+ * `ensureLive`).
+ */
+const codexName = (name: string) => /^[^.=\s"'[\]]+$/.test(name);
 
 /**
- * `-c mcp_servers.<name>.enabled=false` for each server Codex can name. A
- * name it can't (odd characters) stays on, and the chat then refuses to
- * start (see `ensureLive`). Exported for tests.
+ * `-c mcp_servers.<name>.enabled=false` for each server Codex can name.
+ * Exported for tests.
  */
 export function codexMcpOffArgs(names: Iterable<string>): string[] {
   return [...names]
@@ -435,10 +442,26 @@ export function codexMcpOffArgs(names: Iterable<string>): string[] {
 }
 
 /**
+ * Features that hand an agent tools beyond reading files and running
+ * commands: apps, plugins (all of them, bundled ones included), remote
+ * plugins, tool suggestions, and browser and computer use.
+ */
+const TOOL_FEATURES = [
+  "apps",
+  "plugins",
+  "remote_plugin",
+  "tool_suggest",
+  "browser_use",
+  "browser_use_external",
+  "computer_use",
+  "in_app_browser",
+];
+
+/**
  * Everything that could give a closed chat (a crew's Checker) a tool beyond
  * reading the copy, switched off: web search, apps and their instructions,
- * remote plugins and tool suggestions, each known MCP server and plugin.
- * Exported for tests.
+ * plugins, browser and computer use, and each known MCP server and plugin
+ * by name too. Exported for tests.
  */
 export function codexClosedToolArgs(
   servers: Iterable<string>,
@@ -447,12 +470,7 @@ export function codexClosedToolArgs(
   return [
     "-c",
     'web_search="disabled"',
-    "-c",
-    "features.apps=false",
-    "-c",
-    "features.remote_plugin=false",
-    "-c",
-    "features.tool_suggest=false",
+    ...TOOL_FEATURES.flatMap((feature) => ["-c", `features.${feature}=false`]),
     "-c",
     "include_apps_instructions=false",
     ...codexMcpOffArgs(servers),
@@ -464,7 +482,9 @@ export function codexClosedToolArgs(
 
 /**
  * What a `config/read` response still has open for a chat that must run
- * with its tools closed: empty when everything is off. Exported for tests.
+ * with its tools closed: empty when everything is off. With the plugins
+ * feature off, no plugin loads whatever its own entry says. Exported for
+ * tests.
  */
 export function codexOpenTools(response: unknown): string[] {
   const config = asRecord(asRecord(response)?.config);
@@ -473,11 +493,12 @@ export function codexOpenTools(response: unknown): string[] {
   const open: string[] = [];
   if (config?.web_search !== "disabled" || tools?.web_search === true)
     open.push("web search");
-  for (const feature of ["apps", "remote_plugin", "tool_suggest"])
+  for (const feature of TOOL_FEATURES)
     if (features && feature in features && features[feature] !== false)
       open.push(feature);
   open.push(...enabledMcpServers(response).map((name) => `MCP ${name}`));
-  open.push(...enabledPlugins(response).map((name) => `plugin ${name}`));
+  if (features?.plugins !== false)
+    open.push(...enabledPlugins(response).map((name) => `plugin ${name}`));
   return open;
 }
 
@@ -505,8 +526,14 @@ async function ensureLive(
     if (!(error instanceof ToolsStillOpen)) throw error;
     // Its servers and plugins are known now: start once more with each off.
     if (!retried) return ensureLive(input, true);
+    const open = error.message.split(", ").filter(Boolean);
+    // The whole list for the Details pane; a short one for the chat and card.
+    logError(
+      "Codex",
+      new Error(`Tools Codex kept on for a closed chat: ${open.join(", ")}`),
+    );
     throw new Error(
-      `Codex couldn't start with its tools switched off (${error.message}), so this chat didn't start.`,
+      `${CODEX_TOOLS_OPEN}: ${shortList(open)} stayed on, so this chat didn't start.`,
     );
   }
 }

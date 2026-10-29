@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
+import { claudeCheckerModel } from "./crewModels";
+import { isCodexToolsOpen } from "./harness/codexLockdown";
 import {
   changedAfterCheck,
   markApplied,
@@ -20,6 +22,7 @@ import {
   withCard,
   withFeed,
   withIdea,
+  withCheckerOnClaude,
   withMember,
   withNote,
   withoutCard,
@@ -299,10 +302,21 @@ export function resumeCrewCard(
   note?: string,
   now = Date.now(),
 ) {
-  updateCrew(path, (crew) => {
-    const card = crewCard(crew, cardId);
+  updateCrew(path, (current) => {
+    let crew = current;
+    let card = crewCard(crew, cardId);
     if (!card || (card.stage !== "stuck" && card.stage !== "ready"))
       return crew;
+    // A check that failed because Codex couldn't be locked down here goes
+    // again with the Checker on Claude: never on an unlocked Codex.
+    if (
+      card.stuck?.reason === "failed" &&
+      card.holder === "checker" &&
+      isCodexToolsOpen(card.stuck.text)
+    ) {
+      crew = withCheckerOnClaude(crew, claudeCheckerModel(crew), now);
+      card = crewCard(crew, cardId)!;
+    }
     const resumed = withInboxResolved(
       resumeCard(card, { note, now }),
       "done",

@@ -27,13 +27,20 @@ function effectiveConfig(args: string[]) {
   } = {
     sqlite_home: "/aven/codex-home",
     web_search: null,
-    features: { remote_plugin: true, tool_suggest: true },
+    features: { plugins: true, remote_plugin: true, tool_suggest: true },
     mcp_servers: { github: { url: "https://mcp.example" } },
-    plugins: { demo: { enabled: true } },
+    // Names as the user's Codex has them: `@` and all, one with a dot.
+    plugins: {
+      "github@openai-curated": { enabled: true },
+      "browser@openai-bundled": { enabled: true },
+      "anthropic-skills@claude-cowork": { enabled: true },
+      "odd.name@x": { enabled: true },
+    },
   };
   if (!honoursOverrides) return { config };
   for (let index = 0; index < args.length - 1; index += 1) {
     if (args[index] !== "-c") continue;
+    // Codex's own parser: split on every dot, quotes kept as part of a name.
     const [key, value] = args[index + 1]!.split("=");
     const path = key!.split(".");
     if (path[0] === "web_search") config.web_search = JSON.parse(value!);
@@ -97,6 +104,7 @@ vi.mock("./child", () => ({
 
 const {
   codexClosedToolArgs,
+  codexMcpOffArgs,
   codexOpenTools,
   sendCodexTurn,
   stopCodexSession,
@@ -149,23 +157,40 @@ describe("a closed Codex chat", () => {
     // reported them on; Aven started again with each switched off.
     expect(spawns).toHaveLength(2);
     expect(spawns[1]).toEqual([
-      ...codexClosedToolArgs(["github"], ["demo"]),
+      ...codexClosedToolArgs(
+        ["github"],
+        [
+          "github@openai-curated",
+          "browser@openai-bundled",
+          "anthropic-skills@claude-cowork",
+          "odd.name@x",
+        ],
+      ),
       "app-server",
     ]);
     expect(spawns[1]).toEqual(
       expect.arrayContaining([
         'web_search="disabled"',
         "features.apps=false",
+        "features.plugins=false",
         "features.remote_plugin=false",
+        "features.computer_use=false",
         "mcp_servers.github.enabled=false",
-        "plugins.demo.enabled=false",
+        // Bare, as Codex's -c parser reads them: quotes would be part of the name.
+        "plugins.github@openai-curated.enabled=false",
+        "plugins.anthropic-skills@claude-cowork.enabled=false",
       ]),
     );
+    // A name with a dot can't be written for -c; the plugins switch covers it.
+    expect(spawns[1]!.join(" ")).not.toContain("odd.name");
   });
 
   it("refuses to start when Codex keeps a tool on", async () => {
     honoursOverrides = false;
-    await expect(turn()).rejects.toThrow(/web search/);
+    const error = await turn().catch((reason: Error) => reason);
+    expect(String(error)).toMatch(
+      /Codex couldn't be locked down here: web search, plugins, remote_plugin and \d+ more stayed on, so this chat didn't start\./,
+    );
     expect(spawns).toHaveLength(2);
   });
 
@@ -184,6 +209,31 @@ describe("a closed Codex chat", () => {
     const after = spawns.length;
     await turn();
     expect(spawns.length).toBe(after);
+  });
+});
+
+describe("naming plugins and servers for Codex", () => {
+  it("writes names bare, and skips any its -c can't hold", () => {
+    expect(
+      codexMcpOffArgs(["github", "my server", "a.b", 'q"x', "x@y"]),
+    ).toEqual([
+      "-c",
+      "mcp_servers.github.enabled=false",
+      "-c",
+      "mcp_servers.x@y.enabled=false",
+    ]);
+  });
+
+  it("counts no plugin as open while the plugins switch is off", () => {
+    expect(
+      codexOpenTools({
+        config: {
+          web_search: "disabled",
+          features: { plugins: false },
+          plugins: { "github@openai-curated": { enabled: true } },
+        },
+      }),
+    ).toEqual([]);
   });
 });
 
