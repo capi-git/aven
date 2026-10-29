@@ -49,8 +49,10 @@ pub(crate) fn smoke_dir() -> Option<PathBuf> {
 
 /// Whether Aven runs in one of Aven Dev's throwaway profiles (the real-app
 /// check, the speed test or the iPhone check), whose home has no keychain.
-/// Chromium then keeps its encryption key out of the keychain: otherwise it
-/// waits for macOS to ask where to make one, and no page ever loads.
+/// Chromium then keeps its encryption key out of the keychain (otherwise it
+/// waits for macOS to ask where to make one, and no page ever loads), and
+/// posts no system notifications, so its Alerts helper never asks macOS for
+/// permission to post them.
 #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 pub(crate) fn throwaway_profile() -> bool {
     smoke_dir().is_some()

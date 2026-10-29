@@ -746,8 +746,9 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
                 "devUrl": app.config().build.dev_url.as_ref().map(Url::as_str),
                 "lowMemory": LOW_MEMORY.load(Ordering::Acquire),
                 "layoutTrace": layout_trace::enabled(),
-                // Aven Dev's checks run under a home with no keychain.
-                "mockKeychain": crate::dev_smoke::throwaway_profile(),
+                // Aven Dev's checks: a home with no keychain, and no
+                // notification prompts for a bundle macOS has not seen.
+                "throwawayProfile": crate::dev_smoke::throwaway_profile(),
             })
             .to_string(),
         )?;

@@ -9,6 +9,12 @@ check under a throwaway home. The page is hidden in a window that is never
 shown; nothing takes the Dock, the menu bar or the keyboard, no keychain item
 is read or written, and the folder is removed afterwards.
 
+The bundle never asks macOS for permission to post notifications, which
+would prompt the person about it: its Chromium starts no system
+notifications (the throwaway profile's switch), the check refuses any
+request its own process makes, and the Alerts helper, which would ask, is a
+sentinel that only notes being launched. Each fails the check.
+
     ./scripts/with-dev-env.sh python3 scripts/check-chromium-loads.py
 """
 from contextlib import contextmanager
@@ -17,6 +23,7 @@ import http.server
 import os
 from pathlib import Path
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -26,7 +33,14 @@ import threading
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = 'supermono_chromium_browser_load_signals_test'
 APP_NAME = 'Load Check'
-HELPER_SUFFIXES = ['', ' (Alerts)', ' (GPU)', ' (Plugin)', ' (Renderer)']
+HELPERS = [('', 'plain'), (' (Alerts)', 'alerts'), (' (GPU)', 'gpu'), (' (Plugin)', 'plugin'),
+           (' (Renderer)', 'renderer')]
+# Plainly a throwaway: macOS files any permission it is ever asked for under
+# this name, never under Aven's or Aven Dev's.
+BUNDLE_ID = 'com.capi.aven.dev.throwaway.chromium-load-check'
+# Written by the Alerts helper's sentinel if Chromium launches it.
+ALERTS_LAUNCHED = 'alerts-helper-launched'
+
 PAGE = ('<!doctype html><html><head><meta charset="utf-8"><title>Aven load check</title>'
         '</head><body><h1>Aven load check</h1></body></html>\n')
 # Chromium writes this when it could not get its key from the keychain, which
@@ -69,21 +83,28 @@ def bundle(folder, build, cef_root):
     contents = app / 'Contents'
     (contents / 'MacOS').mkdir(parents=True)
     shutil.copy2(build / TARGET, contents / 'MacOS' / APP_NAME)
-    (contents / 'Info.plist').write_bytes(plist(APP_NAME, 'com.capi.aven.dev.loadcheck'))
+    (contents / 'Info.plist').write_bytes(plist(APP_NAME, BUNDLE_ID))
     frameworks = contents / 'Frameworks'
     frameworks.mkdir()
     framework = frameworks / 'Chromium Embedded Framework.framework'
     subprocess.run(['ditto', str(cef_root / 'Release/Chromium Embedded Framework.framework'),
                     str(framework)], check=True)
     helpers = []
-    for suffix in HELPER_SUFFIXES:
+    for suffix, role in HELPERS:
         name = f'{APP_NAME} Helper{suffix}'
         helper = frameworks / f'{name}.app'
-        (helper / 'Contents/MacOS').mkdir(parents=True)
-        shutil.copy2(build / 'Aven Chromium Helper', helper / 'Contents/MacOS' / name)
-        (helper / 'Contents/Info.plist').write_bytes(
-            plist(name, 'com.capi.aven.dev.loadcheck.helper'))
-        helpers.append((helper, suffix in (' (GPU)', ' (Renderer)')))
+        executable = helper / 'Contents/MacOS' / name
+        executable.parent.mkdir(parents=True)
+        if role == 'alerts':
+            # Chromium's notifications run in this helper, and the real one
+            # asks macOS for permission to post them. A sentinel only notes
+            # that Chromium launched it.
+            executable.write_text(f'#!/bin/sh\ntouch {shlex.quote(str(folder / ALERTS_LAUNCHED))}\nexit 1\n')
+            executable.chmod(0o755)
+        else:
+            shutil.copy2(build / 'Aven Chromium Helper', executable)
+        (helper / 'Contents/Info.plist').write_bytes(plist(name, f'{BUNDLE_ID}.helper.{role}'))
+        helpers.append((helper, role in ('gpu', 'renderer')))
     subprocess.run(['xattr', '-cr', str(app)], check=True)
     sign = ['codesign', '--force', '--sign', '-', '--options', 'runtime', '--timestamp=none']
     for path in sorted(framework.rglob('*'), key=lambda p: len(p.parts), reverse=True):
@@ -143,8 +164,12 @@ def main():
         steps.append(('PASS' if keychain else 'FAIL') + '  Chromium uses its stand-in key - '
                      + ('encryption worked without the keychain' if keychain
                         else 'it went to the keychain, which the throwaway home does not have'))
+        alerts = not (folder / ALERTS_LAUNCHED).exists()
+        steps.append(('PASS' if alerts else 'FAIL') + '  Chromium never starts its notifications helper - '
+                     + ('its Alerts helper was never launched' if alerts
+                        else 'it launched the Alerts helper, which asks macOS to post notifications'))
         print('\n'.join(steps))
-        passed = keychain and done.returncode == 0 and 'PASSED' in lines
+        passed = keychain and alerts and done.returncode == 0 and 'PASSED' in lines
         if not passed and done.returncode != 0:
             print(done.stdout[-4000:], file=sys.stderr)
         print('PASSED' if passed else 'FAILED')

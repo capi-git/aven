@@ -65,9 +65,10 @@ sm_chromium_event_cb event_callback = nullptr;
 void *event_context = nullptr;
 std::string last_error, cache_root, download_root, dev_origin;
 bool low_memory=false;
-// A throwaway profile (Aven Dev's checks) keeps its encryption key out of the
-// login keychain; see OnBeforeCommandLineProcessing.
-bool mock_keychain=false;
+// A throwaway profile (Aven Dev's checks, the bridge's live check) keeps its
+// encryption key out of the login keychain and posts no system notifications;
+// see OnBeforeCommandLineProcessing.
+bool throwaway_profile=false;
 // Window content view -> how far the workspace's floating sidebar covers live
 // pages from the workspace's left edge, in points (floating_sidebar.mm).
 std::map<void*, double> sidebar_edges;
@@ -323,10 +324,16 @@ class Application final : public CefApp, public CefBrowserProcessHandler {
     // default keychain, so macOS asks where to make one and Chromium waits
     // for an answer: on a runner nobody gives one, and no page ever loads.
     // A throwaway profile uses Chromium's fixed stand-in key instead.
-    if (mock_keychain) command_line->AppendSwitch("use-mock-keychain");
+    if (throwaway_profile) command_line->AppendSwitch("use-mock-keychain");
     std::string disabled=command_line->HasSwitch("disable-features") ? command_line->GetSwitchValue("disable-features").ToString() : "";
     if (!disabled.empty()) disabled+=",";
     disabled+="SpareRendererForSitePerProcess";
+    // Within seconds of starting, Chromium launches its Alerts helper, which
+    // asks macOS for permission to post notifications: for a bundle macOS
+    // has not seen (a fresh runner's, or a throwaway check bundle's) the
+    // person gets a prompt. A throwaway profile posts no system
+    // notifications, so its Alerts helper never starts.
+    if (throwaway_profile) disabled+=",NativeNotifications,SystemNotifications";
     command_line->AppendSwitchWithValue("disable-features",disabled);
   }
  private:
@@ -2421,7 +2428,7 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
     if (![NSFileManager.defaultManager createDirectoryAtPath:cache withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&directory_error]) return Fail("Chromium profile directory is not writable");
     cache_root=Str(cache.stringByStandardizingPath); download_root=Str(string(@"downloadPath")); dev_origin=Origin([NSURL URLWithString:string(@"devUrl")]);
     { id flag=config[@"lowMemory"]; low_memory=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
-    { id flag=config[@"mockKeychain"]; mock_keychain=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
+    { id flag=config[@"throwawayProfile"]; throwaway_profile=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
     // Only the Rust debug build can enable the private bounded trace writer.
     { id flag=config[@"layoutTrace"]; layout_trace=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
     CefSettings settings; settings.no_sandbox=false; settings.external_message_pump=true; settings.multi_threaded_message_loop=false; settings.command_line_args_disabled=true;

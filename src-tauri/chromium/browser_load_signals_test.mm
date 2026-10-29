@@ -6,10 +6,16 @@
 // The page lives in a window that is never shown, laid out hidden, as an
 // agent's background page is. Its reloads and navigations must each report a
 // committed document (loadsCommitted) and an ended load (loadsSettled) within
-// a fraction of a second, and Chromium must not wait on the keychain.
+// a fraction of a second. Chromium must not wait on the keychain, and must not
+// ask macOS for permission to post notifications (which would prompt the
+// person about this throwaway app): not in this process, and not through its
+// Alerts helper, whose slot the runner fills with a sentinel.
 #import <Cocoa/Cocoa.h>
 #import <Security/Security.h>
+#import <UserNotifications/UserNotifications.h>
+#import <objc/runtime.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -31,6 +37,14 @@ struct Load {
 std::mutex state_lock;
 Load state;
 int failures = 0;
+
+// Every request this process makes for permission to post notifications.
+// None may reach macOS: each would ask the person about a throwaway app.
+std::atomic<int> notification_requests{0};
+void RefuseNotificationRequest(id, SEL, UNAuthorizationOptions, void (^done)(BOOL, NSError *)) {
+  ++notification_requests;
+  if (done) dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ done(NO, nil); });
+}
 
 Load Read() {
   std::lock_guard<std::mutex> guard(state_lock);
@@ -121,6 +135,12 @@ int main(int argc, char **argv) {
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     SecKeychainSetUserInteractionAllowed(false);
 #pragma clang diagnostic pop
+    // Nor a notification prompt: Chromium's own requests are counted here and
+    // refused without asking macOS. The runner bundles no real Alerts helper.
+    method_setImplementation(
+        class_getInstanceMethod(UNUserNotificationCenter.class,
+                                @selector(requestAuthorizationWithOptions:completionHandler:)),
+        (IMP)RefuseNotificationRequest);
     NSString *base = @(argv[1]);
     NSString *cache = @(argv[2]);
     [NSApplication sharedApplication];
@@ -135,7 +155,7 @@ int main(int argc, char **argv) {
       @"downloadPath" : cache,
       @"devUrl" : @"",
       // As Aven Dev's checks do under their throwaway home.
-      @"mockKeychain" : @YES,
+      @"throwawayProfile" : @YES,
     };
     NSData *json = [NSJSONSerialization dataWithJSONObject:config options:0 error:nil];
     NSString *text = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
@@ -184,6 +204,10 @@ int main(int argc, char **argv) {
                [NSString stringWithFormat:@"{\"action\":\"navigate\",\"url\":\"%s\"}", fragment.c_str()], fragment);
         }
       }
+      // Chromium launches its Alerts helper within seconds of starting.
+      usleep(2000000);
+      Report(notification_requests == 0, "Chromium asks for no notification permission",
+             std::to_string(notification_requests.load()) + " requests in Aven's process");
       OnMain(^{ sm_chromium_shutdown(); });
       // Shutdown finishes on the main thread; give it a moment, then report.
       usleep(1000000);
