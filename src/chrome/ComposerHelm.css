@@ -376,6 +376,9 @@ html.theme-light .composer-helm {
   bottom: calc(100% + 16px);
   z-index: 40;
   width: min(324px, calc(100cqw - 16px));
+  /* The unfurl sets the frame's size in a few held steps: keep that layout
+     to the dialog. */
+  contain: layout;
 }
 .helm-dialog-frame {
   overflow: hidden;
