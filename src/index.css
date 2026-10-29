@@ -462,7 +462,14 @@ html.theme-light .composer-send:disabled {
   color: color-mix(in srgb, var(--color-background-base) 75%, transparent);
 }
 
+/* The field and its painted overlay share one box: a block, so the field
+   sits on no line of its wrapper (an inline-block textarea stands on the
+   wrapper's baseline with a descender gap under it, which made the overlay
+   taller than the field), and it never rubber-bands its words away from
+   the overlay. */
 .composer-field {
+  display: block;
+  overscroll-behavior: none;
   color: transparent;
   caret-color: var(--color-content);
   -webkit-text-fill-color: transparent;
