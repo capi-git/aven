@@ -4351,6 +4351,8 @@ describe("native preview lifecycle", () => {
       edge: "right",
       kind: "tab",
       title: "Example",
+      // The interface zoom, so native draws the preview's edge and corner.
+      zoom: 1,
     });
     const stage = container.querySelector("[data-workspace-stage]")!;
     await act(async () => {

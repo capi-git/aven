@@ -94,7 +94,8 @@ export const frame = () =>
     pause(100),
   ]);
 
-async function mouse(kind: "down" | "drag" | "up", at: Point) {
+/** One press, move or release of the Mac's own mouse at `at`, client pixels. */
+export async function smokeMouse(kind: "down" | "drag" | "up", at: Point) {
   await invoke("dev_smoke_pointer", {
     kind,
     x: at.x,
@@ -111,16 +112,16 @@ async function mouse(kind: "down" | "drag" | "up", at: Point) {
  * wherever it got to if a move fails, so no press is left held.
  */
 async function drag(from: Point, path: readonly Point[]) {
-  await mouse("down", from);
+  await smokeMouse("down", from);
   let at = from;
   try {
     for (const point of path) {
-      await mouse("drag", point);
+      await smokeMouse("drag", point);
       at = point;
     }
     await pause(80);
   } finally {
-    await mouse("up", at);
+    await smokeMouse("up", at);
   }
 }
 

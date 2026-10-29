@@ -6,6 +6,7 @@ import {
   createDropIndicatorPresenter,
   normalizeDropIndicator,
   parseDropColor,
+  readDropRadius,
   useBrowserDropIndicator,
   WORKSPACE_DROP_FEEDBACK,
 } from "./useBrowserDropIndicator";
@@ -123,6 +124,77 @@ describe("native drop feedback", () => {
       shell.remove();
     }
     expect(native.present).toHaveBeenLastCalledWith("themed-browser", null);
+  });
+
+  it("draws the native preview with the HTML preview's corner, at the interface zoom", async () => {
+    expect(
+      readDropRadius({
+        borderTopLeftRadius: "6px",
+        borderTopRightRadius: "6px",
+        borderBottomRightRadius: "4px",
+        borderBottomLeftRadius: "6px",
+      }),
+    ).toBe(4);
+    expect(
+      readDropRadius({
+        borderTopLeftRadius: "200px",
+        borderTopRightRadius: "200px",
+        borderBottomRightRadius: "200px",
+        borderBottomLeftRadius: "200px",
+      }),
+    ).toBe(64);
+    native.present.mockClear();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (key === "monocode.uiScale" ? "0.8" : null),
+    });
+    const shell = document.createElement("div");
+    shell.innerHTML =
+      '<div data-workspace-stage><div data-workspace-body><div data-browser></div><div data-workspace-drop-hint data-drop-edge="right" data-drop-kind="tab" data-drop-title="Docs"></div></div></div>';
+    document.body.append(shell);
+    const hint = shell.querySelector<HTMLElement>(
+      "[data-workspace-drop-hint]",
+    )!;
+    hint.getBoundingClientRect = () => new DOMRect(500, 100, 300, 400);
+    const realStyle = globalThis.getComputedStyle;
+    const style = vi
+      .spyOn(globalThis, "getComputedStyle")
+      .mockImplementation((element) =>
+        element === hint
+          ? ({
+              borderTopColor: "rgb(200, 200, 200)",
+              backgroundColor: "rgba(255, 255, 255, 0.06)",
+              outlineColor: "rgba(20, 20, 20, 0.9)",
+              borderTopLeftRadius: "6px",
+              borderTopRightRadius: "6px",
+              borderBottomRightRadius: "6px",
+              borderBottomLeftRadius: "6px",
+            } as CSSStyleDeclaration)
+          : realStyle(element),
+      );
+    const host = {
+      current: shell.querySelector<HTMLElement>("[data-browser]")!,
+    };
+    const mount = document.createElement("div");
+    document.body.append(mount);
+    const root = createRoot(mount);
+    function Harness() {
+      useBrowserDropIndicator(host, "shaped-browser", true);
+      return null;
+    }
+    try {
+      await act(async () => root.render(createElement(Harness)));
+      expect(native.present.mock.calls[0][1]).toMatchObject({
+        edge: "right",
+        radius: 6,
+        zoom: 0.8,
+      });
+    } finally {
+      await act(async () => root.unmount());
+      style.mockRestore();
+      vi.unstubAllGlobals();
+      mount.remove();
+      shell.remove();
+    }
   });
 
   it("clips the target to its native viewport without depending on pixel scale", () => {
