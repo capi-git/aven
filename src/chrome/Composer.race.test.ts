@@ -89,7 +89,7 @@ async function render() {
 const plusButton = () =>
   container.querySelector<HTMLButtonElement>("[data-helm-critter]")!;
 const plusMenu = () =>
-  container.querySelector<HTMLElement>("[data-composer-plus]");
+  document.body.querySelector<HTMLElement>("[data-composer-plus]");
 const raceEntry = () =>
   plusMenu()?.querySelector<HTMLButtonElement>("[data-composer-race]") ?? null;
 const chip = () => container.querySelector<HTMLElement>("[data-race-chip]");
@@ -116,7 +116,7 @@ async function openPlus() {
   if (plusMenu()) return;
   await act(async () => plusButton().click());
   await act(async () =>
-    container
+    document.body
       .querySelector<HTMLButtonElement>('[data-helm-row="modes"]')!
       .click(),
   );
@@ -291,7 +291,7 @@ it("hides Race when the chat does not offer it, and the agent panel has none", a
   // The Model row opens the agent's panel: Race is not in it.
   await act(async () => plusButton().click());
   await act(async () =>
-    container
+    document.body
       .querySelector<HTMLButtonElement>('[data-helm-row="model"]')!
       .click(),
   );

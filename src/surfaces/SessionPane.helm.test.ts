@@ -128,7 +128,7 @@ describe("a chat's message box and its helm", () => {
         .click(),
     );
   const rows = () =>
-    [...container.querySelectorAll<HTMLElement>("[data-helm-row]")].map(
+    [...document.body.querySelectorAll<HTMLElement>("[data-helm-row]")].map(
       (row) => row.dataset.helmRow,
     );
 
@@ -222,12 +222,12 @@ describe("a chat's message box and its helm", () => {
     await render({}, { discussion });
     await openHelm();
     await act(async () =>
-      container
+      document.body
         .querySelector<HTMLButtonElement>('[data-helm-row="modes"]')!
         .click(),
     );
     expect(
-      container.querySelector("[data-composer-discuss]")?.textContent,
+      document.body.querySelector("[data-composer-discuss]")?.textContent,
     ).toContain("Discuss");
   });
 });

@@ -12,7 +12,9 @@
   padding-top: var(--helm-perch);
 }
 
-.composer-helm {
+/* The helm's tokens, shared by the perch and its dialog (in a portal). */
+.composer-helm,
+.helm-dialog {
   --helm-ink: var(--color-content);
   --helm-muted: color-mix(in srgb, var(--color-content) 52%, transparent);
   --helm-quiet: color-mix(in srgb, var(--color-content) 40%, transparent);
@@ -84,6 +86,12 @@
     2px 2px,
     4px 2px
   );
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--helm-ink);
+}
+.composer-helm {
   position: absolute;
   inset: 0 0 auto;
   z-index: 25;
@@ -94,12 +102,9 @@
   padding: 0 14px 0 10px;
   container: composer-helm / inline-size;
   pointer-events: none;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--helm-ink);
 }
-html.theme-light .composer-helm {
+html.theme-light .composer-helm,
+html.theme-light .helm-dialog {
   --helm-fill: color-mix(in srgb, var(--personal-main-surface, #fff) 92%, #fff);
   --helm-edge: color-mix(
     in srgb,
@@ -116,7 +121,8 @@ html.theme-light .composer-helm {
   flex: 1 1 0;
   pointer-events: none;
 }
-.composer-helm :focus-visible {
+.composer-helm :focus-visible,
+.helm-dialog :focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-content));
   outline-offset: 1px;
 }
@@ -375,18 +381,25 @@ html.theme-light .composer-helm {
 }
 
 /* ---- the dialog ---------------------------------------------------------- */
+/* A popover in a portal, placed above the critter (ComposerHelm): its
+   height is capped to the room above, and the body scrolls in what is
+   left. The unfurl is its own; the popover's fade is left out. */
 .helm-dialog {
-  position: absolute;
-  right: -10px;
-  /* Clear of the room bar, so the tail points at the critter over it. */
-  bottom: calc(100% + 22px);
-  z-index: 40;
-  width: min(324px, calc(100cqw - 16px));
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   /* The unfurl sets the frame's size in a few held steps: keep that layout
      to the dialog. */
   contain: layout;
 }
+.helm-dialog.popover-open {
+  animation: none;
+}
 .helm-dialog-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: hidden;
   margin-left: auto;
   padding: 2px;
@@ -395,15 +408,22 @@ html.theme-light .composer-helm {
   box-sizing: border-box;
 }
 .helm-dialog-body {
-  overflow: hidden;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   padding: 8px 10px 9px 8px;
   background: var(--helm-fill);
   clip-path: var(--helm-pixel-inner);
 }
+.helm-dialog-body::-webkit-scrollbar {
+  display: none;
+}
 /* The tail points down at the critter's head. */
 .helm-dialog-tail {
   position: absolute;
-  right: 21px;
+  right: 11px;
   bottom: -7px;
   width: 14px;
   height: 8px;
@@ -475,6 +495,15 @@ html.theme-light .composer-helm {
 }
 .helm-row:focus-visible {
   outline-offset: -2px;
+}
+/* A recent skill: its name, then what it does, cut short at the edge. */
+.helm-row-skill {
+  grid-template-columns: 12px auto minmax(0, 1fr);
+}
+.helm-row-skill .helm-aside {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 .helm-row-rich {
   grid-template-columns: 12px 18px minmax(0, 1fr) auto;

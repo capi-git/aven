@@ -141,8 +141,12 @@ describe("one menu", () => {
   });
 
   it("leaves no popover menu with rows of its own", () => {
+    // The message box's helm draws a pixel dialog of its own, the critter's
+    // speech bubble, by design; every other menu shares these rows.
+    const ownLook = new Set(["src/chrome/ComposerHelm.tsx"]);
     const own = tracked("src/*.tsx")
       .filter((file) => !file.includes(".test."))
+      .filter((file) => !ownLook.has(file))
       .filter((file) => {
         const source = read(file);
         return (

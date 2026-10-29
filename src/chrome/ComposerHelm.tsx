@@ -59,14 +59,16 @@ import {
 import type { Skill } from "../lib/skills";
 import {
   saveTabGroupColor,
+  saveTabGroupCustomColor,
   saveTabGroupMascot,
   TAB_GROUP_COLORS,
 } from "../lib/tabGroups";
+import { normalizeHex } from "../lib/colorUtils";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
-import { ColorSwatchRow } from "./ColorPickerPopover";
+import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
 import { HarnessIcon } from "./HarnessIcon";
 import { HelmCritter, PaperPlane } from "./HelmCritter";
 import {
@@ -86,6 +88,7 @@ import {
   Zap,
 } from "./icons";
 import { useModelPickerHotkey } from "./ModelPicker";
+import { Popover } from "./Popover";
 import { ProjectMascot } from "./ProjectMascot";
 import "./ComposerHelm.css";
 
@@ -155,6 +158,12 @@ const ROW_LABEL: Record<HelmRowId, string> = {
   skills: "Skills",
   critter: "Critter",
 };
+
+/** The dialog's width, and its distance above the critter (over its room bar). */
+const DIALOG_WIDTH = 324;
+const DIALOG_GAP = 20;
+/** The popover's own distance from the window's edges. */
+const VIEWPORT_PADDING = 8;
 
 /** Six critters to a row in the picker grid. */
 const CRITTER_COLUMNS = 6;
@@ -251,12 +260,16 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const critterRef = useRef<HTMLButtonElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [perchRef, perchWidth] = useWidth<HTMLDivElement>();
   const [opened, setOpened] = useState<Opened>(null);
   const [page, setPage] = useState<Page>("main");
   const [cursor, setCursor] = useState(0);
   const [panel, setPanel] = useState<AgentPanelFocus | null>(null);
   const [hop, setHop] = useState(0);
+  // The critter under the picker's cursor, previewed above the grid.
+  const [previewCritter, setPreviewCritter] = useState<string | null>(null);
+  const [customColorOpen, setCustomColorOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reduced = useMemo(prefersReducedMotion, []);
 
@@ -272,9 +285,10 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const critterName = inProject ? appearance.mascot : personal.mascot;
   const critterColor = inProject
     ? appearance.color
-    : personal.colorIndex != null
-      ? TAB_GROUP_COLORS[personal.colorIndex]
-      : TAB_GROUP_COLORS[0];
+    : (personal.customColor ??
+      (personal.colorIndex != null
+        ? TAB_GROUP_COLORS[personal.colorIndex]
+        : TAB_GROUP_COLORS[0]));
   const mascot = projectMascot(critterKey, critterName);
 
   // What the agent is.
@@ -403,23 +417,37 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       clearTimer();
       setOpened(null);
       setPage("main");
+      setPreviewCritter(null);
+      setCustomColorOpen(false);
       if (returnFocus) onReturnFocus();
     },
     [onReturnFocus],
   );
+  // With the agent panel open, Cmd+., Switch Model… and the critter close
+  // it and hand the keyboard back, as the old agent pill's did.
+  const closePanel = useCallback(() => {
+    setPanel(null);
+    onReturnFocus();
+  }, [onReturnFocus]);
   const toggleFromKeyboard = useCallback(() => {
-    if (opened) close(true);
+    if (panel) closePanel();
+    else if (opened) close(true);
     else {
       setCursor(0);
       setPage("main");
       setOpened("keyboard");
     }
-  }, [opened, close]);
-  useModelPickerHotkey(hotkeys && enabled, !!opened, toggleFromKeyboard);
+  }, [panel, opened, close, closePanel]);
+  useModelPickerHotkey(
+    hotkeys && enabled,
+    !!opened || !!panel,
+    toggleFromKeyboard,
+  );
 
   const scheduleOpen = () => {
-    if (opened || panel) return;
+    // Back on the critter from its dialog: stay open.
     clearTimer();
+    if (opened || panel) return;
     timer.current = setTimeout(() => open("hover"), HELM_HOVER_OPEN_MS);
   };
   const scheduleClose = () => {
@@ -438,7 +466,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   useEffect(() => {
     if (!opened) return;
     const onDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (dialogRef.current?.contains(target)) return;
       close(false);
     };
     document.addEventListener("pointerdown", onDown, true);
@@ -487,29 +517,39 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         // While a discussion runs, what you send goes to both chats.
         if (id === "modes" && modesNote) return;
         setPage(id);
-        setCursor(0);
+        // The picker opens on the critter that stands here now.
+        setCursor(
+          id === "critter"
+            ? Math.max(
+                0,
+                PROJECT_MASCOTS.findIndex((item) => item.name === mascot.name),
+              )
+            : 0,
+        );
+        setPreviewCritter(null);
+        setCustomColorOpen(false);
         setOpened((current) => (current === "hover" ? "pinned" : current));
         return;
     }
   };
 
-  // The keyboard lands on the ▶ row whenever the dialog was keyed open.
-  const focusTarget = useRef<string | null>(null);
-  useLayoutEffect(() => {
+  // The keyboard lands on the ▶ row whenever the dialog was keyed open,
+  // once the dialog is placed (a popover measures itself hidden first).
+  useEffect(() => {
     if (opened !== "keyboard" && opened !== "pinned") return;
-    const root = rootRef.current;
-    if (!root) return;
     const selector =
-      focusTarget.current ??
-      (page === "main"
+      page === "main"
         ? `[data-helm-row-index="${safeCursor}"]`
-        : `[data-helm-item-index="${cursor}"]`);
-    focusTarget.current = null;
-    root.querySelector<HTMLElement>(selector)?.focus();
+        : `[data-helm-item-index="${cursor}"]`;
+    dialogRef.current?.querySelector<HTMLElement>(selector)?.focus({
+      preventScroll: false,
+    });
   }, [opened, page, cursor, safeCursor]);
 
   const backToMain = (from: Page) => {
     setPage("main");
+    setPreviewCritter(null);
+    setCustomColorOpen(false);
     setCursor(Math.max(0, rows.indexOf(from as HelmRowId)));
   };
 
@@ -520,12 +560,15 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     setHop((value) => value + 1);
   };
   const pickColor = (index: number) => {
+    setCustomColorOpen(false);
     if (inProject) saveTabGroupColor(appearance.key, index);
-    else saveHelmCritter({ ...personal, colorIndex: index });
+    else saveHelmCritter({ ...personal, colorIndex: index, customColor: null });
     setHop((value) => value + 1);
   };
-  const [previewCritter, setPreviewCritter] = useState<string | null>(null);
-
+  const pickCustomColor = (color: string) => {
+    if (inProject) saveTabGroupCustomColor(appearance.key, color);
+    else saveHelmCritter({ ...personal, customColor: color });
+  };
   const itemCount =
     page === "modes"
       ? modes.length
@@ -579,8 +622,16 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   useLayoutEffect(() => {
     const frame = frameRef.current;
     if (!opened || !frame || reduced) return;
-    const width = frame.offsetWidth;
-    const height = frame.offsetHeight;
+    // Measured before the popover is placed, so cap it as placing will: the
+    // room above the critter, and the window's width.
+    const above = critterRef.current?.getBoundingClientRect().top;
+    const room =
+      above == null ? Infinity : above - DIALOG_GAP - VIEWPORT_PADDING;
+    const width = Math.min(
+      frame.offsetWidth,
+      window.innerWidth - VIEWPORT_PADDING * 2,
+    );
+    const height = Math.min(frame.offsetHeight, Math.max(0, room));
     if (!width || !height) return;
     const steps = helmUnfurlSteps(Math.max(width, height));
     const keyframes: Keyframe[] = [
@@ -829,7 +880,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
               key={skill.invocation}
               type="button"
               role="menuitem"
-              className="helm-row"
+              className="helm-row helm-row-skill"
               data-helm-item-index={index}
               data-active={index === cursor || undefined}
               tabIndex={index === cursor ? 0 : -1}
@@ -844,7 +895,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                 {index === cursor ? "▶" : ""}
               </span>
               <span className="helm-value helm-skill">/{skill.invocation}</span>
-              <span className="helm-aside">{skill.description ?? ""}</span>
+              <span className="helm-aside" title={skill.description}>
+                {skill.description ?? ""}
+              </span>
             </button>
           ))}
         </div>
@@ -911,12 +964,23 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                   ? appearance.customColor != null
                     ? -1
                     : (appearance.colorIndex ?? appearance.automaticColorIndex)
-                  : (personal.colorIndex ?? 0)
+                  : personal.customColor
+                    ? -1
+                    : (personal.colorIndex ?? 0)
               }
-              customColor={inProject ? appearance.customColor : null}
-              customPickerOpen={false}
+              customColor={
+                inProject ? appearance.customColor : personal.customColor
+              }
+              customPickerOpen={customColorOpen}
               onPickIndex={pickColor}
+              onToggleCustom={() => setCustomColorOpen((value) => !value)}
             />
+            {customColorOpen ? (
+              <ColorPickerPopover
+                value={normalizeHex(critterColor)}
+                onChange={pickCustomColor}
+              />
+            ) : null}
           </div>
           <p className="helm-quiet helm-critter-note">
             {inProject
@@ -952,6 +1016,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null;
         if (next && rootRef.current?.contains(next)) return;
+        if (next && dialogRef.current?.contains(next)) return;
         if (opened === "keyboard" || opened === "pinned") close(false);
       }}
     >
@@ -1005,7 +1070,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
           data-helm-critter
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
-            if (opened === "pinned" || opened === "keyboard") close(true);
+            if (panel) closePanel();
+            else if (opened === "pinned" || opened === "keyboard") close(true);
             else {
               setCursor(0);
               setPage("main");
@@ -1039,15 +1105,25 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
           />
         </button>
         {showDialog ? (
-          <div
+          // In a portal, so a short pane never clips it; always above the
+          // critter (never flipped over the words), its body scrolling when
+          // the room above is short. Inside the perch in React's tree, so
+          // moving between the critter and the dialog is not leaving.
+          <Popover
+            anchor={critterRef}
+            side="top"
+            align="end"
+            gap={DIALOG_GAP}
+            width={DIALOG_WIDTH}
+            flip={false}
+            bare
+            ref={dialogRef}
             id={dialogId}
             className="helm-dialog"
             role="dialog"
             aria-label="Message settings"
             data-helm-dialog
             data-page={page}
-            // Inside the perch: leaving the dialog for the critter is not
-            // leaving the helm.
             onPointerEnter={() => clearTimer()}
             onKeyDown={onDialogKey}
           >
@@ -1063,7 +1139,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
               </div>
             </div>
             <span className="helm-dialog-tail" aria-hidden />
-          </div>
+          </Popover>
         ) : null}
       </div>
       {panel ? (

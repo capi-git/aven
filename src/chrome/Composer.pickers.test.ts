@@ -134,16 +134,16 @@ async function openSkills(): Promise<boolean> {
   const critter = container.querySelector<HTMLButtonElement>(
     "[data-helm-critter]",
   )!;
-  if (!container.querySelector("[data-helm-dialog]"))
+  if (!document.body.querySelector("[data-helm-dialog]"))
     await act(async () => critter.click());
-  const row = container.querySelector<HTMLButtonElement>(
+  const row = document.body.querySelector<HTMLButtonElement>(
     '[data-helm-row="skills"]',
   );
   if (row) await act(async () => row.click());
   return !!row;
 }
 async function closeHelm() {
-  if (container.querySelector("[data-helm-dialog]"))
+  if (document.body.querySelector("[data-helm-dialog]"))
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-helm-critter]")!
@@ -153,7 +153,7 @@ async function closeHelm() {
 async function chips(): Promise<(string | null)[]> {
   const shown = (await openSkills())
     ? [
-        ...container.querySelectorAll<HTMLElement>(
+        ...document.body.querySelectorAll<HTMLElement>(
           '[aria-label="Recent skills"] [data-helm-item-index] .helm-value',
         ),
       ].map((item) => item.textContent)
@@ -164,7 +164,7 @@ async function chips(): Promise<(string | null)[]> {
 async function chip(label: string): Promise<HTMLButtonElement> {
   await openSkills();
   return [
-    ...container.querySelectorAll<HTMLButtonElement>(
+    ...document.body.querySelectorAll<HTMLButtonElement>(
       '[aria-label="Recent skills"] [data-helm-item-index]',
     ),
   ].find((item) => item.querySelector(".helm-value")?.textContent === label)!;

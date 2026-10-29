@@ -301,6 +301,8 @@ export type HelmCritterChoice = {
   mascot: string;
   /** Index into `TAB_GROUP_COLORS`, or null for the neutral default. */
   colorIndex: number | null;
+  /** A colour picked by hand (hex), which wins over `colorIndex`. */
+  customColor?: string | null;
 };
 
 /** Outside a project the helm shows this until you choose another. */
@@ -320,12 +322,16 @@ export function loadHelmCritter(): HelmCritterChoice {
       typeof (parsed as HelmCritterChoice).mascot === "string"
     ) {
       const index = (parsed as HelmCritterChoice).colorIndex;
+      const custom = (parsed as HelmCritterChoice).customColor;
       return {
         mascot: (parsed as HelmCritterChoice).mascot,
         colorIndex:
           typeof index === "number" && Number.isInteger(index) && index >= 0
             ? index
             : null,
+        ...(typeof custom === "string" && /^#[0-9a-f]{6}$/i.test(custom)
+          ? { customColor: custom }
+          : {}),
       };
     }
   } catch {

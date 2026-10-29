@@ -178,10 +178,10 @@ async function click(element: Element | null | undefined) {
 /** The + menu's modes, now a page of the critter's dialog. */
 async function openPlus() {
   await click(container.querySelector("[data-helm-critter]"));
-  await click(container.querySelector('[data-helm-row="modes"]'));
+  await click(document.body.querySelector('[data-helm-row="modes"]'));
 }
 const discussItem = () =>
-  container.querySelector<HTMLButtonElement>("[data-composer-discuss]");
+  document.body.querySelector<HTMLButtonElement>("[data-composer-discuss]");
 async function turnOn() {
   await openPlus();
   await click(discussItem());
@@ -196,7 +196,7 @@ describe("Discuss mode in the composer", () => {
     expect(item.textContent).toContain("Discuss");
     expect(item.getAttribute("aria-checked")).toBe("false");
     const modes = [
-      ...container.querySelectorAll(
+      ...document.body.querySelectorAll(
         "[data-composer-plus] [role=menuitemcheckbox]",
       ),
     ].map((button) => button.textContent ?? "");
@@ -204,7 +204,7 @@ describe("Discuss mode in the composer", () => {
       modes.findIndex((text) => text.startsWith("Discuss")) - 1,
     );
     await click(item);
-    expect(container.querySelector("[data-composer-plus]")).toBeNull();
+    expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
     // A new chat with the best other agent, with three rounds.
     expect(chipLabel()).toBe("Discuss with new Claude chat · 3 rounds");
     expect(
@@ -419,7 +419,7 @@ describe("Discuss mode in the composer", () => {
     await turnOn();
     await openPlus();
     const plan = [
-      ...container.querySelectorAll<HTMLButtonElement>(
+      ...document.body.querySelectorAll<HTMLButtonElement>(
         "[data-composer-plus] [role=menuitemcheckbox]",
       ),
     ].find((button) => button.textContent?.includes("Plan mode"))!;
@@ -546,11 +546,11 @@ describe("the message box while this chat's discussion runs", () => {
     await render();
     await openPlus();
     // The modes row says why, and opens no page of modes.
-    expect(container.querySelector("[data-composer-plus]")).toBeNull();
+    expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
     expect(discussItem()).toBeNull();
-    expect(container.querySelector("[data-composer-race]")).toBeNull();
+    expect(document.body.querySelector("[data-composer-race]")).toBeNull();
     expect(
-      container.querySelector("[data-composer-modes-off]")?.textContent,
+      document.body.querySelector("[data-composer-modes-off]")?.textContent,
     ).toContain("what you send goes to both chats");
   });
 

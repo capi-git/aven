@@ -205,7 +205,7 @@ it("reports a failed upload instead of failing silently", async () => {
   await render();
   await openHelm();
   await act(async () =>
-    container
+    document.body
       .querySelector<HTMLButtonElement>('[data-helm-row="files"]')!
       .click(),
   );
@@ -275,7 +275,8 @@ it("works the helm's dialog from the keyboard", async () => {
       }),
     );
   });
-  const dialog = container.querySelector<HTMLElement>("[data-helm-dialog]")!;
+  const dialog =
+    document.body.querySelector<HTMLElement>("[data-helm-dialog]")!;
   expect(dialog.contains(document.activeElement)).toBe(true);
   const key = (name: string) =>
     act(async () => {
@@ -300,7 +301,7 @@ it("works the helm's dialog from the keyboard", async () => {
   await key("Escape");
   expect(document.activeElement?.getAttribute("data-helm-row")).toBe("modes");
   await key("Escape");
-  expect(container.querySelector("[data-helm-dialog]")).toBeNull();
+  expect(document.body.querySelector("[data-helm-dialog]")).toBeNull();
   expect(document.activeElement).toBe(field());
 });
 
