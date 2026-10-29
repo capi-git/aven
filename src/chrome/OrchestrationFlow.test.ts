@@ -28,7 +28,10 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
   refreshHarnessCatalogs: async () => {},
   isLiveHarness: () => true,
 }));
-vi.mock("./AgentPill", () => ({ AgentPill: () => null }));
+vi.mock("./AgentPill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AgentPill")>()),
+  AgentPill: () => null,
+}));
 vi.mock("./SessionReview", () => ({
   SessionReview: ({ undoLocked }: { undoLocked: boolean }) =>
     createElement("div", { "data-review-undo-locked": String(undoLocked) }),
@@ -100,6 +103,11 @@ async function click(element: Element) {
     (element as HTMLElement).click();
   });
 }
+/** The + menu's modes, now a page of the critter's dialog. */
+async function openModes() {
+  await click(document.querySelector("[data-helm-critter]")!);
+  await click(document.querySelector('[data-helm-row="modes"]')!);
+}
 async function press(element: Element, key: string) {
   await act(async () => {
     element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -147,11 +155,7 @@ describe("orchestration composer and card", () => {
         }),
       ),
     );
-    await click(
-      document.querySelector(
-        'button[aria-label="Add files or choose a mode"]',
-      )!,
-    );
+    await openModes();
     expect(button("Plan mode")).toBeTruthy();
     await click(button("Orchestrator"));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -164,20 +168,12 @@ describe("orchestration composer and card", () => {
     expect(
       document.querySelector('[aria-label="Turn off Orchestrator mode"]'),
     ).toBeNull();
-    await click(
-      document.querySelector(
-        'button[aria-label="Add files or choose a mode"]',
-      )!,
-    );
+    await openModes();
     await click(button("Plan mode"));
     expect(
       document.querySelector('[aria-label="Turn off Plan mode"]'),
     ).not.toBeNull();
-    await click(
-      document.querySelector(
-        'button[aria-label="Add files or choose a mode"]',
-      )!,
-    );
+    await openModes();
     await click(button("Orchestrator"));
     expect(
       document.querySelector('[aria-label="Turn off Plan mode"]'),

@@ -35,7 +35,6 @@ const MENUS = [
   "src/chrome/AddProjectMenu.tsx",
   "src/chrome/BotPicker.tsx",
   "src/chrome/BranchPicker.tsx",
-  "src/chrome/Composer.tsx",
   "src/chrome/CwdPicker.tsx",
   "src/chrome/FileMentionPicker.tsx",
   "src/chrome/InboxFiltersMenu.tsx",

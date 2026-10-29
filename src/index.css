@@ -448,20 +448,6 @@ html.theme-light [data-composer-box] {
     0 1px 3px color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 
-html.theme-light .composer-send:not(:disabled) {
-  background: var(--color-content);
-  color: var(--color-background-base);
-}
-
-html.theme-light .composer-send:not(:disabled):hover {
-  background: var(--aven-inverse-hover);
-}
-
-html.theme-light .composer-send:disabled {
-  background: color-mix(in srgb, var(--color-content) 25%, transparent);
-  color: color-mix(in srgb, var(--color-background-base) 75%, transparent);
-}
-
 /* The field and its painted overlay share one box: a block, so the field
    sits on no line of its wrapper (an inline-block textarea stands on the
    wrapper's baseline with a descender gap under it, which made the overlay

@@ -35,7 +35,6 @@ vi.mock("../lib/notes", async (importOriginal) => ({
   loadNotes: vi.fn(async () => []),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
 const app: ProjectFile = {
