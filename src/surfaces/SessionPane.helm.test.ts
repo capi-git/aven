@@ -118,7 +118,7 @@ describe("a chat's message box and its helm", () => {
   const stops = () =>
     [...container.querySelectorAll<HTMLButtonElement>("button")].filter(
       (button) =>
-        /^Stop/.test(button.getAttribute("aria-label") ?? "") ||
+        (button.getAttribute("aria-label") ?? "").startsWith("Stop") ||
         button.classList.contains("session-run-stop"),
     );
   const openHelm = () =>
