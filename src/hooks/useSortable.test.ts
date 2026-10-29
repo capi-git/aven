@@ -11,6 +11,7 @@ import {
   type Mock,
 } from "vitest";
 import {
+  SORTABLE_DROP_PART_ATTRIBUTE,
   useSortable,
   type SortableOptions,
   type SortablePart,
@@ -42,11 +43,16 @@ describe("useSortable external drops and cancellation", () => {
   /** Origins read in the same commit, as the highlight reads them. */
   let probeOrigin: string | null;
   let probed: Array<{ left: number } | null>;
+  /** The item each render previews a drop onto. */
+  let probeTarget: ((target: string | null) => void) | null;
+  /** Parts drawn in an item a drop can land beside: id, left, width. */
+  let partsOf: (id: string) => Array<[string, number, number]>;
   function Harness() {
     renders += 1;
     sortable = useSortable(ids, onReorder, options);
     useLayoutEffect(() => {
       if (probeOrigin) probed.push(sortable.takeOrigin(probeOrigin));
+      probeTarget?.(sortable.dropTarget?.id ?? null);
     });
     return createElement(
       "div",
@@ -121,6 +127,17 @@ describe("useSortable external drops and cancellation", () => {
           withVisuals
             ? createElement("span", { "data-sortable-motion": "" }, id)
             : id,
+          ...partsOf(id).map(([part, left, width]) =>
+            createElement("span", {
+              key: part,
+              [SORTABLE_DROP_PART_ATTRIBUTE]: part,
+              ref: (element: HTMLElement | null) => {
+                if (element)
+                  element.getBoundingClientRect = () =>
+                    new DOMRect(left, 0, width, 30);
+              },
+            }),
+          ),
         ),
       ),
     );
@@ -129,6 +146,8 @@ describe("useSortable external drops and cancellation", () => {
   beforeEach(() => {
     probeOrigin = null;
     probed = [];
+    probeTarget = null;
+    partsOf = () => [];
     now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     restoreClock = () => clock.mockRestore();
@@ -1066,25 +1085,54 @@ describe("useSortable external drops and cancellation", () => {
       await pointer(item(), "pointerdown", 150, 15);
     }
 
-    it("reorders on a quick pass over an item's middle", async () => {
+    it("reorders on a quick pass over an item's middle, never previewing a drop", async () => {
+      const targets: Array<string | null> = [];
+      probeTarget = (target) => targets.push(target);
       await press();
       await hold(250);
-      // Until it arms, the middle reorders: the line shows, no target.
+      // On its middle a release would join session-b: the slot does not
+      // pass it and no line shows, only a light hint; no preview yet.
       expect(sortable.dropTarget).toBeNull();
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("session-b");
+      // On past the middle, into session-b's outer quarter: now the line
+      // shows past it, and a release there moves the tab.
+      now += 30;
+      await hold(290);
+      expect(sortable.joinHint).toBeNull();
       expect(sortable.toIndex).toBe(2);
-      await pointer(window, "pointerup", 250, 15);
+      await pointer(window, "pointerup", 290, 15);
       expect(options.onDropOnItem).not.toHaveBeenCalled();
       expect(onReorder).toHaveBeenCalledExactlyOnceWith(
         ["session-a", "session-b", "browser-a"],
         "browser-a",
       );
+      // No render ever previewed a drop onto session-b.
+      expect(targets.length).toBeGreaterThan(0);
+      expect(targets.every((target) => target === null)).toBe(true);
     });
 
-    it("moves on a quick release that a busy page handles late", async () => {
+    it("drops onto an item let go on its middle without resting", async () => {
+      const targets: Array<string | null> = [];
+      probeTarget = (target) => targets.push(target);
+      await press();
+      await hold(250);
+      expect(sortable.dropTarget).toBeNull();
+      await pointer(window, "pointerup", 250, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+      // The preview was drawn on release, before the drop was measured.
+      expect(targets).toContain("session-b");
+    });
+
+    it("drops on a quick release that a busy page handles late", async () => {
       await press();
       await hold(250);
       // Let go 20 ms after reaching the middle; the page gets to the
-      // release 100 ms later. That is a pass, not a rest.
+      // release 100 ms later. Not a rest, but let go on the middle.
       now += 20;
       const release = new PointerEvent("pointerup", {
         bubbles: true,
@@ -1095,10 +1143,60 @@ describe("useSortable external drops and cancellation", () => {
       });
       now += 100;
       await act(async () => window.dispatchEvent(release));
-      expect(options.onDropOnItem).not.toHaveBeenCalled();
-      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
-        ["session-a", "session-b", "browser-a"],
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
         "browser-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it("dissolves the copy into the item's half when let go before it armed", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await startAnimated(250);
+      const lift = () =>
+        preview()!.querySelector<HTMLElement>("[data-sortable-lift]")!;
+      expect(lift().style.opacity).toBe("1");
+      await pointer(window, "pointerup", 250, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledOnce();
+      // Nothing flies home: the copy goes into session-b's right half
+      // (from its centre at 250 to 275) as it fades.
+      expect(sortable.landingId).toBeNull();
+      expect(lift().style.transform).toMatch(/^translate3d\(25px, 0px, 0px\)/);
+      expect(lift().style.opacity).toBe("0");
+      await land();
+      expect(preview()).toBeNull();
+    });
+
+    it("says which part of the item it was let go beside, and on which side", async () => {
+      // session-b (200–300) holds two parts: 200–250 and 250–300.
+      partsOf = (id) =>
+        id === "session-b"
+          ? [
+              ["left", 200, 50],
+              ["right", 250, 50],
+            ]
+          : [];
+      await press();
+      await hold(240);
+      now += 200;
+      await hold(240);
+      expect(sortable.dropTarget).toEqual({
+        kind: "tab",
+        id: "session-b",
+        allowed: true,
+        at: { part: "left", side: "after" },
+      });
+      await hold(260);
+      expect(sortable.dropTarget?.at).toEqual({
+        part: "right",
+        side: "before",
+      });
+      await pointer(window, "pointerup", 260, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        "session-b",
+        undefined,
+        { part: "right", side: "before" },
       );
     });
 
@@ -1170,26 +1268,60 @@ describe("useSortable external drops and cancellation", () => {
 
     it("never arms on a slow, steady pass, only on a rest", async () => {
       await press();
-      // Through session-b's middle (225–275) at about 170px/s.
+      // Through session-b's middle (225–275) at about 170px/s: never armed,
+      // and session-b never moves aside (a release would join it), with
+      // only the light hint on it.
       for (let x = 228; x <= 272; x += 3) {
         now += 18;
         await hold(x);
         expect(sortable.dropTarget).toBeNull();
+        expect(sortable.toIndex).toBeNull();
+        expect(sortable.joinHint).toBe("session-b");
       }
-      // Past its middle while moving, it moves aside: a reorder.
-      expect(sortable.toIndex).toBe(2);
-      // Resting there, it stays put ("about to join") until it arms: the
-      // dragged tab's slot is its own again, with no insertion line.
-      now += 60;
-      await hold(273);
-      expect(sortable.dropTarget).toBeNull();
-      expect(sortable.toIndex).toBe(sortable.fromIndex);
-      now += 140;
+      now += 200;
       await hold(272);
       expect(sortable.dropTarget?.id).toBe("session-b");
       await pointer(window, "pointerup", 272, 15);
       expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
         "browser-a",
+        "session-b",
+      );
+    });
+
+    it("shows at release what a release does: past a neighbour, then onto the next one's middle", async () => {
+      await act(async () => root.render(createElement(Harness)));
+      // session-a (0–100) to the right, briskly, one move per frame.
+      await pointer(item("session-a"), "pointerdown", 50, 15);
+      await hold(90);
+      // Past browser-a (100–200) at its far edge: it moves aside.
+      await hold(190);
+      expect(sortable.toIndex).toBe(1);
+      expect(sortable.joinHint).toBeNull();
+      // On session-b's middle (225–275), past its midpoint: the slot stays
+      // before it, no line shows, and the hint marks it.
+      await hold(260);
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("session-b");
+      await pointer(window, "pointerup", 260, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "session-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+
+      // Leftwards: session-b onto browser-a's middle (125–175), past its
+      // midpoint, holds its own slot; at browser-a's near edge it moves.
+      await pointer(item("session-b"), "pointerdown", 250, 15);
+      await hold(210);
+      await hold(140);
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("browser-a");
+      await hold(110);
+      expect(sortable.joinHint).toBeNull();
+      expect(sortable.toIndex).toBe(1);
+      await pointer(window, "pointerup", 110, 15);
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["session-a", "session-b", "browser-a"],
         "session-b",
       );
     });

@@ -585,6 +585,25 @@ export function placeAgentBrowserView(
     : { ...next, focusedId: view.focusedId };
 }
 
+/**
+ * A tab let go on the middle of another tab in a pane's row of tabs: the
+ * two stand side by side, `target` in front of its pane and `id` in a pane
+ * of its own at that pane's right, focused. The pane's other tabs stay
+ * behind `target`; `id` leaves the pane it was in.
+ */
+export function pairWorkspaceTabs(
+  view: WorkspaceView,
+  id: string,
+  target: string,
+): WorkspaceView {
+  if (id === target) return view;
+  const shown = selectWorkspaceView(view, target);
+  if (!workspaceGroupOwner(shown, id) || !workspaceGroupOwner(shown, target))
+    return view;
+  const paired = splitWorkspaceView(shown, id, "right", target);
+  return paired === shown ? view : paired;
+}
+
 /** Combine whole pane groups, retaining the destination's selected tab. */
 export function combineWorkspaceGroups(
   view: WorkspaceView,

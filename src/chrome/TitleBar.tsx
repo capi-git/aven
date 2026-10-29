@@ -57,7 +57,10 @@ import {
 import { CwdPicker } from "./CwdPicker";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
+  SORTABLE_DROP_PART_ATTRIBUTE,
   useSortable,
+  type SortableDropAt,
+  type SortableLink,
   type SortablePointerPosition,
 } from "../hooks/useSortable";
 import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
@@ -105,6 +108,7 @@ import {
 import { BotCritter } from "./BotCritter";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
+import { isSpaceKey } from "../lib/workspaceSpaces";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -267,11 +271,16 @@ export type TitleBarProps = {
   onOpenIphone?: () => void;
   /** Shown in the strip's menu when the project needs Xcode for its iPhone. */
   iphoneHint?: string;
+  /**
+   * `taken`: the pointer rests on (or is armed over) a tab elsewhere that
+   * the drag would join, so no pane takes it and none shows a drop.
+   */
   onSurfaceDragMove?: (
     id: string,
     x: number,
     y: number,
     pointer?: SortablePointerPosition,
+    taken?: boolean,
   ) => void;
   groupId?: string;
   onReturnTabToWindow?: (tabId: string) => void;
@@ -295,8 +304,16 @@ export type TitleBarProps = {
   splits?: StripSplit[];
   /** Bring a tab in a split forward: the split, its pane and the tab. */
   onSelectSplitTab?: (id: string) => void;
-  /** A tab let go on a split's entry joins it as a pane at its right. */
-  onAddToSplit?: (splitId: string, id: string) => void;
+  /**
+   * A tab let go on a split's entry joins it as a pane: beside the pane of
+   * the segment it was let go on (`beside`, on the side nearer the
+   * pointer), or at its right.
+   */
+  onAddToSplit?: (
+    splitId: string,
+    id: string,
+    beside?: { pane: string; side: "before" | "after" },
+  ) => void;
   /**
    * Something let go on the middle of a single tab (`targetId`) joins it: a
    * tab, or a segment pulled out of its split, makes a new split with it in
@@ -304,6 +321,13 @@ export type TitleBarProps = {
    * it as a pane at its right.
    */
   onCombineTabs?: (targetId: string, draggedId: string) => void;
+  /**
+   * A tab let go on the middle of one of this bar's tabs (`targetId`) in a
+   * pane's row of tabs, from this row or any other bar: the two stand side
+   * by side in the window's layout, the dropped one in a pane of its own at
+   * the target's pane's right.
+   */
+  onPairTabs?: (targetId: string, draggedId: string) => void;
   /** A tab pulled out of its split, let go on the strip before `before`. */
   onDetachFromSplit?: (id: string, before: string | null) => void;
   /** The split's tabs stand on the strip as single tabs again. */
@@ -528,6 +552,7 @@ function TitleTabItem({
   itemRef,
   deck,
   combineInto = false,
+  combineNear = false,
   combine = null,
 }: {
   tab: Tab;
@@ -547,6 +572,11 @@ function TitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /**
+   * Something is over its middle: let go, it combines with it. A light
+   * hint until the preview (`combineInto`) arms.
+   */
+  combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
 }) {
@@ -583,6 +613,7 @@ function TitleTabItem({
       data-surface-tab-id={tab.id}
       data-draggable={canDrag || undefined}
       data-combine-into={combineInto || undefined}
+      data-combine-near={combineNear || undefined}
       data-tauri-drag-region="false"
       onContextMenu={(event) => {
         event.preventDefault();
@@ -828,6 +859,11 @@ export type StripSplit = {
   focusedId: string;
   /** Closing it would leave a chat to show (its menu's Close split). */
   closable?: boolean;
+  /**
+   * Every tab it holds, in front of a pane or behind one. A pane's tab let
+   * go on its own split's entry goes back to the strip rather than into it.
+   */
+  members?: readonly string[];
 };
 
 export function splitSegmentLabel(
@@ -882,6 +918,7 @@ function SplitSegment({
       title={front ? tooltip : undefined}
       className="aven-split-segment"
       data-split-segment={segment.id}
+      {...{ [SORTABLE_DROP_PART_ATTRIBUTE]: segment.id }}
       data-morph={`tab:${segment.id}`}
       data-sortable-chip={chip || undefined}
       data-lit={lit || undefined}
@@ -928,6 +965,8 @@ function SplitEntryItem({
   onContextMenu,
   onHover,
   dropInto = false,
+  dropNear = false,
+  dropAt = null,
   join = null,
   opening = false,
   itemRef,
@@ -944,6 +983,10 @@ function SplitEntryItem({
   onHover: (anchor: HTMLElement | null, label?: string) => void;
   /** A tab held over the entry joins the split as a new pane. */
   dropInto?: boolean;
+  /** A tab is over its middle: let go, it joins. A light hint until armed. */
+  dropNear?: boolean;
+  /** Beside which segment's pane, and on which side; at the right if absent. */
+  dropAt?: SortableDropAt | null;
   /** What a held tab would bring, while one is dragged. */
   join?: CombineJoin | null;
   opening?: boolean;
@@ -960,6 +1003,13 @@ function SplitEntryItem({
   const stop =
     split.segments.find((segment) => segment.id === lit)?.id ??
     split.segments[0]?.id;
+  // The segment a held tab would join beside, if any.
+  const incomingAt =
+    dropInto &&
+    dropAt &&
+    split.segments.some((segment) => segment.id === dropAt.part)
+      ? dropAt.part
+      : null;
   const dropBefore =
     sortable.toIndex === index &&
     sortable.fromIndex !== null &&
@@ -981,6 +1031,7 @@ function SplitEntryItem({
       data-surface-tab-id={split.id}
       data-draggable={canDrag || undefined}
       data-drop-into={dropInto || undefined}
+      data-combine-near={dropNear || undefined}
       data-motion-slot={split.id}
       data-tab-opening={opening || undefined}
       {...{ [TAB_TRACK_ID_ATTRIBUTE]: split.id }}
@@ -1054,6 +1105,11 @@ function SplitEntryItem({
               {at > 0 ? (
                 <span className="aven-split-divider" aria-hidden />
               ) : null}
+              {/* The pane a drop would add stands beside the segment it
+                  was held over. */}
+              {incomingAt === segment.id && dropAt?.side === "before" ? (
+                <CombineIncoming join={join} />
+              ) : null}
               <SplitSegment
                 segment={segment}
                 label={splitSegmentLabel(segment, projectless)}
@@ -1063,9 +1119,14 @@ function SplitEntryItem({
                 chip={segment.id === stop}
                 onHover={onHover}
               />
+              {incomingAt === segment.id && dropAt?.side === "after" ? (
+                <CombineIncoming join={join} />
+              ) : null}
             </Fragment>
           ))}
-          {dropInto ? <CombineIncoming join={join} /> : null}
+          {dropInto && incomingAt === null ? (
+            <CombineIncoming join={join} />
+          ) : null}
         </div>
       </div>
     </div>
@@ -1126,6 +1187,11 @@ const SPLIT_TIP_DELAY_MS = 450;
  * combines; a deliberate pause arms it before it feels slow.
  */
 const STRIP_COMBINE_DELAY_MS = 200;
+/**
+ * The window's strip and every pane's row of tabs take one another's tabs
+ * (`SortableLink`): a tab let go on another bar's tab joins it there.
+ */
+const WORKSPACE_TAB_LINK = "aven-workspace-tabs";
 
 function BrowserTitleTabItem({
   id,
@@ -1153,6 +1219,7 @@ function BrowserTitleTabItem({
   separator = false,
   deck,
   combineInto = false,
+  combineNear = false,
   combine = null,
 }: {
   id: string;
@@ -1186,6 +1253,11 @@ function BrowserTitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /**
+   * Something is over its middle: let go, it combines with it. A light
+   * hint until the preview (`combineInto`) arms.
+   */
+  combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
 }) {
@@ -1213,6 +1285,7 @@ function BrowserTitleTabItem({
       data-surface-tab-id={id}
       data-draggable={canDrag || undefined}
       data-combine-into={combineInto || undefined}
+      data-combine-near={combineNear || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
@@ -1733,6 +1806,7 @@ function TitleBarComponent({
   onSelectSplitTab,
   onAddToSplit,
   onCombineTabs,
+  onPairTabs,
   onDetachFromSplit,
   onSeparateSplit,
   onCloseSplit,
@@ -2016,15 +2090,102 @@ function TitleBarComponent({
     titleRow && !paneTabs && frontId && displayIds.length === 0
       ? [frontId]
       : displayIds;
+  // Whether the drag in progress rests on (or is armed over) a tab it would
+  // join, here or in another bar (`sortable.joining`, once it exists).
+  const joiningRef = useRef<() => boolean>(() => false);
   /**
    * A title row's tab held over the window's strip: where it would stand
-   * there, shown on the strip. Null when it is not over the strip.
+   * there, shown on the strip. Null when it is not over the strip, or rests
+   * on the middle of a tab there that it would join.
    */
   const stripSlotFor = (x: number, y: number) => {
     const zone = titleRow && onDropOnStrip ? windowStripZone() : null;
-    const slot = zone?.slotAt(x, y) ?? null;
+    const slot = joiningRef.current() ? null : (zone?.slotAt(x, y) ?? null);
     zone?.show(slot ? x : null);
     return slot;
+  };
+  /**
+   * What a dragged tab (or a segment pulled out of its split, or a whole
+   * split) would bring to an entry it joins: its icon and name, as its
+   * segment will show them.
+   */
+  const joinFor = (id: string): CombineJoin => {
+    const tab = sessionTabs.get(id);
+    if (tab)
+      return {
+        id,
+        incoming: (
+          <>
+            <TabIdentity tab={tab} active />
+            <span className="aven-split-label">
+              {tabCopy(tab, projectlessWorkspace).headline}
+            </span>
+          </>
+        ),
+      };
+    const page = browsers.get(id);
+    if (page)
+      return {
+        id,
+        incoming: (
+          <>
+            <BrowserTabIcon favicon={page.favicon} />
+            <span className="aven-split-label">
+              {page.title.trim() || "Browser"}
+            </span>
+          </>
+        ),
+      };
+    return {
+      id: null,
+      incoming: <Columns2 className="size-3" strokeWidth={1.75} />,
+    };
+  };
+  // A pane's row of tabs (or a detached window's pane strip) pairs two of
+  // its tabs into a split of the window's layout.
+  const pairs = Boolean(onPairTabs) && (!titleRow || paneTabs);
+  /**
+   * Something let go on the middle of `target`, from this bar or another:
+   * on a split's entry it joins the split as a pane (beside the segment it
+   * was let go on); on the window strip's single tab it makes a split with
+   * it; on a tab in a pane's row, the two stand side by side.
+   */
+  const dropOn = (moving: string, target: string, at?: SortableDropAt) => {
+    if (splitEntries.has(target)) {
+      if (splitEntries.has(moving)) return;
+      if (at) onAddToSplit?.(target, moving, { pane: at.part, side: at.side });
+      else onAddToSplit?.(target, moving);
+    } else if (onCombineTabs) onCombineTabs(target, moving);
+    else onPairTabs?.(target, moving);
+  };
+  /**
+   * Bars that lay out tabs (the window's strip, a pane's row of tabs) take
+   * tabs dragged from any other: a pane's row, a lone pane's header or the
+   * strip. A lone title row only lends its tab to them.
+   */
+  const link: SortableLink = {
+    channel: WORKSPACE_TAB_LINK,
+    accepts:
+      !titleRow || paneTabs
+        ? (moving, target) => {
+            if (
+              chipGroupId(moving) ||
+              chipGroupId(target) ||
+              isSpaceKey(moving)
+            )
+              return false;
+            const split = splitEntries.get(target);
+            if (split)
+              return (
+                Boolean(onAddToSplit) &&
+                !split.segments.some((segment) => segment.id === moving) &&
+                !split.members?.includes(moving)
+              );
+            return stripTab(target) && (Boolean(onCombineTabs) || pairs);
+          }
+        : undefined,
+    onDrop: dropOn,
+    describe: joinFor,
   };
   const sortable = useSortable(
     sortableIds,
@@ -2061,30 +2222,37 @@ function TitleBarComponent({
       dropOnDelay: STRIP_COMBINE_DELAY_MS,
       // Let go on an entry's middle, a tab (or a segment pulled out of its
       // split) joins a split as a pane, or makes a split with a single tab;
-      // a split takes a single tab as a pane.
+      // a split takes a single tab as a pane. In a pane's row of tabs, two
+      // tabs pair into a split of the window's layout.
       isDropTarget: (dragged, target, part) => {
         if (chipGroupId(dragged) || chipGroupId(target)) return false;
         const moving = part ?? dragged;
         if (splitEntries.has(target))
           return Boolean(onAddToSplit) && !splitEntries.has(moving);
-        return (
-          Boolean(onCombineTabs) &&
-          stripTab(target) &&
-          (part !== undefined || splitEntries.has(dragged) || stripTab(dragged))
-        );
+        if (!stripTab(target)) return false;
+        if (onCombineTabs)
+          return (
+            part !== undefined || splitEntries.has(dragged) || stripTab(dragged)
+          );
+        return pairs && stripTab(moving);
       },
-      onDropOnItem: (dragged, target, part) => {
-        const moving = part ?? dragged;
-        if (splitEntries.has(target)) {
-          if (!splitEntries.has(moving)) onAddToSplit?.(target, moving);
-        } else onCombineTabs?.(target, moving);
-      },
+      onDropOnItem: (dragged, target, part, at) =>
+        dropOn(part ?? dragged, target, at),
+      link,
       onDragMove: (id, x, y, pointer, part) => {
+        // Resting on (or armed over) a tab it would join, here or in another
+        // bar: no pane takes it, and nothing shows where else it would go.
+        const joining = joiningRef.current();
+        const toStage = (moving: string) =>
+          joining
+            ? onSurfaceDragMove?.(moving, x, y, pointer, true)
+            : onSurfaceDragMove?.(moving, x, y, pointer);
         // A segment pulled out of its split drags as its own tab.
         if (part?.torn) {
-          onSurfaceDragMove?.(part.part, x, y, pointer);
+          toStage(part.part);
           // Over an entry's middle it joins that entry: no line.
-          const slot = part.inStrip && !part.target ? tearSlotAt(x) : null;
+          const slot =
+            part.inStrip && !part.target && !joining ? tearSlotAt(x) : null;
           setTearSlot((previous) =>
             previous?.before === slot?.before &&
             Math.abs((previous?.x ?? 0) - (slot?.x ?? 0)) < 0.5
@@ -2093,8 +2261,7 @@ function TitleBarComponent({
           );
           return;
         }
-        if (!chipGroupId(id) && !splitEntries.has(id))
-          onSurfaceDragMove?.(id, x, y, pointer);
+        if (!chipGroupId(id) && !splitEntries.has(id)) toStage(id);
         stripSlotFor(x, y);
       },
       onDragEnd: (id, x, y, cancelled, pointer, part) => {
@@ -2132,6 +2299,7 @@ function TitleBarComponent({
       },
     },
   );
+  joiningRef.current = sortable.joining;
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
   // changes its one tab in place, and becoming a row of tabs (or one again)
@@ -2144,57 +2312,33 @@ function TitleBarComponent({
   const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
     // Off while a tab is dragged, and while the front tab's copy is still
     // flying to its place: it shows its own fill and hands over on landing.
-    enabled: track && !sortable.draggingId && sortable.landingId !== focusedId,
+    // Off too while a tab from another bar would join the front tab: its
+    // preview draws the split's fill.
+    enabled:
+      track &&
+      !sortable.draggingId &&
+      sortable.landingId !== focusedId &&
+      sortable.dropTarget?.id !== focusedId,
     layoutKey: displayIds.join("\n"),
     glideFrom: sortable.takeOrigin,
   });
   // What a dragged tab (or a segment pulled out of its split) would bring to
-  // an entry it joins: its icon and name, as its segment will show them.
+  // an entry it joins; a tab dragged from another bar says so itself.
   const dragContentId = sortable.draggingPartId ?? sortable.draggingId;
-  const combineJoin = ((): CombineJoin | null => {
-    if (!dragContentId) return null;
-    const tab = sessionTabs.get(dragContentId);
-    if (tab)
-      return {
-        id: dragContentId,
-        incoming: (
-          <>
-            <TabIdentity tab={tab} active />
-            <span className="aven-split-label">
-              {tabCopy(tab, projectlessWorkspace).headline}
-            </span>
-          </>
-        ),
-      };
-    const page = browsers.get(dragContentId);
-    if (page)
-      return {
-        id: dragContentId,
-        incoming: (
-          <>
-            <BrowserTabIcon favicon={page.favicon} />
-            <span className="aven-split-label">
-              {page.title.trim() || "Browser"}
-            </span>
-          </>
-        ),
-      };
-    return {
-      id: null,
-      incoming: <Columns2 className="size-3" strokeWidth={1.75} />,
-    };
-  })();
+  const combineJoin: CombineJoin | null = dragContentId
+    ? joinFor(dragContentId)
+    : ((sortable.incoming?.content as CombineJoin | null | undefined) ?? null);
   /** The combine preview a strip tab draws while a drag could join it. */
   // Only the tab a held tab rests on draws the preview, and the last one it
   // rested on keeps it (hidden) so leaving it plays the preview back out.
   const joinTarget =
     sortable.dropTarget?.kind === "tab" ? sortable.dropTarget.id : null;
   const lastJoinTarget = useRef<string | null>(null);
-  if (!sortable.draggingId) lastJoinTarget.current = null;
+  if (!sortable.draggingId && !sortable.incoming) lastJoinTarget.current = null;
   else if (joinTarget) lastJoinTarget.current = joinTarget;
   const combineJoinFor = (id: string): CombineJoin | null =>
     combineJoin &&
-    onCombineTabs &&
+    (onCombineTabs || pairs) &&
     id !== sortable.draggingId &&
     (id === joinTarget || id === lastJoinTarget.current)
       ? combineJoin
@@ -3526,6 +3670,7 @@ function TitleBarComponent({
             itemRef={itemRef}
             deck={deck}
             combineInto={sortable.dropTarget?.id === id}
+            combineNear={sortable.joinHint === id}
             combine={combineJoinFor(id)}
           />
         </div>
@@ -3562,6 +3707,10 @@ function TitleBarComponent({
               : hideSegmentTip()
           }
           dropInto={sortable.dropTarget?.id === id}
+          dropNear={sortable.joinHint === id}
+          dropAt={
+            sortable.dropTarget?.id === id ? sortable.dropTarget.at : null
+          }
           join={sortable.dropTarget?.id === id ? combineJoin : null}
           opening={slotMotion.opening.has(id)}
           itemRef={itemRef}
@@ -3637,6 +3786,7 @@ function TitleBarComponent({
         separator={separators.has(id)}
         deck={deck}
         combineInto={sortable.dropTarget?.id === id}
+        combineNear={sortable.joinHint === id}
         combine={combineJoinFor(id)}
       />
     );

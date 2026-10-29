@@ -5,6 +5,7 @@ import {
   entryKey,
   joinStripSplit,
   resolveWorkspaceStrip,
+  restoreStripSnapshot,
   stripCombineUndo,
   stripDropKeeps,
   undoStripLayout,
@@ -170,6 +171,10 @@ describe("undoing a split made on the strip", () => {
     };
     const undo = stripCombineUndo(before, "notes", "page")!;
     const combined = combineStripTabs(before, "notes", "page");
+    // The whole strip comes back: the segment in its split again.
+    expect(restoreStripSnapshot(combined, undo.strip!)).toEqual(before);
+    // By the entry's view alone (an older version), the new split comes
+    // apart and the segment stands alone.
     const undone = undoStripLayout(combined, undo.view, undo.entry)!;
     expect(keys(undone)).toEqual(["notes", "page", "split(chat|file)"]);
   });

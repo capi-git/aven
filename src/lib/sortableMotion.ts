@@ -294,7 +294,8 @@ type Preview = {
   top: number;
   /** Its y follows the strip's rubber band rather than the pointer. */
   banded: boolean;
-  dropping: boolean;
+  /** The half it is going into (left, top, width and side), or null. */
+  dropping: string | null;
   springs: SpringAnimator<LiftChannels>;
   flight: SpringAnimator<"x" | "y">;
 };
@@ -761,7 +762,7 @@ export class SortableMotion {
       left: NaN,
       top: NaN,
       banded,
-      dropping: false,
+      dropping: null,
       springs,
       flight: new SpringAnimator<"x" | "y">(
         {
@@ -816,12 +817,16 @@ export class SortableMotion {
 
   /**
    * Over an entry it would join, the copy dissolves into the half of that
-   * entry the entry now previews it in; leaving, it comes back to the pointer.
+   * entry (or of the part of it, `side` of which it joins) the entry now
+   * previews it in; leaving, it comes back to the pointer.
    */
-  dropping(into: DOMRect | null) {
+  dropping(into: DOMRect | null, side: "before" | "after" = "after") {
     const preview = this.preview;
-    if (!preview || preview.dropping === (into !== null)) return;
-    preview.dropping = into !== null;
+    const key = into
+      ? `${Math.round(into.left)} ${Math.round(into.top)} ${Math.round(into.width)} ${side}`
+      : null;
+    if (!preview || preview.dropping === key) return;
+    preview.dropping = key;
     const reduced = motionReduced();
     if (!into) {
       preview.springs.to(
@@ -830,8 +835,9 @@ export class SortableMotion {
       );
       return;
     }
-    // The right half of the entry, where the joining tab will stand.
-    const centreX = into.left + (into.width * 3) / 4;
+    // The half of the entry where the joining tab will stand: its right
+    // half, or beside the part it joins.
+    const centreX = into.left + (into.width * (side === "before" ? 1 : 3)) / 4;
     const centreY = into.top + into.height / 2;
     preview.springs.to(
       {

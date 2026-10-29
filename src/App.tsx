@@ -8,6 +8,7 @@ import {
 } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useWorkspaceViews } from "./hooks/useWorkspaceViews";
+import type { SortablePointerPosition } from "./hooks/useSortable";
 import { useUtilityViews } from "./hooks/useUtilityViews";
 import { whenIdle } from "./lib/idle";
 import {
@@ -156,7 +157,9 @@ import {
 } from "./lib/workspaceIntents";
 import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
+  addStripPane,
   entryKey,
+  insertStripPane,
   isSpaceKey,
   spacePanes,
   stepStripEntry,
@@ -167,8 +170,10 @@ import {
   stripCombineUndo,
   stripDropKeeps,
   stripItems,
+  stripView,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
+  type WorkspaceStrip,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
@@ -1723,9 +1728,29 @@ export default function App({
     if (!result.snapshot) return;
     recoveryRef.current = result.state;
     setRecovery(result.state);
+    // A drop that reshaped the strip puts the whole strip back.
+    if (result.strip) {
+      viewRef.current.restoreStrip(result.strip);
+      return;
+    }
     // The change belongs to the entry it was made in, which comes to the
     // front for it. With none of that entry's tabs left, nothing changes.
     viewRef.current.undoLayout(result.snapshot, result.entry);
+  }, []);
+  /**
+   * Remember the whole strip before a drop on it that reshapes it, so Undo
+   * layout puts it back.
+   */
+  const pushStripUndo = useCallback((strip: WorkspaceStrip) => {
+    const next = pushWorkspaceLayoutUndo(
+      recoveryRef.current,
+      workspaceKeyRef.current,
+      stripView(strip),
+      strip.front,
+      strip,
+    );
+    recoveryRef.current = next;
+    setRecovery(next);
   }, []);
   const onKeepBrowser = useCallback((surfaceId: string) => {
     const cwd = projectCwdRef.current;
@@ -1776,6 +1801,7 @@ export default function App({
           workspaceKeyRef.current,
           undo.view,
           undo.entry,
+          undo.strip,
         );
         recoveryRef.current = next;
         setRecovery(next);
@@ -1877,17 +1903,30 @@ export default function App({
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
   const surfaceDropRef = useRef<WorkspaceSurfaceDropTarget | null>(null);
-  const onSurfaceDragMove = useCallback((id: string, x: number, y: number) => {
-    const stage = document.querySelector<HTMLElement>("[data-workspace-stage]");
-    const target = stage
-      ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
-      : null;
-    surfaceDropRef.current = target;
-    setSurfaceDragging(true);
-    setSurfaceDrop((previous) =>
-      JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
-    );
-  }, []);
+  const onSurfaceDragMove = useCallback(
+    (
+      id: string,
+      x: number,
+      y: number,
+      _pointer?: SortablePointerPosition,
+      // A tab it rests on elsewhere takes it: no pane does.
+      taken = false,
+    ) => {
+      const stage = document.querySelector<HTMLElement>(
+        "[data-workspace-stage]",
+      );
+      const target =
+        stage && !taken
+          ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
+          : null;
+      surfaceDropRef.current = target;
+      setSurfaceDragging(true);
+      setSurfaceDrop((previous) =>
+        JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
+      );
+    },
+    [],
+  );
   const onSurfaceDragEnd = useCallback(
     (id: string, x: number, y: number, cancelled: boolean) => {
       const stage = document.querySelector<HTMLElement>(
@@ -11189,6 +11228,7 @@ export default function App({
         }),
         focusedId: entry.view.focusedId,
         closable: ![...members].some(isChat) || !!chatOutside(members),
+        members: [...members],
       },
     ];
   });
@@ -11315,10 +11355,20 @@ export default function App({
           visibleIds: [strip.front],
           // One click on a segment: the split, that pane and that tab.
           onSelectSplitTab: onSelectSurface,
-          // A page moved into a split's pane is kept, as on the stage.
-          onAddToSplit: (key, id) => {
+          // A page moved into a split's pane is kept, as on the stage. Let
+          // go on a segment, it stands beside that segment's pane.
+          // Undo layout puts the strip back as it was.
+          onAddToSplit: (key, id, beside) => {
+            const before = viewRef.current.strip;
+            const next = beside
+              ? insertStripPane(before, key, id, beside.pane, beside.side)
+              : addStripPane(before, key, id);
+            if (next === before) return;
+            pushStripUndo(before);
             stripDropKeeps(key, id).forEach(onKeepBrowser);
-            workspaceViews.addPane(key, id);
+            if (beside)
+              workspaceViews.insertPane(key, id, beside.pane, beside.side);
+            else workspaceViews.addPane(key, id);
           },
           onCombineTabs: onCombineOnStrip,
           onDetachFromSplit: (id, before) => workspaceViews.detach(id, before),
@@ -11590,6 +11640,15 @@ export default function App({
                                     frontOwnHeader: titleRowOf(owner).lend,
                                     frontNamed: frontNamed(owner),
                                     onDropOnStrip,
+                                    // A tab let go on the middle of one of
+                                    // this pane's tabs, from any bar, stands
+                                    // beside it in a pane of its own.
+                                    onPairTabs: (target, dragged) =>
+                                      onWorkspaceIntent({
+                                        type: "pair",
+                                        id: dragged,
+                                        target,
+                                      }),
                                     ...paneTitleTools(owner),
                                   }),
                                 }))}

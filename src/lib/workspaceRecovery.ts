@@ -9,6 +9,7 @@ import {
   type WorkspaceTab,
 } from "./layout";
 import type { BrowserTab } from "./personalWorkspace";
+import type { StripEntry, WorkspaceStrip } from "./workspaceSpaces";
 import {
   parseWorkspaceSnapshot,
   type WorkspaceSessionStub,
@@ -45,8 +46,18 @@ export type WorkspaceRecoveryState = {
   version: 1;
   /** Oldest first; each stack is independently bounded. */
   closed: ClosedWorkspaceEntry[];
-  /** `entry`: the strip entry in front when the layout changed. */
-  layouts: { cwd: string; view: WorkspaceView; entry?: string }[];
+  /**
+   * `entry`: the strip entry in front when the layout changed. `strip`: the
+   * whole strip as it was, for a change that reshaped more than one entry
+   * (a drop on the strip that took a tab out of a split); undo puts it back.
+   * Older versions ignore it and undo by `view`.
+   */
+  layouts: {
+    cwd: string;
+    view: WorkspaceView;
+    entry?: string;
+    strip?: WorkspaceStrip;
+  }[];
 };
 
 export function emptyWorkspaceRecovery(): WorkspaceRecoveryState {
@@ -391,31 +402,59 @@ function cleanView(raw: unknown): WorkspaceView | null {
     return null;
   }
 }
+/** A stored strip, checked entry by entry; null if any part is not one. */
+function cleanStrip(raw: unknown): WorkspaceStrip | null {
+  const value = record(raw);
+  if (!value || !Array.isArray(value.entries) || value.entries.length > 256)
+    return null;
+  const entries: StripEntry[] = [];
+  for (const candidate of value.entries) {
+    const entry = record(candidate);
+    if (!entry || !text(entry.id, 512)) return null;
+    if (entry.kind === "item") entries.push({ kind: "item", id: entry.id });
+    else if (entry.kind === "space") {
+      const view = cleanView(entry.view);
+      if (!view) return null;
+      entries.push({ kind: "space", id: entry.id, view });
+    } else return null;
+  }
+  return { entries, front: text(value.front, 512) ? value.front : "" };
+}
+
 export function pushWorkspaceLayoutUndo(
   state: WorkspaceRecoveryState,
   cwd: string,
   view: WorkspaceViewSnapshot,
   /** The strip entry the change was made in, which undo returns to. */
   entry?: string,
+  /** The whole strip as it was, when the change reshaped more than one entry. */
+  strip?: WorkspaceStrip,
 ): WorkspaceRecoveryState {
   if (!text(cwd)) return state;
   const clean = cleanView(view);
   if (!clean) return state;
   const front = text(entry, 512) ? entry : undefined;
+  const whole = strip ? cleanStrip(strip) : null;
   const previous = [...state.layouts]
     .reverse()
     .find((entry) => entry.cwd === cwd);
   if (
     previous &&
     previous.entry === front &&
-    JSON.stringify(previous.view) === JSON.stringify(clean)
+    JSON.stringify(previous.view) === JSON.stringify(clean) &&
+    JSON.stringify(previous.strip ?? null) === JSON.stringify(whole)
   )
     return state;
   return {
     ...state,
     layouts: [
       ...state.layouts,
-      front ? { cwd, view: clean, entry: front } : { cwd, view: clean },
+      {
+        cwd,
+        view: clean,
+        ...(front ? { entry: front } : {}),
+        ...(whole ? { strip: whole } : {}),
+      },
     ].slice(-WORKSPACE_RECOVERY_LIMIT),
   };
 }
@@ -431,6 +470,8 @@ export function popWorkspaceLayoutUndo(
   /** The snapshot as taken, and the strip entry it was taken in. */
   snapshot: WorkspaceView | null;
   entry?: string;
+  /** The whole strip as it was, when one was recorded. */
+  strip?: WorkspaceStrip;
 } {
   const entry = [...state.layouts].reverse().find((entry) => entry.cwd === cwd);
   if (!entry) return { state, view: null, snapshot: null };
@@ -442,6 +483,7 @@ export function popWorkspaceLayoutUndo(
     view: resolveWorkspaceView(entry.view, openIds, fallback),
     snapshot: entry.view,
     entry: entry.entry,
+    ...(entry.strip ? { strip: entry.strip } : {}),
   };
 }
 
@@ -498,6 +540,7 @@ export function parseWorkspaceRecovery(raw: unknown): WorkspaceRecoveryState {
         item.cwd,
         view,
         text(item.entry, 512) ? item.entry : undefined,
+        cleanStrip(item.strip) ?? undefined,
       );
   }
   return state;
