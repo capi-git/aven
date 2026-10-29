@@ -204,12 +204,16 @@ export function crewRunsLine(crew: Crew, now: number, fixerRuns = 0): string {
   return `${crewRunsUsed(crew, now, fixerRuns)} of ${crewRunsAllowed(crew, now)} runs today`;
 }
 
-/** "7 of 20 runs today · one card at a time · quiet 11 pm–8 am". */
+/**
+ * "7 of 20 runs today · one card at a time · quiet 11 pm–8 am · pauses at
+ * 80% of your week": every limit as a plain count, in the crew's header.
+ */
 export function crewLimitsLine(crew: Crew, now: number, fixerRuns = 0): string {
   return [
     crewRunsLine(crew, now, fixerRuns),
     "one card at a time",
     crew.limits.quiet.on ? `quiet ${quietText(crew.limits.quiet)}` : "",
+    `pauses at ${crew.limits.pauseAtPercent}% of your week`,
   ]
     .filter(Boolean)
     .join(" · ");

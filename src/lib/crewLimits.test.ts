@@ -119,7 +119,7 @@ describe("budgets", () => {
   it("shows its limits as plain counts", () => {
     const shown = crew({ runs: { day: localDay(NOON), count: 5 } });
     expect(crewLimitsLine(shown, NOON, 2)).toBe(
-      "7 of 20 runs today · one card at a time · quiet 11 pm–8 am",
+      "7 of 20 runs today · one card at a time · quiet 11 pm–8 am · pauses at 80% of your week",
     );
   });
 });

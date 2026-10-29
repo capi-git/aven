@@ -180,6 +180,32 @@ describe("migrating project bots into crews", () => {
     expect(newCrew(PROJECT).limits.runsPerDay).toBe(CREW_DEFAULT_RUNS_PER_DAY);
   });
 
+  it("keeps members of roles a later build adds when it saves", () => {
+    localStorage.setItem(
+      CREWS_KEY,
+      JSON.stringify({
+        version: 1,
+        crews: {
+          [PROJECT]: {
+            path: PROJECT,
+            members: [
+              { role: "builder" },
+              { role: "keeper", name: "Hedgehog" },
+            ],
+          },
+        },
+      }),
+    );
+    resetCrewsCache();
+    expect(getCrew(PROJECT)!.members).toEqual([{ role: "builder" }]);
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
+    expect(Object.values(saved.crews)[0]).toMatchObject({
+      on: true,
+      members: [{ role: "builder" }, { role: "keeper", name: "Hedgehog" }],
+    });
+  });
+
   it("keeps crews this build can't read when it saves", () => {
     localStorage.setItem(
       CREWS_KEY,

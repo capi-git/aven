@@ -281,7 +281,7 @@ describe("the crew view: the Board with the crew on it", () => {
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("aven-site crew");
     expect(header.querySelector("[data-crew-limits]")?.textContent).toBe(
-      "7 of 20 runs today · one card at a time · quiet 11 pm–8 am",
+      "7 of 20 runs today · one card at a time · quiet 11 pm–8 am · pauses at 80% of your week",
     );
     expect(button(header, "Pause")).toBeTruthy();
     // One header: the plain board title isn't stacked above it.

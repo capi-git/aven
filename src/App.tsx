@@ -11042,9 +11042,23 @@ export default function App({
       ensureChat: ensureCrewChat,
       send: botHost.send,
       stopChat: (sessionId: string) => onStop(sessionId),
+      freshConversation: (sessionId: string) => {
+        const chat = sessionsRef.current.find(
+          (session) => session.id === sessionId,
+        );
+        if (!chat || chat.busy || !chat.providerSessionId) return;
+        void forgetHarnessSession(chat.harness, chat.id);
+        const next = sessionsRef.current.map((session) =>
+          session.id === sessionId
+            ? { ...session, providerSessionId: undefined }
+            : session,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+      },
       onWorking: setCrewWorkingChats,
     }),
-    [ensureCrewChat, botHost, onStop],
+    [ensureCrewChat, botHost, onStop, sessionsRef, setSessions],
   );
   useCrews(
     sessions,

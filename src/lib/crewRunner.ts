@@ -134,6 +134,12 @@ export type CrewRunnerDeps = {
   name: (crew: Crew, role: CrewRole) => string;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
+  /**
+   * Start the chat's agent on a new conversation at its next turn (the chat
+   * and its history stay): each card gets the Builder and the Checker fresh,
+   * so a check is never coloured by an earlier card and no context piles up.
+   */
+  freshConversation?: (sessionId: string) => void;
   newId?: () => string;
 };
 
@@ -631,17 +637,23 @@ export class CrewRunner {
       turn.sessionId = chat.id;
       this.updateWorking();
       const names = this.names(crew);
-      const brief = chat.providerSessionId
-        ? undefined
-        : crewBrief({
-            role,
-            name: this.deps.name(crew, role),
-            project: crew.path,
-            copyPath: crew.copy?.path ?? "",
-            names,
-            harness: crewMember(crew, role)?.harness,
-            maxRounds: card.maxRounds,
-          });
+      // A new card's first build, and its first check, start a new
+      // conversation; later rounds keep theirs, so a re-check remembers.
+      const freshTalk = card.round <= 1 && (role === "builder" ? fresh : true);
+      if (freshTalk && chat.providerSessionId)
+        this.deps.freshConversation?.(chat.id);
+      const brief =
+        chat.providerSessionId && !(freshTalk && this.deps.freshConversation)
+          ? undefined
+          : crewBrief({
+              role,
+              name: this.deps.name(crew, role),
+              project: crew.path,
+              copyPath: crew.copy?.path ?? "",
+              names,
+              harness: crewMember(crew, role)?.harness,
+              maxRounds: card.maxRounds,
+            });
       let hashBefore: string | undefined;
       if (role === "checker")
         hashBefore = (await this.deps.copy.diff(crew.copy!.path, card.base))
@@ -975,22 +987,25 @@ export class CrewRunner {
       turn.sessionId = chat.id;
       this.updateWorking();
       const left = ideasLeft(crew, now);
+      // Each look starts a new conversation.
+      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
       const text = scoutMessage({
         notes: crew.notes,
         boardTitles: cards
           .filter((card) => card.column !== "shipped")
           .map((card) => card.title),
         ideasLeft: left,
-        brief: chat.providerSessionId
-          ? undefined
-          : crewBrief({
-              role: "scout",
-              name: this.deps.name(crew, "scout"),
-              project: crew.path,
-              copyPath: crew.copy?.path ?? "",
-              names: this.names(crew),
-              maxRounds: crew.limits.roundsPerCard,
-            }),
+        brief:
+          chat.providerSessionId && !this.deps.freshConversation
+            ? undefined
+            : crewBrief({
+                role: "scout",
+                name: this.deps.name(crew, "scout"),
+                project: crew.path,
+                copyPath: crew.copy?.path ?? "",
+                names: this.names(crew),
+                maxRounds: crew.limits.roundsPerCard,
+              }),
         sync: prepared.sync,
       });
       const label = crewTurnLabel({ role: "scout" });

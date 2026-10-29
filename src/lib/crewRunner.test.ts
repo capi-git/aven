@@ -86,6 +86,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   }[] = [];
   const counts: Record<Role, number> = { builder: 0, checker: 0, scout: 0 };
   const stopped: string[] = [];
+  const fresh: string[] = [];
   let copyState: { hash: string; files: string[] } | null = null;
   const board = new Map<string, FeatureCard>();
   const moves: { id: string; column: FeatureColumn }[] = [];
@@ -188,6 +189,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
           update(sessionId, (chat) => ({
             ...chat,
             busy: false,
+            providerSessionId: `provider-${sessionId}`,
             blocks: [
               ...chat.blocks,
               { id: `reply-${turnIds++}`, role: "assistant", text: reply.text },
@@ -237,6 +239,10 @@ function harness(agents: Partial<Record<Role, Agent>>) {
         role
       ],
     onWorking: () => {},
+    freshConversation: (sessionId) => {
+      fresh.push(sessionId);
+      update(sessionId, (chat) => ({ ...chat, providerSessionId: undefined }));
+    },
     newId: () => `turn-${nextId++}`,
   });
 
@@ -266,6 +272,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     runner,
     sent,
     stopped,
+    fresh,
     copy,
     moves,
     board,
@@ -552,6 +559,51 @@ describe("the loop with stand-in agents", () => {
       reason: "timeout",
       text: "Beetle's turn ran past 20 minutes and was stopped",
     });
+    h.runner.stop();
+  });
+});
+
+describe("fresh eyes", () => {
+  it("starts each card's build and check on a new conversation, keeping it for re-checks", async () => {
+    const h = harness({
+      builder: (_text, nth) => ({
+        text: handoff(`Round ${nth}`),
+        copy: { hash: `h${nth}`, files: ["src/a.ts"] },
+      }),
+      checker: (_text, nth) => ({
+        text:
+          nth === 1
+            ? verdict([{ text: "Broken" }])
+            : nth === 2
+              ? verdict([])
+              : verdict([]),
+      }),
+    });
+    onCrew();
+    give("first", "First");
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card("first").stage).toBe("ready");
+    // First card: both chats were new, so nothing to forget yet; each got its role.
+    expect(h.fresh).toEqual([]);
+    expect(h.sent[0].text).toContain("You are Beetle, the Builder");
+    expect(h.sent[1].text).toContain("You are Owl, the Checker");
+    // Round 2 keeps its conversation: no role again, no fresh start.
+    expect(h.sent[2].text).not.toContain("You are Beetle");
+    expect(h.sent[3].text).not.toContain("You are Owl");
+
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      cards: crew.cards.map((item) =>
+        item.id === "first" ? { ...item, stage: "applied" } : item,
+      ),
+    }));
+    give("second", "Second");
+    await h.advance(10 * MINUTE);
+    // The next card starts both on new conversations, with their roles.
+    expect(h.fresh).toEqual(["builder-chat", "checker-chat"]);
+    expect(h.sent[4].text).toContain("You are Beetle, the Builder");
+    expect(h.sent[5].text).toContain("You are Owl, the Checker");
     h.runner.stop();
   });
 });

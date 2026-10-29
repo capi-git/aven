@@ -338,6 +338,11 @@ export type CrewHoldReason =
 export type Crew = {
   /** The project's folder. */
   path: string;
+  /**
+   * Members of roles this build doesn't know (a later build's Keeper, a
+   * custom role), kept as they were and written back with the rest.
+   */
+  otherMembers?: unknown[];
   /** The Builder, Checker and Scout are at work. The Fixer has its own switch. */
   on: boolean;
   onAt?: number;
@@ -726,12 +731,21 @@ export function readCrew(value: unknown): Crew | null {
   const limits = raw.limits as Partial<CrewLimits> | undefined;
   const quiet = limits?.quiet as Partial<BotQuietHours> | undefined;
   const members: CrewMember[] = [];
+  const otherMembers: unknown[] = [];
   if (Array.isArray(raw.members))
     for (const item of raw.members) {
       const member = readMember(item);
       // One member per role.
       if (member && !members.some((entry) => entry.role === member.role))
         members.push(member);
+      else if (
+        !member &&
+        item &&
+        typeof item === "object" &&
+        typeof (item as { role?: unknown }).role === "string" &&
+        !ROLES.has((item as { role: CrewRole }).role)
+      )
+        otherMembers.push(item);
     }
   const copy = raw.copy as Crew["copy"] | undefined;
   const ideas: Record<string, CrewIdea> = {};
@@ -813,6 +827,7 @@ export function readCrew(value: unknown): Crew | null {
     on: raw.on === true,
     ...(typeof raw.onAt === "number" ? { onAt: raw.onAt } : {}),
     members: members.length ? members : base.members,
+    ...(otherMembers.length ? { otherMembers: otherMembers.slice(0, 20) } : {}),
     limits: {
       runsPerDay: finite(limits?.runsPerDay, 1, 200, base.limits.runsPerDay),
       roundsPerCard: finite(
@@ -938,10 +953,20 @@ function emit() {
   for (const listener of [...listeners]) listener();
 }
 
+/** A crew as storage keeps it: members of unknown roles back among its members. */
+function stored(crew: Crew): unknown {
+  if (!crew.otherMembers?.length) return crew;
+  const { otherMembers, ...rest } = crew;
+  return { ...rest, members: [...crew.members, ...otherMembers] };
+}
+
 function write(store: Store) {
+  const crews: Record<string, unknown> = {};
+  for (const [key, crew] of Object.entries(store.crews))
+    crews[key] = stored(crew);
   const raw = JSON.stringify({
     version: 1,
-    crews: { ...store.others, ...store.crews },
+    crews: { ...store.others, ...crews },
   });
   cache = store;
   chatIndex = null;

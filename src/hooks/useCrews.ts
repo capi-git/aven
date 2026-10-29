@@ -37,6 +37,8 @@ export type CrewsHost = {
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
+  /** Start the chat's agent on a new conversation at its next turn. */
+  freshConversation: (sessionId: string) => void;
   /** The chats crews work in now, which stay loaded without a tab. */
   onWorking: (ids: ReadonlySet<string>) => void;
 };
@@ -67,6 +69,8 @@ export function useCrews(
       send: (sessionId, text, options) =>
         hostRef.current.send(sessionId, text, options),
       stopChat: (sessionId) => hostRef.current.stopChat(sessionId),
+      freshConversation: (sessionId) =>
+        hostRef.current.freshConversation(sessionId),
       copy: {
         prepare: botCopyHost.prepare,
         sync: botCopyHost.sync,
