@@ -56,18 +56,61 @@ export function setCssZoomRectsForTests(mode: CssZoomRects | undefined) {
   zoomRects = mode;
 }
 
+/**
+ * What `element`'s reported client rects are multiplied by to be in the
+ * viewport's pixels, the pointer's (`clientX`, `elementFromPoint`): its
+ * effective CSS zoom on a legacy engine, else 1.
+ */
+export function clientRectScale(element: HTMLElement): number {
+  if (cssZoomRects() !== "legacy") return 1;
+  const zoom = effectiveCssZoom(element);
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
 /** A rect `element` reported (`getClientRects`), in the viewport's pixels. */
 export function viewportRect(
   element: HTMLElement,
   rect: Pick<DOMRectReadOnly, "left" | "top" | "right" | "bottom">,
 ): { left: number; top: number; right: number; bottom: number } {
-  const zoom = cssZoomRects() === "legacy" ? effectiveCssZoom(element) : 1;
+  const zoom = clientRectScale(element);
   return {
     left: rect.left * zoom,
     top: rect.top * zoom,
     right: rect.right * zoom,
     bottom: rect.bottom * zoom,
   };
+}
+
+/**
+ * `clientRectScale` for one gesture: each element's measured once, since
+ * zoom does not change mid-drag, and without `currentCSSZoom` measuring
+ * reads every ancestor's style.
+ */
+export function clientRectScales(): (element: HTMLElement) => number {
+  const scales = new WeakMap<HTMLElement, number>();
+  return (element) => {
+    if (cssZoomRects() !== "legacy") return 1;
+    let scale = scales.get(element);
+    if (scale === undefined) {
+      scale = clientRectScale(element);
+      scales.set(element, scale);
+    }
+    return scale;
+  };
+}
+
+/**
+ * The pointer (`clientX`, `clientY`: the viewport's pixels) where rects
+ * that scale by `scale` (`clientRectScale`) are reported, for hit tests
+ * against them. The window strip cancels the interface zoom with CSS zoom,
+ * and older WebKit reports its rects divided by that zoom, so the pointer
+ * is divided too; elsewhere, and on the standard engine, it is as it is.
+ */
+export function pointInRects(
+  point: { x: number; y: number },
+  scale: number,
+): { x: number; y: number } {
+  return scale === 1 ? point : { x: point.x / scale, y: point.y / scale };
 }
 
 /** Block native text selection for the duration of a reorder gesture. */

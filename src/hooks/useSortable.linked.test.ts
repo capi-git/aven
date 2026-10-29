@@ -10,6 +10,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
+import { setCssZoomRectsForTests, type CssZoomRects } from "../lib/drag";
 import {
   useSortable,
   type SortableLink,
@@ -33,12 +34,27 @@ describe("useSortable between bars on one channel", () => {
   let restoreClock: () => void;
   /** What each render of bar B previews: its target and what comes in. */
   let seen: Array<{ target: string | null; content: unknown }>;
+  /**
+   * Bar A's CSS zoom, as the window's strip cancels the interface zoom
+   * (bar B is a pane's row, unzoomed), and how the engine reports rects
+   * under it: in the viewport's pixels, or divided by it (legacy WebKit).
+   */
+  let stripZoom: number;
+  let rects: CssZoomRects;
 
   const ITEMS: Record<string, string[]> = { a: ["a1", "a2"], b: ["b1", "b2"] };
   const TOP: Record<string, number> = { a: 0, b: 100 };
 
   function Bar({ name }: { name: string }) {
     const sortable = useSortable(ITEMS[name], reorders[name], options[name]);
+    const zoom = name === "a" ? stripZoom : 1;
+    // Drawn `zoom` times its own size; legacy WebKit reports its own.
+    const scale = rects === "legacy" ? 1 : zoom;
+    const zoomed = (element: HTMLElement) =>
+      Object.defineProperty(element, "currentCSSZoom", {
+        configurable: true,
+        value: zoom,
+      });
     bars[name] = sortable;
     useLayoutEffect(() => {
       if (name === "b")
@@ -53,9 +69,10 @@ describe("useSortable between bars on one channel", () => {
         "data-bar": name,
         ref: (element: HTMLDivElement | null) => {
           sortable.setContainerRef(element);
-          if (element)
-            element.getBoundingClientRect = () =>
-              new DOMRect(0, TOP[name], 200, 30);
+          if (!element) return;
+          zoomed(element);
+          element.getBoundingClientRect = () =>
+            new DOMRect(0, TOP[name] * scale, 200 * scale, 30 * scale);
         },
       },
       ITEMS[name].map((id, index) =>
@@ -67,8 +84,14 @@ describe("useSortable between bars on one channel", () => {
             ref: (element: HTMLButtonElement | null) => {
               sortable.setItemRef(id, element);
               if (!element) return;
+              zoomed(element);
               element.getBoundingClientRect = () =>
-                new DOMRect(index * 100, TOP[name], 100, 30);
+                new DOMRect(
+                  index * 100 * scale,
+                  TOP[name] * scale,
+                  100 * scale,
+                  30 * scale,
+                );
               element.setPointerCapture = vi.fn();
               element.releasePointerCapture = vi.fn();
             },
@@ -102,6 +125,9 @@ describe("useSortable between bars on one channel", () => {
     vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
     bars = {};
     seen = [];
+    stripZoom = 1;
+    rects = "standard";
+    setCssZoomRectsForTests("standard");
     reorders = { a: vi.fn(), b: vi.fn() };
     options = {
       a: {
@@ -131,6 +157,7 @@ describe("useSortable between bars on one channel", () => {
     restoreClock();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    setCssZoomRectsForTests(undefined);
   });
 
   async function render() {
@@ -278,4 +305,62 @@ describe("useSortable between bars on one channel", () => {
     expect(bars.b.dropTarget).toBeNull();
     expect(bars.b.incoming).toBeNull();
   });
+  // The window's strip at 80% and 120% interface zoom: CSS zoom 1.25 or
+  // 1/1.2 cancels it, so bar A's 100px tabs are that many of the
+  // viewport's pixels, where the pointer is; pane rows are not zoomed.
+  const zoomed = (["standard", "legacy"] as const).flatMap((engine) =>
+    [0.8, 1.2].map((ui) => [engine, ui] as const),
+  );
+
+  it.each(zoomed)(
+    "drops a pane row's tab onto the CSS-zoomed strip's tab under the pointer, on %s CSS zoom at %s",
+    async (engine, ui) => {
+      stripZoom = 1 / ui;
+      rects = engine;
+      setCssZoomRectsForTests(engine);
+      const onDrop = vi.fn();
+      options.a.link = link({ accepts: () => true, onDrop });
+      options.b = { ...options.b, onDragEnd: vi.fn(() => false) };
+      await render();
+      await pointer(
+        container.querySelector('[data-id="b1"]')!,
+        "pointerdown",
+        50,
+        115,
+      );
+      await hold(50, 70);
+      // In a2's middle half (125 to 175 of the strip's own), placed where
+      // older WebKit's rects, read as they are, put no middle at all.
+      const local = ui < 1 ? 165 : 135;
+      await hold(local * stripZoom, 15 * stripZoom);
+      await pointer(window, "pointerup", local * stripZoom, 15 * stripZoom);
+      expect(onDrop).toHaveBeenCalledExactlyOnceWith("b1", "a2");
+      expect(reorders.b).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(zoomed)(
+    "drops the CSS-zoomed strip's tab onto a pane row's tab in the row's own pixels, on %s CSS zoom at %s",
+    async (engine, ui) => {
+      stripZoom = 1 / ui;
+      rects = engine;
+      setCssZoomRectsForTests(engine);
+      await render();
+      await pointer(
+        container.querySelector('[data-id="a1"]')!,
+        "pointerdown",
+        50 * stripZoom,
+        15 * stripZoom,
+      );
+      await hold(50, 70);
+      // b2's middle: the pane row is not zoomed, whatever the strip is.
+      await hold(150, 115);
+      await pointer(window, "pointerup", 150, 115);
+      expect(options.b.link!.onDrop).toHaveBeenCalledExactlyOnceWith(
+        "a1",
+        "b2",
+      );
+      expect(reorders.a).not.toHaveBeenCalled();
+    },
+  );
 });

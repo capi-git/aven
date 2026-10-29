@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { waitFor } from "./devSmoke";
+import { viewportRect } from "./drag";
 import { loadUiScale } from "./uiScale";
 
 /**
@@ -36,10 +37,15 @@ type LoneTabOptions = {
 
 type Point = { x: number; y: number };
 
-/** The middle of an element, in the page's client pixels. */
-function centre(element: Element): Point {
-  const rect = element.getBoundingClientRect();
-  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+/**
+ * The middle of an element in the viewport's pixels, where a press at it
+ * lands (`dev_smoke_pointer` and `elementFromPoint` take these), on either
+ * kind of CSS zoom: older WebKit reports the rects of the window strip,
+ * which cancels the interface zoom with CSS zoom, divided by that zoom.
+ */
+export function pressPoint(element: HTMLElement): Point {
+  const box = viewportRect(element, element.getBoundingClientRect());
+  return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
 }
 
 /**
@@ -242,7 +248,7 @@ export async function checkLoneTabDrag(
       "a new chat in front",
     );
     const chatBody = () =>
-      document.querySelector(
+      document.querySelector<HTMLElement>(
         `[data-workspace-surface="${CSS.escape(chat)}"] > [data-workspace-body]`,
       );
     /** The page alone in a pane right of the chat: its header is its toolbar. */
@@ -275,7 +281,7 @@ export async function checkLoneTabDrag(
         5_000,
         "the page's title in its pane's header",
       );
-      const from = centre(field);
+      const from = pressPoint(field);
       dragging = true;
       try {
         await drag(from, dragPath(from, to));
@@ -297,7 +303,7 @@ export async function checkLoneTabDrag(
 
     // A click that never moves edits the address, as before.
     field = titleField(pageId) ?? field;
-    const atTitle = centre(field);
+    const atTitle = pressPoint(field);
     await drag(atTitle, []);
     await waitFor(
       () =>
@@ -317,7 +323,7 @@ export async function checkLoneTabDrag(
     // By its title to the chat's left edge: a pane of its own, now left.
     let body = chatBody();
     if (!body) throw new Error("the chat's pane is not on screen");
-    let box = body.getBoundingClientRect();
+    const box = body.getBoundingClientRect();
     await dragTitle({ x: box.left + 12, y: box.top + box.height / 2 });
     await waitFor(
       () => !splitLeftProblem(panes(), chat, pageId),
@@ -330,7 +336,7 @@ export async function checkLoneTabDrag(
     // By its title into the middle of the chat's pane: they share it.
     body = chatBody();
     if (!body) throw new Error("the chat's pane is not on screen");
-    await dragTitle(centre(body));
+    await dragTitle(pressPoint(body));
     await waitFor(
       () => !joinedProblem(panes(), chat, pageId),
       5_000,
@@ -346,15 +352,16 @@ export async function checkLoneTabDrag(
       '.workspace-status-strip-content [aria-label="Workspace tabs"]',
     );
     if (!strip) throw new Error("the window's strip is not on screen");
-    box = strip.getBoundingClientRect();
     // A slot, never a tab's middle (which would combine with that tab):
-    // after the last entry.
+    // after the last entry. In the viewport's pixels: the strip is
+    // CSS-zoomed at any interface zoom but 100%.
+    const onStrip = viewportRect(strip, strip.getBoundingClientRect());
     const entries = [
       ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
-    ].map((entry) => entry.getBoundingClientRect());
+    ].map((entry) => viewportRect(entry, entry.getBoundingClientRect()));
     await dragTitle({
-      x: slotAfterLast(box, entries),
-      y: box.top + box.height / 2,
+      x: slotAfterLast(onStrip, entries),
+      y: (onStrip.top + onStrip.bottom) / 2,
     });
     await waitFor(
       () => !strippedProblem(get().loneTab?.strip() ?? [], pageId),
@@ -387,8 +394,8 @@ export async function checkLoneTabDrag(
       "the page's and the chat's tabs on the strip",
     );
     await pause(300);
-    const from = centre(pageTab);
-    const onto = centre(chatTab);
+    const from = pressPoint(pageTab);
+    const onto = pressPoint(chatTab);
     await smokeMouse("down", from);
     let at = from;
     try {
