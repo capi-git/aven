@@ -2217,7 +2217,15 @@ mod tests {
         thread.join().unwrap();
         settle(&store, "slow");
         settle(&store, "other");
-        assert!(store.locks.projects.lock().unwrap().is_empty());
+        // The project lock is let go by the last waiter just after its
+        // chat's lock, so give it the same time to settle.
+        for _ in 0..500 {
+            if store.locks.projects.lock().unwrap().is_empty() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the project kept its checkpoint lock");
     }
 
     #[test]
