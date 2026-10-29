@@ -638,20 +638,42 @@ export function stripDropKeeps(target: string, dragged: string): string[] {
 /**
  * What Undo layout needs to take a split made on the strip apart again: the
  * single tab's view, as if in front, with the tab let go brought into it,
- * taken in the single tab's entry. Null when the drop makes no new split (a
- * split taking a pane, as a tab let go on a split does, is not undone).
+ * taken in the single tab's entry. A tab that came out of a split (a pane's
+ * tab, or a segment pulled out) also records the whole strip as it was, so
+ * undo puts it back in that split. Null when the drop makes no new split (a
+ * split let go on a single tab).
  */
 export function stripCombineUndo(
   strip: WorkspaceStrip,
   target: string,
   id: string,
-): { view: WorkspaceView; entry: string } | null {
+): { view: WorkspaceView; entry: string; strip?: WorkspaceStrip } | null {
   if (isSpaceKey(id) || combineStripTabs(strip, target, id) === strip)
     return null;
+  const from = stripEntryKeyOf(strip, id);
   return {
     view: stripViewWith(focusStripTab(strip, target), [id]),
     entry: target,
+    ...(from && isSpaceKey(from) ? { strip } : {}),
   };
+}
+
+/**
+ * Undo a drop that reshaped the strip: the strip as it was (`snapshot`),
+ * holding the tabs open now. Tabs closed since stay closed; tabs opened
+ * since stand on the strip beside the entry in front.
+ */
+export function restoreStripSnapshot(
+  current: WorkspaceStrip,
+  snapshot: WorkspaceStrip,
+): WorkspaceStrip {
+  return resolveWorkspaceStrip(
+    snapshot,
+    recordedStripIds(current),
+    "",
+    () => stripView(current),
+    { newcomersOnStrip: true },
+  );
 }
 
 /**

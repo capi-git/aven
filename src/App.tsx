@@ -157,7 +157,9 @@ import {
 } from "./lib/workspaceIntents";
 import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
+  addStripPane,
   entryKey,
+  insertStripPane,
   isSpaceKey,
   spacePanes,
   stepStripEntry,
@@ -168,8 +170,10 @@ import {
   stripCombineUndo,
   stripDropKeeps,
   stripItems,
+  stripView,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
+  type WorkspaceStrip,
 } from "./lib/workspaceSpaces";
 import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
@@ -1724,9 +1728,29 @@ export default function App({
     if (!result.snapshot) return;
     recoveryRef.current = result.state;
     setRecovery(result.state);
+    // A drop that reshaped the strip puts the whole strip back.
+    if (result.strip) {
+      viewRef.current.restoreStrip(result.strip);
+      return;
+    }
     // The change belongs to the entry it was made in, which comes to the
     // front for it. With none of that entry's tabs left, nothing changes.
     viewRef.current.undoLayout(result.snapshot, result.entry);
+  }, []);
+  /**
+   * Remember the whole strip before a drop on it that reshapes it, so Undo
+   * layout puts it back.
+   */
+  const pushStripUndo = useCallback((strip: WorkspaceStrip) => {
+    const next = pushWorkspaceLayoutUndo(
+      recoveryRef.current,
+      workspaceKeyRef.current,
+      stripView(strip),
+      strip.front,
+      strip,
+    );
+    recoveryRef.current = next;
+    setRecovery(next);
   }, []);
   const onKeepBrowser = useCallback((surfaceId: string) => {
     const cwd = projectCwdRef.current;
@@ -1777,6 +1801,7 @@ export default function App({
           workspaceKeyRef.current,
           undo.view,
           undo.entry,
+          undo.strip,
         );
         recoveryRef.current = next;
         setRecovery(next);
@@ -11332,7 +11357,14 @@ export default function App({
           onSelectSplitTab: onSelectSurface,
           // A page moved into a split's pane is kept, as on the stage. Let
           // go on a segment, it stands beside that segment's pane.
+          // Undo layout puts the strip back as it was.
           onAddToSplit: (key, id, beside) => {
+            const before = viewRef.current.strip;
+            const next = beside
+              ? insertStripPane(before, key, id, beside.pane, beside.side)
+              : addStripPane(before, key, id);
+            if (next === before) return;
+            pushStripUndo(before);
             stripDropKeeps(key, id).forEach(onKeepBrowser);
             if (beside)
               workspaceViews.insertPane(key, id, beside.pane, beside.side);

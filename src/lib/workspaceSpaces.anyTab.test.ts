@@ -9,6 +9,7 @@ import {
   entryKey,
   insertStripPane,
   resolveWorkspaceStrip,
+  restoreStripSnapshot,
   stripCombineUndo,
   stripView,
   stripViewWith,
@@ -123,8 +124,53 @@ describe("a pane's tab let go on the window strip's single tab", () => {
     // The split it left had one pane left, so came apart.
     expect(keys(combined)).toEqual(["notes", "chat", "split(file|page)"]);
     expect(combined.front).toBe(entryKey(spaceAt(combined, 2)));
-    const undone = undoStripLayout(combined, undo.view, undo.entry)!;
-    expect(keys(undone)).toEqual(["notes", "chat", "file", "page"]);
+    // Undo puts the whole strip back: the page in its split again, the
+    // file alone, the split in front.
+    expect(undo.strip).toEqual(before);
+    const undone = restoreStripSnapshot(combined, undo.strip!);
+    expect(undone).toEqual(before);
+    // A version that knows only the view in the entry still takes the new
+    // split apart.
+    expect(keys(undoStripLayout(combined, undo.view, undo.entry)!)).toEqual([
+      "notes",
+      "chat",
+      "file",
+      "page",
+    ]);
+  });
+
+  it("records no whole strip for a single tab, whose undo is the entry's", () => {
+    expect(stripCombineUndo(strip(), "file", "notes")?.strip).toBeUndefined();
+  });
+});
+
+describe("undoing a drop on a split's segment or entry", () => {
+  it("puts the whole strip back, the tab where it was", () => {
+    const two: WorkspaceStrip = {
+      entries: [space("s1", ["chat", "page"]), space("s2", ["notes", "file"])],
+      front: "aven-space:s2",
+    };
+    const inserted = insertStripPane(two, SPLIT, "notes", "page", "before");
+    expect(restoreStripSnapshot(inserted, two)).toEqual(two);
+    const added = addStripPane(strip(), SPLIT, "file");
+    expect(restoreStripSnapshot(added, strip())).toEqual(strip());
+  });
+
+  it("keeps tabs opened since, beside the entry in front, and drops closed ones", () => {
+    const inserted = insertStripPane(strip(), SPLIT, "notes", "chat", "after");
+    // Since then: the file closed, a new chat opened.
+    const now: WorkspaceStrip = {
+      ...inserted,
+      entries: [
+        ...inserted.entries.filter(
+          (entry) => entry.kind !== "item" || entry.id !== "file",
+        ),
+        item("fresh"),
+      ],
+    };
+    const undone = restoreStripSnapshot(now, strip());
+    expect(keys(undone)).toEqual(["notes", "fresh", "split(chat|page)"]);
+    expect(undone.front).toBe("notes");
   });
 });
 

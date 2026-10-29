@@ -13,6 +13,7 @@ import {
   recordedStripIds,
   reorderStripEntries,
   resolveWorkspaceStrip,
+  restoreStripSnapshot,
   separateStripSpace,
   stripView,
   stripViewWith,
@@ -290,6 +291,17 @@ export function useWorkspaceViews(
     },
     [mutate],
   );
+  /**
+   * Put back the whole strip as it was before a drop that reshaped it,
+   * holding the tabs open now.
+   */
+  const restoreStrip = useCallback(
+    (snapshot: WorkspaceStrip) =>
+      mutate(current.current.key, (strip) =>
+        restoreStripSnapshot(strip, snapshot),
+      ),
+    [mutate],
+  );
   /** The next new tab stands on the strip, even with a space in front. */
   const openOnStrip = useCallback(() => {
     stripNext.current = Date.now();
@@ -366,5 +378,6 @@ export function useWorkspaceViews(
     viewWith,
     openOnStrip,
     undoLayout,
+    restoreStrip,
   };
 }
