@@ -41,6 +41,28 @@ describe("placePopover", () => {
     });
   });
 
+  it("keeps a side that must not flip, capping the height to its room", () => {
+    // Above an anchor near the top, with far more room below: a popover that
+    // would cover what is below stays above, as tall as the room allows.
+    expect(
+      placePopover(anchor(100, 120, 80, 20), menu, viewport, {
+        side: "top",
+        flip: false,
+      }),
+    ).toEqual({
+      side: "top",
+      left: 100,
+      bottom: 486,
+      width: 200,
+      maxHeight: 106,
+    });
+    // Flipping stays the default.
+    expect(
+      placePopover(anchor(100, 120, 80, 20), menu, viewport, { side: "top" })
+        .side,
+    ).toBe("bottom");
+  });
+
   it("pins a top-side popover by its bottom edge so growth stays put", () => {
     const position = placePopover(anchor(100, 400, 80, 20), menu, viewport, {
       side: "top",

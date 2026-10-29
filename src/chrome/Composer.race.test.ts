@@ -32,7 +32,6 @@ vi.mock("./ModelPicker", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ModelPicker")>()),
   ModelChooser: () => null,
 }));
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 vi.mock("../lib/paletteAgents", () => ({
   availablePaletteAgents: () => agents.list,
@@ -86,10 +85,9 @@ afterEach(async () => {
 async function render() {
   await act(async () => root.render(createElement(Composer, props)));
 }
+// The + menu's modes live on a page of the critter's dialog.
 const plusButton = () =>
-  container.querySelector<HTMLButtonElement>(
-    '[aria-label="Add files or choose a mode"]',
-  )!;
+  container.querySelector<HTMLButtonElement>("[data-helm-critter]")!;
 const plusMenu = () =>
   document.body.querySelector<HTMLElement>("[data-composer-plus]");
 const raceEntry = () =>
@@ -112,15 +110,21 @@ const add = (harness: string) =>
   menu()!.querySelector<HTMLButtonElement>(`[data-race-add="${harness}"]`)!;
 const field = () => container.querySelector("textarea")!;
 const sendButton = () =>
-  container.querySelector<HTMLButtonElement>(".composer-send")!;
+  container.querySelector<HTMLButtonElement>("[data-helm-send]")!;
 
 async function openPlus() {
-  if (!plusMenu()) await act(async () => plusButton().click());
+  if (plusMenu()) return;
+  await act(async () => plusButton().click());
+  await act(async () =>
+    document.body
+      .querySelector<HTMLButtonElement>('[data-helm-row="modes"]')!
+      .click(),
+  );
 }
 async function pickMode(name: string) {
   await openPlus();
   const entry = [
-    ...plusMenu()!.querySelectorAll<HTMLButtonElement>("[aria-pressed]"),
+    ...plusMenu()!.querySelectorAll<HTMLButtonElement>("[aria-checked]"),
   ].find((item) => item.textContent?.includes(name))!;
   await act(async () => entry.click());
 }
@@ -142,7 +146,7 @@ it("starts from the + menu and races the message instead of sending it", async (
   await render();
   await openPlus();
   expect(raceEntry()?.textContent).toContain("Race");
-  expect(raceEntry()?.getAttribute("aria-pressed")).toBe("false");
+  expect(raceEntry()?.getAttribute("aria-checked")).toBe("false");
   await act(async () => raceEntry()!.click());
   expect(plusMenu()).toBeNull();
   expect(chipLabel()).toBe("Race · Codex · Claude");
@@ -154,7 +158,7 @@ it("starts from the + menu and races the message instead of sending it", async (
   expect(menu()).toBeNull();
   expect(sendButton().getAttribute("aria-label")).toBe("Race 2 agents");
   await openPlus();
-  expect(raceEntry()?.getAttribute("aria-pressed")).toBe("true");
+  expect(raceEntry()?.getAttribute("aria-checked")).toBe("true");
   await act(async () => plusButton().click());
   await send();
   expect(props.onSubmit).not.toHaveBeenCalled();
@@ -267,7 +271,7 @@ it("says to send or remove an attached card first", async () => {
   expect(props.onSubmit).not.toHaveBeenCalled();
 });
 
-it("turns Race off from its chip beside the + button", async () => {
+it("turns Race off from its chip beside the critter", async () => {
   await render();
   await turnRaceOn();
   await act(async () => turnOff()!.click());
@@ -284,8 +288,12 @@ it("hides Race when the chat does not offer it, and the agent panel has none", a
   await act(async () => plusButton().click());
   props.onRace = vi.fn();
   await render();
+  // The Model row opens the agent's panel: Race is not in it.
+  await act(async () => plusButton().click());
   await act(async () =>
-    container.querySelector<HTMLButtonElement>("[data-agent-pill]")!.click(),
+    document.body
+      .querySelector<HTMLButtonElement>('[data-helm-row="model"]')!
+      .click(),
   );
   expect(document.body.querySelector("[data-agent-panel]")).not.toBeNull();
   expect(
@@ -548,16 +556,14 @@ it("drops a refusal once the lanes change", async () => {
   expect(menu()?.querySelector('[role="alert"]')).toBeNull();
 });
 
-it("shortens the chip and the agent pill in a narrow message box", async () => {
+it("shortens the chip in a narrow message box", async () => {
   let width = 700;
   const spy = vi
     .spyOn(HTMLElement.prototype, "clientWidth", "get")
     .mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains("personal-composer-controls") ? width : 0;
+      return this.hasAttribute("data-composer-box") ? width : 0;
     });
-  const pill = () => container.querySelector<HTMLElement>("[data-agent-pill]")!;
-  const model = () => pill().querySelector(".agent-pill-model")?.textContent;
-  // The controls row is measured when the message box appears.
+  // The box is measured when it appears.
   const renderAt = async (next: number) => {
     width = next;
     await act(async () => root.unmount());
@@ -568,23 +574,17 @@ it("shortens the chip and the agent pill in a narrow message box", async () => {
   try {
     await renderAt(700);
     expect(chipLabel()).toBe("Race · Codex · Claude");
-    const name = model()!;
-    expect(name).toBeTruthy();
 
     await renderAt(480);
     expect(chipLabel()).toBe("Race · 2 agents");
     // The full text stays in the tooltip and on the chip for the smoke test.
     expect(chipToggle().title).toContain("Race · Codex · Claude");
     expect(chip()!.dataset.fullLabel).toBe("Race · Codex · Claude");
-    expect(model()).toBe(name);
-    expect(pill().querySelector(".agent-pill-effort")).toBeNull();
 
     await renderAt(360);
     expect(chipLabel()).toBe("Race · 2");
-    // The pill keeps its mark, named in full for tooltips and screen readers.
-    expect(model()).toBeUndefined();
-    expect(pill().getAttribute("aria-label")).toContain(name);
-    expect(pill().title).toContain(name);
+    // The critter still names the agent in full for screen readers.
+    expect(plusButton().getAttribute("aria-label")).toContain("Codex");
   } finally {
     spy.mockRestore();
   }

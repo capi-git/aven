@@ -1,5 +1,5 @@
 import { MOTION_MS } from "./motion";
-import { springCurve, type Spring } from "./spring";
+import { springAt, springCurve, type Spring } from "./spring";
 
 /**
  * The motion of moving tabs: picking one up, the others making room, the
@@ -68,3 +68,56 @@ export const TAB_REDUCED_FADE_MS = MOTION_MS.fast;
 export const TAB_PX_PRECISION = 0.25;
 /** Scale and opacity precision. */
 export const TAB_UNIT_PRECISION = 0.002;
+
+/**
+ * The helm's dialog unfurling from its tail (see `ComposerHelm`): one
+ * critically damped spring, so it never overshoots a menu that only opened,
+ * sampled at a pixel-art beat and snapped to the critter's 3px grid. The
+ * frame grows in a few whole steps instead of a smooth scale, as a sprite
+ * would, and the lines type in once it is full size.
+ */
+export const HELM_SPRING = {
+  unfurl: { damping: 1, response: 0.3 },
+} as const satisfies Record<string, Spring>;
+
+/** One beat of the unfurl, in ms: the frame changes size once per beat. */
+export const HELM_UNFURL_BEAT_MS = 40;
+/** The frame's steps before it is full size; the rows follow. */
+export const HELM_UNFURL_STEPS = 4;
+/** The grid the frame's size snaps to: one critter pixel. */
+export const HELM_PIXEL = 3;
+
+/**
+ * The frame's size at each beat of the unfurl, as fractions of its full
+ * width and height: the spring's progress at each beat, snapped down to the
+ * pixel grid of a frame `size` px across, the last step always whole.
+ */
+export function helmUnfurlSteps(
+  size: number,
+  {
+    beatMs = HELM_UNFURL_BEAT_MS,
+    steps = HELM_UNFURL_STEPS,
+    pixel = HELM_PIXEL,
+  }: { beatMs?: number; steps?: number; pixel?: number } = {},
+): number[] {
+  const out: number[] = [];
+  for (let step = 1; step <= steps; step++) {
+    if (step === steps) {
+      out.push(1);
+      break;
+    }
+    const progress = springAt(
+      HELM_SPRING.unfurl,
+      0,
+      1,
+      0,
+      (step * beatMs) / 1000,
+    ).value;
+    const snapped = Math.max(
+      pixel,
+      Math.floor((progress * size) / pixel) * pixel,
+    );
+    out.push(Math.min(1, snapped / Math.max(size, 1)));
+  }
+  return out;
+}

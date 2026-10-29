@@ -48,11 +48,6 @@ describe("the pro look's shapes", () => {
       ],
       ["src/chrome/TeamCard.css", ".team-card-button"],
       ["src/surfaces/WorkspaceHome.css", ".workspace-home-actions button"],
-      [
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer-actions > button",
-      ],
-      ["src/surfaces/SessionRunStatus.css", ".session-run-stop"],
       ["src/surfaces/BrowserPane.css", ".browser-address"],
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
@@ -171,7 +166,6 @@ describe("the pro look's shapes", () => {
       ["src/surfaces/SettingsView.css", ".settings-scope-line"],
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
-      ["src/chrome/Composer.css", ".composer-recent-skill"],
       ["src/chrome/Menu.css", ".aven-menu-search"],
       ["src/chrome/WorkspaceThemePopover.css", ".workspace-theme-schemes"],
       ["src/surfaces/ScheduledInbox.css", ".scheduled-days"],
@@ -197,10 +191,6 @@ describe("the pro look's shapes", () => {
 
   it("keeps the primary buttons a solid fill without a shadow", () => {
     for (const [file, selector] of [
-      [
-        "src/chrome/Composer.css",
-        ".personal-shell .personal-composer-actions > .composer-send",
-      ],
       [
         "src/surfaces/WorkspaceHome.css",
         ".workspace-home-actions .workspace-home-new",

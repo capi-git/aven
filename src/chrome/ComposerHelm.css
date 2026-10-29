@@ -1,0 +1,828 @@
+/* The helm: the project's critter on the message box's top-right corner,
+   its paper plane, speech bubble and pixel dialog. Neutral greys
+   throughout; colour only for small status (the room bar's tip, full
+   access, a usage warning) and the critter itself. */
+
+/* The composer keeps a strip above its first card (or the box) for the
+   critter to stand in, so it never covers the words in the transcript, the
+   queue or the box. */
+.personal-composer[data-helm],
+.personal-shell .personal-composer[data-helm] {
+  --helm-perch: 40px;
+  padding-top: var(--helm-perch);
+}
+
+/* The helm's tokens, shared by the perch and its dialog (in a portal). */
+.composer-helm,
+.helm-dialog {
+  --helm-ink: var(--color-content);
+  --helm-muted: color-mix(in srgb, var(--color-content) 52%, transparent);
+  --helm-quiet: color-mix(in srgb, var(--color-content) 40%, transparent);
+  --helm-fill: color-mix(
+    in srgb,
+    var(--personal-main-surface, var(--color-background-base)) 86%,
+    #000
+  );
+  --helm-edge: color-mix(
+    in srgb,
+    var(--color-content) 34%,
+    var(--personal-main-surface, var(--color-background-base))
+  );
+  --helm-cell-off: color-mix(in srgb, var(--color-content) 16%, transparent);
+  --helm-cell-on: color-mix(in srgb, var(--color-content) 62%, transparent);
+  --helm-row-active: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --helm-amber: var(--color-amber-400, #f2b544);
+  --helm-red: var(--color-red-400, #f07167);
+  --helm-ok: color-mix(in srgb, var(--color-content) 78%, transparent);
+  --helm-pixel-outer: polygon(
+    6px 0,
+    calc(100% - 6px) 0,
+    calc(100% - 6px) 2px,
+    calc(100% - 4px) 2px,
+    calc(100% - 4px) 4px,
+    calc(100% - 2px) 4px,
+    calc(100% - 2px) 6px,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 2px) calc(100% - 6px),
+    calc(100% - 2px) calc(100% - 4px),
+    calc(100% - 4px) calc(100% - 4px),
+    calc(100% - 4px) calc(100% - 2px),
+    calc(100% - 6px) calc(100% - 2px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    6px calc(100% - 2px),
+    4px calc(100% - 2px),
+    4px calc(100% - 4px),
+    2px calc(100% - 4px),
+    2px calc(100% - 6px),
+    0 calc(100% - 6px),
+    0 6px,
+    2px 6px,
+    2px 4px,
+    4px 4px,
+    4px 2px,
+    6px 2px
+  );
+  --helm-pixel-inner: polygon(
+    4px 0,
+    calc(100% - 4px) 0,
+    calc(100% - 4px) 2px,
+    calc(100% - 2px) 2px,
+    calc(100% - 2px) 4px,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 2px) calc(100% - 4px),
+    calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 4px) calc(100% - 2px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    4px calc(100% - 2px),
+    2px calc(100% - 2px),
+    2px calc(100% - 4px),
+    0 calc(100% - 4px),
+    0 4px,
+    2px 4px,
+    2px 2px,
+    4px 2px
+  );
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--helm-ink);
+}
+.composer-helm {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: var(--helm-perch);
+  padding: 0 14px 0 10px;
+  container: composer-helm / inline-size;
+  pointer-events: none;
+}
+html.theme-light .composer-helm,
+html.theme-light .helm-dialog {
+  --helm-fill: color-mix(in srgb, var(--personal-main-surface, #fff) 92%, #fff);
+  --helm-edge: color-mix(
+    in srgb,
+    var(--color-content) 38%,
+    var(--personal-main-surface, #fff)
+  );
+  --helm-amber: var(--color-amber-600, #b7791f);
+  --helm-red: var(--color-red-600, #d70015);
+}
+.composer-helm > * {
+  pointer-events: auto;
+}
+.composer-helm > .helm-spacer {
+  flex: 1 1 0;
+  pointer-events: none;
+}
+.composer-helm :focus-visible,
+.helm-dialog :focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-content));
+  outline-offset: 1px;
+}
+
+/* ---- the mode that is on, standing on the box at the left ------------- */
+.helm-mode-chip {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  margin-bottom: 5px;
+}
+
+/* ---- the critter and what it holds ------------------------------------ */
+.helm-perch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  /* Standing on the box's top edge. */
+  margin-bottom: -1px;
+}
+.helm-critter-button {
+  display: block;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.helm-critter {
+  display: block;
+  width: 36px;
+  height: 36px;
+  overflow: visible;
+}
+.helm-critter-zzz {
+  color: var(--helm-quiet);
+}
+.helm-critter-zzz path:nth-child(1) {
+  opacity: 0.55;
+}
+.helm-critter-zzz path:nth-child(2) {
+  opacity: 0.8;
+}
+.helm-critter-laptop .helm-laptop-case {
+  fill: color-mix(in srgb, var(--color-content) 46%, #000);
+}
+.helm-critter-laptop .helm-laptop-screen {
+  fill: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
+.helm-critter-laptop .helm-laptop-base {
+  fill: color-mix(in srgb, var(--color-content) 26%, #000);
+}
+.helm-critter-sparkle,
+.helm-critter-twinkle {
+  fill: color-mix(in srgb, currentColor 40%, white);
+}
+.helm-critter-sweat {
+  fill: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+
+/* The room left in the chat, as a stamina bar over the critter's head. */
+.helm-perch-room {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.helm-room {
+  display: inline-flex;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--helm-edge);
+  background: var(--helm-fill);
+  vertical-align: middle;
+}
+.helm-room i {
+  display: block;
+  width: 2px;
+  height: 3px;
+  background: var(--helm-cell-off);
+}
+.helm-room i[data-lit] {
+  background: var(--helm-cell-on);
+}
+.helm-room[data-tone="amber"] i[data-lit] {
+  background: var(--helm-amber);
+}
+.helm-room[data-tone="red"] i[data-lit] {
+  background: var(--helm-red);
+}
+
+/* The paper plane: Send. Neutral pixels, never the accent. */
+.helm-plane {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  margin-bottom: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.helm-plane-art {
+  width: 25px;
+  height: 20px;
+}
+.helm-plane-wing {
+  fill: color-mix(in srgb, var(--color-content) 90%, transparent);
+}
+.helm-plane-fold {
+  fill: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.helm-plane:hover .helm-plane-wing {
+  fill: var(--color-content);
+}
+.helm-plane:active {
+  transform: translate(1px, -1px);
+}
+
+/* ---- the speech bubble ------------------------------------------------- */
+.helm-say {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  margin-bottom: 3px;
+  padding: 0 6px 0 11px;
+  background: var(--helm-edge);
+  clip-path: var(--helm-pixel-outer);
+  white-space: nowrap;
+}
+.helm-say::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: -1;
+  background: var(--helm-fill);
+  clip-path: var(--helm-pixel-inner);
+}
+.helm-say[data-helm-say="hint"],
+.helm-say[data-helm-say="done"],
+.helm-say[data-helm-say="stopped"],
+.helm-say[data-helm-say="queued"] {
+  padding-right: 11px;
+}
+.helm-say-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.helm-say-clock,
+.helm-say-quiet {
+  flex: none;
+  color: var(--helm-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.helm-say-dots {
+  display: flex;
+  flex: none;
+  gap: 3px;
+}
+.helm-say-dots i {
+  display: block;
+  width: 3px;
+  height: 3px;
+  background: var(--helm-ink);
+}
+.helm-say-dots i:nth-child(2) {
+  opacity: 0.55;
+}
+.helm-say-dots i:nth-child(3) {
+  opacity: 0.25;
+}
+.helm-say-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--helm-ok);
+}
+.helm-say-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--helm-amber);
+}
+.helm-say-button,
+.helm-stop,
+.helm-say-close {
+  flex: none;
+  border: 0;
+  background: color-mix(in srgb, var(--color-content) 12%, var(--helm-fill));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-content) 22%, transparent);
+  color: var(--helm-ink);
+  cursor: pointer;
+}
+.helm-say-button {
+  height: 20px;
+  padding: 0 7px;
+  font: inherit;
+}
+.helm-say-button:hover,
+.helm-stop:hover,
+.helm-say-close:hover {
+  background: color-mix(in srgb, var(--color-content) 20%, var(--helm-fill));
+}
+/* The one Stop: grey, square, pixel-sized. */
+.helm-stop {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+.helm-stop i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  background: var(--helm-ink);
+}
+.helm-say-close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--helm-muted);
+}
+.helm-say-close svg {
+  width: 11px;
+  height: 11px;
+}
+/* The queue's count and the agents' button: words, or a mark and a count
+   in a narrow pane, never left out. */
+.helm-say-short {
+  display: none;
+  align-items: center;
+  gap: 3px;
+}
+.helm-say-icon {
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+.helm-say-agents {
+  display: inline-flex;
+  align-items: center;
+}
+@container composer-helm (max-width: 420px) {
+  .helm-say-quiet:not(.helm-say-queued),
+  .helm-say-dots {
+    display: none;
+  }
+  .helm-say-long {
+    display: none;
+  }
+  .helm-say-short {
+    display: inline-flex;
+  }
+  .helm-say {
+    gap: 6px;
+    padding-left: 9px;
+  }
+}
+
+/* ---- the dialog ---------------------------------------------------------- */
+/* A popover in a portal, placed above the critter (ComposerHelm): its
+   height is capped to the room above, and the body scrolls in what is
+   left. The unfurl is its own; the popover's fade is left out. */
+.helm-dialog {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* The unfurl sets the frame's size in a few held steps: keep that layout
+     to the dialog. */
+  contain: layout;
+}
+.helm-dialog.popover-open {
+  animation: none;
+}
+.helm-dialog-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin-left: auto;
+  padding: 2px;
+  background: var(--helm-edge);
+  clip-path: var(--helm-pixel-outer);
+  box-sizing: border-box;
+}
+.helm-dialog-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 8px 10px 9px 8px;
+  background: var(--helm-fill);
+  clip-path: var(--helm-pixel-inner);
+}
+.helm-dialog-body::-webkit-scrollbar {
+  display: none;
+}
+/* The tail points down at the critter's head. */
+.helm-dialog-tail {
+  position: absolute;
+  right: 11px;
+  bottom: -7px;
+  width: 14px;
+  height: 8px;
+  background: var(--helm-edge);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 2px,
+    12px 2px,
+    12px 4px,
+    10px 4px,
+    10px 6px,
+    8px 6px,
+    8px 8px,
+    6px 8px,
+    6px 6px,
+    4px 6px,
+    4px 4px,
+    2px 4px,
+    2px 2px,
+    0 2px
+  );
+}
+.helm-dialog-tail::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px 2px;
+  background: var(--helm-fill);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 2px,
+    8px 2px,
+    8px 4px,
+    6px 4px,
+    6px 6px,
+    4px 6px,
+    4px 4px,
+    2px 4px,
+    2px 2px,
+    0 2px
+  );
+}
+
+.helm-row,
+.helm-back {
+  display: grid;
+  grid-template-columns: 12px 50px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  width: 100%;
+  height: 25px;
+  margin: 0;
+  padding: 0 6px 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--helm-ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.helm-row[data-active] {
+  background: var(--helm-row-active);
+}
+.helm-row[aria-disabled="true"] {
+  cursor: default;
+}
+.helm-row:focus-visible {
+  outline-offset: -2px;
+}
+/* A recent skill: its name, then what it does, cut short at the edge. */
+.helm-row-skill {
+  grid-template-columns: 12px auto minmax(0, 1fr);
+}
+.helm-row-skill .helm-aside {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.helm-row-rich {
+  grid-template-columns: 12px 18px minmax(0, 1fr) auto;
+  height: auto;
+  min-height: 36px;
+  padding-block: 4px;
+}
+.helm-back {
+  grid-template-columns: 12px auto;
+  color: var(--helm-muted);
+  height: 22px;
+}
+.helm-cursor {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--helm-ink);
+}
+.helm-label {
+  display: inline-flex;
+  color: var(--helm-quiet);
+}
+.helm-value {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.helm-value > span:not(.helm-room) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.helm-value b {
+  font-weight: 600;
+}
+.helm-aside {
+  color: var(--helm-quiet);
+  font-size: 11.5px;
+}
+.helm-icon,
+.helm-mark {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.helm-mini-critter {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.helm-quiet {
+  color: var(--helm-quiet);
+}
+.helm-ink {
+  color: var(--helm-ink);
+}
+.helm-amber {
+  color: var(--helm-amber);
+}
+.helm-red {
+  color: var(--helm-red);
+}
+.helm-fast {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--helm-muted);
+}
+.helm-fast svg {
+  width: 11px;
+  height: 11px;
+}
+.helm-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+.helm-pips i {
+  display: block;
+  width: 5px;
+  height: 10px;
+  background: var(--helm-cell-off);
+}
+.helm-pips i[data-on] {
+  background: var(--helm-ink);
+}
+.helm-skill-list {
+  display: inline-flex;
+  gap: 6px;
+  overflow: hidden;
+}
+.helm-skill {
+  color: var(--color-skill, var(--helm-ink));
+}
+.helm-mode-icon {
+  display: grid;
+  place-items: center;
+}
+.helm-mode-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.helm-mode-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 15px;
+}
+.helm-mode-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The critter picker: a grid of every critter, the one under the cursor
+   stepping its two frames, and a bigger preview above. */
+.helm-critter-stage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 6px;
+  color: var(--helm-muted);
+}
+.helm-critter-preview {
+  width: 42px;
+  height: 42px;
+}
+.helm-critter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+}
+.helm-critter-cell {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.helm-critter-cell[data-active] {
+  background: var(--helm-row-active);
+}
+.helm-critter-cell[aria-checked="true"] {
+  box-shadow: inset 0 0 0 1px var(--helm-edge);
+}
+.helm-critter-cell-art {
+  width: 24px;
+  height: 24px;
+}
+.helm-critter-cell-art.mascot-active {
+  animation: helm-hop 900ms steps(2, jump-none) infinite;
+}
+.helm-critter-cell-art .mascot-rest {
+  animation: helm-frame-a 900ms steps(2, jump-none) infinite;
+}
+.helm-critter-cell-art .mascot-talk {
+  animation: helm-frame-b 900ms steps(2, jump-none) infinite;
+}
+.helm-critter-colors {
+  padding: 6px 2px 2px;
+}
+.helm-critter-note {
+  margin: 4px 4px 0;
+  font-size: 11px;
+}
+
+/* ---- motion: stepped, finite, or paused --------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* The lines type in once the frame has unfurled (ComposerHelm's spring). */
+  .helm-dialog[data-page="main"] .helm-row {
+    animation: helm-type-in 1ms step-end both;
+    animation-delay: calc(170ms + var(--i, 0) * 30ms);
+  }
+  /* Typing at the laptop: two frames, half a beat each. */
+  .composer-helm[data-pose="running"] .helm-critter-frame-a {
+    animation: helm-frame-a 900ms steps(2, jump-none) infinite;
+  }
+  .composer-helm[data-pose="running"] .helm-critter-frame-b {
+    animation: helm-frame-b 900ms steps(2, jump-none) infinite;
+  }
+  /* Done: a hop and a sparkle, once. */
+  .helm-critter[data-pose="done"] .helm-critter-body {
+    animation: helm-cheer 900ms step-end 1 both;
+  }
+  .helm-critter[data-pose="done"] .helm-critter-sparkle {
+    animation: mascot-sparkle 900ms step-end 1 both;
+  }
+  .helm-critter[data-pose="done"] .helm-critter-twinkle {
+    animation: mascot-twinkle 900ms step-end 1 both;
+  }
+  /* Picking a critter: it hops into place. */
+  .helm-critter.helm-critter-hop {
+    animation: helm-pick-hop 480ms step-end 1;
+  }
+  /* Dozing off: the zzz rises into place once, in three steps. */
+  .helm-critter[data-pose="rest"] .helm-critter-zzz {
+    animation: helm-zzz 900ms steps(3, jump-end) both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-helm .helm-critter-frame-b {
+    opacity: 0;
+  }
+}
+/* A hidden window or a parked pane: nothing steps. */
+.composer-helm[data-paused] *,
+.composer-helm[data-paused] *::before,
+.composer-helm[data-paused] *::after {
+  animation-play-state: paused !important;
+}
+
+@keyframes helm-frame-a {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes helm-frame-b {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes helm-hop {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-1px);
+  }
+}
+/* Opacity, not visibility: a row keyed to before it shows keeps focus. */
+@keyframes helm-type-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* In the critter's own grid: one unit is one critter pixel. */
+@keyframes helm-cheer {
+  0% {
+    transform: translateY(0);
+  }
+  12% {
+    transform: translateY(-2px);
+  }
+  24% {
+    transform: translateY(-3px);
+  }
+  38% {
+    transform: translateY(-2px);
+  }
+  48% {
+    transform: translateY(0);
+  }
+  60% {
+    transform: translateY(-1px);
+  }
+  70%,
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes helm-pick-hop {
+  0% {
+    transform: translateY(0);
+  }
+  20% {
+    transform: translateY(-6px);
+  }
+  45% {
+    transform: translateY(-9px);
+  }
+  70% {
+    transform: translateY(-3px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes helm-zzz {
+  from {
+    opacity: 0;
+    transform: translate(11px, -2px) scale(0.6667);
+  }
+  to {
+    opacity: 1;
+    transform: translate(11px, -8px) scale(0.6667);
+  }
+}

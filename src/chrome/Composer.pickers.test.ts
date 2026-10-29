@@ -37,38 +37,24 @@ vi.mock("../lib/notes", async (importOriginal) => ({
   loadNotes: vi.fn(async () => []),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-// Count commits inside the agent pill and the recent-skill chips. Each keeps
-// its own memo, so a parent render with the same props commits nothing.
-const commitsIn = vi.hoisted(() => ({ pill: 0, chips: 0 }));
-vi.mock("./AgentPill", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./AgentPill")>();
-  const react = await import("react");
-  return {
-    AgentPill: react.memo((props: ComponentProps<typeof actual.AgentPill>) =>
-      react.createElement(
-        react.Profiler,
-        { id: "pill", onRender: () => (commitsIn.pill += 1) },
-        react.createElement(actual.AgentPill, props),
-      ),
-    ),
-  };
-});
-vi.mock("./RecentSkillChips", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./RecentSkillChips")>();
+// Count commits inside the helm (the critter and its dialog). It keeps its
+// own memo, so a parent render with the same props commits nothing.
+const commitsIn = vi.hoisted(() => ({ helm: 0 }));
+vi.mock("./ComposerHelm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ComposerHelm")>();
   const react = await import("react");
   return {
     ...actual,
-    RecentSkillChips: react.memo(
-      (props: ComponentProps<typeof actual.RecentSkillChips>) =>
+    ComposerHelm: react.memo(
+      (props: ComponentProps<typeof actual.ComposerHelm>) =>
         react.createElement(
           react.Profiler,
-          { id: "chips", onRender: () => (commitsIn.chips += 1) },
-          react.createElement(actual.RecentSkillChips, props),
+          { id: "helm", onRender: () => (commitsIn.helm += 1) },
+          react.createElement(actual.ComposerHelm, props),
         ),
     ),
   };
 });
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
 const skill = (name: string): Skill => ({
@@ -102,8 +88,7 @@ beforeEach(() => {
   invalidateProjectFiles();
   catalog.skills = [];
   commits = 0;
-  commitsIn.pill = 0;
-  commitsIn.chips = 0;
+  commitsIn.helm = 0;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -143,18 +128,47 @@ async function render() {
   );
 }
 const field = () => container.querySelector("textarea")!;
-const chips = () =>
-  [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      "[data-recent-skills] button",
+// Recent skills wait on the Skills page of the critter's dialog, offered
+// while the message is empty and nothing runs.
+async function openSkills(): Promise<boolean> {
+  const critter = container.querySelector<HTMLButtonElement>(
+    "[data-helm-critter]",
+  )!;
+  if (!document.body.querySelector("[data-helm-dialog]"))
+    await act(async () => critter.click());
+  const row = document.body.querySelector<HTMLButtonElement>(
+    '[data-helm-row="skills"]',
+  );
+  if (row) await act(async () => row.click());
+  return !!row;
+}
+async function closeHelm() {
+  if (document.body.querySelector("[data-helm-dialog]"))
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-helm-critter]")!
+        .click(),
+    );
+}
+async function chips(): Promise<(string | null)[]> {
+  const shown = (await openSkills())
+    ? [
+        ...document.body.querySelectorAll<HTMLElement>(
+          '[aria-label="Recent skills"] [data-helm-item-index] .helm-value',
+        ),
+      ].map((item) => item.textContent)
+    : [];
+  await closeHelm();
+  return shown;
+}
+async function chip(label: string): Promise<HTMLButtonElement> {
+  await openSkills();
+  return [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="Recent skills"] [data-helm-item-index]',
     ),
-  ].map((button) => button.textContent);
-const chip = (label: string) =>
-  [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      "[data-recent-skills] button",
-    ),
-  ].find((button) => button.textContent === label)!;
+  ].find((item) => item.querySelector(".helm-value")?.textContent === label)!;
+}
 const skillPicker = () => container.querySelector("[data-skill-picker]");
 const mentionPicker = () => container.querySelector("[data-mention-picker]");
 const highlighted = () =>
@@ -367,44 +381,44 @@ describe("composer hint", () => {
 });
 
 describe("typing", () => {
-  it("never renders the agent pill or the recent-skill chips", async () => {
+  it("renders the helm once, as the box stops being empty, and never again", async () => {
     catalog.skills = [skill("polish"), skill("deploy")];
     rememberRecentSkills("/work/site", ["polish", "deploy"]);
     await render();
-    expect(container.querySelector("[data-agent-pill]")).not.toBeNull();
-    expect(chips()).toEqual(["/polish", "/deploy"]);
-    commitsIn.pill = 0;
-    commitsIn.chips = 0;
-    let text = "";
-    for (const character of "Fix the login loop") {
+    expect(container.querySelector("[data-helm-critter]")).not.toBeNull();
+    expect(await chips()).toEqual(["/polish", "/deploy"]);
+    await type("F");
+    commitsIn.helm = 0;
+    let text = "F";
+    for (const character of "ix the login loop") {
       text += character;
       await type(text);
     }
     expect(commits).toBeGreaterThan(0);
-    expect(commitsIn.pill).toBe(0);
-    expect(commitsIn.chips).toBe(0);
-    expect(chips()).toEqual([]);
+    expect(commitsIn.helm).toBe(0);
+    expect(await chips()).toEqual([]);
   });
 });
 
-describe("recent skill chips", () => {
+describe("recent skills in the dialog", () => {
   it("offers up to four recent skills the chat can still run, most recent first", async () => {
     catalog.skills = ["a", "b", "c", "d", "e"].map(skill);
     rememberRecentSkills("/work/site", ["gone", "e", "d", "c", "b", "a"]);
     await render();
     // `gone` left the catalog, and only four fit.
-    expect(chips()).toEqual(["/e", "/d", "/c", "/b"]);
+    expect(await chips()).toEqual(["/e", "/d", "/c", "/b"]);
   });
 
   it("starts the message with the skill and focuses the field", async () => {
     catalog.skills = [skill("polish")];
     rememberRecentSkills("/work/site", ["polish"]);
     await render();
-    await act(async () => chip("/polish").click());
+    const polish = await chip("/polish");
+    await act(async () => polish.click());
     expect(field().value).toBe("/polish ");
     expect(field().selectionStart).toBe("/polish ".length);
     expect(document.activeElement).toBe(field());
-    expect(chips()).toEqual([]);
+    expect(await chips()).toEqual([]);
     await type("/polish the header");
     await press("Enter");
     expect(props.onSubmit).toHaveBeenCalledWith(
@@ -417,7 +431,8 @@ describe("recent skill chips", () => {
   it("switches to Plan mode the way the / picker does", async () => {
     rememberRecentSkills("/work/site", ["plan"]);
     await render();
-    await act(async () => chip("/plan").click());
+    const plan = await chip("/plan");
+    await act(async () => plan.click());
     expect(field().value).toBe("");
     expect(
       container.querySelector('[aria-label="Turn off Plan mode"]'),
@@ -435,27 +450,27 @@ describe("recent skill chips", () => {
     catalog.skills = [skill("polish"), skill("deploy")];
     rememberRecentSkills("/work/site", ["polish"]);
     await render();
-    expect(chips()).toEqual(["/polish"]);
+    expect(await chips()).toEqual(["/polish"]);
     await act(async () => {
       rememberRecentSkills("/work/site", ["deploy"]);
     });
-    expect(chips()).toEqual(["/deploy", "/polish"]);
+    expect(await chips()).toEqual(["/deploy", "/polish"]);
   });
 
   it("hides while a turn runs, while typing, and when there are none", async () => {
     catalog.skills = [skill("polish")];
     await render();
-    expect(container.querySelector("[data-recent-skills]")).toBeNull();
+    expect(await chips()).toEqual([]);
     rememberRecentSkills("/work/site", ["polish"]);
     props = { ...props, busy: true };
     await render();
-    expect(chips()).toEqual([]);
+    expect(await chips()).toEqual([]);
     props = { ...props, busy: false };
     await render();
-    expect(chips()).toEqual(["/polish"]);
+    expect(await chips()).toEqual(["/polish"]);
     await type("x");
-    expect(chips()).toEqual([]);
+    expect(await chips()).toEqual([]);
     await type("");
-    expect(chips()).toEqual(["/polish"]);
+    expect(await chips()).toEqual(["/polish"]);
   });
 });

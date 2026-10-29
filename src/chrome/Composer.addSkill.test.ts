@@ -28,8 +28,10 @@ vi.mock("../lib/skillInstall", async (importOriginal) => ({
   forgetSkillListsAfterInstall: cli.forget,
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./AgentPill", () => ({ AgentPill: () => null }));
-vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
+vi.mock("./AgentPill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AgentPill")>()),
+  AgentPill: () => null,
+}));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
 let root: Root;

@@ -39,7 +39,9 @@ function raceControls(
     mode.plus = !mode.plus;
     redraw();
   });
-  plus.setAttribute("aria-label", "Add files or choose a mode");
+  // The critter on the box: pressing it shows its dialog's modes.
+  plus.setAttribute("aria-label", "Message settings");
+  plus.dataset.helmCritter = "";
   box.push(plus);
   if (mode.on) {
     const chip = document.createElement("div");

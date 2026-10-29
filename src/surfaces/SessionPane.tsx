@@ -28,12 +28,7 @@ import {
   useOrchestrationSelector,
 } from "../hooks/useOrchestrationRun";
 import { isDetachedWorkspace } from "../lib/workspaceTransfers";
-import {
-  TeamBar,
-  teamBarOwnsStop,
-  teamBarShows,
-  teamBarTakesBoxStop,
-} from "../chrome/TeamBar";
+import { TeamBar, teamBarShows, teamBarTakesBoxStop } from "../chrome/TeamBar";
 import { TeamRunStatusContext } from "../chrome/TeamRunDetails";
 import { useTeamOf } from "../hooks/useTeamRuns";
 import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
@@ -72,7 +67,7 @@ import { crewMemberName, useCrew, useCrewChat } from "../lib/crews";
 import { CrewChatHeader, CrewIntro } from "./CrewChat";
 import { useProjectBotName } from "../hooks/useProjectBotName";
 import { isBlockingQuestion } from "../lib/userQuestion";
-import { SessionRunStatus } from "./SessionRunStatus";
+import { HelmRunContext, type HelmRun } from "../chrome/HelmRun";
 import { EmptySession } from "./EmptySession";
 import { MOD } from "../lib/platform";
 import {
@@ -263,10 +258,9 @@ export const SessionPane = memo(function SessionPane({
   const team = useTeamOf(session.inboxAsk ? undefined : session.id, {
     previews: true,
   });
-  // The run status shows no Stop where the bar's does the same. The box
-  // keeps its Stop except for a lead: in a discussion it interrupts this
-  // chat's agent at once, where the bar's End discussion lets it finish.
-  const barStops = teamBarOwnsStop(team, session.id);
+  // The helm's bubble keeps the chat's one Stop except for a lead: in a
+  // discussion it interrupts this chat's agent at once, where the bar's End
+  // discussion lets it finish.
   const boxStopInBar = teamBarTakesBoxStop(team, session.id);
   // While the team runs, its bar carries this chat's status too: one row
   // says what the team and this chat are doing, with the run's time.
@@ -639,6 +633,20 @@ export const SessionPane = memo(function SessionPane({
     () => ({ session: statusSession, visible }),
     [statusSession, visible],
   );
+  // A bot's turn says what it is doing in its transcript, and a team's bar
+  // says what the team and this chat are doing: the bubble says only
+  // "Working" and the time there.
+  const helmPlacement = teamRow || botProject ? "attention" : "row";
+  const helmRun = useMemo<HelmRun>(
+    () => ({
+      session: statusSession,
+      visible,
+      placement: helmPlacement,
+      onStop,
+      onOpenTerminal: onNewTerminal,
+    }),
+    [statusSession, visible, helmPlacement, onStop, onNewTerminal],
+  );
   // What holds the turn up, for the transcript's working line. It changes
   // rarely, so it keeps its identity through streamed tokens.
   const nextHoldUps = sessionHoldUps(statusSession);
@@ -697,6 +705,7 @@ export const SessionPane = memo(function SessionPane({
       hideTopBar={!!session.inboxAsk}
       placeholder={botLabel ? `Message ${botLabel}…` : undefined}
       hideAgentPill={!!botProject}
+      helmPath={botProject}
       context={session.context}
       quoteRequest={quoteRequest}
       initialDraft={draftRef.current.text}
@@ -888,19 +897,13 @@ export const SessionPane = memo(function SessionPane({
           {visible && !session.inboxAsk ? (
             <DuplicateServerChip placement="chat" sessionId={session.id} />
           ) : null}
-          <SessionRunStatus
-            session={statusSession}
-            visible={visible}
-            stopElsewhere={barStops}
-            // A bot's turn says what it is doing in its transcript; this row
-            // shows only what needs you (a failure, signing in, a queue).
-            placement={teamRow || botProject ? "attention" : "row"}
-            onStop={onStop}
-            onOpenTerminal={onNewTerminal}
-          />
-          <TeamRunStatusContext.Provider value={teamRunStatus}>
-            {composer}
-          </TeamRunStatusContext.Provider>
+          {/* What the turn is doing lives in the helm's speech bubble, with
+              the chat's one Stop (see ComposerHelm). */}
+          <HelmRunContext.Provider value={helmRun}>
+            <TeamRunStatusContext.Provider value={teamRunStatus}>
+              {composer}
+            </TeamRunStatusContext.Provider>
+          </HelmRunContext.Provider>
         </div>
       ) : null}
     </div>
