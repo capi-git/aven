@@ -1288,8 +1288,11 @@ const PAGE_STOP_WAIT: Duration = Duration::from_secs(1);
 /// How long an open waits for its own reload or navigation to land: the new
 /// document committed, or the load ended (one that failed, or stayed on the
 /// same document, commits nothing new). Images and scripts may still load.
-/// A page that never says so (a hidden page Chromium deprioritises on a busy
-/// Mac, for one) costs the agent this long at most, with a note.
+/// Hidden pages say so as quickly as shown ones (a few tens of milliseconds
+/// for a small local page; see scripts/check-chromium-loads.py). A page that
+/// never says so (a slow site, or a Chromium whose network is waiting, as it
+/// does for an answer from the keychain) costs the agent this long at most,
+/// with a note.
 const PAGE_LAND_WAIT: Duration = Duration::from_secs(4);
 /// How long an open waits for this chat's previous open on the site.
 const OPEN_TURN_WAIT: Duration = Duration::from_secs(10);
@@ -1469,16 +1472,29 @@ fn load_page(
 }
 
 /// A slow open's line for the app log: what it waited for and how long.
-fn slow_open_line(settled: &Settled, landing: Duration, landed: bool) -> Option<String> {
+/// `after` is the page's loading once the open handed back: a page that has
+/// never committed a document is not slow but loading nothing at all, which
+/// is how Chromium behaves while its network waits (for the keychain, say).
+fn slow_open_line(
+    settled: &Settled,
+    landing: Duration,
+    landed: bool,
+    after: PageLoad,
+) -> Option<String> {
     if settled.waited + landing < Duration::from_secs(1) && !settled.stopped && landed {
         return None;
     }
     Some(format!(
-        "[aven] Agent page open: {} ms for the page's running load{}, then {} ms for its own {}",
+        "[aven] Agent page open: {} ms for the page's running load{}, then {} ms for its own {}{}",
         settled.waited.as_millis(),
         if settled.stopped { " (stopped it)" } else { "" },
         landing.as_millis(),
         if landed { "to land" } else { "(still loading)" },
+        if !landed && after.committed == Some(0) {
+            "; the page has never shown a document, so Chromium is loading nothing"
+        } else {
+            ""
+        },
     ))
 }
 
@@ -1608,7 +1624,7 @@ fn open_page(
     // Hand back (and let this chat's next open on the site in) once the new
     // page has arrived: the agent then reads it.
     let (landing, landed) = load_page(&page, action, PAGE_WAITS)?;
-    if let Some(line) = slow_open_line(&settled, landing, landed) {
+    if let Some(line) = slow_open_line(&settled, landing, landed, page.load()) {
         eprintln!("{line}");
     }
     Ok(OpenedPage {
@@ -3159,7 +3175,7 @@ mod tests {
         assert!(page.loading.get());
         assert_eq!(*page.started.borrow(), [LoadAction::Reload]);
         assert_eq!(
-            slow_open_line(&settled, Duration::from_millis(5), landed),
+            slow_open_line(&settled, Duration::from_millis(5), landed, page.load()),
             None
         );
     }
@@ -3180,7 +3196,7 @@ mod tests {
         assert_eq!(action, LoadAction::Navigate);
         assert!(load_page(&page, action, QUICK).unwrap().1);
         assert_eq!(*page.started.borrow(), [LoadAction::Navigate]);
-        let line = slow_open_line(&settled, Duration::from_millis(3), true).unwrap();
+        let line = slow_open_line(&settled, Duration::from_millis(3), true, page.load()).unwrap();
         assert!(line.contains("(stopped it)"), "{line}");
     }
 
@@ -3194,11 +3210,37 @@ mod tests {
         assert!(!landed);
         assert!(waited >= QUICK.land);
         assert!(started.elapsed() < Duration::from_secs(2));
-        let line = slow_open_line(&settled, Duration::from_millis(4100), landed).unwrap();
+        let line =
+            slow_open_line(&settled, Duration::from_millis(4100), landed, page.load()).unwrap();
         assert!(
             line.ends_with("4100 ms for its own (still loading)"),
             "{line}"
         );
+        // A page that has never shown a document is loading nothing at all:
+        // Chromium's network is waiting (the 0.1.158 trial run's check, whose
+        // throwaway home had no keychain for Chromium's key).
+        let blank = PageLoad {
+            loading: true,
+            committed: Some(0),
+            settled: Some(3),
+        };
+        let line = slow_open_line(&settled, Duration::from_millis(4100), false, blank).unwrap();
+        assert!(
+            line.ends_with(
+                "(still loading); the page has never shown a document, so Chromium is loading nothing"
+            ),
+            "{line}"
+        );
+        // One that landed, or that showed a document before, is only slow.
+        for (landed, committed) in [(true, 0), (false, 1)] {
+            let after = PageLoad {
+                committed: Some(committed),
+                ..blank
+            };
+            let line =
+                slow_open_line(&settled, Duration::from_millis(4100), landed, after).unwrap();
+            assert!(!line.contains("never shown"), "{line}");
+        }
         // The next open on the page stops that load before starting its own.
         assert!(settle_page(&page, QUICK).stopped);
         // A load that fails commits nothing new but ends: it has landed.
