@@ -25,6 +25,12 @@ Aven brings agent conversations, your project and a browser into one window. Use
 - **Save context:** Notes for Markdown notes, and Inbox for GitHub issues and pull requests from connected projects.
 - **Make it yours:** dark and light themes, workspace colors, translucent surfaces and optional chat backgrounds.
 
+### Publish articles from Notion
+
+To put articles from Notion on your website every week, choose **New automation** in Automations (or the **+** on a project's folder) and the **Publish articles from Notion** template. Paste the link to the Notion page or database, pick the site's project, say where the articles go on the site ("/blog pages, like the existing ones") and, if you like, the Notion status that marks an article ready. It runs on Mondays at 09:00 unless you change it; turn on **Run now** to try it straight away.
+
+Each run adds new or changed articles to the site as drafts, using the project's own tools: the Framer skill for a Framer site, the code for a code site. It keeps a record in `.aven/notion-articles.json` so no article is added twice, and leaves a **Ready to publish** card in your Inbox when there is something new. Nothing goes live until you press **Publish**. See [Agent tools](docs/AGENT-TOOLS.md#publish-articles-from-notion) for what the agent is told.
+
 ## Install
 
 **Mac:** download the app for Apple Silicon Macs on macOS 13 or later, extract it and move **Aven.app** to Applications. It is signed and notarized by Apple, so it opens normally.

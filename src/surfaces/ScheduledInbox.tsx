@@ -21,6 +21,12 @@ import {
   type AutomationExample,
 } from "../lib/automationExamples";
 import { NO_PROJECT_NAME } from "../lib/automationFolders";
+import {
+  AUTOMATION_TEMPLATES,
+  templateAnswers,
+  templatePreview,
+  type AutomationTemplate,
+} from "../lib/automationTemplates";
 import { useKeepAwakeSetting } from "../hooks/useScheduledAgents";
 import {
   defaultSessionChoice,
@@ -202,6 +208,18 @@ type Draft = {
   hours: number;
 };
 
+/** Name and timing from a template; its questions replace the prompt. */
+function templateDraft(template: AutomationTemplate): Partial<Draft> {
+  const { schedule } = template;
+  return {
+    name: template.name,
+    kind: schedule.kind,
+    ...(schedule.kind === "weekly"
+      ? { days: [...schedule.days], time: schedule.time }
+      : { hours: schedule.hours }),
+  };
+}
+
 /** Name, prompt and timing from an example; the rest stays as it was. */
 function exampleDraft(example: AutomationExample): Partial<Draft> {
   const { schedule } = example;
@@ -294,6 +312,7 @@ export function ScheduleEditor({
   project,
   projects,
   cwd,
+  canRunNow = false,
   onCancel,
   onSave,
   now = () => Date.now(),
@@ -305,8 +324,11 @@ export function ScheduleEditor({
   project?: string;
   projects: readonly ScheduledProject[];
   cwd: string;
+  /** A template offers to run the new automation once as it is created. */
+  canRunNow?: boolean;
   onCancel: () => void;
-  onSave: (agent: ScheduledAgent) => void;
+  /** `runNow`: also start one run now, as Run now does. */
+  onSave: (agent: ScheduledAgent, options: { runNow: boolean }) => void;
   now?: () => number;
 }) {
   const [draft, setDraft] = useState(() =>
@@ -319,12 +341,33 @@ export function ScheduleEditor({
     ),
   );
   const [exampleId, setExampleId] = useState(initial ? undefined : example?.id);
+  const [templateId, setTemplateId] = useState<string>();
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [runNow, setRunNow] = useState(false);
+  const template = AUTOMATION_TEMPLATES.find((item) => item.id === templateId);
   const patch = (next: Partial<Draft>) =>
     setDraft((current) => ({ ...current, ...next }));
 
+  const chooseTemplate = (item: AutomationTemplate) => {
+    if (item.id === templateId) {
+      // Pressed again: back to a plain form.
+      setTemplateId(undefined);
+      if (draft.name === item.name) patch({ name: "" });
+      return;
+    }
+    setTemplateId(item.id);
+    setExampleId(undefined);
+    patch(templateDraft(item));
+  };
+
   // Moving an automation to another project moves it to that folder.
   const projectOptions = useMemo(() => {
-    const options = projects.map((project) => ({
+    const options: {
+      value: string;
+      label: string;
+      description?: string;
+      disabled?: boolean;
+    }[] = projects.map((project) => ({
       value: project.path,
       label: project.name,
     }));
@@ -336,9 +379,18 @@ export function ScheduleEditor({
         value: draft.project,
         label: projectName(draft.project),
       });
-    options.push({ value: "", label: NO_PROJECT_NAME });
+    options.push(
+      template?.needsProject
+        ? {
+            value: "",
+            label: NO_PROJECT_NAME,
+            description: "This template works in the site’s project.",
+            disabled: true,
+          }
+        : { value: "", label: NO_PROJECT_NAME },
+    );
     return options;
-  }, [draft.project, projects]);
+  }, [draft.project, projects, template?.needsProject]);
 
   const providerOptions = useMemo(() => {
     const agents = availablePaletteAgents();
@@ -369,10 +421,19 @@ export function ScheduleEditor({
     rule.kind === "weekly" && !/^\d{2}:\d{2}$/.test(rule.time)
       ? null
       : nextRunAt(rule, new Date(now()));
+  const filled = template ? templateAnswers(template, answers) : null;
+  const projectMissing = !!template?.needsProject && !draft.project;
+  const prompt = template
+    ? filled?.ok
+      ? template.prompt(filled.answers)
+      : ""
+    : draft.prompt.trim();
   const valid =
     draft.name.trim().length > 0 &&
-    draft.prompt.trim().length > 0 &&
+    prompt.length > 0 &&
+    !projectMissing &&
     next != null;
+  const offerRunNow = canRunNow && !!template;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -380,20 +441,23 @@ export function ScheduleEditor({
     const at = now();
     const keepNext =
       initial && initial.enabled && sameRule(initial.schedule, rule);
-    onSave({
-      id: initial?.id ?? crypto.randomUUID(),
-      name: draft.name.trim(),
-      prompt: draft.prompt.trim(),
-      project: draft.project,
-      harness: draft.harness,
-      model: draft.model,
-      runtimeMode: draft.runtimeMode,
-      schedule: rule,
-      enabled: initial?.enabled ?? true,
-      createdAt: initial?.createdAt ?? at,
-      ...(initial?.lastRunAt != null ? { lastRunAt: initial.lastRunAt } : {}),
-      nextRunAt: keepNext ? initial.nextRunAt : nextRunAt(rule, new Date(at)),
-    });
+    onSave(
+      {
+        id: initial?.id ?? crypto.randomUUID(),
+        name: draft.name.trim(),
+        prompt,
+        project: draft.project,
+        harness: draft.harness,
+        model: draft.model,
+        runtimeMode: draft.runtimeMode,
+        schedule: rule,
+        enabled: initial?.enabled ?? true,
+        createdAt: initial?.createdAt ?? at,
+        ...(initial?.lastRunAt != null ? { lastRunAt: initial.lastRunAt } : {}),
+        nextRunAt: keepNext ? initial.nextRunAt : nextRunAt(rule, new Date(at)),
+      },
+      { runNow: offerRunNow && runNow },
+    );
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLFormElement>) => {
@@ -420,6 +484,35 @@ export function ScheduleEditor({
       <h2>{initial ? "Edit automation" : "New automation"}</h2>
       {initial ? null : (
         <div className="scheduled-field">
+          <span>Template</span>
+          <div
+            className="scheduled-controls scheduled-examples"
+            role="group"
+            aria-label="Start from a template"
+          >
+            {AUTOMATION_TEMPLATES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="scheduled-preset"
+                data-template={item.id}
+                aria-pressed={templateId === item.id}
+                title={item.summary}
+                onClick={() => chooseTemplate(item)}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {template ? (
+        <p className="scheduled-note" data-template-intro>
+          {template.intro}
+        </p>
+      ) : null}
+      {initial ? null : (
+        <div className="scheduled-field">
           <span>Example</span>
           <div
             className="scheduled-controls scheduled-examples"
@@ -435,6 +528,7 @@ export function ScheduleEditor({
                 title={item.summary}
                 onClick={() => {
                   setExampleId(item.id);
+                  setTemplateId(undefined);
                   patch(exampleDraft(item));
                 }}
               >
@@ -455,16 +549,40 @@ export function ScheduleEditor({
           onChange={(event) => patch({ name: event.target.value })}
         />
       </label>
-      <label className="scheduled-field">
-        <span>Prompt</span>
-        <textarea
-          aria-label="Prompt"
-          value={draft.prompt}
-          rows={4}
-          placeholder="Summarise yesterday's commits and flag anything risky."
-          onChange={(event) => patch({ prompt: event.target.value })}
-        />
-      </label>
+      {template ? (
+        template.fields.map((field, index) => (
+          <label key={field.id} className="scheduled-field">
+            <span>{field.label}</span>
+            <input
+              aria-label={field.label}
+              value={answers[field.id] ?? ""}
+              placeholder={field.placeholder}
+              inputMode={field.kind === "link" ? "url" : undefined}
+              maxLength={field.maxLength}
+              autoFocus={index === 0}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) =>
+                setAnswers((current) => ({
+                  ...current,
+                  [field.id]: event.target.value,
+                }))
+              }
+            />
+          </label>
+        ))
+      ) : (
+        <label className="scheduled-field">
+          <span>Prompt</span>
+          <textarea
+            aria-label="Prompt"
+            value={draft.prompt}
+            rows={4}
+            placeholder="Summarise yesterday's commits and flag anything risky."
+            onChange={(event) => patch({ prompt: event.target.value })}
+          />
+        </label>
+      )}
       <div className="scheduled-field">
         <span>Project</span>
         <div className="scheduled-controls">
@@ -604,13 +722,39 @@ export function ScheduleEditor({
           </div>
         </div>
       )}
+      {offerRunNow ? (
+        <div className="scheduled-field">
+          <span>Run now</span>
+          <div className="scheduled-controls">
+            <Toggle label="Run once now" on={runNow} onChange={setRunNow} />
+            <span className="scheduled-hint">
+              Also run once as soon as it’s created
+            </span>
+          </div>
+        </div>
+      ) : null}
+      {template ? (
+        <div className="scheduled-field">
+          <span>Prompt</span>
+          <details className="scheduled-prompt-preview">
+            <summary>Made from your answers</summary>
+            <pre data-template-prompt>
+              {filled?.ok ? prompt : templatePreview(template, answers)}
+            </pre>
+          </details>
+        </div>
+      ) : null}
       <div className="scheduled-footer">
         <span className="scheduled-hint">
-          {next != null
-            ? `Next run ${formatRunTime(next, now())}`
-            : rule.kind === "weekly" && rule.days.length === 0
-              ? "Choose at least one day."
-              : "Choose a time."}
+          {filled && !filled.ok
+            ? filled.hint
+            : projectMissing
+              ? "Choose the site’s project."
+              : next != null
+                ? `${offerRunNow && runNow ? "Runs now, then" : "Next run"} ${formatRunTime(next, now())}`
+                : rule.kind === "weekly" && rule.days.length === 0
+                  ? "Choose at least one day."
+                  : "Choose a time."}
         </span>
         <button type="button" onClick={onCancel} className={ACTION_GHOST}>
           Cancel

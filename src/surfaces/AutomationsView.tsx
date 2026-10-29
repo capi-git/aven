@@ -46,6 +46,7 @@ import {
   scheduledRunSeenEntry,
   subscribeAutomationsRequest,
   takeAutomationsRequest,
+  updateScheduledAgent,
   type ScheduledAgent,
   type ScheduledRun,
 } from "../lib/scheduledAgents";
@@ -244,13 +245,19 @@ export function AutomationsView({
         project={editor.mode === "new" ? editor.project : undefined}
         projects={projects}
         cwd={cwd}
+        canRunNow={!!onRunAutomation}
         onCancel={() => setEditor(null)}
-        onSave={(agent) => {
+        onSave={(agent, { runNow }) => {
           saveScheduledAgent(agent);
           setEditor(null);
           setSelection({ automation: agent.id, run: null });
           // Saved into a folder, or moved to one: show it there.
           setFolderCollapsed(automationFolderKey(agent.project), false);
+          if (runNow && onRunAutomation) {
+            // As the automation's own Run now does.
+            updateScheduledAgent(agent.id, { lastRunAt: Date.now() });
+            onRunAutomation(agent);
+          }
         }}
       />
     </div>
