@@ -206,13 +206,12 @@ describe("useSortable between bars on one channel", () => {
   it("previews the join on the other bar's item once the pointer rests there", async () => {
     await lift();
     await hold(50, 115);
-    expect(bars.a.joining()).toBe(false);
-    now += 60;
-    await hold(50, 115);
-    // Resting, it is about to join: what else it would do shows nothing.
+    // On b1's middle a release joins it: at once, what else it would do
+    // shows nothing, and b1 shows a light hint; the preview waits.
     expect(bars.a.joining()).toBe(true);
+    expect(bars.b.joinHint).toBe("b1");
     expect(bars.b.dropTarget).toBeNull();
-    now += 140;
+    now += 200;
     await hold(51, 115);
     expect(bars.b.dropTarget).toEqual({ kind: "tab", id: "b1", allowed: true });
     expect(bars.b.incoming?.content).toBe("content of a1");
@@ -225,7 +224,9 @@ describe("useSortable between bars on one channel", () => {
       moving: "a1",
       content: "content of a1",
       target: null,
+      over: null,
     });
+    expect(bars.b.joinHint).toBeNull();
     expect(bars.a.joining()).toBe(false);
     await pointer(window, "pointerup", 95, 115);
     expect(options.b.link!.onDrop).not.toHaveBeenCalled();

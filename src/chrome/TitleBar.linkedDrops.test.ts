@@ -212,6 +212,14 @@ const tabIn = (bar: string, id: string) =>
   )!;
 const combineTarget = (bar: string) =>
   inBar(bar).querySelector<HTMLElement>("[data-combine-into]");
+const nearTarget = (bar: string) =>
+  inBar(bar).querySelector<HTMLElement>("[data-combine-near]");
+/** The tabs drawing an insertion line, where a release would move one. */
+const insertionIn = (bar: string) =>
+  [...inBar(bar).querySelectorAll<HTMLElement>(".personal-tab-insertion")].map(
+    (line) =>
+      line.closest<HTMLElement>("[data-surface-tab-id]")?.dataset.surfaceTabId,
+  );
 const pointer = (target: EventTarget, type: string, x: number, y: number) =>
   act(async () => {
     target.dispatchEvent(
@@ -276,11 +284,18 @@ describe("a pane's tab let go on the window's strip", () => {
     await render();
     await lift(tabIn("row", "draft"), 225, 115);
     await hold(150, 15);
-    // Passing over, the strip shows where it would stand.
+    // On checkout's middle a release combines: at once a light hint marks
+    // it, no line says it would stand on the strip, and no pane takes it.
     expect(combineTarget("strip")).toBeNull();
-    expect(
-      inBar("strip").querySelector("[data-tear-insertion]"),
-    ).not.toBeNull();
+    expect(nearTarget("strip")?.dataset.surfaceTabId).toBe("checkout");
+    expect(inBar("strip").querySelector("[data-tear-insertion]")).toBeNull();
+    expect(row.onSurfaceDragMove).toHaveBeenLastCalledWith(
+      "draft",
+      150,
+      15,
+      expect.anything(),
+      true,
+    );
     await arm();
     // Resting, checkout previews the split it would make with the draft.
     expect(combineTarget("strip")?.dataset.surfaceTabId).toBe("checkout");
@@ -426,6 +441,50 @@ describe("a tab let go on a tab in a pane's row", () => {
     expect(row.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
       ["draft", "signup"],
       "signup",
+    );
+  });
+});
+
+describe("what shows at release is what a release does", () => {
+  it("pairs a brisk drag in a pane's row let go past a neighbour's midpoint, having shown no line", async () => {
+    await render();
+    await pointer(tabIn("row", "signup"), "pointerdown", 75, 115);
+    // To the right, one move per frame, no rest: into the draft's middle
+    // (187.5–262.5), past its midpoint.
+    for (const x of [100, 140, 180, 220, 240]) await hold(x, 115);
+    expect(insertionIn("row")).toEqual([]);
+    expect(nearTarget("row")?.dataset.surfaceTabId).toBe("draft");
+    await pointer(window, "pointerup", 240, 115);
+    expect(row.onPairTabs).toHaveBeenCalledExactlyOnceWith("draft", "signup");
+    expect(row.onReorderSurfaces).not.toHaveBeenCalled();
+  });
+
+  it("combines on the strip let go past a neighbour's midpoint, and moves past its far edge", async () => {
+    await render();
+    await pointer(tabIn("strip", "hero"), "pointerdown", 50, 15);
+    // Into checkout's middle (125–175), past its midpoint.
+    for (const x of [70, 100, 130, 160]) await hold(x, 15);
+    expect(insertionIn("strip")).toEqual([]);
+    expect(nearTarget("strip")?.dataset.surfaceTabId).toBe("checkout");
+    await pointer(window, "pointerup", 160, 15);
+    expect(strip.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
+      "checkout",
+      "hero",
+    );
+    expect(strip.onReorderSurfaces).not.toHaveBeenCalled();
+
+    // On to checkout's far edge: the line shows past it, and a release
+    // there moves the tab.
+    await wait(600);
+    await pointer(tabIn("strip", "hero"), "pointerdown", 50, 15);
+    for (const x of [70, 100, 130, 160, 190]) await hold(x, 15);
+    expect(insertionIn("strip")).toEqual(["checkout"]);
+    expect(nearTarget("strip")).toBeNull();
+    await pointer(window, "pointerup", 190, 15);
+    expect(strip.onCombineTabs).toHaveBeenCalledOnce();
+    expect(strip.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
+      ["checkout", "hero", SPLIT],
+      "hero",
     );
   });
 });

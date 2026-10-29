@@ -1080,6 +1080,16 @@ html.theme-light .personal-shell {
   background: transparent;
   box-shadow: none;
 }
+/* A held tab over another's middle joins it if let go now: a light ring
+   says so at once, before the preview (above) arms on a rest. It is not
+   shown once the preview is. */
+.aven-tab[data-combine-near="true"]:not([data-combine-into="true"])
+  .aven-tab-button,
+.aven-split-entry[data-combine-near="true"]:not([data-drop-into="true"])
+  .aven-split-fill {
+  outline: 1px solid color-mix(in srgb, var(--color-content) 26%, transparent);
+  outline-offset: -1px;
+}
 /* A segment pulled out of its split: the rest of the entry stays put, the
    segment faded where it was. */
 .aven-split-segment {

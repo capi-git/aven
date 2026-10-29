@@ -33,12 +33,6 @@ const DROP_ON_HOLD = 8;
  */
 const DROP_ON_STILL = 4;
 /**
- * Waiting that long still, the pointer is resting rather than passing: the
- * entry stays where it is (it would join it, not move past it) until it
- * arms or the pointer leaves its middle.
- */
-const DROP_ON_REST = 60;
-/**
  * Marks a part of an item a drop can land beside (a split's segment), by
  * its id: a drop on the item's middle says which part was under the pointer
  * and on which side of it (`SortableDropAt`).
@@ -156,6 +150,11 @@ export type SortableIncoming = {
    * the preview plays out while the drag goes on.
    */
   target: SortableDropTarget | null;
+  /**
+   * The item whose middle it is over, armed or not: let go now, it joins
+   * that item. A light hint shows it until the full preview arms.
+   */
+  over: string | null;
 };
 
 /** A sortable on a channel, as other sortables' drags see it. */
@@ -258,13 +257,17 @@ type DragState = {
   zone: LinkedZone | null;
   /** What the copy dissolves into: the target item, or its part. */
   into: HTMLElement | null;
-  /** The target last previewed, and in which sortable (null: this one). */
-  shown: { target: SortableDropTarget | null; zone: LinkedZone | null };
   /**
-   * The pointer rests on (or is armed over) an item it would join, here or
-   * in another sortable on the channel.
+   * The item whose middle the pointer is over and would join on release,
+   * armed or not, and in which sortable (null: this one).
    */
-  joining: boolean;
+  over: { id: string; zone: LinkedZone | null } | null;
+  /** The target and hint last shown, and in which sortable. */
+  shown: {
+    target: SortableDropTarget | null;
+    zone: LinkedZone | null;
+    over: { id: string; zone: LinkedZone | null } | null;
+  };
   part: SortablePart | null;
   torn: boolean;
   /**
@@ -443,6 +446,8 @@ export function useSortable(
   const [dropTarget, setDropTarget] = useState<SortableDropTarget | null>(null);
   // A drag from another sortable on the channel, over (or near) an item here.
   const [incoming, setIncoming] = useState<SortableIncoming | null>(null);
+  // The item of this sortable a release of its own drag would join.
+  const [nearId, setNearId] = useState<string | null>(null);
   // How the other sortables' drags see this one.
   const selfZone = useRef<LinkedZone | null>(null);
   // The tab whose copy is flying to its place after a drop. Its tab and the
@@ -515,6 +520,7 @@ export function useSortable(
             next &&
             previous.moving === next.moving &&
             previous.content === next.content &&
+            previous.over === next.over &&
             sameDropTarget(previous.target, next.target))
             ? previous
             : next,
@@ -565,21 +571,40 @@ export function useSortable(
   }, []);
 
   const indexAt = useCallback(
-    (draggedId: string, x: number, y: number, readBounds: ReadBounds) => {
+    (
+      draggedId: string,
+      x: number,
+      y: number,
+      readBounds: ReadBounds,
+      /**
+       * An item whose middle the pointer is in and that takes the drop: a
+       * release joins it, so the slot does not pass it. It stays on the
+       * side of it the slot was on (`previous`) until the pointer reaches
+       * its far edge.
+       */
+      hold: { id: string; previous: number } | null = null,
+    ) => {
       const pos = axis === "x" ? x : y;
       let next = 0;
+      let place = 0;
       // The destination is an insertion slot after removing the source. Its
       // own midpoint must not advance a rightward drag into its neighbor.
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
+        const at = place++;
         const node = nodes.current.get(id);
         if (!node) continue;
-        const rect = readBounds(node);
-        const mid =
-          axis === "x"
-            ? rect.left + rect.width / 2
-            : rect.top + rect.height / 2;
-        if (pos < mid) break;
+        let passed: boolean;
+        if (id === hold?.id) passed = hold.previous > at;
+        else {
+          const rect = readBounds(node);
+          const mid =
+            axis === "x"
+              ? rect.left + rect.width / 2
+              : rect.top + rect.height / 2;
+          passed = pos >= mid;
+        }
+        if (!passed) break;
         next += 1;
       }
       return next;
@@ -750,8 +775,8 @@ export function useSortable(
         dropTarget: null,
         zone: null,
         into: null,
-        shown: { target: null, zone: null },
-        joining: false,
+        over: null,
+        shown: { target: null, zone: null, over: null },
         part: part ?? null,
         torn: false,
         arming: null,
@@ -793,7 +818,6 @@ export function useSortable(
           setDraggingPartId(current.part.id);
           if (animate) motion.current.tearOff(current.part.element, current);
         }
-        current.toIndex = indexAt(id, current.x, current.y, readBounds);
         const delay = dropOnDelayRef.current;
         const armed =
           current.dropTarget?.kind === "tab" ? current.dropTarget.id : null;
@@ -827,9 +851,22 @@ export function useSortable(
           }
         }
         let target = hit?.target ?? null;
-        let resting = false;
-        // A delayed zone's preview arms once the pointer has rested on it;
-        // until then the pointer there reorders. Moving on within the zone
+        // What shows is what a release does: on the middle of an item that
+        // takes it, a release joins the item, so the slot does not move past
+        // it and no line shows where it would stand; a light hint marks the
+        // item at once.
+        current.over = target?.kind === "tab" ? { id: target.id, zone } : null;
+        current.toIndex = indexAt(
+          id,
+          current.x,
+          current.y,
+          readBounds,
+          current.over && !zone
+            ? { id: current.over.id, previous: current.toIndex }
+            : null,
+        );
+        // A delayed zone's full preview arms once the pointer has rested on
+        // it, so a quick pass never flashes it. Moving on within the zone
         // starts the rest again, so a slow pass never arms. Letting go on
         // the zone drops onto the item all the same.
         if (target?.kind !== "tab" || delay <= 0 || releasedAt !== undefined)
@@ -854,19 +891,12 @@ export function useSortable(
           const wait = current.arming.since + delay - now;
           if (wait > 0) {
             armLater(wait);
-            // Resting there, it is about to join, not to move past: the
-            // entry keeps its place.
-            if (now - current.arming.since >= DROP_ON_REST) {
-              resting = true;
-              if (!zone) current.toIndex = idsRef.current.indexOf(id);
-            }
             target = null;
           }
         } else current.arming = null;
         current.dropTarget = target;
         current.zone = target ? zone : null;
         current.into = target ? (hit?.into ?? null) : null;
-        current.joining = resting || target?.kind === "tab";
       };
       /** What moves: the item, or the part of it torn off. */
       const movingOf = (current: DragState) =>
@@ -901,29 +931,46 @@ export function useSortable(
        * its `incoming`. One it has left plays its preview out.
        */
       const showTarget = (current: DragState, readBounds?: ReadBounds) => {
-        const { target: was, zone: wasZone } = current.shown;
+        const { target: was, zone: wasZone, over: wasOver } = current.shown;
         const next = current.dropTarget;
         const zone = current.zone;
-        if (sameDropTarget(was, next) && wasZone === zone) return;
-        current.shown = { target: next, zone };
-        const moving = movingOf(current);
-        const content = () => linkRef.current?.describe?.(moving);
-        if (wasZone && wasZone !== zone)
-          wasZone.show({ moving, content: content(), target: null });
-        if (zone) {
-          touched.add(zone);
-          zone.show({ moving, content: content(), target: next });
+        const over = current.over;
+        const sameTarget = sameDropTarget(was, next) && wasZone === zone;
+        const sameOver =
+          wasOver?.id === over?.id && wasOver?.zone === over?.zone;
+        if (sameTarget && sameOver) return;
+        current.shown = { target: next, zone, over };
+        // Other bars it was over, or is: each draws its hint and preview.
+        const zones = new Set<LinkedZone>();
+        for (const candidate of [wasZone, zone, wasOver?.zone, over?.zone])
+          if (candidate) zones.add(candidate);
+        if (zones.size) {
+          const moving = movingOf(current);
+          const content = linkRef.current?.describe?.(moving);
+          for (const candidate of zones) {
+            touched.add(candidate);
+            candidate.show({
+              moving,
+              content,
+              // One it has left keeps what it brings, to play out.
+              target: candidate === zone ? next : null,
+              over: over && candidate === over.zone ? over.id : null,
+            });
+          }
         }
-        // The entry it would join here previews the result: measure first,
-        // so what makes room moves into it.
-        if (animate)
-          motion.current.hintChanged(
-            container.current,
-            nodes.current,
-            [wasZone ? null : was?.id, zone ? null : next?.id],
-            readBounds,
-          );
-        setDropTarget(zone ? null : next);
+        if (!sameTarget) {
+          // The entry it would join here previews the result: measure
+          // first, so what makes room moves into it.
+          if (animate)
+            motion.current.hintChanged(
+              container.current,
+              nodes.current,
+              [wasZone ? null : was?.id, zone ? null : next?.id],
+              readBounds,
+            );
+          setDropTarget(zone ? null : next);
+        }
+        if (!sameOver) setNearId(over && !over.zone ? over.id : null);
       };
       const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
@@ -1163,6 +1210,7 @@ export function useSortable(
         setDraggingPartId(null);
         setToIndex(null);
         setDropTarget(null);
+        setNearId(null);
         try {
           handle.releasePointerCapture(state.pointerId);
         } catch {
@@ -1279,10 +1327,11 @@ export function useSortable(
   }, []);
 
   /**
-   * The drag in progress rests on (or is armed over) an item it would
-   * join, here or in another bar: where else it would go shows nothing.
+   * The pointer of the drag in progress is on the middle of an item it
+   * would join on release, here or in another bar, armed or not: where
+   * else it would go shows nothing.
    */
-  const joining = useCallback(() => drag.current?.joining === true, []);
+  const joining = useCallback(() => Boolean(drag.current?.over), []);
 
   /**
    * The box the entry `id` stood in before this commit's drop or morph,
@@ -1301,7 +1350,8 @@ export function useSortable(
     draggingPartId: draggingId ? draggingPartId : null,
     landingId,
     fromIndex: draggingId ? ids.indexOf(draggingId) : null,
-    toIndex: draggingId && !dropTarget ? toIndex : null,
+    // No line while a release would join an item rather than move.
+    toIndex: draggingId && !dropTarget && !nearId ? toIndex : null,
     /**
      * The item a drag would join: this sortable's own drag, or one from
      * another bar on the channel (see `incoming`).
@@ -1310,6 +1360,16 @@ export function useSortable(
       ? dropTarget
       : incoming && ids.includes(incoming.target?.id ?? "")
         ? incoming.target
+        : null,
+    /**
+     * The item a release would join, its middle under the pointer, armed or
+     * not (this sortable's own drag, or one from another bar): a light hint
+     * until the full preview (`dropTarget`) arms.
+     */
+    joinHint: draggingId
+      ? nearId
+      : incoming?.over && ids.includes(incoming.over)
+        ? incoming.over
         : null,
     /**
      * A drag from another bar on the channel over (or lately over) one of

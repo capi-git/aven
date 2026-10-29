@@ -570,6 +570,8 @@ describe("dragging with splits", () => {
   describe("combining on a single tab", () => {
     const combineTarget = () =>
       container.querySelector<HTMLElement>("[data-combine-into]");
+    const nearTarget = () =>
+      container.querySelector<HTMLElement>("[data-combine-near]");
 
     it("makes a split of a tab let go on another's middle, once it rests there", async () => {
       await render();
@@ -579,9 +581,11 @@ describe("dragging with splits", () => {
       await frame();
       await pointer(window, "pointermove", 150);
       await frame();
-      // Passing over, the line shows where it would move to.
+      // On its middle, checkout takes a light hint at once, and no line
+      // shows: a release now would combine. The preview waits.
       expect(combineTarget()).toBeNull();
-      expect(container.querySelector(".personal-tab-insertion")).not.toBeNull();
+      expect(nearTarget()?.dataset.surfaceTabId).toBe("checkout");
+      expect(container.querySelector(".personal-tab-insertion")).toBeNull();
       await arm();
       // Resting, checkout lights to combine and the line goes.
       expect(combineTarget()?.dataset.surfaceTabId).toBe("checkout");
@@ -606,8 +610,10 @@ describe("dragging with splits", () => {
       await frame();
       await pointer(window, "pointermove", 150);
       await frame();
-      // Not armed: the line shows where a pass would move it.
+      // Not armed: only the light hint, and no line.
       expect(combineTarget()).toBeNull();
+      expect(nearTarget()?.dataset.surfaceTabId).toBe("checkout");
+      expect(container.querySelector(".personal-tab-insertion")).toBeNull();
       await pointer(window, "pointerup", 150);
       expect(props.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
         "checkout",

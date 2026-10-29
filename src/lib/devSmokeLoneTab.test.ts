@@ -9,6 +9,7 @@ import {
   frame,
   joinedProblem,
   splitLeftProblem,
+  slotAfterLast,
   smokeMouse,
   strippedProblem,
 } from "./devSmokeLoneTab";
@@ -105,5 +106,23 @@ describe("the real-app check of a lone tab's header", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("lets a pane's tab go on the strip at a slot, never on a tab's middle", () => {
+    // Room after the last entry: in it.
+    expect(
+      slotAfterLast({ left: 0, right: 500 }, [
+        { left: 0, right: 100 },
+        { left: 100, right: 300 },
+      ]),
+    ).toBe(400);
+    // None: just inside the last entry's far edge, in its moving band.
+    expect(
+      slotAfterLast({ left: 0, right: 300 }, [
+        { left: 0, right: 150 },
+        { left: 150, right: 300 },
+      ]),
+    ).toBe(296);
+    expect(slotAfterLast({ left: 0, right: 300 }, [])).toBe(150);
   });
 });

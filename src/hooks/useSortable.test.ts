@@ -1090,12 +1090,17 @@ describe("useSortable external drops and cancellation", () => {
       probeTarget = (target) => targets.push(target);
       await press();
       await hold(250);
-      // Until it arms, the middle reorders: the line shows, no target.
+      // On its middle a release would join session-b: the slot does not
+      // pass it and no line shows, only a light hint; no preview yet.
       expect(sortable.dropTarget).toBeNull();
-      expect(sortable.toIndex).toBe(2);
-      // On past the middle, into session-b's outer quarter, and let go.
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("session-b");
+      // On past the middle, into session-b's outer quarter: now the line
+      // shows past it, and a release there moves the tab.
       now += 30;
       await hold(290);
+      expect(sortable.joinHint).toBeNull();
+      expect(sortable.toIndex).toBe(2);
       await pointer(window, "pointerup", 290, 15);
       expect(options.onDropOnItem).not.toHaveBeenCalled();
       expect(onReorder).toHaveBeenCalledExactlyOnceWith(
@@ -1263,26 +1268,60 @@ describe("useSortable external drops and cancellation", () => {
 
     it("never arms on a slow, steady pass, only on a rest", async () => {
       await press();
-      // Through session-b's middle (225–275) at about 170px/s.
+      // Through session-b's middle (225–275) at about 170px/s: never armed,
+      // and session-b never moves aside (a release would join it), with
+      // only the light hint on it.
       for (let x = 228; x <= 272; x += 3) {
         now += 18;
         await hold(x);
         expect(sortable.dropTarget).toBeNull();
+        expect(sortable.toIndex).toBeNull();
+        expect(sortable.joinHint).toBe("session-b");
       }
-      // Past its middle while moving, it moves aside: a reorder.
-      expect(sortable.toIndex).toBe(2);
-      // Resting there, it stays put ("about to join") until it arms: the
-      // dragged tab's slot is its own again, with no insertion line.
-      now += 60;
-      await hold(273);
-      expect(sortable.dropTarget).toBeNull();
-      expect(sortable.toIndex).toBe(sortable.fromIndex);
-      now += 140;
+      now += 200;
       await hold(272);
       expect(sortable.dropTarget?.id).toBe("session-b");
       await pointer(window, "pointerup", 272, 15);
       expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
         "browser-a",
+        "session-b",
+      );
+    });
+
+    it("shows at release what a release does: past a neighbour, then onto the next one's middle", async () => {
+      await act(async () => root.render(createElement(Harness)));
+      // session-a (0–100) to the right, briskly, one move per frame.
+      await pointer(item("session-a"), "pointerdown", 50, 15);
+      await hold(90);
+      // Past browser-a (100–200) at its far edge: it moves aside.
+      await hold(190);
+      expect(sortable.toIndex).toBe(1);
+      expect(sortable.joinHint).toBeNull();
+      // On session-b's middle (225–275), past its midpoint: the slot stays
+      // before it, no line shows, and the hint marks it.
+      await hold(260);
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("session-b");
+      await pointer(window, "pointerup", 260, 15);
+      expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+        "session-a",
+        "session-b",
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+
+      // Leftwards: session-b onto browser-a's middle (125–175), past its
+      // midpoint, holds its own slot; at browser-a's near edge it moves.
+      await pointer(item("session-b"), "pointerdown", 250, 15);
+      await hold(210);
+      await hold(140);
+      expect(sortable.toIndex).toBeNull();
+      expect(sortable.joinHint).toBe("browser-a");
+      await hold(110);
+      expect(sortable.joinHint).toBeNull();
+      expect(sortable.toIndex).toBe(1);
+      await pointer(window, "pointerup", 110, 15);
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["session-a", "session-b", "browser-a"],
         "session-b",
       );
     });

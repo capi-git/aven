@@ -116,6 +116,22 @@ export async function smokeMouse(
   await frame();
 }
 
+/**
+ * Where along the strip `box` a tab let go stands after its last entry
+ * (`entries`, in order): in the room after it, or else just inside its far
+ * edge, in the band that moves a tab rather than combining with it.
+ */
+export function slotAfterLast(
+  box: { left: number; right: number },
+  entries: readonly { left: number; right: number }[],
+): number {
+  const last = entries.at(-1);
+  if (!last) return (box.left + box.right) / 2;
+  const end = Math.min(last.right, box.right);
+  if (box.right - end >= 24) return (end + box.right) / 2;
+  return end - 4;
+}
+
 /** Why the strip holds no split of exactly `a` and `b`, or null. */
 export function combinedProblem(
   strip: ReturnType<SmokeLoneTab["strip"]>,
@@ -331,8 +347,13 @@ export async function checkLoneTabDrag(
     );
     if (!strip) throw new Error("the window's strip is not on screen");
     box = strip.getBoundingClientRect();
+    // A slot, never a tab's middle (which would combine with that tab):
+    // after the last entry.
+    const entries = [
+      ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
+    ].map((entry) => entry.getBoundingClientRect());
     await dragTitle({
-      x: box.right - Math.min(40, box.width / 4),
+      x: slotAfterLast(box, entries),
       y: box.top + box.height / 2,
     });
     await waitFor(

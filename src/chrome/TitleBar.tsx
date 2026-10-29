@@ -552,6 +552,7 @@ function TitleTabItem({
   itemRef,
   deck,
   combineInto = false,
+  combineNear = false,
   combine = null,
 }: {
   tab: Tab;
@@ -571,6 +572,11 @@ function TitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /**
+   * Something is over its middle: let go, it combines with it. A light
+   * hint until the preview (`combineInto`) arms.
+   */
+  combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
 }) {
@@ -607,6 +613,7 @@ function TitleTabItem({
       data-surface-tab-id={tab.id}
       data-draggable={canDrag || undefined}
       data-combine-into={combineInto || undefined}
+      data-combine-near={combineNear || undefined}
       data-tauri-drag-region="false"
       onContextMenu={(event) => {
         event.preventDefault();
@@ -958,6 +965,7 @@ function SplitEntryItem({
   onContextMenu,
   onHover,
   dropInto = false,
+  dropNear = false,
   dropAt = null,
   join = null,
   opening = false,
@@ -975,6 +983,8 @@ function SplitEntryItem({
   onHover: (anchor: HTMLElement | null, label?: string) => void;
   /** A tab held over the entry joins the split as a new pane. */
   dropInto?: boolean;
+  /** A tab is over its middle: let go, it joins. A light hint until armed. */
+  dropNear?: boolean;
   /** Beside which segment's pane, and on which side; at the right if absent. */
   dropAt?: SortableDropAt | null;
   /** What a held tab would bring, while one is dragged. */
@@ -1021,6 +1031,7 @@ function SplitEntryItem({
       data-surface-tab-id={split.id}
       data-draggable={canDrag || undefined}
       data-drop-into={dropInto || undefined}
+      data-combine-near={dropNear || undefined}
       data-motion-slot={split.id}
       data-tab-opening={opening || undefined}
       {...{ [TAB_TRACK_ID_ATTRIBUTE]: split.id }}
@@ -1208,6 +1219,7 @@ function BrowserTitleTabItem({
   separator = false,
   deck,
   combineInto = false,
+  combineNear = false,
   combine = null,
 }: {
   id: string;
@@ -1241,6 +1253,11 @@ function BrowserTitleTabItem({
   deck?: boolean;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
+  /**
+   * Something is over its middle: let go, it combines with it. A light
+   * hint until the preview (`combineInto`) arms.
+   */
+  combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
 }) {
@@ -1268,6 +1285,7 @@ function BrowserTitleTabItem({
       data-surface-tab-id={id}
       data-draggable={canDrag || undefined}
       data-combine-into={combineInto || undefined}
+      data-combine-near={combineNear || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
@@ -3652,6 +3670,7 @@ function TitleBarComponent({
             itemRef={itemRef}
             deck={deck}
             combineInto={sortable.dropTarget?.id === id}
+            combineNear={sortable.joinHint === id}
             combine={combineJoinFor(id)}
           />
         </div>
@@ -3688,6 +3707,7 @@ function TitleBarComponent({
               : hideSegmentTip()
           }
           dropInto={sortable.dropTarget?.id === id}
+          dropNear={sortable.joinHint === id}
           dropAt={
             sortable.dropTarget?.id === id ? sortable.dropTarget.at : null
           }
@@ -3766,6 +3786,7 @@ function TitleBarComponent({
         separator={separators.has(id)}
         deck={deck}
         combineInto={sortable.dropTarget?.id === id}
+        combineNear={sortable.joinHint === id}
         combine={combineJoinFor(id)}
       />
     );
