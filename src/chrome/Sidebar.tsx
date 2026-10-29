@@ -156,6 +156,12 @@ import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
+import {
+  SidebarCrewRows,
+  type SidebarCrew,
+  type SidebarCrewAction,
+} from "./SidebarCrews";
+import type { CrewRole } from "../lib/crews";
 import { botsAvailable, type BotStatus } from "../lib/projectBots";
 import { botProjectStates } from "../lib/projectBotCopy";
 import {
@@ -286,6 +292,19 @@ export type SidebarProps = {
   onBotSettings?: (path: string) => void;
   /** Give a project a bot with its defaults and open its chat. */
   onAddBot?: (path: string) => void;
+  /**
+   * Crews that are on, one row each in the Crews section; each unfolds into
+   * its bots. A project whose only bot is its Fixer shows as a bot row.
+   */
+  crews?: readonly SidebarCrew[];
+  /** Open a crew: its project's Board with the crew on it. */
+  onOpenCrew?: (path: string) => void;
+  /** Open one crew member's chat. */
+  onOpenCrewMember?: (path: string, role: CrewRole) => void;
+  /** A crew's right-click menu. */
+  onCrewAction?: (path: string, action: SidebarCrewAction) => void;
+  /** Turn a project's crew on (New crew). */
+  onAddCrew?: (path: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -345,6 +364,7 @@ export type SidebarBot = {
 };
 
 const NO_BOTS: readonly SidebarBot[] = [];
+const NO_CREWS: readonly SidebarCrew[] = [];
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
@@ -448,6 +468,11 @@ function SidebarComponent({
   onOpenBot,
   onBotSettings,
   onAddBot,
+  crews = NO_CREWS,
+  onOpenCrew,
+  onOpenCrewMember,
+  onCrewAction,
+  onAddCrew,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
@@ -706,9 +731,14 @@ function SidebarComponent({
     () =>
       new Set([
         ...bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : [])),
+        ...crews.flatMap((crew) =>
+          crew.members.flatMap((member) =>
+            member.sessionId ? [member.sessionId] : [],
+          ),
+        ),
         ...automationChats,
       ]),
-    [bots, automationChats],
+    [bots, crews, automationChats],
   );
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
@@ -1482,9 +1512,18 @@ function SidebarComponent({
 
   // Bots need Claude Code's sandbox: where it can't run, none is offered.
   const addBot = botsAvailable() ? onAddBot : undefined;
-  // Bots of this profile's projects, in their own section below the projects.
-  const profileBots = bots.filter((bot) =>
-    projects.some((project) => sameProjectPath(project.path, bot.path)),
+  // New crew: the section's +. Without crews wired in, it adds a bot as before.
+  const addCrew = botsAvailable() ? onAddCrew : undefined;
+  const addToSection = addCrew ?? addBot;
+  // Crews and bots of this profile's projects, in their own section below
+  // the projects. A project with a crew on shows its Fixer inside the crew.
+  const profileCrews = crews.filter((crew) =>
+    projects.some((project) => sameProjectPath(project.path, crew.path)),
+  );
+  const profileBots = bots.filter(
+    (bot) =>
+      projects.some((project) => sameProjectPath(project.path, bot.path)) &&
+      !profileCrews.some((crew) => sameProjectPath(crew.path, bot.path)),
   );
   /**
    * New bot: this profile's projects without a bot. Those ready for one come
@@ -1501,7 +1540,11 @@ function SidebarComponent({
     const request = ++botPickerRequest.current;
     const candidates = projects
       .map((project) => project.path)
-      .filter((path) => !bots.some((bot) => sameProjectPath(bot.path, path)));
+      .filter((path) =>
+        addCrew
+          ? !crews.some((crew) => sameProjectPath(crew.path, path))
+          : !bots.some((bot) => sameProjectPath(bot.path, path)),
+      );
     void botProjectStates(candidates).then((states) => {
       if (request !== botPickerRequest.current) return;
       const listed = candidates.flatMap((path, index): BotPickerProject[] => {
@@ -1513,8 +1556,12 @@ function SidebarComponent({
       const empty = !projects.length
         ? "Add a project first"
         : !candidates.length
-          ? "Every project has a bot"
-          : "No project here can have a bot";
+          ? addCrew
+            ? "Every project has a crew"
+            : "Every project has a bot"
+          : addCrew
+            ? "No project here can have a crew"
+            : "No project here can have a bot";
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
@@ -2349,17 +2396,19 @@ function SidebarComponent({
                     Add a project to {activeProfile.name}.
                   </p>
                 ) : null}
-                {profileBots.length || (addBot && projects.length) ? (
+                {profileBots.length ||
+                profileCrews.length ||
+                (addToSection && projects.length) ? (
                   <section
                     className="personal-bots-group"
-                    aria-label="Bots"
+                    aria-label={onAddCrew ? "Crews" : "Bots"}
                     data-sidebar-bots=""
                   >
                     <div className="personal-projects-heading">
-                      <span>Bots</span>
-                      {addBot ? (
+                      <span>{onAddCrew ? "Crews" : "Bots"}</span>
+                      {addToSection ? (
                         <SessionsHeaderButton
-                          label="New bot"
+                          label={addCrew ? "New crew" : "New bot"}
                           open={!!botPicker}
                           hasPopup
                           onClick={(event) =>
@@ -2371,8 +2420,17 @@ function SidebarComponent({
                       ) : null}
                     </div>
                     <div className="personal-project-tasks">
+                      <SidebarCrewRows
+                        crews={profileCrews}
+                        activeSessionId={activeSessionId}
+                        onOpenCrew={onOpenCrew}
+                        onOpenMember={onOpenCrewMember}
+                        onAction={onCrewAction}
+                      />
                       {profileBots.map(botRow)}
-                      {!profileBots.length && addBot ? (
+                      {!profileBots.length &&
+                      !profileCrews.length &&
+                      addToSection ? (
                         <button
                           type="button"
                           className="personal-view-project-tasks"
@@ -2380,7 +2438,7 @@ function SidebarComponent({
                             openBotPicker(event.currentTarget)
                           }
                         >
-                          Add a bot
+                          {addCrew ? "Add a crew" : "Add a bot"}
                         </button>
                       ) : null}
                     </div>
@@ -2461,10 +2519,11 @@ function SidebarComponent({
           onClose={() => setFolderMenu(null)}
         />
       ) : null}
-      {botPicker && addBot ? (
+      {botPicker && addToSection ? (
         <BotPicker
           x={botPicker.x}
           y={botPicker.y}
+          label={addCrew ? "Add a crew to" : "Add a bot to"}
           projects={botPicker.projects}
           empty={botPicker.empty}
           onBusyChange={(busy) => {
@@ -2473,7 +2532,7 @@ function SidebarComponent({
           onAdd={(path) => {
             botPickerBusy.current = false;
             setBotPicker(null);
-            addBot(path);
+            addToSection(path);
           }}
           onClose={() => {
             botPickerBusy.current = false;

@@ -257,3 +257,33 @@ export function inboxReviewRuns(
       .includes(query);
   });
 }
+
+/**
+ * The crew cards the Inbox lists (Ready and Stuck), by the same rules as an
+ * automation's: in a project its filters show, matching the search.
+ */
+export function inboxCrewItems<
+  T extends {
+    project: string;
+    review: { title: string; summary: string };
+  },
+>(
+  items: readonly T[],
+  filters: InboxFilters,
+  projectPaths: Iterable<string>,
+  search = "",
+): T[] {
+  const hidden = new Set(
+    pruneInboxFilters(filters, projectPaths).hiddenProjects.map((path) =>
+      normalizeProjectPath(path),
+    ),
+  );
+  const query = search.trim().toLowerCase();
+  return items.filter((item) => {
+    if (hidden.has(normalizeProjectPath(item.project))) return false;
+    if (!query) return true;
+    return `${item.review.title} ${item.review.summary}`
+      .toLowerCase()
+      .includes(query);
+  });
+}

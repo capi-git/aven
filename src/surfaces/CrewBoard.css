@@ -1,0 +1,451 @@
+/* The crew on its Board: one header, a strip of its bots, crew cards and the
+   Feed beside the four columns. Black and grey like the rest of Aven;
+   colour only in small status words, the critters and +/− counts. */
+
+.crew-header .crew-header-critters {
+  gap: 3px;
+}
+
+.crew-header .crew-critter {
+  width: 22px;
+  height: 22px;
+}
+
+.crew-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.crew-header-actions .team-card-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A limit holds the crew: what holds it, what's next, and a way on. */
+.crew-hold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 2px 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-raised);
+}
+
+.crew-hold-icon {
+  flex: none;
+  color: var(--aven-muted);
+}
+
+.crew-hold-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--text-ui-label);
+}
+
+.crew-hold-text span {
+  color: var(--aven-muted);
+}
+
+/* The crew's bots, one tile each. */
+.crew-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.crew-strip-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-glass-card, var(--aven-hover));
+  color: inherit;
+  text-align: left;
+}
+
+.crew-strip-tile:hover {
+  border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
+}
+
+.crew-strip-tile .crew-strip-critter {
+  width: 26px;
+  height: 26px;
+}
+
+.crew-strip-tile .crew-badge {
+  width: 11px;
+  height: 11px;
+}
+
+.crew-strip-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.crew-strip-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-strip-role {
+  color: var(--aven-muted);
+}
+
+.crew-strip-name .aven-chat-status {
+  margin-left: auto;
+}
+
+.crew-strip-line {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+  font-size: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* With a crew, the Feed sits beside the four columns. */
+.work-board[data-crew] .work-board-columns {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(220px, 1.15fr);
+}
+
+@container (max-width: 980px) {
+  .work-board[data-crew] .work-board-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 420px) {
+  .work-board[data-crew] .work-board-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A crew card's stage, round dots and line. */
+.crew-card-stage {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.crew-card-stage strong {
+  color: var(--color-content);
+  font-weight: 600;
+}
+
+.crew-card-stage[data-tone="ready"] strong {
+  color: var(--aven-review);
+}
+
+.crew-card-stage[data-tone="needs-you"] strong {
+  color: var(--aven-needs-you);
+}
+
+.crew-card-stage .crew-dots {
+  margin-left: 4px;
+}
+
+.crew-card-line,
+.crew-card-change {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.crew-card-change {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-plus {
+  color: var(--aven-review);
+}
+
+.crew-minus {
+  color: var(--color-red-400, #ff6961);
+}
+
+.crew-card-problem {
+  margin: 0;
+  color: var(--aven-needs-you);
+  font-size: var(--text-ui-label);
+}
+
+.crew-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The Feed. */
+.crew-feed {
+  min-height: 320px;
+}
+
+.crew-feed-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0 2px;
+  list-style: none;
+}
+
+.crew-feed-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-feed-day::before,
+.crew-feed-day::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--aven-line);
+}
+
+.crew-feed-entry {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.crew-feed-entry > .crew-critter-wrap,
+.crew-feed-you {
+  margin-top: 2px;
+}
+
+.crew-feed-you {
+  display: grid;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--aven-hover);
+  color: var(--aven-muted);
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.crew-feed-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.crew-feed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-feed-who {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.crew-feed-meta {
+  color: var(--aven-muted);
+}
+
+.crew-feed-time {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.crew-feed-text,
+.crew-feed-quote,
+.crew-feed-ready {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  overflow-wrap: anywhere;
+}
+
+.crew-feed-text {
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
+
+.crew-feed-quote {
+  padding: 7px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-raised);
+}
+
+.crew-feed-ready {
+  color: var(--aven-review);
+}
+
+.crew-feed-unpin {
+  align-self: flex-start;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-feed-unpin:hover {
+  color: var(--color-content);
+}
+
+.crew-tell {
+  position: relative;
+  display: flex;
+  margin-top: 6px;
+}
+
+.crew-tell-input {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.crew-tell-send {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--aven-hover);
+  color: var(--color-content);
+  transform: translateY(-50%);
+}
+
+.crew-tell-send:disabled {
+  opacity: 0.4;
+}
+
+/* The Ready card. */
+.crew-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 0 0;
+}
+
+.crew-sheet-section h3 {
+  margin: 0 0 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.crew-sheet-files,
+.crew-sheet-checks,
+.crew-sheet-later {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-ui-label);
+}
+
+.crew-sheet-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-sheet-files code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-sheet-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.crew-check-mark {
+  color: var(--color-red-400, #ff6961);
+}
+
+.crew-sheet-checks li[data-ok] .crew-check-mark {
+  color: var(--aven-review);
+}
+
+.crew-sheet-later li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crew-sheet-diff {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.crew-sheet-note,
+.crew-sheet-small {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.crew-sheet-problem {
+  margin: 0;
+  color: var(--aven-needs-you);
+  font-size: var(--text-ui-label);
+}
+
+.crew-sheet-send {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crew-sheet-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--aven-line);
+}
+
+.crew-sheet-small {
+  flex: 1 1 200px;
+}
+
+.crew-sheet-actions {
+  display: flex;
+  gap: 6px;
+}

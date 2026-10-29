@@ -1,0 +1,235 @@
+/* A crew member's critter, with its small role badge in the corner. */
+.crew-critter-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.crew-critter {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.crew-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 8px;
+  height: 8px;
+  overflow: visible;
+}
+
+.crew-badge circle {
+  fill: var(--color-background-base, #111);
+  stroke: color-mix(in srgb, var(--color-content) 55%, transparent);
+  stroke-width: 0.7;
+}
+
+.crew-badge path {
+  fill: none;
+  stroke: var(--color-content);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A crew's critters side by side. */
+.crew-critters {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.crew-critters-more {
+  margin-left: 3px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Round dots: done filled, now outlined, later faint. */
+.crew-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.crew-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+}
+
+.crew-dot[data-state="done"] {
+  background: var(--color-content);
+}
+
+.crew-dot[data-state="now"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-content);
+}
+
+/* The sidebar's crew row: critters and project, the fold, and its word. */
+.personal-crew-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  border-radius: var(--aven-radius-md, 6px);
+}
+
+.personal-crew-row:hover {
+  background: var(--personal-row-hover, var(--aven-hover));
+}
+
+.personal-shell .personal-navigation .personal-crew-row > .personal-crew-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+}
+
+.personal-crew-row > .personal-task-status {
+  flex: none;
+  padding-right: 6px;
+}
+
+.personal-crew-fold {
+  display: grid;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--personal-muted, var(--aven-muted));
+}
+
+.personal-crew-fold:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.personal-crew-fold > svg {
+  transition: transform 140ms ease;
+}
+
+.personal-crew-fold[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+
+/* A crew's bots, under its row. */
+.personal-crew-members {
+  display: flex;
+  flex-direction: column;
+  padding-left: 14px;
+}
+
+.personal-shell .personal-navigation .personal-crew-member {
+  align-items: flex-start;
+  height: auto;
+  min-height: 28px;
+  padding-block: 5px;
+}
+
+.personal-crew-member .crew-critter-wrap {
+  margin-top: 1px;
+}
+
+.personal-crew-member-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.personal-crew-member-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.personal-crew-role {
+  color: var(--personal-muted, var(--aven-muted));
+  font-size: var(--text-ui-micro);
+}
+
+.personal-crew-line {
+  overflow: hidden;
+  color: var(--personal-muted, var(--aven-muted));
+  font-size: var(--text-ui-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personal-crew-fold > svg {
+    transition: none;
+  }
+}
+
+/* The crew's settings sheet. */
+.crew-settings .bot-sheet-critter {
+  width: auto;
+}
+
+.crew-settings-member {
+  justify-content: flex-start;
+}
+
+.crew-settings-member strong {
+  font-weight: 500;
+}
+
+.crew-settings-role {
+  color: var(--aven-muted);
+  font-weight: 400;
+}
+
+.crew-settings-hours {
+  justify-content: flex-start;
+  gap: 14px;
+  font-size: var(--text-ui-label);
+}
+
+.crew-settings-hours label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--aven-muted);
+}
+
+.crew-settings-hours select {
+  padding: 2px 6px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-field-bg, transparent);
+  color: var(--color-content);
+  font: inherit;
+}
+
+.crew-settings-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crew-settings-limits li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--text-ui-label);
+}
+
+.crew-settings-limits small {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}

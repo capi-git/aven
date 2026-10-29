@@ -179,7 +179,9 @@ function harness(agents: Partial<Record<Role, Agent>>) {
           if (reply.asks) {
             update(sessionId, (chat) => ({
               ...chat,
-              pendingQuestion: { id: "q" } as unknown as Session["pendingQuestion"],
+              pendingQuestion: {
+                id: "q",
+              } as unknown as Session["pendingQuestion"],
             }));
             return;
           }

@@ -1097,6 +1097,22 @@ export function forgetCrew(path: string) {
 // ---------------------------------------------------------------------------
 // Members and their chats
 
+/**
+ * A member's name: its own, or its critter's ("Beetle", "Owl", "Fox"). The
+ * Fixer's is its bot's, which the caller passes.
+ */
+export function crewMemberName(
+  crew: Pick<Crew, "members">,
+  role: CrewRole,
+  fixerName = CREW_ROLE_INFO.fixer.label,
+): string {
+  if (role === "fixer") return fixerName;
+  const own = crew.members.find((member) => member.role === role)?.name;
+  if (own) return own;
+  const critter = CREW_ROLE_INFO[role].critter ?? CREW_ROLE_INFO[role].label;
+  return critter[0]!.toUpperCase() + critter.slice(1);
+}
+
 export function crewMember(
   crew: Pick<Crew, "members">,
   role: CrewRole,

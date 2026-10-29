@@ -2,6 +2,7 @@ import { parseHandoff, parseIdeas, parseVerdict } from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import {
   crewGate,
+  ideaMayAutoStart,
   ideasLeft,
   nextAutoStart,
   nextCardToStart,
@@ -375,10 +376,11 @@ export class CrewRunner {
       this.clearHold(crew);
       return this.sendCardTurn(path, next, "builder");
     }
-    // Idle. A Scout idea may start by itself, or the Scout may look.
-    const ideas = crew.ideas ? Object.keys(crew.ideas) : [];
+    // Idle. A Scout idea may start by itself, or the Scout may look. The
+    // Board is read only when one of them could go.
+    const startable = Object.values(crew.ideas ?? {}).some(ideaMayAutoStart);
     const scoutDue = scoutShouldLook(crew, now, false);
-    if (!ideas.length && !scoutDue) return this.clearHold(crew);
+    if (!startable && !scoutDue) return this.clearHold(crew);
     let cards: readonly FeatureCard[] = [];
     try {
       cards = await this.deps.board.cards(path);

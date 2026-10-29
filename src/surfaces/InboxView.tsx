@@ -66,6 +66,7 @@ import {
 } from "../lib/githubTasks";
 import {
   applyInboxFilters,
+  inboxCrewItems,
   inboxReviewRuns,
   hasActiveInboxFilters,
   inboxFetchState,
@@ -102,7 +103,11 @@ import {
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
-import { useOpenReviewRuns } from "../hooks/useAutomationChats";
+import {
+  useOpenCrewInboxItems,
+  useOpenReviewRuns,
+} from "../hooks/useAutomationChats";
+import { CrewInboxDetail, InboxCrewCard } from "./CrewInboxCard";
 import type { ScheduledRun } from "../lib/scheduledAgents";
 import { AutomationReviewCard, InboxReviewCard } from "./AutomationReviewCard";
 
@@ -352,6 +357,18 @@ export function InboxView({
       ),
     [reviewRuns, activeFilters, projects, searchInput],
   );
+  // Crew cards (Ready, Needs you), above the automations' cards.
+  const crewItems = useOpenCrewInboxItems();
+  const visibleCrew = useMemo(
+    () =>
+      inboxCrewItems(
+        crewItems,
+        activeFilters,
+        projects.map((project) => project.path),
+        searchInput,
+      ),
+    [crewItems, activeFilters, projects, searchInput],
+  );
   const inboxSeenTick = useInboxSeenTick();
   const seenEntries = useMemo(
     () =>
@@ -367,32 +384,43 @@ export function InboxView({
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
-  const listed = visibleReviews.length
-    ? "issues or pull requests"
-    : "reviews, issues or pull requests";
+  const listed =
+    visibleReviews.length || visibleCrew.length
+      ? "issues or pull requests"
+      : "reviews, issues or pull requests";
   const narrowedByUser = searchNarrowed || filtersActive;
   const fetchError = providerErrors.github ?? null;
 
   const chosenItem = visibleItems.find(
     (item) => inboxItemKey(item) === selectedKey,
   );
-  // A card is shown when chosen, and first when nothing else is.
-  const selectedReview = chosenItem
-    ? undefined
-    : (visibleReviews.find((run) => reviewKey(run) === selectedKey) ??
-      visibleReviews[0]);
-  const selected = selectedReview
-    ? null
-    : (chosenItem ?? visibleItems[0] ?? null);
+  const chosenReview = visibleReviews.find(
+    (run) => reviewKey(run) === selectedKey,
+  );
+  const chosenCrew = visibleCrew.find((item) => item.key === selectedKey);
+  // A card is shown when chosen, and first when nothing else is: a crew's,
+  // then an automation's.
+  const selectedCrew =
+    chosenCrew ?? (!chosenItem && !chosenReview ? visibleCrew[0] : undefined);
+  const selectedReview =
+    chosenItem || selectedCrew
+      ? undefined
+      : (chosenReview ?? visibleReviews[0]);
+  const selected =
+    selectedReview || selectedCrew
+      ? null
+      : (chosenItem ?? visibleItems[0] ?? null);
 
   useEffect(() => {
-    const key = selectedReview
-      ? reviewKey(selectedReview)
-      : selected
-        ? inboxItemKey(selected)
-        : null;
+    const key = selectedCrew
+      ? selectedCrew.key
+      : selectedReview
+        ? reviewKey(selectedReview)
+        : selected
+          ? inboxItemKey(selected)
+          : null;
     if (key !== selectedKey) setSelectedKey(key);
-  }, [selected, selectedReview, selectedKey]);
+  }, [selected, selectedReview, selectedCrew, selectedKey]);
 
   const onFiltersChange = (next: InboxFilters) => {
     const pruned = pruneInboxFilters(
@@ -471,6 +499,22 @@ export function InboxView({
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
+        {visibleCrew.length ? (
+          <ul
+            className="flex flex-col gap-0.5 p-1.5 pb-0"
+            aria-label="From crews"
+          >
+            {visibleCrew.map((item) => (
+              <li key={item.key}>
+                <InboxCrewCard
+                  item={item}
+                  active={selectedCrew?.key === item.key}
+                  onSelect={() => setSelectedKey(item.key)}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {visibleReviews.length ? (
           <ul
             className="flex flex-col gap-0.5 p-1.5 pb-0"
@@ -594,7 +638,11 @@ export function InboxView({
             ref={detailLock}
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
           >
-            {selectedReview ? (
+            {selectedCrew ? (
+              <div className="mx-auto w-full max-w-3xl px-8 py-8">
+                <CrewInboxDetail key={selectedCrew.key} item={selectedCrew} />
+              </div>
+            ) : selectedReview ? (
               <div className="mx-auto w-full max-w-3xl px-8 py-8">
                 <AutomationReviewCard
                   key={selectedReview.id}
