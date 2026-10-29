@@ -33,6 +33,12 @@ export type PopoverOptions = {
   minHeight?: number;
   /** Cap on the height, on top of whatever the viewport allows. */
   maxHeight?: number;
+  /**
+   * False keeps the preferred side however little room it has, capping the
+   * height to that room instead: for a popover that must never cover what
+   * is on the other side (the helm's dialog, over the words being typed).
+   */
+  flip?: boolean;
 };
 
 export type PopoverPosition = {
@@ -123,7 +129,9 @@ export function placePopover(
   const room = roomOn(preferred, anchor, viewport, gap, padding);
   const flipped = roomOn(OPPOSITE[preferred], anchor, viewport, gap, padding);
   const side =
-    room >= needed || flipped <= room ? preferred : OPPOSITE[preferred];
+    options.flip === false || room >= needed || flipped <= room
+      ? preferred
+      : OPPOSITE[preferred];
 
   if (side === "top" || side === "bottom") {
     const left = clamp(
