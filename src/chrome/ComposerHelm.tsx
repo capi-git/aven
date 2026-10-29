@@ -162,6 +162,8 @@ const ROW_LABEL: Record<HelmRowId, string> = {
 /** The dialog's width, and its distance above the critter (over its room bar). */
 const DIALOG_WIDTH = 324;
 const DIALOG_GAP = 20;
+/** Changes to the popover's placement to wait through for a refused focus. */
+const FOCUS_TRIES = 10;
 /** The popover's own distance from the window's edges. */
 const VIEWPORT_PADDING = 8;
 
@@ -429,12 +431,17 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     setPanel(null);
     onReturnFocus();
   }, [onReturnFocus]);
+  // Cmd+. on a dialog the pointer opened takes the keyboard into it; on one
+  // already keyed or clicked open it closes it again.
   const toggleFromKeyboard = useCallback(() => {
     if (panel) closePanel();
-    else if (opened) close(true);
+    else if (opened === "keyboard" || opened === "pinned") close(true);
     else {
-      setCursor(0);
-      setPage("main");
+      clearTimer();
+      if (!opened) {
+        setCursor(0);
+        setPage("main");
+      }
       setOpened("keyboard");
     }
   }, [panel, opened, close, closePanel]);
@@ -533,17 +540,31 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     }
   };
 
-  // The keyboard lands on the ▶ row whenever the dialog was keyed open,
-  // once the dialog is placed (a popover measures itself hidden first).
+  // The keyboard lands on the ▶ row whenever the dialog was keyed open. The
+  // popover measures itself in a hidden first pass, and a browser refuses
+  // focus to a hidden element, so a refused focus waits for the popover to
+  // be placed (its frame's style changes) and lands then. An observer rather
+  // than animation frames: a window in the background gets no frames.
   useEffect(() => {
     if (opened !== "keyboard" && opened !== "pinned") return;
     const selector =
       page === "main"
         ? `[data-helm-row-index="${safeCursor}"]`
         : `[data-helm-item-index="${cursor}"]`;
-    dialogRef.current?.querySelector<HTMLElement>(selector)?.focus({
-      preventScroll: false,
+    const land = () => {
+      const target = dialogRef.current?.querySelector<HTMLElement>(selector);
+      if (!target) return true;
+      target.focus({ preventScroll: false });
+      return document.activeElement === target;
+    };
+    const frame = dialogRef.current?.parentElement;
+    if (land() || !frame) return;
+    let tries = 0;
+    const observer = new MutationObserver(() => {
+      if (land() || ++tries >= FOCUS_TRIES) observer.disconnect();
     });
+    observer.observe(frame, { attributes: true, attributeFilter: ["style"] });
+    return () => observer.disconnect();
   }, [opened, page, cursor, safeCursor]);
 
   const backToMain = (from: Page) => {
@@ -1008,6 +1029,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       }}
       className="composer-helm"
       data-helm
+      // How the dialog was opened, for the real-app check's diagnostics.
+      data-open={opened ?? undefined}
       data-pose={pose}
       data-paused={paused || undefined}
       data-reduced={reduced || undefined}

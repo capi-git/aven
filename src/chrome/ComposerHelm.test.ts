@@ -509,6 +509,107 @@ describe("the critter's states", () => {
   });
 });
 
+/**
+ * Focus as a browser does it: an element under `visibility: hidden` (a
+ * popover's first, measuring pass) refuses it. happy-dom would take it.
+ */
+function refuseFocusWhileHidden() {
+  const focus = HTMLElement.prototype.focus;
+  const hidden = (element: HTMLElement) => {
+    for (let at: HTMLElement | null = element; at; at = at.parentElement)
+      if (at.style.visibility === "hidden") return true;
+    return false;
+  };
+  vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) {
+    if (!hidden(this)) focus.call(this, options);
+  });
+}
+/** A window in the background, as the real-app check's can be: no frames. */
+function withholdAnimationFrames() {
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
+}
+
+describe("opening and closing", () => {
+  it("lands Cmd+. on Model once the dialog is placed, though its first pass is hidden", async () => {
+    refuseFocusWhileHidden();
+    withholdAnimationFrames();
+    await render();
+    field.focus();
+    await commandPeriod();
+    await act(async () => {});
+    expect(dialog()).not.toBeNull();
+    expect(cursorRow()).toBe("model");
+    expect(document.activeElement).toBe(row("model"));
+    expect(helm().dataset.open).toBe("keyboard");
+  });
+
+  it("takes Cmd+. into a dialog the pointer opened, rather than closing it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await render();
+    field.focus();
+    await act(async () => {
+      host.querySelector(".helm-perch")!.dispatchEvent(
+        new MouseEvent("pointerover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+      vi.advanceTimersByTime(200);
+    });
+    expect(helm().dataset.open).toBe("hover");
+    await commandPeriod();
+    expect(dialog()).not.toBeNull();
+    expect(helm().dataset.open).toBe("keyboard");
+    expect(document.activeElement).toBe(row("model"));
+    // A second press (not the same press heard twice) closes it and hands
+    // the keyboard back.
+    const later = performance.now() + 1000;
+    vi.spyOn(performance, "now").mockReturnValue(later);
+    await commandPeriod();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("folds the portal dialog away when the pointer leaves it, not on the way between it and the critter", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await render();
+    const move = (from: Element, to: Element) =>
+      act(async () => {
+        from.dispatchEvent(
+          new MouseEvent("pointerout", { bubbles: true, relatedTarget: to }),
+        );
+        to.dispatchEvent(
+          new MouseEvent("pointerover", { bubbles: true, relatedTarget: from }),
+        );
+      });
+    // Onto the critter: it unfurls.
+    await move(document.body, critter());
+    await act(async () => vi.advanceTimersByTime(200));
+    expect(dialog()).not.toBeNull();
+    // The dialog lives in a portal, outside the message box.
+    expect(host.contains(dialog())).toBe(false);
+    // Up across the gap into the dialog: still open.
+    await move(critter(), document.body);
+    await act(async () => vi.advanceTimersByTime(100));
+    await move(document.body, row("model")!);
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(dialog()).not.toBeNull();
+    // Straight from the dialog back onto the critter: still open.
+    await move(row("model")!, critter());
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(dialog()).not.toBeNull();
+    // Back into the dialog, then out of it to the page: it folds away.
+    await move(critter(), row("files")!);
+    await move(row("files")!, document.body);
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(dialog()).toBeNull();
+    expect(helm().dataset.open).toBeUndefined();
+  });
+});
+
 describe("the dialog", () => {
   it("unfurls above the box with every row the old bar had", async () => {
     props.recentSkills = [

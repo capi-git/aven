@@ -106,3 +106,79 @@ export async function restoringComposer<T>(
     }
   }
 }
+
+/** An element as a failure message names it: its tag and its helm marks. */
+function describeElement(element: Element | null): string {
+  if (!element) return "nothing";
+  const marks = [
+    "data-helm-row",
+    "data-helm-item-index",
+    "data-helm-critter",
+    "data-helm-dialog",
+    "aria-label",
+  ]
+    .filter((name) => element.hasAttribute(name))
+    .map((name) => {
+      const value = element.getAttribute(name);
+      return value ? `${name}="${value.slice(0, 40)}"` : name;
+    });
+  const tag = element.tagName.toLowerCase();
+  return marks.length ? `${tag}[${marks.join(" ")}]` : tag;
+}
+
+/**
+ * The helm's state in one line, for a failed step: how its dialog was
+ * opened, the page and ▶ row it shows, whether it is placed and shown,
+ * where the keyboard is, and whether the pointer is over the critter or
+ * the dialog.
+ */
+export function helmStateWords(root: ParentNode, doc: Document): string {
+  // The message box carries data-helm too; the helm is the one the critter
+  // stands in.
+  const perch = root.querySelector(".helm-perch");
+  const helm = perch?.closest<HTMLElement>("[data-helm]") ?? null;
+  const dialog = doc.querySelector<HTMLElement>("[data-helm-dialog]");
+  const cursor = dialog?.querySelector<HTMLElement>(
+    "[data-helm-row][data-active], [data-helm-item-index][data-active]",
+  );
+  const shown = (() => {
+    if (!dialog) return "none";
+    const view = doc.defaultView;
+    for (let at: Element | null = dialog; at; at = at.parentElement)
+      if (view?.getComputedStyle(at).visibility === "hidden") return "hidden";
+    const rect = dialog.getBoundingClientRect();
+    return `${dialog.dataset.popoverSide ?? "?"} at ${Math.round(rect.top)}–${Math.round(rect.bottom)}`;
+  })();
+  const hovered = (element: Element | null | undefined) => {
+    try {
+      return !!element?.matches(":hover");
+    } catch {
+      return false;
+    }
+  };
+  return [
+    `open: ${helm?.dataset.open ?? "no"}`,
+    `dialog: ${shown}`,
+    `page: ${dialog?.dataset.page ?? "-"}`,
+    `▶ on: ${cursor?.dataset.helmRow ?? cursor?.dataset.helmItemIndex ?? "-"}`,
+    `focus: ${describeElement(doc.activeElement)}`,
+    `pointer over: ${hovered(perch) ? "critter" : hovered(dialog) ? "dialog" : "neither"}`,
+  ].join("; ");
+}
+
+/**
+ * Close the critter's dialog as a person does, with Escape, if it is open,
+ * so a step starts from a closed helm whatever came before.
+ */
+export function closeHelmDialog(doc: Document): boolean {
+  const dialog = doc.querySelector<HTMLElement>("[data-helm-dialog]");
+  if (!dialog) return false;
+  dialog.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  return true;
+}

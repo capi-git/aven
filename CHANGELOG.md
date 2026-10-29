@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.1.159] - 2026-10-29
+
+### Added
+
+- **Critter at the helm.** The message box now holds only your text. Your project's critter stands on its corner and is its controls: it dozes with a little bar of room left, wakes to watch you type, and holds the paper plane that sends. Point at it, click it or press **⌘.** to unfurl its pixel bubble: model, effort, access, room left (with Free up space), attach files, modes (Plan mode, Orchestrator, Discuss, Race), recent skills and **Critter**, where you pick your critter and colour (for the project everywhere, or yours outside a project).
+  - While an agent works, the critter types at its laptop; its bubble shows what it's doing, the time, anything waiting on you, the queue and its helpers, and the one **Stop**. The separate Working row above the box is gone.
+  - It sparkles when a turn is done and sweats when something goes wrong, offering a fix.
+- **Publish articles from Notion.** A new automation template: paste a Notion page, say where articles go on your site, and each week it adds new or changed articles as drafts, keeps a record so nothing goes up twice, and leaves a **Ready to publish** card. Nothing goes live until you press Publish.
+
+### Changed
+
+- **A calmer MCP servers page.** Servers are grouped by what needs doing (Needs you, Working, Turned off), one row per server even when both Claude and Codex use it, with plain-language errors and one fix each (raw text under Details). Sign-ins fold into one line, duplicate plugin copies can be hidden, and servers you never use can be turned off through Claude's and Codex's own settings (and back on).
+
+### Fixed
+
+- The context note no longer opens over the words you're typing, and the cursor sits on the line you're typing.
+
 ## [0.1.158] - 2026-10-29
 
 ### Added
