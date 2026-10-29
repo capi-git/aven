@@ -181,6 +181,11 @@ export type CrewRunnerDeps = {
    * down here: a different one from the Builder's.
    */
   checkerFallbackModel?: (crew: Crew) => string | undefined;
+  /**
+   * Where a prepared turn may wait before its last look and send (Aven Dev's
+   * real-app check holds one there while it turns the crew off).
+   */
+  beforeSend?: (sessionId: string) => Promise<void>;
   newId?: () => string;
 };
 
@@ -972,6 +977,7 @@ export class CrewRunner {
               ? names.checker
               : undefined,
       });
+      await this.deps.beforeSend?.(chat.id);
       // Last look, with nothing awaited between it and the send: the crew
       // is still on (the same switch-on) and not paused, and the card is
       // where this turn found it. Stopped, paused, thrown away or turned

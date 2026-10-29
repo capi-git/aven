@@ -11522,6 +11522,9 @@ export default function App({
     sidebarOpen,
     openWebLink: onOpenWebLink,
     board: true,
+    ...(botsAvailable()
+      ? { crew: { turnOn: turnOnCrewFor, readFile: readTextFile } }
+      : {}),
     loneTab: {
       select: onSelectSurface,
       split: (id, edge, beside) =>

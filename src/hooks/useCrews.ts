@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { claudeCheckerModel } from "../lib/crewModels";
+import { crewSendHold } from "../lib/crewSmoke";
 import { CrewRunner } from "../lib/crewRunner";
 import {
   anyCrewOn,
@@ -87,6 +88,7 @@ export function useCrews(
       freshConversation: (sessionId) =>
         hostRef.current.freshConversation(sessionId),
       checkerFallbackModel: (crew) => claudeCheckerModel(crew),
+      beforeSend: crewSendHold,
       copy: {
         prepare: botCopyHost.prepare,
         sync: botCopyHost.sync,
