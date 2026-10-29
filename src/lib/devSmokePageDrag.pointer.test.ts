@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { setCssZoomRectsForTests, type CssZoomRects } from "./drag";
 import { pressPoint } from "./devSmokeLoneTab";
 import {
+  describeDragEnd,
   describeHit,
   dragSceneLines,
+  earlyEndProblem,
+  focusTarget,
   pressMissProblem,
   type DragEnvironment,
 } from "./devSmokePageDrag";
@@ -85,6 +88,8 @@ describe("where the real-app check presses a tab", () => {
 
 describe("what a failed drag over a page lists", () => {
   const environment: DragEnvironment = {
+    focused: true,
+    windowKey: true,
     zoomRects: "legacy",
     currentCSSZoom: false,
     uiScale: 0.8,
@@ -123,14 +128,16 @@ describe("what a failed drag over a page lists", () => {
         via: { x: 725, y: 25 },
         drop: { x: 1408, y: 541 },
         intent: "right of the pane browser-8000",
+        focus: ["textarea.composer-field lost focus"],
+        end: "a release, with the page focused",
         before: '[["browser-8000"]]',
         after: '[["browser-8000"],["1a001aee"]]',
       }),
     ).toEqual([
       "zoom: legacy CSS zoom (the probe's), currentCSSZoom absent; interface 80%, strip zoom 1.25",
-      "window: 1600×1000 CSS px, 1280×800 pt at 1x; screen 1920×1080 pt",
+      "window: 1600×1000 CSS px, 1280×800 pt at 1x; screen 1920×1080 pt; key, the page focused",
       "drag (drop after crossing the page's tab): pressed the tab chat at (575, 25), crossed (725, 25), let go at (1408, 541); the workspace lifted 1a001aee",
-      "intent at release: right of the pane browser-8000",
+      "intent at release: right of the pane browser-8000; ended by a release, with the page focused; focus: textarea.composer-field lost focus",
       'layout: [["browser-8000"]] to [["browser-8000"],["1a001aee"]]',
       "panes: browser-8000 0,50 1600×950; the page's host 0,82 1600×918",
       "strip: 1a001aee 375–525 (reported 300–420); browser-8000 0–0",
@@ -139,14 +146,50 @@ describe("what a failed drag over a page lists", () => {
 
   it("lists the engine and window alone before any drag", () => {
     const lines = dragSceneLines(
-      { ...environment, stripZoom: null, panes: [], page: null, strip: [] },
+      {
+        ...environment,
+        focused: false,
+        windowKey: null,
+        stripZoom: null,
+        panes: [],
+        page: null,
+        strip: [],
+      },
       null,
     );
     expect(lines).toEqual([
       "zoom: legacy CSS zoom (the probe's), currentCSSZoom absent; interface 80%, strip zoom none",
-      "window: 1600×1000 CSS px, 1280×800 pt at 1x; screen 1920×1080 pt",
+      "window: 1600×1000 CSS px, 1280×800 pt at 1x; screen 1920×1080 pt; key unknown, the page not focused",
       "panes: none",
       "strip: none",
     ]);
+  });
+});
+
+describe("what ended a drag the check was carrying", () => {
+  it("is nothing the workspace recorded before the press", () => {
+    expect(earlyEndProblem(null, 100)).toBeNull();
+    expect(
+      earlyEndProblem({ how: "Escape", focused: true, at: 99 }, 100),
+    ).toBeNull();
+  });
+
+  it("names what the workspace ended it on, and whether the page had focus", () => {
+    expect(earlyEndProblem({ how: "blur", focused: false, at: 140 }, 100)).toBe(
+      "the workspace ended the drag itself, on the window's blur, with the page not focused",
+    );
+    expect(
+      describeDragEnd({ how: "lostpointercapture", focused: true, at: 0 }),
+    ).toBe("lost pointer capture, with the page focused");
+    expect(describeDragEnd({ how: "cancel", focused: true, at: 0 })).toBe(
+      "a new press or its bar going away, with the page focused",
+    );
+  });
+
+  it("tells the window's blur from an element's", () => {
+    const field = document.createElement("textarea");
+    field.className = "composer-field ring";
+    expect(focusTarget(field)).toBe("textarea.composer-field");
+    expect(focusTarget(window)).toBe("the window");
   });
 });

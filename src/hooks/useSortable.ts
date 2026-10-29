@@ -9,9 +9,11 @@ import {
 import { flushSync } from "react-dom";
 import {
   clientRectScales,
+  noteDragEnd,
   pointInRects,
   setGrabbing,
   suppressTextSelection,
+  type DragEnd,
 } from "../lib/drag";
 import { moveItem } from "../lib/reorder";
 import { SortableMotion } from "../lib/sortableMotion";
@@ -1176,25 +1178,37 @@ export function useSortable(
         const releasedAt = eventTime(ev);
         current.at = releasedAt;
         if (current.active) locate(current, measureBounds(), releasedAt);
-        stop(true);
+        stop(true, "release");
       };
+      // The window's own blur ends a drag (its listener is not a capturing
+      // one, so an element losing focus to the press never does), as do a
+      // cancelled pointer and lost capture.
       const onCancel = (event?: Event) => {
         if (
           event instanceof PointerEvent &&
           event.pointerId !== state.pointerId
         )
           return;
-        stop(false);
+        const how = event?.type;
+        stop(
+          false,
+          how === "blur" ||
+            how === "pointercancel" ||
+            how === "lostpointercapture"
+            ? how
+            : "cancel",
+        );
       };
       const onKey = (ev: KeyboardEvent) => {
         if (ev.key === "Escape") {
           ev.preventDefault();
-          stop(false);
+          stop(false, "Escape");
         }
       };
 
-      function stop(commit: boolean) {
+      function stop(commit: boolean, how: DragEnd["how"]) {
         if (!drag.current) return;
+        noteDragEnd(how);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);

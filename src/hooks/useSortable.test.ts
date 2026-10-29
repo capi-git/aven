@@ -10,7 +10,11 @@ import {
   vi,
   type Mock,
 } from "vitest";
-import { setCssZoomRectsForTests, type CssZoomRects } from "../lib/drag";
+import {
+  lastDragEnd,
+  setCssZoomRectsForTests,
+  type CssZoomRects,
+} from "../lib/drag";
 import {
   SORTABLE_DROP_PART_ATTRIBUTE,
   useSortable,
@@ -332,11 +336,46 @@ describe("useSortable external drops and cancellation", () => {
         false,
       );
       expect(document.body.style.cursor).toBe("");
+      // What ended it, for the real-app check to name.
+      expect(lastDragEnd()).toEqual({
+        how: reason === "unmount" ? "cancel" : reason,
+        focused: document.hasFocus(),
+        at: now,
+      });
       await pointer(window, "pointerup", 20, 15);
       expect(options.onDragEnd).toHaveBeenCalledOnce();
       expect(onReorder).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps a drag when an element loses focus, as a message box does to the press", async () => {
+    // The real-app check's Escape over a page in a split: the new chat's
+    // message box had focus, and pressing a tab took it away.
+    const field = document.createElement("textarea");
+    document.body.append(field);
+    field.focus();
+    try {
+      await start();
+      await act(async () => {
+        field.blur();
+        field.dispatchEvent(new FocusEvent("blur"));
+      });
+      expect(options.onDragEnd).not.toHaveBeenCalled();
+      expect(sortable.draggingId).toBe("browser-a");
+      now = 1500;
+      await pointer(window, "pointerup", 10, 15);
+      expect(lastDragEnd()).toMatchObject({
+        how: "release",
+        at: 1500,
+      });
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+        ["browser-a", "session-a", "session-b"],
+        "browser-a",
+      );
+    } finally {
+      field.remove();
+    }
+  });
 
   it("does not report a drag or consume a click below the activation threshold", async () => {
     withVisuals = true;

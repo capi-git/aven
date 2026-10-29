@@ -4,7 +4,13 @@ import {
   type BrowserLayoutRecord,
 } from "./browserPresentation";
 import { waitFor } from "./devSmoke";
-import { cssZoomRects, effectiveCssZoom, viewportRect } from "./drag";
+import {
+  cssZoomRects,
+  effectiveCssZoom,
+  lastDragEnd,
+  viewportRect,
+  type DragEnd,
+} from "./drag";
 import {
   dragPath,
   pressPoint,
@@ -12,6 +18,7 @@ import {
   type SmokeLoneTab,
 } from "./devSmokeLoneTab";
 import { applyUiScale, loadUiScale, saveUiScale } from "./uiScale";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Aven Dev's real-app check of a tab dragged over a live page (0.1.156: at
@@ -181,6 +188,40 @@ export function pressMissProblem(
   return `a press at the middle of ${describeHit(element)}, ${spot(point)} on ${cssZoomRects()} CSS zoom, would land on ${describeHit(hit)}${raw}`;
 }
 
+/** How the workspace says a drag ended (`lastDragEnd`). */
+export function describeDragEnd(end: DragEnd): string {
+  const how: Record<DragEnd["how"], string> = {
+    release: "a release",
+    Escape: "Escape",
+    blur: "the window's blur",
+    pointercancel: "a cancelled pointer",
+    lostpointercapture: "lost pointer capture",
+    cancel: "a new press or its bar going away",
+  };
+  return `${how[end.how]}, with the page ${end.focused ? "focused" : "not focused"}`;
+}
+
+/**
+ * Why the drag ended before the check let go, or null: an end the
+ * workspace recorded after the press (`pressedAt`). An element losing
+ * focus to the press (a message box) is no end: only the window's own
+ * blur, a cancelled pointer or lost capture ends a drag.
+ */
+export function earlyEndProblem(
+  end: DragEnd | null,
+  pressedAt: number,
+): string | null {
+  if (!end || end.at < pressedAt) return null;
+  return `the workspace ended the drag itself, on ${describeDragEnd(end)}`;
+}
+
+/** What a focus or blur event was on: the window, or the element. */
+export function focusTarget(target: EventTarget | null): string {
+  if (!(target instanceof Element)) return "the window";
+  const name = typeof target.className === "string" ? target.className : "";
+  return `${target.tagName.toLowerCase()}${name ? `.${name.split(" ")[0]}` : ""}`;
+}
+
 /** What one carry of a tab over the page saw, for a failure to list. */
 export type DragScene = {
   what: string;
@@ -193,6 +234,10 @@ export type DragScene = {
   drop: Point;
   /** The drop the workspace showed as the pointer was let go. */
   intent: string | null;
+  /** Focus that moved while the tab was held, in order. */
+  focus: string[];
+  /** How the workspace says the drag ended. */
+  end?: string;
   /** The panes before the drag, and after it once they settle. */
   before: string;
   after?: string;
@@ -200,6 +245,9 @@ export type DragScene = {
 
 /** The workspace as the drag saw it, for a failure to list. */
 export type DragEnvironment = {
+  /** `document.hasFocus()`, and whether the window is key, once failed. */
+  focused: boolean;
+  windowKey: boolean | null;
   zoomRects: string;
   currentCSSZoom: boolean;
   uiScale: number;
@@ -224,12 +272,12 @@ export function dragSceneLines(
   const zoom = environment.uiScale;
   const lines = [
     `zoom: ${environment.zoomRects} CSS zoom (the probe's), currentCSSZoom ${environment.currentCSSZoom ? "present" : "absent"}; interface ${round(zoom * 100)}%, strip zoom ${environment.stripZoom === null ? "none" : String(Math.round(environment.stripZoom * 1000) / 1000)}`,
-    `window: ${round(environment.window.width)}×${round(environment.window.height)} CSS px, ${round(environment.window.width * zoom)}×${round(environment.window.height * zoom)} pt at ${environment.devicePixelRatio}x; screen ${environment.screen.width}×${environment.screen.height} pt`,
+    `window: ${round(environment.window.width)}×${round(environment.window.height)} CSS px, ${round(environment.window.width * zoom)}×${round(environment.window.height * zoom)} pt at ${environment.devicePixelRatio}x; screen ${environment.screen.width}×${environment.screen.height} pt; ${environment.windowKey === null ? "key unknown" : environment.windowKey ? "key" : "not key"}, the page ${environment.focused ? "focused" : "not focused"}`,
   ];
   if (scene)
     lines.push(
       `drag (${scene.what}): pressed the tab ${scene.dragged} at ${spot(scene.press)}${scene.via ? `, crossed ${spot(scene.via)}` : ""}, let go at ${spot(scene.drop)}; the workspace lifted ${scene.lifted.length ? scene.lifted.join(", ") : "nothing"}`,
-      `intent at release: ${scene.intent ?? "no drop shown"}`,
+      `intent at release: ${scene.intent ?? "no drop shown"}; ended by ${scene.end ?? "nothing recorded"}; focus: ${scene.focus.length ? scene.focus.join(", ") : "unchanged"}`,
       `layout: ${scene.before}${scene.after !== undefined ? ` to ${scene.after}` : ""}`,
     );
   lines.push(
@@ -256,13 +304,21 @@ const boxOf = (rect: Box): Box => ({
 });
 
 /** Reads what `dragSceneLines` lists from the workspace on screen. */
-function readDragEnvironment(page: HTMLElement | null): DragEnvironment {
+async function readDragEnvironment(
+  page: HTMLElement | null,
+): Promise<DragEnvironment> {
   const strip = document.querySelector<HTMLElement>(
     ".workspace-status-strip-content",
   );
   const shown = (element: HTMLElement) =>
     element.getBoundingClientRect().width > 0;
+  const focused = document.hasFocus();
+  const windowKey = await getCurrentWindow()
+    .isFocused()
+    .catch(() => null);
   return {
+    focused,
+    windowKey,
     zoomRects: cssZoomRects(),
     currentCSSZoom: "currentCSSZoom" in HTMLElement.prototype,
     uiScale: loadUiScale(),
@@ -508,6 +564,7 @@ async function dragOverPage(
         via,
         drop: to,
         intent: null,
+        focus: [],
         before: panes(),
       };
       last.scene = current;
@@ -556,16 +613,19 @@ async function dragOverPage(
           lifted();
         }
       };
-      // What, other than this check, ends the drag early.
-      const ended: string[] = [];
-      const note = (event: Event) => {
-        if (ended.length < 3)
-          ended.push(
-            `${event.type}${event.target instanceof Element ? ` on ${event.target.tagName.toLowerCase()}${event.target.className ? `.${String(event.target.className).split(" ")[0]}` : ""}` : ""}`,
+      // Focus that moves while the tab is held, for a failure to list: the
+      // press takes it from a message box, which ends nothing. What ends a
+      // drag is what the workspace records (`lastDragEnd`).
+      const onFocus = (event: FocusEvent) => {
+        if (current.focus.length < 6)
+          current.focus.push(
+            `${focusTarget(event.target)} ${event.type === "blur" ? "lost" : "took"} focus${event.target instanceof Element ? "" : ` (page ${document.hasFocus() ? "focused" : "not focused"})`}`,
           );
       };
-      const kinds = ["blur", "pointercancel", "lostpointercapture"] as const;
-      for (const kind of kinds) window.addEventListener(kind, note, true);
+      window.addEventListener("blur", onFocus, true);
+      window.addEventListener("focus", onFocus, true);
+      const pressedAt = performance.now();
+      let early: string | null = null;
       await smokeMouse("down", from);
       try {
         if (via) {
@@ -596,17 +656,21 @@ async function dragOverPage(
           }
         }
       } finally {
-        for (const kind of kinds) window.removeEventListener(kind, note, true);
+        window.removeEventListener("blur", onFocus, true);
+        window.removeEventListener("focus", onFocus, true);
         current.drop = at;
         current.intent = dropIntent();
+        early = earlyEndProblem(lastDragEnd(), pressedAt);
         if (end === "Escape")
           window.dispatchEvent(
             new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
           );
         await smokeMouse("up", at);
+        const ended = lastDragEnd();
+        current.end =
+          ended && ended.at >= pressedAt ? describeDragEnd(ended) : undefined;
       }
-      if (ended.length)
-        problems.add(`the drag was ended by ${ended.join(", ")}`);
+      if (early) problems.add(early);
       if (problems.size)
         throw new Error(
           `while dragging (${what}): ${[...problems].slice(0, 3).join("; ")}`,
@@ -664,7 +728,7 @@ async function dragOverPage(
   } catch (error) {
     // What the drag saw, since a runner keeps nothing to look at after.
     if (last.scene) last.scene.after = panes();
-    const lines = dragSceneLines(readDragEnvironment(host()), last.scene);
+    const lines = dragSceneLines(await readDragEnvironment(host()), last.scene);
     throw new Error(
       [
         error instanceof Error ? error.message : String(error),

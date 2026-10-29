@@ -113,6 +113,44 @@ export function pointInRects(
   return scale === 1 ? point : { x: point.x / scale, y: point.y / scale };
 }
 
+/**
+ * How a press or drag of a sortable ended: let go (`release`), Escape, a
+ * cancelling event by its type (`blur` is the window's own, never an
+ * element's), or `cancel` (a new press, or the sortable going away).
+ */
+export type DragEnd = {
+  how:
+    | "release"
+    | "Escape"
+    | "blur"
+    | "pointercancel"
+    | "lostpointercapture"
+    | "cancel";
+  /** Whether the page had focus then (`document.hasFocus()`). */
+  focused: boolean;
+  /** When, on `performance.now()`'s clock. */
+  at: number;
+};
+
+let lastEnd: DragEnd | null = null;
+
+/** A sortable's press or drag has ended, `how`. */
+export function noteDragEnd(how: DragEnd["how"]) {
+  lastEnd = {
+    how,
+    focused: typeof document.hasFocus === "function" && document.hasFocus(),
+    at: performance.now(),
+  };
+}
+
+/**
+ * How the last press or drag of any sortable ended, so the real-app check
+ * can say what ended a drag it was still carrying.
+ */
+export function lastDragEnd(): DragEnd | null {
+  return lastEnd;
+}
+
 /** Block native text selection for the duration of a reorder gesture. */
 export function suppressTextSelection() {
   const onSelectStart = (event: Event) => {
