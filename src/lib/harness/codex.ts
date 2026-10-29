@@ -48,7 +48,11 @@ import {
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
-import { launchRefusal, sessionPermissions } from "./sessionPermissions";
+import {
+  launchRefusal,
+  permissionRulesKey,
+  sessionPermissions,
+} from "./sessionPermissions";
 
 /** A chat that may only read (a crew's Checker), whatever its mode says. */
 function readOnlyChat(sessionId: string): boolean {
@@ -104,6 +108,8 @@ type Live = {
   planning: boolean;
   /** A chat that runs without MCP servers: any server request is declined. */
   noMcp: boolean;
+  /** Its tools and rules when it started: a reuse must match (see `toolsKey`). */
+  toolsKey: string;
   /** Last model/effort Codex reported or accepted, to restate turn modes. */
   threadModel?: string;
   threadEffort?: string;
@@ -389,22 +395,33 @@ function projectMemoryFor(
   return memoryByThread.get(input.sessionId);
 }
 
-/** Thrown when a chat that must run without MCP servers still has some on. */
-class McpStillOn extends Error {}
+/** Thrown when a chat that must run with its tools closed still has some open. */
+class ToolsStillOpen extends Error {}
 
 /**
- * MCP servers Codex reported for any chat, by name: a chat that must run
- * without them (a crew's Checker) starts with each switched off.
+ * MCP servers and plugins Codex reported for any chat, by name: a chat that
+ * must run without them (a crew's Checker) starts with each switched off.
  */
 const knownMcpServers = new Set<string>();
+const knownPlugins = new Set<string>();
 
-/** The MCP servers a `config/read` response has switched on. Exported for tests. */
-export function enabledMcpServers(response: unknown): string[] {
-  const servers = asRecord(asRecord(asRecord(response)?.config)?.mcp_servers);
-  return Object.entries(servers ?? {})
+function enabledEntries(table: unknown): string[] {
+  return Object.entries(asRecord(table) ?? {})
     .filter(([, value]) => asRecord(value)?.enabled !== false)
     .map(([name]) => name);
 }
+
+/** The MCP servers a `config/read` response has switched on. Exported for tests. */
+export function enabledMcpServers(response: unknown): string[] {
+  return enabledEntries(asRecord(asRecord(response)?.config)?.mcp_servers);
+}
+
+/** The plugins a `config/read` response has switched on. Exported for tests. */
+export function enabledPlugins(response: unknown): string[] {
+  return enabledEntries(asRecord(asRecord(response)?.config)?.plugins);
+}
+
+const codexName = (name: string) => /^[A-Za-z0-9_-]+$/.test(name);
 
 /**
  * `-c mcp_servers.<name>.enabled=false` for each server Codex can name. A
@@ -413,8 +430,65 @@ export function enabledMcpServers(response: unknown): string[] {
  */
 export function codexMcpOffArgs(names: Iterable<string>): string[] {
   return [...names]
-    .filter((name) => /^[A-Za-z0-9_-]+$/.test(name))
+    .filter(codexName)
     .flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]);
+}
+
+/**
+ * Everything that could give a closed chat (a crew's Checker) a tool beyond
+ * reading the copy, switched off: web search, apps and their instructions,
+ * remote plugins and tool suggestions, each known MCP server and plugin.
+ * Exported for tests.
+ */
+export function codexClosedToolArgs(
+  servers: Iterable<string>,
+  plugins: Iterable<string>,
+): string[] {
+  return [
+    "-c",
+    'web_search="disabled"',
+    "-c",
+    "features.apps=false",
+    "-c",
+    "features.remote_plugin=false",
+    "-c",
+    "features.tool_suggest=false",
+    "-c",
+    "include_apps_instructions=false",
+    ...codexMcpOffArgs(servers),
+    ...[...plugins]
+      .filter(codexName)
+      .flatMap((name) => ["-c", `plugins.${name}.enabled=false`]),
+  ];
+}
+
+/**
+ * What a `config/read` response still has open for a chat that must run
+ * with its tools closed: empty when everything is off. Exported for tests.
+ */
+export function codexOpenTools(response: unknown): string[] {
+  const config = asRecord(asRecord(response)?.config);
+  const features = asRecord(config?.features);
+  const tools = asRecord(config?.tools);
+  const open: string[] = [];
+  if (config?.web_search !== "disabled" || tools?.web_search === true)
+    open.push("web search");
+  for (const feature of ["apps", "remote_plugin", "tool_suggest"])
+    if (features && feature in features && features[feature] !== false)
+      open.push(feature);
+  open.push(...enabledMcpServers(response).map((name) => `MCP ${name}`));
+  open.push(...enabledPlugins(response).map((name) => `plugin ${name}`));
+  return open;
+}
+
+/** What a reused process must still match: its closed tools and rules. */
+function toolsKey(sessionId: string): string {
+  const permissions = sessionPermissions(sessionId);
+  return JSON.stringify([
+    permissions?.noMcp === true,
+    permissions?.readOnly === true,
+    permissionRulesKey(permissions),
+  ]);
 }
 
 async function ensureLive(
@@ -428,22 +502,30 @@ async function ensureLive(
   try {
     return await startLive(input);
   } catch (error) {
-    if (!(error instanceof McpStillOn)) throw error;
-    // Its servers are known now: start once more with each switched off.
+    if (!(error instanceof ToolsStillOpen)) throw error;
+    // Its servers and plugins are known now: start once more with each off.
     if (!retried) return ensureLive(input, true);
     throw new Error(
-      "Codex couldn't start without your MCP servers, so this chat didn't start.",
+      `Codex couldn't start with its tools switched off (${error.message}), so this chat didn't start.`,
     );
   }
 }
 
 async function startLive(input: HarnessSessionInput): Promise<Live> {
   const noMcp = sessionPermissions(input.sessionId)?.noMcp === true;
+  const key = toolsKey(input.sessionId);
   // Native stop addresses the session ID. Never let it race a replacement
   // process spawned under the same ID.
   await stoppingByThread.get(input.sessionId);
   const existing = liveByThread.get(input.sessionId);
-  if (existing && !existing.retired && existing.cwd === input.cwd) {
+  // Reused only while its tools and rules are still the ones it started
+  // with; otherwise it restarts, as a Claude chat does.
+  if (
+    existing &&
+    !existing.retired &&
+    existing.cwd === input.cwd &&
+    existing.toolsKey === key
+  ) {
     return existing;
   }
   // A new app-server takes a moment before it answers; the chat says so.
@@ -519,7 +601,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       input.sessionId,
       path,
       noMcp
-        ? [...codexMcpOffArgs(knownMcpServers), "app-server"]
+        ? [...codexClosedToolArgs(knownMcpServers, knownPlugins), "app-server"]
         : ["app-server"],
       input.cwd,
     );
@@ -548,9 +630,14 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       );
     }
     assertCodexStorage(effectiveConfig, storage.home);
-    const servers = enabledMcpServers(effectiveConfig);
-    for (const name of servers) knownMcpServers.add(name);
-    if (noMcp && servers.length) throw new McpStillOn();
+    for (const name of enabledMcpServers(effectiveConfig))
+      knownMcpServers.add(name);
+    for (const name of enabledPlugins(effectiveConfig)) knownPlugins.add(name);
+    // A closed chat starts only once Codex itself reports everything off.
+    if (noMcp) {
+      const open = codexOpenTools(effectiveConfig);
+      if (open.length) throw new ToolsStillOpen(open.join(", "));
+    }
     // Preserve effective developer instructions without logging or editing them.
     const hostInstructions =
       codexBrowserHostInstructionsFromConfig(effectiveConfig);
@@ -651,6 +738,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
       noMcp,
+      toolsKey: key,
       threadModel: stringField(asRecord(opened), "model"),
       threadEffort: stringField(asRecord(opened), "reasoningEffort"),
       onEvent: input.onEvent,
