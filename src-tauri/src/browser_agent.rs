@@ -1045,12 +1045,14 @@ pub fn browser_agent_reach_result(
     if request.kind != PendingKind::Reach {
         return Err("This request is not a tab wake request".into());
     }
+    // A page the window cannot name answers the read at once, rather than
+    // leaving it to wait out its time.
     let result = match (browser_id, error) {
         (_, Some(error)) => Err(error.chars().take(500).collect()),
-        (Some(id), None) => {
-            crate::browser::preview(&caller, &id)?;
-            Ok((id, None))
-        }
+        (Some(id), None) => match crate::browser::preview(&caller, &id) {
+            Ok(_) => Ok((id, None)),
+            Err(_) => Err("The tab's page closed before it could be read. Try again.".into()),
+        },
         (None, None) => Err("The tab did not load.".into()),
     };
     if let Some(request) = pending.remove(&request_id) {
@@ -1239,8 +1241,10 @@ fn start_server(app: AppHandle) -> Result<Arc<Server>, String> {
         .spawn(move || {
             for stream in listener.incoming().flatten() {
                 use std::sync::atomic::Ordering;
-                if active.fetch_add(1, Ordering::Relaxed) >= 4 {
+                if active.fetch_add(1, Ordering::Relaxed) >= MAX_CONNECTIONS {
                     active.fetch_sub(1, Ordering::Relaxed);
+                    // Said, not dropped: the agent waits and tries again.
+                    let _ = answer_busy(stream);
                     continue;
                 }
                 let host = host.clone();
@@ -1253,6 +1257,50 @@ fn start_server(app: AppHandle) -> Result<Arc<Server>, String> {
         })
         .map_err(|error| error.to_string())?;
     Ok(server)
+}
+
+/// Requests served at once. Long actions (an export's images, an upload
+/// waiting for the user) have a smaller share, so quick ones always get in.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAX_CONNECTIONS: usize = 12;
+const MAX_LONG_ACTIONS: usize = 3;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const BUSY: &str =
+    "Aven's browser connection is busy with other agents' actions. Wait a moment, then try again.";
+const LONG_BUSY: &str =
+    "Aven is already saving or uploading pages for other agents. Wait a moment, then try again.";
+
+#[cfg(target_os = "macos")]
+fn answer_busy(mut stream: std::os::unix::net::UnixStream) -> std::io::Result<()> {
+    use std::io::Write;
+    stream.set_write_timeout(Some(Duration::from_millis(200)))?;
+    let reply = json!({"ok":false,"error":BUSY});
+    stream.write_all(format!("{reply}\n").as_bytes())
+}
+
+/// Holds one of the long actions' places until dropped.
+struct LongAction;
+
+static LONG_ACTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl LongAction {
+    fn take(request: &Request) -> Result<Option<Self>, String> {
+        use std::sync::atomic::Ordering;
+        if !matches!(request, Request::Export { .. } | Request::Upload { .. }) {
+            return Ok(None);
+        }
+        if LONG_ACTIONS.fetch_add(1, Ordering::AcqRel) >= MAX_LONG_ACTIONS {
+            LONG_ACTIONS.fetch_sub(1, Ordering::AcqRel);
+            return Err(LONG_BUSY.into());
+        }
+        Ok(Some(Self))
+    }
+}
+
+impl Drop for LongAction {
+    fn drop(&mut self) {
+        LONG_ACTIONS.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1340,6 +1388,7 @@ fn execute(
         let lease = BrowserRequestLease::acquire(&mut reservations, &grant, &envelope.request)?;
         (grant, lease)
     };
+    let _long = LongAction::take(&envelope.request)?;
     // Working agents keep the Mac from idle sleep for the request's lifetime.
     let _awake = crate::keep_awake::hold_request();
     let browser = !matches!(
@@ -2027,7 +2076,14 @@ fn dispatch(
             }
             Ok(listed)
         }
-        Request::Tabs {} => Ok(list_tabs(server, grant)),
+        Request::Tabs {} => {
+            // Listing other tabs is closed too once the user pressed Stop.
+            crate::desktop_control::tab_use_allowed(
+                &envelope.token,
+                crate::desktop_presence::Step::ReadingPage,
+            )?;
+            Ok(list_tabs(server, grant))
+        }
         Request::Open {
             url,
             new_tab,
@@ -2085,9 +2141,14 @@ fn dispatch(
         }
         request => {
             let id = request.id().ok_or("Unsupported browser action")?.to_owned();
+            // Stop, Pause and a locked Mac are honoured before a tab is
+            // looked up or woken, not only once it is found.
+            if !grant.own.iter().any(|page| page == &id) {
+                crate::desktop_control::tab_use_allowed(&envelope.token, tab_step(&request))?;
+            }
             let target = resolve_page(server, grant, &caller, &id)?;
             // Any tab that is not the chat's own shows who is using it.
-            let _using = if target.own {
+            let using = if target.own {
                 None
             } else {
                 Some(crate::desktop_control::begin_tab_use(
@@ -2097,8 +2158,15 @@ fn dispatch(
                     &target.place,
                 )?)
             };
-            let mut result =
-                page_action(server, envelope.token, request, grant, &target, connected);
+            let mut result = page_action(
+                server,
+                envelope.token,
+                request,
+                grant,
+                &target,
+                using.as_ref(),
+                connected,
+            );
             if target.woke {
                 if let Ok(Value::Object(map)) = result.as_mut() {
                     map.insert("woke".into(), Value::Bool(true));
@@ -2111,6 +2179,8 @@ fn dispatch(
     }
 }
 
+const EXPORT_ABANDONED: &str =
+    "The browser command stopped waiting, so the export stopped and saved nothing more.";
 const WOKE_NOTE: &str = "The tab was asleep, so Aven loaded it again in the background to read it; the user's view did not change.";
 
 /// The page a request acts on, in the app window that owns it.
@@ -2354,6 +2424,8 @@ fn reach_tab(server: &Server, window: &str, surface: &str) -> Result<String, Str
     result
 }
 
+/// The room the tab list may take in a reply, below `MAX_RESPONSE_BYTES`.
+const TABS_REPLY_BYTES: usize = 240 * 1024;
 const TABS_NOTE: &str = "Use a tab's id with read, export, snapshot or screenshot (and click, fill, press, scroll or navigate only when the user asked you to act there). Reading never changes the user's tab; a sleeping tab is loaded again in the background to read it. Tabs that are not yours show the user a bar naming you while you use them.";
 const TABS_OFF_NOTE: &str = "Reading tabs outside this chat's project is turned off in Settings → Browser, so only this project's tabs are listed.";
 
@@ -2455,12 +2527,20 @@ fn tab_listing(
         }
     }
     entries.sort_by_key(|(other, hidden, _)| (*other, *hidden));
-    let more = entries.len().saturating_sub(200);
+    // At most 200 tabs, and only as many as fit the reply.
+    let mut room = TABS_REPLY_BYTES;
     let tabs: Vec<Value> = entries
-        .into_iter()
+        .iter()
         .take(200)
         .map(|(_, _, entry)| entry)
+        .take_while(|entry| {
+            let size = serde_json::to_vec(entry).map_or(usize::MAX, |bytes| bytes.len() + 1);
+            room = room.saturating_sub(size);
+            room > 0
+        })
+        .cloned()
         .collect();
+    let more = entries.len() - tabs.len();
     let mut result = json!({
         "tabs": tabs,
         "note": if grant.any_tab { TABS_NOTE.to_owned() } else { format!("{TABS_OFF_NOTE} {TABS_NOTE}") },
@@ -2509,12 +2589,25 @@ struct PageImages(crate::browser::ChromiumPage);
 
 #[cfg(all(feature = "chromium", target_os = "macos"))]
 impl crate::browser_export::ImageSource for PageImages {
-    fn fetch(&self, url: &str, max_bytes: usize, timeout: Duration) -> Result<Vec<u8>, String> {
+    fn fetch(
+        &self,
+        url: &str,
+        credentials: bool,
+        max_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, String> {
         let result = tauri::async_runtime::block_on(self.0.command_within(
-            json!({"action":"fetch-resource","url":url,"maxBytes":max_bytes}),
+            json!({"action":"fetch-resource","url":url,"maxBytes":max_bytes,"credentials":credentials}),
             timeout.max(Duration::from_secs(1)),
-        ))?;
-        resource_bytes(&result, max_bytes)
+        ));
+        if matches!(&result, Err(error) if error.contains("timed out")) {
+            // Never leave Chromium reading a body nobody waits for.
+            let _ = tauri::async_runtime::block_on(
+                self.0
+                    .command_within(json!({"action":"fetch-cancel"}), Duration::from_secs(2)),
+            );
+        }
+        resource_bytes(&result?, max_bytes)
     }
 }
 
@@ -2560,18 +2653,20 @@ struct PageImages;
 
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
 impl crate::browser_export::ImageSource for PageImages {
-    fn fetch(&self, _: &str, _: usize, _: Duration) -> Result<Vec<u8>, String> {
+    fn fetch(&self, _: &str, _: bool, _: usize, _: Duration) -> Result<Vec<u8>, String> {
         Err("Saving images needs the Chromium build of Aven.".into())
     }
 }
 
-/// One action on a resolved page, in the window that owns it.
+/// One action on a resolved page, in the window that owns it. `using` is the
+/// presence bar's hold on a tab that is not the chat's own.
 fn page_action(
     server: &Arc<Server>,
     token: String,
     request: Request,
     grant: &Grant,
     target: &PageTarget,
+    using: Option<&crate::desktop_control::TabUse>,
     connected: &dyn Fn() -> bool,
 ) -> Result<Value, String> {
     let caller = target.owner.clone();
@@ -2598,7 +2693,8 @@ fn page_action(
             let work = grant.work_dir.as_deref().ok_or(
                 "Aven does not know this chat's project folder yet. Send the request in a new message and try again.",
             )?;
-            let folder = crate::browser_export::export_folder(&to, std::path::Path::new(work))?;
+            let destination =
+                crate::browser_export::export_folder(&to, std::path::Path::new(work))?;
             let stem = crate::browser_export::file_stem(name.as_deref())?;
             let placeholder = crate::browser_export::placeholder_token();
             let started = Instant::now();
@@ -2612,15 +2708,23 @@ fn page_action(
             let images = PageImages(crate::browser::preview(&caller, &id)?);
             #[cfg(not(all(feature = "chromium", target_os = "macos")))]
             let images = PageImages;
+            // The user's Stop, or the command giving up, ends the export
+            // before its next fetch or write.
+            let keep_going = || {
+                if !connected() {
+                    return Err(EXPORT_ABANDONED.to_string());
+                }
+                using.map_or(Ok(()), crate::desktop_control::TabUse::check)
+            };
             crate::browser_export::export(
                 &page,
                 &placeholder,
-                &folder,
+                &destination,
                 &stem,
                 replace,
                 &images,
                 crate::browser_export::Limits::standard(started),
-                connected,
+                &keep_going,
                 std::time::SystemTime::now(),
             )
         }
@@ -2663,7 +2767,9 @@ fn page_action(
             let view = crate::browser::preview(&caller, &id)?;
             let mut snapshot = tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
                 view,
-                json!({"action":"snapshot","generation":uuid::Uuid::new_v4().simple().to_string()}),
+                // Values of password, sign-in code and card fields are never
+                // read in tabs that are not the chat's own.
+                json!({"action":"snapshot","generation":uuid::Uuid::new_v4().simple().to_string(),"redact":!target.own}),
             ))?;
             if let Value::Object(map) = &mut snapshot {
                 map.insert(
@@ -2916,8 +3022,12 @@ unless the user turned it off); without it, tabs lists this project's tabs.
 Using any tab that is not yours shows the user a bar naming you and the tab;
 if they press Stop, other tabs stay closed to you until their next message.
 Act (click, fill, press, scroll, navigate, upload) in the user's tabs only
-when they asked; never type passwords or sign-in codes into a tab that is not
-yours (Aven refuses).
+when they asked; never type passwords, sign-in codes or card details into a
+tab that is not yours (Aven refuses). If the user presses Stop, other tabs
+stay closed to you (and an export stops) until their next message; while the
+Mac is locked you may read other tabs but not act in them. Images on another
+site are saved without the user's cookies, and a page on the web never gets
+images from this Mac or the local network.
 Open keeps one page per site for this chat and builds on it: opening the same
 address again reloads your page ("reused":"reloaded"), and another address on
 the same site (another route, query, fragment or mock file on that server)
@@ -5000,5 +5110,53 @@ mod tests {
             "The site answered HTTP 403"
         );
         assert!(resource_bytes(&json!({"chunks":[{"data":"%%%","base64":true}]}), 1024).is_err());
+    }
+
+    #[test]
+    fn a_long_tab_list_fits_the_reply_and_says_how_many_more() {
+        let tabs: Vec<TabRecord> = (0..200)
+            .map(|n| {
+                let mut tab = record(&format!("browser-{n:016x}"), "site", json!({"scope": true}));
+                tab.url = format!("https://example.com/{}", "x".repeat(1990));
+                tab.title = "t".repeat(300);
+                tab
+            })
+            .collect();
+        let listed = tab_listing(&chat(true), vec![("main".into(), tabs)], &[], |_, _| None);
+        let size = serde_json::to_vec(&listed).unwrap().len();
+        assert!(size < MAX_RESPONSE_BYTES, "{size}");
+        let shown = listed["tabs"].as_array().unwrap().len();
+        assert!(shown > 50 && shown < 200, "{shown}");
+        assert_eq!(listed["more"], 200 - shown);
+    }
+
+    #[test]
+    fn long_actions_have_their_own_places_and_quick_ones_are_never_held_up() {
+        let export = Request::Export {
+            id: "browser-0123456789abcdef".into(),
+            to: "/p".into(),
+            name: None,
+            replace: false,
+        };
+        let held: Vec<_> = (0..MAX_LONG_ACTIONS)
+            .map(|_| LongAction::take(&export).unwrap().unwrap())
+            .collect();
+        assert_eq!(LongAction::take(&export).err().unwrap(), LONG_BUSY);
+        let quick = Request::Snapshot {
+            id: "browser-0123456789abcdef".into(),
+        };
+        assert!(LongAction::take(&quick).unwrap().is_none());
+        drop(held);
+        assert!(LongAction::take(&export).unwrap().is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_full_connection_is_told_it_is_busy_instead_of_dropped() {
+        let (server, client) = std::os::unix::net::UnixStream::pair().unwrap();
+        answer_busy(server).unwrap();
+        let line = read_line_bounded(&client, MAX_RESPONSE_BYTES).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply, json!({"ok":false,"error":BUSY}));
     }
 }

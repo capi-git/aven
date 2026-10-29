@@ -107,6 +107,29 @@
     if (!frameTag(node)) return false;
     try { return !node.contentDocument; } catch { return true; }
   };
+  // Fields for passwords, sign-in codes and card details: in tabs that are
+  // not the chat's own, agents never type into them and snapshots never
+  // read their values. Known by type and autocomplete, by their names and
+  // labels, and as split code boxes (one character each, side by side).
+  const SECRET_AUTOCOMPLETE = /(^|\s)(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)(\s|$)/i;
+  const SECRET_WORDS = /pass(word|wd|code|phrase)?\b|\bpwd\b|\botp\b|one[\s_-]?time|verif(y|ication)[\s_-]?code|security[\s_-]?code|\b2fa\b|\bmfa\b|\btotp\b|auth(entication)?[\s_-]?code|(sign|log)[\s_-]?in[\s_-]?code|\bpin\b|\bcvc\b|\bcvv\b|\bcsc\b|card[\s_-]?(number|no\b)|\bcc[\s_-]?num/i;
+  const secretField = (element) => {
+    if (!element || element.nodeType !== 1) return false;
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    if (tag(element, 'INPUT') && type === 'password') return true;
+    if (SECRET_AUTOCOMPLETE.test(element.getAttribute('autocomplete') || '')) return true;
+    const field = tag(element, 'INPUT') || tag(element, 'TEXTAREA') || element.isContentEditable;
+    if (!field) return false;
+    const hints = [element.getAttribute('name'), element.id, element.getAttribute('aria-label'), element.getAttribute('placeholder'),
+      element.getAttribute('data-testid'), element.labels && Array.from(element.labels).map(node => node.textContent).join(' ')].join(' ');
+    if (SECRET_WORDS.test(hints)) return true;
+    if (tag(element, 'INPUT') && element.maxLength === 1 && ['', 'text', 'tel', 'number'].includes(type)) {
+      const group = element.parentElement && (element.parentElement.querySelectorAll('input').length >= 4 ? element.parentElement : element.parentElement.parentElement);
+      const boxes = group ? Array.from(group.querySelectorAll('input')).filter(input => input.maxLength === 1) : [];
+      if (boxes.length >= 4) return true;
+    }
+    return false;
+  };
   const editable = (node) => !!node && (node.isContentEditable || tag(node, 'TEXTAREA') ||
     (tag(node, 'INPUT') && !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'range', 'color', 'hidden'].includes((node.type || '').toLowerCase())));
   if (request.action === 'snapshot') {
@@ -148,7 +171,10 @@
         disabled: !!element.disabled || element.getAttribute('aria-disabled') === 'true', ...extra };
       if (type) entry.type = type;
       if (tag(element, 'A')) entry.href = limit(element.href, 2000);
-      if ('value' in element && !frameTag(element) && type !== 'password' && type !== 'file') entry.value = limit(element.value, 500);
+      if ('value' in element && !frameTag(element) && type !== 'password' && type !== 'file') {
+        if (request.redact === true && secretField(element)) entry.redacted = true;
+        else entry.value = limit(element.value, 500);
+      }
       const ariaChecked = element.getAttribute('aria-checked');
       if ('checked' in element && ['checkbox', 'radio'].includes(type)) entry.checked = !!element.checked;
       else if (['true', 'false', 'mixed'].includes(ariaChecked)) entry.checked = ariaChecked === 'mixed' ? 'mixed' : ariaChecked === 'true';
@@ -252,14 +278,21 @@
     // A site's own header (logo, menus) outside the article is chrome too.
     const skipped = (node) => SKIP.has(nameOf(node)) || CHROME.has(node.getAttribute('role') || '') ||
       (nameOf(node) === 'HEADER' && !node.closest('article, main, [role="main"]')) ||
-      node.classList?.contains('notion-overlay-container') || hiddenNode(node);
+      node.classList?.contains('notion-overlay-container') || hiddenNode(node) ||
+      // An editable sign-in code or card field's text is never read.
+      (node.getAttribute('contenteditable') !== null && secretField(node));
     const absolute = (value) => { try { return new URL(value, document.baseURI).href; } catch { return ''; } };
     const linkOf = (anchor) => {
       const href = absolute(anchor.getAttribute('href') || '');
       return /^(https?:|mailto:)/i.test(href) && href.length <= 4096 ? href : '';
     };
     const sameText = (a, b) => limit(a, 400).toLowerCase() === limit(b, 400).toLowerCase();
+    // The address the page actually loaded and shows, when it has one; else
+    // the widest it names (srcset) or its lazy-load address. `loaded` tells
+    // the host which, since a page can name addresses it never loads.
     const imageSource = (img) => {
+      const shown = img.complete && img.naturalWidth > 0 ? img.currentSrc || img.src : '';
+      if (shown && /^https?:/i.test(shown)) return { src: shown, loaded: true };
       let best = img.currentSrc || img.src || absolute(img.getAttribute('src') || '');
       const srcset = img.getAttribute('srcset');
       if (srcset) {
@@ -272,12 +305,12 @@
       }
       const lazy = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-lazy-src');
       if (lazy && (!best || best.startsWith('data:'))) best = absolute(lazy);
-      return best;
+      return { src: best, loaded: !!shown && shown === best };
     };
     // One saved file per image address, numbered in reading order.
     const image = (img, caption = '') => {
       if (img.getAttribute('width') === '1' && img.getAttribute('height') === '1') return null;
-      const src = imageSource(img);
+      const { src, loaded } = imageSource(img);
       const data = /^data:image\//i.test(src);
       if (!(data || /^https?:/i.test(src)) || src.length > (data ? 60000 : 4096)) return null;
       let index = imageIndex.get(src);
@@ -285,7 +318,7 @@
         if (images.length >= maxImages || imageChars + src.length > 160000) { imagesTruncated = true; return null; }
         imageChars += src.length;
         index = images.length + 1;
-        const entry = { index, src, alt: limit(img.getAttribute('alt'), 300) };
+        const entry = { index, src, alt: limit(img.getAttribute('alt'), 300), loaded };
         if (caption) entry.caption = limit(caption, 300);
         if (img.naturalWidth > 0) { entry.width = img.naturalWidth; entry.height = img.naturalHeight; }
         images.push(entry);
@@ -298,8 +331,20 @@
       const annotation = node.querySelector('annotation[encoding="application/x-tex"]');
       return annotation ? limit(annotation.textContent, 4000) : null;
     };
-    const escapeText = (value) => value.replace(/([\\`*_[\]<>])/g, '\\$1');
-    const escapeHtml = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Text stays text under CommonMark, raw-HTML renderers and MDX: markup,
+    // emphasis, entities and MDX's {expressions} are all escaped.
+    const escapeText = (value) => value.replace(/([\\`*_[\]<>{}&])/g, '\\$1');
+    // A link or image address: nothing in it can close or leave the link.
+    const destination = (href) => href.replace(/[()\s<>{}`]/g, (c) => encodeURIComponent(c));
+    // TeX as GitHub's math code (inline $`…`$, block ```math), so under any
+    // renderer it is inert code, never HTML or an MDX expression.
+    const mathSpan = (value) => {
+      const ticks = value.includes('`') ? '``' : '`';
+      const space = ticks.length > 1 ? ' ' : '';
+      return `$${ticks}${space}${value.replace(/\s*\n\s*/g, ' ')}${space}${ticks}$`;
+    };
+    const escapeHtml = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/{/g, '&#123;').replace(/}/g, '&#125;');
     const placeholder = (index) => `aven-image-${token}-${index}`;
     const preformatted = (style) => /white-space:\s*pre(-wrap|-line)?\b/.test(style);
     // Inline content as runs of text, each with its formatting.
@@ -320,7 +365,7 @@
         if (name === 'BR') { out.push({ ...format, text: '\n', hard: true }); continue; }
         if (name === 'IMG') { const index = image(child); if (index !== null) out.push({ ...format, image: index, alt: limit(child.getAttribute('alt'), 300) }); continue; }
         const math = tex(child);
-        if (math !== null) { out.push({ ...format, text: `$${math}$`, raw: true }); continue; }
+        if (math !== null) { out.push({ ...format, text: mathSpan(math), raw: true }); continue; }
         const next = { ...format };
         const style = child.getAttribute('style') || '';
         if (name === 'A') { const href = linkOf(child); if (href) next.href = href; }
@@ -383,14 +428,17 @@
         const href = runs[index].href;
         let end = index, text = '';
         while (end < runs.length && runs[end].href === href) text += piece(runs[end++]);
-        out += href ? `[${text.trim() || escapeText(href)}](${href.replace(/[()\s]/g, (c) => encodeURIComponent(c))})` : text;
+        out += href ? `[${text.trim() || escapeText(href)}](${destination(href)})` : text;
         index = end;
       }
       return out.replace(/[ \t]*  \n[ \t]*/g, '  \n').trim();
     };
     const inline = (node) => inlineOf(node.childNodes);
     // A paragraph's first characters must not read as Markdown syntax.
-    const paragraph = (value) => value.replace(/^(\s*)([#>+=-]|\d+[.)])(?=\s|$)/, '$1\\$2');
+    // MDX reads a paragraph that starts with import or export as code: a
+    // character reference keeps the word and the meaning of plain text.
+    const paragraph = (value) => value.replace(/^(\s*)([#>+=-]|\d+[.)])(?=\s|$)/, '$1\\$2')
+      .replace(/^(\s*)(i)(mport)(?=[\s{*])/, '$1&#105;$3').replace(/^(\s*)(e)(xport)(?=[\s{*])/, '$1&#101;$3');
     const indent = (value, pad) => value.split('\n').map(line => line ? pad + line : line).join('\n');
     // Blocks apart by a blank line; neighbouring list items stay one list.
     const join = (parts) => {
@@ -434,7 +482,7 @@
       const alt = limit(img.getAttribute('alt'), 300) || caption;
       return [{ md: `![${escapeText(alt)}](${placeholder(index)})${caption ? `\n*${escapeText(caption)}*` : ''}` }];
     };
-    const cell = (node) => inline(node).replace(/\|/g, '\\|').replace(/ *\n */g, '<br>').trim();
+    const cell = (node) => inline(node).replace(/\|/g, '\\|').replace(/ *\n */g, '<br />').trim();
     const tableBlock = (table) => {
       const rows = Array.from(table.querySelectorAll('tr')).filter(row => row.closest('table') === table).slice(0, 1000);
       const cells = rows.map(row => Array.from(row.children).filter(node => ['TD', 'TH'].includes(nameOf(node))).slice(0, 50).map(cell));
@@ -462,7 +510,7 @@
       const href = target ? (nameOf(target) === 'A' ? linkOf(target) : absolute(target.getAttribute('src'))) : '';
       if (!/^https?:/i.test(href)) return caption ? [{ md: paragraph(escapeText(caption)) }] : [];
       const label = caption || limit(target.textContent, 200) || href;
-      return [{ md: `[${escapeText(label)}](${href.replace(/[()\s]/g, (c) => encodeURIComponent(c))})` }];
+      return [{ md: `[${escapeText(label)}](${destination(href)})` }];
     };
     // Notion: each block is a .notion-…-block element; its own text is the
     // first editable leaf outside its child blocks.
@@ -539,7 +587,7 @@
         case 'callout': {
           const icon = ownOf(node, '.notion-record-icon');
           const mark = icon ? limit(icon.textContent || (icon.querySelector('img') && icon.querySelector('img').getAttribute('alt')), 8) : '';
-          return [{ md: quote(join([{ md: `${mark ? `${mark} ` : ''}${own}` }, ...children()])) }];
+          return [{ md: quote(join([{ md: `${mark ? `${escapeText(mark)} ` : ''}${own}` }, ...children()])) }];
         }
         case 'code': {
           const named = node.querySelector('[class*="language-"]');
@@ -551,14 +599,14 @@
         case 'image': return imageBlock(ownOf(node, 'img'), own);
         case 'divider': return [{ md: '---' }];
         case 'table': { const table = ownOf(node, 'table'); return table ? tableBlock(table) : children(); }
-        case 'equation': { const math = ownOf(node, '.katex-display,.katex'); const value = math ? tex(math) : null; return value !== null ? [{ md: `$$\n${value}\n$$` }] : []; }
+        case 'equation': { const math = ownOf(node, '.katex-display,.katex'); const value = math ? tex(math) : null; return value !== null ? [{ md: fence(value, 'math') }] : []; }
         case 'bookmark': case 'embed': case 'video': case 'audio': case 'file': case 'pdf': case 'figma': case 'tweet': case 'maps': case 'drive': case 'codepen':
           return embedBlock(node, own);
         case 'page': case 'link_to_page': case 'alias': {
           const anchor = ownOf(node, 'a[href]');
           const title = own || limit(node.textContent, 300);
           const href = anchor ? linkOf(anchor) : '';
-          return href ? [{ md: `[${escapeText(title || href)}](${href})` }] : title ? [{ md: paragraph(escapeText(title)) }] : [];
+          return href ? [{ md: `[${escapeText(title || href)}](${destination(href)})` }] : title ? [{ md: paragraph(escapeText(title)) }] : [];
         }
         case 'table_of_contents': case 'breadcrumb': case 'button': return [];
         case 'collection_view': case 'collection_view_page': return gridBlock(node);
@@ -611,7 +659,7 @@
         return blocksOf(node, depth + 1);
       }
       if (name === 'IMG') return imageBlock(node, '');
-      if (node.classList?.contains('katex-display')) { const value = tex(node); return value !== null ? [{ md: `$$\n${value}\n$$` }] : []; }
+      if (node.classList?.contains('katex-display')) { const value = tex(node); return value !== null ? [{ md: fence(value, 'math') }] : []; }
       if (name === 'DETAILS') {
         const summary = Array.from(node.children).find(child => nameOf(child) === 'SUMMARY');
         const body = join(blocksOf(node, depth + 1, summary));
@@ -917,9 +965,8 @@
   if (request.action === 'fill') {
     // In tabs that are not the chat's own pages (the user's, another chat's,
     // another project's), agents never type passwords or one-time codes.
-    if (request.noPassword === true && tag(element, 'INPUT') && ((element.type || '').toLowerCase() === 'password' ||
-        /(^|\s)(current-password|new-password|one-time-code)(\s|$)/i.test(element.getAttribute('autocomplete') || '')))
-      throw new Error('Aven does not let agents type into password or sign-in code fields in tabs that are not this chat\'s own pages. Ask the user to sign in themselves.');
+    if (request.noPassword === true && secretField(element))
+      throw new Error('Aven does not let agents type passwords, sign-in codes or card details into tabs that are not this chat\'s own pages. Ask the user to enter it themselves.');
     element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     let insertable = false;
     if (tag(element, 'INPUT')) {

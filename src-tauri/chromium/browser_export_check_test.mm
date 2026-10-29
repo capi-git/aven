@@ -1,7 +1,9 @@
 // Live check of what an agent's read and export use, on a hidden page in the
 // real Chromium bridge: the page's main content (the "extract" DOM action) and
-// its images loaded through the page's own frame ("fetch-resource"), so a
-// cookie the page was given reaches the image requests.
+// its images loaded through the page's own frame ("fetch-resource"). With
+// credentials (Aven asks for them only for the page's own site) a cookie the
+// page was given reaches the image requests; without, it does not, so a page
+// cannot aim the user's cookies at another site. A cancelled load stops.
 // `scripts/check-chromium-export.py` builds this into a throwaway app bundle
 // with the pinned CEF runtime, serves a local article whose images answer
 // only with that cookie, runs it under a throwaway home and compares the
@@ -118,7 +120,9 @@ NSData *Body(NSDictionary *result) {
   return body;
 }
 
-void Check(NSString *base, NSString *output) {
+// `other` is another origin (another port) where the page's cookie would
+// also be sent, standing in for another site's server.
+void Check(NSString *base, NSString *other, NSString *output) {
   const std::string page = std::string(base.UTF8String) + "article.html";
   const Load before = Read();
   NSDictionary *extracted = Send(@{@"action" : @"dom", @"request" : @{@"action" : @"extract", @"token" : @"check123"}}, 8000);
@@ -135,7 +139,8 @@ void Check(NSString *base, NSString *output) {
   NSMutableArray *saved = [NSMutableArray array];
   for (NSDictionary *image in images) {
     NSString *src = image[@"src"];
-    NSDictionary *fetched = Send(@{@"action" : @"fetch-resource", @"url" : src}, 15000);
+    // All of the article's images are on its own site.
+    NSDictionary *fetched = Send(@{@"action" : @"fetch-resource", @"url" : src, @"credentials" : @YES}, 15000);
     NSData *body = [fetched[@"ok"] boolValue] ? Body(fetched[@"result"]) : nil;
     NSString *name = src.lastPathComponent;
     if (body) {
@@ -147,6 +152,35 @@ void Check(NSString *base, NSString *output) {
                                              fetched[@"result"][@"contentType"]].UTF8String
                 : [NSString stringWithFormat:@"%@", fetched[@"error"]].UTF8String);
   }
+  // Without credentials, another origin's image gets no cookie; with them
+  // it would, so the refusal is the flag's doing.
+  NSString *elsewhere = [other stringByAppendingString:@"private/chart.png"];
+  NSDictionary *anonymous = Send(@{@"action" : @"fetch-resource", @"url" : [elsewhere stringByAppendingString:@"?anonymous=1"],
+                                   @"credentials" : @NO}, 15000);
+  NSDictionary *credentialed = Send(@{@"action" : @"fetch-resource", @"url" : elsewhere, @"credentials" : @YES}, 15000);
+  Report(![anonymous[@"ok"] boolValue] && [anonymous[@"error"] containsString:@"403"] && [credentialed[@"ok"] boolValue],
+         "another origin's image loaded without credentials gets no cookie",
+         [NSString stringWithFormat:@"without: %@; with: %@", anonymous[@"error"] ?: @"loaded",
+                                    credentialed[@"error"] ?: @"loaded"].UTF8String);
+  // Cancel a slow load: it ends as cancelled, and later loads still work.
+  NSMutableArray *slow_result = [NSMutableArray array];
+  dispatch_semaphore_t slow_done = dispatch_semaphore_create(0);
+  NSString *slow_url = [base stringByAppendingString:@"public/slow.png"];
+  std::thread([slow_result, slow_done, slow_url] {
+    NSDictionary *answer = Send(@{@"action" : @"fetch-resource", @"url" : slow_url}, 15000);
+    @synchronized(slow_result) { [slow_result addObject:answer]; }
+    dispatch_semaphore_signal(slow_done);
+  }).detach();
+  usleep(300000);
+  NSDictionary *cancel = Send(@{@"action" : @"fetch-cancel"}, 5000);
+  dispatch_semaphore_wait(slow_done, dispatch_time(DISPATCH_TIME_NOW, 16 * NSEC_PER_SEC));
+  NSDictionary *slow = nil;
+  @synchronized(slow_result) { slow = slow_result.firstObject; }
+  Report([cancel[@"ok"] boolValue] && ![slow[@"ok"] boolValue] && [slow[@"error"] containsString:@"cancelled"],
+         "a load the host gave up on is cancelled", [NSString stringWithFormat:@"%@", slow[@"error"]].UTF8String);
+  NSDictionary *again = Send(@{@"action" : @"fetch-resource", @"url" : [base stringByAppendingString:@"public/logo.png"]}, 15000);
+  Report([again[@"ok"] boolValue] && Body(again[@"result"]).length > 0, "loads after a cancel still work",
+         [again[@"ok"] boolValue] ? "the logo loaded" : [NSString stringWithFormat:@"%@", again[@"error"]].UTF8String);
   NSDictionary *refused = Send(@{@"action" : @"fetch-resource", @"url" : [base stringByAppendingString:@"private/expired.png"]}, 15000);
   Report(![refused[@"ok"] boolValue] && [refused[@"error"] containsString:@"403"],
          "an image the site refuses is reported, not saved", [NSString stringWithFormat:@"%@", refused[@"error"]].UTF8String);
@@ -154,8 +188,8 @@ void Check(NSString *base, NSString *output) {
                                @"maxBytes" : @(1024 * 1024)}, 15000);
   Report(![large[@"ok"] boolValue] && [large[@"error"] containsString:@"larger than"],
          "a file over the size limit stops loading", [NSString stringWithFormat:@"%@", large[@"error"]].UTF8String);
-  NSDictionary *other = Send(@{@"action" : @"fetch-resource", @"url" : @"file:///etc/hosts"}, 5000);
-  Report(![other[@"ok"] boolValue], "only http and https addresses load", [NSString stringWithFormat:@"%@", other[@"error"]].UTF8String);
+  NSDictionary *file = Send(@{@"action" : @"fetch-resource", @"url" : @"file:///etc/hosts"}, 5000);
+  Report(![file[@"ok"] boolValue], "only http and https addresses load", [NSString stringWithFormat:@"%@", file[@"error"]].UTF8String);
   usleep(300000);
   const Load after = Read();
   Report(after.committed == before.committed && after.url == page && !after.loading,
@@ -167,8 +201,8 @@ void Check(NSString *base, NSString *output) {
 
 int main(int argc, char **argv) {
   @autoreleasepool {
-    if (argc < 4) {
-      fprintf(stderr, "usage: %s <http://127.0.0.1:PORT/> <cache folder> <output folder>\n", argv[0]);
+    if (argc < 5) {
+      fprintf(stderr, "usage: %s <http://127.0.0.1:PORT/> <cache folder> <output folder> <http://127.0.0.1:OTHER/>\n", argv[0]);
       return 2;
     }
     started_at = [NSDate timeIntervalSinceReferenceDate];
@@ -183,6 +217,7 @@ int main(int argc, char **argv) {
     NSString *base = @(argv[1]);
     NSString *cache = @(argv[2]);
     NSString *output = @(argv[3]);
+    NSString *other = @(argv[4]);
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     NSString *frameworks =
@@ -226,7 +261,7 @@ int main(int argc, char **argv) {
           return now.committed > 0 && now.settled > 0 && !now.loading;
         }, 8000);
         Report(loaded && Read().url == first, "the article loads hidden", Read().url);
-        if (loaded) Check(base, output);
+        if (loaded) Check(base, other, output);
       }
       usleep(1000000);
       Report(notification_requests == 0, "Chromium asks for no notification permission",

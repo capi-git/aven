@@ -120,14 +120,27 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   a note that the text came from a web page, and the page's images in
   `<to>/images/`, named by their place in the page and their alt text or
   caption (`images/03-launch-diagram.png`) and linked with relative paths.
-  Images load through the page's own signed-in session in Chromium, so
-  Notion's private and expiring image addresses work. Each file must really
-  be an image; a sign-in page sent instead is refused. An image that cannot be
+  Images load through the page's own frame in Chromium. An image on the
+  page's own site (`file.notion.so` for a page on `www.notion.so`) carries
+  your cookies for it, so Notion's private images work; an image on another
+  site is loaded without your cookies (signed addresses need none), so a page
+  cannot use your sign-ins elsewhere. A page on the web never gets an image
+  loaded from this Mac or your local network. Aven prefers the address the
+  page actually showed. Each file must really be an image (a sign-in page sent
+  instead is refused), and an SVG is saved only when it just draws: no
+  scripts, event handlers, embedded pages or links out. An image that cannot be
   saved keeps its web address in the Markdown and is listed as skipped, with
   the reason. One export saves at most 150 images, 10 MB each and 100 MB in
-  all, and stops fetching after about 75 seconds. It writes only inside the
-  chat's project (never through a link that leaves it, never into `.git`) and
-  does not replace an existing file unless `"replace":true`.
+  all, and stops fetching after about 75 seconds.
+- `export` writes only inside the chat's project. The folder is checked when
+  the export starts and again before every file it writes, as it resolves,
+  so a link that leads out of the project or into `.git` stops it; an
+  `images` folder that is a link is refused. Files are created new and never
+  through a link, and nothing that exists is replaced unless
+  `"replace":true` (an image name already taken gets a new number instead).
+- The Markdown is inert text under CommonMark, raw-HTML renderers and MDX:
+  page text cannot become markup, an `{expression}` or an `import` line, and
+  equations are kept as math code (`` $`…`$ `` and ```` ```math ````).
 - Toggles closed in a Notion page have no content in the page to save. The
   Markdown keeps their title (`<details><summary>…`) and the result says how
   many were closed, so the agent can ask you to open them.
@@ -140,16 +153,21 @@ When you ask, an agent may also click, type, press keys, scroll and navigate
 in a tab that is not its own. These protections stay:
 
 - `open` never reloads or navigates a page of yours (see above).
-- Agents never type into password or sign-in code fields in a tab that is not
-  the chat's own page; Aven refuses.
+- Agents never type into password, sign-in code or card fields in a tab that
+  is not the chat's own page (known by type, autocomplete, name and label,
+  and split one-digit code boxes); Aven refuses. Snapshots of such tabs leave
+  those fields' values out.
 - Every upload still asks you.
 - While an agent uses any tab that is not its chat's own page, Aven's presence
   bar shows at the top of the screen: "Claude is using the tab “Launch plan”",
   what it is doing ("Reading the page"), the window and project, and the chat,
-  with **Pause** and **Stop**. It fades a few seconds after the last action.
+  with **Pause** and **Stop**. Several agents' uses show together without
+  replacing desktop control's. It fades a few seconds after the last action.
   Pause holds clicks and typing in tabs while reading goes on, as with desktop
-  control. Stop closes other tabs to that chat until your next message, and
-  stops its desktop control too.
+  control. Stop closes other tabs to that chat until your next message (an
+  export stops before its next image and saves nothing more, and `tabs` is
+  refused too), and stops its desktop control. While the Mac is locked, when
+  nobody could see the bar, agents may read other tabs but not act in them.
 
 Everything a page contains is untrusted. Tab titles and addresses, what `read`
 and `export` return, and the files `export` saves are marked as content from

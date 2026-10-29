@@ -7,9 +7,12 @@ bundle, as scripts/check-chromium-loads.py does, and serves a small article on
 127.0.0.1. The article's page gives the browser a cookie, and two of its
 images answer only to that cookie, the way a signed-in site's (Notion's) do.
 The check reads the hidden page's main content, loads every image through the
-page's own session and compares the bytes with what the server sent. It also
-checks that an image the site refuses is reported, that a file over the size
-limit stops loading, and that reading leaves the page as it was. It runs under
+page's own session with its cookies and compares the bytes with what the
+server sent. A load without credentials (what Aven uses for another site's
+image) of an image on another origin, where the cookie would otherwise go,
+must reach that server with no cookie. It also checks that a cancelled
+load stops, that an image the site refuses is reported, that a file over the
+size limit stops loading, and that reading leaves the page as it was. It runs under
 a throwaway home with Chromium's stand-in key and no notifications, so
 nothing asks the person anything, and the folder is removed afterwards.
 
@@ -27,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zlib
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,7 +74,7 @@ IMAGES = {
 @contextmanager
 def article_site():
     """The article and its images on 127.0.0.1; nothing leaves this Mac."""
-    seen = {'cookie': 0, 'refused': 0}
+    seen = {'cookie': 0, 'refused': 0, 'anonymous': 0}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -86,8 +90,10 @@ def article_site():
             self.wfile.write(body)
 
         def do_GET(self):
-            path = self.path.split('?')[0]
+            path, _, query = self.path.partition('?')
             cookie = COOKIE in (self.headers.get('Cookie') or '')
+            if 'anonymous=1' in query:
+                seen['anonymous'] += 1 if not self.headers.get('Cookie') else 0
             if path == '/article.html':
                 self.reply(200, ARTICLE.encode(), 'text/html; charset=utf-8',
                            [('Set-Cookie', f'{COOKIE}; Path=/; HttpOnly; SameSite=Lax')])
@@ -100,6 +106,9 @@ def article_site():
                     self.reply(403, b'Sign in to see this image', 'text/plain')
             elif path in IMAGES:
                 self.reply(200, IMAGES[path], 'image/png')
+            elif path == '/public/slow.png':
+                time.sleep(1.5)
+                self.reply(200, IMAGES['/public/logo.png'], 'image/png', [('Cache-Control', 'no-store')])
             elif path == '/public/large.bin':
                 self.reply(200, os.urandom(2 * 1024 * 1024), 'application/octet-stream')
             elif path == '/private/expired.png':
@@ -107,14 +116,17 @@ def article_site():
             else:
                 self.reply(404, b'Not found', 'text/plain')
 
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    # The article's origin, and another port of the same host: cookies go to
+    # both, so only the request's credentials decide.
+    servers = [http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler) for _ in range(2)]
+    for server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        yield f'http://127.0.0.1:{server.server_address[1]}/', seen
+        yield [f'http://127.0.0.1:{server.server_address[1]}/' for server in servers], seen
     finally:
-        server.shutdown()
-        server.server_close()
+        for server in servers:
+            server.shutdown()
+            server.server_close()
 
 
 def main():
@@ -133,9 +145,9 @@ def main():
         home, cache, output = folder / 'home', folder / 'cache', folder / 'saved'
         for path in (home, output):
             path.mkdir()
-        with article_site() as (base, seen):
+        with article_site() as ((base, other), seen):
             env = {**os.environ, 'HOME': str(home)}
-            done = subprocess.run([str(executable), base, str(cache), str(output)], env=env, text=True,
+            done = subprocess.run([str(executable), base, str(cache), str(output), other], env=env, text=True,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=TIMEOUT)
         lines = done.stdout.splitlines()
         steps = [line for line in lines if line.startswith(('PASS ', 'FAIL '))]
@@ -149,6 +161,10 @@ def main():
         gated = seen['cookie'] >= 2
         steps.append(('PASS' if gated else 'FAIL') + '  the private images were loaded with the page\'s cookie - '
                      + f"{seen['cookie']} answered with it, {seen['refused']} refused without it")
+        anonymous = seen['anonymous'] == 1 and seen['refused'] >= 1
+        steps.append(('PASS' if anonymous else 'FAIL') + '  a load without credentials sent no cookie - '
+                     + f"{seen['anonymous']} such request reached the server with no Cookie header")
+        gated = gated and anonymous
         log_text = (cache / 'chromium.log').read_text(errors='replace') if (cache / 'chromium.log').is_file() else ''
         keychain = loads.NO_ENCRYPTION not in log_text + done.stdout
         steps.append(('PASS' if keychain else 'FAIL') + '  Chromium uses its stand-in key - '

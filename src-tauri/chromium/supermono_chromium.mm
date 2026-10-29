@@ -13,6 +13,7 @@
 #include <limits>
 #include <utility>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -1300,7 +1301,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="snapshot") { Screenshot(request); return; }
     else if (action=="agent-screenshot") { PageScreenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
-    else if (action=="fetch-resource") { FetchResource(request,Text(cmd,"url"),Number(cmd,"maxBytes",0)); return; }
+    else if (action=="fetch-resource") { FetchResource(request,Text(cmd,"url"),Number(cmd,"maxBytes",0),Boolean(cmd,"credentials")); return; }
+    // The host gave up on its image loads: close them, answer nothing more.
+    else if (action=="fetch-cancel") CancelFetches();
     else if (action=="upload") { Upload(request,cmd); return; }
     // The host stopped waiting for this upload: it must not stay armed.
     else if (action=="upload-cancel") CancelUpload("The upload timed out before a file chooser was answered, so nothing was uploaded.");
@@ -2150,24 +2153,29 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   // exposed area. A hidden page has nothing on screen to copy; only then use
   // the compositor surface, whose temporary emulation and resize are not visible.
   // An image (or other file) the page shows, loaded through the page's own
-  // frame: Chromium sends the page's cookies and caches with it, so signed,
-  // expiring and sign-in-gated addresses (Notion's) load as they do for the
-  // page. Nothing changes in the page. The body comes back in base64 chunks,
-  // at most `maxBytes` (10 MB) in all.
+  // frame and its cache. With `credentials` (the host asks only for an image
+  // of the page's own site) cookies go with it as with the page's own
+  // requests, so sign-in-gated addresses (Notion's) load as they do for the
+  // page. Without, Chromium sends cookies only to the page's own origin, so
+  // a page cannot aim the user's cookies at another site; signed addresses
+  // need none. Nothing changes in the page. The body comes back in base64
+  // chunks, at most `maxBytes` (10 MB) in all.
   static constexpr double kMaxResourceBytes=10*1024*1024;
-  void FetchResource(const std::string& request,const std::string& url,double max_bytes) {
+  void FetchResource(const std::string& request,const std::string& url,double max_bytes,bool credentials) {
     if ((url.rfind("http://",0)!=0 && url.rfind("https://",0)!=0) || url.size()>16384) {
       Result(id_,request,false,Error("Only http and https addresses can be loaded")); return;
     }
     const size_t limit=(size_t)std::clamp(max_bytes>0 ? max_bytes : kMaxResourceBytes,1.0,kMaxResourceBytes);
     CefRefPtr<Page> self=this;
-    Dev("Page.getFrameTree",Object(),[self,request,url,limit](bool ok,Dict tree) {
+    const auto generation=fetch_generation_;
+    Dev("Page.getFrameTree",Object(),[self,request,url,limit,credentials,generation](bool ok,Dict tree) {
+      if (generation!=self->fetch_generation_) { Result(self->id_,request,false,Error("The image load was cancelled")); return; }
       auto root=ok ? tree->GetDictionary("frameTree") : nullptr; auto frame=root ? root->GetDictionary("frame") : nullptr;
       if (Text(frame,"id").empty()) { Result(self->id_,request,false,ok ? Error("The page is still loading. Try again.") : tree); return; }
       auto params=Object(); params->SetString("frameId",Text(frame,"id")); params->SetString("url",url);
-      auto options=Object(); options->SetBool("disableCache",false); options->SetBool("includeCredentials",true);
+      auto options=Object(); options->SetBool("disableCache",false); options->SetBool("includeCredentials",credentials);
       params->SetDictionary("options",options);
-      self->Dev("Network.loadNetworkResource",params,[self,request,limit](bool ok,Dict loaded) {
+      self->Dev("Network.loadNetworkResource",params,[self,request,limit,generation](bool ok,Dict loaded) {
         auto resource=ok ? loaded->GetDictionary("resource") : nullptr;
         if (!resource) { Result(self->id_,request,false,ok ? Error("Chromium did not load the address") : loaded); return; }
         const int status=(int)Number(resource,"httpStatusCode",0);
@@ -2187,24 +2195,39 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
             if (name=="content-type") type=Text(headers,key.ToString().c_str()).substr(0,200);
           }
         }
+        if (generation!=self->fetch_generation_) {
+          self->CloseStream(handle); Result(self->id_,request,false,Error("The image load was cancelled")); return;
+        }
         auto body=std::make_shared<ResourceBody>(); body->status=status; body->type=type; body->limit=limit;
+        body->generation=generation; self->fetch_streams_.insert(handle);
         self->ReadStream(request,handle,body);
       });
     });
   }
   struct ResourceBody {
-    int status=0; std::string type; size_t limit=0, bytes=0;
+    int status=0; std::string type; size_t limit=0, bytes=0; uint64_t generation=0;
     std::vector<std::pair<std::string,bool>> chunks;
   };
+  // Streams of image loads still being read, and the generation a cancel
+  // moves on, so a cancelled load stops at its next step.
+  std::set<std::string> fetch_streams_;
+  uint64_t fetch_generation_=0;
   void CloseStream(const std::string& handle) {
+    fetch_streams_.erase(handle);
     auto params=Object(); params->SetString("handle",handle);
     Dev("IO.close",params,[](bool,Dict) {});
+  }
+  void CancelFetches() {
+    ++fetch_generation_;
+    const auto open=fetch_streams_;
+    for (const auto& handle:open) CloseStream(handle);
   }
   void ReadStream(const std::string& request,const std::string& handle,std::shared_ptr<ResourceBody> body) {
     CefRefPtr<Page> self=this;
     // A multiple of three, so each base64 chunk decodes on its own.
     auto params=Object(); params->SetString("handle",handle); params->SetInt("size",3*256*1024);
     Dev("IO.read",params,[self,request,handle,body](bool ok,Dict read) {
+      if (body->generation!=self->fetch_generation_) { Result(self->id_,request,false,Error("The image load was cancelled")); return; }
       if (!ok) { self->CloseStream(handle); Result(self->id_,request,false,read); return; }
       auto data=Text(read,"data"); const bool base64=Boolean(read,"base64Encoded");
       body->bytes+=base64 ? data.size()/4*3 : data.size();

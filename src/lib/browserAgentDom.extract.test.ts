@@ -167,6 +167,7 @@ describe("agent page extraction", () => {
         src: "https://files.example.com/hero.png",
         alt: "",
         caption: "The hero shot",
+        loaded: false,
       },
     ]);
     expect(page.collapsed).toBe(1);
@@ -228,7 +229,7 @@ describe("agent page extraction", () => {
         "```ts\nconst shipped = true;\n```",
         "> Quote one\n>\n> Quote two",
         "<details>\n<summary>More</summary>\n\nHidden by default but in the page\n\n</details>",
-        "Inline math $x^2$ here.",
+        "Inline math $`x^2`$ here.",
       ].join("\n\n"),
     );
     expect(page.images[0].src).toMatch(/\/img\/diagram-large\.webp$/);
@@ -254,7 +255,7 @@ describe("agent page extraction", () => {
     );
     expect(page.images).toHaveLength(1);
     expect(page.markdown.match(/aven-image-tok123-1/g)).toHaveLength(2);
-    expect(page.markdown).toContain("| One<br>Two |");
+    expect(page.markdown).toContain("| One<br />Two |");
   });
 
   it("stays within its size limits and says when it cut the page short", () => {
@@ -329,7 +330,7 @@ describe("filling in tabs that are not the chat's own", () => {
       );
     expect(fill("Password").__supermonoAgentError).toMatch(/password/i);
     expect(fill("Code").__supermonoAgentError).toMatch(
-      /password or sign-in code/i,
+      /passwords, sign-in codes or card details/i,
     );
     expect(document.querySelector<HTMLInputElement>("#pw")!.value).toBe("");
     expect(fill("Email").ok).toBe(true);
@@ -342,5 +343,148 @@ describe("filling in tabs that are not the chat's own", () => {
         evaluate({ action: "fill", ref: ref("Password"), value: "pw" }),
       ).ok,
     ).toBe(true);
+  });
+});
+
+describe("what a page cannot smuggle into an export", () => {
+  it("keeps page text inert under CommonMark, raw HTML and MDX", () => {
+    // The security review's probe.
+    document.body.innerHTML = `<article><h1>Post</h1>
+<p>Hello {process.getBuiltinModule('child_process').execSync('id')} world.</p>
+<p>export const pwn = 1</p>
+<p>import x from 'data:text/javascript,1'</p>
+<p>Formula <span class="katex"><annotation encoding="application/x-tex">&lt;img src=x onerror=alert(1)&gt;</annotation></span></p>
+<p>Entity &amp;lt;b&amp;gt; and <a href="https://example.com/{x}">a {link}</a></p>
+<details><summary>Open {me}</summary><p>Body</p></details>
+</article>`;
+    const { markdown } = extract();
+    expect(markdown).toContain(
+      "Hello \\{process.getBuiltinModule('child\\_process').execSync('id')\\} world.",
+    );
+    expect(markdown).toContain("&#101;xport const pwn = 1");
+    expect(markdown).toContain("&#105;mport x from 'data:text/javascript,1'");
+    expect(markdown).toContain("Formula $`<img src=x onerror=alert(1)>`$");
+    expect(markdown).toContain("Entity \\&lt;b\\&gt;");
+    expect(markdown).toContain("[a \\{link\\}](https://example.com/%7Bx%7D)");
+    expect(markdown).toContain("<summary>Open &#123;me&#125;</summary>");
+    // Nothing outside code is an expression, an ESM line or raw markup.
+    const prose = markdown
+      .replace(/\$`[^`]*`\$/g, "")
+      .replace(/<\/?(details|summary)( open)?>/g, "");
+    expect(prose).not.toMatch(/(^|[^\\])[{}<]/);
+    expect(prose).not.toMatch(/^(import|export)\b/m);
+  });
+
+  it("writes block math as a math code block", () => {
+    document.body.innerHTML = `<article><p>Above</p><div class="katex-display"><span class="katex"><annotation encoding="application/x-tex">\\frac{a}{b}</annotation></span></div></article>`;
+    expect(extract().markdown).toBe("Above\n\n```math\n\\frac{a}{b}\n```");
+  });
+
+  it("prefers the address an image actually loaded over ones it only names", () => {
+    document.body.innerHTML = `<article><p>x</p><img src="https://cdn.example.com/shown.png" srcset="https://elsewhere.example/big.png 2000w"></article>`;
+    const img = document.querySelector("img")!;
+    let width = 800;
+    Object.defineProperty(img, "complete", { value: true });
+    Object.defineProperty(img, "naturalWidth", { get: () => width });
+    expect(extract().images[0]).toMatchObject({
+      src: "https://cdn.example.com/shown.png",
+      loaded: true,
+    });
+    width = 0;
+    expect(extract().images[0]).toMatchObject({
+      src: "https://elsewhere.example/big.png",
+      loaded: false,
+    });
+  });
+});
+
+describe("sign-in and card fields in tabs that are not the chat's own", () => {
+  const box = {
+    width: 40,
+    height: 20,
+    top: 0,
+    left: 0,
+    right: 40,
+    bottom: 20,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  };
+  function snapshot(redact: boolean) {
+    for (const element of document.querySelectorAll("input,[contenteditable]"))
+      (element as HTMLElement).getBoundingClientRect = () => box as DOMRect;
+    return JSON.parse(
+      evaluate({
+        action: "snapshot",
+        generation: "g1",
+        ...(redact ? { redact: true } : {}),
+      }),
+    ) as {
+      elements: {
+        ref: string;
+        label: string;
+        value?: string;
+        redacted?: boolean;
+      }[];
+    };
+  }
+
+  it("never reads their values and never types into them, split code boxes included", () => {
+    // The security review's probe, widened.
+    document.body.innerHTML = `<form>
+      <input id=a aria-label="Code" autocomplete="one-time-code" value="493817">
+      <input id=b aria-label="Card" autocomplete="cc-number" value="4111111111111111">
+      <input id=c aria-label="CVC" autocomplete="cc-csc" value="123">
+      <input id=shown aria-label="Password" type="text" autocomplete="current-password" value="hunter2">
+      <input id=named aria-label="Verification" name="verification_code" value="777">
+      <span><input aria-label="d1" inputmode=numeric maxlength=1 value="4"><input aria-label="d2" maxlength=1><input aria-label="d3" maxlength=1><input aria-label="d4" maxlength=1></span>
+      <div contenteditable="true" aria-label="Sign-in code">55</div>
+      <input id=email aria-label="Email" value="a@example.com">
+    </form>`;
+    const redacted = snapshot(true);
+    const json = JSON.stringify(redacted);
+    for (const secret of [
+      "493817",
+      "4111111111111111",
+      "hunter2",
+      '"777"',
+      '"4"',
+    ])
+      expect(json).not.toContain(secret);
+    expect(
+      redacted.elements.find((entry) => entry.label === "Email")?.value,
+    ).toBe("a@example.com");
+    expect(
+      redacted.elements.filter((entry) => entry.redacted).length,
+    ).toBeGreaterThanOrEqual(6);
+    // The chat's own page reads as it did before.
+    const own = JSON.stringify(snapshot(false));
+    expect(own).toContain("493817");
+    const refs = snapshot(true).elements;
+    const fill = (label: string) =>
+      JSON.parse(
+        evaluate({
+          action: "fill",
+          ref: refs.find((entry) => entry.label === label)!.ref,
+          value: "123456",
+          noPassword: true,
+        }),
+      );
+    for (const label of [
+      "Code",
+      "Card",
+      "CVC",
+      "Password",
+      "Verification",
+      "d1",
+      "Sign-in code",
+    ])
+      expect(fill(label).__supermonoAgentError, label).toMatch(
+        /passwords, sign-in codes or card details/,
+      );
+    expect(fill("Email").ok).toBe(true);
+    // Reads leave an editable code field's text out as well.
+    document.body.innerHTML = `<article><p>Enter the code we sent.</p><div contenteditable="true" aria-label="Verification code">918273</div></article>`;
+    expect(extract().markdown).toBe("Enter the code we sent.");
   });
 });
