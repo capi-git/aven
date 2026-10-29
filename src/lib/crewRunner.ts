@@ -34,6 +34,7 @@ import {
   crewCard,
   crewMember,
   crewRunsToday,
+  crewsSnapshot,
   getCrew,
   migrateBotsIntoCrews,
   releaseCrewJob,
@@ -156,7 +157,36 @@ type LiveTurn = {
   timer?: number;
   /** The crew's `onAt` when the turn began: off and on again ends it. */
   onAt?: number;
+  /** Aven asked its chat to stop (the card was stopped, the crew turned off). */
+  stopping?: boolean;
 };
+
+/** Where a card stood when Aven began preparing its turn. */
+type CardAt = {
+  stage: CrewCard["stage"];
+  round: number;
+  holder?: CrewLoopRole;
+};
+
+function cardAt(card: CrewCard): CardAt {
+  return {
+    stage: card.stage,
+    round: card.round,
+    ...(card.holder ? { holder: card.holder } : {}),
+  };
+}
+
+/** The stored card is still exactly where a turn found it, with no turn of its own. */
+function cardStillAt(card: CrewCard | undefined, at: CardAt): boolean {
+  return (
+    !!card &&
+    card.stage === at.stage &&
+    card.round === at.round &&
+    card.holder === at.holder &&
+    !card.turn &&
+    !card.paused
+  );
+}
 
 /** The chat is working, has messages waiting, or waits on you. */
 function chatAtWork(chat: Session): boolean {
@@ -248,7 +278,12 @@ export class CrewRunner {
     for (const crew of activeCrews())
       if (crew.job && crew.job.owner !== this.deps.owner)
         updateCrew(crew.path, (current) => ({ ...current, job: undefined }));
-    this.unsubscribe.push(subscribeCrews(() => this.schedule()));
+    this.unsubscribe.push(
+      subscribeCrews(() => {
+        this.watchTurns();
+        this.schedule();
+      }),
+    );
     this.tick = this.deps.setTimer(() => this.onTick(), TICK_MS);
     this.schedule();
   }
@@ -262,11 +297,38 @@ export class CrewRunner {
     this.tick = this.soon = this.heartbeat = undefined;
     for (const [key, turn] of [...this.turns]) {
       if (turn.timer != null) this.deps.clearTimer(turn.timer);
+      // No turn outlives the runner that keeps its limits.
+      if (turn.sentAt != null && !this.handled.has(turn.turnId))
+        this.deps.stopChat(turn.sessionId);
       this.turns.delete(key);
       const crew = activeCrews().find((item) => projectKey(item.path) === key);
       if (crew) releaseCrewJob(crew.path, this.deps.owner);
     }
     this.updateWorking();
+  }
+
+  /**
+   * The store changed (in any window): a turn whose card was stopped, thrown
+   * away or picked up again, or whose crew turned off, stops now. Only this
+   * window holds the turn's process, so only it can stop it.
+   */
+  private watchTurns() {
+    if (!this.running) return;
+    const crews = crewsSnapshot();
+    for (const [key, turn] of this.turns) {
+      if (turn.sentAt == null || turn.stopping) continue;
+      if (this.handled.has(turn.turnId)) continue;
+      const crew = crews[key];
+      const card =
+        crew && turn.cardId ? crewCard(crew, turn.cardId) : undefined;
+      const gone =
+        !crew?.on ||
+        (turn.onAt !== undefined && crew.onAt !== turn.onAt) ||
+        (!!turn.cardId && card?.turn?.turnId !== turn.turnId);
+      if (!gone) continue;
+      turn.stopping = true;
+      this.deps.stopChat(turn.sessionId);
+    }
   }
 
   private onTick() {
@@ -597,6 +659,24 @@ export class CrewRunner {
   // -------------------------------------------------------------------------
   // A card's turn
 
+  /**
+   * Whether a turn prepared for this card may still go: the crew is on with
+   * the same switch-on, not paused, and the card (when there is one) is
+   * where the turn found it.
+   */
+  private mayStillSend(
+    path: string,
+    onAt: number | undefined,
+    cardId?: string,
+    from?: CardAt,
+  ): boolean {
+    const crew = getCrew(path);
+    if (!crew?.on || crew.onAt !== onAt || crew.paused) return false;
+    if (!this.running) return false;
+    if (cardId === undefined) return true;
+    return !!from && cardStillAt(crewCard(crew, cardId), from);
+  }
+
   /** Send the card's holder its turn: the Builder's round, or the Checker's check. */
   private async sendCardTurn(path: string, cardId: string, role: CrewLoopRole) {
     const key = projectKey(path);
@@ -612,9 +692,12 @@ export class CrewRunner {
       onAt,
     };
     this.beginTurn(key, turn);
+    const queued = crewCard(before, cardId);
+    // Where the card stood: everything below holds only while it still does.
+    const from = queued ? cardAt(queued) : undefined;
     try {
-      const queued = crewCard(before, cardId);
-      if (!queued) return this.endTurn(path, turn);
+      if (!queued || !from || !cardStillAt(queued, from))
+        return this.endTurn(path, turn);
       const fresh = queued.stage === "queued";
       const prepared = await this.prepareCopy(path, fresh);
       if (!prepared || !this.stillOn(path, onAt))
@@ -631,7 +714,12 @@ export class CrewRunner {
       if (!this.stillOn(path, onAt)) return this.endTurn(path, turn);
       if (chatAtWork(chat)) {
         // You are talking to it, or it waits on you: the card waits too.
-        if (fresh) updateCrew(path, (current) => withCard(current, card!));
+        if (fresh)
+          updateCrew(path, (current) =>
+            cardStillAt(crewCard(current, cardId), from)
+              ? withCard(current, card!)
+              : current,
+          );
         return this.endTurn(path, turn);
       }
       turn.sessionId = chat.id;
@@ -678,6 +766,12 @@ export class CrewRunner {
               ? names.checker
               : undefined,
       });
+      // Last look, with nothing awaited between it and the send: the crew
+      // is still on (the same switch-on) and not paused, and the card is
+      // where this turn found it. Stopped, paused, thrown away or turned
+      // off meanwhile: nothing goes.
+      if (!this.mayStillSend(path, onAt, cardId, from))
+        return this.endTurn(path, turn);
       const sent = this.deps.send(chat.id, text, {
         displayText: label,
         botWake: { label },
@@ -690,7 +784,11 @@ export class CrewRunner {
         );
       turn.sentAt = this.deps.now();
       const started = card;
+      let saved = false;
       updateCrew(path, (current) => {
+        // Saved only over the card as this turn found it.
+        if (!cardStillAt(crewCard(current, cardId), from)) return current;
+        saved = true;
         let next = withCrewRun(current, turn.sentAt!);
         next = withCard(next, {
           ...started,
@@ -727,13 +825,21 @@ export class CrewRunner {
             })
           : next;
       });
+      if (!saved) {
+        // The card moved on in the moment it went: its turn stops.
+        turn.stopping = true;
+        this.deps.stopChat(chat.id);
+        this.markHandled(turn.turnId);
+        return this.endTurn(path, turn);
+      }
       this.armTimeout(path, turn, crew.limits.turnMinutes);
     } catch (error) {
       logError("Crew", error);
       const now = this.deps.now();
       updateCrew(path, (current) => {
         const card = crewCard(current, cardId);
-        if (!card) return current;
+        // You stopped or moved it meanwhile: that stands.
+        if (!card || !from || !cardStillAt(card, from)) return current;
         const started = card.stage === "queued" ? startCard(card, now) : card;
         return this.commit(
           current,
@@ -858,19 +964,23 @@ export class CrewRunner {
           now,
           names,
         });
-      else
+      else {
+        // A check that changed the copy (or whose copy can't be read) is void.
+        const edited =
+          !diff ||
+          (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
         step = afterCheck(card, {
           verdict: parseVerdict(reply, {
             round: card.round,
             earlier: earlierFindings(card),
           }),
-          // A check that changed the copy (or whose copy can't be read) is void.
-          edited:
-            !diff ||
-            (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore),
+          edited,
+          // A pass makes exactly what the Checker saw the fix.
+          seen: edited ? null : changeFrom(diff, card.base ?? ""),
           now,
           names,
         });
+      }
     }
     if (!this.stillOn(path, turn.onAt)) return;
     updateCrew(path, (current) => this.commit(current, step, role, now));
@@ -1009,6 +1119,15 @@ export class CrewRunner {
         sync: prepared.sync,
       });
       const label = crewTurnLabel({ role: "scout" });
+      // Last look before it goes (see `mayStillSend`): and still idle.
+      const idle = getCrew(path);
+      if (
+        !this.mayStillSend(path, turn.onAt) ||
+        !idle ||
+        cardInCopy(idle) ||
+        crewMember(idle, "scout")?.paused
+      )
+        return this.endTurn(path, turn);
       const sent = this.deps.send(chat.id, text, {
         displayText: label,
         botWake: { label },
@@ -1081,6 +1200,7 @@ export class CrewRunner {
           size: idea.size,
           ...(idea.why ? { why: idea.why } : {}),
           ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
+          ...(idea.outside ? { outside: true } : {}),
         });
       });
       if (!added.length) return next;

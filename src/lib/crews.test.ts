@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CREWS_BACKUP_KEY,
   CREWS_KEY,
+  crewsStoreUnreadable,
   CREW_DEFAULT_RUNS_PER_DAY,
   cardInCopy,
   crewForChat,
@@ -206,6 +208,27 @@ describe("migrating project bots into crews", () => {
     });
   });
 
+  it("never overwrites a store from another version, and keeps a backup", () => {
+    const later = JSON.stringify({ version: 2, crews: { x: { path: "/x" } } });
+    localStorage.setItem(CREWS_KEY, later);
+    resetCrewsCache();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(crewsSnapshot()).toEqual({});
+    expect(crewsStoreUnreadable()).toBe(true);
+    expect(localStorage.getItem(CREWS_BACKUP_KEY)).toBe(later);
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    migrateBotsIntoCrews();
+    // The other version's crews stay exactly as they were.
+    expect(localStorage.getItem(CREWS_KEY)).toBe(later);
+    // A broken store is kept too, and its first backup never replaced.
+    localStorage.setItem(CREWS_KEY, "{not json");
+    resetCrewsCache();
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    expect(localStorage.getItem(CREWS_KEY)).toBe("{not json");
+    expect(localStorage.getItem(CREWS_BACKUP_KEY)).toBe(later);
+    vi.restoreAllMocks();
+  });
+
   it("keeps crews this build can't read when it saves", () => {
     localStorage.setItem(
       CREWS_KEY,
@@ -219,7 +242,7 @@ describe("migrating project bots into crews", () => {
 });
 
 describe("crew chats are bot chats", () => {
-  it("lists a crew member's chat with the bots' while the crew is on", () => {
+  it("lists a crew member's chat with the bots', on or off", () => {
     updateCrew(PROJECT, (crew) => ({
       ...crew,
       on: true,
@@ -239,8 +262,11 @@ describe("crew chats are bot chats", () => {
     expect(crewForChat("checker-chat")?.member.role).toBe("checker");
     expect(isBotCopyPath("/data/bots/crew-1/src/a.ts")).toBe(true);
 
+    // Off, it is still the crew's chat: never an ordinary one (it refuses
+    // to start instead, see crewChatPermissions).
     updateCrew(PROJECT, (crew) => ({ ...crew, on: false }));
-    expect(isBotChat("builder-chat")).toBe(false);
+    expect(isBotChat("builder-chat")).toBe(true);
+    expect(crewForChat("builder-chat")?.crew.on).toBe(false);
   });
 });
 

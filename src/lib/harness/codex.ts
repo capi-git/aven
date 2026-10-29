@@ -48,7 +48,7 @@ import {
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
-import { sessionPermissions } from "./sessionPermissions";
+import { launchRefusal, sessionPermissions } from "./sessionPermissions";
 
 /** A chat that may only read (a crew's Checker), whatever its mode says. */
 function readOnlyChat(sessionId: string): boolean {
@@ -102,6 +102,8 @@ type Live = {
   memoryPrefix?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
+  /** A chat that runs without MCP servers: any server request is declined. */
+  noMcp: boolean;
   /** Last model/effort Codex reported or accepted, to restate turn modes. */
   threadModel?: string;
   threadEffort?: string;
@@ -387,7 +389,56 @@ function projectMemoryFor(
   return memoryByThread.get(input.sessionId);
 }
 
-async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+/** Thrown when a chat that must run without MCP servers still has some on. */
+class McpStillOn extends Error {}
+
+/**
+ * MCP servers Codex reported for any chat, by name: a chat that must run
+ * without them (a crew's Checker) starts with each switched off.
+ */
+const knownMcpServers = new Set<string>();
+
+/** The MCP servers a `config/read` response has switched on. Exported for tests. */
+export function enabledMcpServers(response: unknown): string[] {
+  const servers = asRecord(asRecord(asRecord(response)?.config)?.mcp_servers);
+  return Object.entries(servers ?? {})
+    .filter(([, value]) => asRecord(value)?.enabled !== false)
+    .map(([name]) => name);
+}
+
+/**
+ * `-c mcp_servers.<name>.enabled=false` for each server Codex can name. A
+ * name it can't (odd characters) stays on, and the chat then refuses to
+ * start (see `ensureLive`). Exported for tests.
+ */
+export function codexMcpOffArgs(names: Iterable<string>): string[] {
+  return [...names]
+    .filter((name) => /^[A-Za-z0-9_-]+$/.test(name))
+    .flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]);
+}
+
+async function ensureLive(
+  input: HarnessSessionInput,
+  retried = false,
+): Promise<Live> {
+  // A crew's chat runs only with its rules, in its copy: never unsandboxed,
+  // never in the user's folder (see `launchRefusal`).
+  const refusal = launchRefusal(input.sessionId, input.cwd);
+  if (refusal) throw new Error(refusal);
+  try {
+    return await startLive(input);
+  } catch (error) {
+    if (!(error instanceof McpStillOn)) throw error;
+    // Its servers are known now: start once more with each switched off.
+    if (!retried) return ensureLive(input, true);
+    throw new Error(
+      "Codex couldn't start without your MCP servers, so this chat didn't start.",
+    );
+  }
+}
+
+async function startLive(input: HarnessSessionInput): Promise<Live> {
+  const noMcp = sessionPermissions(input.sessionId)?.noMcp === true;
   // Native stop addresses the session ID. Never let it race a replacement
   // process spawned under the same ID.
   await stoppingByThread.get(input.sessionId);
@@ -460,7 +511,14 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   );
 
   try {
-    await spawnChild(input.sessionId, path, ["app-server"], input.cwd);
+    await spawnChild(
+      input.sessionId,
+      path,
+      noMcp
+        ? [...codexMcpOffArgs(knownMcpServers), "app-server"]
+        : ["app-server"],
+      input.cwd,
+    );
     await rpc.request("initialize", {
       clientInfo: {
         name: "aven",
@@ -486,6 +544,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       );
     }
     assertCodexStorage(effectiveConfig, storage.home);
+    const servers = enabledMcpServers(effectiveConfig);
+    for (const name of servers) knownMcpServers.add(name);
+    if (noMcp && servers.length) throw new McpStillOn();
     // Preserve effective developer instructions without logging or editing them.
     const hostInstructions =
       codexBrowserHostInstructionsFromConfig(effectiveConfig);
@@ -585,6 +646,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       memoryPrefix: !didResume && !browserHostInstructions ? memory : undefined,
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
+      noMcp,
       threadModel: stringField(asRecord(opened), "model"),
       threadEffort: stringField(asRecord(opened), "reasoningEffort"),
       onEvent: input.onEvent,
@@ -1168,8 +1230,8 @@ async function handleElicitationRequest(
     await respond("decline");
     return;
   }
-  if (live.planning) {
-    // Plan turns never act; a connected server must not act on their behalf.
+  if (live.planning || live.noMcp) {
+    // Plan turns never act, and a crew's chat has no servers to act for it.
     await respond("decline");
     return;
   }

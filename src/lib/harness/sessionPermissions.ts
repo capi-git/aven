@@ -49,6 +49,18 @@ export type SessionPermissions = {
    * chat in its read-only sandbox, never asking to escalate.
    */
   readOnly?: boolean;
+  /**
+   * No MCP servers: the agent launches with an empty, strict MCP config, so
+   * nothing the user connected elsewhere can act for a bot.
+   */
+  noMcp?: boolean;
+  /**
+   * The only folder the chat may run in (a bot's or crew's copy). A launch
+   * anywhere else, such as the user's own folder, is refused.
+   */
+  workFolder?: string;
+  /** Why the chat may not start now (its crew is off): a launch is refused. */
+  refuse?: string;
 };
 
 type Resolver = (sessionId: string) => SessionPermissions | undefined;
@@ -68,6 +80,53 @@ export function sessionPermissions(
   return resolver?.(sessionId);
 }
 
+/**
+ * Chats that must never launch without their rules (a crew member's, on or
+ * off): if their permissions don't resolve, the launch is refused rather
+ * than run unsandboxed. Registered by the features that own them.
+ */
+const guarded = new Set<(sessionId: string, cwd: string) => boolean>();
+
+export function registerGuardedChats(
+  check: (sessionId: string, cwd: string) => boolean,
+): () => void {
+  guarded.add(check);
+  return () => {
+    guarded.delete(check);
+  };
+}
+
+function trimmed(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** `path` is `folder` or inside it. */
+function inside(path: string, folder: string): boolean {
+  const child = trimmed(path);
+  const parent = trimmed(folder);
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+/**
+ * Why a chat may not launch its agent in `cwd`, or null when it may. Fails
+ * closed: a guarded chat whose rules don't resolve, a chat whose rules say
+ * no (its crew is off), or one outside its work folder is refused. Every
+ * harness asks before it starts or reuses a process.
+ */
+export function launchRefusal(sessionId: string, cwd: string): string | null {
+  const permissions = sessionPermissions(sessionId);
+  if (!permissions) {
+    for (const check of guarded)
+      if (check(sessionId, cwd))
+        return "This chat's safety rules couldn't be read, so it didn't start.";
+    return null;
+  }
+  if (permissions.refuse) return permissions.refuse;
+  if (permissions.workFolder && !inside(cwd, permissions.workFolder))
+    return "This chat runs only in its own copy of the project, so it didn't start.";
+  return null;
+}
+
 /** A stable text for the rules, so a change relaunches the agent with them. */
 export function permissionRulesKey(
   permissions: SessionPermissions | undefined,
@@ -80,6 +139,8 @@ export function permissionRulesKey(
         permissions.rules.deny ?? [],
         permissions.sandbox ?? null,
         permissions.readOnly ?? false,
+        permissions.noMcp ?? false,
+        permissions.workFolder ?? "",
       ])
     : "";
 }

@@ -268,6 +268,11 @@ export function buildClaudeSpawnArgs(input: {
    * disables every tool, so the call can only answer with text.
    */
   tools?: readonly string[];
+  /**
+   * No MCP servers (a bot's or crew's chat): an empty, strict MCP config,
+   * so none the user connected elsewhere loads.
+   */
+  noMcp?: boolean;
 }): string[] {
   const args = [
     "--output-format",
@@ -314,6 +319,10 @@ export function buildClaudeSpawnArgs(input: {
   } else {
     args.push(`--setting-sources=${CLAUDE_SETTING_SOURCES}`);
     args.push("--settings", JSON.stringify(settings));
+    if (input.noMcp) {
+      args.push("--strict-mcp-config");
+      args.push("--mcp-config", JSON.stringify({ mcpServers: {} }));
+    }
   }
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);

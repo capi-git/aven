@@ -15,6 +15,7 @@ import {
 } from "./projectBots";
 import { normalizeProjectPath } from "./recents";
 import type { AutomationReview } from "./automationReview";
+import { registerGuardedChats } from "./harness/sessionPermissions";
 
 /**
  * Crews: a project's bots working as one. Each member has a role (Builder,
@@ -169,6 +170,7 @@ export type CrewStage =
   | "discarded";
 
 export type CrewStuckReason =
+  | "changed"
   | "rounds"
   | "no-change"
   | "question"
@@ -298,6 +300,8 @@ export type CrewIdea = {
   why?: string;
   /** Outside material it came from: it never starts by itself. */
   sourceUrl?: string;
+  /** Its words point outside the project (Aven's check): never by itself. */
+  outside?: boolean;
   /** You said Not now: it never starts by itself. */
   declined?: boolean;
   /** It started by itself. */
@@ -457,6 +461,7 @@ const STAGES = new Set<CrewStage>([
   "discarded",
 ]);
 const STUCK = new Set<CrewStuckReason>([
+  "changed",
   "rounds",
   "no-change",
   "question",
@@ -760,6 +765,7 @@ export function readCrew(value: unknown): Crew | null {
         size: idea.size as CrewIdeaSize,
         ...(why ? { why } : {}),
         ...(sourceUrl ? { sourceUrl } : {}),
+        ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
       };
@@ -902,16 +908,21 @@ export function readCrew(value: unknown): Crew | null {
   };
 }
 
-function parse(raw: string | null): Store {
-  if (!raw) return EMPTY_STORE;
+/**
+ * What storage holds, as this build reads it. `foreign` is a store this
+ * build can't read (broken, or another version's): it is never overwritten.
+ */
+function parse(raw: string | null): { store: Store; foreign: boolean } {
+  if (!raw) return { store: EMPTY_STORE, foreign: false };
   try {
     const parsed = JSON.parse(raw) as Partial<Store>;
     if (
       parsed?.version !== 1 ||
       !parsed.crews ||
-      typeof parsed.crews !== "object"
+      typeof parsed.crews !== "object" ||
+      Array.isArray(parsed.crews)
     )
-      return EMPTY_STORE;
+      return { store: EMPTY_STORE, foreign: true };
     const crews: Record<string, Crew> = {};
     const others: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(parsed.crews)) {
@@ -919,11 +930,14 @@ function parse(raw: string | null): Store {
       if (crew) crews[projectKey(crew.path)] = crew;
       else others[key] = value;
     }
-    return { version: 1, crews, others };
+    return { store: { version: 1, crews, others }, foreign: false };
   } catch {
-    return EMPTY_STORE;
+    return { store: EMPTY_STORE, foreign: true };
   }
 }
+
+/** Where an unreadable store is kept, once, before anything else happens. */
+export const CREWS_BACKUP_KEY = `${CREWS_KEY}.backup`;
 
 // ---------------------------------------------------------------------------
 // The store
@@ -934,6 +948,10 @@ let cacheRaw: string | null | undefined;
 let chatIndex: Map<string, [string, CrewRole]> | null = null;
 const listeners = new Set<() => void>();
 
+/** Storage holds a store this build can't read: saves stay in this window. */
+let foreign = false;
+let foreignWarned = false;
+
 function read(): Store {
   let raw: string | null;
   try {
@@ -943,10 +961,26 @@ function read(): Store {
   }
   if (raw !== cacheRaw) {
     cacheRaw = raw;
-    cache = parse(raw);
+    const parsed = parse(raw);
+    cache = parsed.store;
+    foreign = parsed.foreign;
     chatIndex = null;
+    if (foreign && raw)
+      try {
+        // Keep the first copy; never replace an earlier backup.
+        if (localStorage.getItem(CREWS_BACKUP_KEY) === null)
+          localStorage.setItem(CREWS_BACKUP_KEY, raw);
+      } catch {
+        // The original stays where it is either way.
+      }
   }
   return cache;
+}
+
+/** Storage holds crews this build can't read (another version's): nothing is saved. */
+export function crewsStoreUnreadable(): boolean {
+  read();
+  return foreign;
 }
 
 function emit() {
@@ -970,6 +1004,17 @@ function write(store: Store) {
   });
   cache = store;
   chatIndex = null;
+  if (foreign) {
+    // Another version's crews: never overwritten. Changes last as long as
+    // this window.
+    if (!foreignWarned)
+      console.error(
+        `Crews: ${CREWS_KEY} holds data this version can't read; it is kept as it is (and copied to ${CREWS_BACKUP_KEY}), and nothing is saved.`,
+      );
+    foreignWarned = true;
+    emit();
+    return;
+  }
   try {
     localStorage.setItem(CREWS_KEY, raw);
     cacheRaw = raw;
@@ -1011,6 +1056,8 @@ export function resetCrewsCache() {
   cacheRaw = undefined;
   chatIndex = null;
   merged = null;
+  foreign = false;
+  foreignWarned = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,13 +1213,16 @@ export function withMember(
   };
 }
 
+/**
+ * Every crew member's chat, whether its crew is on or off: a crew's chat is
+ * always a crew's chat, so it can never launch as an ordinary one (see
+ * `crewChatPermissions`, which refuses while the crew is off).
+ */
 function chats(): Map<string, [string, CrewRole]> {
   read();
   if (chatIndex) return chatIndex;
   chatIndex = new Map();
-  if (!botsAvailable()) return chatIndex;
   for (const [key, crew] of Object.entries(cache.crews)) {
-    if (!crew.on) continue;
     for (const member of crew.members)
       if (member.sessionId && member.role !== "fixer")
         chatIndex.set(member.sessionId, [key, member.role]);
@@ -1180,7 +1230,7 @@ function chats(): Map<string, [string, CrewRole]> {
   return chatIndex;
 }
 
-/** The crew and member whose chat this is, while the crew is on. */
+/** The crew and member whose chat this is, on or off. */
 export function crewForChat(
   sessionId: string | undefined,
 ): { crew: Crew; member: CrewMember } | undefined {
@@ -1209,6 +1259,12 @@ registerBotChatSource({
   chatIds: () => chats().keys(),
   isCopyPath: isCrewCopyPath,
 });
+
+// A crew's chat, or anything launched in a crew's copy, never starts
+// without its rules (see `launchRefusal`).
+registerGuardedChats(
+  (sessionId, cwd) => isCrewChat(sessionId) || isCrewCopyPath(cwd),
+);
 
 // ---------------------------------------------------------------------------
 // Counting runs

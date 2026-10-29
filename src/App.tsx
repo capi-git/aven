@@ -6937,6 +6937,8 @@ export default function App({
       const bot = botForChat(session.id);
       const crew = bot ? undefined : crewForChat(session.id);
       if (!bot && !crew) return session;
+      if (crew && !crew.crew.on)
+        return "This crew is off. Turn it on in its settings to use its chats.";
       const copy = bot ? bot.copy?.path : crew?.crew.copy?.path;
       if (!copy)
         return "The bot's copy isn't ready yet. Try again in a moment.";
@@ -11227,33 +11229,9 @@ export default function App({
     },
     [onOpenCrew, turnOnCrewFor],
   );
-  // A crew turned off in any window lets go of its chats in this one too:
-  // they're ordinary chats in your project again.
-  useEffect(() => {
-    for (const crew of Object.values(crewStore)) {
-      if (crew.on) continue;
-      for (const member of crew.members) {
-        if (member.role === "fixer" || !member.sessionId) continue;
-        const chat = sessionsRef.current.find(
-          (session) => session.id === member.sessionId,
-        );
-        if (!chat?.worktreeCwd || chat.busy || isCrewChat(chat.id)) continue;
-        void forgetHarnessSession(chat.harness, chat.id);
-        const next = sessionsRef.current.map((session) =>
-          session.id === chat.id
-            ? {
-                ...session,
-                worktreeCwd: undefined,
-                providerSessionId: undefined,
-                runtimeMode: loadDefaultRuntimeMode(),
-              }
-            : session,
-        );
-        sessionsRef.current = next;
-        setSessions(next);
-      }
-    }
-  }, [crewStore, sessionsRef, setSessions]);
+  // A crew's chats stay its chats when it is off: they never become
+  // ordinary chats in your folder, and they refuse to start until the crew
+  // is on again (see crewChatPermissions).
 
   const automationsUnread = useUnreadAutomationRuns();
   // The Inbox lists these projects' cards, with its own filters.

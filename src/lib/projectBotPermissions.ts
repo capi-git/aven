@@ -7,7 +7,10 @@ import { botForChat, type ProjectBot } from "./projectBots";
 import { CREW_ROLE_INFO, crewForChat, type Crew, type CrewRole } from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
-import type { ClaudeSandboxSettings } from "./harness/sessionPermissions";
+import type {
+  ClaudeSandboxSettings,
+  SessionPermissions,
+} from "./harness/sessionPermissions";
 
 /**
  * What a bot never does, and what it asks before doing, enforced on its chat
@@ -235,6 +238,12 @@ export function botSandbox(
  * folder, is denied outright rather than asked, so a check can never "fix
  * it itself" or weaken a test to pass.
  */
+/**
+ * Fetching from the web: a Checker or Scout has no business there, and a
+ * page it read could steer it (the Builder keeps it, for docs).
+ */
+export const WEB_TOOLS = ["WebFetch", "WebSearch"];
+
 export function crewPermissionRules(
   crew: Pick<Crew, "path" | "copy">,
   role: Exclude<CrewRole, "fixer">,
@@ -244,6 +253,7 @@ export function crewPermissionRules(
   return {
     deny: [
       ...(rules.deny ?? []),
+      ...WEB_TOOLS,
       `Edit(${absolutePathRule(crew.path)})`,
       ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
     ],
@@ -277,34 +287,65 @@ export function crewSandbox(
   };
 }
 
-/** What a crew member's chat launches with, or undefined for any other chat. */
-export function crewChatPermissions(sessionId: string) {
+/**
+ * What a crew member's chat launches with, whether its crew is on or off,
+ * or undefined for any other chat. It fails closed: always the role's
+ * rules, sandbox and no MCP servers, only ever in the crew's copy; and while
+ * the crew is off (or has no copy yet) the launch is refused outright.
+ */
+export function crewChatPermissions(
+  sessionId: string,
+): SessionPermissions | undefined {
   const found = crewForChat(sessionId);
   if (!found || found.member.role === "fixer") return undefined;
+  const { crew } = found;
   const role = found.member.role;
   const readOnly = !CREW_ROLE_INFO[role].edits;
+  const refuse = !crew.on
+    ? "This crew is off, so its chat didn't start. Turn the crew on to use it."
+    : !crew.copy
+      ? "The crew's copy isn't ready yet, so its chat didn't start."
+      : undefined;
   return {
-    mode: "auto" as const,
-    rules: crewPermissionRules(found.crew, role),
-    sandbox: crewSandbox(found.crew, role),
+    mode: "auto",
+    rules: crewPermissionRules(crew, role),
+    sandbox: crewSandbox(crew, role),
+    noMcp: true,
+    ...(crew.copy ? { workFolder: crew.copy.path } : {}),
     ...(readOnly ? { readOnly: true } : {}),
+    ...(refuse ? { refuse } : {}),
+  };
+}
+
+/**
+ * What a project bot's chat launches with while the bot is on: its rules,
+ * sandbox and auto mode, no MCP servers, and only in its copy.
+ */
+export function botChatPermissions(
+  bot: Pick<ProjectBot, "path" | "copy">,
+): SessionPermissions {
+  return {
+    mode: "auto",
+    rules: botPermissionRules(bot),
+    sandbox: botSandbox(bot),
+    noMcp: true,
+    ...(bot.copy
+      ? { workFolder: bot.copy.path }
+      : {
+          refuse: "The bot's copy isn't ready yet, so its chat didn't start.",
+        }),
   };
 }
 
 /**
  * Every window launches bot chats (a crew's included) with their rules,
  * sandbox and auto mode, from any spawn path (a message, a resume, a
- * compaction).
+ * compaction). A crew's chat that can't resolve them never launches (see
+ * `launchRefusal`).
  */
 export function installBotPermissions(): () => void {
   return installSessionPermissions((sessionId) => {
     const bot = botForChat(sessionId);
-    return bot
-      ? {
-          mode: "auto",
-          rules: botPermissionRules(bot),
-          sandbox: botSandbox(bot),
-        }
-      : crewChatPermissions(sessionId);
+    return bot ? botChatPermissions(bot) : crewChatPermissions(sessionId);
   });
 }

@@ -63,7 +63,11 @@ import {
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
-import { permissionRulesKey, sessionPermissions } from "./sessionPermissions";
+import {
+  launchRefusal,
+  permissionRulesKey,
+  sessionPermissions,
+} from "./sessionPermissions";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import {
   questionPromptTitle,
@@ -432,6 +436,10 @@ export function restoreClaudeTaskLists(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  // A bot's or crew's chat runs only with its rules, in its copy: never
+  // unsandboxed, never in the user's folder (see `launchRefusal`).
+  const refusal = launchRefusal(input.sessionId, input.cwd);
+  if (refusal) throw new Error(refusal);
   // A retry may arrive after the failed turn completed but before its native
   // process finished stopping. Never race that session-scoped kill with spawn.
   await stoppingByThread.get(input.sessionId);
@@ -1821,6 +1829,7 @@ function launchOptions(
   sessionId?: string;
   settings?: ClaudeCliSettings;
   projectMemory?: string;
+  noMcp?: boolean;
 } {
   const native = nativeModelId(input.model);
   const effortRaw = input.modelSettings?.effort;
@@ -1854,6 +1863,7 @@ function launchOptions(
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
     projectMemory: launchMemory(input),
+    ...(permissions?.noMcp ? { noMcp: true } : {}),
   };
 }
 
