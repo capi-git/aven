@@ -125,7 +125,24 @@
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(220px, 1.15fr);
 }
 
-@container (max-width: 980px) {
+/* Narrower: the four columns stay, and the Feed runs below them. */
+@container (max-width: 1180px) {
+  .work-board[data-crew] .work-board-columns {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .work-board[data-crew] .crew-feed {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+
+  .work-board[data-crew] .crew-feed-list {
+    max-height: 360px;
+    overflow-y: auto;
+  }
+}
+
+@container (max-width: 760px) {
   .work-board[data-crew] .work-board-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -139,12 +156,10 @@
 
 /* A crew card's stage, round dots and line. */
 .crew-card-stage {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+  display: block;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
+  line-height: 1.45;
 }
 
 .crew-card-stage strong {
@@ -161,7 +176,8 @@
 }
 
 .crew-card-stage .crew-dots {
-  margin-left: 4px;
+  margin-left: 7px;
+  vertical-align: 1px;
 }
 
 .crew-card-line,
@@ -349,7 +365,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 2px 0 0;
+  padding: 10px 16px 14px;
 }
 
 .crew-sheet-section h3 {

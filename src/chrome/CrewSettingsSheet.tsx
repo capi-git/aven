@@ -65,7 +65,7 @@ export function CrewSettingsSheet({
       onClose={onClose}
       title={`${project} crew`}
       description="Works only while Aven is open and your Mac is awake"
-      size="sm"
+      size="md"
       className="bot-sheet crew-settings"
       leading={
         <span className="bot-sheet-critter">

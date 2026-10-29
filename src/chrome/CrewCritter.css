@@ -80,7 +80,7 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
-  border-radius: var(--aven-radius-md, 6px);
+  border-radius: var(--aven-radius-md);
 }
 
 .personal-crew-row:hover {
@@ -178,8 +178,10 @@
   width: auto;
 }
 
-.crew-settings-member {
+.bot-sheet-row.crew-settings-member {
   justify-content: flex-start;
+  gap: 12px;
+  min-height: 46px;
 }
 
 .crew-settings-member strong {
@@ -191,7 +193,7 @@
   font-weight: 400;
 }
 
-.crew-settings-hours {
+.bot-sheet-row.crew-settings-hours {
   justify-content: flex-start;
   gap: 14px;
   font-size: var(--text-ui-label);
@@ -214,9 +216,9 @@
 }
 
 .crew-settings-limits {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
   margin: 12px 0 0;
   padding: 0;
   list-style: none;

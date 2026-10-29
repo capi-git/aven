@@ -116,10 +116,17 @@ export function crewMemberViews(
       };
       if (member.role === "fixer") {
         const status = FIXER_STATUS[input.fixer!.status];
+        // Its line, unless it only repeats its word.
+        const line =
+          input.fixer!.line &&
+          input.fixer!.line !== CREW_STATUS_LABEL[status] &&
+          input.fixer!.line !== "Fix ready"
+            ? input.fixer!.line
+            : undefined;
         return {
           ...base,
           status,
-          ...(input.fixer!.line ? { line: input.fixer!.line } : {}),
+          ...(line ? { line } : {}),
           ...(input.fixer!.sessionId
             ? { sessionId: input.fixer!.sessionId }
             : {}),
@@ -143,13 +150,15 @@ export function crewMemberViews(
             : member.paused
               ? { status: "paused" as const }
               : {}),
-        ...(member.doing
-          ? { line: member.doing.text }
-          : holds && card
-            ? {
-                line: `${crewStageLabel(card)} ${card.title} · round ${card.round}`,
-              }
-            : {}),
+        ...(waiting && card
+          ? { line: card.stuck?.text ?? `Waiting on you · ${card.title}` }
+          : member.doing
+            ? { line: member.doing.text }
+            : holds && card
+              ? {
+                  line: `${crewStageLabel(card)} ${card.title} · round ${card.round}`,
+                }
+              : {}),
         ...(member.sessionId ? { sessionId: member.sessionId } : {}),
         active: working,
       };
