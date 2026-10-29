@@ -368,11 +368,32 @@ html.theme-light .helm-dialog {
   width: 11px;
   height: 11px;
 }
+/* The queue's count and the agents' button: words, or a mark and a count
+   in a narrow pane, never left out. */
+.helm-say-short {
+  display: none;
+  align-items: center;
+  gap: 3px;
+}
+.helm-say-icon {
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+.helm-say-agents {
+  display: inline-flex;
+  align-items: center;
+}
 @container composer-helm (max-width: 420px) {
-  .helm-say-quiet,
-  .helm-say-dots,
-  .helm-say [data-helm-agents] {
+  .helm-say-quiet:not(.helm-say-queued),
+  .helm-say-dots {
     display: none;
+  }
+  .helm-say-long {
+    display: none;
+  }
+  .helm-say-short {
+    display: inline-flex;
   }
   .helm-say {
     gap: 6px;

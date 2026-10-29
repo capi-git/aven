@@ -23,7 +23,7 @@ import {
   type SessionRunStatus,
 } from "../lib/sessionRunStatus";
 import { visibleInterval } from "../lib/visibleInterval";
-import { Check, X } from "./icons";
+import { Bot, Check, ListEnd, X } from "./icons";
 import { Popover } from "./Popover";
 import { SessionAgentList } from "./SessionAgentList";
 
@@ -246,13 +246,20 @@ function AgentsButton({ session }: { session: Session }) {
       <button
         ref={anchor}
         type="button"
-        className="helm-say-button"
+        className="helm-say-button helm-say-agents"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={`Agent details: ${sessionAgentSummary(agents)}`}
+        title="Agent details"
         onClick={() => setOpen((value) => !value)}
         data-helm-agents
       >
-        {sessionAgentSummary(agents)}
+        {/* In a narrow pane, the mark and the count. */}
+        <span className="helm-say-long">{sessionAgentSummary(agents)}</span>
+        <span className="helm-say-short" aria-hidden>
+          <Bot className="helm-say-icon" />
+          {agents.length}
+        </span>
       </button>
       {open ? (
         <Popover
@@ -269,6 +276,24 @@ function AgentsButton({ session }: { session: Session }) {
         </Popover>
       ) : null}
     </>
+  );
+}
+
+/** "2 queued", or the queue's mark and the count in a narrow pane. */
+function Queued({ count }: { count: number }) {
+  return (
+    <span
+      className="helm-say-quiet helm-say-queued"
+      title={`${count} queued`}
+      aria-label={`${count} queued`}
+      data-helm-queued
+    >
+      <span className="helm-say-long">{count} queued</span>
+      <span className="helm-say-short" aria-hidden>
+        <ListEnd className="helm-say-icon" />
+        {count}
+      </span>
+    </span>
   );
 }
 
@@ -325,9 +350,7 @@ export function HelmBubble({
           {say.text}
         </span>
         <RunClock key={say.startedAt ?? "untimed"} startedAt={say.startedAt} />
-        {say.queued ? (
-          <span className="helm-say-quiet">{say.queued} queued</span>
-        ) : null}
+        {say.queued ? <Queued count={say.queued} /> : null}
         {run && say.agents ? <AgentsButton session={run.session} /> : null}
         {canStop ? (
           <button
@@ -344,6 +367,12 @@ export function HelmBubble({
       </div>
     );
   }
+  // The chat's subagents stay one press away after the turn, too: a
+  // failure's details say to open them.
+  const agents =
+    run && run.session.liveAgents?.length ? (
+      <AgentsButton session={run.session} />
+    ) : null;
   if (say.kind === "queued")
     return (
       <div className="helm-say" data-helm-say="queued" role="status">
@@ -351,6 +380,7 @@ export function HelmBubble({
           {say.text}
         </span>
         <span className="helm-say-quiet">{say.detail}</span>
+        {agents}
       </div>
     );
   if (say.kind === "done")
@@ -361,12 +391,14 @@ export function HelmBubble({
         {say.detail ? (
           <span className="helm-say-quiet">{say.detail}</span>
         ) : null}
+        {agents}
       </div>
     );
   if (say.kind === "stopped")
     return (
       <div className="helm-say" data-helm-say="stopped" role="status">
         <span className="helm-say-text">Stopped</span>
+        {agents}
       </div>
     );
   return (
@@ -375,9 +407,10 @@ export function HelmBubble({
       <span className="helm-say-text" title={say.detail}>
         {say.text}
       </span>
-      {say.detail && !fixes.length ? (
+      {say.detail && !fixes.length && !agents ? (
         <span className="helm-say-quiet">{say.detail}</span>
       ) : null}
+      {agents}
       {fixes.map((fix) => (
         <button
           key={fix.label}

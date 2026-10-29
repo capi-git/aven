@@ -196,6 +196,48 @@ describe("the critter's speech bubble", () => {
     ).not.toBeNull();
   });
 
+  it("keeps the agents one press away after a turn whose agents failed", async () => {
+    ledger.entries = [outcome("completed")];
+    session = {
+      ...session,
+      busy: false,
+      blocks: session.blocks.map((block) => ({ ...block, durationMs: 4000 })),
+      liveAgents: [
+        { id: "a1", title: "Explore", status: "failed" } as never,
+        { id: "a2", title: "Test", status: "completed" } as never,
+      ],
+    };
+    await render();
+    expect(bubble()?.dataset.helmSay).toBe("error");
+    expect(bubble()?.textContent).toContain("Agent failed");
+    const agents = host.querySelector<HTMLButtonElement>("[data-helm-agents]")!;
+    expect(agents.getAttribute("aria-label")).toMatch(/^Agent details: /);
+    await act(async () => agents.click());
+    expect(
+      document.body.querySelector('[aria-label="Agent status"]'),
+    ).not.toBeNull();
+  });
+
+  it("shortens the agents and the queue to a mark and a count, never hiding them", async () => {
+    session = {
+      ...session,
+      queuedMessages: [
+        { id: "q1", text: "One", attachments: [] },
+        { id: "q2", text: "Two", attachments: [] },
+      ],
+      liveAgents: [{ id: "a1", title: "Explore", status: "running" } as never],
+    };
+    await render();
+    const queued = host.querySelector<HTMLElement>("[data-helm-queued]")!;
+    expect(queued.getAttribute("aria-label")).toBe("2 queued");
+    expect(queued.querySelector(".helm-say-long")?.textContent).toBe(
+      "2 queued",
+    );
+    expect(queued.querySelector(".helm-say-short")?.textContent).toBe("2");
+    const agents = host.querySelector<HTMLElement>("[data-helm-agents]")!;
+    expect(agents.querySelector(".helm-say-short")?.textContent).toBe("1");
+  });
+
   it("stops its clock in a parked pane", async () => {
     await render({ visible: false });
     expect(host.querySelector('[role="timer"]')).toBeNull();
