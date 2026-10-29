@@ -6,6 +6,7 @@ import {
   combineStripTabs,
   detachStripTab,
   focusStripTab,
+  insertStripPane,
   isSpaceKey,
   joinStripSplit,
   keepUnseenStripEntries,
@@ -236,6 +237,17 @@ export function useWorkspaceViews(
     [mutate],
   );
   /**
+   * A tab dropped on a split's segment joins it as a pane beside that
+   * segment's pane (`beside`), on `side` of it.
+   */
+  const insertPane = useCallback(
+    (spaceKey: string, id: string, beside: string, side: "before" | "after") =>
+      mutate(current.current.key, (strip) =>
+        insertStripPane(strip, spaceKey, id, beside, side),
+      ),
+    [mutate],
+  );
+  /**
    * Something let go on the middle of a single tab `target`: a tab (single,
    * or pulled out of a split) makes a new split with it in its place; a
    * split takes it as a pane at its right, standing in its place.
@@ -347,6 +359,7 @@ export function useWorkspaceViews(
     get,
     reorderEntries,
     addPane,
+    insertPane,
     combine,
     detach,
     separate,

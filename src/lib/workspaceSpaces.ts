@@ -1,9 +1,10 @@
-import { leaf, leafIds, type LayoutNode } from "./layout";
+import { leaf, leafIds, placePane, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
   resolveWorkspaceView,
   restoreWorkspaceSplit,
   selectWorkspaceView,
+  splitWorkspaceView,
   workspaceGroupOwner,
   workspaceIsSpace,
   type WorkspaceView,
@@ -545,6 +546,46 @@ export function addStripPane(
       },
     ];
   });
+  return { entries, front: key };
+}
+
+/**
+ * A tab dropped on one segment of a split's entry: it joins the split as a
+ * new pane beside that segment's pane, on the `side` of it nearer the
+ * pointer, sharing that pane's room; the split comes to the front with the
+ * new pane focused. A tab already in the split moves there (out of its
+ * pane's stack, or its own pane moving). Without that pane, it goes at the
+ * split's right, as on the entry as a whole.
+ */
+export function insertStripPane(
+  strip: WorkspaceStrip,
+  key: string,
+  id: string,
+  beside: string,
+  side: "before" | "after",
+): WorkspaceStrip {
+  const target = strip.entries.find((entry) => entryKey(entry) === key);
+  if (target?.kind !== "space") return strip;
+  if (stripEntryKeyOf(strip, id) === undefined) return strip;
+  const base = restoreWorkspaceSplit(target.view);
+  if (!base.layout || !leafIds(base.layout).includes(beside))
+    return addStripPane(strip, key, id);
+  if (id === beside) return strip;
+  const edge = side === "before" ? "left" : "right";
+  const view: WorkspaceView = viewMembers(base).includes(id)
+    ? splitWorkspaceView(base, id, edge, beside)
+    : {
+        ...base,
+        layout: placePane(base.layout, id, beside, edge),
+        focusedId: id,
+        order: unique([...base.order, id]),
+        groups: { ...base.groups, [id]: [id] },
+      };
+  if (JSON.stringify(view) === JSON.stringify(base)) return strip;
+  const leaving = new Set([id]);
+  const entries = strip.entries.flatMap((entry): StripEntry[] =>
+    entry === target ? [{ ...entry, view }] : withoutTabs(entry, leaving),
+  );
   return { entries, front: key };
 }
 

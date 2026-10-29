@@ -1013,13 +1013,21 @@ export function DetachedWorkspace() {
       ),
     };
   });
-  const dragMove = (id: string, x: number, y: number) => {
+  const dragMove = (
+    id: string,
+    x: number,
+    y: number,
+    _pointer?: unknown,
+    // A tab it rests on in another pane's strip takes it: no pane does.
+    taken = false,
+  ) => {
     const stage = stageHost.current?.querySelector<HTMLElement>(
       ":scope > [data-workspace-stage]",
     );
-    const target = stage
-      ? workspaceSurfaceDropAt(stage, x, y, id, dragRef.current?.target)
-      : null;
+    const target =
+      stage && !taken
+        ? workspaceSurfaceDropAt(stage, x, y, id, dragRef.current?.target)
+        : null;
     const previous = dragRef.current;
     if (previous?.id === id && sameDropTarget(previous.target, target)) return;
     const next = { id, target };
@@ -1111,6 +1119,11 @@ export function DetachedWorkspace() {
         }
         onSurfaceDragMove={dragMove}
         onSurfaceDragEnd={dragEnd}
+        // A tab let go on the middle of one of this pane's tabs, from this
+        // strip or another pane's, stands beside it in a pane of its own.
+        onPairTabs={(target, dragged) =>
+          arrange({ type: "pair", id: dragged, target })
+        }
         combineTargets={Object.keys(state.view.groups)
           .filter((other) => other !== id)
           .map((other) => ({

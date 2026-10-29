@@ -7,6 +7,7 @@ import {
   combineWorkspaceGroups,
   minimizeWorkspaceSide,
   moveWorkspaceTab,
+  pairWorkspaceTabs,
   reorderWorkspaceGroup,
   restoreWorkspaceSplit,
   splitWorkspaceView,
@@ -27,6 +28,11 @@ export type WorkspaceIntent =
   | { type: "split"; id: string; edge: ViewEdge; beside?: string }
   | { type: "reorder"; group: string; ids: string[] }
   | { type: "combine"; group: string; into: string }
+  /**
+   * A tab let go on the middle of another tab in a pane's row: the two side
+   * by side, `id` in a pane of its own at `target`'s pane's right.
+   */
+  | { type: "pair"; id: string; target: string }
   | { type: "unsplit"; group: string }
   | {
       type: "minimize";
@@ -55,6 +61,7 @@ export const GLIDING_INTENTS: ReadonlySet<WorkspaceIntent["type"]> = new Set([
   "drop",
   "split",
   "combine",
+  "pair",
   "unsplit",
   "minimize",
   "restore",
@@ -71,6 +78,7 @@ export function workspaceIntentIds(intent: WorkspaceIntent): string[] {
   if (intent.type === "drop") return [intent.id];
   if (intent.type === "split")
     return intent.beside ? [intent.id, intent.beside] : [intent.id];
+  if (intent.type === "pair") return [intent.id, intent.target];
   return [];
 }
 
@@ -109,6 +117,11 @@ export function applyWorkspaceIntent(
       return {
         view: combineWorkspaceGroups(view, intent.group, intent.into),
         keep: [intent.group, intent.into],
+      };
+    case "pair":
+      return {
+        view: pairWorkspaceTabs(view, intent.id, intent.target),
+        keep: [intent.id, intent.target],
       };
     case "unsplit":
       return {
