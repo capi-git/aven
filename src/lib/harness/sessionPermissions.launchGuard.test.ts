@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   installSessionPermissions,
   launchRefusal,
+  normalPath,
   registerGuardedChats,
   type SessionPermissions,
 } from "./sessionPermissions";
@@ -113,5 +114,28 @@ describe("a launch is refused at the last moment before its process starts", () 
     ).rejects.toThrow(/couldn't be read/);
     expect(spawned).toEqual([]);
     stop();
+  });
+});
+
+describe("the work folder check reads paths as the file system does", () => {
+  it("resolves . and .. before comparing", () => {
+    expect(normalPath("/data/bots/site-crew/../../../Users/me/site")).toBe(
+      "/Users/me/site",
+    );
+    expect(normalPath("/data/bots/site-crew/./src/../src")).toBe(
+      "/data/bots/site-crew/src",
+    );
+    expect(normalPath("C:\\data\\bots\\..\\x")).toBe("C:/data/x");
+    expect(normalPath("/../..")).toBe("/");
+  });
+
+  it("refuses a work folder escaped with ..", () => {
+    expect(launchRefusal("crew-x", `${COPY}/../../../Users/me/site`)).toMatch(
+      /only in its own copy/,
+    );
+    expect(launchRefusal("crew-x", `${COPY}/src/../lib`)).toBeNull();
+    expect(launchRefusal("crew-x", `${COPY}-evil`)).toMatch(
+      /only in its own copy/,
+    );
   });
 });

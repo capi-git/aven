@@ -14,6 +14,8 @@ import {
   crewPermissionRules,
   crewSandbox,
   installBotPermissions,
+  teammateChatRefusal,
+  teammateHarness,
 } from "./projectBotPermissions";
 import { buildClaudeSpawnArgs } from "./harness/claudeProtocol";
 import { codexMcpOffArgs, enabledMcpServers } from "./harness/codex";
@@ -240,5 +242,46 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
       "-c",
       "mcp_servers.computer-use.enabled=false",
     ]);
+  });
+});
+
+describe("a crew's or bot's chat stays on its own app", () => {
+  it("refuses Compact (or any start) on another app, outside its copy, or while off", () => {
+    const stop = installBotPermissions();
+    updateCrew(PROJECT, (current) => ({
+      ...current,
+      ...crew,
+      on: true,
+      members: [
+        { role: "builder", sessionId: "b-chat" },
+        { role: "checker", sessionId: "c-chat", harness: "codex" },
+      ],
+    }));
+    expect(teammateHarness("b-chat")).toBe("claude");
+    expect(teammateHarness("c-chat")).toBe("codex");
+    expect(teammateHarness("someone-else")).toBeUndefined();
+    const chat = (id: string, harness: string, worktreeCwd = COPY) => ({
+      id,
+      harness,
+      cwd: PROJECT,
+      worktreeCwd,
+    });
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBeNull();
+    expect(teammateChatRefusal(chat("c-chat", "codex"))).toBeNull();
+    for (const other of ["grok", "cursor", "opencode", "pi"])
+      expect(teammateChatRefusal(chat("b-chat", other))).toMatch(/own app/);
+    expect(teammateChatRefusal(chat("c-chat", "claude"))).toMatch(/own app/);
+    expect(teammateChatRefusal(chat("b-chat", "claude", PROJECT))).toMatch(
+      /only in its own copy/,
+    );
+    updateCrew(PROJECT, (current) => ({ ...current, on: false }));
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
+      /crew is off/,
+    );
+    // An ordinary chat is never held back.
+    expect(
+      teammateChatRefusal(chat("someone-else", "grok", PROJECT)),
+    ).toBeNull();
+    stop();
   });
 });

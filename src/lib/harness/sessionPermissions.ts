@@ -96,14 +96,39 @@ export function registerGuardedChats(
   };
 }
 
-function trimmed(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+/**
+ * A path with `.` and `..` resolved and separators made forward, so
+ * `/copy/../../Users/me` reads as `/Users/me`. Symlinks are not resolved
+ * here (that needs the file system); copies live in Aven's own data.
+ */
+export function normalPath(path: string): string {
+  const forward = path.replace(/\\/g, "/");
+  const drive = /^[A-Za-z]:/.exec(forward)?.[0] ?? "";
+  const rest = forward.slice(drive.length);
+  const absolute = rest.startsWith("/");
+  const parts: string[] = [];
+  for (const part of rest.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length && parts[parts.length - 1] !== "..") parts.pop();
+      else if (!absolute) parts.push("..");
+      continue;
+    }
+    parts.push(part);
+  }
+  const body = parts.join("/");
+  return `${drive}${absolute ? "/" : ""}${body}` || (absolute ? "/" : ".");
 }
 
-/** `path` is `folder` or inside it. */
+/** `path` is `folder` or inside it, after both are normalized. */
 function inside(path: string, folder: string): boolean {
-  const child = trimmed(path);
-  const parent = trimmed(folder);
+  const child = normalPath(path);
+  const parent = normalPath(folder);
+  if (/^[A-Za-z]:/.test(parent))
+    return (
+      child.toLowerCase() === parent.toLowerCase() ||
+      child.toLowerCase().startsWith(`${parent.toLowerCase()}/`)
+    );
   return child === parent || child.startsWith(`${parent}/`);
 }
 

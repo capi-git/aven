@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { isPreparingHandoff, planComposerSwitch } from "../lib/handoff";
 import { forgetHarnessSession } from "../lib/harness/registry";
+import { teammateHarness } from "../lib/projectBotPermissions";
 import {
   preferredModelSettings,
   resolveModel,
@@ -29,6 +30,10 @@ export function useSessionModelControls({
       const current = sessionsRef.current.find((s) => s.id === sessionId);
       if (!current) return;
       if (isPreparingHandoff(current)) return;
+      // A bot's or crew's chat stays on its own app: only that app enforces
+      // its rules (sandbox, deny rules, its copy).
+      const own = teammateHarness(sessionId);
+      if (own && harness !== own) return;
       const resolved = resolveModel(harness, model);
       if (current.modelSettings) {
         saveLastModelSettings(current.modelSettings, "fill");

@@ -899,7 +899,10 @@ import {
 } from "./lib/crews";
 import { isHarnessAvailable } from "./lib/harness/availability";
 import { pickerModelsFor } from "./lib/models";
-import { installBotPermissions } from "./lib/projectBotPermissions";
+import {
+  installBotPermissions,
+  teammateChatRefusal,
+} from "./lib/projectBotPermissions";
 import {
   installBotWorkspace,
   turnOnBotWithDefaults,
@@ -8562,12 +8565,24 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (!current || current.busy) return false;
-      // A bot's chat compacts only where it works: in its copy.
+      // A bot's or crew's chat compacts only where and as it works: in its
+      // copy, on its own app, with its rules (other apps don't enforce them).
       const bot = botForChat(sessionId);
       if (bot && current.worktreeCwd !== bot.copy?.path) return false;
       const crewChat = crewForChat(sessionId);
       if (crewChat && current.worktreeCwd !== crewChat.crew.copy?.path)
         return false;
+      const refusal = teammateChatRefusal(current);
+      if (refusal) {
+        const refused = sessionsRef.current.map((session) =>
+          session.id === sessionId
+            ? applyHarnessEvent(session, { type: "status", text: refusal })
+            : session,
+        );
+        sessionsRef.current = refused;
+        setSessions(refused);
+        return true;
+      }
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId

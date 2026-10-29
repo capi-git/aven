@@ -1,5 +1,6 @@
 import {
   installSessionPermissions,
+  launchRefusal,
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
 import { slash } from "./paths";
@@ -358,4 +359,32 @@ export function installBotPermissions(): () => void {
       };
     return crewChatPermissions(sessionId);
   });
+}
+
+/**
+ * The app a bot's or crew's chat must run on (Claude, or Codex for a crew's
+ * Checker): only those enforce its rules. Undefined for any other chat.
+ */
+export function teammateHarness(sessionId: string): string | undefined {
+  if (botForChat(sessionId)) return "claude";
+  const crew = crewForChat(sessionId);
+  if (!crew || crew.member.role === "fixer") return undefined;
+  return crew.member.harness ?? "claude";
+}
+
+/**
+ * Why a bot's or crew's chat can't start its agent as it is now (on another
+ * app, outside its copy, its crew off), or null. Paths that don't go through
+ * Claude's or Codex's own guard (compacting the context) ask this first.
+ */
+export function teammateChatRefusal(session: {
+  id: string;
+  harness: string;
+  cwd: string;
+  worktreeCwd?: string;
+}): string | null {
+  const own = teammateHarness(session.id);
+  if (own && session.harness !== own)
+    return "This chat runs only on its own app, so it didn't start.";
+  return launchRefusal(session.id, session.worktreeCwd ?? session.cwd);
 }
