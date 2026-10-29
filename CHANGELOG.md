@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.1.158] - 2026-10-29
+
+### Added
+
+- **Agents can use any page you have open.** Claude, Codex and the others can list your open tabs across projects and windows, read any of them without changing what's on your screen, and save a page into the project as text with its images, fetched through your own signed-in session (a friend's Notion page included).
+  - A bar shows "Claude is using the tab …" with **Pause** and **Stop** whenever an agent uses a tab that isn't its own.
+  - Agents can't type into password, sign-in code or card fields in your tabs, and can't click or type in them while your Mac is locked.
+  - Uploads still ask you first, and saved files stay inside the project.
+  - Turn it off in **Settings → Browser → Agents can read any open tab**.
+- **Drop a tab on any tab to combine them.** Let go over the middle of any tab (in the strip, on either half of a split, or in a pane's row) and the two become a split; a thin ring shows it will. Near a tab's edge it reorders as before.
+
+### Changed
+
+- **Automations live in one folder per project.** Each automation shows how its last run went, its schedule and its next run. Runs stay inside Automations instead of opening chats; open one to watch it, approve things or stop it, or choose **Open as chat** to continue it. Chats from earlier runs stay where they were.
+  - A run that just finishes stays quiet; a failed run, or one that needs you, still tells you.
+  - When a run has something to check, a **Ready to review** or **Ready to publish** card appears in your Inbox. Its button always sends Aven's own fixed reply, whatever the run wrote.
+
+### Fixed
+
+- Dragging a tab over a web page no longer cuts a hole in the page at interface zooms other than 100%, and the drop preview over a page matches the one everywhere else.
+- Reordering and combining tabs in the strip work at any interface zoom on macOS versions whose Safari handles zoom the older way.
+
 ## [0.1.157] - 2026-10-28
 
 ### Fixed
