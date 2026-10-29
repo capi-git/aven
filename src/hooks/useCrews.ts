@@ -3,6 +3,7 @@ import { CrewRunner, type CrewChatRole } from "../lib/crewRunner";
 import {
   anyCrewOn,
   crewMemberName,
+  migrateBotsIntoCrews,
   subscribeCrews,
   type Crew,
 } from "../lib/crews";
@@ -15,7 +16,12 @@ import {
 import { listDir } from "../lib/fs";
 import { botCopyHost } from "../lib/projectBotCopy";
 import type { BotSendOptions } from "../lib/projectBotRunner";
-import { botName, getProjectBot, runsToday } from "../lib/projectBots";
+import {
+  botName,
+  botsAvailable,
+  getProjectBot,
+  runsToday,
+} from "../lib/projectBots";
 import { projectAppearance } from "../lib/projectAppearance";
 import type { Session } from "../lib/session";
 import { claudeWeeklyUsed } from "./useProjectBots";
@@ -102,6 +108,12 @@ export function useCrews(
       onWorking: (ids) => hostRef.current.onWorking(ids),
     });
   const runner = runnerRef.current;
+
+  // Each project bot joins its project's crew as the Fixer, saved once by
+  // the main window (the bot's own store is never touched).
+  useEffect(() => {
+    if (enabled && botsAvailable()) migrateBotsIntoCrews();
+  }, [enabled]);
 
   const [anyOn, setAnyOn] = useState(anyCrewOn);
   useEffect(() => {
