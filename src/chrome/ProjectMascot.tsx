@@ -48,10 +48,28 @@ const PALE_EYE = "#f4f4f6";
 const PALE_SUMMIT = "#f3f6ff";
 const PALE_SUMMIT_OPACITY = 0.92;
 
-type Look = { pale: boolean; ink: ReturnType<typeof mascotEyeInk> };
+export type MascotLook = {
+  pale: boolean;
+  ink: ReturnType<typeof mascotEyeInk>;
+};
+type Look = MascotLook;
+
+/** How a mascot of `color` draws its eyes and summit. */
+export function mascotLook(color: string | null | undefined): MascotLook {
+  return {
+    pale: summitBlendsIn(color, AVEN_MARK_SUMMIT_COLOR),
+    ink: mascotEyeInk(color),
+  };
+}
 
 /** One frame's paths: the body in the mascot colour, then its overlays. */
-function Frame({ frame, look }: { frame: MascotFrame; look: Look }) {
+export function MascotFrameShapes({
+  frame,
+  look,
+}: {
+  frame: MascotFrame;
+  look: MascotLook;
+}) {
   const { pale, ink } = look;
   return (
     <>
@@ -95,10 +113,7 @@ export function ProjectMascot({
   reactionId,
 }: Props) {
   const mascot = projectMascot(project, name);
-  const look: Look = {
-    pale: summitBlendsIn(color, AVEN_MARK_SUMMIT_COLOR),
-    ink: mascotEyeInk(color),
-  };
+  const look: Look = mascotLook(color);
   if (reaction) {
     const blinks = reaction === "shrug" || reaction === "tilt";
     return (
@@ -119,7 +134,7 @@ export function ProjectMascot({
         }
       >
         <g className="mascot-body">
-          <Frame frame={mascot.restFrame} look={look} />
+          <MascotFrameShapes frame={mascot.restFrame} look={look} />
           {blinks ? (
             // Closed lids: the body colour, shaded, over the eyes.
             <g className="mascot-blink">
@@ -156,14 +171,14 @@ export function ProjectMascot({
       {active ? (
         <>
           <g className="mascot-rest">
-            <Frame frame={mascot.restFrame} look={look} />
+            <MascotFrameShapes frame={mascot.restFrame} look={look} />
           </g>
           <g className="mascot-talk">
-            <Frame frame={mascot.talkFrame} look={look} />
+            <MascotFrameShapes frame={mascot.talkFrame} look={look} />
           </g>
         </>
       ) : (
-        <Frame frame={mascot.restFrame} look={look} />
+        <MascotFrameShapes frame={mascot.restFrame} look={look} />
       )}
     </svg>
   );
