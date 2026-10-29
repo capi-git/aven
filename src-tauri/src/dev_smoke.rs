@@ -47,6 +47,15 @@ pub(crate) fn smoke_dir() -> Option<PathBuf> {
     dir.join(MARKER).is_file().then_some(dir)
 }
 
+/// Whether Aven runs in one of Aven Dev's throwaway profiles (the real-app
+/// check, the speed test or the iPhone check), whose home has no keychain.
+/// Chromium then keeps its encryption key out of the keychain: otherwise it
+/// waits for macOS to ask where to make one, and no page ever loads.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+pub(crate) fn throwaway_profile() -> bool {
+    smoke_dir().is_some()
+}
+
 /// Whether this run is the check, and where its folders are.
 #[tauri::command]
 pub fn dev_smoke_config() -> Option<SmokeConfig> {
@@ -335,9 +344,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("AVEN_DEV_SMOKE_DIR", &dir);
         assert!(smoke_dir().is_none());
+        assert!(!throwaway_profile());
         std::fs::write(dir.join(MARKER), "").unwrap();
         if cfg!(debug_assertions) {
             assert_eq!(smoke_dir(), Some(dir.clone()));
+            assert!(throwaway_profile());
             let config = dev_smoke_config().unwrap();
             assert!(config.project_path.ends_with("project"));
             assert!(config.bin_dir.ends_with("home/.local/bin"));
@@ -363,6 +374,7 @@ mod tests {
             // enable the check, even with the marked folder in place.
             assert!(smoke_dir().is_none());
             assert!(dev_smoke_config().is_none());
+            assert!(!throwaway_profile());
         }
         std::env::remove_var("AVEN_DEV_SMOKE_DIR");
         assert!(smoke_dir().is_none());
