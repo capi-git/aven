@@ -770,10 +770,14 @@ def report_smoke(root, exit_code):
     return passed
 
 
-# Lines of Aven's log worth printing after a failed check: its notes on agent
-# page opens that waited, and Chromium's observer-list check, which
-# overlapping navigations on one page trip.
-SMOKE_LOG_NOTES = ('[aven] Agent page open', 'observer_list.h')
+# Lines of Aven's and Chromium's logs worth printing after a failed check:
+# Aven's notes on agent page opens that waited, Chromium's observer-list
+# check, which overlapping navigations on one page trip, and Chromium finding
+# no keychain for its key: the stand-in key the throwaway profile should use
+# did not reach it, and while macOS asks where to make a keychain no page loads.
+SMOKE_LOG_NOTES = ('[aven] Agent page open', 'observer_list.h', 'Encryption is not available')
+# Chromium's own log in the throwaway profile.
+SMOKE_CHROMIUM_LOG = 'home/Library/Application Support/com.capi.aven.dev/browser/chromium/chromium.log'
 
 
 def smoke_diagnostics(root, spawned, limit=24):
@@ -786,10 +790,12 @@ def smoke_diagnostics(root, spawned, limit=24):
             took = f'{entry["ms"]} ms' if isinstance(entry.get('ms'), (int, float)) else 'no timing'
             outcome = {True: 'ok', False: 'failed', None: 'no answer'}.get(entry.get('ok'), 'failed')
             lines.append(f'    {entry["browser"]} {entry.get("url") or ""} - {took}, {outcome}'.replace('  -', ' -'))
-    try:
-        log = (root / 'app.log').read_text(errors='replace').splitlines()
-    except OSError:
-        log = []
+    log = []
+    for name in ('app.log', SMOKE_CHROMIUM_LOG):
+        try:
+            log += (root / name).read_text(errors='replace').splitlines()
+        except OSError:
+            pass
     notes = [line.strip() for line in log if any(note in line for note in SMOKE_LOG_NOTES)]
     if notes:
         lines.append('From Aven\'s log:')

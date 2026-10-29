@@ -138,6 +138,26 @@ describe("the real-app check's agent pages step", () => {
     expect(state.stop).not.toHaveBeenCalled();
   });
 
+  it("fails reuses that hand back a page still loading, after their full waits", async () => {
+    const note =
+      "Your page is still loading. Take a snapshot again in a moment to read the new page.";
+    const stalled = JSON.stringify(
+      ["-", "reloaded", "navigated", "navigated", "-", "navigated"].map(
+        (reused, index) => ({
+          id: index < 4 ? "page-a" : "page-b",
+          reused: reused === "-" ? null : reused,
+          ms: [108, 6335, 6331, 6297, 229, 6199][index],
+          ...(reused === "-" ? {} : { note }),
+        }),
+      ),
+    );
+    const { step } = await check(`${SMOKE_REPLY} AVEN_PAGES ${stalled}`);
+    expect(step?.passed).toBe(false);
+    expect(step?.detail).toMatch(
+      /^Reusing the check's local page must hand back its loaded page within 1500 ms, but open 2 \(reloaded\) took 6335 ms and handed back still loading; /,
+    );
+  });
+
   it("names each open's time when one got no answer", async () => {
     const { step } = await check(
       `${SMOKE_REPLY} AVEN_PAGES FAILED open 3 got no answer in 20 s [{"id": "page-a", "reused": null, "ms": 140}, {"id": "page-a", "reused": "reloaded", "ms": 380}, {"ms": 20004}]`,

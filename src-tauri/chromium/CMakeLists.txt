@@ -146,3 +146,14 @@ add_test(NAME browser_update_dom COMMAND supermono_chromium_browser_update_dom_t
 # Idle fallback backoff never delays an explicit CEF work request.
 add_executable(supermono_chromium_browser_pump_test EXCLUDE_FROM_ALL browser_pump_test.cc)
 add_test(NAME browser_pump_schedule COMMAND supermono_chromium_browser_pump_test)
+
+# Live: a hidden page's load signals in the real bridge and CEF runtime. Needs
+# an app bundle with helpers, so scripts/check-chromium-loads.py builds and
+# runs it rather than ctest.
+add_executable(supermono_chromium_browser_load_signals_test EXCLUDE_FROM_ALL browser_load_signals_test.mm)
+target_compile_options(supermono_chromium_browser_load_signals_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_browser_load_signals_test PRIVATE
+  supermono_chromium_impl libcef_dll_wrapper ${CEF_STANDARD_LIBS} c++ "-Wl,-ObjC"
+  "-framework Cocoa" "-framework CoreGraphics" "-framework QuartzCore" "-framework ImageIO"
+  "-framework IOSurface" "-framework AVFoundation" "-framework Security"
+  "-framework UserNotifications")

@@ -84,6 +84,35 @@ export function agentOpensProblem(
   return `The opens returned ${JSON.stringify(opens.map(({ id, reused }) => ({ id, reused })))} (${agentOpensTimings(opens)})`;
 }
 
+/**
+ * How long reusing the agent's page may take. The check's page is tiny and
+ * local, so its reload or navigation lands in well under a second, hidden
+ * or not; an open that waits out its limits (about 6 s, handed back still
+ * loading) means the page never loaded.
+ */
+export const AGENT_REUSE_LIMIT_MS = 1500;
+
+/**
+ * Why reusing the agent's page was too slow, or null: an open that reloaded
+ * or navigated it took longer than the limit or handed back still loading.
+ */
+export function agentOpensTooSlow(
+  opens: readonly AgentOpenReport[],
+): string | null {
+  const slow = opens.flatMap((open, index) => {
+    if (!open.reused) return [];
+    const over = typeof open.ms !== "number" || open.ms > AGENT_REUSE_LIMIT_MS;
+    if (!over && !stillLoading(open)) return [];
+    const took =
+      typeof open.ms === "number" ? `${open.ms} ms` : "an unknown time";
+    return [
+      `open ${index + 1} (${open.reused}) took ${took}${stillLoading(open) ? " and handed back still loading" : ""}`,
+    ];
+  });
+  if (!slow.length) return null;
+  return `Reusing the check's local page must hand back its loaded page within ${AGENT_REUSE_LIMIT_MS} ms, but ${slow.join("; ")} (${agentOpensTimings(opens)})`;
+}
+
 /** The step's line for opens that built on one page. */
 export function agentOpensSummary(opens: readonly AgentOpenReport[]): string {
   const reused = opens.map((open) => open.reused ?? "-").join(", ");

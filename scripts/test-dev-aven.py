@@ -669,6 +669,16 @@ class RealAppCheck(unittest.TestCase):
                       '    open http://127.0.0.1:8123/?mock=1 - 20004 ms, no answer\n', text)
         self.assertIn("From Aven's log:\n    [aven] Agent page open: 2001 ms", text)
         self.assertNotIn('chromium noise', text)
+        # Chromium's own log says when it went to the keychain for its key.
+        chromium_log = self.root / runner.SMOKE_CHROMIUM_LOG
+        chromium_log.parent.mkdir(parents=True)
+        chromium_log.write_text(
+            '[1:2:1028/165059.917157:ERROR:components/password_manager/core/browser/password_store/'
+            'login_database_async_helper.cc:99] Encryption is not available.\n')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(runner.report_smoke(self.root, 0))
+        self.assertIn('login_database_async_helper.cc:99] Encryption is not available.', out.getvalue())
         # A passing run prints none of it.
         self.write_run([{'name': 'agent turn', 'passed': True}], [chat, {'pid': 1, 'turn': 't'}, *calls])
         out = io.StringIO()
