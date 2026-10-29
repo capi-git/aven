@@ -48,7 +48,6 @@ describe("the pro look's shapes", () => {
       ],
       ["src/chrome/TeamCard.css", ".team-card-button"],
       ["src/surfaces/WorkspaceHome.css", ".workspace-home-actions button"],
-      ["src/surfaces/SessionRunStatus.css", ".session-run-stop"],
       ["src/surfaces/BrowserPane.css", ".browser-address"],
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],

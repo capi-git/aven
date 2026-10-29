@@ -77,7 +77,6 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/SettingsRail.css", ".settings-nav__search"],
       ["src/chrome/TeamCard.css", ".team-card-button"],
-      ["src/surfaces/SessionRunStatus.css", ".session-run-stop"],
       [
         "src/chrome/BotSettingsSheet.css",
         '.modal-panel[role="dialog"] .bot-sheet-title-field:focus',

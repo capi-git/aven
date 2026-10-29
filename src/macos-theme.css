@@ -458,7 +458,6 @@ textarea {
     .settings-select,
     .team-card-button:not([data-variant]),
     .workspace-home-actions button:not(.workspace-home-new),
-    .session-run-stop,
     .git-clean-action,
     .personal-profile-new,
     .personal-home-add
@@ -626,7 +625,6 @@ html.is-mac
   :is(.personal-shell, .detached-workspace)
   .personal-composer
   [data-composer-box],
-html.is-mac :is(.personal-shell, .detached-workspace) .session-run-status,
 html.is-mac :is(.personal-shell, .detached-workspace) .workspace-footer {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

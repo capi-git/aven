@@ -145,11 +145,14 @@ export function useHelmSay(
     (status.kind === "waiting" && status.canStop)
   ) {
     const waiting = status.kind === "waiting";
-    const text = waiting
-      ? `${status.label} · ${status.detail}`
-      : run?.placement === "attention"
-        ? status.label
-        : (status.doing ?? status.label);
+    // A hold-up (a retry, the usage limit, a long command) says what holds
+    // the turn and its countdown, as the Working row did.
+    const text =
+      waiting || status.holdUp
+        ? [status.label, status.detail].filter(Boolean).join(" · ")
+        : run?.placement === "attention"
+          ? status.label
+          : (status.doing ?? status.label);
     return {
       say: {
         kind: "running",
