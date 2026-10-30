@@ -62,13 +62,13 @@
   gap: 12px;
 }
 
-/* One row of columns: the board fits its pane, and each column scrolls on
-   its own, so a long one never grows the page. */
+/* One row of columns: each column is as tall as its cards, as before; the
+   row only marks out the space left in the pane (it draws nothing), so a
+   column taller than that stops there and scrolls inside itself. */
 @container (min-width: 761px) {
   .work-board-columns {
     min-height: 280px;
     flex: 1 1 0;
-    align-items: stretch;
   }
 }
 

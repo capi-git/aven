@@ -32,10 +32,13 @@ describe("the Board's columns scroll on their own", () => {
     ).toContain("flex-shrink: 0;");
   });
 
-  it("fits one row of columns to the pane", () => {
+  it("keeps columns as tall as their cards, stopping at the space left in the pane", () => {
+    // The row only marks out the space left; it never stretches a column.
     const row = within(board, "min-width: 761px", ".work-board-columns");
     expect(row).toContain("flex: 1 1 0;");
-    expect(row).toContain("align-items: stretch;");
+    expect(row).not.toContain("stretch");
+    expect(rule(board, ".work-board-columns")).toContain("align-items: start;");
+    expect(rule(board, "\n.work-board-column")).toContain("max-height: 100%;");
     expect(rule(board, ".work-board")).toContain("flex-direction: column;");
   });
 
@@ -58,13 +61,21 @@ describe("the Board's columns scroll on their own", () => {
 });
 
 describe("the Feed scrolls", () => {
-  it("scrolls its entries in its column, with Tell the crew pinned below", () => {
+  it("is as tall as its entries up to a cap, then scrolls with Tell the crew pinned below", () => {
+    const feed = crew.slice(crew.indexOf("/* The Feed is as tall"));
+    expect(rule(feed, ".crew-feed")).toContain("max-height: min(100%, 520px);");
+    expect(rule(feed, ".crew-feed")).not.toMatch(/(^|[^-])height: /);
     expect(rule(crew, ".crew-feed-scroll")).toContain("overflow-y: auto;");
-    expect(rule(crew, ".crew-feed-scroll-wrap")).toContain("flex: 1 1 0;");
+    expect(rule(crew, ".crew-feed-scroll")).toContain("flex: 0 1 auto;");
+    expect(rule(crew, ".crew-feed-scroll-wrap")).toContain("flex: 0 1 auto;");
     expect(rule(crew, ".crew-feed .crew-tell")).toContain("flex: none;");
+    // Its entries give way when it's capped; the column keeps the rest.
+    expect(
+      rule(crew, ".work-board-column.crew-feed > .crew-feed-scroll-wrap"),
+    ).toContain("flex-shrink: 1;");
     expect(
       within(crew, "max-width: 1180px", ".work-board[data-crew] .crew-feed"),
-    ).toContain("height: 420px;");
+    ).toContain("max-height: 420px;");
   });
 
   it("folds a long entry to four lines", () => {

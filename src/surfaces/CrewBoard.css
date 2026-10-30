@@ -133,7 +133,7 @@
 
   .work-board[data-crew] .crew-feed {
     grid-column: 1 / -1;
-    height: 420px;
+    max-height: 420px;
   }
 
   /* Two rows: the board scrolls, and each column keeps to its own height. */
@@ -551,23 +551,29 @@
   margin-top: 2px;
 }
 
-/* The Feed scrolls on its own, sized to its column; Tell the crew stays at
-   the bottom. */
+/* The Feed is as tall as its entries, like the columns, up to the space
+   left in the pane or 520px; then it scrolls inside itself, with Tell the
+   crew kept at its bottom. */
 .crew-feed {
-  min-height: 0;
+  max-height: min(100%, 520px);
 }
 
 .crew-feed-scroll-wrap {
   position: relative;
   display: flex;
   min-height: 0;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   flex-direction: column;
+}
+
+/* Of the Feed's parts only its entries give way (a column keeps the rest). */
+.work-board-column.crew-feed > .crew-feed-scroll-wrap {
+  flex-shrink: 1;
 }
 
 .crew-feed-scroll {
   min-height: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
