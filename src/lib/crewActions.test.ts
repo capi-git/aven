@@ -34,6 +34,7 @@ import {
   setFeatureCardBackend,
 } from "./featureCards";
 import { localDay, resetProjectBotsCache } from "./projectBots";
+import { crewCardMenu } from "./crewView";
 
 const host = vi.hoisted(() => ({
   apply: vi.fn(),
@@ -153,6 +154,35 @@ describe("Apply lands exactly the reviewed change", () => {
     // Apply never resets the copy: the next card syncs it itself, under its
     // own turn, so this can't race a card already started.
     expect(host.sync).not.toHaveBeenCalled();
+  });
+
+  it("never applies settings or hooks that could run as you; you can take it over", async () => {
+    const id = await crewWithReadyCard();
+    updateCrew(PATH, (crew) => {
+      const card = crewCard(crew, id)!;
+      return withCard(crew, {
+        ...card,
+        fix: {
+          ...card.fix!,
+          paths: [
+            { path: "src/theme.ts", additions: 1, deletions: 0 },
+            { path: ".Claude/settings.local.json", additions: 3, deletions: 0 },
+            { path: ".husky/pre-commit", additions: 1, deletions: 0 },
+          ],
+        },
+      });
+    });
+    host.apply.mockClear();
+    const problem = await applyCrewCard(PATH, id, NOON);
+    expect(problem).toBe(
+      "Aven didn't apply this fix: it changes settings or hooks that could run commands as you (.Claude/settings.local.json, .husky/pre-commit). Take it over in a chat to apply that part yourself.",
+    );
+    expect(host.apply).not.toHaveBeenCalled();
+    const card = crewCard(getCrew(PATH)!, id)!;
+    expect(card).toMatchObject({ stage: "ready", error: problem });
+    expect(crewCardMenu(card).map((action) => action.label)).toEqual([
+      "Take over in a chat",
+    ]);
   });
 
   // crews-review/apply-refresh: two Apply clicks must never land a change

@@ -449,6 +449,8 @@ export function crewIdeaInfo(
 
 /** What a crew card's ⋯ adds while the crew works on it: Pause or Resume, and Stop. */
 export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
+  // Ready: Apply is the way; a fix Apply won't take can be taken over.
+  if (card.stage === "ready") return [A.takeOver];
   if (card.stage !== "building" && card.stage !== "checking") return [];
   return [
     card.paused

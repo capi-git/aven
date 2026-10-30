@@ -56,6 +56,7 @@ import {
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
 import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
+import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
 
 /**
@@ -515,6 +516,17 @@ export async function applyCrewCard(
     return NOT_READY;
   if (card.turn || jobIsLive(crew.job, now)) return STILL_WORKING;
   const fix = card.fix;
+  // Settings an app would run as you, or a hook manager's folder: never
+  // applied this way (the host refuses them too).
+  const guarded = protectedFixPaths(fix.paths.map((entry) => entry.path));
+  if (guarded.length) {
+    const text = `Aven didn't apply this fix: it changes settings or hooks that could run commands as you (${guarded.join(", ")}). Take it over in a chat to apply that part yourself.`;
+    updateCrew(path, (current) => {
+      const known = crewCard(current, cardId);
+      return known ? withCard(current, { ...known, error: text }) : current;
+    });
+    return text;
+  }
   try {
     await botCopyHost.apply(path, crew.copy.path, fix.base, fix.hash);
   } catch (error) {

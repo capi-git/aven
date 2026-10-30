@@ -163,8 +163,10 @@ export function botPermissionRules(
     deny: [
       ...NEVER_GIT,
       ...DEPLOY_AND_PUBLISH,
-      // Settings in its copy that an app would run as the user.
+      // Settings in its copy that an app would run as the user, and the
+      // user's own.
       ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
+      ...USER_CONFIG_RULES,
     ],
     ask: [
       // Changing the user's own files, rather than its copy. Elsewhere,
@@ -202,7 +204,61 @@ export const BOT_ALLOWED_HOSTS = [
  * as the user. No bot or crew member may write them; Aven removes any it
  * finds there (see `bot_copy_planted`).
  */
-export const COPY_SETTINGS = [".claude", ".mcp.json", ".vscode"] as const;
+export const COPY_SETTINGS = [
+  ".claude",
+  ".codex",
+  ".agents",
+  ".mcp.json",
+  ".vscode",
+] as const;
+
+/**
+ * Your own settings outside the copy, which an agent must never edit:
+ * Claude's and Codex's, git's, and the shell's startup files. Its sandbox
+ * already keeps its commands out of them; these keep its edit tools out.
+ */
+export const USER_CONFIG_RULES = [
+  "Edit(~/.claude/**)",
+  "Edit(~/.claude.json)",
+  "Edit(~/.codex/**)",
+  "Edit(~/.gitconfig)",
+  "Edit(~/.config/git/**)",
+  "Edit(~/.zshrc)",
+  "Edit(~/.zprofile)",
+  "Edit(~/.zshenv)",
+  "Edit(~/.bashrc)",
+  "Edit(~/.bash_profile)",
+  "Edit(~/.profile)",
+];
+
+/**
+ * Paths a fix may not bring into your files (Apply refuses it; you can take
+ * it over in a chat): settings an app would run as you, and the folders git
+ * hook managers run from. Matched by their first part, without case. The
+ * host refuses them too (see `PROTECTED` in project_bots.rs).
+ */
+export const PROTECTED_FIX_PATHS = [
+  ".claude",
+  ".codex",
+  ".agents",
+  ".vscode",
+  ".mcp.json",
+  ".husky",
+  ".githooks",
+  ".git-hooks",
+  ".lefthook",
+  "lefthook.yml",
+  ".lefthook.yml",
+  ".pre-commit-config.yaml",
+] as const;
+
+/** The protected paths among a fix's files. */
+export function protectedFixPaths(paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const first = path.replace(/\\/g, "/").split("/")[0]!.toLowerCase();
+    return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
+  });
+}
 
 /** Edit rules for a copy's settings files and folders, which no bot may write. */
 export function copySettingsRules(copy: string): string[] {

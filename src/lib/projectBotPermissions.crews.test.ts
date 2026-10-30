@@ -277,6 +277,8 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
       expect(sandbox.filesystem?.denyWrite).toEqual(
         expect.arrayContaining([
           `${COPY}/.claude`,
+          `${COPY}/.codex`,
+          `${COPY}/.agents`,
           `${COPY}/.mcp.json`,
           `${COPY}/.vscode`,
           `${COPY}/.git`,
@@ -294,8 +296,21 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
         expect.arrayContaining([
           `Edit(/${COPY}/.claude)`,
           `Edit(/${COPY}/.claude/**)`,
+          `Edit(/${COPY}/.codex/**)`,
+          `Edit(/${COPY}/.agents/**)`,
           `Edit(/${COPY}/.mcp.json)`,
           `Edit(/${COPY}/.vscode/**)`,
+          // Your own settings, outside the copy.
+          "Edit(~/.claude/**)",
+          "Edit(~/.claude.json)",
+          "Edit(~/.codex/**)",
+          "Edit(~/.gitconfig)",
+          "Edit(~/.config/git/**)",
+          "Edit(~/.zshrc)",
+          "Edit(~/.zprofile)",
+          "Edit(~/.bashrc)",
+          "Edit(~/.bash_profile)",
+          "Edit(~/.profile)",
         ]),
       );
     for (const permissions of [

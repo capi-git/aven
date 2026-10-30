@@ -104,6 +104,8 @@ it("sandboxes a bot's commands: its copy and temp only, never the shared refs, r
     "/data/bots/orbit-1a2b/.git",
     // Settings an app would load from the copy and run as you.
     "/data/bots/orbit-1a2b/.claude",
+    "/data/bots/orbit-1a2b/.codex",
+    "/data/bots/orbit-1a2b/.agents",
     "/data/bots/orbit-1a2b/.mcp.json",
     "/data/bots/orbit-1a2b/.vscode",
   ]);
