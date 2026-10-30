@@ -115,7 +115,7 @@ type Props = {
   size?: ModalSize;
   /** Extra classes on the panel (fixed height, etc). */
   className?: string;
-  /** Shown before the title, such as a mascot. */
+  /** Shown before the title, such as a mark. */
   leading?: ReactNode;
   /** Shown after the title, before Close, such as an On switch. */
   trailing?: ReactNode;

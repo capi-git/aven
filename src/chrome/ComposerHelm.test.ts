@@ -22,8 +22,9 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
 const { ComposerHelm } = await import("./ComposerHelm");
 const { HelmRunContext } = await import("./HelmRun");
 const { CLAUDE_OPUS_5_5_MODEL } = await import("../lib/models");
-const { PROJECT_MASCOTS } = await import("../lib/projectMascots");
-const { HELM_CRITTER_KEY, HELM_DONE_MS } = await import("../lib/composerHelm");
+const { PROJECT_SIGILS, SIGIL_CRITTERS } = await import("../lib/dotSigils");
+const { HELM_CRITTER_EVENT, HELM_CRITTER_KEY, HELM_DONE_MS } =
+  await import("../lib/composerHelm");
 type HelmRun = import("./HelmRun").HelmRun;
 type Session = import("../lib/session").Session;
 
@@ -232,33 +233,38 @@ async function openByClick() {
   await act(async () => critter().click());
 }
 
-describe("the critter's states", () => {
-  it("dozes at rest with its zzz and the room bar over its head", async () => {
+/** The mark standing at the helm. */
+const mark = () => critter().querySelector<HTMLElement>(".helm-critter")!;
+
+describe("the mark's states", () => {
+  it("rests still with the room line over it", async () => {
     await render();
     expect(helm().dataset.pose).toBe("rest");
-    expect(host.querySelector(".helm-critter-zzz")).not.toBeNull();
-    const bar = host.querySelector<HTMLElement>(".helm-perch-room .helm-room")!;
-    expect(bar.querySelectorAll("i[data-lit]")).toHaveLength(3);
-    // 77% used: the tip is amber.
-    expect(bar.dataset.tone).toBe("amber");
+    expect(mark().dataset.state).toBe("still");
+    const line = host.querySelector<HTMLElement>(
+      ".helm-perch-room .helm-room",
+    )!;
+    // 77% used: 23% of the line is left, in amber.
+    expect(line.querySelector("i")!.style.transform).toBe("scaleX(0.23)");
+    expect(line.dataset.tone).toBe("amber");
     // Nothing to send yet: the plane is put away.
     expect(
       host.querySelector<HTMLButtonElement>("[data-helm-send]")!.hidden,
     ).toBe(true);
   });
 
-  it("wakes to watch the text and holds the paper plane that sends", async () => {
+  it("breathes while you type, beside the button that sends", async () => {
     props.hasValue = true;
     await render();
     expect(helm().dataset.pose).toBe("typing");
-    expect(host.querySelector(".helm-critter-zzz")).toBeNull();
+    expect(mark().dataset.state).toBe("idle");
     const plane = host.querySelector<HTMLButtonElement>("[data-helm-send]")!;
     expect(plane.getAttribute("aria-label")).toBe("Send");
     await act(async () => plane.click());
     expect(props.onSend).toHaveBeenCalledOnce();
   });
 
-  it("names the plane for what sending does while the agent works", async () => {
+  it("names Send for what sending does while the agent works", async () => {
     props.hasValue = true;
     props.busy = true;
     props.sendLabel = "Queue message";
@@ -268,7 +274,7 @@ describe("the critter's states", () => {
     ).toBe("Queue message");
   });
 
-  it("looks up at its dialog when pointed at", async () => {
+  it("opens its menu when pointed at", async () => {
     vi.useFakeTimers();
     await render();
     await act(async () => {
@@ -305,7 +311,7 @@ describe("the critter's states", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("types at its laptop while the agent works, saying what and how long, with the one Stop", async () => {
+  it("sweeps a light while the agent works, saying what and how long, with the one Stop", async () => {
     run = {
       session: session({
         busy: true,
@@ -342,7 +348,10 @@ describe("the critter's states", () => {
     props.busy = true;
     await render();
     expect(helm().dataset.pose).toBe("running");
-    expect(host.querySelector(".helm-critter-laptop")).not.toBeNull();
+    expect(mark().dataset.state).toBe("working");
+    expect(mark().querySelectorAll(".dot-mark-lit-d").length).toBeGreaterThan(
+      1,
+    );
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
@@ -367,7 +376,7 @@ describe("the critter's states", () => {
     expect(stops()).toHaveLength(0);
   });
 
-  it("sparkles when the turn ends, says how it went, then rests again", async () => {
+  it("turns into a tick when the turn ends, says how it went, then rests again", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const start = Date.now();
     const blocks = [
@@ -399,7 +408,8 @@ describe("the critter's states", () => {
     ended("u1", "completed");
     await render();
     expect(helm().dataset.pose).toBe("done");
-    expect(host.querySelector(".helm-critter-sparkle")).not.toBeNull();
+    expect(mark().dataset.state).toBe("done");
+    expect(mark().querySelector(".dot-mark-status")).not.toBeNull();
     const bubble = host.querySelector('[data-helm-say="done"]')!;
     expect(bubble.textContent).toContain("Done in 1:12");
     expect(bubble.textContent).toContain("3 files changed");
@@ -407,9 +417,10 @@ describe("the critter's states", () => {
     await render();
     expect(host.querySelector("[data-helm-say]")).toBeNull();
     expect(helm().dataset.pose).toBe("rest");
+    expect(mark().dataset.state).toBe("still");
   });
 
-  it("sweats on a failure and offers the fixes Aven has, until dismissed", async () => {
+  it("shows a cross on a failure and offers the fixes Aven has, until dismissed", async () => {
     const blocks = [
       {
         id: "u9",
@@ -428,7 +439,7 @@ describe("the critter's states", () => {
     ended("u9", "failed");
     await render();
     expect(helm().dataset.pose).toBe("error");
-    expect(host.querySelector(".helm-critter-sweat")).not.toBeNull();
+    expect(mark().dataset.state).toBe("error");
     const bubble = host.querySelector('[data-helm-say="error"]')!;
     const fixes = [...bubble.querySelectorAll("[data-helm-fix]")].map(
       (b) => b.textContent,
@@ -474,32 +485,13 @@ describe("the critter's states", () => {
     expect(onOpenTerminal).toHaveBeenCalledWith("chat-1");
   });
 
-  it("stands still with reduced motion: no unfurl, the dialog shows at once", async () => {
-    reducedMotion = true;
-    await render();
-    expect(helm().dataset.reduced).toBe("true");
-    await openByClick();
-    expect(dialog()).not.toBeNull();
-    expect(animate).not.toHaveBeenCalled();
-  });
-
-  it("unfurls the dialog from its tail in stepped frames", async () => {
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(320);
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(180);
+  it("opens its menu with a short fade from the stylesheet, never stepped frames", async () => {
     critterAt(700);
     await render();
     await openByClick();
-    expect(animate).toHaveBeenCalledOnce();
-    const [frames, timing] = animate.mock.calls[0] as [
-      Keyframe[],
-      KeyframeAnimationOptions,
-    ];
-    expect(frames[0]).toMatchObject({ width: "0px", height: "0px" });
-    expect(frames.at(-1)).toMatchObject({ width: "320px", height: "180px" });
-    expect(
-      frames.slice(0, -1).every((frame) => frame.easing === "step-end"),
-    ).toBe(true);
-    expect(timing.duration).toBeLessThanOrEqual(240);
+    expect(dialog()).not.toBeNull();
+    // No size stepping from script: the fade is CSS, off with reduced motion.
+    expect(animate).not.toHaveBeenCalled();
   });
 
   it("pauses while the window is hidden or the pane is parked", async () => {
@@ -657,11 +649,9 @@ describe("the dialog", () => {
     await openByClick();
     const placed = dialog()!;
     expect(placed.dataset.popoverSide).toBe("top");
-    // The room above: 150px, less the gap over the room bar and the window's
-    // edge.
-    expect(placed.style.maxHeight).toBe("122px");
-    const frames = animate.mock.calls[0][0] as Keyframe[];
-    expect(frames.at(-1)).toMatchObject({ height: "122px" });
+    // The room above: 150px, less the gap over the room line and the
+    // window's edge.
+    expect(placed.style.maxHeight).toBe("128px");
     // Every row is still there to scroll to and press.
     expect(rowIds()).toContain("model");
     await act(async () => row("model")!.click());
@@ -677,7 +667,7 @@ describe("the dialog", () => {
     expect(critter().getAttribute("aria-haspopup")).toBe("dialog");
   });
 
-  it("opens with Cmd+. and moves its ▶ cursor with the arrow keys", async () => {
+  it("opens with Cmd+. and moves its cursor with the arrow keys", async () => {
     await render();
     field.focus();
     await commandPeriod();
@@ -807,9 +797,8 @@ describe("the dialog", () => {
       '[aria-label="Recent skills"] [data-helm-item-index="0"]',
     )!;
     expect(item.classList).toContain("helm-row-skill");
-    // The cursor, the name, then what it does: no label column to squeeze it.
+    // The name, then what it does: no label column to squeeze it.
     expect([...item.children].map((child) => child.className)).toEqual([
-      "helm-cursor",
       "helm-value helm-skill",
       "helm-aside",
     ]);
@@ -870,45 +859,54 @@ describe("the dialog", () => {
   });
 });
 
-describe("choosing the critter", () => {
+describe("choosing the mark", () => {
   async function openPicker() {
     await commandPeriod();
     await key("End");
     await act(async () => row("critter")!.click());
   }
   const cells = () => [
-    ...document.body.querySelectorAll<HTMLButtonElement>(
-      "[data-critter-choice]",
-    ),
+    ...document.body.querySelectorAll<HTMLButtonElement>("[data-mark-choice]"),
   ];
 
   const current = () =>
-    PROJECT_MASCOTS.findIndex(
-      (mascot) =>
-        mascot.name ===
-        critter().querySelector(".helm-critter")!.getAttribute("data-critter"),
-    );
+    PROJECT_SIGILS.findIndex((sigil) => sigil.key === mark().dataset.sigil);
   const stage = () =>
     document.body.querySelector(".helm-critter-stage")!.textContent;
 
-  it("shows every critter by name, opens on the current one, and moves with the arrow keys", async () => {
+  it("labels its row Mark, in plain words", async () => {
+    await render();
+    await commandPeriod();
+    expect(row("critter")!.textContent).toContain("Mark");
+    expect(row("critter")!.textContent).toContain(
+      PROJECT_SIGILS[current()].label,
+    );
+    // Its label is words in the system font, not drawn letters.
+    expect(row("critter")!.querySelector(".helm-label svg")).toBeNull();
+    expect(row("critter")!.querySelector(".helm-label")!.textContent).toBe(
+      "Mark",
+    );
+  });
+
+  it("shows every mark by name, opens on the current one, and moves with the arrow keys", async () => {
     await render();
     const at = current();
+    expect(at).toBeGreaterThanOrEqual(0);
     await openPicker();
     expect(cells().map((cell) => cell.getAttribute("aria-label"))).toEqual(
-      PROJECT_MASCOTS.map((mascot) => mascot.label),
+      PROJECT_SIGILS.map((sigil) => sigil.label),
     );
-    // The cursor and the preview start on the critter standing here.
+    // The cursor and the preview start on the mark standing here.
     expect(document.activeElement).toBe(cells()[at]);
-    expect(stage()).toContain(PROJECT_MASCOTS[at].label);
+    expect(stage()).toContain(PROJECT_SIGILS[at].label);
     await key("ArrowRight");
-    const next = (at + 1) % PROJECT_MASCOTS.length;
+    const next = (at + 1) % PROJECT_SIGILS.length;
     expect(document.activeElement).toBe(cells()[next]);
     await key("ArrowDown");
-    const below = next + 6 < PROJECT_MASCOTS.length ? next + 6 : next % 6;
+    const below = next + 6 < PROJECT_SIGILS.length ? next + 6 : next % 6;
     expect(document.activeElement).toBe(cells()[below]);
-    // The one under the cursor is previewed, stepping its frames.
-    expect(stage()).toContain(PROJECT_MASCOTS[below].label);
+    // The one under the cursor is previewed.
+    expect(stage()).toContain(PROJECT_SIGILS[below].label);
   });
 
   it("forgets the preview on leaving the picker", async () => {
@@ -916,74 +914,55 @@ describe("choosing the critter", () => {
     const at = current();
     await openPicker();
     await key("ArrowRight");
-    const next = (at + 1) % PROJECT_MASCOTS.length;
-    expect(stage()).toContain(PROJECT_MASCOTS[next].label);
+    const next = (at + 1) % PROJECT_SIGILS.length;
+    expect(stage()).toContain(PROJECT_SIGILS[next].label);
     await key("Escape");
     expect(cursorRow()).toBe("critter");
     await act(async () => row("critter")!.click());
-    expect(stage()).toContain(PROJECT_MASCOTS[at].label);
+    expect(stage()).toContain(PROJECT_SIGILS[at].label);
   });
 
-  it("saves a project's pick where the project keeps its critter, with a hop", async () => {
+  it("saves a project's pick under its critter name, where the project keeps it", async () => {
     await render();
-    const next = (current() + 1) % PROJECT_MASCOTS.length;
+    const next = PROJECT_SIGILS[(current() + 1) % PROJECT_SIGILS.length];
     await openPicker();
     await key("ArrowRight");
     await act(async () =>
       (document.activeElement as HTMLButtonElement).click(),
     );
     const saved = JSON.parse(storage.get("monocode:tab-group:mascots") ?? "{}");
-    expect(Object.values(saved)).toEqual([PROJECT_MASCOTS[next].name]);
-    expect(
-      critter().querySelector(".helm-critter")!.getAttribute("data-critter"),
-    ).toBe(PROJECT_MASCOTS[next].name);
+    expect(Object.values(saved)).toEqual([SIGIL_CRITTERS[next.key]]);
+    expect(mark().dataset.sigil).toBe(next.key);
     expect(critter().querySelector(".helm-critter-hop")).not.toBeNull();
   });
 
-  it("opens the custom colour picker from its swatch", async () => {
-    await render();
-    await openPicker();
-    const custom = document.body.querySelector<HTMLButtonElement>(
-      '.helm-critter-colors [aria-label="Custom color"]',
-    )!;
-    await act(async () => custom.click());
-    expect(custom.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      document.body.querySelector('.helm-critter-colors [aria-label="Hue"]'),
-    ).not.toBeNull();
-  });
-
-  it("keeps your own critter for chats outside a project", async () => {
+  it("keeps your own mark for chats outside a project, and any colour saved before", async () => {
     props.critterPath = "~";
+    storage.set(
+      HELM_CRITTER_KEY,
+      JSON.stringify({ mascot: "owl", colorIndex: 3 }),
+    );
     await render();
-    expect(
-      critter().querySelector(".helm-critter")!.getAttribute("data-critter"),
-    ).toBe("owl");
+    // Read again, as another window's change would be.
+    await act(async () => {
+      window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
+    });
+    // The owl picked before marks reads as the Eye.
+    expect(mark().dataset.sigil).toBe("eye");
     await openPicker();
+    // Marks have no colour, so the picker offers none.
+    expect(document.body.querySelector(".helm-critter-colors")).toBeNull();
     await act(async () =>
       cells()
-        .find((cell) => cell.dataset.critterChoice === "fox")!
+        .find((cell) => cell.dataset.markChoice === "flag")!
         .click(),
     );
-    expect(JSON.parse(storage.get(HELM_CRITTER_KEY)!)).toMatchObject({
+    expect(JSON.parse(storage.get(HELM_CRITTER_KEY)!)).toEqual({
       mascot: "fox",
+      colorIndex: 3,
     });
-    expect(
-      critter().querySelector(".helm-critter")!.getAttribute("data-critter"),
-    ).toBe("fox");
+    expect(mark().dataset.sigil).toBe("flag");
     expect(storage.get("monocode:tab-group:mascots")).toBeUndefined();
-  });
-
-  it("reuses the project's colours", async () => {
-    await render();
-    await openPicker();
-    const swatches = document.body.querySelectorAll(
-      ".helm-critter-colors button[aria-label^='Color']",
-    );
-    expect(swatches.length).toBeGreaterThan(5);
-    await act(async () => (swatches[2] as HTMLButtonElement).click());
-    const saved = JSON.parse(storage.get("monocode:tab-group:colors") ?? "{}");
-    expect(Object.values(saved).map(Number)).toEqual([2]);
   });
 });
 
@@ -1093,23 +1072,17 @@ describe("the keyboard around the critter", () => {
     expect(document.activeElement).toBe(field);
   });
 
-  it("moves Tab between the critter picker's controls without closing", async () => {
+  it("takes Tab from the mark picker back to the message", async () => {
     await render();
+    field.focus();
     await commandPeriod();
     await key("End");
     await act(async () => row("critter")!.click());
     const cell = document.activeElement!;
     expect(cell.hasAttribute("data-critter-choice")).toBe(true);
-    const event = new KeyboardEvent("keydown", {
-      key: "Tab",
-      bubbles: true,
-      cancelable: true,
-    });
-    await act(async () => {
-      cell.dispatchEvent(event);
-    });
-    // The browser moves on to the colours; the dialog stays.
-    expect(event.defaultPrevented).toBe(false);
-    expect(dialog()).not.toBeNull();
+    // The marks are the picker's last stop: there are no colours after them.
+    await key("Tab", cell);
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(field);
   });
 });

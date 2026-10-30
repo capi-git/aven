@@ -2,8 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PROJECT_MASCOTS } from "../lib/projectMascots";
-import { TAB_GROUP_COLORS } from "../lib/tabGroups";
+import { PROJECT_SIGILS, SIGIL_CRITTERS } from "../lib/dotSigils";
+import { loadTabGroupMascots } from "../lib/tabGroups";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 
 const PATH = "/Users/me/Developer/app";
@@ -43,56 +43,57 @@ async function open() {
   );
 }
 
-const mascots = () => [
+const marks = () => [
   ...document.body.querySelectorAll<HTMLButtonElement>(
-    '[role="radiogroup"][aria-label="Mascot"] [role="radio"]',
+    '[role="radiogroup"][aria-label="Mark"] [role="radio"]',
   ),
 ];
 
-describe("mascot picker", () => {
-  it("lays every mascot out in wrapping cells, six to a row", async () => {
+describe("mark picker", () => {
+  it("lays every project mark out in wrapping cells, six to a row", async () => {
     await open();
     const group = document.body.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Mascot"]',
+      '[role="radiogroup"][aria-label="Mark"]',
     )!;
-    // One row of fixed cells overflowed the popover and cut the last mascot
-    // in half; equal grid cells wrap instead.
+    // Equal grid cells that wrap, so none is cut at the popover's edge.
     expect(group.classList.contains("grid")).toBe(true);
     expect(group.classList.contains("grid-cols-6")).toBe(true);
     expect(group.classList.contains("flex")).toBe(false);
-    // All twelve critters, by the names people call them.
-    expect(PROJECT_MASCOTS).toHaveLength(12);
-    expect(mascots().map((button) => button.title)).toEqual(
-      PROJECT_MASCOTS.map((mascot) => mascot.label),
+    // All twelve, by their names, each drawn in dots.
+    expect(PROJECT_SIGILS).toHaveLength(12);
+    expect(marks().map((button) => button.title)).toEqual(
+      PROJECT_SIGILS.map((sigil) => sigil.label),
     );
-    expect(
-      mascots().map((button) => button.getAttribute("aria-label")),
-    ).toEqual(PROJECT_MASCOTS.map((mascot) => mascot.label));
-    expect(mascots()[4].title).toBe("Jellyfish");
-    for (const button of mascots()) {
+    expect(marks().map((button) => button.getAttribute("aria-label"))).toEqual(
+      PROJECT_SIGILS.map((sigil) => sigil.label),
+    );
+    for (const button of marks()) {
+      expect(button.querySelector(".dot-mark")).not.toBeNull();
       // A cell takes its column's width rather than a size of its own.
       expect(button.classList.contains("shrink-0")).toBe(false);
       expect(button.className).not.toMatch(/\bsize-\d/);
     }
   });
 
-  it("marks the chosen mascot and moves the mark when another is picked", async () => {
+  it("marks the chosen mark and saves another under its critter name", async () => {
     await open();
     const checked = () =>
-      mascots()
+      marks()
         .filter((button) => button.getAttribute("aria-checked") === "true")
         .map((button) => button.title);
     expect(checked()).toHaveLength(1);
-    const other = mascots().find(
+    const other = marks().find(
       (button) => button.getAttribute("aria-checked") !== "true",
     )!;
     await act(async () => other.click());
     expect(checked()).toEqual([other.title]);
+    const key = other.dataset.markChoice!;
+    expect(Object.values(loadTabGroupMascots())).toEqual([SIGIL_CRITTERS[key]]);
   });
 
-  it("keeps every mascot reachable from the keyboard", async () => {
+  it("keeps every mark reachable from the keyboard", async () => {
     await open();
-    for (const button of mascots()) {
+    for (const button of marks()) {
       expect(button.tagName).toBe("BUTTON");
       expect(button.tabIndex).toBe(0);
       expect(button.disabled).toBe(false);
@@ -100,18 +101,14 @@ describe("mascot picker", () => {
   });
 });
 
-describe("colour row", () => {
-  it("offers every colour and the custom colour", async () => {
+describe("colour", () => {
+  it("offers no colour: marks have none", async () => {
     await open();
-    const labels = [
-      ...document.body.querySelectorAll<HTMLButtonElement>(
+    expect(
+      document.body.querySelectorAll(
         'button[aria-label^="Color "], button[aria-label="Custom color"]',
       ),
-    ].map((button) => button.getAttribute("aria-label"));
-    expect(labels).toEqual([
-      ...TAB_GROUP_COLORS.map((_, index) => `Color ${index + 1}`),
-      "Custom color",
-    ]);
+    ).toHaveLength(0);
   });
 });
 

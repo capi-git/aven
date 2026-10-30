@@ -1,26 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { useProjectMemory } from "../hooks/useProjectMemory";
-import { normalizeHex } from "../lib/colorUtils";
 import { logError } from "../lib/errors";
 import { projectName } from "../lib/paths";
 import { projectMemoryEdited } from "../lib/projectMemory";
 import { clearProjectLogo, pickAndSetProjectLogo } from "../lib/projectLogos";
-import { PROJECT_MASCOTS } from "../lib/projectMascots";
 import {
-  TAB_GROUP_COLORS,
+  PROJECT_SIGILS,
+  SIGIL_CRITTERS,
+  appearanceSigil,
+} from "../lib/dotSigils";
+import {
   clearTabGroupSettings,
-  saveTabGroupColor,
-  saveTabGroupCustomColor,
   saveTabGroupLabel,
   saveTabGroupMascot,
 } from "../lib/tabGroups";
-import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
+import { DotMark } from "./DotMark";
 import { Brain, ChevronRight, ImagePlus, Trash2 } from "./icons";
 import { MemoryKeeperSwitch } from "./MemoryKeeper";
 import { Popover, type PopoverAnchor } from "./Popover";
 import { ProjectMark } from "./ProjectMark";
-import { ProjectMascot } from "./ProjectMascot";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 
 type Props = {
@@ -30,9 +29,9 @@ type Props = {
 };
 
 /**
- * Name, colour, logo and mascot for one project. Changes apply as they are
- * made and reach every window; Reset returns to the folder name and the
- * automatic colour and mascot. Project memory opens its own editor from here,
+ * Name, mark and logo for one project. Changes apply as they are made and
+ * reach every window; Reset returns to the folder name and the automatic
+ * mark. Project memory opens its own editor from here,
  * so every place that customizes a project also reaches its memory.
  */
 export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
@@ -58,7 +57,6 @@ function ProjectAppearancePopover({
   const appearance = useProjectAppearance(path);
   const folder = projectName(path);
   const [name, setName] = useState(appearance?.customLabel ?? "");
-  const [customOpen, setCustomOpen] = useState(appearance?.customColor != null);
   const [logoBusy, setLogoBusy] = useState(false);
   const nameRef = useRef(name);
   nameRef.current = name;
@@ -102,22 +100,17 @@ function ProjectAppearancePopover({
   const reset = () => {
     committed.current = "";
     setName("");
-    setCustomOpen(false);
     // Reads the logo record before the settings below drop it.
     if (appearance.logoPath) removeLogo();
     clearTabGroupSettings(key);
   };
 
-  const shownIndex =
-    appearance.customColor != null
-      ? null
-      : (appearance.colorIndex ?? appearance.automaticColorIndex);
+  // A colour saved before marks is kept, unseen: marks have none.
   const customized =
     appearance.customLabel != null ||
-    appearance.colorIndex != null ||
-    appearance.customColor != null ||
     appearance.mascotOverride != null ||
     appearance.logoPath != null;
+  const shown = appearanceSigil(appearance).key;
 
   return (
     <Popover
@@ -157,57 +150,34 @@ function ProjectAppearancePopover({
         />
       </div>
 
-      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Colour</p>
-      <ColorSwatchRow
-        colors={TAB_GROUP_COLORS}
-        colorIndex={shownIndex ?? -1}
-        customColor={appearance.customColor}
-        customPickerOpen={customOpen}
-        onPickIndex={(index) => {
-          setCustomOpen(false);
-          saveTabGroupColor(key, index);
-        }}
-        onToggleCustom={() => setCustomOpen((open) => !open)}
-      />
-      {customOpen ? (
-        <ColorPickerPopover
-          value={appearance.customColor ?? normalizeHex(appearance.color)}
-          onChange={(color) => saveTabGroupCustomColor(key, color)}
-        />
-      ) : null}
-
-      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Mascot</p>
-      {/* Equal cells that wrap, six to a row, so every mascot fits the
-          popover's width however many there are. */}
+      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Mark</p>
+      {/* Equal cells that wrap, six to a row. Each mark is saved under the
+          critter name it stands for, as picks were before marks. */}
       <div
         className="grid grid-cols-6 gap-1"
         role="radiogroup"
-        aria-label="Mascot"
+        aria-label="Mark"
       >
-        {PROJECT_MASCOTS.map((mascot) => {
-          const selected = appearance.mascot === mascot.name;
+        {PROJECT_SIGILS.map((sigil) => {
+          const selected = shown === sigil.key;
           return (
             <button
-              key={mascot.name}
+              key={sigil.key}
               type="button"
               role="radio"
-              title={mascot.label}
-              aria-label={mascot.label}
+              title={sigil.label}
+              aria-label={sigil.label}
               aria-checked={selected}
+              data-mark-choice={sigil.key}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => saveTabGroupMascot(key, mascot.name)}
-              className={`grid h-7 min-w-0 place-items-center rounded-md ${
+              onClick={() => saveTabGroupMascot(key, SIGIL_CRITTERS[sigil.key])}
+              className={`grid h-8 min-w-0 place-items-center rounded-md ${
                 selected
                   ? "bg-content/12 ring-1 ring-content/40"
                   : "hover:bg-content/8"
               }`}
             >
-              <ProjectMascot
-                project={key}
-                name={mascot.name}
-                color={appearance.color}
-                className="size-[18px]"
-              />
+              <DotMark sigil={sigil} className="size-5" />
             </button>
           );
         })}

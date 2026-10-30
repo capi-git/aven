@@ -68,7 +68,7 @@ describe("one Stop", () => {
   });
 });
 
-describe("a working critter", () => {
+describe("a working mark", () => {
   const helm = (html: string, pose = "running") => {
     const element = document.createElement("div");
     element.dataset.pose = pose;
@@ -76,10 +76,12 @@ describe("a working critter", () => {
     return element;
   };
   const working =
-    '<svg><g class="helm-critter-laptop"></g></svg><div data-helm-say="running"><span role="timer">0:04</span></div>';
+    '<span class="dot-mark helm-critter" data-state="working"><svg><path class="dot-mark-lit-d"></path></svg></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
 
-  it("types at its laptop, stepping its frames, and says for how long", () => {
-    expect(helmWorkingProblem(helm(working), "helm-frame-a", false)).toBeNull();
+  it("sweeps a light across the mark and says for how long", () => {
+    expect(
+      helmWorkingProblem(helm(working), "dot-mark-sweep", false),
+    ).toBeNull();
     expect(helmWorkingProblem(helm(working), "none", true)).toBeNull();
   });
 
@@ -88,10 +90,17 @@ describe("a working critter", () => {
       "the message box has no helm",
     );
     expect(helmWorkingProblem(helm(working, "rest"), "", false)).toBe(
-      "the critter is rest, not running",
+      "the mark is rest, not running",
     );
+    expect(
+      helmWorkingProblem(
+        helm(working.replace('"working"', '"still"')),
+        "",
+        false,
+      ),
+    ).toBe("the mark is not sweeping");
     expect(helmWorkingProblem(helm(working), "none", false)).toBe(
-      "the laptop frames: its animation is none, expected helm-frame-a",
+      "the sweep: its animation is none, expected dot-mark-sweep",
     );
   });
 });

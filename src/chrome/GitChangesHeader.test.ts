@@ -149,7 +149,9 @@ describe("CleanState", () => {
     expect(text).toContain("All clean");
     expect(text).toContain("main is clean and up to date");
     expect(text).toContain("Last commit");
-    expect(container.querySelector("svg.git-clean-mascot")).not.toBeNull();
+    expect(
+      container.querySelector(".dot-mark.git-clean-mascot"),
+    ).not.toBeNull();
     const buttons = Array.from(container.querySelectorAll("button"));
     expect(buttons.map((b) => b.textContent)).toEqual([
       "History",

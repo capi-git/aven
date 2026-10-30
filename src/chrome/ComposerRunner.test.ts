@@ -185,7 +185,7 @@ describe("composer mascot presentation", () => {
   });
 
   const y = () => sprite().style.getPropertyValue("--runner-y");
-  const mascot = () => sprite().querySelector("svg")!;
+  const mascot = () => sprite().querySelector<HTMLElement>(".dot-mark")!;
   const finish = (outcome: ActivityOutcome, id = "turn") =>
     act(
       async () =>
@@ -204,14 +204,14 @@ describe("composer mascot presentation", () => {
   it("plays the turn's reaction on the rim, then hops away", async () => {
     await render(true);
     await frame(32);
-    expect(mascot().classList.contains("mascot-active")).toBe(true);
+    expect(mascot().dataset.state).toBe("working");
     await finish("completed");
     // Still working: another session's end never shows on a busy runner.
     expect(mascot().dataset.reaction).toBeUndefined();
     await finish("completed", "ended");
     await render(true, false);
     expect(mascot().dataset.reaction).toBe("cheer");
-    expect(mascot().classList.contains("mascot-active")).toBe(false);
+    expect(mascot().dataset.state).toBe("done");
     await frame(48);
     const rim = y();
     await frame(32 + MASCOT_REACTION_MS.cheer - 1);

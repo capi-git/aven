@@ -1,10 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  HELM_PIXEL,
-  HELM_SPRING,
-  HELM_UNFURL_STEPS,
-  helmUnfurlSteps,
   TAB_CSS_SPRINGS,
   TAB_FLICK_SPEED,
   TAB_LIFT_SCALE,
@@ -130,30 +126,5 @@ describe("tab motion tokens", () => {
     );
     expect(preview).toMatch(/TAB_SPRING\.move/);
     expect(preview).not.toMatch(/damping:|DOCK_TWEEN_MS|DOCK_EASE/);
-  });
-});
-
-describe("the helm's unfurl", () => {
-  it("is a critically damped spring: a menu that only opened never overshoots", () => {
-    expect(HELM_SPRING.unfurl.damping).toBe(1);
-  });
-
-  it("grows the frame in a few whole-pixel steps, ending full size", () => {
-    const steps = helmUnfurlSteps(300);
-    expect(steps).toHaveLength(HELM_UNFURL_STEPS);
-    expect(steps.at(-1)).toBe(1);
-    for (let index = 1; index < steps.length; index++)
-      expect(steps[index]).toBeGreaterThan(steps[index - 1]);
-    // Each step but the last lands on the 3px grid.
-    for (const fraction of steps.slice(0, -1))
-      expect(Math.round(fraction * 300) % HELM_PIXEL).toBe(0);
-    // It starts as a speck at the tail, as in the mock-ups' first frame.
-    expect(steps[0]).toBeLessThan(0.3);
-    // And follows the spring: most of the way by the third beat.
-    expect(steps[2]).toBeGreaterThan(0.6);
-  });
-
-  it("never starts smaller than one pixel", () => {
-    expect(helmUnfurlSteps(4)[0]).toBeGreaterThanOrEqual(HELM_PIXEL / 4);
   });
 });

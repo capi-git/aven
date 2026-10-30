@@ -109,18 +109,21 @@ it("still opens the context menu at the pointer", async () => {
   expect(frame?.style.top).toBe("50px");
 });
 
-it("shows the project's mascot in its colour, stepping only while an agent runs", async () => {
+it("shows the project's mark without its colour, sweeping only while an agent runs", async () => {
   await render();
-  const mascot = () => host.querySelector<SVGElement>(".project-mark svg")!;
+  const mark = () =>
+    host.querySelector<HTMLElement>(".project-mark .dot-mark")!;
   expect(host.querySelector(".project-mark")?.getAttribute("data-kind")).toBe(
-    "mascot",
+    "mark",
   );
-  expect(mascot().classList.contains("mascot-active")).toBe(false);
+  expect(mark().dataset.state).toBe("still");
+  // A colour saved before marks stays saved, and unseen.
   await act(async () => saveTabGroupColor(projectKey(PATH), 4));
-  expect(mascot().style.color).toBe(TAB_GROUP_COLORS[4]);
+  expect(mark().getAttribute("style")).toBeNull();
+  expect(host.innerHTML).not.toContain(TAB_GROUP_COLORS[4]);
   await render({ running: 1, waiting: 0, unread: 0 });
-  expect(mascot().classList.contains("mascot-active")).toBe(true);
-  // The working dot is gone: the mascot carries the state.
+  expect(mark().dataset.state).toBe("working");
+  // The working dot is gone: the mark carries the state.
   expect(host.querySelector(".personal-task-working-dot")).toBeNull();
 });
 
@@ -159,7 +162,7 @@ it("spells out what is happening in the tooltip and keeps the marks quiet", asyn
   expect(host.querySelectorAll(".personal-project-row-action")).toHaveLength(2);
 });
 
-it("customizes the name, colour and mascot from the actions menu, and resets", async () => {
+it("customizes the name and mark from the actions menu, and resets", async () => {
   await render();
   const button = host.querySelector<HTMLButtonElement>(
     ".personal-project-more",
@@ -187,17 +190,14 @@ it("customizes the name, colour and mascot from the actions menu, and resets", a
     setter.call(name, "Aven app");
     name.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  // Marks have no colour, so the panel offers none.
+  expect(dialog()!.querySelector('button[aria-label="Color 3"]')).toBeNull();
   await act(async () =>
     dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Color 3"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Pillars"]')!
       .click(),
   );
-  await act(async () =>
-    dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Jellyfish"]')!
-      .click(),
-  );
-  expect(loadTabGroupColors()[projectKey(PATH)]).toBe(2);
+  // Saved under the critter name the mark stands for, as before marks.
   expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("jelly");
 
   await act(async () =>

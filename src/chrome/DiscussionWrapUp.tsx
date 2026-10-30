@@ -6,7 +6,8 @@ import {
 } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
 import { Check, Eye, RotateCcw } from "./icons";
-import { ProjectMascot } from "./ProjectMascot";
+import { projectSigil } from "../lib/dotSigils";
+import { DotMark } from "./DotMark";
 import { TeamCardButton } from "./TeamCard";
 import "./DiscussionWrapUp.css";
 
@@ -172,10 +173,8 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                 {sent ? (
                   <Check className="size-3 shrink-0" strokeWidth={2.5} />
                 ) : (
-                  <ProjectMascot
-                    project={voice.sessionId}
-                    name={voice.mascot}
-                    color={voice.color}
+                  <DotMark
+                    sigil={projectSigil(voice.mascot, voice.sessionId)}
                     className="discussion-build-sprite"
                   />
                 )}

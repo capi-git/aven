@@ -72,8 +72,13 @@
 .walkthrough-cast {
   display: flex;
   justify-content: center;
-  gap: 12px;
-  margin: 0 0 16px;
+  gap: 16px;
+  margin: 0 0 18px;
+}
+
+.dot-mark.walkthrough-cast-mark {
+  width: 35px;
+  height: 35px;
 }
 
 .walkthrough-title {

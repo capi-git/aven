@@ -71,11 +71,7 @@ import {
   type RateLimitProvider,
   type RateLimitWindow,
 } from "../lib/rateLimits";
-import {
-  RESTING_ZZZ_GRID,
-  RESTING_ZZZ_PATHS,
-  STREAK_FLAME_PATHS,
-} from "../lib/projectMascots";
+import { dotArtPath } from "../lib/dotSigils";
 import {
   loadReviewRequests,
   peekReviewRequests,
@@ -156,7 +152,7 @@ export type WorkspaceHomeProps = {
 const NEEDS_YOU_ROWS = 5;
 const RECENT_ROWS = 5;
 const ACTIVITY_ROWS = 8;
-/** A project untouched this long rests: its mascot dims. */
+/** A project untouched this long rests: its mark dims. */
 const RESTING_MS = 3 * 24 * 60 * 60 * 1000;
 
 const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
@@ -469,7 +465,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                         cwd={item.cwd}
                         title={item.title}
                         active
-                        // A team is one row: its mascots, its status and
+                        // A team is one row: its marks, its status and
                         // how many agents; it opens the chat it began in.
                         mark={
                           item.team ? (
@@ -759,14 +755,24 @@ function HomeRecap({
   );
 }
 
+/** The streak's flame in round dots: an amber body around a pale core. */
+const STREAK_FLAME_PATHS = {
+  body: dotArtPath([
+    "...#....",
+    "...##...",
+    "..###.#.",
+    ".######.",
+    ".##..##.",
+    ".#....#.",
+    ".##..##.",
+    "..####..",
+  ]),
+  core: dotArtPath(["...##...", "..####..", "...##..."], "#", { dy: 4 }),
+} as const;
+
 function StreakFlame() {
   return (
-    <svg
-      className="workspace-home-streak-flame"
-      viewBox="0 0 8 8"
-      shapeRendering="crispEdges"
-      aria-hidden
-    >
+    <svg className="workspace-home-streak-flame" viewBox="0 0 8 8" aria-hidden>
       <path
         className="workspace-home-streak-body"
         d={STREAK_FLAME_PATHS.body}
@@ -998,7 +1004,7 @@ type AgentTileProps = {
 };
 
 /**
- * A project's agent: its mascot (or logo) large, stepping while an agent
+ * A project's agent: its mark (or logo) large, a light sweeping while an agent
  * works, with what it is doing in a speech bubble, an amber "!" while it
  * waits on the user, and an unread count. The whole tile opens the project.
  */
@@ -1033,7 +1039,7 @@ const AgentTile = memo(
           : !project.lastActivity || now - project.lastActivity > RESTING_MS
             ? "resting"
             : "idle";
-    // A mascot left alone for days dozes; a new project only rests.
+    // A project left alone for days dozes; a new project only rests.
     const dozing = state === "resting" && !!project.lastActivity;
     const described = describeProjectStatus(status);
     const saying = waiting
@@ -1076,7 +1082,6 @@ const AgentTile = memo(
               reacts
               className="workspace-home-agent-mark"
             />
-            {dozing ? <RestingZzz /> : null}
             {unread ? (
               <span className="workspace-home-agent-badge">{unread}</span>
             ) : null}
@@ -1207,23 +1212,6 @@ const AgentTile = memo(
     equalChromeData(a.status, b.status),
 );
 
-/** A tiny pixel "zzz" over a mascot whose project has been idle for days. */
-function RestingZzz() {
-  return (
-    <svg
-      className="workspace-home-agent-zzz"
-      viewBox={`0 0 ${RESTING_ZZZ_GRID.width} ${RESTING_ZZZ_GRID.height}`}
-      shapeRendering="crispEdges"
-      fill="currentColor"
-      aria-hidden
-    >
-      {RESTING_ZZZ_PATHS.map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  );
-}
-
 /** One session in a dashboard list: mark, title over a quiet line, aside. */
 function SessionRow({
   cwd,
@@ -1241,7 +1229,7 @@ function SessionRow({
   line: ReactNode;
   aside: ReactNode;
   active?: boolean;
-  /** In place of the project's mascot, such as a team's. */
+  /** In place of the project's mark, such as a team's. */
   mark?: ReactNode;
   attention?: HomeAttention["kind"];
   outcome?: HomeFinished["kind"];

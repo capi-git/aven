@@ -114,7 +114,8 @@ async function settle() {
   });
 }
 
-const names = { builder: "Beetle", checker: "Owl" };
+// A crew made now: its members go by their roles.
+const names = { builder: "Builder", checker: "Checker" };
 
 function crewCardFor(
   board: FeatureCard,
@@ -300,7 +301,7 @@ describe("the crew view: the Board with the crew on it", () => {
       ),
     ).toEqual(["builder", "checker", "security"]);
     const feed = container.querySelector<HTMLElement>("[data-crew-feed]")!;
-    expect(feed.textContent).toContain("Beetle → Owl · round 1");
+    expect(feed.textContent).toContain("Builder → Checker · round 1");
     expect(feed.textContent).toContain(
       "A switch in Settings and a theme store.",
     );
@@ -320,7 +321,7 @@ describe("the crew view: the Board with the crew on it", () => {
     );
     expect(fixing.querySelector('[aria-label="Round 2 of 3"]')).toBeTruthy();
     expect(fixing.querySelector(".crew-card-line")?.textContent).toBe(
-      "Owl asked for 2 fixes · 4m",
+      "Checker asked for 2 fixes · 4m",
     );
     expect(button(fixing, "Watch")).toBeTruthy();
     // The Ready card sits in Review, whatever its saved column said.
@@ -401,7 +402,7 @@ describe("the crew view: the Board with the crew on it", () => {
     // The queued card shows who it went to and what you set for it.
     expect(
       card(boards[2].id).querySelector("[data-crew-assigned]")?.textContent,
-    ).toBe("Mole builds · Owl checks · high · 2 rounds");
+    ).toBe("Mole builds · Checker checks · high · 2 rounds");
     const idea = card(boards[0].id);
     await act(async () =>
       idea.querySelector<HTMLButtonElement>("[data-crew-give-more]")!.click(),
@@ -623,7 +624,7 @@ describe("the crew view: the Board with the crew on it", () => {
     });
     const ready = card(boards[3].id);
     expect(ready.querySelector(".crew-card-line")?.textContent).toContain(
-      "Owl passed it · Security: passed",
+      "Checker passed it · Security: passed",
     );
     await act(async () => button(ready, "Review")!.click());
     const sheet = document.querySelector<HTMLElement>(
@@ -688,7 +689,7 @@ describe("the crew view: the Board with the crew on it", () => {
     );
     const asking = card(boards[2].id);
     expect(asking.querySelector(".crew-card-stage")?.textContent).toBe(
-      "Needs you · Beetle asked: Keep each note's colour?",
+      "Needs you · Builder asked: Keep each note's colour?",
     );
     await act(async () => button(asking, "Answer")!.click());
     const box = asking.querySelector<HTMLTextAreaElement>("textarea")!;

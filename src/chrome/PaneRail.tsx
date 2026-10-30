@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { ProjectMascot } from "./ProjectMascot";
+import { appearanceSigil } from "../lib/dotSigils";
+import { DotMark } from "./DotMark";
 
 /** One tab of a collapsed pane, as its rail shows it. */
 export type PaneRailTab = {
@@ -30,7 +31,7 @@ export function paneRailLabel(tabs: readonly PaneRailTab[]): string {
 /**
  * The inside of a collapsed pane's rail: a mark for each of its tabs, the
  * one in front first and lit, its name running along the rail, and the
- * project's critter when a chat is on it, as on that chat's message box.
+ * project's mark when a chat is on it, as on that chat's message box.
  * The rail itself is the button that opens the pane (WorkspaceStage).
  */
 export function PaneRail({
@@ -39,7 +40,7 @@ export function PaneRail({
   chat = false,
 }: {
   tabs: readonly PaneRailTab[];
-  /** The project whose critter stands at the rail's foot. */
+  /** The project whose mark stands at the rail's foot. */
   project?: string | null;
   /** The pane holds a chat. */
   chat?: boolean;
@@ -74,12 +75,9 @@ export function PaneRail({
       ) : null}
       {appearance ? (
         <span className="aven-pane-rail-critter">
-          <ProjectMascot
-            project={appearance.key}
-            name={appearance.mascot}
-            color={appearance.color}
-            className="size-4"
-            active={tabs.some((tab) => tab.busy)}
+          <DotMark
+            sigil={appearanceSigil(appearance)}
+            state={tabs.some((tab) => tab.busy) ? "working" : "still"}
           />
         </span>
       ) : null}

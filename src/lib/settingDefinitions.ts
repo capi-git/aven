@@ -143,10 +143,12 @@ export const SETTINGS = {
       eventDetail: true,
     }),
     section: "general",
-    label: "Mascot in the message box",
-    description: "Show the project's animated mascot while an agent works.",
-    keywords: "composer pet animation working",
-    rowDescription: "Show a small animated mascot while an agent is working.",
+    label: "Running mark in the message box",
+    description:
+      "Show the project's mark running along the message box while an agent works.",
+    keywords: "composer pet mascot animation working runner",
+    rowDescription:
+      "Show the project's mark running along the message box while an agent is working.",
   }),
   gridArcadeEnabled: defineSetting({
     ...defineStoredSetting<boolean>({

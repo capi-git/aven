@@ -253,9 +253,9 @@ it("marks a project hit with the project's own logo, not its folder path", async
     );
     expect(sources.some((src) => src.includes("/logos/gamma.png"))).toBe(true);
     expect(sources.some((src) => src.includes("/Developer/gam"))).toBe(false);
-    // A project without a logo shows its mascot.
+    // A project without a logo shows its mark.
     expect(
-      container.querySelector('.project-mark[data-kind="mascot"]'),
+      container.querySelector('.project-mark[data-kind="mark"]'),
     ).not.toBeNull();
   } finally {
     await act(async () => root.unmount());

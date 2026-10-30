@@ -1,5 +1,5 @@
 /* One card family for a team in the chat it started from: a header with the
-   members' mascots, a title and a badge, a status line, a row per member,
+   members' marks, a title and a badge, a status line, a row per member,
    and actions at the bottom. Theme tokens only. */
 .team-card-row {
   padding: 4px 16px 10px;
@@ -43,11 +43,12 @@
   gap: 4px;
 }
 .team-card-tile .discussion-avatar {
+  --discussion-mark: 20px;
   width: 34px;
   height: 34px;
   border-radius: var(--aven-radius-row);
 }
-/* The pair's link: three square pixel dots, like the typing dots. */
+/* The pair's link: three round dots, like the typing dots. */
 .team-card-link {
   display: inline-flex;
   justify-content: center;
@@ -56,12 +57,15 @@
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
 .team-card-link i {
-  width: 2px;
-  height: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
   background: currentColor;
 }
-.team-card[data-state="live"] .team-card-link {
-  animation: team-card-link 1.6s steps(3, end) infinite;
+@media (prefers-reduced-motion: no-preference) {
+  .team-card[data-state="live"] .team-card-link {
+    animation: team-card-link 1.6s ease-in-out infinite;
+  }
 }
 @keyframes team-card-link {
   0% {
@@ -156,15 +160,12 @@ button.team-card-member-open:hover {
 }
 /* A member looks the same on the card and in the panel. */
 .team-card-member-face .discussion-avatar {
+  --discussion-mark: 15px;
   width: 24px;
   height: 24px;
   border-radius: 7px;
 }
-.team-card-member-face .discussion-avatar-sprite {
-  width: 18px;
-  height: 18px;
-}
-/* The role is named beside the member; its letter on the mascot would say
+/* The role is named beside the member; its letter on the mark would say
    it twice. */
 .team-card-member-face .discussion-avatar-role,
 .team-watch-member-face .discussion-avatar-role {
@@ -350,35 +351,28 @@ button.team-card-member-open:hover {
   }
 }
 
-/* A team's members as one row's mark: small mascots, overlapping. The
-   sprites draw at 12px, one pixel to each of their 12. */
+/* A team's members as one row's mark: small marks on grey tiles,
+   overlapping. */
 .team-mini-faces {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
 }
 .team-mini-faces .discussion-avatar {
+  --discussion-mark: 10px;
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: color-mix(
-    in srgb,
-    var(--discussion-voice) 16%,
-    var(--color-background-base)
-  );
+  background: var(--color-background-base);
 }
 .team-mini-faces .discussion-avatar + .discussion-avatar {
   margin-left: -5px;
-}
-.team-mini-faces .discussion-avatar-sprite {
-  width: 12px;
-  height: 12px;
 }
 .team-mini-faces .discussion-avatar-role {
   display: none;
 }
 
-/* A race as one sidebar row: its lanes' mascots and how far it is. */
+/* A race as one sidebar row: its lanes' marks and how far it is. */
 .sidebar-team-badge {
   display: inline-flex;
   flex-shrink: 1;
@@ -393,13 +387,10 @@ button.team-card-member-open:hover {
   color: var(--aven-needs-you);
 }
 .sidebar-team-badge .team-mini-faces .discussion-avatar {
-  width: 15px;
-  height: 15px;
+  --discussion-mark: 10px;
+  width: 16px;
+  height: 16px;
   border-radius: 4px;
-}
-.sidebar-team-badge .team-mini-faces .discussion-avatar-sprite {
-  width: 12px;
-  height: 12px;
 }
 .sidebar-team-badge-text {
   overflow: hidden;

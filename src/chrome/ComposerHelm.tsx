@@ -3,12 +3,10 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -32,9 +30,9 @@ import {
   moveHelmCursor,
   OPEN_USAGE_EVENT,
   roomBar,
-  ROOM_CELLS,
   saveHelmCritter,
   subscribeHelmCritter,
+  type HelmPose,
   type HelmRowId,
 } from "../lib/composerHelm";
 import { composerFit } from "../lib/composerFit";
@@ -45,11 +43,14 @@ import {
 } from "../lib/contextUsage";
 import { isHarnessAvailable } from "../lib/harness/availability";
 import { pickerModelsFor, preferredModelId } from "../lib/models";
-import { HELM_UNFURL_BEAT_MS, helmUnfurlSteps } from "../lib/motionTokens";
-import { pixelTextPath, PIXEL_FONT_HEIGHT } from "../lib/pixelFont";
+import {
+  PROJECT_SIGILS,
+  SIGIL_CRITTERS,
+  appearanceSigil,
+  projectSigil,
+} from "../lib/dotSigils";
 import { MOD } from "../lib/platform";
 import { hasProjectAppearance } from "../lib/projectAppearance";
-import { PROJECT_MASCOTS, projectMascot } from "../lib/projectMascots";
 import {
   HARNESS_TITLE,
   RUNTIME_MODE_LABEL,
@@ -57,20 +58,13 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import type { Skill } from "../lib/skills";
-import {
-  saveTabGroupColor,
-  saveTabGroupCustomColor,
-  saveTabGroupMascot,
-  TAB_GROUP_COLORS,
-} from "../lib/tabGroups";
-import { normalizeHex } from "../lib/colorUtils";
+import { saveTabGroupMascot } from "../lib/tabGroups";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
-import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
 import { HarnessIcon } from "./HarnessIcon";
-import { HelmCritter, PaperPlane } from "./HelmCritter";
+import { DotMark, type DotMarkState } from "./DotMark";
 import {
   HelmBubble,
   helmOutcome,
@@ -85,11 +79,11 @@ import {
   FilePlus,
   LockOpen,
   Lock,
+  MoveUp,
   Zap,
 } from "./icons";
 import { useModelPickerHotkey } from "./ModelPicker";
 import { Popover } from "./Popover";
-import { ProjectMascot } from "./ProjectMascot";
 import "./ComposerHelm.css";
 
 /** A mode the message box can be put in (the old + menu's toggles). */
@@ -103,11 +97,11 @@ export type HelmMode = {
 };
 
 type Props = {
-  /** The pane is on screen; a parked one stops its critter. */
+  /** The pane is on screen; a parked one stops its mark. */
   enabled: boolean;
   /** Cmd+. and the Switch Model… command open the dialog. */
   hotkeys: boolean;
-  /** The folder whose critter stands here: the chat's project, or a bot's. */
+  /** The folder whose mark stands here: the chat's project, or a bot's. */
   critterPath: string;
   harness: HarnessId;
   model: string;
@@ -130,7 +124,7 @@ type Props = {
   modes: readonly HelmMode[];
   /** Said in place of the modes while they are off (a discussion runs). */
   modesNote?: string;
-  /** The chip of the mode that is on, standing on the box beside the critter. */
+  /** The chip of the mode that is on, standing on the box beside the mark. */
   modeChip?: ReactNode;
   recentSkills: readonly Skill[];
   onPickSkill: (skill: Skill) => void;
@@ -156,60 +150,44 @@ const ROW_LABEL: Record<HelmRowId, string> = {
   files: "Files",
   modes: "Modes",
   skills: "Skills",
-  critter: "Critter",
+  critter: "Mark",
 };
 
-/** The dialog's width, and its distance above the critter (over its room bar). */
-const DIALOG_WIDTH = 324;
-const DIALOG_GAP = 20;
+/** The dialog's width, and its distance above the mark (over its room line). */
+const DIALOG_WIDTH = 340;
+const DIALOG_GAP = 14;
 /** Changes to the popover's placement to wait through for a refused focus. */
 const FOCUS_TRIES = 10;
-/** The popover's own distance from the window's edges. */
-const VIEWPORT_PADDING = 8;
 
-/** Six critters to a row in the picker grid. */
+/** Six marks to a row in the picker grid. */
 const CRITTER_COLUMNS = 6;
 
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
+/** What the mark at the helm shows for what the message box is doing. */
+const POSE_STATE: Record<HelmPose, DotMarkState> = {
+  rest: "still",
+  typing: "idle",
+  hover: "idle",
+  running: "working",
+  done: "done",
+  error: "error",
+};
+
+/** A row's label, in the system font. */
+function RowLabel({ text }: { text: string }) {
+  return <span className="helm-label">{text}</span>;
 }
 
-/** A row label in the critter's pixel font, with its words for readers. */
-function PixelLabel({ text }: { text: string }) {
-  const { d, width } = useMemo(() => pixelTextPath(text), [text]);
-  return (
-    <span className="helm-label">
-      <svg
-        aria-hidden
-        viewBox={`0 0 ${width} ${PIXEL_FONT_HEIGHT}`}
-        width={width}
-        height={PIXEL_FONT_HEIGHT}
-        shapeRendering="crispEdges"
-        fill="currentColor"
-      >
-        <path d={d} />
-      </svg>
-      <span className="sr-only">{text}</span>
-    </span>
-  );
-}
-
-/** The room bar: twelve cells of what is left, its tip amber then red. */
+/** The room left: a thin line, its fill amber then red as room runs out. */
 function RoomBar({ used }: { used: number }) {
-  const { lit, tone } = roomBar(used);
+  const { tone, percentLeft } = roomBar(used);
   return (
     <span className="helm-room" data-tone={tone} aria-hidden>
-      {Array.from({ length: ROOM_CELLS }, (_, index) => (
-        <i key={index} data-lit={index < lit || undefined} />
-      ))}
+      <i style={{ transform: `scaleX(${percentLeft / 100})` }} />
     </span>
   );
 }
 
+/** Effort as four round dots, as many lit as it thinks. */
 function Pips({ on }: { on: number }) {
   return (
     <span className="helm-pips" aria-hidden>
@@ -221,10 +199,10 @@ function Pips({ on }: { on: number }) {
 }
 
 /**
- * The message box's helm: the project's critter on the box's top-right
- * corner, with the paper plane that sends and its speech bubble. Pointing
- * at it (or focusing it, or Cmd+.) unfurls a pixel dialog above the box
- * with everything the old bottom bar held.
+ * The message box's helm: the project's mark on the box's top-right corner,
+ * with the button that sends and its speech bubble. Pointing at it (or
+ * focusing it, or Cmd+.) opens a menu above the box with everything the old
+ * bottom bar held.
  */
 export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const {
@@ -261,7 +239,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const dialogId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const critterRef = useRef<HTMLButtonElement>(null);
-  const frameRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [perchRef, perchWidth] = useWidth<HTMLDivElement>();
   const [opened, setOpened] = useState<Opened>(null);
@@ -269,13 +246,12 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const [cursor, setCursor] = useState(0);
   const [panel, setPanel] = useState<AgentPanelFocus | null>(null);
   const [hop, setHop] = useState(0);
-  // The critter under the picker's cursor, previewed above the grid.
+  // The mark under the picker's cursor, previewed above the grid.
   const [previewCritter, setPreviewCritter] = useState<string | null>(null);
-  const [customColorOpen, setCustomColorOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reduced = useMemo(prefersReducedMotion, []);
 
-  // The critter: the project's, or your own outside a project.
+  // The mark: the project's, or your own outside a project. Both are kept
+  // under the critter name each mark stands for.
   const appearance = useProjectAppearance(critterPath);
   const personal = useSyncExternalStore(
     subscribeHelmCritter,
@@ -284,14 +260,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   );
   const inProject = hasProjectAppearance(critterPath) && !!appearance;
   const critterKey = inProject ? appearance.key : "aven-helm";
-  const critterName = inProject ? appearance.mascot : personal.mascot;
-  const critterColor = inProject
-    ? appearance.color
-    : (personal.customColor ??
-      (personal.colorIndex != null
-        ? TAB_GROUP_COLORS[personal.colorIndex]
-        : TAB_GROUP_COLORS[0]));
-  const mascot = projectMascot(critterKey, critterName);
+  const mark = inProject
+    ? appearanceSigil(appearance)
+    : projectSigil(personal.mascot, critterKey);
 
   // What the agent is.
   const agent = useAgentSummary({
@@ -305,7 +276,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const room = ratio == null ? null : roomBar(ratio);
   const activeMode = modes.find((mode) => mode.pressed) ?? null;
 
-  // What the bubble says, and the critter acts out.
+  // What the bubble says, and the mark shows.
   const run = useHelmRun();
   const { say: runSay, dismiss } = useHelmSay(run, busy);
   const forecasts = useUsageForecasts();
@@ -420,7 +391,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       setOpened(null);
       setPage("main");
       setPreviewCritter(null);
-      setCustomColorOpen(false);
       if (returnFocus) onReturnFocus();
     },
     [onReturnFocus],
@@ -433,7 +403,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     close(false);
     setPanel(null);
   }, [paused, close]);
-  // With the agent panel open, Cmd+., Switch Model… and the critter close
+  // With the agent panel open, Cmd+., Switch Model… and the mark close
   // it and hand the keyboard back, as the old agent pill's did.
   const closePanel = useCallback(() => {
     setPanel(null);
@@ -460,7 +430,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   );
 
   const scheduleOpen = () => {
-    // Back on the critter from its dialog: stay open.
+    // Back on the mark from its menu: stay open.
     clearTimer();
     if (opened || panel) return;
     timer.current = setTimeout(() => open("hover"), HELM_HOVER_OPEN_MS);
@@ -532,17 +502,16 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         // While a discussion runs, what you send goes to both chats.
         if (id === "modes" && modesNote) return;
         setPage(id);
-        // The picker opens on the critter that stands here now.
+        // The picker opens on the mark that stands here now.
         setCursor(
           id === "critter"
             ? Math.max(
                 0,
-                PROJECT_MASCOTS.findIndex((item) => item.name === mascot.name),
+                PROJECT_SIGILS.findIndex((item) => item.key === mark.key),
               )
             : 0,
         );
         setPreviewCritter(null);
-        setCustomColorOpen(false);
         setOpened((current) => (current === "hover" ? "pinned" : current));
         return;
     }
@@ -578,25 +547,16 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const backToMain = (from: Page) => {
     setPage("main");
     setPreviewCritter(null);
-    setCustomColorOpen(false);
     setCursor(Math.max(0, rows.indexOf(from as HelmRowId)));
   };
 
-  // ---- the critter picker ---------------------------------------------
-  const pickCritter = (name: string) => {
+  // ---- the mark picker -------------------------------------------------
+  // Saved under the critter name it stands for, as picks were before marks.
+  const pickCritter = (key: string) => {
+    const name = SIGIL_CRITTERS[key] ?? key;
     if (inProject) saveTabGroupMascot(appearance.key, name);
     else saveHelmCritter({ ...personal, mascot: name });
     setHop((value) => value + 1);
-  };
-  const pickColor = (index: number) => {
-    setCustomColorOpen(false);
-    if (inProject) saveTabGroupColor(appearance.key, index);
-    else saveHelmCritter({ ...personal, colorIndex: index, customColor: null });
-    setHop((value) => value + 1);
-  };
-  const pickCustomColor = (color: string) => {
-    if (inProject) saveTabGroupCustomColor(appearance.key, color);
-    else saveHelmCritter({ ...personal, customColor: color });
   };
   const itemCount =
     page === "modes"
@@ -604,7 +564,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       : page === "skills"
         ? recentSkills.length
         : page === "critter"
-          ? PROJECT_MASCOTS.length
+          ? PROJECT_SIGILS.length
           : 0;
 
   const onDialogKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -663,44 +623,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     if (next !== null) {
       event.preventDefault();
       setCursor(next);
-      if (page === "critter") setPreviewCritter(PROJECT_MASCOTS[next].name);
+      if (page === "critter") setPreviewCritter(PROJECT_SIGILS[next].key);
     }
   };
-
-  // ---- the unfurl ---------------------------------------------------------
-  useLayoutEffect(() => {
-    const frame = frameRef.current;
-    if (!opened || !frame || reduced) return;
-    // Measured before the popover is placed, so cap it as placing will: the
-    // room above the critter, and the window's width.
-    const above = critterRef.current?.getBoundingClientRect().top;
-    const room =
-      above == null ? Infinity : above - DIALOG_GAP - VIEWPORT_PADDING;
-    const width = Math.min(
-      frame.offsetWidth,
-      window.innerWidth - VIEWPORT_PADDING * 2,
-    );
-    const height = Math.min(frame.offsetHeight, Math.max(0, room));
-    if (!width || !height) return;
-    const steps = helmUnfurlSteps(Math.max(width, height));
-    const keyframes: Keyframe[] = [
-      { width: "0px", height: "0px", offset: 0, easing: "step-end" },
-      ...steps.map((fraction, index) => ({
-        width: `${Math.round(width * fraction)}px`,
-        height: `${Math.round(height * fraction)}px`,
-        offset: (index + 1) / (steps.length + 1),
-        easing: "step-end",
-      })),
-      { width: `${width}px`, height: `${height}px`, offset: 1 },
-    ];
-    const animation = frame.animate?.(keyframes, {
-      duration: HELM_UNFURL_BEAT_MS * (steps.length + 1),
-      easing: "linear",
-    });
-    return () => animation?.cancel();
-    // Only on opening: changing page inside an open dialog does not unfurl.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!opened, reduced]);
 
   // ---- words ----------------------------------------------------------------
   const accessLabel = showAccess ? RUNTIME_MODE_LABEL[runtimeMode] : null;
@@ -844,13 +769,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       case "critter":
         value = (
           <>
-            <ProjectMascot
-              project={critterKey}
-              name={mascot.name}
-              color={critterColor}
-              className="helm-mini-critter"
-            />
-            {mascot.label}
+            <DotMark sigil={mark} className="helm-mini-critter" />
+            {mark.label}
           </>
         );
         aside = <ChevronRight aria-hidden className="helm-icon" />;
@@ -866,16 +786,12 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         data-helm-row-index={index}
         data-active={active || undefined}
         aria-disabled={disabled || undefined}
-        style={{ "--i": index } as CSSProperties}
         tabIndex={active ? 0 : -1}
         onMouseEnter={() => setCursor(index)}
         onFocus={() => setCursor(index)}
         onClick={() => activate(id)}
       >
-        <span className="helm-cursor" aria-hidden>
-          {active ? "▶" : ""}
-        </span>
-        <PixelLabel text={ROW_LABEL[id]} />
+        <RowLabel text={ROW_LABEL[id]} />
         <span className="helm-value">{value}</span>
         <span className="helm-aside">{aside}</span>
       </button>
@@ -905,9 +821,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                 mode.onToggle();
               }}
             >
-              <span className="helm-cursor" aria-hidden>
-                {index === cursor ? "▶" : ""}
-              </span>
               <span className="helm-mode-icon" aria-hidden>
                 {mode.icon}
               </span>
@@ -940,9 +853,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                 onPickSkill(skill);
               }}
             >
-              <span className="helm-cursor" aria-hidden>
-                {index === cursor ? "▶" : ""}
-              </span>
               <span className="helm-value helm-skill">/{skill.invocation}</span>
               <span className="helm-aside" title={skill.description}>
                 {skill.description ?? ""}
@@ -952,89 +862,55 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         </div>
       );
     if (page === "critter") {
-      const shown = previewCritter ?? mascot.name;
+      const shown = projectSigil(previewCritter ?? mark.key);
       return (
         <div className="helm-critter-page">
-          <BackRow label="Critter" onBack={() => backToMain("critter")} />
+          <BackRow label="Mark" onBack={() => backToMain("critter")} />
           <div className="helm-critter-stage" aria-hidden>
-            <HelmCritter
-              key={shown}
-              project={critterKey}
-              name={shown}
-              color={critterColor}
-              pose="typing"
+            <DotMark
+              sigil={shown}
+              state="idle"
               className="helm-critter-preview"
             />
-            <span>{projectMascot(critterKey, shown).label}</span>
+            <span>{shown.label}</span>
           </div>
           <div
             className="helm-critter-grid"
             role="radiogroup"
-            aria-label="Critter"
+            aria-label="Mark"
           >
-            {PROJECT_MASCOTS.map((item, index) => {
-              const selected = item.name === mascot.name;
+            {PROJECT_SIGILS.map((item, index) => {
+              const selected = item.key === mark.key;
               return (
                 <button
-                  key={item.name}
+                  key={item.key}
                   type="button"
                   role="radio"
                   aria-checked={selected}
                   aria-label={item.label}
                   className="helm-critter-cell"
                   data-helm-item-index={index}
-                  data-critter-choice={item.name}
+                  data-critter-choice={SIGIL_CRITTERS[item.key]}
+                  data-mark-choice={item.key}
                   data-active={index === cursor || undefined}
                   tabIndex={index === cursor ? 0 : -1}
                   onMouseEnter={() => {
                     setCursor(index);
-                    setPreviewCritter(item.name);
+                    setPreviewCritter(item.key);
                   }}
                   onMouseLeave={() => setPreviewCritter(null)}
-                  onFocus={() => setPreviewCritter(item.name)}
-                  onClick={() => pickCritter(item.name)}
+                  onFocus={() => setPreviewCritter(item.key)}
+                  onClick={() => pickCritter(item.key)}
                 >
-                  <ProjectMascot
-                    project={critterKey}
-                    name={item.name}
-                    color={critterColor}
-                    active={index === cursor && !reduced}
-                    className="helm-critter-cell-art"
-                  />
+                  <DotMark sigil={item} className="helm-critter-cell-art" />
                 </button>
               );
             })}
           </div>
-          <div className="helm-critter-colors" aria-label="Colour">
-            <ColorSwatchRow
-              colors={TAB_GROUP_COLORS}
-              colorIndex={
-                inProject
-                  ? appearance.customColor != null
-                    ? -1
-                    : (appearance.colorIndex ?? appearance.automaticColorIndex)
-                  : personal.customColor
-                    ? -1
-                    : (personal.colorIndex ?? 0)
-              }
-              customColor={
-                inProject ? appearance.customColor : personal.customColor
-              }
-              customPickerOpen={customColorOpen}
-              onPickIndex={pickColor}
-              onToggleCustom={() => setCustomColorOpen((value) => !value)}
-            />
-            {customColorOpen ? (
-              <ColorPickerPopover
-                value={normalizeHex(critterColor)}
-                onChange={pickCustomColor}
-              />
-            ) : null}
-          </div>
           <p className="helm-quiet helm-critter-note">
             {inProject
-              ? `${appearance.label}'s critter, everywhere it shows`
-              : "Your critter outside projects"}
+              ? `${appearance.label}'s mark, everywhere it shows`
+              : "Your mark outside projects"}
           </p>
         </div>
       );
@@ -1045,9 +921,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const showDialog = !!opened;
   const hintWords =
     hint && !say && !showDialog ? "Point at me for settings" : null;
-  const style = {
-    "--helm-critter-color": critterColor,
-  } as CSSProperties;
 
   return (
     <div
@@ -1061,9 +934,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       data-open={opened ?? undefined}
       data-pose={pose}
       data-paused={paused || undefined}
-      data-reduced={reduced || undefined}
       data-fit={fit === "full" ? undefined : fit}
-      style={style}
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null;
         if (next && rootRef.current?.contains(next)) return;
@@ -1097,7 +968,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         onMouseDown={(event) => event.preventDefault()}
         onClick={onSend}
       >
-        <PaperPlane />
+        <MoveUp aria-hidden className="helm-plane-art" />
       </button>
       <div
         className="helm-perch"
@@ -1141,20 +1012,18 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             }
           }}
         >
-          <HelmCritter
+          <DotMark
             key={hop}
-            project={critterKey}
-            name={mascot.name}
-            color={critterColor}
-            pose={pose}
-            className={hop ? "helm-critter-hop" : undefined}
+            sigil={mark}
+            state={POSE_STATE[pose]}
+            className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
           />
         </button>
         {showDialog ? (
           // In a portal, so a short pane never clips it; always above the
-          // critter (never flipped over the words), its body scrolling when
+          // mark (never flipped over the words), its body scrolling when
           // the room above is short. Inside the perch in React's tree, so
-          // moving between the critter and the dialog is not leaving.
+          // moving between the mark and the menu is not leaving.
           <Popover
             anchor={critterRef}
             side="top"
@@ -1173,7 +1042,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             onPointerEnter={() => clearTimer()}
             onKeyDown={onDialogKey}
           >
-            <div ref={frameRef} className="helm-dialog-frame">
+            <div className="helm-dialog-frame">
               <div className="helm-dialog-body">
                 {page === "main" ? (
                   <div role="menu" aria-label="Message settings">
@@ -1184,7 +1053,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                 )}
               </div>
             </div>
-            <span className="helm-dialog-tail" aria-hidden />
           </Popover>
         ) : null}
       </div>
@@ -1229,7 +1097,7 @@ function BackRow({ label, onBack }: { label: string; onBack: () => void }) {
       tabIndex={-1}
     >
       <ChevronLeft aria-hidden className="helm-icon" />
-      <PixelLabel text={label} />
+      <RowLabel text={label} />
     </button>
   );
 }

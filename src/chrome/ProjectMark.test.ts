@@ -9,15 +9,9 @@ import {
 } from "../lib/activity";
 import { REACTION_CLAIMS_KEY } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
-import { AVEN_MARK_SUMMIT_COLOR } from "../lib/avenMark";
+import { CROSS_ROWS, TICK_ROWS, litPath, projectSigil } from "../lib/dotSigils";
 import type { ProjectAppearance } from "../lib/projectAppearance";
-import {
-  MASCOT_SPARKLE_PATH,
-  MASCOT_SWEAT_PATH,
-  projectMascot,
-} from "../lib/projectMascots";
 import { ProjectMark } from "./ProjectMark";
-import { ProjectMascot } from "./ProjectMascot";
 
 const APP = "/projects/app";
 let root: Root;
@@ -54,7 +48,9 @@ function turn(id: string, patch: Partial<ActivityInput> = {}): ActivityInput {
   };
 }
 
-const svg = () => container.querySelector("svg")!;
+const dots = () => container.querySelector<HTMLElement>(".dot-mark")!;
+const lit = () =>
+  container.querySelector(".dot-mark-lit")?.getAttribute("d") ?? null;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -84,61 +80,87 @@ async function draw(props: Parameters<typeof ProjectMark>[0]) {
   await act(async () => root.render(createElement(ProjectMark, props)));
 }
 
+describe("project marks", () => {
+  it("draws the project's sigil in dots, with no colour of its own", async () => {
+    await draw({ appearance: appearance() });
+    const mark = container.querySelector<HTMLElement>(".project-mark")!;
+    expect(mark.dataset.kind).toBe("mark");
+    // The jellyfish it saved reads as its sigil.
+    expect(dots().dataset.sigil).toBe("pillars");
+    expect(dots().dataset.state).toBe("still");
+    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
+    expect(dots().getAttribute("style")).toBeNull();
+    expect(container.querySelector("[fill='#e06c75']")).toBeNull();
+  });
+
+  it("sweeps a light across it while an agent works", async () => {
+    await draw({ appearance: appearance(), active: true });
+    expect(
+      container.querySelector(".project-mark")?.hasAttribute("data-active"),
+    ).toBe(true);
+    expect(dots().dataset.state).toBe("working");
+    expect(
+      container.querySelectorAll(".dot-mark-lit-d").length,
+    ).toBeGreaterThan(1);
+    expect(container.querySelectorAll(".dot-mark-grid-d")).toHaveLength(9);
+  });
+});
+
 describe("mark reactions", () => {
-  it("hops with a sparkle once when a turn completes, then rests", async () => {
+  it("turns into a tick with a green dot once when a turn completes, then rests", async () => {
     await draw({ appearance: appearance(), active: true, reacts: true });
-    expect(svg().classList.contains("mascot-active")).toBe(true);
+    expect(dots().dataset.state).toBe("working");
     await act(async () => void recordActivity(turn("t1")));
-    expect(svg().dataset.reaction).toBe("cheer");
+    expect(dots().dataset.reaction).toBe("cheer");
     expect(
       container.querySelector(".project-mark")?.getAttribute("data-reaction"),
     ).toBe("cheer");
-    // The finished turn stops the working loop; the reaction takes its place.
-    expect(svg().classList.contains("mascot-active")).toBe(false);
-    expect(container.querySelector(".mascot-sparkle")?.getAttribute("d")).toBe(
-      MASCOT_SPARKLE_PATH,
+    // The finished turn stops the sweep; the tick takes its place.
+    expect(dots().dataset.state).toBe("done");
+    expect(lit()).toBe(litPath(TICK_ROWS));
+    expect(container.querySelector(".dot-mark-was")).not.toBeNull();
+    expect(container.querySelector(".dot-mark-status")).not.toBeNull();
+    expect(dots().style.getPropertyValue("--dot-mark-reaction-ms")).toBe(
+      "900ms",
     );
-    expect(svg().style.getPropertyValue("--mascot-reaction-ms")).toBe("900ms");
     await act(async () => void vi.advanceTimersByTime(1200));
-    expect(svg().dataset.reaction).toBeUndefined();
-    expect(container.querySelector(".mascot-sparkle")).toBeNull();
+    expect(dots().dataset.reaction).toBeUndefined();
+    // Still drawn as working here: the caller never said the agent stopped.
+    expect(dots().dataset.state).toBe("working");
+    expect(container.querySelector(".dot-mark-status")).toBeNull();
   });
 
-  it("slumps with a grey drop on failure and blinks on stop", async () => {
+  it("turns into a cross on failure and dims once on stop", async () => {
     await draw({ appearance: appearance(), reacts: true });
     await act(
       async () => void recordActivity(turn("t1", { outcome: "failed" })),
     );
-    expect(svg().dataset.reaction).toBe("slump");
-    expect(container.querySelector(".mascot-sweat")?.getAttribute("d")).toBe(
-      MASCOT_SWEAT_PATH,
-    );
+    expect(dots().dataset.reaction).toBe("slump");
+    expect(dots().dataset.state).toBe("error");
+    expect(lit()).toBe(litPath(CROSS_ROWS));
     await act(
       async () => void recordActivity(turn("t2", { outcome: "stopped" })),
     );
-    expect(svg().dataset.reaction).toBe("shrug");
-    // Closed lids over the eyes: the body colour, then its shade.
-    const lids = [...container.querySelectorAll(".mascot-blink path")];
-    expect(lids.map((lid) => lid.getAttribute("d"))).toEqual([
-      projectMascot(APP, "jelly").blinkPath,
-      projectMascot(APP, "jelly").blinkPath,
-    ]);
-    expect(lids[1].getAttribute("fill-opacity")).toBe("0.38");
+    expect(dots().dataset.reaction).toBe("shrug");
+    // A stop keeps the sigil; only the dots dim once.
+    expect(dots().dataset.state).toBe("still");
+    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
+    expect(container.querySelector(".dot-mark-status")).toBeNull();
   });
 
   it("restarts the animation for a new turn end", async () => {
     await draw({ appearance: appearance(), reacts: true });
     await act(async () => void recordActivity(turn("t1")));
-    const first = svg();
+    const first = dots();
     await act(async () => void recordActivity(turn("t2")));
-    expect(svg()).not.toBe(first);
-    expect(svg().dataset.reaction).toBe("cheer");
+    expect(dots()).not.toBe(first);
+    expect(dots().dataset.reaction).toBe("cheer");
   });
 
   it("stays still where reactions are not asked for, and for logos", async () => {
     await draw({ appearance: appearance() });
     await act(async () => void recordActivity(turn("t1")));
-    expect(svg().dataset.reaction).toBeUndefined();
+    expect(dots().dataset.reaction).toBeUndefined();
     // Nothing watched, so nothing was claimed for another window to miss.
     expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
 
@@ -159,84 +181,6 @@ describe("mark reactions", () => {
     await act(
       async () => void recordActivity(turn("t1", { cwd: "/projects/other" })),
     );
-    expect(svg().dataset.reaction).toBeUndefined();
-  });
-});
-
-describe("ProjectMascot", () => {
-  it("keeps its plain frames when not reacting", async () => {
-    await act(async () =>
-      root.render(
-        createElement(ProjectMascot, {
-          project: APP,
-          name: "owl",
-          active: true,
-        }),
-      ),
-    );
-    const frames = [...svg().children];
-    expect(frames.map((frame) => frame.getAttribute("class"))).toEqual([
-      "mascot-rest",
-      "mascot-talk",
-    ]);
-    // The owl: body, shade, light and eyes, no summit.
-    for (const frame of frames)
-      expect(frame.querySelectorAll("path")).toHaveLength(4);
-    expect(svg().getAttribute("viewBox")).toBe("0 0 12 12");
-    expect(svg().getAttribute("overflow")).toBeNull();
-  });
-
-  it("shades its body and keeps eyes and summit their own colours", async () => {
-    const draw = (color?: string) =>
-      act(async () =>
-        root.render(
-          createElement(ProjectMascot, { project: APP, name: "jelly", color }),
-        ),
-      );
-    const fills = () =>
-      [...container.querySelectorAll("path")].map((path) => [
-        path.getAttribute("fill"),
-        path.getAttribute("fill-opacity"),
-      ]);
-    await draw("#d97757");
-    expect(svg().style.color).toBe("#d97757");
-    expect(fills()).toEqual([
-      [null, null],
-      ["#000000", "0.38"],
-      ["#ffffff", "0.48"],
-      ["#121215", null],
-      [AVEN_MARK_SUMMIT_COLOR, null],
-    ]);
-    // On Codex's blue the summit would vanish, so it turns pale.
-    await draw("#7a9dff");
-    expect(fills()[4]).toEqual(["#f3f6ff", "0.92"]);
-    expect(
-      svg().querySelector(".mascot-summit")?.hasAttribute("data-pale"),
-    ).toBe(true);
-    // Inheriting the text colour, it stays Aven's blue, and its eyes follow
-    // the theme (pale on the light theme's dark text).
-    await draw();
-    expect(fills()[4]).toEqual([AVEN_MARK_SUMMIT_COLOR, null]);
-    expect(svg().querySelector(".mascot-eyes")?.getAttribute("data-ink")).toBe(
-      "theme",
-    );
-    // A dark colour gets pale eyes outright.
-    await draw("#2a2b35");
-    expect(fills()[3]).toEqual(["#f4f4f6", null]);
-  });
-
-  it("draws reaction overlays outside its box without clipping", async () => {
-    await act(async () =>
-      root.render(
-        createElement(ProjectMascot, {
-          project: APP,
-          reaction: "cheer",
-          reactionId: "t1",
-        }),
-      ),
-    );
-    expect(svg().getAttribute("overflow")).toBe("visible");
-    expect(svg().getAttribute("shape-rendering")).toBe("crispEdges");
-    expect(container.querySelector(".mascot-body path")).not.toBeNull();
+    expect(dots().dataset.reaction).toBeUndefined();
   });
 });

@@ -1,9 +1,18 @@
 import { Fragment, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { CREW_ROLE_INFO } from "../lib/crews";
-import type { CrewMemberView, CrewStatus } from "../lib/crewView";
+import {
+  titleBeside,
+  type CrewMemberView,
+  type CrewStatus,
+} from "../lib/crewView";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ChevronRight } from "./icons";
-import { CrewCritter, CrewCritters, CrewStatusPill } from "./CrewCritter";
+import {
+  CrewCritter,
+  CrewCritters,
+  CrewStatusPill,
+  crewMarkState,
+} from "./CrewCritter";
 import "./BotCritter.css";
 import "./CrewCritter.css";
 
@@ -170,16 +179,18 @@ export function SidebarCrewRows({
                       path={crew.path}
                       role={member.role}
                       {...(member.critter ? { critter: member.critter } : {})}
-                      active={member.active}
+                      state={crewMarkState(member.status, member.active)}
                     />
                     <span className="personal-crew-member-text">
                       <span className="personal-crew-member-name">
                         <span className="personal-task-title">
                           {member.name}
                         </span>
-                        <span className="personal-crew-role">
-                          {member.roleLabel}
-                        </span>
+                        {titleBeside(member.name, member.roleLabel) ? (
+                          <span className="personal-crew-role">
+                            {member.roleLabel}
+                          </span>
+                        ) : null}
                       </span>
                       {member.line ? (
                         <span className="personal-crew-line">

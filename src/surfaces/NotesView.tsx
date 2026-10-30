@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { ProjectMascot } from "../chrome/ProjectMascot";
+import { DotMark } from "../chrome/DotMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -45,14 +45,8 @@ import {
 import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
-import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
-  loadTabGroupMascots,
-  resolveTabGroupColor,
-  resolveTabGroupLogo,
-  resolveTabGroupMascot,
-} from "../lib/tabGroups";
+import { projectSigilAt } from "../lib/projectAppearance";
+import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown, MarkdownSourceHighlight } from "./AgentMarkdown";
 
 const MIN_WIDTH = 240;
@@ -102,9 +96,6 @@ export function NotesView({
   });
   const [creating, setCreating] = useState(false);
   const logos = useTabGroupLogos();
-  const [groupMascots] = useState(loadTabGroupMascots);
-  const [groupColors] = useState(loadTabGroupColors);
-  const [groupCustomColors] = useState(loadTabGroupCustomColors);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -300,9 +291,6 @@ export function NotesView({
                   note={note}
                   active={selected?.id === note.id}
                   logos={logos}
-                  mascots={groupMascots}
-                  colors={groupColors}
-                  customColors={groupCustomColors}
                   onSelect={() => setSelectedId(note.id)}
                 />
               </li>
@@ -350,9 +338,6 @@ export function NotesView({
         <NoteDetail
           note={selected}
           logos={logos}
-          mascots={groupMascots}
-          colors={groupColors}
-          customColors={groupCustomColors}
           onSaved={onSaved}
           onDelete={onDelete}
           onAddToChat={onAddToChat}
@@ -364,23 +349,12 @@ export function NotesView({
 
 type ProjectMarks = {
   logos: Record<string, string>;
-  mascots: Record<string, string>;
-  colors: Record<string, number>;
-  customColors: Record<string, string>;
 };
 
-function NoteProjectMark({
-  cwd,
-  logos,
-  mascots,
-  colors,
-  customColors,
-}: { cwd: string } & ProjectMarks) {
+function NoteProjectMark({ cwd, logos }: { cwd: string } & ProjectMarks) {
   const project = projectName(cwd);
   const key = projectKey(cwd);
   const logoPath = resolveTabGroupLogo(key, logos);
-  const mascotName = resolveTabGroupMascot(key, mascots);
-  const mascotColor = resolveTabGroupColor(key, colors, customColors, project);
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       {logoPath ? (
@@ -390,12 +364,7 @@ function NoteProjectMark({
           imageClassName="size-3.5"
         />
       ) : (
-        <ProjectMascot
-          project={project}
-          color={mascotColor}
-          name={mascotName}
-          className="size-3 shrink-0"
-        />
+        <DotMark sigil={projectSigilAt(cwd)} className="size-[15px] shrink-0" />
       )}
       <span className="min-w-0 truncate">{project}</span>
     </span>
@@ -433,9 +402,6 @@ function NoteCard({
   note,
   active,
   logos,
-  mascots,
-  colors,
-  customColors,
   onSelect,
 }: {
   note: Note;
@@ -461,13 +427,7 @@ function NoteCard({
       <span className="flex items-center gap-2">
         {project && note.sourceCwd ? (
           <span className="min-w-0 flex-1 text-ui-caption text-content/50">
-            <NoteProjectMark
-              cwd={note.sourceCwd}
-              logos={logos}
-              mascots={mascots}
-              colors={colors}
-              customColors={customColors}
-            />
+            <NoteProjectMark cwd={note.sourceCwd} logos={logos} />
           </span>
         ) : (
           <span className="min-w-0 flex-1" />
@@ -493,9 +453,6 @@ function NoteCard({
 function NoteDetail({
   note,
   logos,
-  mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -518,9 +475,6 @@ function NoteDetail({
       key={note.id}
       note={note}
       logos={logos}
-      mascots={mascots}
-      colors={colors}
-      customColors={customColors}
       onSaved={onSaved}
       onDelete={onDelete}
       onAddToChat={onAddToChat}
@@ -531,9 +485,6 @@ function NoteDetail({
 function NoteEditor({
   note,
   logos,
-  mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -652,13 +603,7 @@ function NoteEditor({
               <span className="min-w-0 truncate">{note.slug}</span>
             ) : null}
             {project && note.sourceCwd ? (
-              <NoteProjectMark
-                cwd={note.sourceCwd}
-                logos={logos}
-                mascots={mascots}
-                colors={colors}
-                customColors={customColors}
-              />
+              <NoteProjectMark cwd={note.sourceCwd} logos={logos} />
             ) : null}
           </div>
           <input

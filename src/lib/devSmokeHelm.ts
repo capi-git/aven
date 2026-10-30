@@ -1,8 +1,8 @@
 /**
  * What the real-app check (`useDevSmoke`) asks of the message box's helm:
- * its dialog unfurls above the box and never over the words, a chat that
- * works offers one Stop (in the critter's bubble) and no Working row, and
- * the critter types at its laptop while the agent works.
+ * its menu opens above the box and never over the words, a chat that works
+ * offers one Stop (in the mark's bubble) and no Working row, and a light
+ * sweeps across the mark while the agent works.
  */
 import { animationProblem } from "./devSmokeMotion";
 
@@ -50,35 +50,39 @@ export function helmStopProblem(
     !stopInBar &&
     !pane.querySelector('[data-helm-say="running"] [data-helm-stop]')
   )
-    return "the Stop is not in the critter's bubble";
+    return "the Stop is not in the mark's bubble";
   return null;
 }
 
+/** The first diagonal of a working mark's sweep, whose animation is read. */
+export const HELM_SWEEP_SELECTOR =
+  '.helm-critter[data-state="working"] .dot-mark-lit-d';
+
 /**
- * Why the helm is not showing a working agent, or null: the critter in its
- * running pose at its laptop, stepping its two frames unless reduced motion
- * keeps it still, and the bubble saying what it does with a clock.
+ * Why the helm is not showing a working agent, or null: the mark in its
+ * running pose with a light sweeping across it (unless reduced motion keeps
+ * it still), and the bubble saying what it does with a clock.
  */
 export function helmWorkingProblem(
   helm: Element | null,
-  frameAnimation: string,
+  sweepAnimation: string,
   reducedMotion: boolean,
 ): string | null {
   if (!helm) return "the message box has no helm";
   if ((helm as HTMLElement).dataset.pose !== "running")
-    return `the critter is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
-  if (!helm.querySelector(".helm-critter-laptop"))
-    return "the critter has no laptop";
+    return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
+  if (!helm.querySelector(HELM_SWEEP_SELECTOR))
+    return "the mark is not sweeping";
   const bubble = helm.querySelector('[data-helm-say="running"]');
-  if (!bubble) return "the critter's bubble says nothing";
+  if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  const stepping = animationProblem(
-    frameAnimation,
-    "helm-frame-a",
+  const sweeping = animationProblem(
+    sweepAnimation,
+    "dot-mark-sweep",
     reducedMotion,
   );
-  return stepping ? `the laptop frames: ${stepping}` : null;
+  return sweeping ? `the sweep: ${sweeping}` : null;
 }
 
 /**

@@ -127,7 +127,7 @@
   border-radius: 4px;
 }
 
-/* Three square pixels taking turns, in the side's colour. */
+/* Three round dots taking turns, in the side's colour. */
 .discussion-typing {
   display: flex;
   align-items: center;
@@ -136,11 +136,12 @@
   padding: 0 14px;
 }
 .discussion-dot {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
   background: var(--discussion-voice);
   opacity: 0.35;
-  animation: discussion-dot 1.2s steps(1, end) infinite;
+  animation: discussion-dot 1.2s ease-in-out infinite;
 }
 .discussion-dot:nth-child(2) {
   animation-delay: 0.2s;

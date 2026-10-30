@@ -17,7 +17,7 @@ import "../chrome/TeamCard.css";
 import "./BotChat.css";
 
 /**
- * A crew member's chat header: its critter, whose crew it is, its role and
+ * A crew member's chat header: its mark, whose crew it is, its role and
  * job, Pause and Settings. Its name is the tab's, so it isn't repeated.
  */
 export const CrewChatHeader = memo(function CrewChatHeader({

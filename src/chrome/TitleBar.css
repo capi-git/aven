@@ -285,8 +285,8 @@ html.theme-light .personal-shell {
   content: none;
 }
 .personal-shell .personal-title-tab-identity .personal-title-tab-bot {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
 }
 /* A tab shown in a split beside the active one reads a little brighter. */

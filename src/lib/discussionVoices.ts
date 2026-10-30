@@ -1,6 +1,7 @@
 /**
- * A little character for each side of a discussion: a pixel mascot in its
- * provider's colour, the model's name and a short tag for its part.
+ * A face for each side of a discussion: a mark (one of the project sigils,
+ * by the critter name it is kept under), the model's name and a short tag
+ * for its part. Its provider's colour tints its bubbles, never its mark.
  */
 import type { Discussion, DiscussionSide } from "./discussions";
 import { agentRole, type AgentRoleId } from "./agentRoles";
@@ -42,11 +43,11 @@ export type DiscussionVoice = {
    * topic").
    */
   persona: string;
-  /** The role it was brought in with, shown as a badge on its mascot. */
+  /** The role it was brought in with, shown as a badge on its mark. */
   role?: AgentRoleId;
-  /** The mascot sprite it wears (see `projectMascots`). */
+  /** The critter name its mark is kept under (see `projectSigil`). */
   mascot: string;
-  /** CSS colour of its mascot and bubbles. */
+  /** CSS colour of its bubbles. */
   color: string;
 };
 

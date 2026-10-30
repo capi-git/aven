@@ -268,7 +268,7 @@
   color: var(--personal-muted);
 }
 /* What is happening in the project: quiet marks at the row's end. A running
-   agent shows on the mascot; a logo, which stays still, gets the accent dot. */
+   agent shows on the mark; a logo, which stays still, gets the accent dot. */
 .personal-shell .personal-navigation .personal-project-status {
   display: inline-flex;
   flex-shrink: 0;
@@ -345,7 +345,7 @@
   color: var(--aven-label-secondary);
   font-weight: 600;
 }
-/* A hidden sidebar keeps its rows; their mascots stop stepping. */
+/* A hidden sidebar keeps its rows; their marks stop moving. */
 .personal-shell .personal-sidebar-slot[data-open="false"] .project-mark * {
   animation-play-state: paused;
 }

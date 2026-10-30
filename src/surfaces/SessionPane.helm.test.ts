@@ -185,12 +185,10 @@ describe("a chat's message box and its helm", () => {
     expect(stops()).toHaveLength(1);
   });
 
-  it("stands the project's own critter at the helm", async () => {
+  it("stands the project's own mark at the helm", async () => {
     await render();
-    const critter = container.querySelector(
-      "[data-helm-critter] .helm-critter",
-    )!;
-    expect(critter.getAttribute("data-critter")).toBeTruthy();
+    const mark = container.querySelector("[data-helm-critter] .helm-critter")!;
+    expect(mark.getAttribute("data-sigil")).toBeTruthy();
     expect(
       container.querySelector("[data-composer][data-helm]"),
     ).not.toBeNull();

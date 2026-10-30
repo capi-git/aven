@@ -219,13 +219,13 @@ describe("Apply lands exactly the reviewed change", () => {
     });
     // Click 1: refused, and the card says why instead of claiming a pass.
     expect(await applyCrewCard(PATH, id, NOON)).toBe(
-      "The change moved after Owl's check, so it wasn't applied. One more round checks it again.",
+      "The change moved after Checker's check, so it wasn't applied. One more round checks it again.",
     );
     const card = crewCard(getCrew(PATH)!, id)!;
     expect(card.stage).toBe("stuck");
     expect(card.stuck).toEqual({
       reason: "changed",
-      text: "The change moved after Owl's check, so it wasn't applied",
+      text: "The change moved after Checker's check, so it wasn't applied",
     });
     expect(card.fix).toBeUndefined();
     expect(card.holder).toBe("checker");
@@ -234,7 +234,7 @@ describe("Apply lands exactly the reviewed change", () => {
     expect(inbox).toHaveLength(1);
     expect(inbox[0].card.stage).toBe("stuck");
     expect(inbox[0].review.summary).not.toMatch(/Passed/);
-    expect(inbox[0].review.summary).toMatch(/moved after Owl's check/);
+    expect(inbox[0].review.summary).toMatch(/moved after Checker's check/);
     expect(featureBoardState(PATH).cards[0].column).toBe("building");
     // Click 2 lands nothing.
     expect(await applyCrewCard(PATH, id, NOON + 1)).toBe(

@@ -84,7 +84,7 @@
   flex: 0 0 14px;
   padding-top: 2px;
 }
-/* A team's mascots take the width they need, never the row's text. */
+/* A team's marks take the width they need, never the row's text. */
 .activity-provider:has(.team-mini-faces) {
   flex-basis: auto;
   padding-top: 0;

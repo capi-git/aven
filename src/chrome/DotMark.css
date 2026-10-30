@@ -1,0 +1,274 @@
+/* Aven's marks (DotMark.tsx): a 5×5 grid of round dots in the theme's text
+   colour, the lit ones the sigil. Only the small status dot in the corner
+   has colour, from the theme's status tokens. Motion is opacity and
+   transform only, and none of it repeats unless the mark is idle, working
+   or needs you.
+
+   Each dot is a zero-length round-capped stroke, so a dot's size is the
+   stroke's width (in the mark's 100-unit box, cells 20 apart). A small
+   mark (under 24px: lists, rails, tabs) draws its sigil alone, in bigger
+   dots, so the sigil is all you see; a bigger one keeps the unlit dots as
+   a faint hint of the grid. */
+
+/* Its size, in a layer so a utility (size-3) or a caller's own rule wins. */
+@layer components {
+  .dot-mark {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+.dot-mark {
+  --dot-mark-unlit: 0.065;
+  --dot-mark-lit: 0.92;
+  position: relative;
+  display: inline-block;
+  flex: none;
+  container-type: inline-size;
+  color: var(--dot-mark-ink, var(--color-content));
+  line-height: 0;
+  vertical-align: middle;
+}
+
+.dot-mark-art {
+  --dot-mark-dot: 13;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: var(--dot-mark-dot);
+}
+
+@container (max-width: 23.5px) {
+  .dot-mark-art {
+    --dot-mark-dot: 14.6;
+  }
+
+  .dot-mark-grid,
+  .dot-mark-grid-d {
+    display: none;
+  }
+}
+
+.dot-mark-grid,
+.dot-mark-grid-d {
+  opacity: var(--dot-mark-unlit);
+}
+
+.dot-mark-lit,
+.dot-mark-lit-d {
+  opacity: var(--dot-mark-lit);
+}
+
+/* A stuck agent's cross is quieter than a sigil. */
+.dot-mark[data-state="error"] .dot-mark-lit {
+  opacity: 0.55;
+}
+
+.dot-mark-was {
+  opacity: 0;
+}
+
+/* The status dot: amber when it needs you, green when done, red when stuck,
+   ringed in the surface it sits on so it reads apart from the dots. */
+.dot-mark-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: clamp(5px, 30%, 10px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--aven-needs-you);
+  box-shadow: 0 0 0 1.5px var(--dot-mark-surface, var(--color-background-base));
+  pointer-events: none;
+}
+
+.dot-mark[data-state="done"] .dot-mark-status {
+  background: var(--color-emerald-400);
+}
+
+.dot-mark[data-state="error"] .dot-mark-status {
+  background: var(--aven-danger-text);
+}
+
+/* Reduced motion: no animation, and a working mark keeps a still frame of
+   its sweep (bright at one corner, fading across) so it reads apart from a
+   mark at rest. */
+@media (prefers-reduced-motion: reduce) {
+  .dot-mark[data-state="working"] .dot-mark-lit-d {
+    opacity: calc(var(--dot-mark-lit) - var(--d, 0) * 0.07);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dot-mark[data-state="idle"] .dot-mark-lit {
+    animation: dot-mark-breathe 3.2s ease-in-out infinite;
+  }
+
+  .dot-mark[data-state="needs"] .dot-mark-lit {
+    animation: dot-mark-breathe 1.6s ease-in-out infinite;
+  }
+
+  /* A light sweeping corner to corner: each diagonal 70ms after the last. */
+  .dot-mark[data-state="working"] .dot-mark-lit-d {
+    animation: dot-mark-sweep 1.1s linear infinite;
+    animation-delay: calc(var(--d, 0) * 70ms);
+  }
+
+  .dot-mark[data-state="working"] .dot-mark-grid-d {
+    animation: dot-mark-sweep-faint 1.1s linear infinite;
+    animation-delay: calc(var(--d, 0) * 70ms);
+  }
+
+  /* Reshaping into the tick or the cross: the sigil fades as they arrive. */
+  .dot-mark-was {
+    animation: dot-mark-out 360ms ease-out both;
+  }
+
+  .dot-mark[data-state="done"] .dot-mark-lit,
+  .dot-mark[data-state="error"] .dot-mark-lit {
+    animation: dot-mark-in 360ms ease-out both;
+  }
+
+  .dot-mark-status {
+    animation: dot-mark-status-in 220ms ease-out both;
+  }
+
+  /* One-shot reactions to a turn's end, timed by MASCOT_REACTION_MS. */
+  .dot-mark[data-reaction] .dot-mark-art {
+    animation-duration: var(--dot-mark-reaction-ms, 900ms);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  .dot-mark[data-reaction="cheer"] .dot-mark-art {
+    animation-name: dot-mark-cheer;
+  }
+  .dot-mark[data-reaction="slump"] .dot-mark-art {
+    animation-name: dot-mark-slump;
+  }
+  .dot-mark[data-reaction="shrug"] .dot-mark-art {
+    animation-name: dot-mark-shrug;
+  }
+  .dot-mark[data-reaction="nod"] .dot-mark-art {
+    animation-name: dot-mark-nod;
+  }
+  .dot-mark[data-reaction="tilt"] .dot-mark-art {
+    animation-name: dot-mark-tilt;
+  }
+}
+
+@keyframes dot-mark-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes dot-mark-sweep {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot-mark-sweep-faint {
+  0%,
+  100% {
+    opacity: 0.04;
+  }
+  30% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes dot-mark-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dot-mark-out {
+  from {
+    opacity: var(--dot-mark-lit);
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dot-mark-status-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+/* Done: a small lift as the tick lands. */
+@keyframes dot-mark-cheer {
+  0%,
+  100% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-8%) scale(1.04);
+  }
+  55% {
+    transform: none;
+  }
+}
+
+/* Failed: settles a little, then recovers. */
+@keyframes dot-mark-slump {
+  0%,
+  100% {
+    transform: none;
+  }
+  20%,
+  70% {
+    transform: translateY(6%);
+  }
+}
+
+/* Stopped: the dots dim once, as if catching their breath. */
+@keyframes dot-mark-shrug {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.4;
+  }
+}
+
+/* Agrees: two small nods. */
+@keyframes dot-mark-nod {
+  0%,
+  50%,
+  100% {
+    transform: none;
+  }
+  20%,
+  70% {
+    transform: translateY(8%);
+  }
+}
+
+/* Pushes back: leans one way, then the other. */
+@keyframes dot-mark-tilt {
+  0%,
+  100% {
+    transform: none;
+  }
+  25% {
+    transform: translateX(-7%) rotate(-6deg);
+  }
+  65% {
+    transform: translateX(7%) rotate(6deg);
+  }
+}

@@ -1,9 +1,8 @@
-/* A bot's critter: a pixel sprite, crisp at any size. */
-.bot-critter {
+/* A bot's mark, the Fixer's sigil. */
+.dot-mark.bot-critter {
   display: block;
-  flex: none;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 /* The sidebar's Bots section, below the projects. */
@@ -11,7 +10,7 @@
   margin: 0 0 8px;
 }
 
-/* A bot's row in the Bots section: critter, name, its project on hover, and
+/* A bot's row in the Bots section: mark, name, its project on hover, and
    its status word. */
 .personal-bot-row {
   display: flex;
@@ -21,10 +20,10 @@
   min-width: 0;
 }
 /* In the rows' 16px mark column, so the name lines up with the others. */
-.personal-bot-row .bot-critter {
-  width: 14px;
-  height: 14px;
-  margin-inline: 1px;
+.personal-bot-row .dot-mark.bot-critter {
+  width: 15px;
+  height: 15px;
+  margin-inline: 0 1px;
 }
 .personal-bot-row .personal-task-title {
   font-weight: 500;

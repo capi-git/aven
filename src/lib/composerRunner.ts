@@ -1,6 +1,4 @@
-/** Pixel mascot that patrols the composer's top edge while a turn is in flight. */
-
-import { mascotPath } from "./projectMascots";
+/** The project's mark patrols the composer's top edge while a turn is in flight. */
 
 export const RUNNER_SIZE = 18;
 export const RUNNER_SPEED_PX = 160;
@@ -48,49 +46,16 @@ export const STAR_ORBIT = 11;
 /** One full star orbit. Longer than the old 280ms spin so it reads as a daze, not a blur. */
 export const STAR_SPIN_MS = 520;
 
-export const COIN_FACE_PATH = mascotPath([
-  "........",
-  "..####..",
-  ".######.",
-  "########",
-  "########",
-  ".######.",
-  "..####..",
-  "........",
-]);
+/** A coin: a round face with a lit rim down its middle, on an 8-unit box. */
+export const COIN_FACE_PATH = "M0.5 4a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0z";
+export const COIN_EDGE_PATH =
+  "M3.25 2.25a0.75 0.75 0 0 1 1.5 0v3.5a0.75 0.75 0 0 1 -1.5 0z";
 
-export const COIN_EDGE_PATH = mascotPath([
-  "........",
-  "...##...",
-  "...##...",
-  "...##...",
-  "...##...",
-  "...##...",
-  "...##...",
-  "........",
-]);
-
-export const STAR_FACE_PATH = mascotPath([
-  "...##...",
-  "...##...",
-  "..####..",
-  "########",
-  "########",
-  "..####..",
-  "...##...",
-  "...##...",
-]);
-
-export const STAR_EDGE_PATH = mascotPath([
-  "........",
-  "...##...",
-  "...##...",
-  "..####..",
-  "..####..",
-  "...##...",
-  "...##...",
-  "........",
-]);
+/** A four-pointed star, and its brighter middle. */
+export const STAR_FACE_PATH =
+  "M4 0C4.4 2.6 5.4 3.6 8 4C5.4 4.4 4.4 5.4 4 8C3.6 5.4 2.6 4.4 0 4C2.6 3.6 3.6 2.6 4 0z";
+export const STAR_EDGE_PATH =
+  "M4 2C4.2 3.3 4.7 3.8 6 4C4.7 4.2 4.2 4.7 4 6C3.8 4.7 3.3 4.2 2 4C3.3 3.8 3.8 3.3 4 2z";
 
 type Rect = {
   left: number;
@@ -279,7 +244,7 @@ export function stunDone(elapsedMs: number): boolean {
   return elapsedMs >= CRASH_STUN_MS;
 }
 
-/** Pixel stars orbiting the sprite while it is stunned. Offsets are from the sprite top-left. */
+/** Stars orbiting the sprite while it is stunned. Offsets are from the sprite top-left. */
 export function stunStars(
   elapsedMs: number,
 ): { dx: number; dy: number; opacity: number }[] {

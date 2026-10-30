@@ -123,13 +123,13 @@ function app(flaws: Flaws = {}) {
       draw();
     }, REACTION_MS);
   }
-  // Home's large tiles run their own, bigger hop.
-  const mark = (working: boolean, hop = "project-mark-hop") => {
+  // A project's mark: a dot mark sweeping while working, reacting once.
+  const mark = (working: boolean) => {
     if (reaction)
-      return `<span class="project-mark" data-kind="mascot" data-reaction="${reaction}"><svg class="mascot-reacting" data-reaction="${reaction}"><g class="mascot-body" style="animation-name: mascot-${reaction}"></g></svg></span>`;
+      return `<span class="project-mark" data-kind="mark" data-reaction="${reaction}"><span class="dot-mark" data-state="done" data-reaction="${reaction}"><svg class="dot-mark-art" style="animation-name: dot-mark-${reaction}"></svg></span></span>`;
     if (working)
-      return `<span class="project-mark" data-kind="mascot" data-active="true"><svg class="mascot-active" style="animation-name: ${flaws.stillWhileWorking ? "none" : hop}"></svg></span>`;
-    return `<span class="project-mark" data-kind="mascot"><svg></svg></span>`;
+      return `<span class="project-mark" data-kind="mark" data-active="true"><span class="dot-mark" data-state="working"><svg class="dot-mark-art"><path class="dot-mark-lit-d" style="animation-name: ${flaws.stillWhileWorking ? "none" : "dot-mark-sweep"}"></path></svg></span></span>`;
+    return `<span class="project-mark" data-kind="mark"><span class="dot-mark" data-state="still"><svg class="dot-mark-art"></svg></span></span>`;
   };
   function draw() {
     const working = state.sessions.some((session) => session.busy);
@@ -142,7 +142,7 @@ function app(flaws: Flaws = {}) {
         homeOpen
           ? `<section class="workspace-home">
               <ul>
-                <li class="workspace-home-agent" data-project-path="${PROJECT}" data-state="${working ? "running" : "idle"}">${mark(working, "workspace-home-agent-hop")}</li>
+                <li class="workspace-home-agent" data-project-path="${PROJECT}" data-state="${working ? "running" : "idle"}">${mark(working)}</li>
                 <li class="workspace-home-agent" data-project-path="/tmp/check/other" data-state="idle">${mark(false)}</li>
               </ul>
               ${working ? `<ul><li data-pulse="running"><button>1 agent working</button></li></ul>` : ""}
@@ -230,7 +230,7 @@ describe("the real-app check's motion steps", () => {
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe(
-      "While the agent worked, its mark its animation is none, expected project-mark-hop",
+      "While the agent worked, its mark its animation is none, expected dot-mark-sweep",
     );
   });
 

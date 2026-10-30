@@ -14,6 +14,8 @@ import {
   type ProjectBot,
 } from "./projectBots";
 import { SECURITY_INSTRUCTIONS } from "./crewPresets";
+import { crewMemberSigil } from "./dotSigils";
+import { currentMascotName, isMascotName } from "./projectMascots";
 import { normalizeProjectPath } from "./recents";
 import type { AutomationReview } from "./automationReview";
 import { registerGuardedChats } from "./harness/sessionPermissions";
@@ -46,10 +48,12 @@ export type CrewLoopRole = "builder" | "checker" | "security";
 export type CrewRoleInfo = {
   role: CrewRole;
   label: string;
-  /** The critter it is drawn as; the Fixer is the project's own. */
+  /**
+   * The critter a member of this role was drawn as before marks. A member
+   * from then with no mark or name of its own is still called by it
+   * ("Beetle"); its mark is its role's sigil.
+   */
   critter?: string;
-  /** Its critter's colour. */
-  color?: string;
   /** Its job, one line. */
   job: string;
   /** May it change files in the crew's copy? */
@@ -61,7 +65,6 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     role: "builder",
     label: "Builder",
     critter: "beetle",
-    color: "hsl(28 82% 58%)",
     job: "Builds the cards you give the crew",
     edits: true,
   },
@@ -69,7 +72,6 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     role: "checker",
     label: "Checker",
     critter: "owl",
-    color: "hsl(232 72% 76%)",
     job: "Checks every build before you see it",
     edits: false,
   },
@@ -77,7 +79,6 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     role: "security",
     label: "Security",
     critter: "hedgehog",
-    color: "hsl(30 32% 64%)",
     job: "Reviews each passed build for security before you see it",
     edits: false,
   },
@@ -85,7 +86,6 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     role: "scout",
     label: "Scout",
     critter: "fox",
-    color: "hsl(338 74% 72%)",
     job: "Finds small ideas worth building",
     edits: false,
   },
@@ -113,9 +113,12 @@ export type CrewMember = {
    */
   id: string;
   role: CrewRole;
-  /** A name the user gave it; its critter's otherwise. */
+  /** A name the user gave it; its title otherwise ("Builder", "Designer"). */
   name?: string;
-  /** Its critter (a mascot's name); its role's otherwise. */
+  /**
+   * Its mark: a sigil key (see `dotSigils`), its role's when not set. A
+   * member from before marks may hold a critter's name, read as a sigil.
+   */
   critter?: string;
   /** A custom role's own name and job: "Designer", "Makes it look right". */
   label?: string;
@@ -558,12 +561,15 @@ export function newCrew(path: string, now = Date.now()): Crew {
     path: normalizeProjectPath(path),
     on: false,
     createdAt: now,
+    // Each wears its role's mark, which also tells it from a member made
+    // before marks (still called by its critter's name).
     members: [
-      { id: "builder", role: "builder" },
-      { id: "checker", role: "checker" },
+      { id: "builder", role: "builder", critter: "builder" },
+      { id: "checker", role: "checker", critter: "checker" },
       {
         id: "security",
         role: "security",
+        critter: "security",
         instructions: SECURITY_INSTRUCTIONS,
       },
     ],
@@ -1496,9 +1502,11 @@ export function forgetCrew(path: string) {
 // Members and their chats
 
 /**
- * A member's name: its own, or its critter's ("Beetle", "Owl", "Fox"). The
- * Fixer's is its bot's, which the caller passes. `who` is a member's id, or
- * a role for the first member of it.
+ * A member's name: its own; for a member made before marks, its critter's
+ * ("Beetle", "Owl", "Fox"); otherwise its title ("Builder", "Designer"),
+ * numbered after the first of its role ("Builder 2"). The Fixer's is its
+ * bot's, which the caller passes. `who` is a member's id, or a role for the
+ * first member of it.
  */
 export function crewMemberName(
   crew: Pick<Crew, "members">,
@@ -1515,18 +1523,32 @@ export function crewMemberName(
     (ROLES.has(who as CrewRole) ? (who as CrewRole) : "builder");
   if (role === "fixer") return fixerName;
   if (member?.name) return member.name;
-  const critter = memberCritter(member ?? { role });
-  return critter
-    ? critter[0]!.toUpperCase() + critter.slice(1)
-    : CREW_ROLE_INFO[role].label;
+  const critter = legacyCritter(member ?? { role });
+  if (critter) return critter[0]!.toUpperCase() + critter.slice(1);
+  const title = memberLabel(member ?? { role });
+  const nth = member?.label ? undefined : /-(\d+)$/.exec(member?.id ?? "")?.[1];
+  return nth ? `${title} ${nth}` : title;
 }
 
-/** The critter a member is drawn as: yours, or its role's. None for the Fixer. */
-export function memberCritter(
+/**
+ * The critter a member made before marks is still called by: the one it
+ * was given then, or its role's. None for a member with a mark.
+ */
+export function legacyCritter(
   member: Pick<CrewMember, "role" | "critter">,
 ): string | undefined {
   if (member.role === "fixer") return undefined;
-  return member.critter ?? CREW_ROLE_INFO[member.role].critter;
+  const critter = member.critter ?? CREW_ROLE_INFO[member.role].critter;
+  return critter && isMascotName(critter)
+    ? currentMascotName(critter)
+    : undefined;
+}
+
+/** The sigil key of a member's mark: yours, or its role's. */
+export function memberCritter(
+  member: Pick<CrewMember, "role" | "critter">,
+): string {
+  return crewMemberSigil(member.role, member.critter).key;
 }
 
 /** "Builder", or a custom member's own title ("Designer"). */

@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HARNESS_ICONS, MONOCHROME_HARNESSES } from "../chrome/HarnessIcon";
-import {
-  MASCOT_GRID,
-  PROJECT_MASCOTS,
-  mascotCellsPath,
-} from "../lib/projectMascots";
+import { DOT_GRID, litCells, projectSigil } from "../lib/dotSigils";
 import { HARNESSES, type HarnessId } from "../lib/session";
 import {
   ARCADE_MODES,
@@ -55,41 +51,45 @@ type Board = {
   ctx: CanvasRenderingContext2D;
   bubbleAt: { x: number; y: number } | null;
   stamp: Float32Array;
+  /** The grid's dot outlines, traced once per size. */
+  grid: Path2D;
   width: number;
   height: number;
   pixelRatio: number;
 };
 
 /**
- * The grid is one colour, so a critter's shading becomes three strengths of
- * it: light cells and the summit brightest, the body a little softer, shade
- * fainter still. Eyes stay holes.
+ * Each mascot's sigil as round dots over its 5×5 box (unit cells), traced
+ * once into a single path so a ghost is one fill. Traced on first paint
+ * rather than at import, so nothing needs a canvas around just to pull this
+ * module in.
  */
-const MASCOT_TONES = [
-  { cells: "+w*", alpha: 1 },
-  { cells: "#", alpha: 0.78 },
-  { cells: "=", alpha: 0.48 },
-] as const;
+const sigilPaths = new Map<string, Path2D>();
 
-type MascotTones = Path2D[];
-
-/**
- * Mascot art, traced once over its 12×12 box so each tone of a frame is a
- * single fill. Traced on first paint rather than at import, so nothing needs
- * a canvas around just to pull this module in.
- */
-const mascotPaths = new Map<string, { rest: MascotTones; talk: MascotTones }>();
-
-function mascotArt(name: string) {
-  const cached = mascotPaths.get(name);
+function sigilArt(name: string): Path2D {
+  const cached = sigilPaths.get(name);
   if (cached) return cached;
-  const mascot = PROJECT_MASCOTS.find((it) => it.name === name);
-  if (!mascot) return null;
-  const tones = (rows: readonly string[]) =>
-    MASCOT_TONES.map(({ cells }) => new Path2D(mascotCellsPath(rows, cells)));
-  const art = { rest: tones(mascot.rest), talk: tones(mascot.talk) };
-  mascotPaths.set(name, art);
-  return art;
+  const path = new Path2D();
+  for (const [y, x] of litCells(projectSigil(name).rows)) {
+    path.moveTo(x + 0.88, y + 0.5);
+    path.arc(x + 0.5, y + 0.5, 0.38, 0, Math.PI * 2);
+  }
+  sigilPaths.set(name, path);
+  return path;
+}
+
+/** Every cell's outline as a circle, for one stroke per frame. */
+function gridDots(cols: number, rows: number): Path2D {
+  const path = new Path2D();
+  const radius = CELL / 2 - 0.5;
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
+      const cx = x * PITCH + CELL / 2;
+      const cy = y * PITCH + CELL / 2;
+      path.moveTo(cx + radius, cy);
+      path.arc(cx, cy, radius, 0, Math.PI * 2);
+    }
+  return path;
 }
 
 function parseRgb(value: string, fallback: string) {
@@ -133,7 +133,7 @@ function drawPacman(
   ctx.fill();
 }
 
-/** The mascot's own pixel art, scaled up out of its 12×12 box. */
+/** The mascot's sigil in round dots, scaled up out of its 5×5 box. */
 function drawGhost(
   ctx: CanvasRenderingContext2D,
   sprite: ArcadeSprite,
@@ -152,28 +152,25 @@ function drawGhost(
       y: Math.sign(sprite.dy) * unit * 0.6,
     };
     ctx.fillStyle = `rgba(${rgb}, ${opacity})`;
-    for (const offset of [2, 5]) {
-      ctx.fillRect(
-        left + offset * unit + lean.x,
-        top + 3 * unit + lean.y,
-        unit,
-        unit * 1.5,
-      );
+    ctx.beginPath();
+    for (const offset of [2.5, 5.5]) {
+      const x = left + offset * unit + lean.x;
+      const y = top + 3.75 * unit + lean.y;
+      ctx.moveTo(x + unit * 0.7, y);
+      ctx.arc(x, y, unit * 0.7, 0, Math.PI * 2);
     }
+    ctx.fill();
     return;
   }
 
-  const art = sprite.mascot ? mascotArt(sprite.mascot) : null;
-  if (!art) return;
-  const unit = span / MASCOT_GRID;
-  const tones = sprite.frame === "talk" ? art.talk : art.rest;
+  if (!sprite.mascot) return;
+  const unit = span / DOT_GRID;
   ctx.save();
   ctx.translate(left, top);
   ctx.scale(unit, unit);
-  tones.forEach((path, index) => {
-    ctx.fillStyle = `rgba(${rgb}, ${opacity * MASCOT_TONES[index].alpha})`;
-    ctx.fill(path);
-  });
+  // Its two frames: the dots dim a little on the second, as they breathe.
+  ctx.fillStyle = `rgba(${rgb}, ${opacity * (sprite.frame === "talk" ? 0.78 : 1)})`;
+  ctx.fill(sigilArt(sprite.mascot));
   ctx.restore();
 }
 
@@ -236,6 +233,7 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
         ctx,
         bubbleAt: null,
         stamp: new Float32Array(0),
+        grid: new Path2D(),
         width: 0,
         height: 0,
         pixelRatio: 0,
@@ -300,6 +298,7 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
       board.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       board.arcade.resize(cols, rows);
       board.stamp = new Float32Array(cols * rows);
+      board.grid = gridDots(cols, rows);
       board.width = width;
       board.height = height;
       board.pixelRatio = pixelRatio;
@@ -317,17 +316,24 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
       ctx.lineWidth = 1;
       ctx.strokeStyle = `rgba(${rgb}, ${BORDER_OPACITY * fade})`;
 
+      // The grid is round dots: their faint rings in one stroke, and the
+      // cells the games light filled one by one.
+      ctx.stroke(board.grid);
       const peak = PEAK_OPACITY * dim;
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-          const px = x * PITCH;
-          const py = y * PITCH;
           const fillOpacity = (stamp[y * cols + x] ?? 0) * peak;
-          if (fillOpacity > 0.02) {
-            ctx.fillStyle = `rgba(${rgb}, ${fillOpacity})`;
-            ctx.fillRect(px, py, CELL, CELL);
-          }
-          ctx.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1);
+          if (fillOpacity <= 0.02) continue;
+          ctx.fillStyle = `rgba(${rgb}, ${fillOpacity})`;
+          ctx.beginPath();
+          ctx.arc(
+            x * PITCH + CELL / 2,
+            y * PITCH + CELL / 2,
+            CELL / 2,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
         }
       }
 
