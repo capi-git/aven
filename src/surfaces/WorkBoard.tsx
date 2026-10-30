@@ -64,6 +64,7 @@ import { CrewGiveChooser } from "./CrewGiveChooser";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
+  crewDeleteNote,
   crewWorkspace,
   deleteBoardCard,
   discardCrewCard,
@@ -284,6 +285,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   onShowOlder: () => void;
 }) {
   const labels = useProjectLabels();
+  // The crew as stored, on or off: Delete throws its work away either way.
+  const storedCrew = useCrew(project);
   const scroller = useRef<HTMLDivElement>(null);
   const layoutKey = BOARD_COLUMNS.map(
     (column) =>
@@ -636,7 +639,13 @@ export const WorkBoardView = memo(function WorkBoardView({
       {deleting ? (
         <ConfirmDialog
           title="Delete this card?"
-          body={`“${deleting.title}” leaves the board.${deleting.crew?.column ? " The crew's work on it is thrown away." : ""} Its chats stay in the sidebar.`}
+          body={[
+            `“${deleting.title}” leaves the board.`,
+            crewDeleteNote(storedCrew, deleting.id),
+            "Its chats stay in the sidebar.",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           confirmLabel="Delete"
           danger
           onConfirm={() => {

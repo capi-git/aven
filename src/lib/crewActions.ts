@@ -624,6 +624,31 @@ export async function discardCrewCard(
   return null;
 }
 
+/** The crew's card for a Board card it still has (queued, in its loop, Ready or Stuck), on or off. */
+function heldCrewCard(
+  crew: Crew | undefined,
+  cardId: string,
+): CrewCard | undefined {
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  return card && card.stage !== "applied" && card.stage !== "discarded"
+    ? card
+    : undefined;
+}
+
+/**
+ * What Delete also throws away of the crew's work on a card, as a line for
+ * its dialog, or "" when the crew doesn't have it. The crew may be off: its
+ * cards and copy stay, and Delete throws them away all the same.
+ */
+export function crewDeleteNote(crew: Crew | undefined, cardId: string): string {
+  const card = heldCrewCard(crew, cardId);
+  if (!card) return "";
+  if (card.stage === "ready")
+    return "The crew's Ready change is thrown away too.";
+  if (card.stage === "queued") return "It leaves the crew's queue too.";
+  return "The crew's work on it is thrown away too.";
+}
+
 /**
  * Delete a Board card. One the crew still has (queued, in its loop, Ready
  * or Stuck) is thrown away with its work first, so the crew never goes on
@@ -634,9 +659,7 @@ export async function deleteBoardCard(
   path: string,
   cardId: string,
 ): Promise<string | null> {
-  const crew = getCrew(path);
-  const card = crew ? crewCard(crew, cardId) : undefined;
-  if (card && card.stage !== "applied" && card.stage !== "discarded")
+  if (heldCrewCard(getCrew(path), cardId))
     return discardCrewCard(path, cardId, "delete");
   await deleteFeatureCard(path, cardId);
   return null;

@@ -85,14 +85,17 @@ vi.mock("../chrome/ConfirmDialog", async () => {
   return {
     ConfirmDialog: ({
       title,
+      body,
       onConfirm,
     }: {
       title: string;
+      body: string;
       onConfirm: () => void;
     }) =>
       react.createElement(
         "div",
         { "data-confirm-dialog": title },
+        react.createElement("p", null, body),
         react.createElement("button", { onClick: onConfirm }, "Confirm"),
       ),
   };
@@ -799,6 +802,7 @@ describe("the crew view: the Board with the crew on it", () => {
     const dialog = document.querySelector<HTMLElement>(
       '[data-confirm-dialog="Delete this card?"]',
     )!;
+    expect(dialog.textContent).toContain("It leaves the crew's queue too.");
     await act(async () => button(dialog, "Confirm")!.click());
     await settle();
     expect(crewCard(getCrew(PROJECT)!, boards[5].id)?.stage).toBe("discarded");
@@ -966,6 +970,42 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(document.activeElement).toBe(
       container.querySelector('input[aria-label="Tell the crew"]'),
     );
+  });
+
+  it("warns that Delete throws away the crew's Ready change, even while the crew is off", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(crew, crewCardFor(boards[3], "ready")),
+      on: false,
+    }));
+    // A plain board: no crew face on the card, yet the crew still has it.
+    expect(container.querySelector("[data-crew-header]")).toBeNull();
+    await act(async () =>
+      card(boards[3].id)
+        .querySelector<HTMLButtonElement>(".work-board-card-more")!
+        .click(),
+    );
+    await act(async () =>
+      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
+    );
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-confirm-dialog="Delete this card?"]',
+    )!;
+    expect(dialog.textContent).toContain(
+      "The crew's Ready change is thrown away too.",
+    );
+    // An ordinary card's Delete says nothing about the crew.
+    await act(async () =>
+      card(boards[0].id)
+        .querySelector<HTMLButtonElement>(".work-board-card-more")!
+        .click(),
+    );
+    await act(async () =>
+      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
+    );
+    expect(
+      document.querySelector('[data-confirm-dialog="Delete this card?"]')!
+        .textContent,
+    ).not.toContain("crew");
   });
 
   it("is a plain board while the crew is off", async () => {
