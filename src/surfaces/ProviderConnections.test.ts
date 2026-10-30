@@ -491,6 +491,37 @@ describe("MCP servers page", () => {
     expect(container.querySelector("form")).toBeNull();
   });
 
+  it("offers an agent that isn't installed unticked and greyed out", async () => {
+    codex.mockRejectedValue(
+      new ProviderNotInstalledError("Codex CLI not found."),
+    );
+    await mount();
+    await click(button("Add server"));
+    const form = container.querySelector("form")!;
+    const target = (label: string) =>
+      [...form.querySelectorAll<HTMLLabelElement>(".provider-targets label")]
+        .find((item) => item.textContent === label)!
+        .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(target("Claude").checked).toBe(true);
+    expect(target("Codex").checked).toBe(false);
+    expect(target("Codex").disabled).toBe(true);
+    expect(target("Codex").closest("label")!.hasAttribute("data-missing")).toBe(
+      true,
+    );
+    expect(form.querySelector("[data-mcp-missing]")?.textContent).toBe(
+      "Codex isn’t installed.",
+    );
+    // Codex's own settings aren't asked for.
+    expect(form.textContent).not.toContain("Codex servers apply");
+    await type("github", "acme");
+    await type("npx", "npx");
+    await act(async () => form.requestSubmit());
+    expect(invoke.mock.calls.map(([, args]) => args.request.provider)).toEqual([
+      "claude",
+    ]);
+    expect(notice()).toBe("Added acme to Claude.");
+  });
+
   it("explains a failure without closing the form", async () => {
     invoke.mockRejectedValueOnce(new Error("MCP server acme already exists"));
     await mount();

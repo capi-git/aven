@@ -100,6 +100,12 @@ function joinAnd(items: string[]): string {
 
 const ids = (entries: McpEntry[]) => entries.map((entry) => entry.id);
 
+/** "Codex isn’t installed.", for agents Aven found no CLI for. */
+const notInstalled = (agents: readonly Provider[]) =>
+  `${joinAnd(agents.map((agent) => MCP_AGENT_LABEL[agent]))} ${
+    agents.length > 1 ? "aren’t" : "isn’t"
+  } installed.`;
+
 const agentNames = (entries: McpEntry[]) =>
   joinAnd(
     [...new Set(entries.map((entry) => entry.provider))].map(
@@ -489,6 +495,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           <div className="settings-group-surface">
             <AddServerForm
               cwd={cwd}
+              missing={overview.missing}
               busy={busy !== null}
               onCancel={() => setAdding(false)}
               onAdd={async (draft, providers, scope) => {
@@ -589,9 +596,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       ) : null}
       {overview.missing.length ? (
         <p className="mcp-footnote" data-mcp-missing>
-          {`${joinAnd(overview.missing.map((agent) => MCP_AGENT_LABEL[agent]))} ${
-            overview.missing.length > 1 ? "aren’t" : "isn’t"
-          } installed.`}
+          {notInstalled(overview.missing)}
         </p>
       ) : null}
     </div>
@@ -921,11 +926,14 @@ function McpSkeleton() {
 
 function AddServerForm({
   cwd,
+  missing,
   busy,
   onCancel,
   onAdd,
 }: {
   cwd: string;
+  /** Agents that aren't installed: offered unticked, and not to be ticked. */
+  missing: readonly Provider[];
   busy: boolean;
   onCancel: () => void;
   onAdd: (
@@ -943,7 +951,12 @@ function AddServerForm({
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<McpServerDraft>) =>
     setDraft((prev) => ({ ...prev, ...patch }));
-  const providers = (["claude", "codex"] as const).filter((id) => targets[id]);
+  // An agent found missing after the form opened is unticked too.
+  const chosen: Record<Provider, boolean> = {
+    claude: targets.claude && !missing.includes("claude"),
+    codex: targets.codex && !missing.includes("codex"),
+  };
+  const providers = (["claude", "codex"] as const).filter((id) => chosen[id]);
 
   const submit = () => {
     setError(null);
@@ -1048,7 +1061,7 @@ function AddServerForm({
               inputMode="url"
             />
           </label>
-          {targets.claude ? (
+          {chosen.claude ? (
             <label className="provider-field">
               <span>Claude headers</span>
               <textarea
@@ -1060,7 +1073,7 @@ function AddServerForm({
               />
             </label>
           ) : null}
-          {targets.codex ? (
+          {chosen.codex ? (
             <label className="provider-field">
               <span>Codex token variable</span>
               <input
@@ -1083,10 +1096,14 @@ function AddServerForm({
         <span>Add to</span>
         <span className="provider-targets">
           {PROVIDERS.map((provider) => (
-            <label key={provider.id}>
+            <label
+              key={provider.id}
+              data-missing={missing.includes(provider.id) || undefined}
+            >
               <input
                 type="checkbox"
-                checked={targets[provider.id]}
+                checked={chosen[provider.id]}
+                disabled={missing.includes(provider.id)}
                 onChange={(event) =>
                   setTargets((prev) => ({
                     ...prev,
@@ -1099,7 +1116,12 @@ function AddServerForm({
           ))}
         </span>
       </div>
-      {targets.claude ? (
+      {missing.length ? (
+        <p className="skills-note" data-mcp-missing>
+          {notInstalled(missing)}
+        </p>
+      ) : null}
+      {chosen.claude ? (
         <div className="provider-field">
           <span>Claude uses it in</span>
           <Select
@@ -1113,7 +1135,7 @@ function AddServerForm({
           />
         </div>
       ) : null}
-      {targets.codex ? (
+      {chosen.codex ? (
         <p className="skills-note">Codex servers apply to all your projects.</p>
       ) : null}
       {error ? (
