@@ -192,8 +192,13 @@ export function CrewSettingsSheet({
     );
   } else if (member) {
     const name = crewMemberName(crew, member.id);
+    // What it is called without a name of its own, numbered among the rest.
     const defaultName = crewMemberName(
-      { members: [{ ...member, name: undefined }] },
+      {
+        members: crew.members.map((entry) =>
+          entry.id === member.id ? { ...entry, name: undefined } : entry,
+        ),
+      },
       member.id,
     );
     header = {
@@ -215,7 +220,10 @@ export function CrewSettingsSheet({
           }}
         />
       ),
-      description: `${memberLabel(member)} in ${project}'s crew`,
+      // The title, unless the name already says it ("Builder 2").
+      description: titleBeside(name, memberLabel(member))
+        ? `${memberLabel(member)} in ${project}'s crew`
+        : `In ${project}'s crew`,
       leading: (
         <span className="bot-sheet-critter">
           <CrewCritter

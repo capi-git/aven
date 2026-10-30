@@ -8,7 +8,9 @@
    stroke's width (in the mark's 100-unit box, cells 20 apart). A small
    mark (under 24px: lists, rails, tabs) draws its sigil alone, in bigger
    dots, so the sigil is all you see; a bigger one keeps the unlit dots as
-   a faint hint of the grid. */
+   a faint hint of the grid. A square frame (the message box's corner)
+   always draws the whole grid, strong enough to read as a square, so the
+   mark there has one footprint whatever the sigil. */
 
 /* Its size, in a layer so a utility (size-3) or a caller's own rule wins. */
 @layer components {
@@ -47,10 +49,19 @@
     --dot-mark-dot: 14.6;
   }
 
-  .dot-mark-grid,
-  .dot-mark-grid-d {
+  .dot-mark:not([data-frame="square"]) .dot-mark-grid,
+  .dot-mark:not([data-frame="square"]) .dot-mark-grid-d {
     display: none;
   }
+}
+
+/* The square frame: every unlit dot plain enough to make the square. */
+.dot-mark[data-frame="square"] {
+  --dot-mark-unlit: 0.2;
+}
+
+html.theme-light .dot-mark[data-frame="square"] {
+  --dot-mark-unlit: 0.16;
 }
 
 .dot-mark-grid,
@@ -123,6 +134,12 @@
     animation-delay: calc(var(--d, 0) * 70ms);
   }
 
+  /* In the square, the sweep brightens the grid and never dims it below
+     the square. */
+  .dot-mark[data-frame="square"][data-state="working"] .dot-mark-grid-d {
+    animation-name: dot-mark-sweep-square;
+  }
+
   /* Reshaping into the tick or the cross: the sigil fades as they arrive. */
   .dot-mark-was {
     animation: dot-mark-out 360ms ease-out both;
@@ -184,6 +201,16 @@
   }
   30% {
     opacity: 0.2;
+  }
+}
+
+@keyframes dot-mark-sweep-square {
+  0%,
+  100% {
+    opacity: var(--dot-mark-unlit);
+  }
+  30% {
+    opacity: calc(var(--dot-mark-unlit) * 2);
   }
 }
 

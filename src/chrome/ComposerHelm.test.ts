@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -235,6 +236,53 @@ async function openByClick() {
 
 /** The mark standing at the helm. */
 const mark = () => critter().querySelector<HTMLElement>(".helm-critter")!;
+
+describe("the mark's square", () => {
+  /** Dots in a path: each starts with a move. */
+  const dots = (path: Element | null) =>
+    (path?.getAttribute("d")?.match(/M/g) ?? []).length;
+  const css = (file: string) =>
+    readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it("draws all 25 dots at the corner, whatever the sigil, at rest and working", async () => {
+    await render();
+    expect(mark().dataset.frame).toBe("square");
+    expect(dots(mark().querySelector(".dot-mark-grid"))).toBe(25);
+    // The sigil's own dots, lit over the square.
+    expect(dots(mark().querySelector(".dot-mark-lit"))).toBeGreaterThan(0);
+    props.busy = true;
+    await render();
+    expect(mark().dataset.state).toBe("working");
+    const grid = [...mark().querySelectorAll(".dot-mark-grid-d")];
+    expect(grid.reduce((sum, path) => sum + dots(path), 0)).toBe(25);
+  });
+
+  it("is a 25px square whose unlit dots are plain enough to read as one", () => {
+    const helm = css("src/chrome/ComposerHelm.css");
+    const rule = /\.composer-helm \.dot-mark\.helm-critter \{([^}]*)\}/.exec(
+      helm,
+    )?.[1];
+    expect(rule).toContain("width: 25px;");
+    expect(rule).toContain("height: 25px;");
+    const marks = css("src/chrome/DotMark.css");
+    const square = (selector: string) =>
+      Number(
+        new RegExp(
+          `${selector.replace(/[.[\]"=]/g, "\\$&")} \\{\\s*--dot-mark-unlit: ([\\d.]+);`,
+        ).exec(marks)?.[1],
+      );
+    expect(square('.dot-mark[data-frame="square"]')).toBeGreaterThanOrEqual(
+      0.18,
+    );
+    expect(
+      square('html.theme-light .dot-mark[data-frame="square"]'),
+    ).toBeGreaterThanOrEqual(0.14);
+    // Small marks drop their grid; the square never does.
+    expect(marks).toMatch(
+      /\.dot-mark:not\(\[data-frame="square"\]\) \.dot-mark-grid,/,
+    );
+  });
+});
 
 describe("the mark's states", () => {
   it("rests still with the room line over it", async () => {

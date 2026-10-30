@@ -6,11 +6,10 @@ import {
   probeHarnessAvailability,
 } from "./harness/availability";
 import { projectKey } from "./paths";
-import { projectAppearance } from "./projectAppearance";
 import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
 import {
   botBranch,
-  defaultBotName,
+  botName,
   forgetProjectBot,
   getProjectBot,
   jobIsLive,
@@ -63,7 +62,7 @@ export async function turnOnProjectBot(
 }
 
 /**
- * Turn the bot on as it comes: named after its critter, looking when a chat
+ * Turn the bot on as it comes: called the Fixer, looking when a chat
  * finishes or the dev server crashes, and fixing in its own copy. Resolves
  * with why it could not, in plain words, or null once on.
  */
@@ -74,7 +73,7 @@ export async function turnOnBotWithDefaults(
   if (!isHarnessAvailable("claude"))
     return "Bots use Claude Code. Install it and sign in, then add the bot again.";
   const bot = getProjectBot(path) ?? newProjectBot(path);
-  const name = bot.name ?? defaultBotName(path, projectAppearance(path).mascot);
+  const name = botName(bot);
   return turnOnProjectBot(
     path,
     { name: bot.name, wakes: bot.wakes, can: bot.can },

@@ -22,7 +22,6 @@ import {
   subscribeProjectBots,
   type ProjectBot,
 } from "../lib/projectBots";
-import { projectAppearance } from "../lib/projectAppearance";
 import { claimScheduledSlot, listScheduledRuns } from "../lib/scheduledAgents";
 import type { Attachment, Session } from "../lib/session";
 import { getUsageForecasts } from "../lib/usageHistory";
@@ -108,7 +107,7 @@ export function useProjectBots(
             .map((run) => run.sessionId)
             .filter((id): id is string => !!id),
         ),
-      name: (bot) => botName(bot, projectAppearance(bot.path).mascot),
+      name: (bot) => botName(bot),
       onWorking: (ids) => hostRef.current.onWorking(ids),
     };
     runnerRef.current = new BotRunner(deps);

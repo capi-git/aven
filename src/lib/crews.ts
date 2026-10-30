@@ -15,7 +15,7 @@ import {
 } from "./projectBots";
 import { SECURITY_INSTRUCTIONS } from "./crewPresets";
 import { crewMemberSigil } from "./dotSigils";
-import { currentMascotName, isMascotName } from "./projectMascots";
+import { isDefaultAgentName } from "./projectMascots";
 import { normalizeProjectPath } from "./recents";
 import type { AutomationReview } from "./automationReview";
 import { registerGuardedChats } from "./harness/sessionPermissions";
@@ -48,12 +48,6 @@ export type CrewLoopRole = "builder" | "checker" | "security";
 export type CrewRoleInfo = {
   role: CrewRole;
   label: string;
-  /**
-   * The critter a member of this role was drawn as before marks. A member
-   * from then with no mark or name of its own is still called by it
-   * ("Beetle"); its mark is its role's sigil.
-   */
-  critter?: string;
   /** Its job, one line. */
   job: string;
   /** May it change files in the crew's copy? */
@@ -64,28 +58,24 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
   builder: {
     role: "builder",
     label: "Builder",
-    critter: "beetle",
     job: "Builds the cards you give the crew",
     edits: true,
   },
   checker: {
     role: "checker",
     label: "Checker",
-    critter: "owl",
     job: "Checks every build before you see it",
     edits: false,
   },
   security: {
     role: "security",
     label: "Security",
-    critter: "hedgehog",
     job: "Reviews each passed build for security before you see it",
     edits: false,
   },
   scout: {
     role: "scout",
     label: "Scout",
-    critter: "fox",
     job: "Finds small ideas worth building",
     edits: false,
   },
@@ -113,7 +103,10 @@ export type CrewMember = {
    */
   id: string;
   role: CrewRole;
-  /** A name the user gave it; its title otherwise ("Builder", "Designer"). */
+  /**
+   * A name the user gave it; its title otherwise ("Builder", "Designer").
+   * A name Aven once gave by default ("Beetle", "Owl") is dropped on reading.
+   */
   name?: string;
   /**
    * Its mark: a sigil key (see `dotSigils`), its role's when not set. A
@@ -909,7 +902,9 @@ function readMember(value: unknown):
   const raw = value as Partial<CrewMember> | null;
   if (!raw || !ROLES.has(raw.role as CrewRole)) return null;
   const id = text(raw.id, 60);
-  const name = text(raw.name, 40);
+  // A critter's name was Aven's default, not yours: it goes by its role now.
+  const typed = text(raw.name, 40);
+  const name = typed && !isDefaultAgentName(typed) ? typed : undefined;
   const critter = text(raw.critter, 40);
   const label = text(raw.label, 40);
   const job = text(raw.job, 120);
@@ -1195,7 +1190,12 @@ export function readCrew(value: unknown): Crew | null {
  * What storage holds, as this build reads it. `foreign` is a store this
  * build can't read (broken, or another version's): it is never overwritten.
  */
-function parse(raw: string | null): { store: Store; foreign: boolean } {
+function parse(raw: string | null): {
+  store: Store;
+  foreign: boolean;
+  /** Members were read without names Aven once gave them ("Beetle"). */
+  renamed?: boolean;
+} {
   if (!raw) return { store: EMPTY_STORE, foreign: false };
   try {
     const parsed = JSON.parse(raw) as Partial<Store>;
@@ -1208,10 +1208,13 @@ function parse(raw: string | null): { store: Store; foreign: boolean } {
       return { store: EMPTY_STORE, foreign: true };
     const crews: Record<string, Crew> = {};
     const others: Record<string, unknown> = {};
+    let renamed = false;
     for (const [key, value] of Object.entries(parsed.crews)) {
       const crew = readCrew(value);
-      if (crew) crews[projectKey(crew.path)] = crew;
-      else others[key] = value;
+      if (crew) {
+        crews[projectKey(crew.path)] = crew;
+        renamed ||= hadDefaultNames(value);
+      } else others[key] = value;
     }
     const allRunsPerDay =
       typeof parsed.allRunsPerDay === "number"
@@ -1230,10 +1233,23 @@ function parse(raw: string | null): { store: Store; foreign: boolean } {
         ...(allRunsPerDay !== undefined ? { allRunsPerDay } : {}),
       },
       foreign: false,
+      ...(renamed ? { renamed } : {}),
     };
   } catch {
     return { store: EMPTY_STORE, foreign: true };
   }
+}
+
+/** Whether a stored crew still names a member as Aven once did ("Owl"). */
+function hadDefaultNames(value: unknown): boolean {
+  const members = (value as { members?: unknown } | null)?.members;
+  return (
+    Array.isArray(members) &&
+    members.some((member) => {
+      const name = (member as { name?: unknown } | null)?.name;
+      return typeof name === "string" && isDefaultAgentName(name);
+    })
+  );
 }
 
 /** Where an unreadable store is kept, once, before anything else happens. */
@@ -1250,6 +1266,8 @@ const listeners = new Set<() => void>();
 
 /** Storage holds a store this build can't read: saves stay in this window. */
 let foreign = false;
+/** Storage still names members as Aven once did: the next migration saves it. */
+let renamedOnRead = false;
 let foreignWarned = false;
 
 function read(): Store {
@@ -1264,6 +1282,7 @@ function read(): Store {
     const parsed = parse(raw);
     cache = parsed.store;
     foreign = parsed.foreign;
+    renamedOnRead = !!parsed.renamed;
     chatIndex = null;
     if (foreign && raw)
       try {
@@ -1307,6 +1326,7 @@ function write(store: Store) {
   });
   cache = store;
   chatIndex = null;
+  renamedOnRead = false;
   if (foreign) {
     // Another version's crews: never overwritten. Changes last as long as
     // this window.
@@ -1426,13 +1446,15 @@ export function crewsSnapshot(): Readonly<Record<string, Crew>> {
 }
 
 /**
- * Save the migration: each project bot's crew, with the bot as its Fixer.
- * Run once a window starts driving crews; later runs change nothing.
+ * Save the migrations: each project bot's crew, with the bot as its Fixer,
+ * and members Aven once named after critters called by their roles (read
+ * that way already; saved here once). Run once a window starts driving
+ * crews; later runs change nothing.
  */
 export function migrateBotsIntoCrews(): boolean {
   const store = read();
   const crews = withBotsAsFixers(store.crews, projectBotsSnapshot());
-  if (crews === store.crews) return false;
+  if (crews === store.crews && !renamedOnRead) return false;
   write({ ...store, crews });
   return true;
 }
@@ -1502,11 +1524,10 @@ export function forgetCrew(path: string) {
 // Members and their chats
 
 /**
- * A member's name: its own; for a member made before marks, its critter's
- * ("Beetle", "Owl", "Fox"); otherwise its title ("Builder", "Designer"),
- * numbered after the first of its role ("Builder 2"). The Fixer's is its
- * bot's, which the caller passes. `who` is a member's id, or a role for the
- * first member of it.
+ * A member's name: its own; otherwise its title ("Builder", "Designer"),
+ * numbered after the first member going by the same title ("Builder 2").
+ * The Fixer's is its bot's, which the caller passes. `who` is a member's
+ * id, or a role for the first member of it.
  */
 export function crewMemberName(
   crew: Pick<Crew, "members">,
@@ -1523,25 +1544,18 @@ export function crewMemberName(
     (ROLES.has(who as CrewRole) ? (who as CrewRole) : "builder");
   if (role === "fixer") return fixerName;
   if (member?.name) return member.name;
-  const critter = legacyCritter(member ?? { role });
-  if (critter) return critter[0]!.toUpperCase() + critter.slice(1);
   const title = memberLabel(member ?? { role });
-  const nth = member?.label ? undefined : /-(\d+)$/.exec(member?.id ?? "")?.[1];
-  return nth ? `${title} ${nth}` : title;
-}
-
-/**
- * The critter a member made before marks is still called by: the one it
- * was given then, or its role's. None for a member with a mark.
- */
-export function legacyCritter(
-  member: Pick<CrewMember, "role" | "critter">,
-): string | undefined {
-  if (member.role === "fixer") return undefined;
-  const critter = member.critter ?? CREW_ROLE_INFO[member.role].critter;
-  return critter && isMascotName(critter)
-    ? currentMascotName(critter)
-    : undefined;
+  const nth = member
+    ? crew.members
+        .filter(
+          (entry) =>
+            entry.role !== "fixer" &&
+            !entry.name &&
+            memberLabel(entry) === title,
+        )
+        .indexOf(member) + 1
+    : 1;
+  return nth > 1 ? `${title} ${nth}` : title;
 }
 
 /** The sigil key of a member's mark: yours, or its role's. */
@@ -1549,6 +1563,37 @@ export function memberCritter(
   member: Pick<CrewMember, "role" | "critter">,
 ): string {
   return crewMemberSigil(member.role, member.critter).key;
+}
+
+/**
+ * A crew member's or a bot's chat still titled with a name Aven once gave
+ * it ("Beetle", "Jelly"), titled by its name now; any other chat as it is,
+ * so a title you changed stays.
+ */
+export function withAgentTitle<T extends { title: string }>(
+  chat: T,
+  name: string,
+): T {
+  return chat.title !== name && isDefaultAgentName(chat.title)
+    ? { ...chat, title: name }
+    : chat;
+}
+
+/**
+ * "Hedgehog's security review", or "the security review" for a Security
+ * member that goes by its role, which would otherwise read twice.
+ */
+export function securityReviewBy(name: string): string {
+  return name === CREW_ROLE_INFO.security.label
+    ? "the security review"
+    : `${name}'s security review`;
+}
+
+/** "Hedgehog reviews it for security", or "Security reviews it". */
+export function securityReviewsIt(name: string): string {
+  return name === CREW_ROLE_INFO.security.label
+    ? `${name} reviews it`
+    : `${name} reviews it for security`;
 }
 
 /** "Builder", or a custom member's own title ("Designer"). */

@@ -911,6 +911,7 @@ import {
   isCrewChat,
   updateCrew,
   useCrewsStore,
+  withAgentTitle,
   withMemberId,
   type Crew,
 } from "./lib/crews";
@@ -8095,12 +8096,23 @@ export default function App({
         if (saved && !loaded) return null;
       }
       if (loaded) {
+        // A chat still titled with the critter's name it once had goes by
+        // the bot's name now.
+        const titled = withAgentTitle(loaded, botName(bot));
         // It always works in its copy, with Claude, in auto mode with its
         // asks: a new conversation there if it moved.
-        const fix = botChatInCopy(loaded, copy, () =>
+        const fix = botChatInCopy(titled, copy, () =>
           preferredModelId("claude"),
         );
-        if (!fix || (fix.restart && loaded.busy)) return loaded;
+        if (!fix || (fix.restart && loaded.busy)) {
+          if (titled === loaded) return loaded;
+          const next = sessionsRef.current.map((session) =>
+            session.id === titled.id ? titled : session,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+          return titled;
+        }
         if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
         const next = sessionsRef.current.map((session) =>
           session.id === fix.chat.id ? fix.chat : session,
@@ -8113,7 +8125,7 @@ export default function App({
         // The user's default Claude model, in auto mode with its asks.
         ...newSession("claude", bot.path, undefined, "auto"),
         ...(bot.sessionId ? { id: bot.sessionId } : {}),
-        title: botName(bot, projectAppearance(bot.path).mascot),
+        title: botName(bot),
         worktreeCwd: copy,
       };
       const next = [...sessionsRef.current, session];
@@ -11138,7 +11150,7 @@ export default function App({
       return {
         path: bot.path,
         ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
-        name: botName(bot, appearance.mascot),
+        name: botName(bot),
         project: appearance.label,
         status,
         headline: botHeadline(bot, status, now),
@@ -11266,12 +11278,15 @@ export default function App({
           () => preferredModelId("claude"),
           { harness, model },
         );
+        // A chat still titled with the critter's name it once had goes by
+        // the member's name now.
+        const name = crewMemberName(crew, member.id);
         if (!fix || (fix.restart && loaded.busy)) {
-          const tuned = withModel(loaded);
+          const tuned = withAgentTitle(withModel(loaded), name);
           return tuned === loaded ? loaded : save(tuned);
         }
         if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
-        return save(withModel(fix.chat));
+        return save(withAgentTitle(withModel(fix.chat), name));
       }
       const session: Session = withModel({
         ...newSession(harness, crew.path, model(), "auto"),
@@ -11416,7 +11431,7 @@ export default function App({
             now,
           )
         : undefined;
-      const fixerName = bot ? botName(bot, appearance.mascot) : undefined;
+      const fixerName = bot ? botName(bot) : undefined;
       const fixerRuns = bot?.on ? runsToday(bot, now) : 0;
       return {
         path: crew.path,
@@ -12965,9 +12980,7 @@ export default function App({
                 path={crewSheet}
                 fixerName={(() => {
                   const bot = getProjectBot(crewSheet);
-                  return bot?.on
-                    ? botName(bot, projectAppearance(crewSheet).mascot)
-                    : undefined;
+                  return bot?.on ? botName(bot) : undefined;
                 })()}
                 onTurnOn={turnOnCrewFor}
                 onAddFixer={(path) => {

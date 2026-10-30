@@ -904,7 +904,7 @@ describe("a Checker Codex can't lock down here", () => {
     expect(
       crew.feed.filter((entry) =>
         entry.text.includes(
-          "Owl is checking with Claude: Codex couldn't be locked down here.",
+          "Checker is checking with Claude: Codex couldn't be locked down here.",
         ),
       ),
     ).toHaveLength(1);
@@ -1215,14 +1215,12 @@ describe("Security", () => {
     expect(ready.rounds[1].security?.pass).toBe(true);
     expect(ready.later).toContain("Rotate the key");
     expect(ready.inbox?.summary).toContain(
-      "Passed Owl's check and Hedgehog's security review in round 2",
+      "Passed Owl's check and the security review in round 2",
     );
     const feed = getCrew(PATH)!.feed.map((entry) => entry.text);
-    expect(feed).toContain(
-      "Owl passed round 1; Hedgehog reviews it for security",
-    );
+    expect(feed).toContain("Owl passed round 1; Security reviews it");
     expect(feed.at(-1)).toBe(
-      "Ready for you · passed Owl's check and Hedgehog's security review in round 2",
+      "Ready for you · passed Owl's check and the security review in round 2",
     );
     h.runner.stop();
   });
@@ -1295,7 +1293,7 @@ describe("Security", () => {
     expect(crew.cards).toEqual([]);
     expect(h.sent).toHaveLength(1);
     expect(crew.feed.at(-1)?.text).toBe(
-      "Hedgehog added 2 security cards: Stop logging session tokens · Pin the registry in .npmrc",
+      "Security added 2 security cards: Stop logging session tokens · Pin the registry in .npmrc",
     );
     h.runner.stop();
   });

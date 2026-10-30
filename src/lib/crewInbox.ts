@@ -1,5 +1,10 @@
 import type { AutomationReview } from "./automationReview";
-import { CREW_ROLE_INFO, type Crew, type CrewCard } from "./crews";
+import {
+  CREW_ROLE_INFO,
+  securityReviewBy,
+  type Crew,
+  type CrewCard,
+} from "./crews";
 import { plural } from "./words";
 
 /**
@@ -50,7 +55,7 @@ export function crewInboxSummary(
     );
     return [
       secured
-        ? `Passed ${names.checker}'s check and ${names.security ?? CREW_ROLE_INFO.security.label}'s security review in round ${card.round}`
+        ? `Passed ${names.checker}'s check and ${securityReviewBy(names.security ?? CREW_ROLE_INFO.security.label)} in round ${card.round}`
         : `Passed ${names.checker}'s check in round ${card.round}`,
       files,
       plural(card.runs, "run"),

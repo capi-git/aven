@@ -161,7 +161,11 @@ import {
   type SidebarCrew,
   type SidebarCrewAction,
 } from "./SidebarCrews";
-import { botsAvailable, type BotStatus } from "../lib/projectBots";
+import {
+  botsAvailable,
+  DEFAULT_BOT_NAME,
+  type BotStatus,
+} from "../lib/projectBots";
 import { botProjectStates } from "../lib/projectBotCopy";
 import {
   BOT_PICKER_WIDTH,
@@ -1207,6 +1211,8 @@ function SidebarComponent({
         type="button"
         className="personal-other-task personal-task-card personal-bot-row"
         data-bot-row={bot.path}
+        // Called by its role alone ("Fixer"), it shows its project at rest.
+        data-role-name={bot.name === DEFAULT_BOT_NAME || undefined}
         title={`${bot.name} · ${bot.project}'s teammate\n${bot.headline}`}
         aria-current={
           bot.sessionId && bot.sessionId === activeSessionId

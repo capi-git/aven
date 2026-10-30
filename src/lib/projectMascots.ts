@@ -60,6 +60,26 @@ export function isMascotName(name: string): boolean {
   return BY_NAME.has(currentMascotName(name));
 }
 
+/**
+ * Names Aven gave bots and crew members before they went by their roles:
+ * every critter's name and label ("Jelly", "Jellyfish") and the older
+ * sprites' names.
+ */
+const DEFAULT_AGENT_NAMES = new Set(
+  [
+    ...PROJECT_MASCOTS.flatMap((mascot) => [mascot.name, mascot.label]),
+    ...LEGACY_NAMES.keys(),
+  ].map((name) => name.toLowerCase()),
+);
+
+/**
+ * Whether `name` (all of it, in any case) is one Aven gave an agent by
+ * default rather than one you typed: "Beetle", "owl", "JELLY".
+ */
+export function isDefaultAgentName(name: string): boolean {
+  return DEFAULT_AGENT_NAMES.has(name.trim().toLowerCase());
+}
+
 /** Stable per-project pick — a different mix than the color hash so a project's
  *  mascot and color vary independently. An explicit `name` wins, read through
  *  the old names; an unknown one falls back to the hash. */

@@ -65,17 +65,19 @@
 }
 
 /* ---- the mark and what stands beside it ------------------------------- */
+/* The mark: a 25px square, centred on the same line as Send and the
+   speech bubble (20px above the strip's foot). */
 .helm-perch {
   position: relative;
   flex: none;
-  width: 35px;
-  height: 35px;
-  margin-bottom: 3px;
+  width: 25px;
+  height: 25px;
+  margin-bottom: 7.5px;
 }
 .helm-critter-button {
   display: block;
-  width: 35px;
-  height: 35px;
+  width: 25px;
+  height: 25px;
   padding: 0;
   border: 0;
   border-radius: var(--aven-radius-md);
@@ -88,8 +90,8 @@
     var(--color-background-base)
   );
   display: block;
-  width: 35px;
-  height: 35px;
+  width: 25px;
+  height: 25px;
 }
 
 /* The room left in the chat: a thin line over the mark. */
@@ -105,7 +107,7 @@
   display: inline-block;
   flex: none;
   overflow: hidden;
-  width: 28px;
+  width: 25px;
   height: 2px;
   border-radius: 1px;
   background: var(--helm-track);

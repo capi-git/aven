@@ -1016,6 +1016,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             key={hop}
             sigil={mark}
             state={POSE_STATE[pose]}
+            frame="square"
             className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
           />
         </button>

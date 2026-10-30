@@ -91,11 +91,12 @@ describe("crew members' names and marks", () => {
     expect(crewMemberName(read, "checker")).toBe("Checker");
   });
 
-  it("keeps the names a crew from before marks has, and draws them as roles", () => {
+  it("calls a crew from before marks' members by their roles, and draws them so", () => {
     const crew = crewFromBeforeMarks();
+    // "Mole" was typed, so it stays; the Designer goes by its own title.
     expect(
       crew.members.map((member) => crewMemberName(crew, member.id)),
-    ).toEqual(["Beetle", "Owl", "Hedgehog", "Moth", "Mole"]);
+    ).toEqual(["Builder", "Checker", "Security", "Designer", "Mole"]);
     expect(crew.members.map((member) => memberCritter(member))).toEqual([
       "builder",
       "checker",
@@ -103,24 +104,15 @@ describe("crew members' names and marks", () => {
       "designer",
       "moon",
     ]);
-    // Nothing stored changed by reading it.
-    expect(
-      JSON.parse(localStorage.getItem(CREWS_KEY)!).crews[PATH].members[0],
-    ).toEqual({
-      id: "builder",
-      role: "builder",
-    });
   });
 
-  it("keeps a member's old name when it is given a mark of its own", () => {
+  it("keeps a member's role name when it is given a mark of its own", () => {
     crewFromBeforeMarks();
     expect(updateCrewMember(PATH, "checker", { critter: "spiral" })).toBeNull();
     const checker = crewMemberById(getCrew(PATH)!, "checker")!;
-    expect(checker).toMatchObject({ critter: "spiral", name: "Owl" });
-    expect(crewMemberName(getCrew(PATH)!, "checker")).toBe("Owl");
-    // A member with a name of its own keeps it as it was.
-    updateCrewMember(PATH, "builder-3", { critter: "builder" });
-    expect(crewMemberById(getCrew(PATH)!, "builder-3")?.name).toBe("Mole");
+    expect(checker.critter).toBe("spiral");
+    expect(checker.name).toBeUndefined();
+    expect(crewMemberName(getCrew(PATH)!, "checker")).toBe("Checker");
   });
 
   it("numbers a second member of a role, and gives it a mark nobody wears", () => {
@@ -132,7 +124,7 @@ describe("crew members' names and marks", () => {
     const marks = crew.members.map((member) => memberCritter(member));
     expect(new Set(marks).size).toBe(marks.length);
     expect(titleBeside("Builder 2", "Builder")).toBeNull();
-    expect(titleBeside("Mole", "Builder")).toBe("Builder");
+    expect(titleBeside("Sam", "Builder")).toBe("Builder");
   });
 
   it("names a custom member by its title, in the custom mark", () => {

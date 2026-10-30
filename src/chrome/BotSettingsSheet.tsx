@@ -9,7 +9,7 @@ import {
   BOT_DEFAULT_QUIET,
   BOT_DEFAULT_RUNS_PER_DAY,
   BOT_WAKE_KINDS,
-  defaultBotName,
+  DEFAULT_BOT_NAME,
   formatClockMinutes,
   useProjectBot,
 } from "../lib/projectBots";
@@ -37,7 +37,7 @@ export function BotSettingsSheet({
 }) {
   const bot = useProjectBot(path);
   const appearance = useProjectAppearance(path);
-  const fallbackName = defaultBotName(path, appearance?.mascot);
+  const fallbackName = DEFAULT_BOT_NAME;
   const project = appearance?.label || projectName(path);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);

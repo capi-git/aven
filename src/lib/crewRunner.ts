@@ -63,6 +63,8 @@ import {
   updateCrew,
   withCard,
   withCrewRun,
+  securityReviewBy,
+  securityReviewsIt,
   withFeed,
   withIdea,
   withMemberId,
@@ -1407,7 +1409,7 @@ export class CrewRunner {
           ...(checkerId ? { member: checkerId } : {}),
           to: "security",
           round: event.round,
-          text: `${checker} passed round ${event.round}; ${security} reviews it for security`,
+          text: `${checker} passed round ${event.round}; ${securityReviewsIt(security)}`,
         });
         break;
       case "to-builder": {
@@ -1445,7 +1447,7 @@ export class CrewRunner {
               : {}),
           round: event.round,
           text: secured
-            ? `Ready for you · passed ${checker}'s check and ${security}'s security review in round ${event.round}`
+            ? `Ready for you · passed ${checker}'s check and ${securityReviewBy(security)} in round ${event.round}`
             : `Ready for you · passed ${checker}'s check in round ${event.round}`,
         });
         break;
