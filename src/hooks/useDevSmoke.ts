@@ -43,6 +43,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
+  HELM_SWEEP_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -2790,7 +2791,7 @@ export async function runDevSmoke(
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame = helm?.querySelector(".helm-critter-frame-a");
+              const frame = helm?.querySelector(HELM_SWEEP_SELECTOR);
               seen =
                 helmWorkingProblem(
                   helm ?? null,
@@ -2801,7 +2802,7 @@ export async function runDevSmoke(
               return seen === null;
             },
             5_000,
-            "the critter to work at its laptop with the chat's one Stop",
+            "the mark to sweep while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });

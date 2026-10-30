@@ -1,27 +1,27 @@
 /**
- * The message box's helm: the project's critter standing on the box's
+ * The message box's helm: the project's mark standing on the box's
  * top-right corner, which is also its controls. This module holds what the
- * helm decides without drawing anything: its pose, the room bar, the rows of
- * its dialog and how the keyboard moves through them, the words it says, and
- * the two small choices it remembers (the critter for chats outside a
+ * helm decides without drawing anything: its pose, the room line, the rows
+ * of its menu and how the keyboard moves through them, the words it says,
+ * and the two small choices it remembers (the mark for chats outside a
  * project, and the one-time hint).
  */
 import { isEditTool } from "./harness/preview";
 import type { Block } from "./session";
 
 /**
- * What the critter is doing:
- * - `rest`: dozing with "zzz", nothing typed and nothing running.
- * - `typing`: awake, watching the text, holding the paper plane.
- * - `hover`: looking up at its dialog.
- * - `running`: typing at its tiny laptop while the agent works.
- * - `done`: a sparkle as a turn finishes, then back to rest.
- * - `error`: a sweat drop while something needs fixing.
+ * What the mark is doing:
+ * - `rest`: still, nothing typed and nothing running.
+ * - `typing`: breathing slowly while you write.
+ * - `hover`: the same, while its menu is open.
+ * - `running`: a light sweeping across it while the agent works.
+ * - `done`: its dots reshaped into a tick as a turn finishes, then rest.
+ * - `error`: a cross while something needs fixing.
  */
 export type HelmPose =
   "rest" | "typing" | "hover" | "running" | "done" | "error";
 
-/** What the speech bubble beside the critter says, if anything. */
+/** What the speech bubble beside the mark says, if anything. */
 export type HelmOutcome = "done" | "stopped" | "error" | null;
 
 export function helmPose({
@@ -45,15 +45,15 @@ export function helmPose({
 /** How many recently used skills the dialog's Skills page offers. */
 export const HELM_RECENT_SKILLS = 4;
 
-/** Cells in the room bar above the critter. */
+/** Steps of the room line above the mark. */
 export const ROOM_CELLS = 12;
 
 export type RoomTone = "calm" | "amber" | "red";
 
 /**
- * The room bar from the share of the context window used: how many of its
- * cells are lit (the room left, rounded up so a little room never reads as
- * none) and the colour of its tip, amber past 75% used and red past 90%.
+ * The room line from the share of the context window used: how many of its
+ * steps are lit (the room left, rounded up so a little room never reads as
+ * none) and its colour, amber past 75% used and red past 90%.
  */
 export function roomBar(
   used: number,
@@ -119,7 +119,7 @@ export function doneWords(
 }
 
 /**
- * The critter's accessible name: what pointing at it shows, said at once.
+ * The mark's accessible name: what pointing at it shows, said at once.
  * "Message settings, Claude Opus 5.5, Max effort, Full access, 23% room
  * left". Parts the chat does not have are left out.
  */
@@ -191,7 +191,7 @@ export function effortPips(effort: string | null | undefined): number {
 /**
  * The dialog's rows, top to bottom. Each row opens what it names: the
  * agent's panel (model, effort, access), Free up space, the file picker, or
- * a page of its own (modes, skills, critter).
+ * a page of its own (modes, skills, the mark).
  */
 export type HelmRowId =
   | "model"
@@ -274,34 +274,39 @@ export function moveGridCursor(
 }
 
 /**
- * How long the bubble keeps "Done in 1:12" before the critter rests again,
+ * How long the bubble keeps "Done in 1:12" before the mark rests again,
  * and how long "Stopped" stays.
  */
 export const HELM_DONE_MS = 3200;
 export const HELM_STOPPED_MS = 2000;
-/** How long the one-time hint stays if nobody points at the critter. */
+/** How long the one-time hint stays if nobody points at the mark. */
 export const HELM_HINT_MS = 7000;
-/** Pointing must rest this long before the dialog unfurls. */
+/** Pointing must rest this long before the menu opens. */
 export const HELM_HOVER_OPEN_MS = 90;
-/** Leaving the critter and its dialog closes it after this. */
+/** Leaving the mark and its menu closes it after this. */
 export const HELM_HOVER_CLOSE_MS = 220;
 
 /** Fired on `window` to open the footer's usage details (a failure's fix). */
 export const OPEN_USAGE_EVENT = "aven:open-usage";
 
-/** The critter a chat outside any project shows, chosen in the helm. */
+/**
+ * The mark a chat outside any project shows, chosen in the helm. Kept under
+ * the critter name it stands for, as before marks.
+ */
 export const HELM_CRITTER_KEY = "aven.helmCritter.v1";
 /** Set once the helm has said "Point at me for settings". */
 export const HELM_HINT_KEY = "aven.helmHint.v1";
-/** Fired on `window` when the personal critter changes in this window. */
+/** Fired on `window` when the personal mark changes in this window. */
 export const HELM_CRITTER_EVENT = "aven:helm-critter";
 
 export type HelmCritterChoice = {
-  /** A critter's name (see `PROJECT_MASCOTS`). */
+  /** A critter's name (see `PROJECT_MASCOTS`), drawn as its project sigil. */
   mascot: string;
-  /** Index into `TAB_GROUP_COLORS`, or null for the neutral default. */
+  /**
+   * The colour picked before marks, which have none: kept as it was so
+   * nothing saved is lost.
+   */
   colorIndex: number | null;
-  /** A colour picked by hand (hex), which wins over `colorIndex`. */
   customColor?: string | null;
 };
 
@@ -335,7 +340,7 @@ export function loadHelmCritter(): HelmCritterChoice {
       };
     }
   } catch {
-    // Storage unavailable or unreadable: the default critter.
+    // Storage unavailable or unreadable: the default mark.
   }
   return DEFAULT_HELM_CRITTER;
 }
@@ -352,7 +357,7 @@ export function saveHelmCritter(choice: HelmCritterChoice): void {
 
 let personalCritter: HelmCritterChoice | null = null;
 
-/** The personal critter, read once and kept in step with changes. */
+/** The personal mark, read once and kept in step with changes. */
 export function helmCritterSnapshot(): HelmCritterChoice {
   personalCritter ??= loadHelmCritter();
   return personalCritter;
