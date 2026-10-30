@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+## [0.1.161] - 2026-10-30
+
+### Changed
+
+- **Dots.** Every pixel critter is now a clean mark made of round dots, and the pixel lettering is gone.
+  - Each project and crew member has its own dot pattern. Builder is two blocks, Checker a ring, Security a shield and Scout a diamond.
+  - While an agent works, a light sweeps through its dots. When it needs you, an amber dot appears. When it's done, the dots become a tick; when it's stuck, a cross.
+  - Marks stay black and grey. Colour appears only in the small status dot.
+  - The message box menu uses normal lettering, round dots for effort and a thin line for room left. **Critter** is now **Mark**: pick a pattern for the project. There's no colour choice any more.
+  - Your earlier picks carry over to a matching pattern. New crews name their members by role (Builder, Checker…). Existing crews keep their names.
+
+### Fixed
+
+- **Crews**
+  - A crew no longer spins in a tight loop when one of its member's chats is busy.
+  - Deleting a crew's card from the Board also stops the crew's work on it. Delete says so, even while the crew is off. Queued cards can go **Back to Ideas**.
+  - Members no longer show Working forever after a turn is stopped, and they can be removed again.
+  - A card waiting for Security no longer stalls when Security is turned off.
+  - The sidebar says Paused when a crew is paused or held.
+  - The Board shows when the all-crews daily limit holds a crew.
+  - Scout and Security failures appear in the Feed.
+  - Cards the crew holds can't be dragged, and have no Move items that do nothing.
+  - Throw away and Turn the crew off ask first everywhere.
+  - Quiet hours can't start and end at the same time.
+  - A stopped Scout adds no ideas.
+  - Tell the crew… puts the cursor in the box.
+- **Panes and tabs**
+  - Undo after moving a tab in from another split, or after Combine all tabs, puts everything back exactly.
+  - ⌘⌥ arrow keys on a page no longer jump into another chat's split, and moving between panes skips folded panes.
+  - A pane's … menu offers one Collapse pane, and Collapse column or row where it fits, and hides items that would do nothing.
+  - Nudging the divider between two folded panes no longer opens the wrong one.
+  - Typing goes to a pane you just reopened.
+  - A page no longer gets stuck off to one side of its pane after panes slide.
+- **Agents and your tabs**
+  - Stop and declines hold until you write to that chat. Another agent's message no longer lifts them.
+  - Stop on a tab bar no longer takes away the chat's permission to control your Mac.
+  - Pause also holds reading and saving, and another chat's use of a tab still shows while one is paused.
+  - Saving a page again no longer overwrites another article's pictures or your project's images. Notion images get proper names.
+  - Page snapshots keep one-time codes and shown passwords hidden.
+  - Each open tab is listed once, even with two windows. Agents can read tabs in a detached window.
+- **Message box, Automations and MCP servers**
+  - The mark's menu closes when you switch chats, so it can't change a chat you can't see. Tab moves around it sensibly.
+  - A run Aven quit during no longer stays Running for hours, and Stop works on it from any window.
+  - Run now pressed twice starts one run.
+  - A blocked run, for example with Notion not connected, leaves a **Needs you** card with Try again instead of Approve.
+  - A review card's button says why when it can't send.
+  - The MCP servers page shows a quiet note for an agent that isn't installed, and Add server leaves it unticked.
+  - Turning off a server used by both Claude and Codex says what changed when one side fails.
+
 ## [0.1.160] - 2026-10-29
 
 ### Added
