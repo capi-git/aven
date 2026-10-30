@@ -891,6 +891,7 @@ import { useCrews } from "./hooks/useCrews";
 import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
 import type { SidebarCrew, SidebarCrewAction } from "./chrome/SidebarCrews";
 import {
+  focusCrewTell,
   installCrewWorkspace,
   pickCrewModels,
   setCrewPaused,
@@ -11403,9 +11404,11 @@ export default function App({
         setCrewPaused(path, action === "pause");
       else if (action === "settings") setCrewSheet(path);
       else {
-        // Open crew, and Tell the crew…: the Feed's box is on its Board.
+        // Open crew, and Tell the crew…: the Feed's box is on its Board,
+        // and Tell the crew… puts the cursor in it.
         closeUtilityViews();
         onOpenBoard(path);
+        if (action === "tell") focusCrewTell(path);
       }
     },
     [closeUtilityViews, onOpenBoard],

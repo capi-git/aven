@@ -13,6 +13,7 @@ import {
   CrewRoundDots,
   CrewStatusPill,
 } from "../chrome/CrewCritter";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ArrowUp, MoreHorizontal, Pause, Play } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
@@ -31,22 +32,26 @@ import {
   resumeCrewCard,
   setCrewPaused,
   stopCrewNow,
+  subscribeCrewTell,
+  takeCrewTell,
   tellCrew,
   turnOffCrew,
   useCrewWorkspace,
 } from "../lib/crewActions";
-import { crewGate, crewLimitsLine, crewNoMemberGate } from "../lib/crewLimits";
+import {
+  allCrewRunsToday,
+  crewGate,
+  crewHoldGate,
+  crewLimitsLine,
+} from "../lib/crewLimits";
 import {
   CREW_ROLE_INFO,
-  cardBuilder,
-  cardChecker,
-  cardInCopy,
   crewMemberById,
   crewMembers,
   memberCritter,
   crewCard,
-  queuedCards,
   updateCrew,
+  useCrewsAllRunsPerDay,
   withoutNote,
   type Crew,
   type CrewCard,
@@ -56,6 +61,7 @@ import type { CrewBoardInfo, CrewMemberView } from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
 import { addFeatureIdea } from "../lib/featureCards";
 import { botCopyHost } from "../lib/projectBotCopy";
+import { getProjectBot, runsToday } from "../lib/projectBots";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import {
   FEED_FOLLOW_START,
@@ -103,6 +109,7 @@ export const CrewHeader = memo(function CrewHeader({
   const labels = useProjectLabels();
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [confirmingOff, setConfirmingOff] = useState(false);
   const name = projectDisplayName(crew.path, labels);
   const roles = crewMembers(crew)
     .filter((member) => member.role !== "fixer" || fixerRuns >= 0)
@@ -181,8 +188,20 @@ export const CrewHeader = memo(function CrewHeader({
             if (id === "stop") void stopCrewNow(crew.path);
             else if (id === "more") allowMoreRunsToday(crew.path);
             else if (id === "settings") workspace?.openSettings(crew.path);
-            else if (id === "off") void turnOffCrew(crew.path);
+            else if (id === "off") setConfirmingOff(true);
           }}
+        />
+      ) : null}
+      {confirmingOff ? (
+        <ConfirmDialog
+          title="Turn the crew off?"
+          body="What it is doing stops and nothing new starts. Its cards and its copy stay, so Ready work is still there when you turn it on."
+          confirmLabel="Turn off"
+          onConfirm={() => {
+            setConfirmingOff(false);
+            void turnOffCrew(crew.path);
+          }}
+          onCancel={() => setConfirmingOff(false)}
         />
       ) : null}
     </header>
@@ -203,27 +222,21 @@ export function CrewHoldLine({
   fixerRuns: number;
 }) {
   const workspace = useCrewWorkspace();
-  const limit = crewGate({
+  const allRunsCap = useCrewsAllRunsPerDay();
+  const held = crewHoldGate({
     crew,
     now,
     weeklyUsed: claudeWeeklyUsed(now),
     fixerRuns,
-    allRuns: 0,
+    // Every crew's runs, as the runner counts them for the ceiling.
+    allRuns: allCrewRunsToday(now, (path) => {
+      const bot = getProjectBot(path);
+      return bot ? runsToday(bot, now) : 0;
+    }),
+    allRunsCap,
   });
-  const waiting = cardInCopy(crew) ?? queuedCards(crew)[0];
-  // Every Builder (or Checker) the card needs is off or removed.
-  const role = waiting?.holder === "checker" ? "checker" : "builder";
-  const unmanned =
-    !!waiting &&
-    (waiting.stage === "queued" ||
-      waiting.stage === "building" ||
-      waiting.stage === "checking") &&
-    !(role === "checker"
-      ? cardChecker(crew, waiting)
-      : cardBuilder(crew, waiting));
-  const gate = limit.ok && unmanned ? crewNoMemberGate(role) : limit;
-  if (gate.ok) return null;
-  if (!waiting && gate.reason !== "paused") return null;
+  if (!held) return null;
+  const { gate, waiting } = held;
   const waits = waiting
     ? ` ${waiting.title} waits in ${waiting.stage === "ready" ? "Review" : "Building"}.`
     : "";
@@ -499,6 +512,17 @@ export function CrewFeed({
   useLayoutEffect(() => {
     toBottom();
   }, []);
+  // Tell the crew… from the sidebar: the cursor goes in the box.
+  const tellBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const take = () => {
+      // After the frame that shows the Board, so a tab just picked can take focus.
+      if (takeCrewTell(crew.path))
+        requestAnimationFrame(() => tellBox.current?.focus());
+    };
+    take();
+    return subscribeCrewTell(take);
+  }, [crew.path]);
   // New entries: followed at the bottom, counted while you read further up.
   useLayoutEffect(() => {
     if (newest === seenNewest.current) return;
@@ -646,6 +670,7 @@ export function CrewFeed({
         }}
       >
         <input
+          ref={tellBox}
           className="work-board-input crew-tell-input"
           type="text"
           placeholder="Tell the crew…"
@@ -871,6 +896,8 @@ export function CrewReadySheet({
   const [problem, setProblem] = useState<string | null>(null);
   const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [throwing, setThrowing] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const checked = useMemo(() => {
     if (!card) return [];
     const last = card.rounds.find((round) => round.n === card.round)?.verdict;
@@ -934,6 +961,18 @@ export function CrewReadySheet({
       errorText(reason),
     );
     setBusy(false);
+    if (error) setProblem(error);
+    else onClose();
+  };
+  /** Back to Ideas or Throw away: the sheet closes once it's done, or says why not. */
+  const discard = async (then: "ideas" | "delete") => {
+    setThrowing(false);
+    setDiscarding(true);
+    setProblem(null);
+    const error = await discardCrewCard(crew.path, card.id, then).catch(
+      (reason) => errorText(reason),
+    );
+    setDiscarding(false);
     if (error) setProblem(error);
     else onClose();
   };
@@ -1086,6 +1125,36 @@ export function CrewReadySheet({
             </div>
           </form>
         ) : null}
+        {throwing ? (
+          <div
+            className="crew-sheet-send"
+            role="group"
+            aria-label="Throw this card away?"
+            data-crew-throw-confirm
+          >
+            <p className="crew-sheet-small">
+              The crew's work on “{card.title}” is thrown away and the card
+              leaves the board. Your files stay as they are.
+            </p>
+            <div className="work-board-edit-actions">
+              <TeamCardButton
+                size="compact"
+                variant="ghost"
+                onClick={() => setThrowing(false)}
+              >
+                Keep it
+              </TeamCardButton>
+              <TeamCardButton
+                size="compact"
+                variant="primary"
+                disabled={discarding}
+                onClick={() => void discard("delete")}
+              >
+                Throw away
+              </TeamCardButton>
+            </div>
+          </div>
+        ) : null}
         {problem || card.error ? (
           <p className="crew-sheet-problem" role="alert">
             {problem ?? card.error}
@@ -1120,7 +1189,7 @@ export function CrewReadySheet({
             </TeamCardButton>
             <TeamCardButton
               variant="primary"
-              disabled={busy}
+              disabled={busy || discarding}
               onClick={() => void apply()}
             >
               {busy ? "Applying…" : "Apply"}
@@ -1150,12 +1219,9 @@ export function CrewReadySheet({
               onClose();
               return;
             }
-            void discardCrewCard(
-              crew.path,
-              card.id,
-              id === "ideas" ? "ideas" : "delete",
-            );
-            onClose();
+            // Throwing the work away asks first, as on the Board.
+            if (id === "throw") setThrowing(true);
+            else void discard("ideas");
           }}
         />
       ) : null}

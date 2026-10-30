@@ -28,7 +28,6 @@ import { useChatReviews } from "../lib/chatReview";
 import {
   addFeatureCards,
   addFeatureIdea,
-  deleteFeatureCard,
   editFeatureCard,
   featureBrief,
   linkFeatureChat,
@@ -65,7 +64,9 @@ import { CrewGiveChooser } from "./CrewGiveChooser";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
+  crewDeleteNote,
   crewWorkspace,
+  deleteBoardCard,
   discardCrewCard,
   giveCardToCrew,
   notNowIdea,
@@ -284,6 +285,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   onShowOlder: () => void;
 }) {
   const labels = useProjectLabels();
+  // The crew as stored, on or off: Delete throws its work away either way.
+  const storedCrew = useCrew(project);
   const scroller = useRef<HTMLDivElement>(null);
   const layoutKey = BOARD_COLUMNS.map(
     (column) =>
@@ -636,13 +639,22 @@ export const WorkBoardView = memo(function WorkBoardView({
       {deleting ? (
         <ConfirmDialog
           title="Delete this card?"
-          body={`“${deleting.title}” leaves the board. Its chats stay in the sidebar.`}
+          body={[
+            `“${deleting.title}” leaves the board.`,
+            crewDeleteNote(storedCrew, deleting.id),
+            "Its chats stay in the sidebar.",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           confirmLabel="Delete"
           danger
           onConfirm={() => {
             const id = deleting.id;
             setDeleting(null);
-            void deleteFeatureCard(project, id);
+            // A card the crew has is thrown away with its work, never left running.
+            void deleteBoardCard(project, id).then((problem) =>
+              noteProblem(id, problem),
+            );
           }}
           onCancel={() => setDeleting(null)}
         />
@@ -655,7 +667,8 @@ const NO_OUTSIDE: readonly OutsideWork[] = Object.freeze([]);
 
 /**
  * A card's ⋯ menu: a draft of it, its words, where it goes, and Delete;
- * while the crew works on it, Pause or Resume it and Stop now come first.
+ * while the crew works on it, Pause or Resume it and Stop now come first,
+ * and the crew's stage says where it goes.
  */
 export function cardMenuItems(
   card: BoardCard,
@@ -668,6 +681,7 @@ export function cardMenuItems(
         label: action.label,
       }))
     : [];
+  const live = !!held && held.stage !== "applied" && held.stage !== "discarded";
   return [
     ...crewItems,
     ...(crewItems.length ? [{ kind: "sep" } as const] : []),
@@ -679,14 +693,17 @@ export function cardMenuItems(
     },
     { kind: "item", id: "edit", label: "Edit" },
     { kind: "sep" },
-    ...BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
-      (column): ExplorerMenuItem => ({
-        kind: "item",
-        id: `move:${column.id}`,
-        label: `Move to ${column.title}`,
-      }),
-    ),
-    { kind: "sep" },
+    // The crew's stage places a card it has: moving it by hand wouldn't stick.
+    ...(live
+      ? []
+      : BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
+          (column): ExplorerMenuItem => ({
+            kind: "item",
+            id: `move:${column.id}`,
+            label: `Move to ${column.title}`,
+          }),
+        )),
+    ...(live ? [] : [{ kind: "sep" } as const]),
     { kind: "item", id: "delete", label: "Delete", danger: true },
   ];
 }
@@ -841,6 +858,8 @@ const BoardCardView = memo(function BoardCardView({
   // A Scout idea is the crew's to start: Give to crew and Not now, no Build.
   const boardActions =
     crew?.roles.includes("scout") || crew?.label ? [] : card.actions;
+  // The crew's stage places a card it holds: it can't be dragged elsewhere.
+  const fixed = !!crew?.column;
   return (
     <article
       className="work-board-card"
@@ -852,8 +871,9 @@ const BoardCardView = memo(function BoardCardView({
       data-crew-stage={crew?.label}
       data-needs-you={card.needsYou || crew?.needsYou ? "" : undefined}
       data-editing={editing || undefined}
+      data-fixed={fixed || undefined}
       onPointerDown={
-        editing ? undefined : (event) => onPointerDown(event, card.id)
+        editing || fixed ? undefined : (event) => onPointerDown(event, card.id)
       }
     >
       {editing ? (

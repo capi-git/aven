@@ -466,6 +466,32 @@ export function reviewMoved(
   };
 }
 
+/**
+ * Security was turned off or removed while a card the Checker passed waited
+ * for its review: it is Ready on the Checker's pass, with exactly the change
+ * the Checker passed as the fix (Apply still lands only that fingerprint).
+ * Null when there is no passed change to make Ready.
+ */
+export function securityOff(card: CrewCard, now: number): LoopStep | null {
+  if (card.stage !== "checking" || card.holder !== "security") return null;
+  const fix = card.reviewing ?? roundOf(card)?.change;
+  if (!fix) return null;
+  return {
+    card: {
+      ...card,
+      stage: "ready",
+      holder: undefined,
+      stuck: undefined,
+      reviewing: undefined,
+      turn: undefined,
+      fix,
+      endedAt: now,
+      updatedAt: now,
+    },
+    event: { kind: "ready", round: card.round },
+  };
+}
+
 /** A turn that failed or was cancelled stops the card with why. */
 export function turnFailed(
   card: CrewCard,
@@ -498,6 +524,20 @@ export function turnTimedOut(
 export function stopCard(card: CrewCard, now: number): CrewCard {
   if (card.stage !== "building" && card.stage !== "checking") return card;
   return stuck(card, "stopped", "You stopped it", now);
+}
+
+/**
+ * A Stuck card whose turn didn't finish (it failed, ran too long, was
+ * stopped, or ended without a verdict): Try again runs that turn again.
+ */
+export function cardTriesAgain(card: Pick<CrewCard, "stage" | "stuck">) {
+  const reason = card.stage === "stuck" ? card.stuck?.reason : undefined;
+  return (
+    reason === "failed" ||
+    reason === "timeout" ||
+    reason === "stopped" ||
+    reason === "no-verdict"
+  );
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { queueCard, startCard } from "./crewLoop";
-import { crewBoardInfo } from "./crewView";
-import type { CrewCard } from "./crews";
+import { crewBoardInfo, crewStatus } from "./crewView";
+import { newCrew, type Crew, type CrewCard } from "./crews";
 
 const names = { builder: "Beetle", checker: "Owl" };
 
@@ -40,5 +40,60 @@ describe("a Stuck card's buttons", () => {
       expect(crewBoardInfo(stuck(reason), names).actions[0]?.label).toBe(
         "One more round",
       );
+  });
+});
+
+describe("a Queued card", () => {
+  it("can go back to Ideas before it starts", () => {
+    const queued = queueCard(
+      { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
+      1,
+    );
+    expect(crewBoardInfo(queued, names).actions).toEqual([
+      { id: "back-to-ideas", label: "Back to Ideas" },
+    ]);
+  });
+});
+
+describe("the crew's one word", () => {
+  /** A card waiting for its Builder's next round, with no turn running. */
+  const waiting = (patch: Partial<Crew> = {}, turn = false): Crew => {
+    const card = startCard(
+      queueCard(
+        { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
+        1,
+      ),
+      2,
+    );
+    return {
+      ...newCrew("/Users/me/site"),
+      on: true,
+      cards: [
+        turn
+          ? {
+              ...card,
+              turn: {
+                role: "builder",
+                sessionId: "s",
+                turnId: "t",
+                sentAt: 3,
+              },
+            }
+          : card,
+      ],
+      ...patch,
+    };
+  };
+
+  it("is Paused while you or a limit hold a card that waits for its turn", () => {
+    expect(crewStatus(waiting({ paused: true }))).toBe("paused");
+    expect(
+      crewStatus(waiting({ hold: { reason: "quiet-hours", at: 1 } })),
+    ).toBe("paused");
+  });
+
+  it("is Working while a turn runs, paused or not, and while nothing holds it", () => {
+    expect(crewStatus(waiting({ paused: true }, true))).toBe("working");
+    expect(crewStatus(waiting())).toBe("working");
   });
 });

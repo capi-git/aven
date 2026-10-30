@@ -1834,6 +1834,28 @@ export function withoutFallbacks(crew: Crew): Crew {
   };
 }
 
+/**
+ * Members' "doing" lines cleared once their turns are over (stopped, the
+ * crew turned off, or a page that ran them is gone), except where `keep`
+ * says a turn is still running. Same object when nothing changes.
+ */
+export function withDoingCleared(
+  crew: Crew,
+  keep: (member: CrewMember) => boolean = () => false,
+): Crew {
+  if (!crew.members.some((member) => member.doing && !keep(member)))
+    return crew;
+  return {
+    ...crew,
+    members: crew.members.map((member) => {
+      if (!member.doing || keep(member)) return member;
+      const rest = { ...member };
+      delete rest.doing;
+      return rest;
+    }),
+  };
+}
+
 type ChatEntry = {
   key: string;
   role: CrewRole;
