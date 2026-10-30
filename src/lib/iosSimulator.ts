@@ -110,8 +110,13 @@ let supportAt = 0;
 /** Asked again after this, so a newly installed or selected Xcode shows. */
 const SUPPORT_REFRESH_MS = 30_000;
 
-/** Xcode and live-view support. */
-export function loadIosSimSupport(): Promise<IosSimSupport> {
+/**
+ * Xcode and live-view support, asked again once the last answer is older
+ * than `maxAgeMs`.
+ */
+export function loadIosSimSupport(
+  maxAgeMs = SUPPORT_REFRESH_MS,
+): Promise<IosSimSupport> {
   if (!iosSimPlatform())
     return Promise.resolve({
       xcode: false,
@@ -119,7 +124,7 @@ export function loadIosSimSupport(): Promise<IosSimSupport> {
       developerDir: null,
       reason: null,
     });
-  if (!supportRequest || Date.now() - supportAt > SUPPORT_REFRESH_MS) {
+  if (!supportRequest || Date.now() - supportAt >= maxAgeMs) {
     supportAt = Date.now();
     supportRequest = invoke<IosSimSupport>("ios_sim_support").then(
       (support) => {

@@ -86,6 +86,11 @@ type Menu = "device" | "scheme" | "actions" | null;
 type Frame = { src: string; width: number; height: number };
 
 const BASIC_FRAME_MS = 350;
+/**
+ * How often an open pane asks whether the live view works, so it goes live
+ * (or falls back to basic mode) without being reopened.
+ */
+const SUPPORT_RECHECK_MS = 30_000;
 
 /** "Could not rotate: The simulator is not running" */
 function failed(label: string, error: unknown): string {
@@ -127,6 +132,12 @@ export function IosSimulatorPane({
   const [pickCount, setPickCount] = useState(0);
   /** Bumped to start the device again after it was shut down while hidden. */
   const [recheck, setRecheck] = useState(0);
+  /**
+   * Run status and console events received so far: the state read when the
+   * pane opens must not replace newer ones that arrived while it was read.
+   */
+  const statusEvents = useRef(0);
+  const logEvents = useRef(0);
   const viewId = useMemo(
     () => `iphone-${crypto.randomUUID().replaceAll("-", "")}`,
     [],
@@ -170,14 +181,20 @@ export function IosSimulatorPane({
         // project's schemes, which can take a while with Swift packages.
         const reading = iosSim.project(project, choice.container);
         reading.catch(() => {});
+        const seenStatus = statusEvents.current;
+        const seenLogs = logEvents.current;
         const [list, current] = await Promise.all([
           iosSim.devices(),
           iosSim.state(project),
         ]);
         if (cancelled) return;
         setDevices(list.devices);
-        setStatus(current.status);
-        setLogs(current.logs);
+        // Listing devices can take seconds while the simulator is busy; a
+        // Run's events meanwhile are newer than this state.
+        const newerStatus = statusEvents.current !== seenStatus;
+        if (!newerStatus) setStatus(current.status);
+        if (!newerStatus && logEvents.current === seenLogs)
+          setLogs(current.logs);
         const picked = pickDevice(list.devices, choice.udid, list.suggested);
         setUdid(picked?.udid ?? null);
         const projectInfo = await reading;
@@ -202,12 +219,14 @@ export function IosSimulatorPane({
     const subscriptions = [
       listenIosSimStatus((owner, next) => {
         if (projectKey(owner) !== key) return;
+        statusEvents.current += 1;
         setStatus(next);
         if (next.phase === "building") setLogs([]);
       }),
       listenIosSimLogs((owner, lines) => {
-        if (projectKey(owner) === key)
-          setLogs((previous) => appendLogs(previous, lines));
+        if (projectKey(owner) !== key) return;
+        logEvents.current += 1;
+        setLogs((previous) => appendLogs(previous, lines));
       }),
       listenIosSimView((event) => {
         if (event.view !== viewId) return;
@@ -287,6 +306,28 @@ export function IosSimulatorPane({
       cancelled = true;
     };
   }, [visible, support, udid]);
+
+  // Whether the live view works can change while the pane is open: Xcode
+  // updated or selected, or a check that failed for a moment. Ask again now
+  // and then while it is on screen, and switch without being reopened.
+  useEffect(() => {
+    if (!platform || !support?.xcode || !visible) return;
+    let cancelled = false;
+    const check = () => {
+      void loadIosSimSupport(SUPPORT_RECHECK_MS)
+        .then((next) => {
+          if (!cancelled && next.xcode && next.live !== support.live)
+            setSupport(next);
+        })
+        .catch(() => {});
+    };
+    check();
+    const timer = window.setInterval(check, SUPPORT_RECHECK_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [platform, support, visible]);
 
   // Agents see this pane's simulator while it is open.
   useEffect(() => {
