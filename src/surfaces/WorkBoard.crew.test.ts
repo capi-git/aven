@@ -830,6 +830,46 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(labels()).toContain("Move to Ideas");
   });
 
+  it("never lifts a card the crew holds when you drag it", async () => {
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "fixing")),
+    );
+    const pointer = (type: string, clientX: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX,
+        clientY: 50,
+      });
+    const press = async (id: string) => {
+      const element = card(id);
+      await act(async () => {
+        element
+          .querySelector(".work-board-card-name")!
+          .dispatchEvent(pointer("pointerdown", 50));
+        window.dispatchEvent(pointer("pointermove", 60));
+        window.dispatchEvent(pointer("pointermove", 200));
+      });
+      return element;
+    };
+    const held = await press(boards[2].id);
+    expect(held.hasAttribute("data-fixed")).toBe(true);
+    expect(held.hasAttribute("data-dragging")).toBe(false);
+    await act(async () => window.dispatchEvent(pointer("pointerup", 200)));
+    // An ordinary card still lifts.
+    const idea = await press(boards[0].id);
+    expect(idea.hasAttribute("data-fixed")).toBe(false);
+    expect(idea.hasAttribute("data-dragging")).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      window.dispatchEvent(pointer("pointerup", 200));
+    });
+    await settle();
+  });
+
   it("says when the all-crews ceiling holds the crew", async () => {
     setCrewsAllRunsPerDay(5);
     await setUp(

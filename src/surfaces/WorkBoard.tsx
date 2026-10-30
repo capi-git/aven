@@ -849,6 +849,8 @@ const BoardCardView = memo(function BoardCardView({
   // A Scout idea is the crew's to start: Give to crew and Not now, no Build.
   const boardActions =
     crew?.roles.includes("scout") || crew?.label ? [] : card.actions;
+  // The crew's stage places a card it holds: it can't be dragged elsewhere.
+  const fixed = !!crew?.column;
   return (
     <article
       className="work-board-card"
@@ -860,8 +862,9 @@ const BoardCardView = memo(function BoardCardView({
       data-crew-stage={crew?.label}
       data-needs-you={card.needsYou || crew?.needsYou ? "" : undefined}
       data-editing={editing || undefined}
+      data-fixed={fixed || undefined}
       onPointerDown={
-        editing ? undefined : (event) => onPointerDown(event, card.id)
+        editing || fixed ? undefined : (event) => onPointerDown(event, card.id)
       }
     >
       {editing ? (
