@@ -557,8 +557,13 @@ export function createBrowserPresentation({
         })
         .finally(finish);
     });
+  // A pane the stage has hidden keeps its place while it waits to come back
+  // (a retained surface stays measurable), so its bounds still read as a
+  // page on screen. Its page is not: a pane folding to its rail mid-drag
+  // is hidden there before its tab stops being visible.
+  const shown = () => !isPaused() && !element.closest("[hidden]");
   const currentBounds = () => {
-    const bounds = !isPaused() ? adapter.bounds(element) : null;
+    const bounds = shown() ? adapter.bounds(element) : null;
     return bounds ? withBrowserHitMargins(clipHoverSidebars(bounds)) : null;
   };
   const occluded = (bounds: BrowserBounds) =>

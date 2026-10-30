@@ -254,6 +254,44 @@ describe("browser presentation", () => {
     expect(native.captures).toEqual([]);
   });
 
+  it("hides the page of a pane the stage hides, though its tab is still visible", async () => {
+    // The pane's surface, as the stage draws it: kept measurable while
+    // hidden, so the page's bounds still read as on screen.
+    const surface = document.createElement("div");
+    document.body.append(surface);
+    surface.append(element);
+    const changed = () => {
+      for (const callback of mutationObservers)
+        callback([
+          { type: "attributes", attributeName: "hidden", target: surface },
+        ]);
+    };
+    controller.update();
+    await settle();
+    expect(native.page.visible).toBe(true);
+    // A divider dragged past the page's minimum folds its pane to a rail:
+    // the stage hides the surface before the fold is committed.
+    surface.hidden = true;
+    changed();
+    await settle();
+    expect(native.page.visible).toBe(false);
+    // Nothing shows it again while the pane is folded: each frame of the
+    // drag, the end of a glide, a resize.
+    window.dispatchEvent(new Event("supermono:workspace-layout"));
+    resize();
+    await paint();
+    controller.update();
+    await settle();
+    expect(native.page.visible).toBe(false);
+    expect(native.captures).toEqual([]);
+    // Dragged back out, it shows where its pane is.
+    surface.hidden = false;
+    changed();
+    await settle();
+    expect(native.page.visible).toBe(true);
+    surface.remove();
+  });
+
   it("hides the page for a layout motion and shows it again at its final bounds", async () => {
     let held = false;
     void controller.holdForMotion().then(() => {

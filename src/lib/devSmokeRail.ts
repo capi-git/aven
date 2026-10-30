@@ -8,6 +8,10 @@ import {
   splitLeftProblem,
   type SmokeLoneTab,
 } from "./devSmokeLoneTab";
+import {
+  browserLayoutRecord,
+  type BrowserLayoutRecord,
+} from "./browserPresentation";
 import { viewportRect } from "./drag";
 
 /**
@@ -15,7 +19,11 @@ import { viewportRect } from "./drag";
  * pane be squeezed to a sliver, or hid it whole with only a chevron to show
  * it had been there): a page beside a chat is folded by its divider, with
  * the Mac's own mouse, and must stand as a rail of its own; one click on
- * the rail opens it at its size again.
+ * the rail opens it at its size again. The live page is a native view above
+ * the workspace, so it is read through what its pane last sent it: hidden
+ * from the moment the pane folds, while the mouse is still held (0.1.161
+ * left it drawn where the pane had been until the drag was let go), through
+ * more of the drag and after it, and drawn again when the rail opens it.
  */
 type RailOptions = {
   newProjectTask: (path: string) => void;
@@ -58,6 +66,33 @@ export function reopenedProblem(
   const share = page.width / stage;
   if (share < 0.3 || share > 0.7)
     return `the page came back at ${Math.round(share * 100)}% of the stage, not about half`;
+  return null;
+}
+
+/** What a page last sent its native view: drawn or not, and where. */
+export type PageRecord = Pick<BrowserLayoutRecord, "visible"> & {
+  bounds: Pick<BrowserLayoutRecord["bounds"], "x" | "width">;
+};
+
+/** Why the folded page's live view is not hidden, or null. */
+export function foldedPageProblem(
+  record: PageRecord | undefined,
+  when: string,
+): string | null {
+  if (!record) return `${when}, the page had sent its native view nothing`;
+  if (!record.visible) return null;
+  return `${when}, the live page was still drawn, ${Math.round(record.bounds.width)}px wide at x ${Math.round(record.bounds.x)}, though its pane had folded to its rail`;
+}
+
+/** Why the page opened from its rail is not drawn live at about its width. */
+export function reshownPageProblem(
+  record: PageRecord | undefined,
+  width: number,
+): string | null {
+  if (!record) return "the page sent its native view nothing";
+  if (!record.visible) return "the live page is still hidden";
+  if (Math.abs(record.bounds.width - width) > Math.max(24, width * 0.1))
+    return `the live page came back ${Math.round(record.bounds.width)}px wide, not about the ${Math.round(width)}px it had`;
   return null;
 }
 
@@ -157,6 +192,39 @@ export async function checkDividerRail(
     );
     const stage = divider.closest<HTMLElement>("[data-workspace-stage]")!;
     await pause(400);
+    // The live page drawn at its pane beside the chat (not as it was alone
+    // in front), at the width it opens to again.
+    const host = () =>
+      document.querySelector<HTMLElement>(
+        `[data-browser-pane="${CSS.escape(pageId)}"] .browser-native-host`,
+      );
+    const shown = await waitFor(
+      () => {
+        const record = browserLayoutRecord(pageId);
+        const width = host()?.getBoundingClientRect().width ?? 0;
+        return record?.visible && Math.abs(record.bounds.width - width) < 4
+          ? record
+          : null;
+      },
+      10_000,
+      "the live page drawn at its pane beside the chat",
+    );
+    const shownWidth = shown.bounds.width;
+    /** The live page must be hidden now, and stay hidden a moment. */
+    const stillHidden = async (when: string) => {
+      await waitFor(
+        () => !foldedPageProblem(browserLayoutRecord(pageId), when),
+        3_000,
+        when,
+      ).catch(() => {
+        throw new Error(
+          foldedPageProblem(browserLayoutRecord(pageId), when) ?? when,
+        );
+      });
+      await pause(300);
+      const problem = foldedPageProblem(browserLayoutRecord(pageId), when);
+      if (problem) throw new Error(`${problem} (it came back)`);
+    };
 
     // Drag the divider to the stage's right edge, past the page's minimum.
     const from = pressPoint(divider);
@@ -170,9 +238,18 @@ export async function checkDividerRail(
         at = point;
       }
       await pause(80);
+      // Still held: the pane is its rail, and its live page has gone with it.
+      await waitFor(() => rail(), 3_000, "the page's rail while held");
+      await stillHidden("with the mouse still held after the fold");
+      // A little more of the drag, still past the fold: each frame of it
+      // places the page again, and must leave it hidden.
+      at = { x: to.x - 10, y: to.y };
+      await smokeMouse("drag", at);
+      await stillHidden("after more of the drag");
     } finally {
       await smokeMouse("up", at);
     }
+    await stillHidden("after letting go");
     await waitFor(
       () =>
         !railProblem(
@@ -218,6 +295,17 @@ export async function checkDividerRail(
         ) ?? "not open",
       );
     });
+    // And its live page drawn again, at about the width it had.
+    await waitFor(
+      () => !reshownPageProblem(browserLayoutRecord(pageId), shownWidth),
+      5_000,
+      "the live page drawn again at its pane",
+    ).catch(() => {
+      throw new Error(
+        reshownPageProblem(browserLayoutRecord(pageId), shownWidth) ??
+          "the live page not drawn again",
+      );
+    });
     if (presses.length < 2 || presses.some((trusted) => !trusted))
       throw new Error(
         `the presses on the divider and rail were not the Mac's own (${JSON.stringify(presses)})`,
@@ -225,7 +313,7 @@ export async function checkDividerRail(
     const width = Math.round(
       (box(surface(pageId)).width / stage.offsetWidth) * 100,
     );
-    return `dragged to the edge with the Mac's own mouse, the page folded to a 28px rail beside the chat; one click on it opened the page at ${width}% again`;
+    return `dragged to the edge with the Mac's own mouse, the page folded to a 28px rail beside the chat, its live page hidden while held, through more of the drag and after it; one click on the rail opened the page at ${width}% and drew it again`;
   } finally {
     window.removeEventListener("pointerdown", onPress, true);
     if (page) await closeCheckPage(get, page);
