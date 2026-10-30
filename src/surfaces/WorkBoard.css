@@ -6,12 +6,18 @@
   --work-board-glide: var(--aven-motion-duration, 220ms)
     var(--aven-motion-easing, cubic-bezier(0.22, 1, 0.36, 1));
   position: relative;
+  display: flex;
   height: 100%;
+  flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
   padding: clamp(14px, 3vw, 24px);
   container-type: inline-size;
   color: var(--color-content);
+}
+
+.work-board > :not(.work-board-columns) {
+  flex-shrink: 0;
 }
 
 .work-board-header {
@@ -56,9 +62,24 @@
   gap: 12px;
 }
 
+/* One row of columns: each column is as tall as its cards, as before; the
+   row only marks out the space left in the pane (it draws nothing), so a
+   column taller than that stops there and scrolls inside itself. */
+@container (min-width: 761px) {
+  .work-board-columns {
+    min-height: 280px;
+    flex: 1 1 0;
+  }
+}
+
 @container (max-width: 760px) {
   .work-board-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Rows of columns: the board scrolls, each column to its own height. */
+  .work-board-columns > .work-board-column {
+    max-height: 480px;
   }
 }
 
@@ -74,6 +95,7 @@
   display: flex;
   min-width: 0;
   min-height: 140px;
+  max-height: 100%;
   flex-direction: column;
   gap: 8px;
   padding: 10px;
@@ -81,6 +103,11 @@
   border-radius: var(--aven-radius-card);
   background: var(--aven-glass-card, var(--aven-hover));
   box-shadow: var(--aven-glass-sheen, none);
+}
+
+/* Only a column's list of cards scrolls; its title and Add an idea stay. */
+.work-board-column > :not(.work-board-list) {
+  flex-shrink: 0;
 }
 
 .work-board-column[data-board-column="building"] {
@@ -109,10 +136,15 @@
 
 .work-board-list {
   display: flex;
+  min-height: 0;
+  flex: 0 1 auto;
   flex-direction: column;
   gap: 8px;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 

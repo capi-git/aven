@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { registerGuardedChats } from "./harness/sessionPermissions";
 import { isEqualOrInside, projectKey } from "./paths";
 import { projectMascot } from "./projectMascots";
 import { IS_WIN } from "./platform";
@@ -408,6 +409,29 @@ let cacheRaw: string | null | undefined;
 let chatIndex: Map<string, string> | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * Other bots that work in their own copy: a project's crew (see `crews`).
+ * Every rule that keeps a bot's chat apart (no bot wakes for a bot, its turns
+ * post nothing, its copy is not one of your Git copies) treats their chats
+ * and copies as a bot's. The project bot itself stays the only `ProjectBot`.
+ */
+export type BotChatSource = {
+  /** Their chats, while they are on. */
+  hasChat: (sessionId: string) => boolean;
+  chatIds: () => Iterable<string>;
+  /** Whether a path is inside one of their copies. */
+  isCopyPath: (path: string) => boolean;
+};
+
+const chatSources = new Set<BotChatSource>();
+
+export function registerBotChatSource(source: BotChatSource): () => void {
+  chatSources.add(source);
+  return () => {
+    chatSources.delete(source);
+  };
+}
+
 function read(): Store {
   let raw: string | null;
   try {
@@ -544,8 +568,26 @@ export function botForChat(
   return key ? cache.bots[key] : undefined;
 }
 
+/**
+ * The bot whose chat this is, on or off. An off bot's chat is an ordinary
+ * chat once its copy is gone (see `turnOffProjectBot`); until then it never
+ * launches (see `botChatPermissions` and the guard below).
+ */
+export function botForAnyChat(
+  sessionId: string | undefined,
+): ProjectBot | undefined {
+  if (!sessionId) return undefined;
+  read();
+  return Object.values(cache.bots).find((bot) => bot.sessionId === sessionId);
+}
+
+/** A bot's chat: the project bot's, or a crew member's. */
 export function isBotChat(sessionId: string | undefined): boolean {
-  return !!sessionId && chats().has(sessionId);
+  if (!sessionId) return false;
+  if (chats().has(sessionId)) return true;
+  if (!botsAvailable()) return false;
+  for (const source of chatSources) if (source.hasChat(sessionId)) return true;
+  return false;
 }
 
 /** What a bot's chat must be to run a turn: in its copy, on Claude, in auto. */
@@ -568,9 +610,16 @@ export function botChatInCopy<T extends BotChatShape>(
   chat: T,
   copy: string,
   claudeModel: () => string,
+  /**
+   * The app it must run on, when not Claude: a crew's Checker may run on
+   * Codex, for fresh eyes from another model.
+   */
+  app?: { harness: string; model: () => string },
 ): { chat: T; restart: boolean } | null {
+  const harness = app?.harness ?? "claude";
+  const model = app?.model ?? claudeModel;
   const moved = chat.worktreeCwd !== copy;
-  const otherApp = chat.harness !== "claude";
+  const otherApp = chat.harness !== harness;
   if (!moved && !otherApp)
     return chat.runtimeMode === "auto"
       ? null
@@ -583,24 +632,31 @@ export function botChatInCopy<T extends BotChatShape>(
       worktreeCwd: copy,
       providerSessionId: undefined,
       pendingSwitch: undefined,
-      ...(otherApp
-        ? { harness: "claude", model: claudeModel(), modelSettings: {} }
-        : {}),
+      ...(otherApp ? { harness, model: model(), modelSettings: {} } : {}),
     },
   };
 }
 
-/** Chats that belong to a bot that is on. */
+/** Chats that belong to a bot that is on, a crew's included. */
 export function botChatIds(): ReadonlySet<string> {
-  return new Set(chats().keys());
+  const ids = new Set(chats().keys());
+  if (botsAvailable())
+    for (const source of chatSources)
+      for (const id of source.chatIds()) ids.add(id);
+  return ids;
 }
 
-/** A path inside a bot's copy of its project. */
+/** A path inside a bot's copy of its project, or a crew's. */
 export function isBotCopyPath(path: string | undefined): boolean {
   if (!path) return false;
-  return Object.values(read().bots).some(
-    (bot) => !!bot.copy && isEqualOrInside(path, bot.copy.path),
-  );
+  if (
+    Object.values(read().bots).some(
+      (bot) => !!bot.copy && isEqualOrInside(path, bot.copy.path),
+    )
+  )
+    return true;
+  for (const source of chatSources) if (source.isCopyPath(path)) return true;
+  return false;
 }
 
 export function useProjectBot(
@@ -984,3 +1040,10 @@ export function formatClockMinutes(minutes: number): string {
     ? `${twelve}:${String(minute).padStart(2, "0")} ${suffix}`
     : `${twelve} ${suffix}`;
 }
+
+// A launch in a bot's copy, or for an off bot's chat while its copy is
+// still there (turned off mid-start), never runs without rules: it is
+// refused (see `launchRefusal`).
+registerGuardedChats(
+  (sessionId, cwd) => isBotCopyPath(cwd) || !!botForAnyChat(sessionId)?.copy,
+);

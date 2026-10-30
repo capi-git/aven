@@ -63,7 +63,11 @@ import {
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
-import { permissionRulesKey, sessionPermissions } from "./sessionPermissions";
+import {
+  launchRefusal,
+  permissionRulesKey,
+  sessionPermissions,
+} from "./sessionPermissions";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import {
   questionPromptTitle,
@@ -432,6 +436,10 @@ export function restoreClaudeTaskLists(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  // A bot's or crew's chat runs only with its rules, in its copy: never
+  // unsandboxed, never in the user's folder (see `launchRefusal`).
+  const refusal = launchRefusal(input.sessionId, input.cwd);
+  if (refusal) throw new Error(refusal);
   // A retry may arrive after the failed turn completed but before its native
   // process finished stopping. Never race that session-scoped kill with spawn.
   await stoppingByThread.get(input.sessionId);
@@ -562,6 +570,13 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     },
   );
 
+  // Again, with nothing awaited before the spawn: a bot or crew turned off
+  // (or its rules gone) while this process was being prepared never starts.
+  const lateRefusal = launchRefusal(input.sessionId, input.cwd);
+  if (lateRefusal) {
+    unwatchChild(input.sessionId);
+    throw new Error(lateRefusal);
+  }
   await spawnChild(
     input.sessionId,
     path,
@@ -1821,6 +1836,8 @@ function launchOptions(
   sessionId?: string;
   settings?: ClaudeCliSettings;
   projectMemory?: string;
+  noMcp?: boolean;
+  userSettingsOnly?: boolean;
 } {
   const native = nativeModelId(input.model);
   const effortRaw = input.modelSettings?.effort;
@@ -1843,6 +1860,9 @@ function launchOptions(
   const permissions = sessionPermissions(input.sessionId);
   if (permissions) settings.permissions = permissions.rules;
   if (permissions?.sandbox) settings.sandbox = permissions.sandbox;
+  // Nothing in the folder it works in may run as the user: no hooks, and
+  // no project or local settings.
+  if (permissions?.userSettingsOnly) settings.disableAllHooks = true;
   return {
     model: resolveClaudeApiModelId(native, context),
     effort: normalizeClaudeCliEffort(effortRaw, native),
@@ -1854,6 +1874,8 @@ function launchOptions(
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
     projectMemory: launchMemory(input),
+    ...(permissions?.noMcp ? { noMcp: true } : {}),
+    ...(permissions?.userSettingsOnly ? { userSettingsOnly: true } : {}),
   };
 }
 

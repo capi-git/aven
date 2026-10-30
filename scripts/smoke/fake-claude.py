@@ -270,8 +270,11 @@ def chat_session(args):
 
 
 def emit_edit(session, turn, name):
+    emit_write(session, turn, name, "edited by the stand-in Claude\n")
+
+
+def emit_write(session, turn, name, content):
     path = os.path.abspath(name)
-    content = "edited by the stand-in Claude\n"
     tool_id = "toolu_edit_" + turn[:8]
     emit({
         "type": "assistant",
@@ -455,6 +458,81 @@ def option(args, name):
             return args[index + 1]
         if value.startswith(name + "="):
             return value.split("=", 1)[1]
+    return None
+
+
+# "AVEN_SMOKE_CREW" in a crew card makes each crew member's turn answer as
+# its role, with the fenced block Aven reads (see crewHandoff.ts): the Builder
+# writes CREW_FILE in its folder (the crew's copy) through its Write tool and
+# hands over with what it was started with; the Checker says "not yet" to
+# round 1 and passes the re-check; Security passes. Aven's messages say whose
+# turn it is: the Builder's ends asking for its handoff block, the Checker's
+# says the Builder "finished round", Security's that the Checker "passed
+# round ... by" the Builder.
+CREW_WORD = "AVEN_SMOKE_CREW"
+CREW_FILE = "aven-crew-check.txt"
+CREW_ENV = "AVEN_SMOKE_CREW_ENV"
+CREW_ROUND = re.compile(r"Round (\d+) of \d+")
+CREW_SECURITY = re.compile(r"passed round \d+ of \d+ by")
+CREW_CHECK = re.compile(r"finished round \d+ of \d+")
+
+
+def crew_fence(name, body):
+    return f"Done.\n\n```{name}\n{json.dumps(body)}\n```"
+
+
+def crew_launch(args):
+    """What Aven started this member with, for the check to compare."""
+    try:
+        settings = json.loads(option(args, "--settings") or "{}")
+    except ValueError:
+        settings = {}
+    # The folder last: it may hold spaces ("Application Support").
+    return " ".join([
+        f"sources={option(args, '--setting-sources') or 'none'}",
+        f"hooks={'off' if settings.get('disableAllHooks') else 'on'}",
+        f"sandbox={'on' if (settings.get('sandbox') or {}).get('enabled') else 'off'}",
+        f"mcp={'strict' if '--strict-mcp-config' in args else 'open'}",
+        f"cwd={os.getcwd()}",
+    ])
+
+
+def crew_turn(session, turn, text, args):
+    """A crew member's reply, by role; None when the turn isn't a crew card's."""
+    if CREW_WORD not in text:
+        return None
+    launch = crew_launch(args)
+    if CREW_SECURITY.search(text):
+        log({"pid": os.getpid(), "crew": "security", "launch": launch})
+        return crew_fence("aven-verdict", {
+            "pass": True,
+            "summary": f"No security problems. {CREW_ENV} {launch}",
+            "mustFix": [],
+            "later": [],
+            "ran": [{"command": "Read the change for secrets and injection", "ok": True}],
+        })
+    if CREW_CHECK.search(text):
+        recheck = "This is a re-check" in text
+        log({"pid": os.getpid(), "crew": "checker", "recheck": recheck, "launch": launch})
+        return crew_fence("aven-verdict", {
+            "pass": recheck,
+            "summary": ("Fixed." if recheck else "Not yet.") + f" {CREW_ENV} {launch}",
+            "mustFix": [] if recheck else [
+                {"text": "The file should say round 2", "where": CREW_FILE},
+            ],
+            "later": [],
+            "ran": [{"command": "Read the change", "ok": True}],
+        })
+    if "`aven-handoff` block" in text:
+        found = CREW_ROUND.search(text)
+        round_number = found.group(1) if found else "1"
+        log({"pid": os.getpid(), "crew": "builder", "round": round_number, "launch": launch})
+        emit_write(session, turn, CREW_FILE, f"round {round_number}\n")
+        return crew_fence("aven-handoff", {
+            "summary": f"Wrote {CREW_FILE} for round {round_number}. {CREW_ENV} {launch}",
+            "howToCheck": [f"Read {CREW_FILE}"],
+            "ran": [{"command": "cat " + CREW_FILE, "ok": True}],
+        })
     return None
 
 
@@ -688,6 +766,8 @@ def main():
                 reply = iphone_turn(text)
             elif not helper and chat_session(args) and PAGES_PATTERN.search(text):
                 reply = pages_turn(PAGES_PATTERN.search(text).group(1))
+            elif not helper and chat_session(args) and CREW_WORD in text:
+                reply = crew_turn(session, turn, text, args) or reply
             message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",

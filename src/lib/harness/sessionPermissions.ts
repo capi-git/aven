@@ -43,6 +43,36 @@ export type SessionPermissions = {
   mode: "auto";
   rules: ClaudePermissionRules;
   sandbox?: ClaudeSandboxSettings;
+  /**
+   * The chat may read and run commands but never write (a crew's Checker or
+   * Scout). Claude gets it through `rules` and `sandbox`; Codex runs the
+   * chat in its read-only sandbox, never asking to escalate.
+   */
+  readOnly?: boolean;
+  /**
+   * Commands never run outside the sandbox, and never ask to (a bot's or a
+   * crew's chat). Claude gets it through `sandbox`; Codex runs the chat in
+   * its workspace sandbox with approvals off, so nothing escalates.
+   */
+  noEscalation?: boolean;
+  /**
+   * Only the user's own settings (a bot's or crew's chat): Claude never
+   * loads project or local settings from the folder it runs in (an agent
+   * could have written them there), and runs no hooks at all.
+   */
+  userSettingsOnly?: boolean;
+  /**
+   * No MCP servers: the agent launches with an empty, strict MCP config, so
+   * nothing the user connected elsewhere can act for a bot.
+   */
+  noMcp?: boolean;
+  /**
+   * The only folder the chat may run in (a bot's or crew's copy). A launch
+   * anywhere else, such as the user's own folder, is refused.
+   */
+  workFolder?: string;
+  /** Why the chat may not start now (its crew is off): a launch is refused. */
+  refuse?: string;
 };
 
 type Resolver = (sessionId: string) => SessionPermissions | undefined;
@@ -62,6 +92,78 @@ export function sessionPermissions(
   return resolver?.(sessionId);
 }
 
+/**
+ * Chats that must never launch without their rules (a crew member's, on or
+ * off): if their permissions don't resolve, the launch is refused rather
+ * than run unsandboxed. Registered by the features that own them.
+ */
+const guarded = new Set<(sessionId: string, cwd: string) => boolean>();
+
+export function registerGuardedChats(
+  check: (sessionId: string, cwd: string) => boolean,
+): () => void {
+  guarded.add(check);
+  return () => {
+    guarded.delete(check);
+  };
+}
+
+/**
+ * A path with `.` and `..` resolved and separators made forward, so
+ * `/copy/../../Users/me` reads as `/Users/me`. Symlinks are not resolved
+ * here (that needs the file system); copies live in Aven's own data.
+ */
+export function normalPath(path: string): string {
+  const forward = path.replace(/\\/g, "/");
+  const drive = /^[A-Za-z]:/.exec(forward)?.[0] ?? "";
+  const rest = forward.slice(drive.length);
+  const absolute = rest.startsWith("/");
+  const parts: string[] = [];
+  for (const part of rest.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length && parts[parts.length - 1] !== "..") parts.pop();
+      else if (!absolute) parts.push("..");
+      continue;
+    }
+    parts.push(part);
+  }
+  const body = parts.join("/");
+  return `${drive}${absolute ? "/" : ""}${body}` || (absolute ? "/" : ".");
+}
+
+/** `path` is `folder` or inside it, after both are normalized. */
+function inside(path: string, folder: string): boolean {
+  const child = normalPath(path);
+  const parent = normalPath(folder);
+  if (/^[A-Za-z]:/.test(parent))
+    return (
+      child.toLowerCase() === parent.toLowerCase() ||
+      child.toLowerCase().startsWith(`${parent.toLowerCase()}/`)
+    );
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+/**
+ * Why a chat may not launch its agent in `cwd`, or null when it may. Fails
+ * closed: a guarded chat whose rules don't resolve, a chat whose rules say
+ * no (its crew is off), or one outside its work folder is refused. Every
+ * harness asks before it starts or reuses a process.
+ */
+export function launchRefusal(sessionId: string, cwd: string): string | null {
+  const permissions = sessionPermissions(sessionId);
+  if (!permissions) {
+    for (const check of guarded)
+      if (check(sessionId, cwd))
+        return "This chat's safety rules couldn't be read, so it didn't start.";
+    return null;
+  }
+  if (permissions.refuse) return permissions.refuse;
+  if (permissions.workFolder && !inside(cwd, permissions.workFolder))
+    return "This chat runs only in its own copy of the project, so it didn't start.";
+  return null;
+}
+
 /** A stable text for the rules, so a change relaunches the agent with them. */
 export function permissionRulesKey(
   permissions: SessionPermissions | undefined,
@@ -73,6 +175,11 @@ export function permissionRulesKey(
         permissions.rules.ask ?? [],
         permissions.rules.deny ?? [],
         permissions.sandbox ?? null,
+        permissions.readOnly ?? false,
+        permissions.noEscalation ?? false,
+        permissions.userSettingsOnly ?? false,
+        permissions.noMcp ?? false,
+        permissions.workFolder ?? "",
       ])
     : "";
 }

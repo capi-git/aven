@@ -331,6 +331,12 @@
 .settings-toggle[aria-checked="true"] .settings-toggle-track {
   background: var(--color-accent);
 }
+/* The neutral switch: on is the content colour, whatever accent you chose,
+   so a plain on/off reads calm (grey, never a tint). */
+.settings-toggle[data-tone="neutral"][aria-checked="true"]
+  .settings-toggle-track {
+  background: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
 @media (prefers-contrast: more) {
   .settings-toggle-track {
     --settings-toggle-ring: var(--aven-control-border);

@@ -248,16 +248,23 @@ export function Toggle({
   on,
   onChange,
   disabled = false,
+  tone = "accent",
 }: {
   label: string;
   on: boolean;
   onChange: (on: boolean) => void;
   disabled?: boolean;
+  /**
+   * `neutral` fills with the content colour rather than your accent: for a
+   * switch that says on or off and nothing more (a crew's, a member's).
+   */
+  tone?: "accent" | "neutral";
 }) {
   const descriptionId = useContext(RowDescription);
   return (
     <button
       className="settings-toggle"
+      data-tone={tone === "neutral" ? "neutral" : undefined}
       type="button"
       role="switch"
       aria-label={label}

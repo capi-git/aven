@@ -1,12 +1,23 @@
 import {
   installSessionPermissions,
+  launchRefusal,
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
 import { slash } from "./paths";
-import { botForChat, type ProjectBot } from "./projectBots";
+import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
+import {
+  CREW_ROLE_INFO,
+  crewForChat,
+  crewMemberApp,
+  type Crew,
+  type CrewRole,
+} from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
-import type { ClaudeSandboxSettings } from "./harness/sessionPermissions";
+import type {
+  ClaudeSandboxSettings,
+  SessionPermissions,
+} from "./harness/sessionPermissions";
 
 /**
  * What a bot never does, and what it asks before doing, enforced on its chat
@@ -146,10 +157,17 @@ export const ALWAYS_ASKS_LINE =
  * own setting and other apps still ask per app, as in any chat.
  */
 export function botPermissionRules(
-  bot: Pick<ProjectBot, "path">,
+  bot: Pick<ProjectBot, "path"> & { copy?: { path: string } },
 ): ClaudePermissionRules {
   return {
-    deny: [...NEVER_GIT, ...DEPLOY_AND_PUBLISH],
+    deny: [
+      ...NEVER_GIT,
+      ...DEPLOY_AND_PUBLISH,
+      // Settings in its copy that an app would run as the user, and the
+      // user's own.
+      ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
+      ...USER_CONFIG_RULES,
+    ],
     ask: [
       // Changing the user's own files, rather than its copy. Elsewhere,
       // edits outside its working folder go to auto mode's checks, which
@@ -182,6 +200,76 @@ export const BOT_ALLOWED_HOSTS = [
 ];
 
 /**
+ * Files and folders in a copy that an app would load as settings and run
+ * as the user. No bot or crew member may write them; Aven removes any it
+ * finds there (see `bot_copy_planted`).
+ */
+export const COPY_SETTINGS = [
+  ".claude",
+  ".codex",
+  ".agents",
+  ".mcp.json",
+  ".vscode",
+] as const;
+
+/**
+ * Your own settings outside the copy, which an agent must never edit:
+ * Claude's and Codex's, git's, and the shell's startup files. Its sandbox
+ * already keeps its commands out of them; these keep its edit tools out.
+ */
+export const USER_CONFIG_RULES = [
+  "Edit(~/.claude/**)",
+  "Edit(~/.claude.json)",
+  "Edit(~/.codex/**)",
+  "Edit(~/.gitconfig)",
+  "Edit(~/.config/git/**)",
+  "Edit(~/.zshrc)",
+  "Edit(~/.zprofile)",
+  "Edit(~/.zshenv)",
+  "Edit(~/.bashrc)",
+  "Edit(~/.bash_profile)",
+  "Edit(~/.profile)",
+];
+
+/**
+ * Paths a fix may not bring into your files (Apply refuses it; you can take
+ * it over in a chat): settings an app would run as you, and the folders git
+ * hook managers run from. Matched by their first part, without case. The
+ * host refuses them too (see `PROTECTED` in project_bots.rs).
+ */
+export const PROTECTED_FIX_PATHS = [
+  ".claude",
+  ".codex",
+  ".agents",
+  ".vscode",
+  ".mcp.json",
+  ".husky",
+  ".githooks",
+  ".git-hooks",
+  ".lefthook",
+  "lefthook.yml",
+  ".lefthook.yml",
+  ".pre-commit-config.yaml",
+] as const;
+
+/** The protected paths among a fix's files. */
+export function protectedFixPaths(paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const first = path.replace(/\\/g, "/").split("/")[0]!.toLowerCase();
+    return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
+  });
+}
+
+/** Edit rules for a copy's settings files and folders, which no bot may write. */
+export function copySettingsRules(copy: string): string[] {
+  const root = absolutePathRule(copy).replace(/\/\*\*$/, "");
+  return COPY_SETTINGS.flatMap((name) => [
+    `Edit(${root}/${name})`,
+    `Edit(${root}/${name}/**)`,
+  ]);
+}
+
+/**
  * Claude Code's sandbox for a bot's commands. They run in its copy (the
  * chat's working folder), so they can write there and in the temp folder
  * only, never in your folder; and not to the repository's refs, which the
@@ -199,6 +287,7 @@ export function botSandbox(
         bot.copy.gitDir ?? `${slash(bot.copy.root).replace(/\/+$/, "")}/.git`,
       ).replace(/\/+$/, "")
     : null;
+  const copy = bot.copy ? slash(bot.copy.path).replace(/\/+$/, "") : null;
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -211,7 +300,7 @@ export function botSandbox(
       // approvals (uploads, desktop consent): one socket, not all of them.
       ...(browserSocket ? { allowUnixSockets: [browserSocket] } : {}),
     },
-    ...(gitDir
+    ...(gitDir && copy
       ? {
           filesystem: {
             denyWrite: [
@@ -220,6 +309,14 @@ export function botSandbox(
               `${gitDir}/logs`,
               `${gitDir}/HEAD`,
               `${gitDir}/index`,
+              // What git runs, and how it finds the copy's repository.
+              `${gitDir}/hooks`,
+              `${gitDir}/config`,
+              `${gitDir}/worktrees`,
+              `${copy}/.git`,
+              // Settings an app would load from the copy and run as the
+              // user: Claude's, MCP servers, the editor's tasks.
+              ...COPY_SETTINGS.map((name) => `${copy}/${name}`),
             ],
           },
         }
@@ -228,18 +325,168 @@ export function botSandbox(
 }
 
 /**
- * Every window launches bot chats with their rules, sandbox and auto mode,
- * from any spawn path (a message, a resume, a compaction).
+ * A crew member's rules. The Builder's are a bot's: it changes files only
+ * in the crew's copy, and never pushes, opens pull requests, publishes or
+ * deploys. The Checker and Scout may only read: editing the copy, or your
+ * folder, is denied outright rather than asked, so a check can never "fix
+ * it itself" or weaken a test to pass.
+ */
+/**
+ * Fetching from the web: a Checker or Scout has no business there, and a
+ * page it read could steer it (the Builder keeps it, for docs).
+ */
+export const WEB_TOOLS = ["WebFetch", "WebSearch"];
+
+export function crewPermissionRules(
+  crew: Pick<Crew, "path" | "copy">,
+  role: Exclude<CrewRole, "fixer">,
+): ClaudePermissionRules {
+  const rules = botPermissionRules({
+    path: crew.path,
+    ...(crew.copy ? { copy: crew.copy } : {}),
+  });
+  if (CREW_ROLE_INFO[role].edits) return rules;
+  return {
+    deny: [
+      ...(rules.deny ?? []),
+      ...WEB_TOOLS,
+      `Edit(${absolutePathRule(crew.path)})`,
+      ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+    ],
+    ask: (rules.ask ?? []).filter((rule) => !rule.startsWith("Edit(")),
+  };
+}
+
+/**
+ * A crew member's sandbox: a bot's, in the crew's copy. For the Checker and
+ * Scout, commands may not write the copy's own files either (its top-level
+ * entries Git doesn't ignore), while caches, build output and the temp
+ * folder stay writable so tests still run. Aven also compares the copy's
+ * fingerprint before and after a check, so anything that slips past voids
+ * the verdict (see `afterCheck`).
+ */
+export function crewSandbox(
+  crew: Pick<Crew, "copy">,
+  role: Exclude<CrewRole, "fixer">,
+  browserSocket = agentBrowserSocket(),
+): ClaudeSandboxSettings {
+  const sandbox = botSandbox({ copy: crew.copy }, browserSocket);
+  if (CREW_ROLE_INFO[role].edits || !crew.copy?.sources?.length) return sandbox;
+  return {
+    ...sandbox,
+    filesystem: {
+      denyWrite: [
+        ...(sandbox.filesystem?.denyWrite ?? []),
+        ...crew.copy.sources.map((path) => slash(path).replace(/\/+$/, "")),
+      ],
+    },
+  };
+}
+
+/**
+ * What a crew member's chat launches with, whether its crew is on or off,
+ * or undefined for any other chat. It fails closed: always the role's
+ * rules, sandbox and no MCP servers, only ever in the crew's copy; and while
+ * the crew is off (or has no copy yet) the launch is refused outright.
+ */
+export function crewChatPermissions(
+  sessionId: string,
+): SessionPermissions | undefined {
+  const found = crewForChat(sessionId);
+  if (!found || found.member.role === "fixer") return undefined;
+  const { crew } = found;
+  // Only the member's role decides what it may do: never its app, model,
+  // instructions or scope, which you can change.
+  const role = found.member.role;
+  const readOnly = !CREW_ROLE_INFO[role].edits;
+  const refuse = found.retired
+    ? "This chat's crew member was removed, so it didn't start."
+    : !crew.on
+      ? "This crew is off, so its chat didn't start. Turn the crew on to use it."
+      : !crew.copy
+        ? "The crew's copy isn't ready yet, so its chat didn't start."
+        : undefined;
+  return {
+    mode: "auto",
+    rules: crewPermissionRules(crew, role),
+    sandbox: crewSandbox(crew, role),
+    noEscalation: true,
+    userSettingsOnly: true,
+    noMcp: true,
+    ...(crew.copy ? { workFolder: crew.copy.path } : {}),
+    ...(readOnly ? { readOnly: true } : {}),
+    ...(refuse ? { refuse } : {}),
+  };
+}
+
+/**
+ * What a project bot's chat launches with while the bot is on: its rules,
+ * sandbox and auto mode, no MCP servers, and only in its copy.
+ */
+export function botChatPermissions(
+  bot: Pick<ProjectBot, "path" | "copy">,
+): SessionPermissions {
+  return {
+    mode: "auto",
+    rules: botPermissionRules(bot),
+    sandbox: botSandbox(bot),
+    userSettingsOnly: true,
+    noMcp: true,
+    ...(bot.copy
+      ? { workFolder: bot.copy.path }
+      : {
+          refuse: "The bot's copy isn't ready yet, so its chat didn't start.",
+        }),
+  };
+}
+
+/**
+ * Every window launches bot chats (a crew's included) with their rules,
+ * sandbox and auto mode, from any spawn path (a message, a resume, a
+ * compaction). A crew's chat that can't resolve them never launches (see
+ * `launchRefusal`).
  */
 export function installBotPermissions(): () => void {
   return installSessionPermissions((sessionId) => {
     const bot = botForChat(sessionId);
-    return bot
-      ? {
-          mode: "auto",
-          rules: botPermissionRules(bot),
-          sandbox: botSandbox(bot),
-        }
-      : undefined;
+    if (bot) return botChatPermissions(bot);
+    // Turned off while its copy is still there (mid-start, or while it is
+    // being removed): its rules, and refused outright. Once the copy is
+    // gone its chat is an ordinary chat in your folder again.
+    const off = botForAnyChat(sessionId);
+    if (off && !off.on && off.copy)
+      return {
+        ...botChatPermissions(off),
+        refuse: "This bot is off, so its chat didn't start.",
+      };
+    return crewChatPermissions(sessionId);
   });
+}
+
+/**
+ * The app a bot's or crew's chat must run on (Claude, or Codex for a crew's
+ * Checker): only those enforce its rules. Undefined for any other chat.
+ */
+export function teammateHarness(sessionId: string): string | undefined {
+  if (botForChat(sessionId)) return "claude";
+  const crew = crewForChat(sessionId);
+  if (!crew || crew.member.role === "fixer") return undefined;
+  return crewMemberApp(crew.member).harness;
+}
+
+/**
+ * Why a bot's or crew's chat can't start its agent as it is now (on another
+ * app, outside its copy, its crew off), or null. Paths that don't go through
+ * Claude's or Codex's own guard (compacting the context) ask this first.
+ */
+export function teammateChatRefusal(session: {
+  id: string;
+  harness: string;
+  cwd: string;
+  worktreeCwd?: string;
+}): string | null {
+  const own = teammateHarness(session.id);
+  if (own && session.harness !== own)
+    return "This chat runs only on its own app, so it didn't start.";
+  return launchRefusal(session.id, session.worktreeCwd ?? session.cwd);
 }

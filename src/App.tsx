@@ -577,6 +577,7 @@ import {
 import {
   displayPath,
   isEqualOrInside,
+  projectKey,
   projectName,
   rebasePath,
   resolveWorkspacePath,
@@ -885,7 +886,36 @@ import {
 } from "./lib/workBoardFeed";
 import { addChatsToBoard } from "./lib/featureCards";
 import { useProjectBots } from "./hooks/useProjectBots";
-import { installBotPermissions } from "./lib/projectBotPermissions";
+import { useCrews } from "./hooks/useCrews";
+import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
+import type { SidebarCrew, SidebarCrewAction } from "./chrome/SidebarCrews";
+import {
+  installCrewWorkspace,
+  pickCrewModels,
+  setCrewPaused,
+  turnOnCrew,
+} from "./lib/crewActions";
+import { crewRunsLine } from "./lib/crewLimits";
+import { crewMemberViews, crewStatus } from "./lib/crewView";
+import { crewChatModel } from "./lib/crewModels";
+import {
+  crewForChat,
+  crewMemberApp,
+  crewMemberById,
+  crewMemberName,
+  getCrew,
+  isCrewChat,
+  updateCrew,
+  useCrewsStore,
+  withMemberId,
+  type Crew,
+} from "./lib/crews";
+import { isHarnessAvailable } from "./lib/harness/availability";
+import { pickerModelsFor } from "./lib/models";
+import {
+  installBotPermissions,
+  teammateChatRefusal,
+} from "./lib/projectBotPermissions";
 import {
   installBotWorkspace,
   turnOnBotWithDefaults,
@@ -898,6 +928,7 @@ import type { SidebarBot } from "./chrome/Sidebar";
 import {
   botChatInCopy,
   botForChat,
+  runsToday,
   botsAvailable,
   botHeadline,
   botName,
@@ -943,6 +974,7 @@ function lastAssistantTextInTurn(session: Session): string {
 
 const NO_BOT_CHATS: ReadonlySet<string> = new Set();
 const NO_SIDEBAR_BOTS: readonly SidebarBot[] = [];
+const NO_SIDEBAR_CREWS: readonly SidebarCrew[] = [];
 
 /** A chat started from a Race lane keeps the project but works in the lane. */
 function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
@@ -1228,6 +1260,10 @@ export default function App({
   // Chats project bots are working in: kept loaded without a tab.
   const [botWorkingChats, setBotWorkingChats] =
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
+  // The same for crews, and the project whose crew settings are open.
+  const [crewWorkingChats, setCrewWorkingChats] =
+    useState<ReadonlySet<string>>(NO_BOT_CHATS);
+  const [crewSheet, setCrewSheet] = useState<string | null>(null);
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
@@ -2783,8 +2819,13 @@ export default function App({
   useTurnShotTidy(busySessionIds, sessionsRef);
   // Working chats hold off idle sleep (Settings > Tasks), shared with
   // automations. Chats waiting for the user's answer or approval do not.
+  // Crews work only while you're around: their turns never hold the Mac
+  // awake (see crewRunner).
   const keepAwakeSessionIds = useMemo(
-    () => agentKeepAwakeSessionIds(sessions),
+    () =>
+      agentKeepAwakeSessionIds(
+        sessions.filter((session) => !isCrewChat(session.id)),
+      ),
     [sessions],
   );
   const keepAwakeProgress = useMemo(
@@ -3741,6 +3782,7 @@ export default function App({
       ],
       [
         ...botWorkingChats,
+        ...crewWorkingChats,
         // A bot's new chat has nothing to save until its first message, so
         // parking it would lose it on its way to a tab.
         ...sessions
@@ -3789,6 +3831,7 @@ export default function App({
     keptDiscussionKey,
     botWorkingChats,
     runningAutomationChats,
+    crewWorkingChats,
   ]);
 
   const activateTab = useCallback(
@@ -6987,12 +7030,26 @@ export default function App({
   const botChatForTurn = useCallback(
     (session: Session): Session | string => {
       const bot = botForChat(session.id);
-      if (!bot) return session;
-      const copy = bot.copy?.path;
+      const crew = bot ? undefined : crewForChat(session.id);
+      if (!bot && !crew) return session;
+      if (crew && !crew.crew.on)
+        return "This crew is off. Turn it on in its settings to use its chats.";
+      const copy = bot ? bot.copy?.path : crew?.crew.copy?.path;
       if (!copy)
         return "The bot's copy isn't ready yet. Try again in a moment.";
-      const fix = botChatInCopy(session, copy, () =>
-        preferredModelId("claude"),
+      // A crew's Checker may run on Codex (or on Claude, when Codex couldn't
+      // be locked down here); everyone else on Claude.
+      const app = crew ? crewMemberApp(crew.member) : undefined;
+      const fix = botChatInCopy(
+        session,
+        copy,
+        () => preferredModelId("claude"),
+        app
+          ? {
+              harness: app.harness,
+              model: () => app.model ?? preferredModelId(app.harness),
+            }
+          : undefined,
       );
       if (!fix) return session;
       if (fix.restart && session.busy)
@@ -8601,9 +8658,24 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (!current || current.busy) return false;
-      // A bot's chat compacts only where it works: in its copy.
+      // A bot's or crew's chat compacts only where and as it works: in its
+      // copy, on its own app, with its rules (other apps don't enforce them).
       const bot = botForChat(sessionId);
       if (bot && current.worktreeCwd !== bot.copy?.path) return false;
+      const crewChat = crewForChat(sessionId);
+      if (crewChat && current.worktreeCwd !== crewChat.crew.copy?.path)
+        return false;
+      const refusal = teammateChatRefusal(current);
+      if (refusal) {
+        const refused = sessionsRef.current.map((session) =>
+          session.id === sessionId
+            ? applyHarnessEvent(session, { type: "status", text: refusal })
+            : session,
+        );
+        sessionsRef.current = refused;
+        setSessions(refused);
+        return true;
+      }
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -11069,6 +11141,305 @@ export default function App({
       if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
   }, [botStore, releaseBotChat]);
 
+  // Crews. A crew's Builder, Checker and Scout each keep one chat in the
+  // crew's copy; only the main window drives them (see useCrews), and every
+  // window launches their chats with a bot's rules (installBotPermissions).
+  /** A crew member's chat, loaded or made, without a tab, in the crew's copy. */
+  const ensureCrewChat = useCallback(
+    async (
+      crew: Crew,
+      memberId: string,
+      override?: { model?: string; effort?: string },
+    ) => {
+      const copy = crew.copy?.path;
+      if (!copy) return null;
+      const member = crewMemberById(crew, memberId);
+      if (!member || member.role === "fixer") return null;
+      // Its app now: a Checker that couldn't be locked down on Codex runs on
+      // Claude for this session.
+      const app = crewMemberApp(member);
+      const harness = app.harness;
+      const wanted = crewChatModel({
+        harness,
+        memberModel: app.model,
+        // A fallback's effort is Claude's own default.
+        memberEffort: member.fallback ? undefined : member.effort,
+        override,
+        preferred: preferredModelId(harness),
+      });
+      const model = () => wanted.model;
+      /** The chat on the member's (or the card's) model and effort, unless it's busy. */
+      const withModel = (chat: Session): Session => {
+        if (chat.busy || chat.harness !== harness) return chat;
+        const effort = wanted.effort;
+        const sameEffort =
+          !effort || chat.modelSettings?.[effort.id] === effort.value;
+        if (chat.model === wanted.model && sameEffort) return chat;
+        return {
+          ...chat,
+          model: wanted.model,
+          modelSettings: {
+            ...chat.modelSettings,
+            ...(effort ? { [effort.id]: effort.value } : {}),
+          },
+        };
+      };
+      const save = (chat: Session) => {
+        const next = sessionsRef.current.map((session) =>
+          session.id === chat.id ? chat : session,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+        return chat;
+      };
+      let loaded = member.sessionId
+        ? sessionsRef.current.find((session) => session.id === member.sessionId)
+        : undefined;
+      if (member.sessionId && !loaded) {
+        let saved: Session | null;
+        try {
+          saved = await getSession(member.sessionId);
+        } catch (error) {
+          logError("Crew chat", error);
+          return null;
+        }
+        if (saved)
+          loaded = (await ensureOpenSession(member.sessionId)) ?? undefined;
+        if (saved && !loaded) return null;
+      }
+      if (loaded) {
+        const fix = botChatInCopy(
+          loaded,
+          copy,
+          () => preferredModelId("claude"),
+          { harness, model },
+        );
+        if (!fix || (fix.restart && loaded.busy)) {
+          const tuned = withModel(loaded);
+          return tuned === loaded ? loaded : save(tuned);
+        }
+        if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
+        return save(withModel(fix.chat));
+      }
+      const session: Session = withModel({
+        ...newSession(harness, crew.path, model(), "auto"),
+        ...(member.sessionId ? { id: member.sessionId } : {}),
+        title: crewMemberName(crew, member.id),
+        worktreeCwd: copy,
+      });
+      const next = [...sessionsRef.current, session];
+      sessionsRef.current = next;
+      setSessions(next);
+      if (member.sessionId !== session.id)
+        updateCrew(crew.path, (current) =>
+          withMemberId(current, member.id, (entry) => ({
+            ...entry,
+            sessionId: session.id,
+          })),
+        );
+      return session;
+    },
+    [ensureOpenSession, sessionsRef, setSessions],
+  );
+  const crewHost = useMemo(
+    () => ({
+      ensureChat: ensureCrewChat,
+      send: botHost.send,
+      stopChat: (sessionId: string) => onStop(sessionId),
+      freshConversation: (sessionId: string) => {
+        const chat = sessionsRef.current.find(
+          (session) => session.id === sessionId,
+        );
+        if (!chat || chat.busy || !chat.providerSessionId) return;
+        void forgetHarnessSession(chat.harness, chat.id);
+        const next = sessionsRef.current.map((session) =>
+          session.id === sessionId
+            ? { ...session, providerSessionId: undefined }
+            : session,
+        );
+        sessionsRef.current = next;
+        setSessions(next);
+      },
+      onWorking: setCrewWorkingChats,
+    }),
+    [ensureCrewChat, botHost, onStop, sessionsRef, setSessions],
+  );
+  useCrews(
+    sessions,
+    sessionsRef,
+    crewHost,
+    !isDetachedWorkspace() && currentWindowLabel() === "main",
+  );
+  /** Show a crew member's chat; the Fixer's is the project bot's. */
+  const openCrewChat = useCallback(
+    async (path: string, who: string) => {
+      const crew = getCrew(path);
+      const member = crew
+        ? (crewMemberById(crew, who) ??
+          crew.members.find((entry) => entry.role === who))
+        : undefined;
+      if (who === "fixer" || member?.role === "fixer")
+        return void openBotChat(path);
+      if (!crew?.on || !member) return;
+      const chat = await ensureCrewChat(crew, member.id);
+      if (!chat) return;
+      setHomeViewOpen(false);
+      await onSelectHistorySession(chat.id);
+    },
+    [ensureCrewChat, onSelectHistorySession, openBotChat, setHomeViewOpen],
+  );
+  /** Stop a crew chat's turn and wait, a few seconds at most, until it has. */
+  const stopCrewChat = useCallback(
+    async (sessionId: string) => {
+      const busy = () =>
+        !!sessionsRef.current.find((session) => session.id === sessionId)?.busy;
+      if (!busy()) return;
+      onStop(sessionId);
+      for (let waited = 0; waited < 10_000 && busy(); waited += 100)
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+    },
+    [onStop, sessionsRef],
+  );
+  useEffect(
+    () =>
+      installCrewWorkspace({
+        openChat: (path, role) => {
+          closeUtilityViews();
+          void openCrewChat(path, role);
+        },
+        openCrew: (path) => {
+          closeUtilityViews();
+          onOpenBoard(path);
+        },
+        openSettings: setCrewSheet,
+        stop: stopCrewChat,
+      }),
+    [closeUtilityViews, onOpenBoard, openCrewChat, stopCrewChat],
+  );
+  /**
+   * Turn a crew on: Claude Code is needed (the sandbox); the Checker runs on
+   * Codex when it's installed, else on another Claude model. Its copy is
+   * made at its first card.
+   */
+  const turnOnCrewFor = useCallback(async (path: string) => {
+    await probeHarnessAvailability();
+    if (!isHarnessAvailable("claude"))
+      return "Crews use Claude Code. Install it and sign in, then turn the crew on.";
+    const need = await gitSetupNeeded(path);
+    if (need)
+      return need === "no-git"
+        ? "Crews need a Git project. Set up Git for this folder first."
+        : "Crews need a Git project with at least one commit.";
+    const codex = isHarnessAvailable("codex");
+    turnOnCrew(
+      path,
+      pickCrewModels({
+        codex,
+        claudeModels: pickerModelsFor("claude").map((model) => model.id),
+        preferredClaude: preferredModelId("claude"),
+        ...(codex ? { preferredCodex: preferredModelId("codex") } : {}),
+      }),
+    );
+    return null;
+  }, []);
+  const crewStore = useCrewsStore();
+  const sidebarCrews = useMemo<readonly SidebarCrew[]>(() => {
+    if (!botsAvailable()) return NO_SIDEBAR_CREWS;
+    const on = Object.values(crewStore).filter((crew) => crew.on);
+    if (!on.length) return NO_SIDEBAR_CREWS;
+    const now = Date.now();
+    const busy = new Set(
+      sessions.filter((session) => session.busy).map((session) => session.id),
+    );
+    return on.map((crew) => {
+      const bot = botStore[projectKey(crew.path)];
+      const appearance = projectAppearance(crew.path);
+      const chat = bot?.sessionId ? sessionById.get(bot.sessionId) : undefined;
+      const fixerStatus = bot?.on
+        ? botStatus(
+            bot,
+            chat
+              ? { busy: !!chat.busy, needsInput: sessionNeedsInput(chat) }
+              : undefined,
+            now,
+          )
+        : undefined;
+      const fixerName = bot ? botName(bot, appearance.mascot) : undefined;
+      const fixerRuns = bot?.on ? runsToday(bot, now) : 0;
+      return {
+        path: crew.path,
+        project: appearance.label,
+        status: crewStatus(crew, {
+          ...(fixerStatus ? { fixer: fixerStatus } : {}),
+          busy,
+        }),
+        runsLine: crewRunsLine(crew, now, fixerRuns),
+        paused: !!crew.paused,
+        members: crewMemberViews(crew, {
+          name: (who) => crewMemberName(crew, who, fixerName),
+          ...(fixerStatus
+            ? {
+                fixer: {
+                  status: fixerStatus,
+                  line: bot ? botHeadline(bot, fixerStatus, now) : undefined,
+                  ...(bot?.sessionId ? { sessionId: bot.sessionId } : {}),
+                },
+              }
+            : {}),
+        }),
+      };
+    });
+  }, [crewStore, botStore, sessions, sessionById]);
+  const onOpenCrew = useCallback(
+    (path: string) => {
+      closeUtilityViews();
+      onOpenBoard(path);
+    },
+    [closeUtilityViews, onOpenBoard],
+  );
+  const onOpenCrewMember = useCallback(
+    (path: string, who: string) => {
+      closeUtilityViews();
+      void openCrewChat(path, who);
+    },
+    [closeUtilityViews, openCrewChat],
+  );
+  const onCrewAction = useCallback(
+    (path: string, action: SidebarCrewAction) => {
+      if (action === "pause" || action === "resume")
+        setCrewPaused(path, action === "pause");
+      else if (action === "settings") setCrewSheet(path);
+      else {
+        // Open crew, and Tell the crew…: the Feed's box is on its Board.
+        closeUtilityViews();
+        onOpenBoard(path);
+      }
+    },
+    [closeUtilityViews, onOpenBoard],
+  );
+  /** New crew: it turns on and its Board opens. A project needing Git says so. */
+  const onAddCrew = useCallback(
+    (path: string) => {
+      if (getCrew(path)?.on) return onOpenCrew(path);
+      void gitSetupNeeded(path).then(async (need) => {
+        if (need) {
+          setBotGitSetup({ path, state: need });
+          return;
+        }
+        const problem = await turnOnCrewFor(path);
+        if (problem) {
+          void message(problem, { title: "Can't add a crew", kind: "info" });
+          return;
+        }
+        onOpenCrew(path);
+      });
+    },
+    [onOpenCrew, turnOnCrewFor],
+  );
+  // A crew's chats stay its chats when it is off: they never become
+  // ordinary chats in your folder, and they refuse to start until the crew
+  // is on again (see crewChatPermissions).
+
   const automationsUnread = useUnreadAutomationRuns();
   // The Inbox lists these projects' cards, with its own filters.
   const inboxCount = useInboxReviewCount(recents, sidebarCwd);
@@ -11158,6 +11529,11 @@ export default function App({
     onOpenBot,
     onBotSettings: onBotAction,
     onAddBot,
+    crews: sidebarCrews,
+    onOpenCrew,
+    onOpenCrewMember,
+    onCrewAction,
+    onAddCrew,
     teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
@@ -11293,6 +11669,9 @@ export default function App({
     sidebarOpen,
     openWebLink: onOpenWebLink,
     board: true,
+    ...(botsAvailable()
+      ? { crew: { turnOn: turnOnCrewFor, readFile: readTextFile } }
+      : {}),
     loneTab: {
       select: onSelectSurface,
       split: (id, edge, beside) =>
@@ -12518,6 +12897,27 @@ export default function App({
               <BotSettingsSheet
                 path={botSheet}
                 onClose={() => setBotSheet(null)}
+              />
+            ) : null}
+            {crewSheet && botsAvailable() ? (
+              <CrewSettingsSheet
+                path={crewSheet}
+                fixerName={(() => {
+                  const bot = getProjectBot(crewSheet);
+                  return bot?.on
+                    ? botName(bot, projectAppearance(crewSheet).mascot)
+                    : undefined;
+                })()}
+                onTurnOn={turnOnCrewFor}
+                onAddFixer={(path) => {
+                  setCrewSheet(null);
+                  onAddBot(path);
+                }}
+                onFixerSettings={(path) => {
+                  setCrewSheet(null);
+                  setBotSheet(path);
+                }}
+                onClose={() => setCrewSheet(null)}
               />
             ) : null}
             {botGitSetup && botsAvailable() ? (

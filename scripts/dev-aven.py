@@ -783,6 +783,13 @@ SMOKE_CHROMIUM_LOG = 'home/Library/Application Support/com.capi.aven.dev/browser
 def smoke_diagnostics(root, spawned, limit=24):
     """The stand-in's browser calls with their timings, and Aven's notes."""
     lines = []
+    crew = [entry for entry in spawned if entry.get('crew')]
+    if crew:
+        lines.append('Stand-in crew turns:')
+        for entry in crew[-limit:]:
+            round_note = f' round {entry["round"]}' if entry.get('round') else ''
+            recheck = ' (re-check)' if entry.get('recheck') else ''
+            lines.append(f'    {entry["crew"]}{round_note}{recheck}: {entry.get("launch", "")}')
     calls = [entry for entry in spawned if entry.get('browser')]
     if calls:
         lines.append('Stand-in browser calls:')

@@ -211,8 +211,15 @@ export function BotPicker({
   y,
   onClose,
   onBusyChange,
+  label = "Add a bot to",
   ...list
-}: ListProps & { x: number; y: number; onClose: () => void }) {
+}: ListProps & {
+  x: number;
+  y: number;
+  onClose: () => void;
+  /** What the picker adds, for screen readers: "Add a crew to". */
+  label?: string;
+}) {
   const theme = useUsagePanelTheme(true);
   // Setting up Git can't be stopped halfway, so the picker stays until the
   // row is done.
@@ -226,7 +233,7 @@ export function BotPicker({
       width={BOT_PICKER_WIDTH}
       panel
       role="dialog"
-      aria-label="Add a bot to"
+      aria-label={label}
       onDismiss={() => {
         if (!busy.current) onClose();
       }}

@@ -116,25 +116,45 @@ function topLevelFences(lines: readonly string[]): Fence[] {
   return fences;
 }
 
-const isReviewFence = (fence: Fence) =>
-  fence.info.split(/\s/)[0]?.toLowerCase() === REVIEW_FENCE;
+const fenceNamed = (name: string) => (fence: Fence) =>
+  fence.info.split(/\s/)[0]?.toLowerCase() === name;
 
 /**
- * The one review block that ends the reply, with where it starts. Null when
+ * The one `name` block that ends the reply, with where it starts. Null when
  * there is none, when it is not the last thing in the reply, or when the
  * reply holds more than one: a block quoted inside another fence, a quote
  * or a list is text, not a card.
  */
-function finalReviewFence(
+function finalFence(
   text: string,
+  name: string,
 ): { fence: Fence; lines: string[] } | null {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const fences = topLevelFences(lines).filter(isReviewFence);
+  const fences = topLevelFences(lines).filter(fenceNamed(name));
   if (fences.length !== 1) return null;
   const fence = fences[0]!;
   if (fence.end >= lines.length) return null;
   if (lines.slice(fence.end + 1).some((line) => line.trim())) return null;
   return { fence, lines };
+}
+
+const finalReviewFence = (text: string) => finalFence(text, REVIEW_FENCE);
+
+/**
+ * The one fenced `name` block that ends a reply, as its body and the reply
+ * before it; null by the same rules as a review card (see `finalFence`).
+ * Crews read their bots' handoff notes and verdicts this way.
+ */
+export function finalFencedBlock(
+  text: string,
+  name: string,
+): { body: string; before: string } | null {
+  const found = finalFence(text, name.toLowerCase());
+  if (!found) return null;
+  return {
+    body: found.fence.body,
+    before: found.lines.slice(0, found.fence.start).join("\n").trim(),
+  };
 }
 
 function kindFrom(fields: Record<string, unknown>): AutomationReviewKind {

@@ -51,6 +51,7 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
+import { checkCrew, type SmokeCrew } from "../lib/devSmokeCrew";
 import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
@@ -128,6 +129,8 @@ type Options = DevPerfOptions & {
   race?: SmokeRace;
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
+  /** Crews: the check turns one on in its project and has it build a card. */
+  crew?: SmokeCrew;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
   /** A project's browser pages, with the chat whose agent builds on each. */
@@ -4040,6 +4043,18 @@ export async function runDevSmoke(
     await step(
       "the board's card follows a chat from Building to Review and opens it",
       () => checkBoard(get, config.projectPath),
+    );
+
+  // A crew in the project, with the stand-in as each member: the Builder
+  // works in the crew's copy with its rules, the Checker says not yet once,
+  // Security passes, the card is Ready after round 2, Apply lands exactly
+  // the reviewed change, and a turn prepared when the crew is turned off
+  // never goes.
+  const crew = get().crew;
+  if (safe && crew)
+    await step(
+      "a crew builds, checks and secures a card, applies it as reviewed, and stops when off",
+      () => checkCrew(get, config.projectPath, crew),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens

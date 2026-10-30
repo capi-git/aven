@@ -1,11 +1,14 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { inboxProjectsForRail } from "../lib/githubTasks";
 import {
+  inboxCrewItems,
   inboxFiltersSnapshot,
   inboxFiltersFrom,
   inboxReviewRuns,
   subscribeInboxFilters,
 } from "../lib/inboxFilters";
+import { openCrewInboxItems, type CrewInboxItem } from "../lib/crewInbox";
+import { useCrewsStore } from "../lib/crews";
 import type { RecentProject } from "../lib/recents";
 import {
   automationChatIds,
@@ -36,26 +39,35 @@ export function useOpenReviewRuns(): ScheduledRun[] {
   return useSyncExternalStore(subscribeScheduledRuns, reviewSnapshot);
 }
 
+/** Crew cards waiting in the Inbox (Ready and Stuck), newest first. */
+export function useOpenCrewInboxItems(): CrewInboxItem[] {
+  const crews = useCrewsStore();
+  return useMemo(() => openCrewInboxItems(crews), [crews]);
+}
+
 /**
  * How many cards the Inbox lists for these projects, with its saved filters:
- * the Inbox tile's count, so it never counts a card the Inbox hides.
+ * the Inbox tile's count, so it never counts a card the Inbox hides. Crew
+ * cards count with the automations'.
  */
 export function useInboxReviewCount(
   recents: RecentProject[],
   cwd: string,
 ): number {
   const runs = useOpenReviewRuns();
+  const crewItems = useOpenCrewInboxItems();
   const saved = useSyncExternalStore(
     subscribeInboxFilters,
     inboxFiltersSnapshot,
   );
-  return useMemo(
-    () =>
-      inboxReviewRuns(
-        runs,
-        inboxFiltersFrom(saved),
-        inboxProjectsForRail(recents, cwd).map((project) => project.path),
-      ).length,
-    [runs, saved, recents, cwd],
-  );
+  return useMemo(() => {
+    const filters = inboxFiltersFrom(saved);
+    const paths = inboxProjectsForRail(recents, cwd).map(
+      (project) => project.path,
+    );
+    return (
+      inboxReviewRuns(runs, filters, paths).length +
+      inboxCrewItems(crewItems, filters, paths).length
+    );
+  }, [runs, crewItems, saved, recents, cwd]);
 }
