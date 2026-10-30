@@ -342,7 +342,7 @@ describe("agent browser session connection", () => {
   it("builds on one page per chat: reloads the same address, navigates another query or mock file, and opens a second tab only for another path on request", async () => {
     const api = await import("./agentBrowser");
     const { openAgentBrowserTab } = await import("./agentBrowserOpen");
-    const { EMPTY_BROWSER, addRetainedBrowserTab } =
+    const { EMPTY_BROWSER, addRetainedBrowserTab, updateBrowserTab } =
       await import("./personalWorkspace");
     // The user's own page, at an address the agent will also use.
     let workspace = addRetainedBrowserTab(EMPTY_BROWSER, {
@@ -361,6 +361,9 @@ describe("agent browser session connection", () => {
           () => `page-${++id}`,
         );
         workspace = result.workspace;
+        // Aven navigates the page, which then reports its new address.
+        if (result.refresh === "navigate")
+          workspace = updateBrowserTab(workspace, result.tab.id, { url });
         api.registerAgentBrowserPage(result.tab.id, `native-${result.tab.id}`);
         return {
           id: result.tab.id,
