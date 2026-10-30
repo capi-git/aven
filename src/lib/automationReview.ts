@@ -14,7 +14,11 @@
  */
 
 export type AutomationReviewStatus = "open" | "done" | "dismissed";
-export type AutomationReviewKind = "review" | "publish";
+/**
+ * `needs-you`: the run couldn't finish without you (a source it couldn't
+ * read, a choice it couldn't make); its button asks it to try again.
+ */
+export type AutomationReviewKind = "review" | "publish" | "needs-you";
 
 export type AutomationReview = {
   kind: AutomationReviewKind;
@@ -36,6 +40,7 @@ export const REVIEW_ACTIONS: Record<
 > = {
   publish: { label: "Publish", message: "Publish the draft now." },
   review: { label: "Approve", message: "Approved. Go ahead." },
+  "needs-you": { label: "Try again", message: "Try again from the start." },
 };
 
 export function reviewAction(review: Pick<AutomationReview, "kind">) {
@@ -158,7 +163,12 @@ export function finalFencedBlock(
 }
 
 function kindFrom(fields: Record<string, unknown>): AutomationReviewKind {
-  if (fields.kind === "publish" || fields.kind === "review") return fields.kind;
+  if (
+    fields.kind === "publish" ||
+    fields.kind === "review" ||
+    fields.kind === "needs-you"
+  )
+    return fields.kind;
   // Earlier wording named the button; a Publish button made a publish card.
   const action =
     fields.action && typeof fields.action === "object"
@@ -227,7 +237,10 @@ export function normalizeAutomationReview(
       : "open";
   const url = reviewUrl(review.url);
   return {
-    kind: review.kind === "publish" ? "publish" : "review",
+    kind:
+      review.kind === "publish" || review.kind === "needs-you"
+        ? review.kind
+        : "review",
     title,
     summary: clip(review.summary, SUMMARY_LIMIT),
     ...(url ? { url } : {}),
@@ -240,9 +253,10 @@ export function normalizeAutomationReview(
   };
 }
 
-/** "Ready to publish" or "Ready to review", the card's kind in words. */
+/** "Ready to publish", "Ready to review" or "Needs you": the card's kind. */
 export function reviewHeading(review: Pick<AutomationReview, "kind">): string {
-  return review.kind === "publish" ? "Ready to publish" : "Ready to review";
+  if (review.kind === "publish") return "Ready to publish";
+  return review.kind === "needs-you" ? "Needs you" : "Ready to review";
 }
 
 /**
@@ -250,7 +264,7 @@ export function reviewHeading(review: Pick<AutomationReview, "kind">): string {
  * leave a card. The chat shows your prompt alone.
  */
 export function automationPrompt(prompt: string): string {
-  const { publish, review } = REVIEW_ACTIONS;
+  const { publish, review, "needs-you": needsYou } = REVIEW_ACTIONS;
   return `${prompt.trim()}
 
 ---
@@ -260,5 +274,5 @@ Aven runs this automation on a schedule while nobody watches the chat. If you fi
 {"kind": "publish", "title": "Short title", "summary": "One or two sentences on what to check.", "url": "https://link-to-the-draft-or-preview"}
 \`\`\`
 
-Use "kind": "publish" for something ready to go out and "review" for anything else; "summary" and "url" are optional. The card's button sends you "${publish.message}" for a publish card, or "${review.message}" for a review card, in this conversation. Leave the block out when there is nothing to review; a plain report needs no card.`;
+Use "kind": "publish" for something ready to go out, "needs-you" when you could not finish without the user, and "review" for anything else; "summary" and "url" are optional. The card's button sends you "${publish.message}" for a publish card, "${needsYou.message}" for a needs-you card, or "${review.message}" for a review card, in this conversation. Leave the block out when there is nothing to review; a plain report needs no card.`;
 }
