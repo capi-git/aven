@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { appliedProblem, crewLaunchProblem } from "./devSmokeCrew";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getCrew, resetCrewsCache } from "./crews";
+import { appliedProblem, checkCrew, crewLaunchProblem } from "./devSmokeCrew";
 
 const COPY =
   "/var/folders/x/aven-smoke-1/home/Library/Application Support/com.capi.aven.dev/bots/project-1a2b";
@@ -63,4 +64,32 @@ describe("the real-app check's crew step", () => {
       ),
     ).toBe("Apply also changed README.md, which wasn't in the reviewed change");
   });
+
+  it("turns quiet hours off even when the fresh profile has no crew yet", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    });
+    resetCrewsCache();
+    const project = "/Users/me/aven-site";
+    expect(getCrew(project)).toBeUndefined();
+    let quietWhenTurnedOn: boolean | undefined;
+    await expect(
+      checkCrew(() => ({ sessions: [] }), project, {
+        turnOn: async (path) => {
+          quietWhenTurnedOn = getCrew(path)?.limits.quiet.on;
+          return "stopped here";
+        },
+        readFile: async () => "",
+      }),
+    ).rejects.toThrow("The crew didn't turn on: stopped here");
+    expect(quietWhenTurnedOn).toBe(false);
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetCrewsCache();
 });

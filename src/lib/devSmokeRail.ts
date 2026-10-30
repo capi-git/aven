@@ -1,5 +1,6 @@
 import { waitFor } from "./devSmoke";
 import {
+  closeCheckPage,
   dragPath,
   frame,
   pressPoint,
@@ -115,7 +116,12 @@ export async function checkDividerRail(
       () => !splitLeftProblem([...panes()].reverse(), chat, pageId),
       10_000,
       "the page alone in a pane right of the chat",
-    );
+    ).catch((error: unknown) => {
+      const problem = splitLeftProblem([...panes()].reverse(), chat, pageId);
+      throw problem
+        ? new Error(`the page did not split right of the chat: ${problem}`)
+        : error;
+    });
     const surface = (id: string) =>
       document.querySelector<HTMLElement>(
         `[data-workspace-surface="${CSS.escape(id)}"]`,
@@ -222,6 +228,6 @@ export async function checkDividerRail(
     return `dragged to the edge with the Mac's own mouse, the page folded to a 28px rail beside the chat; one click on it opened the page at ${width}% again`;
   } finally {
     window.removeEventListener("pointerdown", onPress, true);
-    if (page) get().loneTab?.closePage(page);
+    if (page) await closeCheckPage(get, page);
   }
 }

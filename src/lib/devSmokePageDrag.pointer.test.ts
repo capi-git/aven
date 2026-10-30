@@ -5,6 +5,7 @@ import { pressPoint } from "./devSmokeLoneTab";
 import {
   describeDragEnd,
   describeHit,
+  describeOverlay,
   dragSceneLines,
   earlyEndProblem,
   focusTarget,
@@ -142,6 +143,29 @@ describe("what a failed drag over a page lists", () => {
       "panes: browser-8000 0,50 1600×950; the page's host 0,82 1600×918",
       "strip: 1a001aee 375–525 (reported 300–420); browser-8000 0–0",
     ]);
+  });
+
+  it("names what is drawn over the page, so cut out of it", () => {
+    // 0.1.160's trial listed "1 cut-out(s)" and nothing to say what it was:
+    // the notice after a move, from the last zoom's page closing.
+    const notice = document.createElement("div");
+    notice.dataset.layoutNotice = "";
+    notice.className = "aven-layout-notice";
+    notice.innerHTML =
+      '<p class="aven-layout-notice-text">Closed “Aven check page”.\n  “New chat” stays on its own, where the split was.</p><button aria-label="Dismiss"></button>';
+    const menu = document.createElement("div");
+    menu.className = "aven-menu popover";
+    menu.setAttribute("role", "menu");
+    const over = [describeOverlay(notice), describeOverlay(menu)];
+    expect(over).toEqual([
+      'the notice after a move "Closed “Aven check page”. “New chat” stays on its own, where the split was."',
+      "div.aven-menu (menu)",
+    ]);
+    const lines = dragSceneLines({ ...environment, over }, null);
+    expect(lines.at(-2)).toBe(`over the page: ${over.join("; ")}`);
+    expect(dragSceneLines({ ...environment, over: [] }, null)).not.toContain(
+      "over the page: ",
+    );
   });
 
   it("lists the engine and window alone before any drag", () => {

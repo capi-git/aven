@@ -224,6 +224,7 @@ import {
   keepBrowserTab,
   updateBrowserTab,
   browserIdForTab,
+  openBrowserLink,
   patchBrowserWorkspace,
   releaseAgentBrowserTab,
 } from "./lib/personalWorkspace";
@@ -6799,19 +6800,11 @@ export default function App({
       const existing = current.tabs.find((tab) => tab.url === url);
       const id = existing?.id ?? crypto.randomUUID();
       closeUtilityViews();
+      // The pages read above are the ones last drawn: one closing in this
+      // same moment is opened again under its id, so the link always opens.
       setBrowserWorkspaces((all) => ({
         ...all,
-        [cwd]: existing
-          ? {
-              ...selectBrowserTab(all[cwd] ?? EMPTY_BROWSER, id),
-              open: true,
-              mode: "tab",
-              expanded: true,
-            }
-          : addRetainedBrowserTab(
-              { ...(all[cwd] ?? EMPTY_BROWSER), mode: "tab" },
-              { id, url },
-            ),
+        [cwd]: openBrowserLink(all[cwd] ?? EMPTY_BROWSER, id, url),
       }));
       viewRef.current.focus(cwd, browserIdForTab(cwd, id));
       setComposerFocused(false);
