@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   automationChatTitle,
   canAnswerCard,
+  cardAnswerProblem,
   continueAutomationRun,
   startAutomationRun,
   stopUnattendedRun,
@@ -265,6 +266,18 @@ describe("starting an automation run", () => {
     });
     // The card was the news; its answer finishing is not.
     expect(space.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why a card's answer can't go to the run's chat now", () => {
+    expect(cardAnswerProblem(null)).toBe("Aven couldn’t open this run’s chat.");
+    expect(cardAnswerProblem({ busy: true })).toMatch(/busy/);
+    expect(
+      cardAnswerProblem({
+        busy: false,
+        queuedMessages: [{ id: "q", text: "next", attachments: [] }],
+      } as never),
+    ).toMatch(/busy/);
+    expect(cardAnswerProblem({ busy: false })).toBeNull();
   });
 
   it("sends nothing for a card that is done, or while the run works", async () => {

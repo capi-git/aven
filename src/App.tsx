@@ -317,6 +317,7 @@ import {
 import {
   automationChatTitle,
   canAnswerCard,
+  cardAnswerProblem,
   continueAutomationRun,
   startAutomationRun,
   type AutomationRunNotice,
@@ -10593,7 +10594,10 @@ export default function App({
     reviewAnswersInFlight.current.add(run.id);
     try {
       const session = await ensureOpenSession(run.sessionId);
-      if (!session || session.busy || session.queuedMessages?.length) return;
+      // The card says why nothing was sent.
+      const problem = cardAnswerProblem(session);
+      if (problem) throw new Error(problem);
+      if (!session) return;
       continueAutomationRun(run.id, {
         session,
         submit: (id, text, settle) =>

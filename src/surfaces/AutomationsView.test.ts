@@ -1066,6 +1066,44 @@ describe("Inbox without the Scheduled tab", () => {
     expect(onReviewAction).not.toHaveBeenCalled();
   });
 
+  it("says why when a card's button could send nothing", async () => {
+    saveScheduledRun({
+      ...finished,
+      id: "run-4",
+      review: {
+        kind: "publish",
+        title: "2 new articles",
+        summary: "",
+        status: "open",
+        postedAt: Date.now(),
+      },
+    });
+    const onReviewAction = vi.fn(async () => {
+      throw new Error("The run’s chat is busy. Try again once it finishes.");
+    });
+    await act(async () =>
+      root.render(
+        createElement(InboxView, {
+          onAsk: async () => "",
+          onAskRestart: async () => "",
+          onAskMount: () => {},
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 1 }],
+          onReviewAction,
+        }),
+      ),
+    );
+    const publish = button("Publish");
+    await click(publish);
+    await flush();
+    expect(onReviewAction).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector(".automation-review-error")?.textContent,
+    ).toBe("The run’s chat is busy. Try again once it finishes.");
+    // The button can be pressed again once the chat is free.
+    expect(publish.disabled).toBe(false);
+  });
+
   it("hides a card from a project the Inbox's filters hide", async () => {
     saveScheduledRun({
       ...finished,

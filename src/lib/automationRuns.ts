@@ -230,6 +230,19 @@ async function beginAutomationRun(
 }
 
 /**
+ * Why a card's answer can't go to the run's chat now, in plain words, or
+ * null when it can. The card shows it rather than doing nothing.
+ */
+export function cardAnswerProblem(
+  session: Pick<Session, "busy" | "queuedMessages"> | null | undefined,
+): string | null {
+  if (!session) return "Aven couldn’t open this run’s chat.";
+  if (session.busy || session.queuedMessages?.length)
+    return "The run’s chat is busy. Try again once it finishes.";
+  return null;
+}
+
+/**
  * Whether a card's button can be pressed: the card is still open and the
  * run is not already taking a turn.
  */
