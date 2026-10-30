@@ -130,10 +130,11 @@ describe("project bot settings", () => {
     const named = (name: string) =>
       readProjectBot({ path: PATH, scope: "project", name })?.name;
     // Aven's own defaults, in any case and as older sprites' names.
-    for (const name of ["Jelly", "Puffin", "owl", "JELLYFISH", "Robot", "Mole"])
+    for (const name of ["Jelly", "Puffin", "owl", "JELLYFISH", "Robot"])
       expect(named(name), name).toBeUndefined();
     // A name you typed stays, even one that starts like a critter's.
     expect(named("Sam")).toBe("Sam");
+    expect(named("Mole")).toBe("Mole");
     expect(named("Jelly Bean")).toBe("Jelly Bean");
     expect(named("Foxy")).toBe("Foxy");
     expect(

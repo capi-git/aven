@@ -93,10 +93,10 @@ describe("crew members' names and marks", () => {
 
   it("calls a crew from before marks' members by their roles, and draws them so", () => {
     const crew = crewFromBeforeMarks();
-    // "Mole" was a default name too; the Designer goes by its own title.
+    // "Mole" was typed, so it stays; the Designer goes by its own title.
     expect(
       crew.members.map((member) => crewMemberName(crew, member.id)),
-    ).toEqual(["Builder", "Checker", "Security", "Designer", "Builder 2"]);
+    ).toEqual(["Builder", "Checker", "Security", "Designer", "Mole"]);
     expect(crew.members.map((member) => memberCritter(member))).toEqual([
       "builder",
       "checker",
