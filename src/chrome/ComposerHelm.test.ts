@@ -986,3 +986,130 @@ describe("choosing the critter", () => {
     expect(Object.values(saved).map(Number)).toEqual([2]);
   });
 });
+
+describe("a pane that goes off screen", () => {
+  it("takes a clicked-open dialog and the agent panel with it when parked", async () => {
+    await render();
+    await openByClick();
+    expect(dialog()).not.toBeNull();
+    props.enabled = false;
+    await render();
+    // In a portal, it would otherwise float over the chat on screen now.
+    expect(dialog()).toBeNull();
+    expect(helm().dataset.open).toBeUndefined();
+
+    props.enabled = true;
+    await render();
+    await openByClick();
+    await act(async () => row("model")!.click());
+    expect(document.body.querySelector("[data-agent-panel]")).not.toBeNull();
+    props.enabled = false;
+    await render();
+    expect(document.body.querySelector("[data-agent-panel]")).toBeNull();
+  });
+
+  it("takes a dialog the pointer opened with it when parked", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await render();
+    await act(async () => {
+      host.querySelector(".helm-perch")!.dispatchEvent(
+        new MouseEvent("pointerover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+      vi.advanceTimersByTime(200);
+    });
+    expect(helm().dataset.open).toBe("hover");
+    props.enabled = false;
+    await render();
+    expect(dialog()).toBeNull();
+  });
+
+  it("closes the dialog while the window is hidden", async () => {
+    let state: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(
+      () => state,
+    );
+    await render();
+    await openByClick();
+    expect(dialog()).not.toBeNull();
+    state = "hidden";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(dialog()).toBeNull();
+  });
+});
+
+describe("the keyboard around the critter", () => {
+  /** Focus as Tab gives it: `:focus-visible` matches. */
+  function focusVisible() {
+    const matches = Element.prototype.matches;
+    vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+      this: Element,
+      selector: string,
+    ) {
+      if (selector === ":focus-visible") return this === document.activeElement;
+      return matches.call(this, selector);
+    });
+  }
+
+  it("lets Tab land on the critter without opening the dialog", async () => {
+    focusVisible();
+    await render();
+    await act(async () => critter().focus());
+    expect(document.activeElement).toBe(critter());
+    expect(dialog()).toBeNull();
+    // An arrow key, or Enter and Space (its click), opens it on Model.
+    await key("ArrowDown", critter());
+    expect(dialog()).not.toBeNull();
+    expect(document.activeElement).toBe(row("model"));
+  });
+
+  it("takes Shift+Tab back to the critter and Tab back to the message", async () => {
+    focusVisible();
+    await render();
+    field.focus();
+    await commandPeriod();
+    expect(document.activeElement).toBe(row("model"));
+    await act(async () => {
+      row("model")!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(critter());
+
+    await key("ArrowDown", critter());
+    expect(document.activeElement).toBe(row("model"));
+    await key("Tab");
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("moves Tab between the critter picker's controls without closing", async () => {
+    await render();
+    await commandPeriod();
+    await key("End");
+    await act(async () => row("critter")!.click());
+    const cell = document.activeElement!;
+    expect(cell.hasAttribute("data-critter-choice")).toBe(true);
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      cell.dispatchEvent(event);
+    });
+    // The browser moves on to the colours; the dialog stays.
+    expect(event.defaultPrevented).toBe(false);
+    expect(dialog()).not.toBeNull();
+  });
+});
