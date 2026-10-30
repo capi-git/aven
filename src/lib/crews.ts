@@ -1545,6 +1545,16 @@ export function getCrew(path: string): Crew | undefined {
   return crewsSnapshot()[projectKey(normalizeProjectPath(path))];
 }
 
+/** The crew a folder belongs to: its project's, or the crew whose copy it is. */
+export function crewForFolder(folder: string | undefined): Crew | undefined {
+  if (!folder) return undefined;
+  const own = getCrew(folder);
+  if (own) return own;
+  return Object.values(crewsSnapshot()).find(
+    (crew) => crew.copy?.path === folder,
+  );
+}
+
 /** Crews whose Builder, Checker and Scout are on. */
 export function activeCrews(): Crew[] {
   if (!botsAvailable()) return [];

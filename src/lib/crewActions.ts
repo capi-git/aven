@@ -58,7 +58,9 @@ import { errorText, logError } from "./errors";
 import {
   addFeatureIdea,
   deleteFeatureCard,
+  featureBoardState,
   featureBrief,
+  loadFeatureCards,
   moveFeatureCard,
   type FeatureCard,
 } from "./featureCards";
@@ -554,6 +556,32 @@ export async function giveCardToCrew(
     );
   });
   await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+/**
+ * Give to crew from an ideas block in a chat: each idea's Board card in
+ * Ideas (by its title), or a new one, goes to the crew. Resolves with why
+ * it couldn't, or null.
+ */
+export async function giveIdeasToCrew(
+  path: string,
+  titles: readonly string[],
+  now = Date.now(),
+): Promise<string | null> {
+  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  await loadFeatureCards(path);
+  for (const title of titles) {
+    const known = featureBoardState(path).cards.find(
+      (card) =>
+        card.column === "idea" &&
+        card.title.toLowerCase() === title.toLowerCase(),
+    );
+    const card = known ?? (await addFeatureIdea(path, { title }));
+    if (!card) return "Couldn't add the card to the Board.";
+    const problem = await giveCardToCrew(path, card, now);
+    if (problem) return problem;
+  }
   return null;
 }
 
