@@ -40,6 +40,12 @@ type Props = {
   reaction?: MascotReactionKind | null;
   /** Identifies one reaction, so a new one restarts its motion. */
   reactionId?: string;
+  /**
+   * `square`: the whole grid always drawn, plain enough to read as a
+   * square, so the mark keeps one footprint whatever its sigil (the
+   * message box's corner). Elsewhere a mark is its sigil.
+   */
+  frame?: "square";
   /** Sizes the mark (15px when not set). */
   className?: string;
   style?: CSSProperties;
@@ -64,6 +70,7 @@ export const DotMark = memo(function DotMark({
   state = "still",
   reaction = null,
   reactionId,
+  frame,
   className = "",
   style,
 }: Props) {
@@ -82,6 +89,7 @@ export const DotMark = memo(function DotMark({
       data-state={shown}
       data-sigil={drawn.key}
       data-reaction={reaction ?? undefined}
+      data-frame={frame}
       style={
         reaction
           ? ({

@@ -126,6 +126,16 @@ describe("DotMark", () => {
     expect(mark.dataset.reaction).toBe("nod");
   });
 
+  it("keeps the whole grid in a square frame, and no frame elsewhere", async () => {
+    let mark = await draw({ sigil: "corner", frame: "square" });
+    expect(mark.dataset.frame).toBe("square");
+    expect(host.querySelector(".dot-mark-grid")?.getAttribute("d")).toBe(
+      GRID_PATH,
+    );
+    mark = await draw({ sigil: "corner" });
+    expect(mark.hasAttribute("data-frame")).toBe(false);
+  });
+
   it("draws an unknown sigil as an empty grid rather than failing", async () => {
     const mark = await draw({ sigil: "nope" });
     expect(mark.dataset.sigil).toBe("custom");
@@ -172,8 +182,9 @@ describe("DotMark.css", () => {
     const small = /@container \(max-width: [\d.]+px\)\s*\{([\s\S]*?)\n\}/.exec(
       css,
     )?.[1];
+    // Every mark but a square-framed one drops its grid when small.
     expect(small).toMatch(
-      /\.dot-mark-grid,\s*\.dot-mark-grid-d\s*\{\s*display: none;/,
+      /:not\(\[data-frame="square"\]\) \.dot-mark-grid,\s*\.dot-mark:not\(\[data-frame="square"\]\) \.dot-mark-grid-d\s*\{\s*display: none;/,
     );
   });
 
