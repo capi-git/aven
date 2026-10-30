@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { queueCard, startCard } from "./crewLoop";
+import { afterBuild, afterCheck, queueCard, startCard } from "./crewLoop";
 import {
   autoStartsLeft,
   crewGate,
+  crewHoldGate,
   crewLimitsLine,
   crewRunsLine,
   ideaMayAutoStart,
@@ -17,6 +18,7 @@ import {
   withCard,
   withIdea,
   type Crew,
+  type CrewCard,
 } from "./crews";
 import { localDay } from "./projectBots";
 
@@ -224,5 +226,72 @@ describe("Scout ideas start themselves, within limits", () => {
       members: [{ id: "scout", role: "scout" as const, paused: true }],
     };
     expect(scoutShouldLook(paused, NOON, false)).toBe(false);
+  });
+});
+
+describe("why the Board says the crew holds", () => {
+  const queued = queueCard(
+    { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
+    1,
+  );
+  /** A card the Checker passed, waiting for Security's review. */
+  function forSecurity(withChange = true) {
+    let card: CrewCard = { ...startCard(queued, 2), base: "base" };
+    card = afterBuild(card, {
+      handoff: { summary: "Done", howToCheck: [], ran: [] },
+      change: {
+        base: "base",
+        hash: "h1",
+        files: 1,
+        additions: 1,
+        deletions: 0,
+        paths: [],
+      },
+      now: 3,
+    }).card;
+    card = afterCheck(card, {
+      verdict: { pass: true, summary: "", mustFix: [], later: [], ran: [] },
+      edited: false,
+      security: true,
+      now: 4,
+    }).card;
+    return withChange
+      ? card
+      : {
+          ...card,
+          reviewing: undefined,
+          rounds: card.rounds.map((round) => ({ ...round, change: undefined })),
+        };
+  }
+  const hold = (patch: Partial<Crew>, input: { allRuns?: number } = {}) =>
+    crewHoldGate({
+      crew: crew(patch),
+      now: NOON,
+      weeklyUsed: 40,
+      fixerRuns: 0,
+      allRuns: input.allRuns ?? 0,
+      allRunsCap: 30,
+    });
+
+  it("names the all-crews ceiling while a card waits", () => {
+    expect(hold({ cards: [queued] }, { allRuns: 30 })?.gate).toMatchObject({
+      reason: "all-crews-cap",
+      title: "All crews' 30 runs today are used",
+    });
+    expect(hold({ cards: [queued] }, { allRuns: 29 })).toBeNull();
+  });
+
+  it("says Security is off when a card waits for it with nothing to make Ready", () => {
+    const members: Crew["members"] = [
+      { id: "builder", role: "builder" },
+      { id: "checker", role: "checker" },
+      { id: "security", role: "security", paused: true },
+    ];
+    expect(hold({ members, cards: [forSecurity(false)] })?.gate).toMatchObject({
+      reason: "no-member",
+      title: "No Security is on",
+    });
+    // With the Checker's pass to make Ready, nothing holds it.
+    expect(hold({ members, cards: [forSecurity()] })).toBeNull();
   });
 });

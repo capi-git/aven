@@ -1,14 +1,21 @@
+import { securityOff } from "./crewLoop";
 import {
   CREW_ALL_RUNS_PER_DAY,
   CREW_ROLE_INFO,
+  activeCrews,
+  cardBuilder,
+  cardChecker,
   cardInCopy,
+  cardSecurity,
   countToday,
   crewExtraToday,
   crewRunsToday,
   queuedCards,
   type Crew,
+  type CrewCard,
   type CrewHoldReason,
   type CrewIdea,
+  type CrewLoopRole,
 } from "./crews";
 import {
   formatClockMinutes,
@@ -119,6 +126,54 @@ export function crewGate(input: CrewGateInput): CrewGate {
       detail: "Crews pick up again tomorrow.",
     };
   return { ok: true };
+}
+
+/** Every crew's runs today, each one's Fixer's included: what the ceiling counts. */
+export function allCrewRunsToday(
+  now: number,
+  fixerRuns: (path: string) => number,
+): number {
+  return activeCrews().reduce(
+    (sum, crew) => sum + crewRunsToday(crew, now) + fixerRuns(crew.path),
+    0,
+  );
+}
+
+/**
+ * Why the crew holds, as its Board says it, or null: a limit (or you) holds
+ * it while work waits, or the member the waiting card needs next is off or
+ * gone. `waiting` is the card in the copy, else the next queued one.
+ */
+export function crewHoldGate(input: CrewGateInput): {
+  gate: Exclude<CrewGate, { ok: true }>;
+  waiting?: CrewCard;
+} | null {
+  const { crew } = input;
+  const limit = crewGate(input);
+  const waiting = cardInCopy(crew) ?? queuedCards(crew)[0];
+  const role: CrewLoopRole =
+    waiting?.holder === "checker" || waiting?.holder === "security"
+      ? waiting.holder
+      : "builder";
+  const member = !waiting
+    ? undefined
+    : role === "checker"
+      ? cardChecker(crew, waiting)
+      : role === "security"
+        ? cardSecurity(crew)
+        : cardBuilder(crew, waiting);
+  const unmanned =
+    !!waiting &&
+    (waiting.stage === "queued" ||
+      waiting.stage === "building" ||
+      waiting.stage === "checking") &&
+    !member &&
+    // Without Security, a card the Checker passed goes on to Ready.
+    !(role === "security" && securityOff(waiting, input.now));
+  const gate = limit.ok && unmanned ? crewNoMemberGate(role) : limit;
+  if (gate.ok) return null;
+  if (!waiting && gate.reason !== "paused") return null;
+  return { gate, ...(waiting ? { waiting } : {}) };
 }
 
 /** Every Builder (or Checker) is off or removed: the card waits, and says why. */
