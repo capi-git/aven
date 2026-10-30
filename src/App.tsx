@@ -1470,11 +1470,6 @@ export default function App({
         tabs() {
           const sessions = sessionsRef.current;
           const labels = loadTabGroupLabels();
-          const shown = shownBrowserProjects(
-            projectCwdRef.current,
-            tabsRef.current,
-            sessions,
-          );
           return agentBrowserTabs({
             workspaces: browserWorkspacesRef.current,
             detached: detachedIdsRef.current,
@@ -1490,9 +1485,15 @@ export default function App({
               const agent = HARNESS_TITLE[session.harness];
               return title ? `${agent} · ${title}` : agent;
             },
-            shown: (project) => shown.has(project),
           });
         },
+        shownProjects: () => [
+          ...shownBrowserProjects(
+            projectCwdRef.current,
+            tabsRef.current,
+            sessionsRef.current,
+          ),
+        ],
         reach(surfaceId) {
           // A tab not shown since Aven started has no page yet: load it out
           // of sight, as an agent's own page in another project loads. A

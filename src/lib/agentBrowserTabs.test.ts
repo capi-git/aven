@@ -142,9 +142,9 @@ describe("an agent's list of open tabs", () => {
     ]);
   });
 
-  it("leaves out another window's projects unless this window has a page for the tab", () => {
+  it("names the projects a window shows, and still lists every project's tabs", () => {
     // This window shows the site (in front) and the notes chat's project;
-    // the projectless workspace is open only in another window.
+    // the projectless workspace has no chat here.
     const shown = shownBrowserProjects(
       "/work/site",
       [{ layout: leaf("chat-notes") }],
@@ -154,31 +154,20 @@ describe("an agent's list of open tabs", () => {
       ],
     );
     expect([...shown].sort()).toEqual(["/work/notes", "/work/site"]);
+    // Its sleeping tabs in a project without a chat tab are still listed:
+    // only another window showing that project leaves them out.
     const tabs = agentBrowserTabs({
       workspaces: projects,
       detached: new Set(),
       onScreen: new Set(),
       projectName: () => "p",
       chatName: () => undefined,
-      shown: (project) => shown.has(project),
     });
-    const docs = surface("/app/projectless/default", "d");
-    expect(tabs.find((tab) => tab.surfaceId === docs)?.elsewhere).toBe(true);
-    const listed = (live?: string) =>
-      agentTabRecords(
-        tabs,
-        (id) => (id === live ? "native-docs" : undefined),
-        new Set(),
-      ).map((tab) => tab.surfaceId);
-    expect(listed()).not.toContain(docs);
-    expect(listed()).toHaveLength(3);
-    // A page this window holds is listed, with nothing extra sent.
-    expect(listed(docs)).toContain(docs);
-    expect(
-      agentTabRecords(tabs, () => "native", new Set()).some(
-        (tab) => "elsewhere" in tab,
-      ),
-    ).toBe(false);
+    const records = agentTabRecords(tabs, () => undefined, new Set());
+    expect(records.map((tab) => tab.surfaceId)).toContain(
+      surface("/app/projectless/default", "d"),
+    );
+    expect(records).toHaveLength(4);
   });
 });
 

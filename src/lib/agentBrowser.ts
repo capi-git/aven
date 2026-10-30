@@ -48,6 +48,12 @@ export type AgentBrowserHost = {
    */
   tabs?(): AgentBrowserTab[];
   /**
+   * The projects this window shows (`shownBrowserProjects`). Every window
+   * remembers every project's tabs, so Aven leaves out a window's copy of a
+   * tab whose project only another window shows.
+   */
+  shownProjects?(): string[];
+  /**
    * Make sure a tab has a page to read: one never shown since Aven started
    * loads, out of sight, without changing what the user sees.
    */
@@ -503,6 +509,7 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
             ? contexts.get(payload.sessionId)
             : undefined;
           let tabs: ReturnType<typeof agentTabRecords> = [];
+          let shownProjects: string[] | undefined;
           try {
             const scope = new Set(
               context ? (next.surfaces(context) ?? []) : [],
@@ -512,12 +519,14 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
               (surface) => nativePages.get(surface),
               scope,
             );
+            shownProjects = next.shownProjects?.();
           } catch {
             // An empty list: the window's tabs are left out.
           }
           await invoke("browser_agent_tabs_result", {
             requestId: payload.requestId,
             tabs,
+            ...(shownProjects ? { shownProjects } : {}),
           }).catch(() => {});
         },
       )
