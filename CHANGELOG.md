@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.1.162] - 2026-10-30
+
+### Changed
+
+- **Crew members go by their roles.** Builder, Checker, Security, Scout, Designer, Tester, Scribe and Fixer replace the animal names, in existing crews too. A second member of a role is "Builder 2". Names you typed yourself stay. Bots that had a default critter name are now "Fixer".
+- **A smaller, steadier mark in the message box.** It's two-thirds the size and always a full square of dots, with the project's pattern lit inside, so the message box looks the same in every chat.
+
+### Fixed
+
+- A web page folded away by dragging its divider disappears the moment its pane folds. Before, it stayed drawn in a frame over the next pane.
+- **iPhone simulator**
+  - A Run always ends Running or with a plain reason. It no longer sits on "Installing…".
+  - Tapping while a Run builds no longer starts several helpers at once that slow the install down.
+  - If the app can't open, the reason is shown.
+  - An open iPhone pane switches back to the live picture on its own when it can.
+
 ## [0.1.161] - 2026-10-30
 
 ### Changed
