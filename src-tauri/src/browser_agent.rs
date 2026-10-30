@@ -3017,15 +3017,18 @@ without the site's menus. Export saves the same into the chat's project as
 title, and its images downloaded beside it in <to>/images/ through the page's
 own signed-in session, with relative links; images it cannot save keep their
 web address and are listed as skipped. Export refuses to replace an existing
-file unless "replace":true. It saves at most 150 images, 10 MB each and 100 MB
-in all, and stops after about 75 seconds. Toggles closed in the page have no
-content to save; the result says so. Reading never changes the user's tab: no
-navigation, focus or scrolling. A sleeping tab is loaded again in the
+file unless "replace":true, which replaces only <name>.md and the images its
+earlier export saved; other files in images/ are kept, and a new image whose
+name is taken gets a new number. It saves at most 150 images, 10 MB each and
+100 MB in all, and stops after about 75 seconds. Toggles closed in the page
+have no content to save; the result says so. Reading never changes the user's
+tab: no navigation, focus or scrolling. A sleeping tab is loaded again in the
 background to read it ("woke":true). Ids from list work too. Tabs outside this
 chat's project need Settings > Browser > Agents can read any open tab (on
 unless the user turned it off); without it, tabs lists this project's tabs.
 Using any tab that is not yours shows the user a bar naming you and the tab;
-if they press Stop, other tabs stay closed to you until their next message.
+if they press Stop, other tabs stay closed to you until their next message,
+and if they press Pause, until they resume or your reply ends.
 Act (click, fill, press, scroll, navigate, upload) in the user's tabs only
 when they asked; never type passwords, sign-in codes or card details into a
 tab that is not yours (Aven refuses). If the user presses Stop, other tabs

@@ -137,7 +137,10 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   so a link that leads out of the project or into `.git` stops it; an
   `images` folder that is a link is refused. Files are created new and never
   through a link, and nothing that exists is replaced unless
-  `"replace":true` (an image name already taken gets a new number instead).
+  `"replace":true`, which replaces only that article and the images its
+  earlier export saved (any other image name already taken, such as another
+  article's or the project's own, gets a new number instead). Images on
+  Notion are named after the file Notion wraps, not its encoded address.
 - The Markdown is inert text under CommonMark, raw-HTML renderers and MDX:
   page text cannot become markup, an `{expression}` or an `import` line, and
   equations are kept as math code (`` $`…`$ `` and ```` ```math ````).
