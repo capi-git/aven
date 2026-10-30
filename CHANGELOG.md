@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [0.1.160] - 2026-10-29
+
+### Added
+
+- **Crews (preview).** A crew is a team of critters that works on your project. A Builder makes a change, a Checker reviews it and sends it back until it passes, and Security looks over exactly what was passed. You see a card only once both checks pass, and nothing lands in your folder until you press **Apply**. A project's existing bot joins its crew as the Fixer.
+  - Crews work only while Aven is open and your Mac is awake, outside quiet hours (11 pm–8 am unless you change it).
+  - The Board runs Ideas → Building → Review → Shipped. The Scout adds small ideas on its own; ideas from issues or the web wait for you.
+  - Members work in the crew's own copy of the project, inside a sandbox. The Checker and Security can only read, and no member pushes or publishes.
+  - Pick members from ready-made critters (Beetle the Builder, Owl the Checker, Fox the Scout, Moth the Designer, Snail the Tester, Puffin the Scribe, Hedgehog for Security) or make your own. Each has its own app, model, effort, instructions, scope and schedule, and rules choose who builds which card.
+  - The Feed shows what the crew is doing and scrolls on its own, with **Tell the crew…** at its foot.
+  - Limits you can change: rounds per card, runs a day, a turn time limit, and a pause at 80% of your Claude week.
+  - Builders run on Claude for now; Checkers and Security can also run on Codex. Other apps come next.
+
+### Changed
+
+- **Panes can't get lost.** Each pane has a smallest size, a little wider for chats. Drag a divider past it and the pane folds to a slim rail showing its tabs and critter; one click opens it again at its last size. Double-click a divider to even the split.
+  - Moving a tab or pane shows a short notice with **Undo**, and a tab pulled out of a split comes to the front.
+  - **⌘K** finds open pages, files and terminals too, and says where each one is.
+  - Aven checks your saved layout when it starts and before every save, so every open tab is in exactly one place.
+
+### Fixed
+
+- Undo after **Separate split** undoes the separate, not the step before it.
+- A link opened just as its page closed now opens, instead of showing a blank page.
+
 ## [0.1.159] - 2026-10-29
 
 ### Added
