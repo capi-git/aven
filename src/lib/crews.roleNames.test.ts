@@ -5,6 +5,7 @@ import {
   getCrew,
   migrateBotsIntoCrews,
   resetCrewsCache,
+  withAgentTitle,
 } from "./crews";
 import { crewMemberViews, titleBeside } from "./crewView";
 import { memoryStorage } from "./devSmoke";
@@ -147,5 +148,22 @@ describe("a role name is said once", () => {
       ["Security", null],
       ["Foxy", "Scout"],
     ]);
+  });
+});
+
+describe("a chat titled with a critter's name", () => {
+  it("takes the agent's name now, and keeps a title you gave it", () => {
+    const chat = { id: "c", title: "Beetle" };
+    expect(withAgentTitle(chat, "Builder")).toEqual({
+      id: "c",
+      title: "Builder",
+    });
+    expect(withAgentTitle({ id: "b", title: "jelly" }, "Fixer").title).toBe(
+      "Fixer",
+    );
+    const mine = { id: "m", title: "Hero work" };
+    expect(withAgentTitle(mine, "Builder")).toBe(mine);
+    const same = { id: "s", title: "Builder" };
+    expect(withAgentTitle(same, "Builder")).toBe(same);
   });
 });

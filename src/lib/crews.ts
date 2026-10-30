@@ -1566,6 +1566,20 @@ export function memberCritter(
 }
 
 /**
+ * A crew member's or a bot's chat still titled with a name Aven once gave
+ * it ("Beetle", "Jelly"), titled by its name now; any other chat as it is,
+ * so a title you changed stays.
+ */
+export function withAgentTitle<T extends { title: string }>(
+  chat: T,
+  name: string,
+): T {
+  return chat.title !== name && isDefaultAgentName(chat.title)
+    ? { ...chat, title: name }
+    : chat;
+}
+
+/**
  * "Hedgehog's security review", or "the security review" for a Security
  * member that goes by its role, which would otherwise read twice.
  */
