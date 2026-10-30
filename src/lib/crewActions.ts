@@ -13,8 +13,10 @@ import {
 } from "./crewLoop";
 import {
   CREW_EXTRA_RUNS,
+  CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
+  queuedCards,
   crewCard,
   crewMemberName,
   getCrew,
@@ -52,13 +54,14 @@ import { pickerModelsFor, preferredModelId } from "./models";
 import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
 import { logError } from "./errors";
 import {
+  addFeatureIdea,
   deleteFeatureCard,
   featureBrief,
   moveFeatureCard,
   type FeatureCard,
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
-import { projectKey } from "./paths";
+import { projectKey, projectName } from "./paths";
 import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
 import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
@@ -250,9 +253,141 @@ export function allowMoreRunsToday(path: string, now = Date.now()) {
   );
 }
 
-/** Tell the crew: standing guidance every bot reads at each turn. */
+/** Remember for every card: standing guidance every bot reads at each turn. */
 export function tellCrew(path: string, text: string, now = Date.now()) {
   updateCrew(path, (crew) => withNote(crew, text, now));
+}
+
+/** What the crew says to a nudge when it has nothing to start. */
+export const CREW_NOTHING_TO_BUILD =
+  "Tell the crew what to build, or add an idea.";
+
+const escapeWord = (word: string) =>
+  word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * "go", "keep going", "continue", "start building pom": a nudge with no
+ * task in it, which shouldn't become a vague card. `project` is the
+ * project's folder: its name counts as no task ("keep working on Pom").
+ */
+export function crewNudge(text: string, project?: string): boolean {
+  const name = project ? projectName(project).trim() : "";
+  const it = [
+    "it",
+    "this",
+    "that",
+    "everything",
+    "the (?:project|app|work|crew)",
+    ...(name ? [escapeWord(name)] : []),
+  ].join("|");
+  const nudge = new RegExp(
+    "^(?:(?:ok(?:ay)?|so|now|please|just|then|and|alright|right|hey)\\s+)*" +
+      "(?:go(?:\\s+(?:on|ahead))?|get\\s+(?:going|started|to\\s+work)" +
+      "|keep\\s+(?:going|at\\s+it|working|building)|carry\\s+on|continue" +
+      "|resume|proceed|start(?:\\s+(?:working|building))?|begin|work|build" +
+      "|do\\s+it|next)" +
+      `(?:\\s+(?:on|with))?(?:\\s+(?:${it}))?` +
+      "(?:\\s+(?:please|now|then|again))*$",
+    "i",
+  );
+  return nudge.test(
+    text
+      .replace(/[.!…]+$/u, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+}
+
+/**
+ * A Board card's title from what you told the crew: its first line, with a
+ * capital first letter, cut at a word near 80 characters.
+ */
+export function crewTaskTitle(text: string): string {
+  const line = text.trim().split("\n")[0]!.replace(/\s+/g, " ").trim();
+  const cut =
+    line.length <= 80
+      ? line
+      : `${line.slice(0, 80).replace(/\s+\S*$/, "") || line.slice(0, 80)}…`;
+  return cut.charAt(0).toUpperCase() + cut.slice(1);
+}
+
+/**
+ * Tell the crew…: what you say is a task. It becomes a Board card (its
+ * title from your words, your words as its note when they say more) that
+ * goes to the crew as Give to crew does, so it starts within the crew's
+ * limits. A nudge with no task in it starts or resumes what the crew has
+ * waiting, or the crew asks what to build. Resolves with why it couldn't,
+ * or null.
+ */
+export async function tellCrewWork(
+  path: string,
+  text: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const words = text.trim().slice(0, CREW_NOTE_MAX);
+  if (!words) return null;
+  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  if (crewNudge(words, path)) {
+    nudgeCrew(path, words, now);
+    return null;
+  }
+  const title = crewTaskTitle(words);
+  const card = await addFeatureIdea(path, {
+    title,
+    ...(words.toLowerCase() !== title.toLowerCase() ? { note: words } : {}),
+  });
+  if (!card) return "Couldn't add the card to the Board.";
+  return giveCardToCrew(path, card, now);
+}
+
+/**
+ * A nudge: the crew resumes if you paused it, and the card that waits on
+ * you (paused, or stopped without a question) goes again. Otherwise the
+ * crew says where things stand, or that it has nothing to build.
+ */
+function nudgeCrew(path: string, words: string, now: number) {
+  const crew = getCrew(path);
+  if (!crew) return;
+  updateCrew(path, (current) =>
+    withFeed(current, { at: now, kind: "note", who: "you", text: words }),
+  );
+  let acted = false;
+  if (crew.paused) {
+    setCrewPaused(path, false, now);
+    acted = true;
+  }
+  const card = cardInCopy(crew);
+  if (card?.paused) {
+    setCrewCardPaused(path, card.id, false);
+    updateCrew(path, (current) =>
+      withFeed(current, {
+        at: now,
+        kind: "note",
+        who: "you",
+        cardId: card.id,
+        title: card.title,
+        text: `You resumed “${card.title}”`,
+      }),
+    );
+    return;
+  }
+  if (card?.stage === "stuck" && card.stuck?.reason !== "question") {
+    resumeCrewCard(path, card.id, undefined, now);
+    return;
+  }
+  const next = card ?? queuedCards(crew)[0];
+  // Resumed with work waiting: that says enough.
+  if (acted && next) return;
+  const reply = !next
+    ? CREW_NOTHING_TO_BUILD
+    : next.stage === "stuck"
+      ? `“${next.title}” waits for your answer on its card.`
+      : next.stage === "ready"
+        ? `“${next.title}” is Ready: apply it or send it back from its card.`
+        : `The crew is on “${next.title}”.`;
+  updateCrew(path, (current) =>
+    withFeed(current, { at: now, kind: "note", who: "aven", text: reply }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,8 +1232,11 @@ export type CrewWorkspace = {
   openChat: (path: string, who: string) => void;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
-  /** Open the crew's settings (turning it on, when it is off). */
-  openSettings: (path: string) => void;
+  /**
+   * Open the crew's settings (turning it on, when it is off); with "add",
+   * at its gallery of members to add.
+   */
+  openSettings: (path: string, page?: "add") => void;
   /** Stop a chat's turn, and wait until it has. */
   stop: (sessionId: string) => Promise<void>;
 };

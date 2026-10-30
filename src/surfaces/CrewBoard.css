@@ -55,6 +55,24 @@
   color: var(--aven-muted);
 }
 
+/* An idle crew: one quiet line, no box. */
+.crew-idle {
+  margin: -6px 2px 12px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.crew-idle-link {
+  color: var(--color-content);
+  text-decoration: underline;
+  text-decoration-color: var(--aven-line);
+  text-underline-offset: 2px;
+}
+
+.crew-idle-link:hover {
+  text-decoration-color: currentColor;
+}
+
 /* The crew's bots, one tile each. */
 .crew-strip {
   display: grid;
@@ -338,7 +356,37 @@
 
 .crew-tell-input {
   width: 100%;
-  padding-right: 34px;
+  padding-right: 62px;
+}
+
+/* Remember for every card: a rule instead of a card to build. */
+.crew-tell-remember {
+  position: absolute;
+  top: 50%;
+  right: 33px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--aven-muted);
+  transform: translateY(-50%);
+}
+
+.crew-tell-remember:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.crew-tell-remember[aria-pressed="true"] {
+  background: var(--aven-fill-quaternary);
+  color: var(--color-content);
+}
+
+.crew-tell-problem {
+  margin: 6px 2px 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
 }
 
 .crew-tell-send {

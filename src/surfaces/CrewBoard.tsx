@@ -16,7 +16,7 @@ import {
 } from "../chrome/CrewCritter";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { ArrowUp, MoreHorizontal, Pause, Play } from "../chrome/icons";
+import { ArrowUp, MoreHorizontal, Pause, Pin, Play } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
 import { TeamCardButton } from "../chrome/TeamCard";
 import {
@@ -36,6 +36,7 @@ import {
   subscribeCrewTell,
   takeCrewTell,
   tellCrew,
+  tellCrewWork,
   turnOffCrew,
   useCrewWorkspace,
 } from "../lib/crewActions";
@@ -60,6 +61,8 @@ import {
   type CrewFeedEntry,
 } from "../lib/crews";
 import {
+  crewIdle,
+  crewWithoutScout,
   titleBeside,
   type CrewBoardInfo,
   type CrewMemberView,
@@ -282,6 +285,32 @@ export function CrewHoldLine({
   );
 }
 
+/**
+ * An idle crew says so, in one quiet line: where its work comes from, and
+ * a Scout to add when it has none.
+ */
+export function CrewIdleLine({ crew }: { crew: Crew }) {
+  const workspace = useCrewWorkspace();
+  if (!crewIdle(crew)) return null;
+  return (
+    <p className="crew-idle" data-crew-idle>
+      Nothing to build. Tell the crew what to do, or add an idea.
+      {crewWithoutScout(crew) && workspace ? (
+        <>
+          {" "}
+          <button
+            type="button"
+            className="crew-idle-link"
+            onClick={() => workspace.openSettings(crew.path, "add")}
+          >
+            Add a Scout to suggest ideas
+          </button>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 /** The crew's bots, one tile each: mark, name, role, word and one live line. */
 export function CrewStrip({
   path,
@@ -485,8 +514,9 @@ function feedTo(crew: Crew, entry: CrewFeedEntry): string | undefined {
 
 /**
  * The crew's feed: handoffs, verdicts, new ideas, holds and your notes, the
- * newest last, and the Tell the crew box. What you tell the crew is kept as
- * standing guidance every bot reads at its next turn.
+ * newest last, and the Tell the crew box. What you tell the crew becomes a
+ * card it builds; with Remember for every card, standing guidance every bot
+ * reads at its next turn.
  */
 export function CrewFeed({
   crew,
@@ -497,6 +527,10 @@ export function CrewFeed({
   name: (who: string) => string;
 }) {
   const [text, setText] = useState("");
+  /** Remember for every card: the message is a standing rule, not a task. */
+  const [remember, setRemember] = useState(false);
+  /** Why the last message couldn't become the crew's card. */
+  const [problem, setProblem] = useState<string | null>(null);
   // The newest entries, and more on Show earlier: the store keeps the rest.
   const [shown, setShown] = useState(FEED_SHOWN);
   const [follow, setFollow] = useState<FeedFollow>(FEED_FOLLOW_START);
@@ -508,7 +542,11 @@ export function CrewFeed({
   const seenNewest = useRef(newest);
   const keepFromBottom = useRef<number | null>(null);
   const entries = crew.feed.slice(-shown);
-  const standing = new Set(crew.notes.map((note) => note.text));
+  // A standing note is the entry it was told in (the same words, the same
+  // moment), not every later message with those words, like a second "go".
+  const standing = new Map(
+    crew.notes.map((note) => [`${note.at}\n${note.text}`, note]),
+  );
   const today = new Date().toDateString();
   let lastDay = "";
   const toBottom = () => {
@@ -610,10 +648,8 @@ export function CrewFeed({
                   ) : null;
                 lastDay = day;
                 const note =
-                  entry.kind === "note" &&
-                  entry.who === "you" &&
-                  standing.has(entry.text)
-                    ? crew.notes.find((item) => item.text === entry.text)
+                  entry.kind === "note" && entry.who === "you"
+                    ? standing.get(`${entry.at}\n${entry.text}`)
                     : undefined;
                 return (
                   <FeedRow
@@ -670,8 +706,16 @@ export function CrewFeed({
         onSubmit={(event) => {
           event.preventDefault();
           if (!text.trim()) return;
-          tellCrew(crew.path, text);
+          // A task by default: a card the crew builds. With Remember, a
+          // rule every bot reads at each turn.
+          setProblem(null);
+          if (remember) tellCrew(crew.path, text);
+          else
+            void tellCrewWork(crew.path, text)
+              .catch((error) => errorText(error))
+              .then(setProblem);
           setText("");
+          setRemember(false);
           // What you told it is the newest entry: show it.
           setFollow(FEED_FOLLOW_START);
         }}
@@ -680,12 +724,33 @@ export function CrewFeed({
           ref={tellBox}
           className="work-board-input crew-tell-input"
           type="text"
-          placeholder="Tell the crew…"
+          placeholder={
+            remember
+              ? "A rule for every card, like “Use pnpm”…"
+              : "Tell the crew…"
+          }
           aria-label="Tell the crew"
           value={text}
           maxLength={500}
           onChange={(event) => setText(event.target.value)}
         />
+        <button
+          type="button"
+          className="crew-tell-remember"
+          aria-pressed={remember}
+          aria-label="Remember for every card"
+          title={
+            remember
+              ? "Remembered for every card: a rule, not a card to build"
+              : "Remember for every card instead of building it"
+          }
+          onClick={() => {
+            setRemember((on) => !on);
+            tellBox.current?.focus();
+          }}
+        >
+          <Pin className="size-3.5" />
+        </button>
         <button
           type="submit"
           className="crew-tell-send"
@@ -695,6 +760,11 @@ export function CrewFeed({
           <ArrowUp className="size-3.5" />
         </button>
       </form>
+      {problem ? (
+        <p className="crew-tell-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
     </section>
   );
 }

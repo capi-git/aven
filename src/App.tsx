@@ -1269,6 +1269,8 @@ export default function App({
   const [crewWorkingChats, setCrewWorkingChats] =
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
   const [crewSheet, setCrewSheet] = useState<string | null>(null);
+  /** The page the crew's settings open at: its member gallery, or its own. */
+  const [crewSheetPage, setCrewSheetPage] = useState<"add" | undefined>();
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
@@ -11378,7 +11380,10 @@ export default function App({
           closeUtilityViews();
           onOpenBoard(path);
         },
-        openSettings: setCrewSheet,
+        openSettings: (path, page) => {
+          setCrewSheetPage(page);
+          setCrewSheet(path);
+        },
         stop: stopCrewChat,
       }),
     [closeUtilityViews, onOpenBoard, openCrewChat, stopCrewChat],
@@ -11475,8 +11480,10 @@ export default function App({
     (path: string, action: SidebarCrewAction) => {
       if (action === "pause" || action === "resume")
         setCrewPaused(path, action === "pause");
-      else if (action === "settings") setCrewSheet(path);
-      else {
+      else if (action === "settings") {
+        setCrewSheetPage(undefined);
+        setCrewSheet(path);
+      } else {
         // Open crew, and Tell the crew…: the Feed's box is on its Board,
         // and Tell the crew… puts the cursor in it.
         closeUtilityViews();
@@ -12978,6 +12985,7 @@ export default function App({
             {crewSheet && botsAvailable() ? (
               <CrewSettingsSheet
                 path={crewSheet}
+                {...(crewSheetPage ? { initialPage: crewSheetPage } : {})}
                 fixerName={(() => {
                   const bot = getProjectBot(crewSheet);
                   return bot?.on ? botName(bot) : undefined;

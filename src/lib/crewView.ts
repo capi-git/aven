@@ -57,6 +57,25 @@ const FIXER_STATUS: Readonly<Record<BotStatus, CrewStatus>> = {
 };
 
 /**
+ * The crew is on with nothing to build: no card queued, in its loop, Ready
+ * or Stuck. (Paused, it says Paused instead.)
+ */
+export function crewIdle(crew: Crew): boolean {
+  return (
+    crew.on &&
+    !crew.paused &&
+    !crew.cards.some(
+      (card) => card.stage !== "applied" && card.stage !== "discarded",
+    )
+  );
+}
+
+/** The crew has no Scout to suggest ideas. */
+export function crewWithoutScout(crew: Crew): boolean {
+  return !crew.members.some((member) => member.role === "scout");
+}
+
+/**
  * The crew's one word, most urgent first: Needs you, Ready, Working, then
  * Paused (by you or a limit) or Watching.
  */

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowMoreRunsToday,
   applyCrewCard,
+  crewNudge,
+  crewTaskTitle,
   deleteBoardCard,
   discardCrewCard,
   focusCrewTell,
@@ -15,6 +17,7 @@ import {
   stopCrewCard,
   takeCrewTell,
   tellCrew,
+  tellCrewWork,
   turnOnCrew,
 } from "./crewActions";
 import { crewInboxCard, openCrewInboxItems } from "./crewInbox";
@@ -702,5 +705,83 @@ describe("a check that failed because Codex couldn't be locked down", () => {
     expect(
       crew.feed.some((entry) => entry.text.includes("checking with Claude")),
     ).toBe(true);
+  });
+});
+
+describe("Tell the crew… gives it work", () => {
+  it("knows a nudge with no task in it from a task", () => {
+    for (const nudge of [
+      "go",
+      "Go!",
+      "keep going",
+      "continue",
+      "start",
+      "ok go ahead",
+      "start building pom",
+      "keep working on POM",
+      "carry on please",
+    ])
+      expect(crewNudge(nudge, "/Users/me/Pom"), nudge).toBe(true);
+    for (const task of [
+      "build a timer screen",
+      "start building the settings page",
+      "keep working on the login bug",
+      "go through the README and fix typos",
+      "Use pnpm, not npm",
+    ])
+      expect(crewNudge(task, "/Users/me/Pom"), task).toBe(false);
+  });
+
+  it("titles a card from your words", () => {
+    expect(crewTaskTitle("build a timer screen")).toBe("Build a timer screen");
+    expect(crewTaskTitle("Add dark mode\nwith a toggle in Settings")).toBe(
+      "Add dark mode",
+    );
+    const long = crewTaskTitle(`make ${"the very long thing ".repeat(8)}`);
+    expect(long.length).toBeLessThanOrEqual(81);
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.startsWith("Make the very long thing")).toBe(true);
+  });
+
+  it("makes a Board card and gives it to the crew, keeping your words as its note", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    const words =
+      "Add a timer screen\nWith start, pause and reset, and a sound at zero.";
+    expect(await tellCrewWork(PATH, words, NOON)).toBeNull();
+    const [board] = featureBoardState(PATH).cards;
+    expect(board).toMatchObject({
+      title: "Add a timer screen",
+      note: words,
+      column: "building",
+    });
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, board.id)).toMatchObject({
+      stage: "queued",
+      from: "you",
+    });
+    expect(crew.notes).toEqual([]);
+    expect(crew.feed.at(-1)?.text).toBe(
+      "You gave the crew “Add a timer screen”",
+    );
+  });
+
+  it("asks you to turn the crew on first, and adds nothing", async () => {
+    expect(await tellCrewWork(PATH, "build a timer", NOON)).toBe(
+      "Turn the crew on first.",
+    );
+    expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("a nudge resumes a paused crew rather than asking what to build", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true, paused: true }));
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crew.paused).toBeUndefined();
+    expect(featureBoardState(PATH).cards).toEqual([]);
+    // Nothing waits, so it says what it needs.
+    expect(crew.feed.map((entry) => entry.text).slice(-2)).toEqual([
+      "You resumed the crew",
+      "Tell the crew what to build, or add an idea.",
+    ]);
   });
 });

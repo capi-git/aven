@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { afterBuild, afterCheck, queueCard, startCard } from "../lib/crewLoop";
-import { focusCrewTell } from "../lib/crewActions";
+import { focusCrewTell, installCrewWorkspace } from "../lib/crewActions";
 import {
   crewCard,
   getCrew,
@@ -13,6 +13,7 @@ import {
   withCard,
   withFeed,
   withIdea,
+  withNote,
   type Crew,
   type CrewCard,
 } from "../lib/crews";
@@ -750,8 +751,8 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(getCrew(PROJECT)!.extra?.count).toBe(10);
   });
 
-  it("keeps what you tell the crew as standing guidance", async () => {
-    await setUp(() => (crew) => crew);
+  /** Type in Tell the crew… and send it. */
+  const tell = async (text: string) => {
     const input = container.querySelector<HTMLInputElement>(
       'input[aria-label="Tell the crew"]',
     )!;
@@ -759,7 +760,7 @@ describe("the crew view: the Board with the crew on it", () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )!.set!.call(input, "Use pnpm, not npm.");
+      )!.set!.call(input, text);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () =>
@@ -767,12 +768,134 @@ describe("the crew view: the Board with the crew on it", () => {
         new Event("submit", { bubbles: true, cancelable: true }),
       ),
     );
+    await settle();
+  };
+  const feedText = () =>
+    container.querySelector("[data-crew-feed]")!.textContent ?? "";
+
+  it("keeps what you tell the crew as standing guidance with Remember for every card", async () => {
+    await setUp(() => (crew) => crew);
+    const remember = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remember for every card"]',
+    )!;
+    expect(remember.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => remember.click());
+    expect(remember.getAttribute("aria-pressed")).toBe("true");
+    await tell("Use pnpm, not npm.");
     expect(getCrew(PROJECT)!.notes.map((note) => note.text)).toEqual([
       "Use pnpm, not npm.",
     ]);
-    expect(container.querySelector("[data-crew-feed]")!.textContent).toContain(
-      "You told the crew · standing",
+    expect(feedText()).toContain("You told the crew · standing");
+    // No card for a rule, and the next message is a task again.
+    expect(getCrew(PROJECT)!.cards).toEqual([]);
+    expect(remember.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("gives the crew what you tell it as a card to build", async () => {
+    await setUp(() => (crew) => crew);
+    await tell("build a timer screen");
+    const crew = getCrew(PROJECT)!;
+    expect(crew.notes).toEqual([]);
+    expect(crew.cards).toHaveLength(1);
+    expect(crew.cards[0]).toMatchObject({
+      title: "Build a timer screen",
+      stage: "queued",
+      from: "you",
+    });
+    // On the Board, in Building as Queued, and in the Feed.
+    const given = card(crew.cards[0].id);
+    expect(columnOf(crew.cards[0].id)).toBe("building");
+    expect(given.querySelector(".crew-card-stage")?.textContent).toBe(
+      "Queued · next up",
     );
+    expect(feedText()).toContain("You gave the crew “Build a timer screen”");
+    expect(container.querySelector("[data-crew-idle]")).toBeNull();
+  });
+
+  it("answers a nudge with nothing to build instead of making a vague card", async () => {
+    // "go" was a standing note before Tell the crew… made cards: it stays.
+    await setUp(() => (crew) => withNote(crew, "go", NOW - 60_000));
+    await tell("go");
+    const crew = getCrew(PROJECT)!;
+    expect(crew.cards).toEqual([]);
+    expect(crew.notes.map((note) => note.text)).toEqual(["go"]);
+    expect(crew.feed.at(-1)).toMatchObject({
+      who: "aven",
+      text: "Tell the crew what to build, or add an idea.",
+    });
+    // Only the note you kept is standing, not the "go" you just sent.
+    expect(feedText().match(/· standing/g)).toHaveLength(1);
+    expect(
+      [...container.querySelectorAll(".crew-feed-unpin")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Stop telling the crew this"]);
+  });
+
+  it("a nudge tries a stopped card again", async () => {
+    const boards = await setUp(
+      (boards) => (crew) =>
+        withCard(crew, {
+          ...crewCardFor(boards[4], "stuck"),
+          stuck: { reason: "stopped", text: "You stopped it" },
+        }),
+    );
+    await tell("keep going");
+    const crew = getCrew(PROJECT)!;
+    expect(crew.cards).toHaveLength(1);
+    expect(crewCard(crew, boards[4].id)?.stage).toBe("building");
+    expect(crew.feed.at(-1)?.text).toBe(`Trying “${boards[4].title}” again`);
+  });
+
+  it("says when the crew has nothing to build, with a Scout to add", async () => {
+    const openSettings = vi.fn();
+    const uninstall = installCrewWorkspace({
+      openChat: vi.fn(),
+      openCrew: vi.fn(),
+      openSettings,
+      stop: vi.fn(async () => undefined),
+    });
+    try {
+      await setUp(() => (crew) => crew);
+      const idle = container.querySelector<HTMLElement>("[data-crew-idle]")!;
+      expect(idle.textContent).toBe(
+        "Nothing to build. Tell the crew what to do, or add an idea. Add a Scout to suggest ideas",
+      );
+      await act(async () =>
+        button(idle, "Add a Scout to suggest ideas")!.click(),
+      );
+      expect(openSettings).toHaveBeenCalledWith(PROJECT, "add");
+      // With a Scout, no link; with work, no line.
+      await act(async () =>
+        updateCrew(PROJECT, (crew) => ({
+          ...crew,
+          members: [...crew.members, { id: "scout", role: "scout" }],
+        })),
+      );
+      expect(container.querySelector("[data-crew-idle]")?.textContent).toBe(
+        "Nothing to build. Tell the crew what to do, or add an idea.",
+      );
+      await act(async () =>
+        updateCrew(PROJECT, (crew) =>
+          withCard(
+            crew,
+            queueCard(
+              {
+                id: "c1",
+                title: "Timer",
+                brief: "x",
+                from: "you",
+                maxRounds: 3,
+              },
+              NOW,
+            ),
+          ),
+        ),
+      );
+      expect(container.querySelector("[data-crew-idle]")).toBeNull();
+    } finally {
+      uninstall();
+    }
   });
 
   it("lets you take a Queued card back to Ideas", async () => {

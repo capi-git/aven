@@ -93,6 +93,7 @@ import {
   CrewFeed,
   CrewHeader,
   CrewHoldLine,
+  CrewIdleLine,
   CrewReadySheet,
   CrewStrip,
 } from "./CrewBoard";
@@ -455,6 +456,7 @@ export const WorkBoardView = memo(function WorkBoardView({
         <>
           <CrewHeader crew={crew} now={now} fixerRuns={fixer?.runs ?? 0} />
           <CrewHoldLine crew={crew} now={now} fixerRuns={fixer?.runs ?? 0} />
+          <CrewIdleLine crew={crew} />
           <CrewStrip
             path={project}
             members={crewMemberViews(crew, {
