@@ -6,7 +6,6 @@ import {
   keepBrowserTab,
   normalizeBrowserWorkspace,
   selectBrowserTab,
-  updateBrowserTab,
   type BrowserTab,
   type BrowserWorkspace,
   type NormalizedBrowserWorkspace,
@@ -338,14 +337,12 @@ export function openAgentBrowserTab(
   );
   if (existing) {
     const { tab, refresh } = existing;
-    // The page shows the new address at once, so an overlapping open finds
-    // it; the page itself is navigated once it is ready.
-    const moved =
-      refresh === "navigate"
-        ? updateBrowserTab(current, tab.id, { url: normalizeBrowserUrl(url) })
-        : current;
+    // The saved address changes only once the page has navigated (it
+    // reports its address): Aven may yet leave a page the user has started
+    // using as it is, and open a new one instead. This chat's next open on
+    // the site waits for this one, so it finds the page's new address.
     const workspace = preserveFocus(
-      selectBrowserTab(keepBrowserTab(moved, tab.id), tab.id),
+      selectBrowserTab(keepBrowserTab(current, tab.id), tab.id),
     );
     return {
       tab: workspace.tabs.find((page) => page.id === tab.id) ?? tab,

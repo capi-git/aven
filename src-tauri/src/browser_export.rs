@@ -692,6 +692,55 @@ fn sniff(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// `%XX` escapes decoded; anything that is not one is kept as it is.
+fn percent_decode(text: &str) -> String {
+    let raw = text.as_bytes();
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    while index < raw.len() {
+        let escaped = (raw[index] == b'%')
+            .then(|| raw.get(index + 1..index + 3))
+            .flatten()
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match escaped {
+            Some(byte) => {
+                bytes.push(byte);
+                index += 3;
+            }
+            None => {
+                bytes.push(raw[index]);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The name of the file an image address points at, without its extension.
+/// An address that wraps the real one, as Notion's do
+/// (`/image/https%3A%2F%2F…%2Fdiagram.png`, `/image/attachment%3A…%3Adiagram.png`),
+/// names the wrapped file rather than its encoded address.
+fn address_stem(src: &str) -> String {
+    let file = |address: &str| {
+        address
+            .split(['?', '#'])
+            .next()
+            .and_then(|path| path.rsplit('/').next())
+            .unwrap_or("")
+            .to_owned()
+    };
+    let mut name = file(src);
+    let decoded = percent_decode(&name);
+    if decoded != name {
+        name = file(&decoded).rsplit(':').next().unwrap_or("").to_owned();
+    }
+    match name.rsplit_once('.') {
+        Some((stem, _)) => stem.to_owned(),
+        None => name,
+    }
+}
+
 /// `images/03-launch-diagram.png`: its place in the page, then a name from
 /// its alt text, caption or address.
 fn image_name(
@@ -701,18 +750,15 @@ fn image_name(
     used: &mut HashSet<String>,
     taken: impl Fn(&str) -> bool,
 ) -> String {
-    let from_address = image
-        .src
-        .split(['?', '#'])
-        .next()
-        .and_then(|path| path.rsplit('/').next())
-        .map(|file| file.rsplit_once('.').map_or(file, |(stem, _)| stem))
-        .filter(|_| !image.src.starts_with("data:"))
-        .unwrap_or("");
+    let from_address = if image.src.starts_with("data:") {
+        String::new()
+    } else {
+        address_stem(&image.src)
+    };
     let source = [
         image.alt.as_str(),
         image.caption.as_deref().unwrap_or(""),
-        from_address,
+        from_address.as_str(),
     ]
     .into_iter()
     .find(|text| text.chars().any(|c| c.is_ascii_alphanumeric()))
@@ -877,6 +923,40 @@ fn shorten(src: &str) -> String {
     format!("{}…", src.chars().take(159).collect::<String>())
 }
 
+/// The images an earlier save of this article wrote: the plain files in
+/// `images` that the article Aven saved there links to. With `replace`, a
+/// new save may write over these and nothing else in `images`: not another
+/// article's images, nor the project's own.
+fn earlier_images(article: &Path, images: &Path) -> HashSet<String> {
+    let saved = std::fs::symlink_metadata(article)
+        .ok()
+        .filter(|meta| meta.is_file() && meta.len() <= 8 * 1024 * 1024)
+        .and_then(|_| std::fs::read_to_string(article).ok())
+        .filter(|text| {
+            text.split("\n---")
+                .next()
+                .is_some_and(|front| front.starts_with("---") && front.contains("\nsaved_by: Aven"))
+        });
+    let Some(text) = saved else {
+        return HashSet::new();
+    };
+    // Links as the save wrote them: `(images/…)`, `<images/…>`, `"images/…"`.
+    text.match_indices("images/")
+        .filter(|(at, _)| text[..*at].ends_with(['(', '<', '"']))
+        .map(|(at, link)| {
+            text[at + link.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'))
+                .collect::<String>()
+        })
+        .filter(|name| !name.is_empty() && !name.starts_with('.'))
+        .filter(|name| {
+            std::fs::symlink_metadata(images.join(name))
+                .is_ok_and(|meta| meta.is_file() && !meta.file_type().is_symlink())
+        })
+        .collect()
+}
+
 /// Save `page` as `<folder>/<stem>.md` with its images in `<folder>/images`.
 /// Images that cannot be loaded in time or within the bounds keep their web
 /// address in the Markdown and are listed as skipped. Nothing that exists is
@@ -904,6 +984,12 @@ pub(crate) fn export(
             article.display()
         ));
     }
+    // Replace covers this article and the images its earlier save wrote.
+    let replaceable = if replace {
+        earlier_images(&article, &folder.join("images"))
+    } else {
+        HashSet::new()
+    };
     let width = if page.images.len() >= 100 { 3 } else { 2 };
     let mut images_folder: Option<PathBuf> = None;
     let mut used = HashSet::new();
@@ -975,9 +1061,9 @@ pub(crate) fn export(
             None => images_folder.insert(destination.images()?).clone(),
         };
         let name = image_name(image, width, ext, &mut used, |name| {
-            !replace && std::fs::symlink_metadata(images.join(name)).is_ok()
+            !replaceable.contains(name) && std::fs::symlink_metadata(images.join(name)).is_ok()
         });
-        write_file(&images.join(&name), &bytes, replace)?;
+        write_file(&images.join(&name), &bytes, replaceable.contains(&name))?;
         total += bytes.len();
         let relative = format!("images/{name}");
         listed.push(relative.clone());
@@ -1415,6 +1501,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(base);
     }
 
+    /// "replace" covers the article and the images its own earlier save
+    /// wrote: never another article's images, nor the project's own files.
+    #[cfg(unix)]
+    #[test]
+    fn replace_writes_over_only_the_articles_own_earlier_images() {
+        let base = folder("replace");
+        let project = base.join("project");
+        std::fs::create_dir_all(project.join("site/images")).unwrap();
+        std::fs::write(
+            project.join("site/images/01-logo.png"),
+            b"ORIGINAL PROJECT FILE",
+        )
+        .unwrap();
+        let notion = |name: &str| {
+            format!("https://www.notion.so/image/https%3A%2F%2Fprod-files-secure.s3.us-west-2.amazonaws.com%2F{name}%2Fimage.png?table=block")
+        };
+        let mut first = page(vec![image(1, &notion("a"), "")], "![](aven-image-tok-1)");
+        first.url = "https://www.notion.so/A".into();
+        let mut second = page(vec![image(1, &notion("b"), "")], "![](aven-image-tok-1)");
+        second.url = "https://www.notion.so/B".into();
+        let page_b: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDRpage B";
+        let page_b2: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDRpage B again";
+        let save_as = |page: &Extracted, stem: &str, replace: bool, bytes: &[u8]| {
+            let source = fake(&[(page.images[0].src.as_str(), Ok(bytes))]);
+            let destination =
+                export_folder(&project.join("docs").to_string_lossy(), &project).unwrap();
+            export(
+                page,
+                "tok",
+                &destination,
+                stem,
+                replace,
+                &source,
+                limits(),
+                &going,
+                SystemTime::now(),
+            )
+            .unwrap()
+        };
+        let a = save_as(&first, "a", false, PNG);
+        let b = save_as(&second, "b", false, page_b);
+        assert_eq!(a["images"]["files"][0], "images/01-image.png");
+        assert_eq!(b["images"]["files"][0], "images/01-image-2.png");
+        // Saving B again replaces B's own image, not A's.
+        let again = save_as(&second, "b", true, page_b2);
+        assert_eq!(again["images"]["files"][0], "images/01-image-2.png");
+        let docs = project.join("docs/images");
+        assert_eq!(std::fs::read(docs.join("01-image.png")).unwrap(), PNG);
+        assert_eq!(std::fs::read(docs.join("01-image-2.png")).unwrap(), page_b2);
+        assert_eq!(std::fs::read_dir(&docs).unwrap().count(), 2);
+        // A project's own image beside a replaced article is kept.
+        std::fs::write(project.join("site/article.md"), "# Written by hand\n").unwrap();
+        let mut logo = page(
+            vec![image(1, "https://evil.example/logo.png", "logo")],
+            "![logo](aven-image-tok-1)",
+        );
+        logo.url = "https://evil.example/".into();
+        let source = fake(&[("https://evil.example/logo.png", Ok(PNG))]);
+        let result = save(&logo, &project, "site", true, &source).unwrap();
+        assert_eq!(result["images"]["files"][0], "images/01-logo-2.png");
+        assert_eq!(
+            std::fs::read(project.join("site/images/01-logo.png")).unwrap(),
+            b"ORIGINAL PROJECT FILE"
+        );
+        let _ = std::fs::remove_dir_all(base);
+    }
+
     /// The folder can change during the minute an export takes.
     #[cfg(unix)]
     #[test]
@@ -1666,6 +1819,26 @@ mod tests {
             |name| name == "05-a.png" || name == "05-a-2.png",
         );
         assert_eq!(taken, "05-a-3.png");
+        // Notion's image addresses wrap the real file's: it names the image.
+        assert_eq!(
+            named(
+                6,
+                "https://www.notion.so/image/https%3A%2F%2Fprod-files-secure.s3.us-west-2.amazonaws.com%2Fabc%2Fdef%2FLaunch%20diagram.png?table=block&id=1",
+                "",
+                &mut used
+            ),
+            "06-launch-diagram.png"
+        );
+        assert_eq!(
+            named(
+                7,
+                "https://www.notion.so/image/attachment%3A5b1f%3Aroadmap.png?table=block",
+                "",
+                &mut used
+            ),
+            "07-roadmap.png"
+        );
+        assert_eq!(percent_decode("a%2Fb%zz%4"), "a/b%zz%4");
         assert_eq!(utc_time(SystemTime::UNIX_EPOCH), "1970-01-01T00:00:00Z");
         assert_eq!(
             utc_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1_709_164_800)),

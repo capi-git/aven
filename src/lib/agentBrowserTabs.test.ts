@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { agentBrowserTabs, agentTabRecords } from "./agentBrowserTabs";
+import { describe, expect, it, vi } from "vitest";
+import {
+  agentBrowserTabs,
+  agentTabRecords,
+  reachAgentTab,
+  shownBrowserProjects,
+} from "./agentBrowserTabs";
+import { leaf } from "./layout";
 import { browserIdForTab } from "./personalWorkspace";
 
 const workspace = (
@@ -134,5 +140,64 @@ describe("an agent's list of open tabs", () => {
         scope: false,
       },
     ]);
+  });
+
+  it("names the projects a window shows, and still lists every project's tabs", () => {
+    // This window shows the site (in front) and the notes chat's project;
+    // the projectless workspace has no chat here.
+    const shown = shownBrowserProjects(
+      "/work/site",
+      [{ layout: leaf("chat-notes") }],
+      [
+        { id: "chat-notes", cwd: "/work/notes" },
+        { id: "chat-elsewhere", cwd: "/app/projectless/default" },
+      ],
+    );
+    expect([...shown].sort()).toEqual(["/work/notes", "/work/site"]);
+    // Its sleeping tabs in a project without a chat tab are still listed:
+    // only another window showing that project leaves them out.
+    const tabs = agentBrowserTabs({
+      workspaces: projects,
+      detached: new Set(),
+      onScreen: new Set(),
+      projectName: () => "p",
+      chatName: () => undefined,
+    });
+    const records = agentTabRecords(tabs, () => undefined, new Set());
+    expect(records.map((tab) => tab.surfaceId)).toContain(
+      surface("/app/projectless/default", "d"),
+    );
+    expect(records).toHaveLength(4);
+  });
+});
+
+describe("loading a tab an agent reads", () => {
+  const ways = (detached: boolean, registered = false) => ({
+    registered: () => registered,
+    detached: () => detached,
+    loadDetached: vi.fn(async () => true),
+    load: vi.fn(),
+  });
+
+  it("asks the detached window that holds the tab to load it there", async () => {
+    const detached = ways(true);
+    await reachAgentTab("browser-1", detached);
+    expect(detached.loadDetached).toHaveBeenCalledWith("browser-1");
+    expect(detached.load).not.toHaveBeenCalled();
+    const here = ways(false);
+    await reachAgentTab("browser-2", here);
+    expect(here.load).toHaveBeenCalledWith("browser-2");
+    expect(here.loadDetached).not.toHaveBeenCalled();
+  });
+
+  it("leaves a tab with a page alone and says when its window has gone", async () => {
+    const live = ways(true, true);
+    await reachAgentTab("browser-1", live);
+    expect(live.loadDetached).not.toHaveBeenCalled();
+    const gone = ways(true);
+    gone.loadDetached.mockResolvedValue(false);
+    await expect(reachAgentTab("browser-1", gone)).rejects.toThrow(
+      "That tab's window has closed.",
+    );
   });
 });

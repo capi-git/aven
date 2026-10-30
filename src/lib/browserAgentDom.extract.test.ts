@@ -487,4 +487,42 @@ describe("sign-in and card fields in tabs that are not the chat's own", () => {
     document.body.innerHTML = `<article><p>Enter the code we sent.</p><div contenteditable="true" aria-label="Verification code">918273</div></article>`;
     expect(extract().markdown).toBe("Enter the code we sent.");
   });
+
+  it("leaves an editable code field's text out of the page text and labels", () => {
+    document.body.innerHTML = `<p>Enter the code we sent.</p>
+      <div contenteditable="true" id="otp-entry">482913</div>
+      <div contenteditable="true" aria-label="Notes">Lunch at noon</div>`;
+    const redacted = snapshot(true) as ReturnType<typeof snapshot> & {
+      text: string;
+    };
+    expect(JSON.stringify(redacted)).not.toContain("482913");
+    expect(redacted.text).toContain("Enter the code we sent.");
+    expect(redacted.text).toContain("Lunch at noon");
+    expect(redacted.elements.filter((entry) => entry.redacted)).toHaveLength(1);
+    // The chat's own page still reads it.
+    expect(JSON.stringify(snapshot(false))).toContain("482913");
+  });
+
+  it("keeps a password field secret after a show-password toggle makes it text", () => {
+    document.body.innerHTML = `<input id="p" name="p" type="password" value="hunter2"><button>Show</button>`;
+    const before = snapshot(true);
+    const input = document.querySelector<HTMLInputElement>("#p")!;
+    input.type = "text";
+    for (const redact of [true, false])
+      expect(JSON.stringify(snapshot(redact))).not.toContain("hunter2");
+    const refs = snapshot(true).elements;
+    expect(refs.length).toBe(before.elements.length);
+    const filled = JSON.parse(
+      evaluate({
+        action: "fill",
+        ref: refs.find((entry) => entry.label === "p")!.ref,
+        value: "guess",
+        noPassword: true,
+      }),
+    );
+    expect(filled.__supermonoAgentError).toMatch(
+      /passwords, sign-in codes or card details/,
+    );
+    expect(input.value).toBe("hunter2");
+  });
 });

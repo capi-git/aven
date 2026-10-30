@@ -1326,8 +1326,8 @@ pub(crate) fn begin_tab_use(
     Ok(TabUse { ticket })
 }
 
-/// Binds a chat's scope. `actor` is supplied by the frontend once per user
-/// turn; other rebinds pass None and keep the previous actor.
+/// Binds a chat's scope. `actor` is supplied by the frontend once per turn;
+/// other rebinds pass None and keep the previous actor.
 pub(crate) fn bind_session(
     scope: &str,
     actor: Option<&presence::ActorInput>,
@@ -1337,10 +1337,19 @@ pub(crate) fn bind_session(
     Ok(())
 }
 
+/// The user sent the chat a message they wrote: its declines and a Stop on
+/// other tabs end. Never for another agent's or Aven's own messages.
+pub(crate) fn user_turn(scope: &str) {
+    presence::with(|state| state.user_turn(scope));
+}
+
 /// A chat's reply ended or was stopped: its agent pointer leaves the screen
-/// now instead of lingering. Consent and captures are unaffected.
+/// now instead of lingering, and a Pause of its use of tabs ends with it.
+/// Consent and captures are unaffected.
 pub(crate) fn turn_finished(scope: &str) {
     platform::turn_finished(scope);
+    presence::with(|state| state.turn_finished(scope));
+    platform::presence_changed();
 }
 
 pub(crate) fn remove_session_captures(scope: &str) {

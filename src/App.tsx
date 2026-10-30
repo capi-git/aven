@@ -123,7 +123,11 @@ import {
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import { projectDisplayName } from "./hooks/useProjectLabels";
-import { agentBrowserTabs } from "./lib/agentBrowserTabs";
+import {
+  agentBrowserTabs,
+  reachAgentTab,
+  shownBrowserProjects,
+} from "./lib/agentBrowserTabs";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import {
@@ -1482,17 +1486,29 @@ export default function App({
             },
           });
         },
+        shownProjects: () => [
+          ...shownBrowserProjects(
+            projectCwdRef.current,
+            tabsRef.current,
+            sessionsRef.current,
+          ),
+        ],
         reach(surfaceId) {
           // A tab not shown since Aven started has no page yet: load it out
-          // of sight, as an agent's own page in another project loads.
-          if (getRegisteredAgentBrowserPage(surfaceId)) return;
-          flushSync(() =>
-            setAgentBrowserSurfaces((current) =>
-              current.has(surfaceId)
-                ? current
-                : new Set([...current, surfaceId]),
-            ),
-          );
+          // of sight, as an agent's own page in another project loads. A
+          // detached window loads its own, its panes left as they are.
+          return reachAgentTab(surfaceId, {
+            registered: (id) => !!getRegisteredAgentBrowserPage(id),
+            detached: (id) => detachedIdsRef.current.has(id),
+            loadDetached: (id) =>
+              detachedFocusBrowser.current(id, { arrange: false }),
+            load: (id) =>
+              flushSync(() =>
+                setAgentBrowserSurfaces((current) =>
+                  current.has(id) ? current : new Set([...current, id]),
+                ),
+              ),
+          });
         },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(
@@ -7107,6 +7123,11 @@ export default function App({
          */
         prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
+        /**
+         * The user wrote this message. Only such a turn ends their Stop on
+         * the chat's use of other tabs and its declined requests.
+         */
+        typed?: boolean;
       },
     ) => {
       const controlError = orchestrator.submissionError(
@@ -7269,6 +7290,7 @@ export default function App({
                         ? { displayText: options.displayText }
                         : {}),
                       ...(options?.verbatim ? { verbatim: true } : {}),
+                      ...(options?.typed ? { typed: true } : {}),
                     },
                   ],
                   queueStatus: s.queueStatus === "paused" ? "paused" : "active",
@@ -7327,6 +7349,7 @@ export default function App({
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
+                    typed: options?.typed === true,
                   },
                 );
             await steerHarnessTurn({
@@ -7777,6 +7800,7 @@ export default function App({
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                  typed: options?.typed === true,
                 },
               );
           const turnPrompt = proposalDraft
@@ -8121,7 +8145,8 @@ export default function App({
       ) =>
         onSubmit(sessionId, text, options.attachments ?? [], {
           displayText: options.displayText,
-          ...(options.botWake ? { botWake: options.botWake } : {}),
+          // A wake-up is the bot's own; anything else is your message.
+          ...(options.botWake ? { botWake: options.botWake } : { typed: true }),
           ...(options.prepareText ? { prepareText: options.prepareText } : {}),
           userBlockId: options.blockId,
           // The bot posts its own entry: a fix, or what it said.
@@ -8132,7 +8157,7 @@ export default function App({
         sessionId: string,
         text: string,
         attachments: Attachment[],
-      ) => void onSubmit(sessionId, text, attachments),
+      ) => void onSubmit(sessionId, text, attachments, { typed: true }),
       announce: announceActivity,
       onWorking: setBotWorkingChats,
     }),
@@ -8161,7 +8186,11 @@ export default function App({
         messageBot(sessionId, text, attachments)
       )
         return;
-      return onSubmit(sessionId, text, attachments, options);
+      // The chat's own message box: the user wrote it.
+      return onSubmit(sessionId, text, attachments, {
+        ...options,
+        typed: true,
+      });
     },
     [messageBot, onSubmit],
   );
@@ -8264,10 +8293,12 @@ export default function App({
       if (target && session.modelSettings) {
         saveLastModelSettings(session.modelSettings, "fill");
       }
+      // The user pressed Build.
       onSubmit(sessionId, "Build approved plan", [], {
         intent: "build",
         planBlockId: blockId,
         buildTarget: target,
+        typed: true,
       });
     },
     [onSubmit],
@@ -8623,7 +8654,7 @@ export default function App({
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
   useDuplicateServerMessenger((sessionId, text) =>
-    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue", typed: true }),
   );
 
   const autoContinueKey = sessions
@@ -9021,9 +9052,12 @@ export default function App({
             requestId: id,
             decision: "cancelled",
           }),
+        // The user's own answer to a question that has expired.
         send: (text) =>
-          onSubmit(sessionId, text, [], { followUpBehavior: "queue" }) !==
-          false,
+          onSubmit(sessionId, text, [], {
+            followUpBehavior: "queue",
+            typed: true,
+          }) !== false,
         note: (text) => {
           enqueueHarnessEvent(sessionId, { type: "status", text });
           flushHarnessEvents();
@@ -9615,7 +9649,11 @@ export default function App({
           (block) => block.id === blockId,
         )?.orchestration;
         if (!session || session.busy || !proposal) return;
-        onSubmit(leadId, proposal.request, [], { intent: "orchestrate" });
+        // The user retries their own request.
+        onSubmit(leadId, proposal.request, [], {
+          intent: "orchestrate",
+          typed: true,
+        });
       },
     }),
     [
@@ -10920,7 +10958,8 @@ export default function App({
         session.id,
         racePrompt(race.prompt, race.lanes.length),
         first?.attachments ?? [],
-        { teamMember: { id: `race:${race.id}`, kind: "race" } },
+        // The user retries the lane.
+        { teamMember: { id: `race:${race.id}`, kind: "race" }, typed: true },
       );
       return null;
     },

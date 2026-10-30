@@ -108,7 +108,11 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   is: the asking chat's own page ("yours"), "the user's", or "another chat's"
   (named). It says when a tab is asleep or on screen. The id stays the same
   while a tab sleeps and wakes (`browser-…`; a second Aven window's tabs start
-  `w1-…`). The asking chat's project comes first.
+  `w1-…`). The asking chat's project comes first. Every window remembers
+  every project's tabs, so a window's copy of a tab is left out when another
+  window shows its project (the one in front, its chats' and its detached
+  windows') and this one has no page for it; a tab two windows hold is
+  listed once, by the window with its page.
 - `read` returns the page's main content as Markdown, without the site's
   menus, sidebars and footers: headings, paragraphs with bold, italic, code
   and links, lists, to-dos, toggles, callouts, quotes, code blocks with their
@@ -137,7 +141,10 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   so a link that leads out of the project or into `.git` stops it; an
   `images` folder that is a link is refused. Files are created new and never
   through a link, and nothing that exists is replaced unless
-  `"replace":true` (an image name already taken gets a new number instead).
+  `"replace":true`, which replaces only that article and the images its
+  earlier export saved (any other image name already taken, such as another
+  article's or the project's own, gets a new number instead). Images on
+  Notion are named after the file Notion wraps, not its encoded address.
 - The Markdown is inert text under CommonMark, raw-HTML renderers and MDX:
   page text cannot become markup, an `{expression}` or an `import` line, and
   equations are kept as math code (``$`…`$`` and ` ```math `).
@@ -156,18 +163,27 @@ in a tab that is not its own. These protections stay:
 - Agents never type into password, sign-in code or card fields in a tab that
   is not the chat's own page (known by type, autocomplete, name and label,
   and split one-digit code boxes); Aven refuses. Snapshots of such tabs leave
-  those fields' values out.
+  those fields' values out, and the text of an editable code or card field
+  out of the page text and labels too. A field that was a password field
+  stays one after a "show password" toggle makes it plain text.
 - Every upload still asks you.
 - While an agent uses any tab that is not its chat's own page, Aven's presence
   bar shows at the top of the screen: "Claude is using the tab “Launch plan”",
   what it is doing ("Reading the page"), the window and project, and the chat,
   with **Pause** and **Stop**. Several agents' uses show together without
   replacing desktop control's. It fades a few seconds after the last action.
-  Pause holds clicks and typing in tabs while reading goes on, as with desktop
-  control. Stop closes other tabs to that chat until your next message (an
-  export stops before its next image and saves nothing more, and `tabs` is
-  refused too), and stops its desktop control. While the Mac is locked, when
-  nobody could see the bar, agents may read other tabs but not act in them.
+  Pause, offered while a use is running, holds that chat's reading, saving
+  and acting in other tabs (an export stops before its next image) until you
+  press Resume or Stop, write to the chat, or its reply ends; the bar keeps
+  naming it, beside any other chat's use with its own Pause and Stop, and
+  desktop control is not paused. Stop
+  closes other tabs to that chat until your next message, one you write
+  (another agent's message or a bot's card does not count): an export stops
+  before its next image and saves nothing more, and `tabs` is refused too.
+  Desktop control and its approval are left as they are. Pause or Stop on
+  desktop control's own bar also holds or closes the agents' other tabs.
+  While the Mac is locked, when nobody could see the bar, agents may read
+  other tabs but not act in them.
 
 Everything a page contains is untrusted. Tab titles and addresses, what `read`
 and `export` return, and the files `export` saves are marked as content from

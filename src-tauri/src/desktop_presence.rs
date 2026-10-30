@@ -49,6 +49,7 @@ pub(crate) const UPLOAD_AWAY: &str = "The user's Mac session is not on screen, s
 pub(crate) const TABS_LOCKED: &str = "The Mac is locked, so Aven does not act in tabs that are not this chat's own: nobody can see the bar naming you or press Stop. Reading still works; act after the user unlocks.";
 pub(crate) const TABS_AWAY: &str = "The user's Mac session is not on screen, so Aven does not act in tabs that are not this chat's own. Reading still works; act after the user returns.";
 pub(crate) const TABS_STOPPED: &str = "The user pressed Stop while you were using one of their tabs, so tabs that are not this chat's own are closed to you until their next message. Do not retry; ask in the chat.";
+pub(crate) const TABS_PAUSED: &str = "The user paused your use of their tabs, so you cannot read or act in tabs that are not this chat's own until they resume. Do not retry in a loop; carry on with other work or ask in the chat.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -671,8 +672,14 @@ pub(crate) enum BarKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ButtonAction {
     Pause,
+    /// Pause on a bar that shows only agents' use of tabs: holds those chats'
+    /// tabs, not desktop control.
+    PauseTabs,
     Resume,
     Stop(String),
+    /// Stop on a bar about a chat's use of tabs: closes other tabs to it
+    /// until the user's next message, and leaves desktop control as it is.
+    StopTabs(String),
     Allow(u64),
     Deny(u64),
 }
@@ -714,6 +721,11 @@ pub(crate) struct Presence {
     /// Chats the user stopped while they used a tab that is not their own:
     /// such tabs are closed to them until the user's next message.
     tabs_stopped: HashSet<String>,
+    /// Chats the user paused from a bar that showed only their use of tabs,
+    /// the latest first: they read and act in no other tab until the user
+    /// resumes, stops or writes to them, or their reply ends. Desktop
+    /// control is not paused by it.
+    tabs_paused: Vec<String>,
     /// Uses of tabs that are not the chats' own, by ticket.
     tab_uses: std::collections::BTreeMap<u64, TabActivity>,
     next_tab: u64,
@@ -731,14 +743,27 @@ pub(crate) struct Presence {
 }
 
 impl Presence {
-    /// `actor` is supplied once per user turn. A new turn also clears that
-    /// chat's earlier refusals, so the user can change their mind in chat.
+    /// `actor` is supplied once per turn. It never clears refusals: another
+    /// agent's message (a lead steering its worker, a crew's card) is not the
+    /// user changing their mind. See [`Self::user_turn`].
     pub(crate) fn bind(&mut self, scope: &str, actor: Option<Actor>) {
         if let Some(actor) = actor {
             self.actors.insert(scope.into(), actor);
-            self.denied.remove(scope);
-            self.tabs_stopped.remove(scope);
         }
+    }
+
+    /// The user sent this chat a message they wrote: its earlier declines and
+    /// the Stop on other tabs end, so the user can change their mind in chat.
+    pub(crate) fn user_turn(&mut self, scope: &str) {
+        self.denied.remove(scope);
+        self.tabs_stopped.remove(scope);
+        self.tabs_paused.retain(|paused| paused != scope);
+    }
+
+    /// A chat's reply ended: a Pause of its use of tabs has nothing left to
+    /// hold.
+    pub(crate) fn turn_finished(&mut self, scope: &str) {
+        self.tabs_paused.retain(|paused| paused != scope);
     }
 
     /// Ends a chat's scope (unbind, window close), or all scopes with None.
@@ -749,6 +774,7 @@ impl Presence {
         self.denied.retain(|id, _| !matches(id));
         self.stopped.retain(|id| !matches(id));
         self.tabs_stopped.retain(|id| !matches(id));
+        self.tabs_paused.retain(|id| !matches(id));
         self.tab_uses.retain(|_, tab| !matches(&tab.scope));
         if self
             .prompt
@@ -977,27 +1003,41 @@ impl Presence {
         }
     }
 
+    /// Whether the user's Pause holds this chat's use of other tabs, reading
+    /// and saving too: they paused its tabs, or paused everything. A pause
+    /// for their own mouse and keyboard holds only actions.
+    fn tabs_held(&self, scope: &str) -> bool {
+        self.paused == Some(Pause::ByUser) || self.tabs_paused.iter().any(|paused| paused == scope)
+    }
+
     /// Whether a chat may use a browser tab that is not its own now. After
-    /// the user pressed Stop on such a use, none until their next message.
-    /// Reading goes on while desktop control is paused or the Mac is locked;
-    /// acting in the tab (clicks, typing, navigation) waits, since nobody
-    /// could see the bar or press Stop.
+    /// the user pressed Stop on such a use, none until their next message;
+    /// after Pause, none until they resume. Reading goes on while the Mac is
+    /// locked; acting in the tab (clicks, typing, navigation) waits, since
+    /// nobody could see the bar or press Stop.
     pub(crate) fn admit_tab(&self, scope: &str, step: Step) -> Result<(), String> {
         if self.tabs_stopped.contains(scope) {
             return Err(TABS_STOPPED.into());
         }
         if step.observes() {
-            return Ok(());
+            return if self.tabs_held(scope) {
+                Err(TABS_PAUSED.into())
+            } else {
+                Ok(())
+            };
         }
         match self.session {
             Session::Active => {}
             Session::Locked => return Err(TABS_LOCKED.into()),
             Session::Away => return Err(TABS_AWAY.into()),
         }
-        match self.paused {
-            Some(pause) => Err(pause.message().into()),
-            None => Ok(()),
+        if let Some(pause) = self.paused {
+            return Err(pause.message().into());
         }
+        if self.tabs_held(scope) {
+            return Err(TABS_PAUSED.into());
+        }
+        Ok(())
     }
 
     /// A chat is using a browser tab that is not its own: the bar names the
@@ -1052,6 +1092,9 @@ impl Presence {
             if let Some(pause) = self.paused {
                 return Err(pause.message().into());
             }
+        }
+        if self.tabs_held(&ticket.scope) {
+            return Err(TABS_PAUSED.into());
         }
         Ok(())
     }
@@ -1251,19 +1294,48 @@ impl Presence {
 
     pub(crate) fn resume(&mut self) {
         self.paused = None;
+        self.tabs_paused.clear();
     }
 
-    /// Revokes a chat's desktop control (input and observation) until the
-    /// user allows it again through a prompt. In-flight input stops at its
-    /// next check; drags release their button on that error path.
-    pub(crate) fn stop(&mut self, scope: &str, now: Instant) {
-        self.stopped.insert(scope.into());
+    /// Pause from a bar about agents' use of tabs: the chats whose use is
+    /// still running read and act in no other tab (an export stops at its
+    /// next step) until the user resumes, stops or writes to them, or their
+    /// reply ends.
+    pub(crate) fn pause_tabs(&mut self, now: Instant) {
+        // Only uses still running: a chat whose use has ended may have
+        // finished its reply, and nothing would end its pause.
+        let scopes: Vec<String> = self
+            .live_tabs(now)
+            .into_iter()
+            .filter(|tab| tab.in_flight)
+            .map(|tab| tab.scope.clone())
+            .collect();
+        for scope in scopes.into_iter().rev() {
+            self.tabs_paused.retain(|paused| paused != &scope);
+            self.tabs_paused.insert(0, scope);
+        }
+    }
+
+    /// Stop on a chat's use of tabs: other tabs are closed to it until the
+    /// user's next message, and a use under way ends at its next check.
+    /// Desktop control and its approval are left as they are.
+    pub(crate) fn stop_tabs(&mut self, scope: &str, now: Instant) {
         self.tabs_stopped.insert(scope.into());
+        self.tabs_paused.retain(|paused| paused != scope);
         for tab in self.tab_uses.values_mut().filter(|tab| tab.scope == scope) {
             tab.stopped = true;
             tab.in_flight = false;
             tab.last = now;
         }
+    }
+
+    /// Revokes a chat's desktop control (input and observation) until the
+    /// user allows it again through a prompt, and closes other tabs to it as
+    /// [`Self::stop_tabs`] does. In-flight input stops at its next check;
+    /// drags release their button on that error path.
+    pub(crate) fn stop(&mut self, scope: &str, now: Instant) {
+        self.stopped.insert(scope.into());
+        self.stop_tabs(scope, now);
         self.allowed.remove(scope);
         self.epoch = self.epoch.wrapping_add(1);
         // A pause caused by the user's own activity existed only to yield to
@@ -1482,7 +1554,8 @@ impl Presence {
                 .or_else(|| tabs.first().map(|tab| tab.scope.clone()));
             let actor = scope.as_deref().map(|scope| self.actor(scope));
             let name = actor.as_ref().map_or(FALLBACK_NAME, |actor| &actor.name);
-            // Observation goes on while paused; only input waits.
+            // Looking at the screen goes on while paused; input waits, and so
+            // does any use of other tabs when the user paused.
             let (title, detail) = match pause {
                 Pause::UserActive => (
                     "Paused \u{2014} you\u{2019}re using your Mac".to_owned(),
@@ -1490,7 +1563,7 @@ impl Presence {
                 ),
                 Pause::ByUser => (
                     "Paused".to_owned(),
-                    format!("{name} can still look and read, but won\u{2019}t click or type until you resume"),
+                    format!("{name} can still look at the screen, but won\u{2019}t click, type or use your other tabs until you resume"),
                 ),
             };
             let mut buttons = vec![BarButton {
@@ -1501,7 +1574,12 @@ impl Presence {
             if let Some(scope) = scope {
                 buttons.push(BarButton {
                     label: "Stop",
-                    action: ButtonAction::Stop(scope),
+                    // Stop on a tab's use ends only that use of tabs.
+                    action: if current.is_some() {
+                        ButtonAction::Stop(scope)
+                    } else {
+                        ButtonAction::StopTabs(scope)
+                    },
                     style: ButtonStyle::Destructive,
                 });
             }
@@ -1546,10 +1624,70 @@ impl Presence {
                 buttons: buttons(&activity.scope),
             });
         }
-        let (tab, others) = tabs.split_first()?;
+        // Chats whose use of tabs the user paused: one line each beside
+        // another chat's use, so that one keeps its own Pause and Stop.
+        let paused_lines: Vec<String> = self
+            .tabs_paused
+            .iter()
+            .map(|scope| format!("Also: {} \u{2014} paused", self.actor(scope).name))
+            .collect();
+        let resume = BarButton {
+            label: "Resume",
+            action: ButtonAction::Resume,
+            style: ButtonStyle::Prominent,
+        };
+        let running: Vec<&TabActivity> = tabs
+            .iter()
+            .copied()
+            .filter(|tab| !self.tabs_paused.contains(&tab.scope))
+            .collect();
+        let Some((tab, others)) = running.split_first() else {
+            let scope = self.tabs_paused.first()?;
+            let actor = self.actor(scope);
+            return Some(BarModel {
+                lines: paused_lines.into_iter().skip(1).take(3).collect(),
+                kind: BarKind::Paused,
+                color: PAUSED_COLOR,
+                title: format!("Paused {}", actor.name),
+                detail: match &actor.title {
+                    Some(title) => format!("It won\u{2019}t read or use your other tabs until you resume \u{b7} {title}"),
+                    None => "It won\u{2019}t read or use your other tabs until you resume".into(),
+                },
+                buttons: vec![
+                    resume,
+                    BarButton {
+                        label: "Stop",
+                        action: ButtonAction::StopTabs(scope.clone()),
+                        style: ButtonStyle::Destructive,
+                    },
+                ],
+            });
+        };
         let actor = self.actor(&tab.scope);
+        // Only the tabs' use: desktop control is not paused or stopped.
+        // Pause holds a use still running; one that has ended has nothing
+        // left to hold.
+        let mut buttons = Vec::new();
+        if !self.tabs_paused.is_empty() {
+            buttons.push(resume);
+        }
+        if tab.in_flight {
+            buttons.push(BarButton {
+                label: "Pause",
+                action: ButtonAction::PauseTabs,
+                style: ButtonStyle::Plain,
+            });
+        }
+        buttons.push(BarButton {
+            label: "Stop",
+            action: ButtonAction::StopTabs(tab.scope.clone()),
+            style: ButtonStyle::Destructive,
+        });
+        let mut lines = self.tab_lines(others);
+        lines.extend(paused_lines);
+        lines.truncate(3);
         Some(BarModel {
-            lines: self.tab_lines(others),
+            lines,
             kind: BarKind::Acting,
             color: actor.color,
             title: format!("{} is using {}", actor.name, tab.tab),
@@ -1562,7 +1700,7 @@ impl Presence {
             .flatten()
             .collect::<Vec<_>>()
             .join(" \u{b7} "),
-            buttons: buttons(&tab.scope),
+            buttons,
         })
     }
 
@@ -1919,7 +2057,7 @@ mod tests {
             Admission::Refuse(message)
         );
         // The user's next message in that chat lets the agent ask again.
-        presence.bind("chat", Some(Actor::fallback()));
+        presence.user_turn("chat");
         let Admission::Ask(id) = presence.admit("chat", true, Some(&safari()), true, true, now)
         else {
             panic!()
@@ -2162,7 +2300,7 @@ mod tests {
         assert!(!presence.stopped.contains("chat"));
         assert!(!presence.denied["chat"].contains(MAC_KEY));
         // The user's next message clears it.
-        presence.bind("chat", Some(actor("claude", None)));
+        presence.user_turn("chat");
         assert!(matches!(
             presence.ask_upload("chat", upload(), now),
             Admission::Ask(_)
@@ -3092,7 +3230,11 @@ mod tests {
         assert!(bar
             .buttons
             .iter()
-            .any(|button| button.action == ButtonAction::Stop("chat".into())));
+            .any(|button| button.action == ButtonAction::StopTabs("chat".into())));
+        assert!(bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::PauseTabs));
         // It fades shortly after the read ends.
         presence.end_tab(&ticket, now);
         assert!(presence.model(now + IDLE_FADE).is_none());
@@ -3149,7 +3291,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_closes_other_tabs_until_the_users_next_message_and_pause_holds_actions() {
+    fn stop_closes_other_tabs_until_the_users_next_message_and_pause_holds_every_use() {
         let mut presence = Presence::default();
         let now = Instant::now();
         presence.bind("chat", Some(actor("codex", None)));
@@ -3167,33 +3309,191 @@ mod tests {
             assert_eq!(presence.admit_tab("chat", step).unwrap_err(), TABS_STOPPED);
         }
         assert!(presence.admit_tab("other chat", Step::ReadingPage).is_ok());
-        // A passive rebind keeps it closed; the user's next message opens it.
+        // A rebind, even one carrying the agent's name for another agent's
+        // message, keeps it closed; only the user's own message opens it.
         presence.bind("chat", None);
-        assert!(presence.admit_tab("chat", Step::ReadingPage).is_err());
         presence.bind("chat", Some(actor("codex", None)));
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_err());
+        presence.user_turn("chat");
         assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        // The user's Pause holds reading and saving as well as actions.
         presence.pause(Pause::ByUser);
-        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
-        assert!(presence.admit_tab("chat", Step::SavingPage).is_ok());
+        let later = now + STOP_NOTICE;
+        let saving = presence.begin_tab("chat", Step::SavingPage, "Inbox", "Main", later);
+        assert_eq!(presence.check_tab(&saving).unwrap_err(), TABS_PAUSED);
+        for step in [Step::ReadingPage, Step::SavingPage] {
+            assert_eq!(presence.admit_tab("chat", step).unwrap_err(), TABS_PAUSED);
+        }
         assert_eq!(
             presence.admit_tab("chat", Step::Navigating).unwrap_err(),
             PAUSED_BY_USER
         );
-        let later = now + STOP_NOTICE;
-        let reading = presence.begin_tab("chat", Step::ReadingPage, "Inbox", "Main", later);
-        assert!(presence.check_tab(&reading).is_ok());
-        // The paused bar says reading goes on and offers Stop for the tab.
+        // The paused bar says so and offers Stop for the tab's use only.
         let bar = presence.model(later).unwrap();
         assert_eq!(bar.kind, BarKind::Paused);
         assert!(
-            bar.detail.contains("can still look and read"),
+            bar.detail
+                .contains("won\u{2019}t click, type or use your other tabs"),
             "{}",
             bar.detail
         );
         assert!(bar
             .buttons
             .iter()
-            .any(|button| button.action == ButtonAction::Stop("chat".into())));
+            .any(|button| button.action == ButtonAction::StopTabs("chat".into())));
+        presence.resume();
+        assert!(presence.check_tab(&saving).is_ok());
+        // A pause for the user's own mouse and keyboard holds only actions.
+        presence.pause(Pause::UserActive);
+        assert!(presence.admit_tab("chat", Step::ReadingPage).is_ok());
+        assert!(presence.check_tab(&saving).is_ok());
+    }
+
+    #[test]
+    fn pausing_a_tab_bar_holds_that_chats_tabs_with_its_name_and_stop_until_its_reply_ends() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("reader", Some(actor("claude", None)));
+        let saving = presence.begin_tab("reader", Step::SavingPage, "Launch plan", "Main", now);
+        let bar = presence.model(now).unwrap();
+        assert!(bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::PauseTabs));
+        presence.pause_tabs(now);
+        // The export stops at its next step, and nothing new starts.
+        assert_eq!(presence.check_tab(&saving).unwrap_err(), TABS_PAUSED);
+        for step in [Step::ReadingPage, Step::SavingPage, Step::Clicking] {
+            assert_eq!(presence.admit_tab("reader", step).unwrap_err(), TABS_PAUSED);
+        }
+        // Another chat and desktop control are not paused by it.
+        assert!(presence.admit_tab("other", Step::ReadingPage).is_ok());
+        assert!(presence.paused.is_none());
+        presence.end_tab(&saving, now);
+        // Long after the use faded, the bar still names the agent, with
+        // Resume and Stop.
+        let later = now + IDLE_FADE * 10;
+        let bar = presence.model(later).unwrap();
+        assert_eq!(bar.kind, BarKind::Paused);
+        assert_eq!(bar.title, "Paused Claude");
+        assert_eq!(
+            bar.buttons
+                .iter()
+                .map(|button| button.action.clone())
+                .collect::<Vec<_>>(),
+            [
+                ButtonAction::Resume,
+                ButtonAction::StopTabs("reader".into())
+            ]
+        );
+        // Its reply ending leaves nothing to hold: the bar goes.
+        presence.turn_finished("reader");
+        assert!(presence.model(later).is_none());
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+        // Resume ends it too.
+        presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main", later);
+        presence.pause_tabs(later);
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_err());
+        presence.resume();
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+    }
+
+    #[test]
+    fn another_chats_use_shows_with_its_own_pause_and_stop_while_one_is_paused() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("reader", Some(actor("claude", None)));
+        presence.bind("saver", Some(actor("codex", None)));
+        presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main", now);
+        presence.pause_tabs(now);
+        // Another chat starts using a tab: the bar names it, with its own
+        // Pause and Stop, and still offers Resume for the paused one.
+        let saving = presence.begin_tab("saver", Step::SavingPage, "Launch plan", "Main", now);
+        assert!(presence.check_tab(&saving).is_ok());
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Acting);
+        assert_eq!(
+            bar.title,
+            "Codex is using the tab \u{201c}Launch plan\u{201d}"
+        );
+        assert_eq!(
+            bar.buttons
+                .iter()
+                .map(|button| button.action.clone())
+                .collect::<Vec<_>>(),
+            [
+                ButtonAction::Resume,
+                ButtonAction::PauseTabs,
+                ButtonAction::StopTabs("saver".into())
+            ]
+        );
+        assert!(bar
+            .lines
+            .iter()
+            .any(|line| line == "Also: Claude \u{2014} paused"));
+        // Once its use ends, the paused chat's bar is back.
+        presence.end_tab(&saving, now);
+        let bar = presence.model(now + IDLE_FADE).unwrap();
+        assert_eq!(bar.title, "Paused Claude");
+    }
+
+    #[test]
+    fn pause_holds_only_uses_still_running_and_the_users_message_ends_it() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("reader", Some(actor("claude", None)));
+        let read = presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main", now);
+        presence.end_tab(&read, now);
+        // The read has ended and is only fading: its bar offers no Pause,
+        // and a Pause pressed anyway holds nothing that would never end.
+        let bar = presence.model(now).unwrap();
+        assert!(!bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::PauseTabs));
+        presence.pause_tabs(now);
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+        assert!(presence.model(now + IDLE_FADE).is_none());
+        // A use still running is held, until the user writes to the chat.
+        presence.begin_tab("reader", Step::SavingPage, "Inbox", "Main", now);
+        presence.pause_tabs(now);
+        assert_eq!(
+            presence.admit_tab("reader", Step::ReadingPage).unwrap_err(),
+            TABS_PAUSED
+        );
+        presence.user_turn("reader");
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+    }
+
+    #[test]
+    fn stop_on_a_tab_bar_leaves_desktop_control_and_its_approval_alone() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("claude", None)));
+        let safari = safari();
+        let Admission::Ask(id) = presence.admit("chat", true, Some(&safari), true, true, now)
+        else {
+            panic!()
+        };
+        assert!(presence.answer(id, true));
+        let epoch = presence.epoch;
+        presence.begin_tab("chat", Step::ReadingPage, "Inbox", "Main", now);
+        presence.stop_tabs("chat", now);
+        assert_eq!(
+            presence.admit_tab("chat", Step::ReadingPage).unwrap_err(),
+            TABS_STOPPED
+        );
+        // Desktop control goes on without asking again.
+        assert!(!presence.stopped.contains("chat"));
+        assert!(presence.has_app_consent("chat", &safari.key));
+        assert_eq!(presence.epoch, epoch);
+        assert_eq!(
+            presence.admit("chat", true, Some(&safari), true, true, now),
+            Admission::Go
+        );
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Stopped);
+        assert!(bar.detail.contains("other tabs"));
     }
 
     #[test]

@@ -342,7 +342,7 @@ describe("agent browser session connection", () => {
   it("builds on one page per chat: reloads the same address, navigates another query or mock file, and opens a second tab only for another path on request", async () => {
     const api = await import("./agentBrowser");
     const { openAgentBrowserTab } = await import("./agentBrowserOpen");
-    const { EMPTY_BROWSER, addRetainedBrowserTab } =
+    const { EMPTY_BROWSER, addRetainedBrowserTab, updateBrowserTab } =
       await import("./personalWorkspace");
     // The user's own page, at an address the agent will also use.
     let workspace = addRetainedBrowserTab(EMPTY_BROWSER, {
@@ -361,6 +361,9 @@ describe("agent browser session connection", () => {
           () => `page-${++id}`,
         );
         workspace = result.workspace;
+        // Aven navigates the page, which then reports its new address.
+        if (result.refresh === "navigate")
+          workspace = updateBrowserTab(workspace, result.tab.id, { url });
         api.registerAgentBrowserPage(result.tab.id, `native-${result.tab.id}`);
         return {
           id: result.tab.id,
@@ -940,3 +943,33 @@ it.each(["codex", "claude"])(
     });
   },
 );
+
+it("ends the user's Stop and declines only on a message the user wrote", async () => {
+  const api = await import("./agentBrowser");
+  dispose = api.installAgentBrowserHost({
+    surfaces: () => [],
+    open: vi.fn(),
+  });
+  const context = {
+    sessionId: "worker",
+    cwd: "/p",
+    harness: "claude",
+    title: "Read the inbox",
+  };
+  const binds = () =>
+    mocks.invoke.mock.calls.filter(([name]) => name === "browser_agent_bind");
+  // A lead steering its worker, or a crew's card: the agent is named for
+  // the bar, but nothing the user refused is lifted.
+  await api.prepareAgentBrowserPrompt("Keep going", context, { worker: true });
+  expect(binds().at(-1)?.[1]).toMatchObject({
+    actor: { harness: "claude", title: "Read the inbox" },
+  });
+  expect(binds().at(-1)?.[1]).not.toHaveProperty("userTyped");
+  await api.prepareAgentBrowserPrompt("Read it again", context, {
+    typed: true,
+  });
+  expect(binds().at(-1)?.[1]).toMatchObject({ userTyped: true });
+  // A passive refresh never does either.
+  await api.refreshAgentBrowserScopes();
+  expect(binds().at(-1)?.[1]).not.toHaveProperty("userTyped");
+});

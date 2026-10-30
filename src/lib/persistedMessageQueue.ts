@@ -36,6 +36,7 @@ export function persistedMessageQueue(raw: unknown): QueuedMessage[] {
     if (typeof value.displayText === "string")
       result.displayText = value.displayText;
     if (value.verbatim === true) result.verbatim = true;
+    if (value.typed === true) result.typed = true;
     const note = value.noteCard;
     if (
       note &&
