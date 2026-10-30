@@ -28,7 +28,6 @@ import { useChatReviews } from "../lib/chatReview";
 import {
   addFeatureCards,
   addFeatureIdea,
-  deleteFeatureCard,
   editFeatureCard,
   featureBrief,
   linkFeatureChat,
@@ -66,6 +65,7 @@ import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
   crewWorkspace,
+  deleteBoardCard,
   discardCrewCard,
   giveCardToCrew,
   notNowIdea,
@@ -636,13 +636,16 @@ export const WorkBoardView = memo(function WorkBoardView({
       {deleting ? (
         <ConfirmDialog
           title="Delete this card?"
-          body={`“${deleting.title}” leaves the board. Its chats stay in the sidebar.`}
+          body={`“${deleting.title}” leaves the board.${deleting.crew?.column ? " The crew's work on it is thrown away." : ""} Its chats stay in the sidebar.`}
           confirmLabel="Delete"
           danger
           onConfirm={() => {
             const id = deleting.id;
             setDeleting(null);
-            void deleteFeatureCard(project, id);
+            // A card the crew has is thrown away with its work, never left running.
+            void deleteBoardCard(project, id).then((problem) =>
+              noteProblem(id, problem),
+            );
           }}
           onCancel={() => setDeleting(null)}
         />
@@ -655,7 +658,8 @@ const NO_OUTSIDE: readonly OutsideWork[] = Object.freeze([]);
 
 /**
  * A card's ⋯ menu: a draft of it, its words, where it goes, and Delete;
- * while the crew works on it, Pause or Resume it and Stop now come first.
+ * while the crew works on it, Pause or Resume it and Stop now come first,
+ * and the crew's stage says where it goes.
  */
 export function cardMenuItems(
   card: BoardCard,
@@ -668,6 +672,7 @@ export function cardMenuItems(
         label: action.label,
       }))
     : [];
+  const live = !!held && held.stage !== "applied" && held.stage !== "discarded";
   return [
     ...crewItems,
     ...(crewItems.length ? [{ kind: "sep" } as const] : []),
@@ -679,14 +684,17 @@ export function cardMenuItems(
     },
     { kind: "item", id: "edit", label: "Edit" },
     { kind: "sep" },
-    ...BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
-      (column): ExplorerMenuItem => ({
-        kind: "item",
-        id: `move:${column.id}`,
-        label: `Move to ${column.title}`,
-      }),
-    ),
-    { kind: "sep" },
+    // The crew's stage places a card it has: moving it by hand wouldn't stick.
+    ...(live
+      ? []
+      : BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
+          (column): ExplorerMenuItem => ({
+            kind: "item",
+            id: `move:${column.id}`,
+            label: `Move to ${column.title}`,
+          }),
+        )),
+    ...(live ? [] : [{ kind: "sep" } as const]),
     { kind: "item", id: "delete", label: "Delete", danger: true },
   ];
 }
