@@ -308,22 +308,21 @@ function homeAgentTile(path: string): HTMLElement | null {
 }
 
 /**
- * Why a project mark is not stepping as a working agent's should, or null:
- * in its working state, with its two-frame hop running unless reduced motion
- * stops it.
+ * Why a project mark is not working as a working agent's should, or null:
+ * in its working state, a light sweeping across its dots unless reduced
+ * motion stops it.
  */
-function workingMarkProblem(
-  mark: Element | null,
-  hop = "project-mark-hop",
-): string | null {
+function workingMarkProblem(mark: Element | null): string | null {
   if (!mark) return "is missing";
-  if (mark.getAttribute("data-kind") !== "mascot") return "is not a mascot";
+  if (mark.getAttribute("data-kind") !== "mark") return "is not a dot mark";
   if (!mark.hasAttribute("data-active")) return "is not in its working state";
-  const sprite = mark.querySelector("svg.mascot-active");
-  if (!sprite) return "has no working sprite";
+  const sweep = mark.querySelector(
+    '.dot-mark[data-state="working"] .dot-mark-lit-d',
+  );
+  if (!sweep) return "has no sweeping dots";
   return animationProblem(
-    getComputedStyle(sprite).animationName,
-    hop,
+    getComputedStyle(sweep).animationName,
+    "dot-mark-sweep",
     prefersReducedMotion(),
   );
 }
@@ -2870,15 +2869,15 @@ export async function runDevSmoke(
             const value = current?.dataset.reaction;
             if (value && reacting === null) {
               const body = current?.querySelector(
-                ".mascot-reacting .mascot-body",
+                ".dot-mark[data-reaction] .dot-mark-art",
               );
               reacting = body
                 ? (animationProblem(
                     getComputedStyle(body).animationName,
-                    `mascot-${value}`,
+                    `dot-mark-${value}`,
                     prefersReducedMotion(),
                   ) ?? "")
-                : "has no reacting sprite";
+                : "has no reacting mark";
             }
             return value;
           },
@@ -2952,10 +2951,7 @@ export async function runDevSmoke(
         "the project's agent to show it is working",
       );
       // Home's large tiles hop further than the sidebar's mark.
-      const working = workingMarkProblem(
-        tile.querySelector(".project-mark"),
-        "workspace-home-agent-hop",
-      );
+      const working = workingMarkProblem(tile.querySelector(".project-mark"));
       if (working)
         throw new Error(`On Home, the working agent's mark ${working}`);
       const chip = await waitFor(

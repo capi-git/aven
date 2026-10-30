@@ -417,16 +417,17 @@ describe("today", () => {
     );
   });
 
-  it("shows a streak of two days or more with a pixel flame", async () => {
+  it("shows a streak of two days or more with a flame in round dots", async () => {
     await render(
       props({ activeDays: [day(twoDaysAgo), day(yesterday), day(today)] }),
     );
     const streak = container.querySelector(".workspace-home-streak")!;
     expect(streak.textContent).toBe("3-day streak");
     expect(streak.hasAttribute("data-pending")).toBe(false);
-    expect(streak.querySelector("svg")?.getAttribute("shape-rendering")).toBe(
-      "crispEdges",
-    );
+    const flame = streak.querySelector("svg")!;
+    expect(flame.getAttribute("shape-rendering")).toBeNull();
+    // Dots, not square pixels: arcs in its paths.
+    expect(flame.querySelector("path")?.getAttribute("d")).toContain("a0.4");
   });
 
   it("keeps yesterday's streak alive until today has a task", async () => {
@@ -702,7 +703,7 @@ describe("Your agents", () => {
       expect(mark.hasAttribute("data-reacts")).toBe(false);
   });
 
-  it("shows a still zzz over agents idle for three days or more", async () => {
+  it("dims agents idle for three days or more, and says they rest", async () => {
     await render(
       props({
         projects: [
@@ -718,13 +719,13 @@ describe("Your agents", () => {
     );
     const [app, site, docs] = tiles();
     expect(app.getAttribute("data-state")).toBe("resting");
-    expect(app.querySelector(".workspace-home-agent-zzz")).not.toBeNull();
     expect(app.textContent).toContain("Resting.");
+    // No zzz: the mark dims, from the stylesheet's resting state.
+    expect(app.querySelector(".workspace-home-agent-zzz")).toBeNull();
     // A project with no sessions yet rests without dozing.
     expect(site.getAttribute("data-state")).toBe("resting");
-    expect(site.querySelector(".workspace-home-agent-zzz")).toBeNull();
+    expect(site.textContent).not.toContain("Resting.");
     expect(docs.getAttribute("data-state")).toBe("idle");
-    expect(docs.querySelector(".workspace-home-agent-zzz")).toBeNull();
   });
 
   it("asks once for the projects' saved sessions", async () => {

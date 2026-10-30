@@ -1,15 +1,16 @@
 import { memo, type CSSProperties } from "react";
 import { agentRole } from "../lib/agentRoles";
 import type { DiscussionVoice } from "../lib/discussionVoices";
+import { projectSigil } from "../lib/dotSigils";
 import type { MascotReactionKind } from "../lib/mascotReactions";
-import { ProjectMascot } from "./ProjectMascot";
+import { DotMark } from "./DotMark";
 import "./DiscussionAvatar.css";
 
 /**
- * One side's face in a discussion: its pixel mascot in its provider's colour
- * on a small tinted tile, with a letter for the role it was brought in with. It steps between its two frames while that side is
- * typing, plays a single reaction (a hop at the end, a nod or a head-tilt
- * when a reply lands) when `reaction` is set, and is otherwise still.
+ * One side's face in a discussion: its mark on a small grey tile, with a
+ * letter for the role it was brought in with. A light sweeps across it while
+ * that side is typing; a reaction plays once when `reaction` is set (a tick
+ * at the end, a nod or a lean when a reply lands); otherwise it is still.
  */
 export const DiscussionAvatar = memo(function DiscussionAvatar({
   voice,
@@ -21,7 +22,7 @@ export const DiscussionAvatar = memo(function DiscussionAvatar({
   voice: DiscussionVoice;
   size?: "small" | "large";
   typing?: boolean;
-  /** A one-shot reaction to play; null shows the mascot still. */
+  /** A one-shot reaction to play; null shows the mark still. */
   reaction?: MascotReactionKind | null;
   /** Identifies one reaction, so a new one restarts its animation. */
   reactionId?: string;
@@ -38,11 +39,9 @@ export const DiscussionAvatar = memo(function DiscussionAvatar({
       style={{ "--discussion-voice": voice.color } as CSSProperties}
       aria-hidden
     >
-      <ProjectMascot
-        project={voice.sessionId}
-        name={voice.mascot}
-        color={voice.color}
-        active={typing && !reaction}
+      <DotMark
+        sigil={projectSigil(voice.mascot, voice.sessionId)}
+        state={typing && !reaction ? "working" : "still"}
         reaction={reaction}
         reactionId={reactionId}
         className="discussion-avatar-sprite"

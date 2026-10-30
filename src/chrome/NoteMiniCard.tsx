@@ -1,15 +1,13 @@
 import { File, X } from "./icons";
 import { useState } from "react";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
-import { ProjectMascot } from "./ProjectMascot";
+import { DotMark } from "./DotMark";
+import { projectSigil } from "../lib/dotSigils";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { noteSourceProject, type NoteCardMeta } from "../lib/notes";
 import { projectKey } from "../lib/paths";
 import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
   loadTabGroupMascots,
-  resolveTabGroupColor,
   resolveTabGroupLogo,
   resolveTabGroupMascot,
 } from "../lib/tabGroups";
@@ -23,16 +21,10 @@ type Props = {
 export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
   const logos = useTabGroupLogos();
   const [mascots] = useState(loadTabGroupMascots);
-  const [colors] = useState(loadTabGroupColors);
-  const [customColors] = useState(loadTabGroupCustomColors);
   const project = noteSourceProject(card.sourceCwd);
   const key = card.sourceCwd ? projectKey(card.sourceCwd) : null;
   const logoPath = key ? resolveTabGroupLogo(key, logos) : null;
   const mascotName = key ? resolveTabGroupMascot(key, mascots) : null;
-  const mascotColor =
-    key && project
-      ? resolveTabGroupColor(key, colors, customColors, project)
-      : undefined;
 
   const inner = (
     <div
@@ -62,10 +54,8 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
                 imageClassName="size-3.5"
               />
             ) : (
-              <ProjectMascot
-                project={project}
-                color={mascotColor}
-                name={mascotName}
+              <DotMark
+                sigil={projectSigil(mascotName, project)}
                 className="size-3 shrink-0"
               />
             )}

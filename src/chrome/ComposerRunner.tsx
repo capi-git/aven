@@ -42,15 +42,10 @@ import {
   MASCOT_REACTION_MS,
   type MascotReaction,
 } from "../lib/mascotReactions";
+import { projectSigil } from "../lib/dotSigils";
 import { projectKey, projectName } from "../lib/paths";
-import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
-  loadTabGroupMascots,
-  resolveTabGroupColor,
-  resolveTabGroupMascot,
-} from "../lib/tabGroups";
-import { ProjectMascot } from "./ProjectMascot";
+import { loadTabGroupMascots, resolveTabGroupMascot } from "../lib/tabGroups";
+import { DotMark } from "./DotMark";
 
 type Props = {
   boxRef: RefObject<HTMLElement | null>;
@@ -65,13 +60,13 @@ type LiveCoin = Coin & {
   collectedAt: number | null;
 };
 
-const COIN_SVG = `<svg viewBox="0 0 8 8" width="${COIN_SIZE}" height="${COIN_SIZE}" shape-rendering="crispEdges" fill="#e8b923" aria-hidden="true"><path class="composer-coin-face" d="${COIN_FACE_PATH}"/><path class="composer-coin-edge" d="${COIN_EDGE_PATH}"/></svg>`;
-const STAR_SVG = `<svg viewBox="0 0 8 8" width="${STAR_SIZE}" height="${STAR_SIZE}" shape-rendering="crispEdges" fill="#f4e27a" aria-hidden="true"><path class="composer-coin-face" d="${STAR_FACE_PATH}"/><path class="composer-coin-edge" d="${STAR_EDGE_PATH}"/></svg>`;
+const COIN_SVG = `<svg viewBox="0 0 8 8" width="${COIN_SIZE}" height="${COIN_SIZE}" fill="#e8b923" aria-hidden="true"><path class="composer-coin-face" d="${COIN_FACE_PATH}"/><path class="composer-coin-edge" d="${COIN_EDGE_PATH}"/></svg>`;
+const STAR_SVG = `<svg viewBox="0 0 8 8" width="${STAR_SIZE}" height="${STAR_SIZE}" fill="#f4e27a" aria-hidden="true"><path class="composer-coin-face" d="${STAR_FACE_PATH}"/><path class="composer-coin-edge" d="${STAR_EDGE_PATH}"/></svg>`;
 const GEOMETRY_SAMPLE_MS = 100;
 /** A reaction belongs to this turn's end if it started this close to it. */
 const REACTION_MATCH_MS = 1500;
 
-/** Project pixel mascot running the composer's top ledge while a turn is live. */
+/** The project's mark running the composer's top ledge while a turn is live. */
 export function ComposerRunner({
   boxRef,
   cwd,
@@ -106,17 +101,11 @@ export function ComposerRunner({
       : null;
   const reactionRef = useRef<MascotReaction | null>(ownReaction);
   reactionRef.current = ownReaction;
-  const appearance = useMemo(() => {
-    return {
-      name: resolveTabGroupMascot(key, loadTabGroupMascots()),
-      color: resolveTabGroupColor(
-        key,
-        loadTabGroupColors(),
-        loadTabGroupCustomColors(),
-        project,
-      ),
-    };
-  }, [key, project]);
+  const sigil = useMemo(
+    () =>
+      projectSigil(resolveTabGroupMascot(key, loadTabGroupMascots()), project),
+    [key, project],
+  );
 
   useLayoutEffect(() => {
     const layer = layerRef.current;
@@ -565,12 +554,10 @@ export function ComposerRunner({
           clipPath: `inset(-${REACTION_ROOM_PX}px -${REACTION_ROOM_PX}px var(--runner-clip, 0px) -${REACTION_ROOM_PX}px)`,
         }}
       >
-        <ProjectMascot
-          project={project}
-          name={appearance.name}
-          color={appearance.color}
+        <DotMark
+          sigil={sigil}
           className="size-[18px]"
-          active={!ownReaction}
+          state={ownReaction ? "still" : "working"}
           reaction={ownReaction?.kind}
           reactionId={ownReaction?.id}
         />

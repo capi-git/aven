@@ -13,7 +13,8 @@ import {
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { ProjectMascot } from "../chrome/ProjectMascot";
+import { DotMark } from "../chrome/DotMark";
+import { projectSigil } from "../lib/dotSigils";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -46,10 +47,7 @@ import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
 import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
   loadTabGroupMascots,
-  resolveTabGroupColor,
   resolveTabGroupLogo,
   resolveTabGroupMascot,
 } from "../lib/tabGroups";
@@ -103,8 +101,6 @@ export function NotesView({
   const [creating, setCreating] = useState(false);
   const logos = useTabGroupLogos();
   const [groupMascots] = useState(loadTabGroupMascots);
-  const [groupColors] = useState(loadTabGroupColors);
-  const [groupCustomColors] = useState(loadTabGroupCustomColors);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -301,8 +297,6 @@ export function NotesView({
                   active={selected?.id === note.id}
                   logos={logos}
                   mascots={groupMascots}
-                  colors={groupColors}
-                  customColors={groupCustomColors}
                   onSelect={() => setSelectedId(note.id)}
                 />
               </li>
@@ -351,8 +345,6 @@ export function NotesView({
           note={selected}
           logos={logos}
           mascots={groupMascots}
-          colors={groupColors}
-          customColors={groupCustomColors}
           onSaved={onSaved}
           onDelete={onDelete}
           onAddToChat={onAddToChat}
@@ -365,22 +357,17 @@ export function NotesView({
 type ProjectMarks = {
   logos: Record<string, string>;
   mascots: Record<string, string>;
-  colors: Record<string, number>;
-  customColors: Record<string, string>;
 };
 
 function NoteProjectMark({
   cwd,
   logos,
   mascots,
-  colors,
-  customColors,
 }: { cwd: string } & ProjectMarks) {
   const project = projectName(cwd);
   const key = projectKey(cwd);
   const logoPath = resolveTabGroupLogo(key, logos);
   const mascotName = resolveTabGroupMascot(key, mascots);
-  const mascotColor = resolveTabGroupColor(key, colors, customColors, project);
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       {logoPath ? (
@@ -390,10 +377,8 @@ function NoteProjectMark({
           imageClassName="size-3.5"
         />
       ) : (
-        <ProjectMascot
-          project={project}
-          color={mascotColor}
-          name={mascotName}
+        <DotMark
+          sigil={projectSigil(mascotName, project)}
           className="size-3 shrink-0"
         />
       )}
@@ -434,8 +419,6 @@ function NoteCard({
   active,
   logos,
   mascots,
-  colors,
-  customColors,
   onSelect,
 }: {
   note: Note;
@@ -465,8 +448,6 @@ function NoteCard({
               cwd={note.sourceCwd}
               logos={logos}
               mascots={mascots}
-              colors={colors}
-              customColors={customColors}
             />
           </span>
         ) : (
@@ -494,8 +475,6 @@ function NoteDetail({
   note,
   logos,
   mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -519,8 +498,6 @@ function NoteDetail({
       note={note}
       logos={logos}
       mascots={mascots}
-      colors={colors}
-      customColors={customColors}
       onSaved={onSaved}
       onDelete={onDelete}
       onAddToChat={onAddToChat}
@@ -532,8 +509,6 @@ function NoteEditor({
   note,
   logos,
   mascots,
-  colors,
-  customColors,
   onSaved,
   onDelete,
   onAddToChat,
@@ -656,8 +631,6 @@ function NoteEditor({
                 cwd={note.sourceCwd}
                 logos={logos}
                 mascots={mascots}
-                colors={colors}
-                customColors={customColors}
               />
             ) : null}
           </div>

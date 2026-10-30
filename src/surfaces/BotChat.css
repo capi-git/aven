@@ -12,10 +12,9 @@
   font-family: var(--font-sans);
   color: var(--color-content);
 }
-.bot-chat-critter {
-  flex: none;
-  width: 26px;
-  height: 26px;
+.dot-mark.bot-chat-critter {
+  width: 28px;
+  height: 28px;
 }
 .bot-chat-heading {
   display: flex;
@@ -47,8 +46,7 @@
   padding: 18px 16px 8px;
   color: var(--color-content);
 }
-.bot-chat-intro-critter {
-  flex: none;
+.dot-mark.bot-chat-intro-critter {
   width: 22px;
   height: 22px;
   margin-top: 1px;

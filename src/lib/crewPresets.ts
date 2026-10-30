@@ -1,8 +1,9 @@
 /**
- * Ready-made crew members: a name (its critter's), a role, a one-line job,
- * instructions to start from and, for some, the paths they work in. Adding
- * one is one click; everything stays editable afterwards. What a member may
- * do still comes from its role alone (see `crewChatPermissions`).
+ * Ready-made crew members: a title ("Designer"; its role's when it has
+ * none), a mark, a role, a one-line job, instructions to start from and,
+ * for some, the paths they work in. Adding one is one click; everything
+ * stays editable afterwards. What a member may do still comes from its role
+ * alone (see `crewChatPermissions`).
  */
 
 /** Security's focus, as its editable instructions start out. */
@@ -28,8 +29,8 @@ export type CrewPreset = {
   /** Saved on the member, so the gallery knows it's in the crew. */
   key: string;
   role: CrewPresetRole;
-  /** Its critter, and so its name ("moth" is Moth). */
-  critter: string;
+  /** Its mark, a sigil key (see `dotSigils`). */
+  mark: string;
   /** A title of its own, for a Builder with a job: "Designer". */
   label?: string;
   job: string;
@@ -41,7 +42,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "builder",
     role: "builder",
-    critter: "beetle",
+    mark: "builder",
     job: "Builds the cards you give the crew",
     instructions:
       "Keep each change small and to the card. Match the code around it, and run the tests before you hand over.",
@@ -49,7 +50,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "checker",
     role: "checker",
-    critter: "owl",
+    mark: "checker",
     job: "Checks every build before you see it",
     instructions:
       "Run the tests, type checks and lint, and try what the Builder says to check. Only real problems are must-fix.",
@@ -57,7 +58,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "scout",
     role: "scout",
-    critter: "fox",
+    mark: "scout",
     job: "Finds small ideas worth building",
     instructions:
       "Look for small, safe improvements: rough edges, missing empty states, small bugs. Skip anything big or risky.",
@@ -65,7 +66,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "designer",
     role: "builder",
-    critter: "moth",
+    mark: "designer",
     label: "Designer",
     job: "Builds UI cards; follows your design tokens",
     instructions:
@@ -87,7 +88,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "tester",
     role: "builder",
-    critter: "snail",
+    mark: "tester",
     label: "Tester",
     job: "Adds and fixes tests for each change",
     instructions:
@@ -97,7 +98,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "scribe",
     role: "builder",
-    critter: "puffin",
+    mark: "scribe",
     label: "Scribe",
     job: "Keeps the docs in step with changes",
     instructions:
@@ -107,7 +108,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   {
     key: "security",
     role: "security",
-    critter: "hedgehog",
+    mark: "security",
     job: "Reviews each passed build for security",
     instructions: SECURITY_INSTRUCTIONS,
   },

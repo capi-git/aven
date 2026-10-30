@@ -41,7 +41,7 @@ function useBotName(path: string): { name: string; project: string } {
 }
 
 /**
- * Critter, whose teammate it is and its job, Pause and Settings. Its name is
+ * Its mark, whose teammate it is and its job, Pause and Settings. Its name is
  * the tab's (one header per pane), so the chat does not repeat it.
  */
 export const BotChatHeader = memo(function BotChatHeader({

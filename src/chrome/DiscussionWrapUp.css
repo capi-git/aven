@@ -71,7 +71,7 @@
   padding: 0;
   list-style: none;
 }
-/* One pixel-square bullet, like the mascots' pixels. */
+/* One round bullet, a dot like the marks'. */
 .discussion-wrapup-list li {
   position: relative;
   padding-left: 11px;
@@ -86,6 +86,7 @@
   left: 1px;
   width: 4px;
   height: 4px;
+  border-radius: 50%;
   background: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .discussion-wrapup-list[data-discussion-list="agreed"] li::before {
@@ -130,10 +131,9 @@
   outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: 1px;
 }
-.discussion-build-sprite {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
+.dot-mark.discussion-build-sprite {
+  width: 14px;
+  height: 14px;
 }
 .discussion-wrapup-problem {
   margin: 0;

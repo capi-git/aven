@@ -1,4 +1,4 @@
-/* A project's logo, or its mascot in the project colour. */
+/* A project's logo, or its sigil in dots. */
 .project-mark {
   display: inline-grid;
   place-items: center;
@@ -12,69 +12,14 @@
   border-radius: 3px;
   object-fit: cover;
 }
-.project-mark-mascot {
-  width: 12px;
-  height: 12px;
+.project-mark > .dot-mark {
+  width: 100%;
+  height: 100%;
 }
 .project-mark.project-mark-large {
   width: 20px;
   height: 20px;
 }
-/* 1.5px a critter pixel: whole device pixels on a Retina screen. */
-.project-mark-large .project-mark-mascot {
-  width: 18px;
-  height: 18px;
-}
 .project-mark-large .project-mark-logo {
   border-radius: 4px;
-}
-
-/* The working beat, slower than the composer runner's and stepped: two frames
-   held for half a beat each, so WebKit restyles twice per beat instead of on
-   every display frame. */
-.project-mark .mascot-active {
-  animation: project-mark-hop var(--project-mark-beat, 900ms)
-    steps(2, jump-none) infinite;
-}
-.project-mark .mascot-rest {
-  animation: project-mark-rest var(--project-mark-beat, 900ms)
-    steps(2, jump-none) infinite;
-}
-.project-mark .mascot-talk {
-  animation: project-mark-talk var(--project-mark-beat, 900ms)
-    steps(2, jump-none) infinite;
-}
-@keyframes project-mark-hop {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-1px);
-  }
-}
-@keyframes project-mark-rest {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-@keyframes project-mark-talk {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .project-mark .mascot-active,
-  .project-mark .mascot-rest,
-  .project-mark .mascot-talk {
-    animation: none;
-  }
-  .project-mark .mascot-talk {
-    opacity: 0;
-  }
 }

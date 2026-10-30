@@ -65,7 +65,8 @@ import {
   formatClockMinutes,
   useProjectBot,
 } from "../lib/projectBots";
-import { PROJECT_MASCOTS } from "../lib/projectMascots";
+import { titleBeside } from "../lib/crewView";
+import { MEMBER_SIGIL_CHOICES } from "../lib/dotSigils";
 import { CREW_PRESETS } from "../lib/crewPresets";
 import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { BotCritter } from "./BotCritter";
@@ -73,7 +74,7 @@ import { CrewCritter, CrewCritters } from "./CrewCritter";
 import { ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
 import { ModelPicker } from "./ModelPicker";
-import { ProjectMascot } from "./ProjectMascot";
+import { DotMark } from "./DotMark";
 import "./TeamCard.css";
 import "./BotSettingsSheet.css";
 import "./CrewCritter.css";
@@ -102,7 +103,7 @@ type Page =
 /**
  * A crew's settings: who is in it and how each works, who builds what,
  * its limits and quiet hours, Pause and Turn off. A member's own page sets
- * its name and critter, the app and model it runs on, your instructions,
+ * its name and mark, the app and model it runs on, your instructions,
  * the paths it works in, and when it works. None of these change what a
  * member may do: that comes from its role (see `crewChatPermissions`).
  */
@@ -511,10 +512,10 @@ function CrewBody({
             />
             <span>
               <strong>
-                {crewMemberName(crew, member.id, fixerName)}{" "}
-                <small className="crew-settings-role">
-                  {memberLabel(member)}
-                </small>
+                <MemberTitle
+                  name={crewMemberName(crew, member.id, fixerName)}
+                  title={memberLabel(member)}
+                />
               </strong>
               <small>{memberSummary(crew, member)}</small>
             </span>
@@ -947,40 +948,24 @@ function MemberFields({ crew, member }: { crew: Crew; member: CrewMember }) {
   const effort = crewEffortSetting(harness, model);
   const set = (change: CrewMemberChange) =>
     setProblem(updateCrewMember(path, member.id, change));
-  const critter = memberCritter(member);
+  const mark = memberCritter(member);
   return (
     <>
-      <Section title="Critter">
-        <div
-          className="crew-critter-grid"
-          role="radiogroup"
-          aria-label="Critter"
-        >
-          {PROJECT_MASCOTS.map((item) => (
+      <Section title="Mark">
+        <div className="crew-critter-grid" role="radiogroup" aria-label="Mark">
+          {MEMBER_SIGIL_CHOICES.map((item) => (
             <button
-              key={item.name}
+              key={item.key}
               type="button"
               role="radio"
-              aria-checked={item.name === critter}
+              aria-checked={item.key === mark}
               aria-label={item.label}
               title={item.label}
               className="crew-critter-cell"
-              data-critter-choice={item.name}
-              onClick={() =>
-                set({
-                  critter:
-                    item.name === CREW_ROLE_INFO[member.role].critter
-                      ? null
-                      : item.name,
-                })
-              }
+              data-mark-choice={item.key}
+              onClick={() => set({ critter: item.key })}
             >
-              <ProjectMascot
-                project={`crew:${member.role}`}
-                name={item.name}
-                color={CREW_ROLE_INFO[member.role].color}
-                className="crew-critter-cell-art"
-              />
+              <DotMark sigil={item} className="crew-critter-cell-art" />
             </button>
           ))}
         </div>
@@ -1495,8 +1480,7 @@ function Gallery({
         {CREW_PRESETS.map((preset) => {
           const inCrew = presetInCrew(crew, preset);
           const app = crewModelFor(models, preset.role);
-          const name =
-            preset.critter[0]!.toUpperCase() + preset.critter.slice(1);
+          const name = preset.label ?? CREW_ROLE_INFO[preset.role].label;
           return (
             <button
               key={preset.key}
@@ -1516,14 +1500,14 @@ function Gallery({
               <CrewCritter
                 path={crew.path}
                 role={preset.role}
-                critter={preset.critter}
+                critter={preset.mark}
               />
               <span className="crew-gallery-text">
                 <strong>
-                  {name}{" "}
-                  <small className="crew-settings-role">
-                    {preset.label ?? CREW_ROLE_INFO[preset.role].label}
-                  </small>
+                  <MemberTitle
+                    name={name}
+                    title={CREW_ROLE_INFO[preset.role].label}
+                  />
                 </strong>
                 <small>{inCrew ? "In the crew" : preset.job}</small>
                 <small className="crew-gallery-app">
@@ -1756,5 +1740,21 @@ function CustomMember({
         </button>
       </div>
     </form>
+  );
+}
+
+/** A member's name, then its title when the name doesn't already say it. */
+function MemberTitle({ name, title }: { name: string; title: string }) {
+  const beside = titleBeside(name, title);
+  return (
+    <>
+      {name}
+      {beside ? (
+        <>
+          {" "}
+          <small className="crew-settings-role">{beside}</small>
+        </>
+      ) : null}
+    </>
   );
 }

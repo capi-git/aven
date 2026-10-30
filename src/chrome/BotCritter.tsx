@@ -5,32 +5,33 @@ import {
   BOT_STATUS_STAGE,
   type BotStatus,
 } from "../lib/projectBots";
-import { ProjectMascot } from "./ProjectMascot";
+import { DotMark, type DotMarkState } from "./DotMark";
 import "./ChatStatusPill.css";
 import "./BotCritter.css";
 
 /**
- * A project's bot drawn as the project's critter, in the project colour,
- * even where the project shows a logo: the bot is the critter.
+ * A project's bot, drawn as the Fixer's mark: the bot is its project's
+ * crew's Fixer wherever it shows (the sidebar, its tab and chat, Home).
  */
 export const BotCritter = memo(function BotCritter({
   path,
   active = false,
+  state,
   className = "bot-critter",
 }: {
   path: string;
-  /** Steps its two frames while the bot works. */
+  /** Sweeps a light across it while the bot works. */
   active?: boolean;
+  /** A state of its own, over `active`. */
+  state?: DotMarkState;
   className?: string;
 }) {
   const appearance = useProjectAppearance(path);
   if (!appearance) return null;
   return (
-    <ProjectMascot
-      project={appearance.key}
-      name={appearance.mascot}
-      color={appearance.color}
-      active={active}
+    <DotMark
+      sigil="fixer"
+      state={state ?? (active ? "working" : "still")}
       className={className}
     />
   );

@@ -1199,7 +1199,7 @@ function SidebarComponent({
       ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
-  /** A bot's row: critter, name, its project on hover, and its word. */
+  /** A bot's row: mark, name, its project on hover, and its word. */
   const botRow = (bot: SidebarBot) => {
     return (
       <button

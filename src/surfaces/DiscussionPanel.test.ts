@@ -192,8 +192,12 @@ describe("DiscussionPanelContent", () => {
       "dataset.typing",
       "true",
     );
-    expect(typing.querySelector("svg.mascot-active")).not.toBeNull();
-    expect(all("[data-discussion-message] svg.mascot-active")).toHaveLength(0);
+    expect(
+      typing.querySelector('.dot-mark[data-state="working"]'),
+    ).not.toBeNull();
+    expect(
+      all('[data-discussion-message] .dot-mark[data-state="working"]'),
+    ).toHaveLength(0);
     expect(text("[data-discussion-cast] [role='status']")).toBe("Round 2 of 2");
   });
 
@@ -329,23 +333,25 @@ describe("DiscussionPanelContent", () => {
     expect(text("[data-discussion-problem]")).toBe(ACT_FAILED);
   });
 
-  it("ends with the closing note and one happy hop on each side's last message", async () => {
+  it("ends with the closing note and one tick on each side's last message", async () => {
     vi.useFakeTimers();
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 1 });
     answer(0, "Yes, briefly.", 1);
     await render();
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
     await act(async () => answer(1, "Agreed.", 1));
     await render();
     expect(text("[data-discussion-closing='completed']")).toBe(
       "Discussion finished after 1 round.",
     );
     expect(container.querySelector("[data-discussion-typing]")).toBeNull();
-    const hopping = all("[data-discussion-message] svg.mascot-reacting");
+    const hopping = all("[data-discussion-message] .dot-mark[data-reaction]");
     expect(hopping).toHaveLength(2);
-    expect(hopping.every((svg) => svg.dataset.reaction === "cheer")).toBe(true);
+    expect(hopping.every((mark) => mark.dataset.reaction === "cheer")).toBe(
+      true,
+    );
     await act(async () => vi.advanceTimersByTime(1_200));
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
   });
 
   it("does not hop when opened on a finished discussion", async () => {
@@ -354,7 +360,7 @@ describe("DiscussionPanelContent", () => {
     answer(1, "Agreed.", 1);
     await render();
     expect(container.querySelector("[data-discussion-closing]")).not.toBe(null);
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
   });
 
   it("says so when the discussion is gone", async () => {
@@ -603,11 +609,11 @@ describe("DiscussionPanelContent: stance and reactions", () => {
     discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     answer(0, "Yes, briefly.", 2);
     await render();
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
 
     answer(1, "Agreed, five minutes.", 2);
     await render();
-    const playing = all("svg.mascot-reacting");
+    const playing = all(".dot-mark[data-reaction]");
     expect(playing).toHaveLength(1);
     expect(playing[0].dataset.reaction).toBe("nod");
     expect(playing[0].closest("[data-discussion-message]")).toHaveProperty(
@@ -615,7 +621,7 @@ describe("DiscussionPanelContent: stance and reactions", () => {
       "1",
     );
     await act(async () => vi.advanceTimersByTime(1_000));
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
     // Rendering again, or streaming in the other chat, plays nothing.
     await render();
     sessions = {
@@ -629,12 +635,12 @@ describe("DiscussionPanelContent: stance and reactions", () => {
       },
     };
     await render();
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
 
     answer(2, "Not quite: ten.", 2);
     await render();
     expect(
-      all("svg.mascot-reacting").map((svg) => svg.dataset.reaction),
+      all(".dot-mark[data-reaction]").map((mark) => mark.dataset.reaction),
     ).toEqual(["tilt"]);
     await act(async () => vi.advanceTimersByTime(1_000));
 
@@ -642,7 +648,7 @@ describe("DiscussionPanelContent: stance and reactions", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
   });
 
   it("stays still for a neutral reply", async () => {
@@ -651,7 +657,7 @@ describe("DiscussionPanelContent: stance and reactions", () => {
     await render();
     answer(1, "For how long?", 2);
     await render();
-    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(all(".dot-mark[data-reaction]")).toHaveLength(0);
     expect(container.querySelector("[data-discussion-stance]")).toBeNull();
   });
 });

@@ -145,7 +145,7 @@ export type Tab = {
   waitingOn?: string;
   /** The tab holds one race's agents; `title` is the race prompt. */
   race?: boolean;
-  /** The focused chat is this project's bot: the tab shows its critter. */
+  /** The focused chat is this project's bot: the tab shows its mark. */
   botPath?: string;
   /** The chats in this tab, whose finished turns flash it. */
   sessionIds?: string[];
@@ -493,7 +493,6 @@ function TabDeck({ children }: { children: ReactNode }) {
   );
 }
 
-/** A tab's kind at a glance: a bot's critter, its agents, or its file. */
 /** A tab's mark as the strip draws it: its agents, a board, a file, a terminal. */
 export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];

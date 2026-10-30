@@ -1,12 +1,13 @@
 /* The crew on its Board: one header, a strip of its bots, crew cards and the
    Feed beside the four columns. Black and grey like the rest of Aven;
-   colour only in small status words, the critters and +/− counts. */
+   colour only in small status words, the marks' status dots and +/−
+   counts. */
 
 .crew-header .crew-header-critters {
-  gap: 3px;
+  gap: 7px;
 }
 
-.crew-header .crew-critter {
+.crew-header .dot-mark.crew-critter {
   width: 22px;
   height: 22px;
 }
@@ -79,14 +80,10 @@
   border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
 }
 
-.crew-strip-tile .crew-strip-critter {
-  width: 26px;
-  height: 26px;
-}
-
-.crew-strip-tile .crew-badge {
-  width: 11px;
-  height: 11px;
+.crew-strip-tile .dot-mark.crew-strip-critter {
+  --dot-mark-surface: var(--color-background-base);
+  width: 28px;
+  height: 28px;
 }
 
 .crew-strip-text {

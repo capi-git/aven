@@ -128,7 +128,7 @@ describe("the crew's settings", () => {
     ).toBe("builder-2");
   });
 
-  it("sets a member's critter, agent, instructions and scope; other apps say why not", async () => {
+  it("sets a member's mark, agent, instructions and scope; other apps say why not", async () => {
     await open("checker");
     const agents = [
       ...sheet().querySelectorAll<HTMLButtonElement>("[data-agent]"),
@@ -149,10 +149,10 @@ describe("the crew's settings", () => {
     expect(crewMemberById(getCrew(PATH)!, "checker")?.harness).toBe("codex");
     await act(async () =>
       sheet()
-        .querySelector<HTMLButtonElement>('[data-critter-choice="moth"]')!
+        .querySelector<HTMLButtonElement>('[data-mark-choice="designer"]')!
         .click(),
     );
-    expect(crewMemberById(getCrew(PATH)!, "checker")?.critter).toBe("moth");
+    expect(crewMemberById(getCrew(PATH)!, "checker")?.critter).toBe("designer");
     const instructions = sheet().querySelector<HTMLTextAreaElement>(
       'textarea[aria-label="Instructions"]',
     )!;

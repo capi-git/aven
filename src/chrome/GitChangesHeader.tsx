@@ -1,10 +1,11 @@
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { basename, type GitDiffIndex, type GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo, upstreamLabel } from "../lib/gitChangesView";
+import { projectSigil } from "../lib/dotSigils";
 import { displayAppData } from "../lib/paths";
 import { ChevronDown, GitBranch, GitCompare, Plus } from "./icons";
 import { ProjectMark } from "./ProjectMark";
-import { ProjectMascot } from "./ProjectMascot";
+import { DotMark } from "./DotMark";
 
 /** The copy being shown: project, branch, where it stands, and its last commit. */
 export function ChangesHeader({
@@ -149,10 +150,8 @@ export function CleanState({
       aria-label={noGit ? "Not a Git repository" : "All clean"}
     >
       {appearance ? (
-        <ProjectMascot
-          project={appearance.key}
-          name={appearance.mascot}
-          color={appearance.color}
+        <DotMark
+          sigil={projectSigil(appearance.mascot, appearance.key)}
           className="git-clean-mascot"
         />
       ) : (

@@ -8,9 +8,9 @@
   height: 40px;
   margin-top: 2px;
 }
-.bot-sheet-critter-sprite {
-  width: 36px;
-  height: 36px;
+.dot-mark.bot-sheet-critter-sprite {
+  width: 34px;
+  height: 34px;
 }
 .bot-sheet-body {
   display: flex;

@@ -142,7 +142,7 @@ export const DiscussionMessage = memo(function DiscussionMessage({
   );
 });
 
-/** The side answering now: its mascot stepping and three pixels taking turns. */
+/** The side answering now: its mark sweeping and three dots taking turns. */
 export const DiscussionTyping = memo(function DiscussionTyping({
   as: Tag = "li",
   voice,

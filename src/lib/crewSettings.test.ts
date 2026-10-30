@@ -347,10 +347,10 @@ describe("changing a member", () => {
     });
   });
 
-  it("tidies names, critters, instructions, scope and the Scout's rhythm", () => {
+  it("tidies names, marks, instructions, scope and the Scout's rhythm", () => {
     crewWith();
     expect(updateCrewMember(PATH, "builder", { critter: "dragon" })).toMatch(
-      /critter/,
+      /mark/,
     );
     updateCrewMember(PATH, "builder", {
       name: "  Mole  ",

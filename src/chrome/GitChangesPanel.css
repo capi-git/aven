@@ -262,15 +262,13 @@
   padding: 14px 10px 4px;
   text-align: center;
 }
-.git-clean-mascot {
-  width: 48px;
-  height: 48px;
-  margin-bottom: 8px;
-  image-rendering: pixelated;
+.dot-mark.git-clean-mascot {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
 }
 .git-clean[data-no-git] .git-clean-mascot {
   opacity: 0.55;
-  filter: grayscale(0.6);
 }
 .git-clean-mark {
   display: grid;

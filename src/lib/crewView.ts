@@ -88,11 +88,19 @@ export function crewStatus(
   return "watching";
 }
 
+/**
+ * The title shown beside a member's name, or null when the name already
+ * says it: "Builder", "Builder 2".
+ */
+export function titleBeside(name: string, title: string): string | null {
+  return name === title || name.startsWith(`${title} `) ? null : title;
+}
+
 export type CrewMemberView = {
   /** Its member id: the sidebar's and strip's key, and what opens its chat. */
   id: string;
   role: CrewRole;
-  /** The critter it is drawn as, when not its role's. */
+  /** The mark it wears, when not its role's. */
   critter?: string;
   name: string;
   /** "Builder", or a custom member's own title. */

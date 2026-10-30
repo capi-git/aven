@@ -11,6 +11,7 @@ import {
   CrewCritter,
   CrewCritters,
   CrewRoundDots,
+  crewMarkState,
   CrewStatusPill,
 } from "../chrome/CrewCritter";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
@@ -52,7 +53,11 @@ import {
   type CrewCard,
   type CrewFeedEntry,
 } from "../lib/crews";
-import type { CrewBoardInfo, CrewMemberView } from "../lib/crewView";
+import {
+  titleBeside,
+  type CrewBoardInfo,
+  type CrewMemberView,
+} from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
 import { addFeatureIdea } from "../lib/featureCards";
 import { botCopyHost } from "../lib/projectBotCopy";
@@ -263,7 +268,7 @@ export function CrewHoldLine({
   );
 }
 
-/** The crew's bots, one tile each: critter, name, role, word and one live line. */
+/** The crew's bots, one tile each: mark, name, role, word and one live line. */
 export function CrewStrip({
   path,
   members,
@@ -290,13 +295,15 @@ export function CrewStrip({
             path={path}
             role={member.role}
             {...(member.critter ? { critter: member.critter } : {})}
-            active={member.active}
+            state={crewMarkState(member.status, member.active)}
             className="crew-strip-critter"
           />
           <span className="crew-strip-text">
             <span className="crew-strip-name">
               <strong>{member.name}</strong>
-              <span className="crew-strip-role">{member.roleLabel}</span>
+              {titleBeside(member.name, member.roleLabel) ? (
+                <span className="crew-strip-role">{member.roleLabel}</span>
+              ) : null}
               {member.status ? <CrewStatusPill status={member.status} /> : null}
             </span>
             <span className="crew-strip-line">
@@ -436,7 +443,6 @@ function FeedMark({
         path={path}
         role={entry.who}
         {...(critter ? { critter } : {})}
-        badge={false}
       />
     );
   return (
@@ -451,7 +457,7 @@ const QUOTED = new Set(["handoff", "verdict", "note", "stuck"]);
 /** Entries the Feed shows at first, and adds with each Show earlier. */
 const FEED_SHOWN = 40;
 
-/** The critter a line's member was drawn as, when you chose one. */
+/** The mark a line's member wears, when you chose one. */
 function feedCritter(crew: Crew, entry: CrewFeedEntry): { critter?: string } {
   const member = entry.member ? crewMemberById(crew, entry.member) : undefined;
   return member?.critter ? { critter: memberCritter(member) } : {};

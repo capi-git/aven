@@ -39,19 +39,14 @@
   min-width: 0;
 }
 .team-watch-tile .discussion-avatar {
+  --discussion-mark: 28px;
   width: 46px;
   height: 46px;
   border-radius: 12px;
   transition: box-shadow 200ms ease;
 }
-.team-watch-tile .discussion-avatar-sprite {
-  width: 24px;
-  height: 24px;
-}
 .team-watch-tile[data-active] .discussion-avatar {
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--discussion-voice) 14%, transparent),
-    0 0 22px color-mix(in srgb, var(--discussion-voice) 30%, transparent);
+  box-shadow: 0 0 0 3px var(--aven-fill-tertiary, var(--aven-line));
 }
 .team-watch-tile[data-tone="needs-you"] .discussion-avatar {
   box-shadow: 0 0 0 3px var(--aven-needs-you-edge);
@@ -158,13 +153,10 @@
   min-width: 0;
 }
 .team-watch-member-face .discussion-avatar {
+  --discussion-mark: 14px;
   width: 24px;
   height: 24px;
   border-radius: 7px;
-}
-.team-watch-member-face .discussion-avatar-sprite {
-  width: 18px;
-  height: 18px;
 }
 .team-watch-name {
   min-width: 0;
@@ -412,6 +404,7 @@ button.team-watch-row-open:focus-visible {
   border-color: var(--aven-needs-you-edge);
 }
 .team-pill-tray .discussion-pill .discussion-avatar {
+  --discussion-mark: 11px;
   width: 16px;
   height: 16px;
   border-radius: 5px;

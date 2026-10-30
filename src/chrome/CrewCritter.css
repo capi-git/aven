@@ -1,46 +1,22 @@
-/* A crew member's critter, with its small role badge in the corner. */
+/* A crew member's mark. */
 .crew-critter-wrap {
   position: relative;
   display: inline-flex;
   flex: none;
 }
 
-.crew-critter {
+.dot-mark.crew-critter {
   display: block;
-  flex: none;
   width: 14px;
   height: 14px;
 }
 
-.crew-badge {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 8px;
-  height: 8px;
-  overflow: visible;
-}
-
-.crew-badge circle {
-  fill: var(--color-background-base, #111);
-  stroke: color-mix(in srgb, var(--color-content) 55%, transparent);
-  stroke-width: 0.7;
-}
-
-.crew-badge path {
-  fill: none;
-  stroke: var(--color-content);
-  stroke-width: 0.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* A crew's critters side by side. */
+/* A crew's marks side by side. */
 .crew-critters {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .crew-critters-more {
@@ -61,7 +37,7 @@
 .crew-dot {
   width: 6px;
   height: 6px;
-  border-radius: 1.5px;
+  border-radius: 50%;
   background: color-mix(in srgb, var(--color-content) 22%, transparent);
 }
 
@@ -74,7 +50,7 @@
   box-shadow: inset 0 0 0 1.5px var(--color-content);
 }
 
-/* The sidebar's crew row: critters and project, the fold, and its word. */
+/* The sidebar's crew row: marks and project, the fold, and its word. */
 .personal-crew-row {
   display: flex;
   align-items: center;

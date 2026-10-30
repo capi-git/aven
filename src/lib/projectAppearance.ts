@@ -29,7 +29,10 @@ export type ProjectAppearance = {
   label: string;
   /** The saved label alone, for editing; null shows the folder name. */
   customLabel: string | null;
-  /** Resolved colour: custom hex, palette pick, or the one hashed from the name. */
+  /**
+   * Resolved colour: custom hex, palette pick, or the one hashed from the
+   * name. Kept from before marks, which have no colour of their own.
+   */
   color: string;
   /** Palette pick, or null for a custom or automatic colour. */
   colorIndex: number | null;
@@ -39,7 +42,10 @@ export type ProjectAppearance = {
   logoPath: string | null;
   /** Image URL for `logoPath`, refreshed when the logo file is replaced. */
   logoSrc: string | null;
-  /** Mascot shown: the saved pick, or the one hashed from the name. */
+  /**
+   * The critter name its mark is kept under (`projectSigil` draws it): the
+   * saved pick, or the one hashed from the name.
+   */
   mascot: string;
   /** The saved pick, an old sprite's name read as today's critter. */
   mascotOverride: string | null;

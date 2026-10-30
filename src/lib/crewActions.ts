@@ -28,6 +28,7 @@ import {
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
   crewMemberById,
+  legacyCritter,
   memberCritter,
   newMemberId,
   withMemberId,
@@ -43,7 +44,8 @@ import {
   type CrewRoute,
   type CrewScoutSchedule,
 } from "./crews";
-import { PROJECT_MASCOTS } from "./projectMascots";
+import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
+import { isMascotName } from "./projectMascots";
 import { isHarnessAvailable } from "./harness/availability";
 import { pickerModelsFor, preferredModelId } from "./models";
 import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
@@ -710,17 +712,17 @@ export function crewScopeList(
   return { scope: [...seen] };
 }
 
-const CRITTERS = new Set(PROJECT_MASCOTS.map((mascot) => mascot.name));
-
-/** A critter none of the crew is drawn as yet, the role's own first. */
-function freeCritter(crew: Crew, role: CrewRole): string | undefined {
-  const used = new Set(
-    crew.members.map((member) => memberCritter(member)).filter(Boolean),
-  );
-  const own = CREW_ROLE_INFO[role].critter;
-  if (own && !used.has(own)) return undefined;
-  return PROJECT_MASCOTS.map((mascot) => mascot.name).find(
-    (name) => !used.has(name),
+/**
+ * A mark none of the crew wears yet: `own` (its role's, or a custom
+ * member's) when free, else the first free one.
+ */
+function freeMark(crew: Crew, own: string): string {
+  const used = new Set(crew.members.map((member) => memberCritter(member)));
+  if (!used.has(own)) return own;
+  return (
+    MEMBER_SIGIL_CHOICES.map((item) => item.key).find(
+      (key) => !used.has(key),
+    ) ?? own
   );
 }
 
@@ -760,7 +762,7 @@ export function addCrewMember(
   let id = "";
   updateCrew(path, (current) => {
     id = newMemberId(current, role);
-    const critter = freeCritter(current, role);
+    const critter = freeMark(current, template === "custom" ? "custom" : role);
     const name = cleanText(input.name, 40);
     const model = harness ? cleanText(input.model, 200) : undefined;
     const instructions = cleanText(input.instructions, CREW_INSTRUCTIONS_MAX);
@@ -768,7 +770,7 @@ export function addCrewMember(
       id,
       role,
       ...(name ? { name } : {}),
-      ...(critter ? { critter } : {}),
+      critter,
       ...(label ? { label } : {}),
       ...(job ? { job } : {}),
       ...(harness ? { harness } : {}),
@@ -801,8 +803,18 @@ export function updateCrewMember(
     !crewAgentsFor(member.role).includes(change.harness as CrewAgent)
   )
     return "A Builder runs on Claude Code: Codex can't keep it out of the copy's settings yet.";
-  if (change.critter && !CRITTERS.has(change.critter))
-    return "That critter isn't one of Aven's.";
+  if (
+    change.critter &&
+    !isSigilKey(change.critter) &&
+    !isMascotName(change.critter)
+  )
+    return "That mark isn't one of Aven's.";
+  // A member made before marks is called by its critter; a new mark keeps
+  // the name it had.
+  const keepName =
+    change.critter && change.name === undefined && !member.name
+      ? legacyCritter(member)
+      : undefined;
   const scoped =
     change.scope !== undefined
       ? crewScopeList(change.scope, crew.path)
@@ -821,6 +833,8 @@ export function updateCrewMember(
       if (change.name !== undefined) set("name", cleanText(change.name, 40));
       if (change.critter !== undefined)
         set("critter", change.critter ?? undefined);
+      if (keepName && !legacyCritter(next))
+        set("name", keepName[0]!.toUpperCase() + keepName.slice(1));
       if (change.label !== undefined) set("label", cleanText(change.label, 40));
       if (change.job !== undefined) set("job", cleanText(change.job, 120));
       if (change.harness !== undefined && change.harness !== entry.harness) {
@@ -858,8 +872,8 @@ export function updateCrewMember(
 
 /**
  * Whether a ready-made member is in the crew already: added from it, or (for
- * the plain Builder, Checker, Scout and Security) a member of its role drawn
- * as its critter, with no title of its own.
+ * the plain Builder, Checker, Scout and Security) a member of its role
+ * wearing its mark, with no title of its own.
  */
 export function presetInCrew(crew: Crew, preset: CrewPreset): boolean {
   return crew.members.some(
@@ -870,12 +884,12 @@ export function presetInCrew(crew: Crew, preset: CrewPreset): boolean {
       (!preset.label &&
         member.role === preset.role &&
         !member.label &&
-        memberCritter(member) === preset.critter),
+        memberCritter(member) === preset.mark),
   );
 }
 
 /**
- * Add a ready-made member in one click: its role, critter, title, job,
+ * Add a ready-made member in one click: its role, mark, title, job,
  * instructions and paths, on the app and model given (else its role's
  * usual). Everything stays editable. Resolves with its id, or why not.
  */
@@ -909,9 +923,7 @@ export function addCrewPreset(
       id,
       role: preset.role,
       preset: preset.key,
-      ...(preset.critter !== CREW_ROLE_INFO[preset.role].critter
-        ? { critter: preset.critter }
-        : {}),
+      critter: freeMark(current, preset.mark),
       ...(preset.label ? { label: preset.label, job: preset.job } : {}),
       instructions: preset.instructions,
       ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),

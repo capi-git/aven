@@ -32,7 +32,8 @@ import {
 import { InboxFiltersMenu } from "../chrome/InboxFiltersMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { ProjectMascot } from "../chrome/ProjectMascot";
+import { DotMark } from "../chrome/DotMark";
+import { projectSigil } from "../lib/dotSigils";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -85,10 +86,7 @@ import {
   useInboxSeenTick,
 } from "../lib/inboxSeen";
 import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
   loadTabGroupMascots,
-  resolveTabGroupColor,
   resolveTabGroupLogo,
   resolveTabGroupMascot,
 } from "../lib/tabGroups";
@@ -226,8 +224,6 @@ export function InboxView({
   onCloseRef.current = onClose;
   const logos = useTabGroupLogos();
   const [groupMascots] = useState(loadTabGroupMascots);
-  const [groupColors] = useState(loadTabGroupColors);
-  const [groupCustomColors] = useState(loadTabGroupCustomColors);
 
   const [searchInput, setSearchInput] = useState("");
   const [items, setItems] = useState<InboxItem[]>(
@@ -562,12 +558,6 @@ export function InboxView({
                     active={selected != null && key === inboxItemKey(selected)}
                     logoPath={resolveTabGroupLogo(projectId, logos)}
                     mascotName={resolveTabGroupMascot(projectId, groupMascots)}
-                    mascotColor={resolveTabGroupColor(
-                      projectId,
-                      groupColors,
-                      groupCustomColors,
-                      projectName(item.projectPath),
-                    )}
                     onSelect={() => {
                       markInboxItemSeen({
                         key,
@@ -764,14 +754,12 @@ function InboxCard({
   active,
   logoPath,
   mascotName,
-  mascotColor,
   onSelect,
 }: {
   item: InboxItem;
   active: boolean;
   logoPath: string | null;
   mascotName: string | null;
-  mascotColor: string;
   onSelect: () => void;
 }) {
   useInboxSeenTick();
@@ -837,10 +825,8 @@ function InboxCard({
               imageClassName="size-3.5"
             />
           ) : (
-            <ProjectMascot
-              project={name}
-              color={mascotColor}
-              name={mascotName}
+            <DotMark
+              sigil={projectSigil(mascotName, name)}
               className="size-3 shrink-0"
             />
           )}

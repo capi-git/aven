@@ -1,40 +1,38 @@
-/* A discussion side's mascot on a tile tinted with its provider's colour.
-   Critters are 12 pixels across, drawn at multiples of 6px (18px, 24px) so
-   every pixel lands on whole device pixels of a Retina screen. Motion is
-   stepped, like the other mascots: two frames held half a beat each, only
-   while that side is typing. */
+/* A discussion side's mark on a small grey tile. The tile is neutral; the
+   side's provider colour stays on its bubbles, never on its mark. */
 .discussion-avatar {
   --discussion-voice: var(--color-content);
+  --discussion-mark: 16px;
+  --dot-mark-surface: var(--color-background-base);
   position: relative;
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--discussion-voice) 13%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--discussion-voice) 26%, var(--aven-line));
+  border-radius: var(--aven-radius-md);
+  background: var(--aven-fill-quaternary);
+  border: 1px solid var(--aven-line);
 }
 .discussion-avatar[data-size="large"] {
+  --discussion-mark: 22px;
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--aven-radius-lg);
 }
-.discussion-avatar-sprite {
-  width: 18px;
-  height: 18px;
-}
-.discussion-avatar[data-size="large"] .discussion-avatar-sprite {
-  width: 24px;
-  height: 24px;
+/* Its mark's size comes from --discussion-mark, which each place that
+   draws a bigger or smaller tile sets. */
+.discussion-avatar > .dot-mark {
+  width: var(--discussion-mark);
+  height: var(--discussion-mark);
 }
 
-/* A role's first letter, on the tile's corner. */
+/* A role's first letter, on the tile's top corner (the status dot, when a
+   reply ends, takes the bottom one). */
 .discussion-avatar-role {
   position: absolute;
+  top: -4px;
   right: -4px;
-  bottom: -4px;
   display: grid;
   place-items: center;
   min-width: 12px;
@@ -52,61 +50,4 @@
   min-width: 14px;
   height: 14px;
   border-radius: 7px;
-}
-
-.discussion-avatar .mascot-active {
-  animation: discussion-avatar-step 760ms steps(2, jump-none) infinite;
-}
-.discussion-avatar[data-size="large"] .mascot-active {
-  animation-name: discussion-avatar-step-large;
-}
-.discussion-avatar .mascot-rest {
-  animation: discussion-avatar-rest 760ms steps(2, jump-none) infinite;
-}
-.discussion-avatar .mascot-talk {
-  animation: discussion-avatar-talk 760ms steps(2, jump-none) infinite;
-}
-/* One mascot pixel: 1.5px at 18px, 2px at 24px. */
-@keyframes discussion-avatar-step {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-1.5px);
-  }
-}
-@keyframes discussion-avatar-step-large {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-2px);
-  }
-}
-@keyframes discussion-avatar-rest {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-@keyframes discussion-avatar-talk {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .discussion-avatar .mascot-active,
-  .discussion-avatar .mascot-rest,
-  .discussion-avatar .mascot-talk {
-    animation: none;
-  }
-  .discussion-avatar .mascot-talk {
-    opacity: 0;
-  }
 }

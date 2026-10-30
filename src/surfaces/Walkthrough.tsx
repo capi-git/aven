@@ -2,12 +2,11 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "../chrome/icons";
 import { focusableWithin } from "../chrome/Modal";
-import { ProjectMascot } from "../chrome/ProjectMascot";
+import { DotMark } from "../chrome/DotMark";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { failureText } from "../lib/errors";
 import { LAYER } from "../lib/layers";
 import type { HarnessId } from "../lib/session";
-import { TAB_GROUP_COLORS } from "../lib/tabGroups";
 import {
   WALKTHROUGH_STEPS,
   WALKTHROUGH_STEP_LABEL,
@@ -17,14 +16,8 @@ import {
 import { ProviderSetup } from "./ProviderSetup";
 import "./Walkthrough.css";
 
-/** The welcome's cast: five of the mascots in the project palette. */
-const CAST = [
-  { name: "fox", color: TAB_GROUP_COLORS[2] },
-  { name: "whale", color: TAB_GROUP_COLORS[1] },
-  { name: "owl", color: TAB_GROUP_COLORS[4] },
-  { name: "sprout", color: TAB_GROUP_COLORS[3] },
-  { name: "jelly", color: TAB_GROUP_COLORS[6] },
-] as const;
+/** The welcome's cast: a crew's marks, the Builder at work. */
+const CAST = ["builder", "checker", "security", "scout", "designer"] as const;
 
 const FEATURES = [
   {
@@ -139,13 +132,12 @@ export function Walkthrough({
     body = (
       <>
         <div className="walkthrough-cast" aria-hidden>
-          {CAST.map((mascot) => (
-            <ProjectMascot
-              key={mascot.name}
-              project={mascot.name}
-              name={mascot.name}
-              color={mascot.color}
-              className="size-10 shrink-0"
+          {CAST.map((sigil) => (
+            <DotMark
+              key={sigil}
+              sigil={sigil}
+              state={sigil === "builder" ? "working" : "still"}
+              className="walkthrough-cast-mark"
             />
           ))}
         </div>

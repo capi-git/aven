@@ -119,6 +119,14 @@ beforeEach(() => {
     bottom: 70,
     toJSON: () => ({}),
   });
+  // The grid is traced into a Path2D, which happy-dom has no version of.
+  vi.stubGlobal(
+    "Path2D",
+    class {
+      moveTo() {}
+      arc() {}
+    },
+  );
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
     () =>
       ({
@@ -126,6 +134,10 @@ beforeEach(() => {
         clearRect: vi.fn(),
         fillRect: vi.fn(),
         strokeRect: vi.fn(),
+        stroke: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
       }) as unknown as CanvasRenderingContext2D,
   );
   host = document.createElement("div");
