@@ -3,6 +3,7 @@ import {
   browserLayoutRecord,
   type BrowserLayoutRecord,
 } from "./browserPresentation";
+import { BROWSER_OVERLAYS } from "./browserOverlays";
 import { waitFor } from "./devSmoke";
 import {
   cssZoomRects,
@@ -12,6 +13,8 @@ import {
   type DragEnd,
 } from "./drag";
 import {
+  closeCheckPage,
+  dismissLayoutNotice,
   dragPath,
   pressPoint,
   smokeMouse,
@@ -257,6 +260,8 @@ export type DragEnvironment = {
   screen: { width: number; height: number };
   panes: Array<{ id: string; box: Box }>;
   page: Box | null;
+  /** What is drawn over the page, so cut out of it (`describeOverlay`). */
+  over?: string[];
   strip: Array<{ id: string; reported: Box; box: Box }>;
 };
 
@@ -282,6 +287,9 @@ export function dragSceneLines(
     );
   lines.push(
     `panes: ${environment.panes.map(({ id, box }) => `${id} ${span(box)}`).join("; ") || "none"}${environment.page ? `; the page's host ${span(environment.page)}` : ""}`,
+    ...(environment.over?.length
+      ? [`over the page: ${environment.over.join("; ")}`]
+      : []),
     `strip: ${
       environment.strip
         .map(({ id, reported, box }) =>
@@ -294,6 +302,43 @@ export function dragSceneLines(
     }`,
   );
   return lines;
+}
+
+/** What a surface drawn over a page is, for a failure to list. */
+export function describeOverlay(element: Element): string {
+  const words = (text: string | null | undefined) =>
+    (text ?? "").replace(/\s+/g, " ").trim();
+  if (element.matches("[data-layout-notice]")) {
+    const text = words(
+      element.querySelector(".aven-layout-notice-text")?.textContent ??
+        element.textContent,
+    );
+    return `the notice after a move${text ? ` "${text}"` : ""}`;
+  }
+  const role = element.getAttribute("role");
+  const name =
+    typeof element.className === "string"
+      ? element.className.split(" ")[0]
+      : "";
+  return `${element.tagName.toLowerCase()}${name ? `.${name}` : ""}${role ? ` (${role})` : ""}`;
+}
+
+/** The surfaces drawn over `page` (viewport pixels) that a page cuts out. */
+function overlaysOver(page: Box): string[] {
+  return [...document.querySelectorAll<HTMLElement>(BROWSER_OVERLAYS)]
+    .filter((element) => {
+      const box = viewportRect(element, element.getBoundingClientRect());
+      return (
+        box.right > box.left &&
+        box.bottom > box.top &&
+        box.left < page.right &&
+        box.right > page.left &&
+        box.top < page.bottom &&
+        box.bottom > page.top
+      );
+    })
+    .slice(0, 4)
+    .map(describeOverlay);
 }
 
 const boxOf = (rect: Box): Box => ({
@@ -312,6 +357,7 @@ async function readDragEnvironment(
   );
   const shown = (element: HTMLElement) =>
     element.getBoundingClientRect().width > 0;
+  const host = page ? viewportRect(page, page.getBoundingClientRect()) : null;
   const focused = document.hasFocus();
   const windowKey = await getCurrentWindow()
     .isFocused()
@@ -334,7 +380,8 @@ async function readDragEnvironment(
         id: pane.dataset.workspaceSurface ?? "?",
         box: viewportRect(pane, pane.getBoundingClientRect()),
       })),
-    page: page ? viewportRect(page, page.getBoundingClientRect()) : null,
+    page: host,
+    over: host ? overlaysOver(host) : [],
     strip: [
       ...(strip?.querySelectorAll<HTMLElement>("[data-surface-tab-id]") ?? []),
     ]
@@ -460,6 +507,9 @@ async function dragOverPage(
   const panes = () => JSON.stringify(get().loneTab?.panes() ?? []);
   /** The last carry, for a failure to list. */
   const last: { scene: DragScene | null } = { scene: null };
+  // A notice from before (the last zoom's page closed out of its split)
+  // would be cut out of this page: start with none up.
+  await dismissLayoutNotice();
   try {
     // A chat, then a page opened from it: both on the window's strip, the
     // page alone in front.
@@ -736,6 +786,6 @@ async function dragOverPage(
       ].join("\n"),
     );
   } finally {
-    if (page) get().loneTab?.closePage(page);
+    if (page) await closeCheckPage(get, page);
   }
 }

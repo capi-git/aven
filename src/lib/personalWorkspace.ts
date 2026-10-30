@@ -224,6 +224,28 @@ export function addRetainedBrowserTab(
   return addBrowserTab(kept, { ...value, kept: true });
 }
 
+/**
+ * A link opened in the browser, as the page `id`: brought to the front if it
+ * is open, or else opened at `url` under that id, retained. The caller finds
+ * `id` among the pages it last drew, so a page found there may have closed
+ * in the same moment: the link then still opens under its id, never as an
+ * empty browser (which becomes a blank page) with the link nowhere.
+ */
+export function openBrowserLink(
+  state: BrowserWorkspace,
+  id: string,
+  url: string,
+): NormalizedBrowserWorkspace {
+  if (normalizeBrowserWorkspace(state).tabs.some((tab) => tab.id === id))
+    return {
+      ...selectBrowserTab(state, id),
+      open: true,
+      mode: "tab",
+      expanded: true,
+    };
+  return addRetainedBrowserTab({ ...state, mode: "tab" }, { id, url });
+}
+
 /** A tab opened behind the current page, as Command-click does in Chrome. */
 export function addBackgroundBrowserTab(
   state: BrowserWorkspace,

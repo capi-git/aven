@@ -17,6 +17,7 @@ import {
   keepBrowserTab,
   closeBrowserTab,
   normalizeBrowserWorkspace,
+  openBrowserLink,
   patchBrowserWorkspace,
   browserIdForTab,
 } from "./personalWorkspace";
@@ -178,6 +179,47 @@ describe("multiple browser tabs", () => {
     expect(
       addRetainedBrowserTab(EMPTY_BROWSER, { id: "only", url: "" }).tabs,
     ).toEqual([{ id: "only", url: "", kept: true }]);
+  });
+
+  it("opens a link in its page, or in a new retained page", () => {
+    const docs = addBrowserTab(EMPTY_BROWSER, {
+      id: "docs",
+      url: "https://docs.example",
+    });
+    const shop = addBrowserTab(docs, { id: "shop", url: "https://shop.test" });
+    const back = openBrowserLink(shop, "docs", "https://docs.example");
+    expect(back.activeTabId).toBe("docs");
+    expect(back.tabs.map((tab) => tab.id)).toEqual(["docs", "shop"]);
+    expect([back.open, back.mode, back.expanded]).toEqual([true, "tab", true]);
+    const added = openBrowserLink(shop, "new", "https://new.test");
+    expect(added.tabs.map((tab) => [tab.id, tab.kept])).toEqual([
+      ["docs", undefined],
+      ["shop", true],
+      ["new", true],
+    ]);
+    expect(added.activeTabId).toBe("new");
+  });
+
+  it("opens a link whose page closed in the same moment, never a blank page", () => {
+    // 0.1.160's trial: the page was found among the pages last drawn, then
+    // its close landed first. Selecting it then left an open browser with
+    // no page, which reads back as a blank one, and the link nowhere.
+    const page = addBrowserTab(EMPTY_BROWSER, {
+      id: "check",
+      url: "http://127.0.0.1:8123/index.html",
+    });
+    const closed = closeBrowserTab(page, "check");
+    const opened = openBrowserLink(
+      closed,
+      "check",
+      "http://127.0.0.1:8123/index.html",
+    );
+    const read = normalizeBrowserWorkspace(opened);
+    expect(read.tabs).toEqual([
+      { id: "check", url: "http://127.0.0.1:8123/index.html", kept: true },
+    ]);
+    expect(read.activeTabId).toBe("check");
+    expect([read.open, read.expanded]).toEqual([true, true]);
   });
 
   it("keeps an existing preview without replacing its page, focus or layout", () => {

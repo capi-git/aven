@@ -5,7 +5,7 @@ import {
   turnOffCrew,
 } from "./crewActions";
 import { holdNextCrewSend } from "./crewSmoke";
-import { crewCard, getCrew, type Crew } from "./crews";
+import { crewCard, getCrew, newCrew, type Crew } from "./crews";
 import { waitFor } from "./devSmoke";
 import { errorText } from "./errors";
 import { addFeatureIdea } from "./featureCards";
@@ -149,9 +149,10 @@ export async function checkCrew(
   project: string,
   crew: SmokeCrew,
 ): Promise<string> {
-  // Quiet hours would hold the crew on a runner whose clock is at night.
-  const quiet = getCrew(project)?.limits.quiet;
-  if (quiet?.on) setCrewQuietHours(project, { ...quiet, on: false });
+  // Quiet hours would hold the crew on a runner whose clock is at night. In a
+  // fresh profile the crew doesn't exist yet; this creates it with them off.
+  const quiet = (getCrew(project) ?? newCrew(project)).limits.quiet;
+  setCrewQuietHours(project, { ...quiet, on: false });
   const off = await crew.turnOn(project);
   if (off) throw new Error(`The crew didn't turn on: ${off}`);
   const idea = await addFeatureIdea(project, {
