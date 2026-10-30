@@ -123,7 +123,11 @@ import {
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import { projectDisplayName } from "./hooks/useProjectLabels";
-import { agentBrowserTabs, shownBrowserProjects } from "./lib/agentBrowserTabs";
+import {
+  agentBrowserTabs,
+  reachAgentTab,
+  shownBrowserProjects,
+} from "./lib/agentBrowserTabs";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import {
@@ -1491,15 +1495,20 @@ export default function App({
         },
         reach(surfaceId) {
           // A tab not shown since Aven started has no page yet: load it out
-          // of sight, as an agent's own page in another project loads.
-          if (getRegisteredAgentBrowserPage(surfaceId)) return;
-          flushSync(() =>
-            setAgentBrowserSurfaces((current) =>
-              current.has(surfaceId)
-                ? current
-                : new Set([...current, surfaceId]),
-            ),
-          );
+          // of sight, as an agent's own page in another project loads. A
+          // detached window loads its own, its panes left as they are.
+          return reachAgentTab(surfaceId, {
+            registered: (id) => !!getRegisteredAgentBrowserPage(id),
+            detached: (id) => detachedIdsRef.current.has(id),
+            loadDetached: (id) =>
+              detachedFocusBrowser.current(id, { arrange: false }),
+            load: (id) =>
+              flushSync(() =>
+                setAgentBrowserSurfaces((current) =>
+                  current.has(id) ? current : new Set([...current, id]),
+                ),
+              ),
+          });
         },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(

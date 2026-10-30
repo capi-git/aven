@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   agentBrowserTabs,
   agentTabRecords,
+  reachAgentTab,
   shownBrowserProjects,
 } from "./agentBrowserTabs";
 import { leaf } from "./layout";
@@ -178,5 +179,36 @@ describe("an agent's list of open tabs", () => {
         (tab) => "elsewhere" in tab,
       ),
     ).toBe(false);
+  });
+});
+
+describe("loading a tab an agent reads", () => {
+  const ways = (detached: boolean, registered = false) => ({
+    registered: () => registered,
+    detached: () => detached,
+    loadDetached: vi.fn(async () => true),
+    load: vi.fn(),
+  });
+
+  it("asks the detached window that holds the tab to load it there", async () => {
+    const detached = ways(true);
+    await reachAgentTab("browser-1", detached);
+    expect(detached.loadDetached).toHaveBeenCalledWith("browser-1");
+    expect(detached.load).not.toHaveBeenCalled();
+    const here = ways(false);
+    await reachAgentTab("browser-2", here);
+    expect(here.load).toHaveBeenCalledWith("browser-2");
+    expect(here.loadDetached).not.toHaveBeenCalled();
+  });
+
+  it("leaves a tab with a page alone and says when its window has gone", async () => {
+    const live = ways(true, true);
+    await reachAgentTab("browser-1", live);
+    expect(live.loadDetached).not.toHaveBeenCalled();
+    const gone = ways(true);
+    gone.loadDetached.mockResolvedValue(false);
+    await expect(reachAgentTab("browser-1", gone)).rejects.toThrow(
+      "That tab's window has closed.",
+    );
   });
 });

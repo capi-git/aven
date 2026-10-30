@@ -135,3 +135,30 @@ export function agentTabRecords(
     })
     .slice(0, 500);
 }
+
+/**
+ * Make sure a tab has a page to read, without changing what the user sees.
+ * A tab with a page is left as it is; one in a window detached from this
+ * one is loaded there, since this window holds no page for it; any other
+ * is loaded out of sight here.
+ */
+export async function reachAgentTab(
+  surfaceId: string,
+  {
+    registered,
+    detached,
+    loadDetached,
+    load,
+  }: {
+    registered: (surfaceId: string) => boolean;
+    detached: (surfaceId: string) => boolean;
+    /** False when no detached window holds the tab any more. */
+    loadDetached: (surfaceId: string) => Promise<boolean>;
+    load: (surfaceId: string) => void;
+  },
+): Promise<void> {
+  if (registered(surfaceId)) return;
+  if (!detached(surfaceId)) return load(surfaceId);
+  if (!(await loadDetached(surfaceId)))
+    throw new Error("That tab's window has closed.");
+}
