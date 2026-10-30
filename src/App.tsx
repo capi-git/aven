@@ -1864,6 +1864,11 @@ export default function App({
     id: string;
     nonce: number;
   } | null>(null);
+  /** A pane collapsed from its own menu: its rail takes the keyboard. */
+  const [railFocus, setRailFocus] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
   const noticeSeq = useRef(0);
 
   const latestLayoutUndo = useCallback(
@@ -11715,13 +11720,18 @@ export default function App({
         const item = paneCollapseItems(viewRef.current.view.layout)
           .get(owner)
           ?.find((entry) => entry.key === key);
-        if (item)
-          onWorkspaceIntent({
-            type: "minimize",
-            split: item.split,
-            index: item.index,
-            side: item.side,
-          });
+        if (!item) return;
+        onWorkspaceIntent({
+          type: "minimize",
+          split: item.split,
+          index: item.index,
+          side: item.side,
+        });
+        // Its menu went with its title row: the keyboard goes to its rail.
+        setRailFocus((previous) => ({
+          id: owner,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
       },
       paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
       onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
@@ -12576,6 +12586,7 @@ export default function App({
                               onRestoreRail={(id) =>
                                 onWorkspaceIntent({ type: "unrail", id })
                               }
+                              focusRail={railFocus}
                               landed={paneLanding}
                               dragging={surfaceDragging}
                               dragLabel="Move tab"
