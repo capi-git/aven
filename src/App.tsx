@@ -8284,10 +8284,12 @@ export default function App({
       if (target && session.modelSettings) {
         saveLastModelSettings(session.modelSettings, "fill");
       }
+      // The user pressed Build.
       onSubmit(sessionId, "Build approved plan", [], {
         intent: "build",
         planBlockId: blockId,
         buildTarget: target,
+        typed: true,
       });
     },
     [onSubmit],
@@ -8643,7 +8645,7 @@ export default function App({
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
   useDuplicateServerMessenger((sessionId, text) =>
-    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue", typed: true }),
   );
 
   const autoContinueKey = sessions
@@ -9033,9 +9035,12 @@ export default function App({
             requestId: id,
             decision: "cancelled",
           }),
+        // The user's own answer to a question that has expired.
         send: (text) =>
-          onSubmit(sessionId, text, [], { followUpBehavior: "queue" }) !==
-          false,
+          onSubmit(sessionId, text, [], {
+            followUpBehavior: "queue",
+            typed: true,
+          }) !== false,
         note: (text) => {
           enqueueHarnessEvent(sessionId, { type: "status", text });
           flushHarnessEvents();
@@ -9627,7 +9632,11 @@ export default function App({
           (block) => block.id === blockId,
         )?.orchestration;
         if (!session || session.busy || !proposal) return;
-        onSubmit(leadId, proposal.request, [], { intent: "orchestrate" });
+        // The user retries their own request.
+        onSubmit(leadId, proposal.request, [], {
+          intent: "orchestrate",
+          typed: true,
+        });
       },
     }),
     [
@@ -10929,7 +10938,8 @@ export default function App({
         session.id,
         racePrompt(race.prompt, race.lanes.length),
         first?.attachments ?? [],
-        { teamMember: { id: `race:${race.id}`, kind: "race" } },
+        // The user retries the lane.
+        { teamMember: { id: `race:${race.id}`, kind: "race" }, typed: true },
       );
       return null;
     },
