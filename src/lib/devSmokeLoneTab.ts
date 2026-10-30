@@ -138,6 +138,72 @@ export function slotAfterLast(
   return end - 4;
 }
 
+/** Where the strip holds `id`: alone, in a split, or nowhere (null). */
+export function stripPlace(
+  strip: ReturnType<SmokeLoneTab["strip"]>,
+  id: string,
+): "alone" | "split" | null {
+  for (const entry of strip) {
+    if ("id" in entry && entry.id === id) return "alone";
+    if ("split" in entry && entry.split.includes(id)) return "split";
+  }
+  return null;
+}
+
+/** The notice after a move, while it is up. */
+const LAYOUT_NOTICE = "[data-layout-notice]";
+
+/**
+ * Put away the notice after a move, if one is up, as its cross does. It
+ * stays a few seconds and is cut out of any page beneath it.
+ */
+export async function dismissLayoutNotice(): Promise<void> {
+  const notice = document.querySelector<HTMLElement>(LAYOUT_NOTICE);
+  if (!notice) return;
+  notice
+    .querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')
+    ?.click();
+  await waitFor(
+    () => !document.querySelector(LAYOUT_NOTICE),
+    2_000,
+    "the notice to go",
+  ).catch(() => {});
+}
+
+/**
+ * Close a check's page as its step ends, and wait until it has gone: the
+ * next step starts at once, and must find the workspace as it is, not as
+ * last drawn (0.1.160's trial: the divider step took the page still
+ * closing behind it for its own, and split nothing). A page
+ * closed out of a split leaves a notice saying what stayed, cut out of any
+ * page beneath it for a few seconds; it is put away too, so the next step's
+ * page is drawn whole. Never throws: it runs as a step's cleanup.
+ */
+export async function closeCheckPage(
+  get: () => { loneTab?: SmokeLoneTab },
+  page: string,
+): Promise<void> {
+  const loneTab = get().loneTab;
+  if (!loneTab) return;
+  const split = stripPlace(loneTab.strip(), page) === "split";
+  loneTab.closePage(page);
+  await waitFor(
+    () =>
+      !stripPlace(get().loneTab?.strip() ?? [], page) &&
+      !document.querySelector(`[data-browser-pane="${CSS.escape(page)}"]`),
+    5_000,
+    "the check's page to close",
+  ).catch(() => {});
+  // The notice follows a moment after the split comes apart.
+  if (split)
+    await waitFor(
+      () => document.querySelector(LAYOUT_NOTICE),
+      1_000,
+      "the notice that the split came apart",
+    ).catch(() => {});
+  await dismissLayoutNotice();
+}
+
 /** Why the strip holds no split of exactly `a` and `b`, or null. */
 export function combinedProblem(
   strip: ReturnType<SmokeLoneTab["strip"]>,
@@ -421,6 +487,6 @@ export async function checkLoneTabDrag(
   } finally {
     window.removeEventListener("pointerdown", onPress, true);
     document.removeEventListener("focusin", onFocus, true);
-    if (page) get().loneTab?.closePage(page);
+    if (page) await closeCheckPage(get, page);
   }
 }
