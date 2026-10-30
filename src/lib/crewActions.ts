@@ -3,6 +3,7 @@ import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import { claudeCheckerModel } from "./crewModels";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import {
+  cardTriesAgain,
   changedAfterCheck,
   markApplied,
   markDiscarded,
@@ -22,6 +23,7 @@ import {
   withFeed,
   withIdea,
   withCheckerOnClaude,
+  withDoingCleared,
   CREW_AGENTS,
   CREW_INSTRUCTIONS_MAX,
   crewAgentsFor,
@@ -57,9 +59,11 @@ import {
   type FeatureCard,
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
+import { projectKey } from "./paths";
 import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
 import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
+import { normalizeProjectPath } from "./recents";
 
 /**
  * What you do with a crew and its cards: Give to crew, Not now, Pause and
@@ -171,7 +175,8 @@ export async function turnOffCrew(path: string) {
         ?.stop(member.sessionId)
         .catch((error) => logError("Stop crew", error));
   updateCrew(path, (current) => {
-    let next: Crew = { ...current, job: undefined };
+    // Every turn stopped: no member is doing anything any more.
+    let next: Crew = withDoingCleared({ ...current, job: undefined });
     for (const card of current.cards)
       if (card.turn) next = withCard(next, { ...card, turn: undefined });
     return next;
@@ -387,16 +392,19 @@ export async function stopCrewCard(
     const current = crewCard(crew, cardId);
     if (!current) return crew;
     const stopped = stopCard({ ...current, turn: undefined }, now);
-    return stopped === current
-      ? crew
-      : withFeed(withCard(crew, stopped), {
-          at: now,
-          kind: "stopped",
-          who: "you",
-          cardId,
-          title: current.title,
-          text: `You stopped “${current.title}”`,
-        });
+    if (stopped === current) return crew;
+    // Whoever took its turn isn't working on it any more.
+    const freed = sessionId
+      ? withDoingCleared(crew, (member) => member.sessionId !== sessionId)
+      : crew;
+    return withFeed(withCard(freed, stopped), {
+      at: now,
+      kind: "stopped",
+      who: "you",
+      cardId,
+      title: current.title,
+      text: `You stopped “${current.title}”`,
+    });
   });
   if (sessionId)
     await crewWorkspace()
@@ -451,7 +459,9 @@ export function resumeCrewCard(
         ? `You sent “${card.title}” back: ${note.trim()}`
         : card.stuck?.reason === "question"
           ? `You answered on “${card.title}”`
-          : `One more round on “${card.title}”`,
+          : cardTriesAgain(card)
+            ? `Trying “${card.title}” again`
+            : `One more round on “${card.title}”`,
     });
   });
   void moveFeatureCard(path, cardId, "building", "");
@@ -613,6 +623,47 @@ export async function discardCrewCard(
   });
   if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
   else await deleteFeatureCard(path, cardId);
+  return null;
+}
+
+/** The crew's card for a Board card it still has (queued, in its loop, Ready or Stuck), on or off. */
+function heldCrewCard(
+  crew: Crew | undefined,
+  cardId: string,
+): CrewCard | undefined {
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  return card && card.stage !== "applied" && card.stage !== "discarded"
+    ? card
+    : undefined;
+}
+
+/**
+ * What Delete also throws away of the crew's work on a card, as a line for
+ * its dialog, or "" when the crew doesn't have it. The crew may be off: its
+ * cards and copy stay, and Delete throws them away all the same.
+ */
+export function crewDeleteNote(crew: Crew | undefined, cardId: string): string {
+  const card = heldCrewCard(crew, cardId);
+  if (!card) return "";
+  if (card.stage === "ready")
+    return "The crew's Ready change is thrown away too.";
+  if (card.stage === "queued") return "It leaves the crew's queue too.";
+  return "The crew's work on it is thrown away too.";
+}
+
+/**
+ * Delete a Board card. One the crew still has (queued, in its loop, Ready
+ * or Stuck) is thrown away with its work first, so the crew never goes on
+ * building, or holding its copy for, a card that's gone. Resolves with why
+ * it couldn't, or null.
+ */
+export async function deleteBoardCard(
+  path: string,
+  cardId: string,
+): Promise<string | null> {
+  if (heldCrewCard(getCrew(path), cardId))
+    return discardCrewCard(path, cardId, "delete");
+  await deleteFeatureCard(path, cardId);
   return null;
 }
 
@@ -1096,4 +1147,33 @@ export function useCrewWorkspace(): CrewWorkspace | null {
 /** The card that holds the copy, so a button can say what waits. */
 export function crewCardHolding(crew: Crew): CrewCard | undefined {
   return cardInCopy(crew);
+}
+
+// ---------------------------------------------------------------------------
+// Tell the crew… from elsewhere (the sidebar): the crew's Board opens with
+// the cursor in its Feed's box.
+
+let tellFor: string | null = null;
+const tellListeners = new Set<() => void>();
+
+const tellKey = (path: string) => projectKey(normalizeProjectPath(path));
+
+/** Ask the crew's Feed to put the cursor in its Tell the crew box. */
+export function focusCrewTell(path: string) {
+  tellFor = tellKey(path);
+  for (const listener of [...tellListeners]) listener();
+}
+
+/** The Feed takes a request for its crew, once: true when there was one. */
+export function takeCrewTell(path: string): boolean {
+  if (tellFor === null || tellFor !== tellKey(path)) return false;
+  tellFor = null;
+  return true;
+}
+
+export function subscribeCrewTell(listener: () => void): () => void {
+  tellListeners.add(listener);
+  return () => {
+    tellListeners.delete(listener);
+  };
 }

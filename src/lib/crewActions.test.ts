@@ -3,13 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowMoreRunsToday,
   applyCrewCard,
+  deleteBoardCard,
   discardCrewCard,
+  focusCrewTell,
   giveCardToCrew,
   notNowIdea,
   pickCrewModels,
   resumeCrewCard,
   setCrewPaused,
   setCrewQuietHours,
+  stopCrewCard,
+  takeCrewTell,
   tellCrew,
   turnOnCrew,
 } from "./crewActions";
@@ -18,6 +22,7 @@ import { CrewRunner } from "./crewRunner";
 import type { Session } from "./session";
 import { afterBuild, afterCheck, queueCard, startCard } from "./crewLoop";
 import {
+  cardInCopy,
   crewCard,
   crewsSnapshot,
   getCrew,
@@ -35,6 +40,7 @@ import {
 } from "./featureCards";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import { crewCardMenu } from "./crewView";
+import { nextCardToStart } from "./crewLimits";
 
 const host = vi.hoisted(() => ({
   apply: vi.fn(),
@@ -436,6 +442,126 @@ describe("card actions", () => {
     });
     expect(card.fix).toBeUndefined();
     expect(card.inbox?.status).toBe("done");
+  });
+});
+
+describe("a card the crew has, gone from the Board", () => {
+  it("Delete throws a queued card away so the crew never builds it", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    const [board] = await addFeatureCards(PATH, [{ title: "Pricing page" }]);
+    await giveCardToCrew(PATH, board, NOON);
+    expect(await deleteBoardCard(PATH, board.id)).toBeNull();
+    expect(featureBoardState(PATH).cards).toEqual([]);
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, board.id)!.stage).toBe("discarded");
+    expect(nextCardToStart(crew)).toBeNull();
+  });
+
+  it("Delete frees the copy a Stuck card held", async () => {
+    const id = await crewWithReadyCard();
+    updateCrew(PATH, (crew) =>
+      withCard(crew, {
+        ...crewCard(crew, id)!,
+        stage: "stuck",
+        stuck: { reason: "rounds", text: "Stuck after 3 rounds" },
+      }),
+    );
+    host.discard.mockResolvedValue(undefined);
+    expect(await deleteBoardCard(PATH, id)).toBeNull();
+    expect(host.discard).toHaveBeenCalledWith(
+      COPY,
+      "base-1",
+      "aven/bot/crew-1",
+    );
+    expect(cardInCopy(getCrew(PATH)!)).toBeUndefined();
+    expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("Delete of an ordinary card just deletes it", async () => {
+    const [board] = await addFeatureCards(PATH, [{ title: "Pricing page" }]);
+    expect(await deleteBoardCard(PATH, board.id)).toBeNull();
+    expect(featureBoardState(PATH).cards).toEqual([]);
+    expect(host.discard).not.toHaveBeenCalled();
+  });
+});
+
+describe("stopping and trying again", () => {
+  it("Stop now leaves the member that took its turn no longer Working", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...withCard(
+        { ...crew, on: true },
+        {
+          ...startCard(
+            queueCard(
+              {
+                id: "c1",
+                title: "Dark mode",
+                brief: "x",
+                from: "you",
+                maxRounds: 3,
+              },
+              1,
+            ),
+            2,
+          ),
+          turn: {
+            role: "builder",
+            sessionId: "b-chat",
+            turnId: "t",
+            sentAt: 3,
+          },
+        },
+      ),
+      members: [
+        {
+          id: "builder",
+          role: "builder",
+          sessionId: "b-chat",
+          doing: { at: 3, text: "Building Dark mode · round 1" },
+        },
+        { id: "checker", role: "checker" },
+      ],
+    }));
+    await stopCrewCard(PATH, "c1", NOON);
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, "c1")!.stuck?.reason).toBe("stopped");
+    expect(crew.members[0].doing).toBeUndefined();
+  });
+
+  it("logs Try again as trying the card again, not as another round", () => {
+    updateCrew(PATH, (crew) =>
+      withCard(
+        { ...crew, on: true },
+        {
+          ...startCard(
+            queueCard(
+              {
+                id: "c1",
+                title: "Dark mode",
+                brief: "x",
+                from: "you",
+                maxRounds: 3,
+              },
+              1,
+            ),
+            2,
+          ),
+          stage: "stuck",
+          stuck: { reason: "failed", text: "Beetle's turn didn't finish" },
+        },
+      ),
+    );
+    resumeCrewCard(PATH, "c1", undefined, NOON);
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe("Trying “Dark mode” again");
+  });
+});
+
+describe("Tell the crew… from elsewhere", () => {
+  it("is taken once, by that crew's Feed", () => {
+    focusCrewTell(`${PATH}/`);
+    expect(takeCrewTell("/Users/me/other")).toBe(false);
+    expect(takeCrewTell(PATH)).toBe(true);
+    expect(takeCrewTell(PATH)).toBe(false);
   });
 });
 

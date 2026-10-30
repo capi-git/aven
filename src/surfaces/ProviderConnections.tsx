@@ -100,6 +100,12 @@ function joinAnd(items: string[]): string {
 
 const ids = (entries: McpEntry[]) => entries.map((entry) => entry.id);
 
+/** "Codex isn’t installed.", for agents Aven found no CLI for. */
+const notInstalled = (agents: readonly Provider[]) =>
+  `${joinAnd(agents.map((agent) => MCP_AGENT_LABEL[agent]))} ${
+    agents.length > 1 ? "aren’t" : "isn’t"
+  } installed.`;
+
 const agentNames = (entries: McpEntry[]) =>
   joinAnd(
     [...new Set(entries.map((entry) => entry.provider))].map(
@@ -131,6 +137,37 @@ function turnedOffWhere(entries: McpEntry[]): string {
   const codex = entries.some((entry) => entry.provider === "codex");
   if (claude && codex) return "in Codex, and for Claude in this project";
   return claude ? "for Claude in this project" : "in Codex";
+}
+
+/**
+ * Turns each entry off or on in turn, returning the agents' notes. When one
+ * fails after others changed, the error says what did change, as Remove's
+ * does.
+ */
+async function setEachEnabled(
+  entries: McpEntry[],
+  folder: string,
+  enabled: boolean,
+  name: string,
+): Promise<string[]> {
+  const notes: string[] = [];
+  const done: McpEntry[] = [];
+  for (const entry of entries) {
+    try {
+      const result = await setServerEnabled(entry, folder, enabled);
+      if (result?.note) notes.push(result.note);
+      done.push(entry);
+    } catch (error) {
+      if (!done.length) throw error;
+      const where = enabled
+        ? `in ${joinAnd(done.map(entryLabel))}`
+        : turnedOffWhere(done);
+      throw new Error(
+        `Turned ${enabled ? "on" : "off"} ${name} ${where}, but ${entryLabel(entry)} failed: ${errorText(error)}`,
+      );
+    }
+  }
+  return notes;
 }
 
 const BUSY_LABEL: Record<McpAction["kind"], string> = {
@@ -187,10 +224,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         .then((dir) => provider.list(dir))
         .then(
           (connections): Inventory => ({ status: "loaded", connections }),
-          (error: unknown): Inventory => ({
-            status: "error",
-            message: errorText(error),
-          }),
+          (error: unknown): Inventory =>
+            // An agent that isn't installed has nothing to fix here.
+            error instanceof connectionLists.ProviderNotInstalledError
+              ? { status: "missing" }
+              : { status: "error", message: errorText(error) },
         )
         .then((inventory) => {
           if (inventory.status === "loaded")
@@ -334,11 +372,12 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         void run(
           label,
           async () => {
-            const notes: string[] = [];
-            for (const entry of switchable) {
-              const result = await setServerEnabled(entry, folder, false);
-              if (result?.note) notes.push(result.note);
-            }
+            const notes = await setEachEnabled(
+              switchable,
+              folder,
+              false,
+              row.name,
+            );
             if (tucked.length) setMcpHidden(ids(tucked), true);
             return [
               `Turned off ${row.name} ${turnedOffWhere(switchable)}.`,
@@ -364,11 +403,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         void run(
           label,
           async () => {
-            const notes: string[] = [];
-            for (const entry of off) {
-              const result = await setServerEnabled(entry, folder, true);
-              if (result?.note) notes.push(result.note);
-            }
+            const notes = await setEachEnabled(off, folder, true, row.name);
             return [`Turned on ${row.name}.`, ...notes].join(" ");
           },
           providersOf(off),
@@ -460,6 +495,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           <div className="settings-group-surface">
             <AddServerForm
               cwd={cwd}
+              missing={overview.missing}
               busy={busy !== null}
               onCancel={() => setAdding(false)}
               onAdd={async (draft, providers, scope) => {
@@ -556,6 +592,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                 : "ChatGPT apps come with your Codex sign-in; manage them in ChatGPT.",
             )
             .join(" ")}
+        </p>
+      ) : null}
+      {overview.missing.length ? (
+        <p className="mcp-footnote" data-mcp-missing>
+          {notInstalled(overview.missing)}
         </p>
       ) : null}
     </div>
@@ -885,11 +926,14 @@ function McpSkeleton() {
 
 function AddServerForm({
   cwd,
+  missing,
   busy,
   onCancel,
   onAdd,
 }: {
   cwd: string;
+  /** Agents that aren't installed: offered unticked, and not to be ticked. */
+  missing: readonly Provider[];
   busy: boolean;
   onCancel: () => void;
   onAdd: (
@@ -907,7 +951,12 @@ function AddServerForm({
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<McpServerDraft>) =>
     setDraft((prev) => ({ ...prev, ...patch }));
-  const providers = (["claude", "codex"] as const).filter((id) => targets[id]);
+  // An agent found missing after the form opened is unticked too.
+  const chosen: Record<Provider, boolean> = {
+    claude: targets.claude && !missing.includes("claude"),
+    codex: targets.codex && !missing.includes("codex"),
+  };
+  const providers = (["claude", "codex"] as const).filter((id) => chosen[id]);
 
   const submit = () => {
     setError(null);
@@ -1012,7 +1061,7 @@ function AddServerForm({
               inputMode="url"
             />
           </label>
-          {targets.claude ? (
+          {chosen.claude ? (
             <label className="provider-field">
               <span>Claude headers</span>
               <textarea
@@ -1024,7 +1073,7 @@ function AddServerForm({
               />
             </label>
           ) : null}
-          {targets.codex ? (
+          {chosen.codex ? (
             <label className="provider-field">
               <span>Codex token variable</span>
               <input
@@ -1047,10 +1096,14 @@ function AddServerForm({
         <span>Add to</span>
         <span className="provider-targets">
           {PROVIDERS.map((provider) => (
-            <label key={provider.id}>
+            <label
+              key={provider.id}
+              data-missing={missing.includes(provider.id) || undefined}
+            >
               <input
                 type="checkbox"
-                checked={targets[provider.id]}
+                checked={chosen[provider.id]}
+                disabled={missing.includes(provider.id)}
                 onChange={(event) =>
                   setTargets((prev) => ({
                     ...prev,
@@ -1063,7 +1116,12 @@ function AddServerForm({
           ))}
         </span>
       </div>
-      {targets.claude ? (
+      {missing.length ? (
+        <p className="skills-note" data-mcp-missing>
+          {notInstalled(missing)}
+        </p>
+      ) : null}
+      {chosen.claude ? (
         <div className="provider-field">
           <span>Claude uses it in</span>
           <Select
@@ -1077,7 +1135,7 @@ function AddServerForm({
           />
         </div>
       ) : null}
-      {targets.codex ? (
+      {chosen.codex ? (
         <p className="skills-note">Codex servers apply to all your projects.</p>
       ) : null}
       {error ? (

@@ -11,7 +11,7 @@ import {
   resolveWorkspaceStrip,
   restoreStripSnapshot,
   stripCombineUndo,
-  stripView,
+  stripViewReshapes,
   stripViewWith,
   undoStripLayout,
   type StripEntry,
@@ -215,14 +215,13 @@ describe("a tab let go on a tab in a pane's row", () => {
     expect(keep).toEqual(["notes", "page"]);
     const after = applyStripView(before, next);
     expect(keys(after)).toEqual(["split(chat|page|notes)"]);
-    // Undo layout takes the snapshot of the view in front back: the two
-    // panes as they were. The tab brought in stays with the split, in a
-    // pane's stack, as any tab moved in from the strip does.
-    const undone = undoStripLayout(after, stripView(before), SPLIT)!;
-    expect(keys(undone)).toEqual(["split(chat|page)"]);
-    expect(Object.values(spaceAt(undone, 0).view.groups).flat()).toContain(
-      "notes",
-    );
+    // The tab left the strip, so the view in front alone cannot undo the
+    // move: Undo layout puts the whole strip back, the tab on its own.
+    expect(stripViewReshapes(before, next)).toBe(true);
+    const undone = restoreStripSnapshot(after, before);
+    expect(keys(undone)).toEqual(["notes", "split(chat|page)"]);
+    expect(spaceAt(undone, 1).view.groups).toEqual(view().groups);
+    expect(undone.front).toBe(SPLIT);
   });
 });
 

@@ -625,15 +625,19 @@ function CrewBody({
               <select
                 className="aven-field crew-settings-select"
                 value={quiet.start - (quiet.start % 60)}
-                onChange={(event) =>
-                  setCrewQuietHours(path, {
-                    ...quiet,
-                    start: Number(event.target.value),
-                  })
-                }
+                onChange={(event) => {
+                  const start = Number(event.target.value);
+                  // The same start and end would never be quiet.
+                  if (start !== quiet.end)
+                    setCrewQuietHours(path, { ...quiet, start });
+                }}
               >
                 {HOURS.map((minutes) => (
-                  <option key={minutes} value={minutes}>
+                  <option
+                    key={minutes}
+                    value={minutes}
+                    disabled={minutes === quiet.end}
+                  >
                     {formatClockMinutes(minutes)}
                   </option>
                 ))}
@@ -644,15 +648,18 @@ function CrewBody({
               <select
                 className="aven-field crew-settings-select"
                 value={quiet.end - (quiet.end % 60)}
-                onChange={(event) =>
-                  setCrewQuietHours(path, {
-                    ...quiet,
-                    end: Number(event.target.value),
-                  })
-                }
+                onChange={(event) => {
+                  const end = Number(event.target.value);
+                  if (end !== quiet.start)
+                    setCrewQuietHours(path, { ...quiet, end });
+                }}
               >
                 {HOURS.map((minutes) => (
-                  <option key={minutes} value={minutes}>
+                  <option
+                    key={minutes}
+                    value={minutes}
+                    disabled={minutes === quiet.start}
+                  >
                     {formatClockMinutes(minutes)}
                   </option>
                 ))}

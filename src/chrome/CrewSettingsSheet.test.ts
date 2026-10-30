@@ -178,3 +178,29 @@ describe("the crew's settings", () => {
     expect(buttonNamed("Remove from crew")?.disabled).toBe(true);
   });
 });
+
+describe("quiet hours", () => {
+  it("can't start and end at the same hour, which would never be quiet", async () => {
+    await open();
+    const [from, to] = [
+      ...sheet().querySelectorAll<HTMLSelectElement>(
+        ".crew-settings-hours select",
+      ),
+    ];
+    // 11 pm to 8 am: 8 am can't be the start, nor 11 pm the end.
+    expect(
+      [...from.options].find((option) => option.value === "480")?.disabled,
+    ).toBe(true);
+    expect(
+      [...to.options].find((option) => option.value === "1380")?.disabled,
+    ).toBe(true);
+    await pick(from, "480");
+    await pick(to, "1380");
+    expect(getCrew(PATH)!.limits.quiet).toMatchObject({
+      start: 1380,
+      end: 480,
+    });
+    await pick(from, "1320");
+    expect(getCrew(PATH)!.limits.quiet.start).toBe(1320);
+  });
+});

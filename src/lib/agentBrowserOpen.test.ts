@@ -276,10 +276,22 @@ describe("an agent builds on one page", () => {
     const results = urls.map((url) => {
       const result = openAgentBrowserTab(workspace, url, { chat }, createId);
       workspace = result.workspace;
+      // Aven navigates the page, which then reports its new address.
+      if (result.refresh === "navigate")
+        workspace = updateBrowserTab(workspace, result.tab.id, { url });
       return result;
     });
     return { workspace, results };
   };
+
+  it("keeps the saved address until the page itself has navigated", () => {
+    const first = openAll(EMPTY_BROWSER, [mock]).workspace;
+    const next = openAgentBrowserTab(first, `${mock}?v=2`, { chat: "chat-a" });
+    expect(next.refresh).toBe("navigate");
+    // Aven may yet find the user using the page and leave it as it is.
+    expect(next.tab.url).toBe(mock);
+    expect(next.workspace.tabs[0].url).toBe(mock);
+  });
 
   it("reloads the same address and navigates another query, fragment or mock file in one tab", () => {
     const { workspace, results } = openAll(EMPTY_BROWSER, [
@@ -367,7 +379,8 @@ describe("an agent builds on one page", () => {
     );
     expect([query.tab.id, query.refresh]).toEqual(["page-1", "navigate"]);
     expect(query.workspace.tabs).toHaveLength(1);
-    expect(query.workspace.tabs[0].url).toBe(`${mock}?v=2#hero`);
+    // The page shows the new address once Aven has navigated it.
+    expect(query.workspace.tabs[0].url).toBe(mock);
     // Nobody else's page is reused for a new tab, even at the same address.
     const user = addRetainedBrowserTab(EMPTY_BROWSER, {
       id: "mine",

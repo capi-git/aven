@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LayoutNode } from "../lib/layout";
-import { MOTION_ROOT_ATTRIBUTE } from "../lib/motion";
+import { MOTION_BOUND_SLACK_MS, MOTION_ROOT_ATTRIBUTE } from "../lib/motion";
 import {
   paneGlideKeyframes,
   SWITCH_MS,
@@ -241,6 +241,28 @@ describe("strip switches and pane glides", () => {
       { transform: "translate(-500px, 0px)" },
       { transform: "translate(0px, 0px)" },
     ]);
+  });
+
+  it("tells native pages to take their final bounds once a glide ends", async () => {
+    vi.useFakeTimers();
+    await render({ glide: 0 });
+    picture("web");
+    const layouts = vi.fn();
+    window.addEventListener("supermono:workspace-layout", layouts);
+    try {
+      // Move: the panes swap places; the pictured page glides with its pane.
+      await render({ layout: columns("web", "chat"), glide: 1 });
+      expect(animationsOf(surface("web"))).toHaveLength(1);
+      layouts.mockClear();
+      // A timeline WebKit holds back never finishes the glide itself: its
+      // bound ends it, and a page placed while it ran is placed again.
+      await act(async () =>
+        vi.advanceTimersByTimeAsync(ZOOM_GLIDE_MS + MOTION_BOUND_SLACK_MS),
+      );
+      expect(layouts).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("supermono:workspace-layout", layouts);
+    }
   });
 
   it("scales a pictured page, clips a growing page of HTML and never scales a shrinking one", () => {

@@ -1,6 +1,7 @@
 import { parseHandoff, parseIdeas, parseVerdict } from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import {
+  allCrewRunsToday,
   crewGate,
   crewNoMemberGate,
   ideaMayAutoStart,
@@ -20,6 +21,7 @@ import {
   earlierSecurityFindings,
   reviewMoved,
   roundLimit,
+  securityOff,
   withBuilderScope,
   queueCard,
   startCard,
@@ -52,7 +54,6 @@ import {
   crewMemberById,
   crewsAllRunsPerDay,
   outsideScope,
-  crewRunsToday,
   crewsSnapshot,
   getCrew,
   migrateBotsIntoCrews,
@@ -66,6 +67,7 @@ import {
   withIdea,
   withMemberId,
   withCheckerOnClaude,
+  withDoingCleared,
   withoutFallbacks,
   type Crew,
   type CrewCard,
@@ -325,6 +327,8 @@ export class CrewRunner {
   /** Turns already read, by their message's id: each is read once. */
   private handled = new Set<string>();
   private working: ReadonlySet<string> = new Set();
+  /** Busy chats a turn waits for: once one is free, the crews are looked at. */
+  private waitingOn = new Set<string>();
 
   constructor(deps: CrewRunnerDeps) {
     this.deps = deps;
@@ -345,6 +349,17 @@ export class CrewRunner {
     for (const crew of activeCrews())
       if (crew.job && crew.job.owner !== this.deps.owner)
         updateCrew(crew.path, (current) => ({ ...current, job: undefined }));
+    // So did their members' lines, but for a card's turn, which is read
+    // again (see `recover`) and clears its own.
+    for (const crew of activeCrews())
+      updateCrew(crew.path, (current) =>
+        withDoingCleared(current, (member) =>
+          current.cards.some(
+            (card) =>
+              !!member.sessionId && card.turn?.sessionId === member.sessionId,
+          ),
+        ),
+      );
     this.unsubscribe.push(
       subscribeCrews(() => {
         this.watchTurns();
@@ -362,6 +377,7 @@ export class CrewRunner {
     for (const id of [this.tick, this.soon, this.heartbeat])
       if (id != null) this.deps.clearTimer(id);
     this.tick = this.soon = this.heartbeat = undefined;
+    this.waitingOn.clear();
     for (const [key, turn] of [...this.turns]) {
       if (turn.timer != null) this.deps.clearTimer(turn.timer);
       // No turn outlives the runner that keeps its limits.
@@ -438,18 +454,13 @@ export class CrewRunner {
   }
 
   private gate(crew: Crew, now: number): CrewGate {
-    // Every crew's runs today, Fixers included, for the ceiling.
-    const allRuns = activeCrews().reduce(
-      (sum, item) =>
-        sum + crewRunsToday(item, now) + this.deps.fixerRuns(item.path, now),
-      0,
-    );
     return crewGate({
       crew,
       now,
       weeklyUsed: this.deps.weeklyUsed(now),
       fixerRuns: this.deps.fixerRuns(crew.path, now),
-      allRuns,
+      // Every crew's runs today, Fixers included, for the ceiling.
+      allRuns: allCrewRunsToday(now, (path) => this.deps.fixerRuns(path, now)),
       allRunsCap: crewsAllRunsPerDay(),
     });
   }
@@ -507,6 +518,9 @@ export class CrewRunner {
           : role === "security"
             ? cardSecurity(crew)
             : cardChecker(crew, inCopy);
+      // Security is off or gone: the Checker's pass is the card's last check.
+      if (!member && role === "security")
+        return this.withoutSecurity(crew, inCopy);
       // Every Builder (or Checker) is off or gone: the card waits, and says why.
       if (!member) return this.hold(crew, crewNoMemberGate(role));
       const gate = this.gate(crew, now);
@@ -560,6 +574,42 @@ export class CrewRunner {
       return this.sendScoutTurn(path, cards, "security");
     }
     this.clearHold(crew);
+  }
+
+  /**
+   * Security was turned off or removed while a card the Checker passed
+   * waited for it: the card is Ready on the Checker's pass, and the feed
+   * says Security didn't review it. Without a passed change, it waits.
+   */
+  private async withoutSecurity(crew: Crew, card: CrewCard) {
+    const now = this.deps.now();
+    if (!securityOff(card, now))
+      return this.hold(crew, crewNoMemberGate("security"));
+    const checkerId =
+      card.checkerId ?? cardChecker(crew, card)?.id ?? "checker";
+    let ready = false;
+    updateCrew(crew.path, (current) => {
+      const known = crewCard(current, card.id);
+      const step =
+        known && !known.turn && !known.paused && securityOff(known, now);
+      if (!step || cardSecurity(current)) return current;
+      ready = true;
+      const checker = this.deps.name(current, checkerId);
+      const noted = withFeed(
+        { ...current, hold: undefined },
+        {
+          at: now,
+          kind: "note",
+          who: "aven",
+          cardId: card.id,
+          title: card.title,
+          text: `Security is off, so “${card.title}” is Ready on ${checker}'s check alone`,
+        },
+      );
+      return this.commit(noted, step, "checker", now, checkerId);
+    });
+    if (ready)
+      await Promise.resolve(this.deps.board.move(crew.path, card.id, "review"));
   }
 
   /** A small Scout idea starts by itself: queued, counted, and said in the feed. */
@@ -642,6 +692,19 @@ export class CrewRunner {
   }
 
   /**
+   * The member's chat is at work (you're talking to it, or it waits on you):
+   * its turn waits, and nothing is prepared or saved meanwhile. The next
+   * look comes once the chat is free (see `observe`), or at the next tick.
+   */
+  private memberChatAtWork(crew: Crew, memberId: string): boolean {
+    const sessionId = crewMemberById(crew, memberId)?.sessionId;
+    const chat = sessionId ? this.chatNow(sessionId) : undefined;
+    if (!chat || !chatAtWork(chat)) return false;
+    this.waitingOn.add(chat.id);
+    return true;
+  }
+
+  /**
    * Make sure the crew's copy exists (beside the Fixer's, never the same),
    * note which of its files a read-only turn may not write, and, for a new
    * card or the Scout, match it to your files.
@@ -717,7 +780,7 @@ export class CrewRunner {
       this.heartbeat = this.deps.setTimer(() => this.beat(), HEARTBEAT_MS);
   }
 
-  private endTurn(path: string, turn: LiveTurn) {
+  private endTurn(path: string, turn: LiveTurn, backOff = false) {
     const key = projectKey(path);
     if (turn.timer != null) this.deps.clearTimer(turn.timer);
     turn.timer = undefined;
@@ -728,6 +791,12 @@ export class CrewRunner {
     if (!this.turns.size && this.heartbeat != null) {
       this.deps.clearTimer(this.heartbeat);
       this.heartbeat = undefined;
+    }
+    // A turn that waits for a busy chat backs off: the pause wins over the
+    // immediate look its own saves asked for, so it never spins.
+    if (backOff && this.soon != null) {
+      this.deps.clearTimer(this.soon);
+      this.soon = undefined;
     }
     this.schedule(AFTER_TURN_MS);
   }
@@ -813,7 +882,12 @@ export class CrewRunner {
     const key = projectKey(path);
     const now = this.deps.now();
     const before = getCrew(path);
-    if (!before || !claimCrewJob(path, this.deps.owner, now)) return;
+    if (
+      !before ||
+      this.memberChatAtWork(before, memberId) ||
+      !claimCrewJob(path, this.deps.owner, now)
+    )
+      return;
     const onAt = before.onAt;
     const turn: LiveTurn = {
       role,
@@ -873,7 +947,8 @@ export class CrewRunner {
               ? withCard(current, card!)
               : current,
           );
-        return this.endTurn(path, turn);
+        this.waitingOn.add(chat.id);
+        return this.endTurn(path, turn, true);
       }
       turn.sessionId = chat.id;
       this.updateWorking();
@@ -1146,6 +1221,13 @@ export class CrewRunner {
     } catch (error) {
       logError("Crew", error);
     } finally {
+      // Its member's line goes with it, however it ended (stopped, thrown
+      // away, or the crew turned off): it never shows Working afterwards.
+      updateCrew(path, (current) =>
+        withMemberId(current, turn.memberId, (member) =>
+          member.doing ? { ...member, doing: undefined } : member,
+        ),
+      );
       this.endTurn(path, turn);
     }
   }
@@ -1413,10 +1495,15 @@ export class CrewRunner {
     const key = projectKey(path);
     const now = this.deps.now();
     const before = getCrew(path);
-    if (!before || !claimCrewJob(path, this.deps.owner, now)) return;
+    if (!before) return;
     const looker =
       by === "security" ? cardSecurity(before) : crewMember(before, "scout");
-    if (!looker) return releaseCrewJob(path, this.deps.owner);
+    if (
+      !looker ||
+      this.memberChatAtWork(before, looker.id) ||
+      !claimCrewJob(path, this.deps.owner, now)
+    )
+      return;
     const sweep = by === "security";
     const turn: LiveTurn = {
       role: by,
@@ -1440,7 +1527,10 @@ export class CrewRunner {
         throw new Error(
           `Couldn't open ${this.deps.name(crew, turn.memberId)}'s chat.`,
         );
-      if (chatAtWork(chat)) return this.endTurn(path, turn);
+      if (chatAtWork(chat)) {
+        this.waitingOn.add(chat.id);
+        return this.endTurn(path, turn, true);
+      }
       turn.sessionId = chat.id;
       this.updateWorking();
       const left = ideasLeft(crew, now);
@@ -1525,14 +1615,27 @@ export class CrewRunner {
       this.armTimeout(path, turn, crew.limits.turnMinutes);
     } catch (error) {
       logError(sweep ? "Crew security sweep" : "Crew scout", error);
-      updateCrew(path, (current) => ({
-        ...current,
-        // It looked, even if it failed: no retry loop.
-        ...(sweep
-          ? { sweepAt: this.deps.now() }
-          : { scoutAt: this.deps.now() }),
-        lastError: { at: this.deps.now(), text: errorText(error) },
-      }));
+      const at = this.deps.now();
+      const text = errorText(error);
+      updateCrew(path, (current) =>
+        // It looked, even if it failed: no retry loop. The feed says why.
+        withFeed(
+          {
+            ...current,
+            ...(sweep ? { sweepAt: at } : { scoutAt: at }),
+            lastError: { at, text },
+          },
+          {
+            at,
+            kind: "hold",
+            who: "aven",
+            member: turn.memberId,
+            text: sweep
+              ? `${this.deps.name(current, turn.memberId)}'s security sweep didn't go: ${text}`
+              : `${this.deps.name(current, turn.memberId)} couldn't look for ideas: ${text}`,
+          },
+        ),
+      );
       this.endTurn(path, turn);
     }
   }
@@ -1555,8 +1658,12 @@ export class CrewRunner {
       replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
       outcome?.text?.trim() ||
       "";
+    // A look that failed, was stopped, or ran too long adds nothing.
     const ideas =
-      outcome?.status === "failed" || turn.timedOut
+      outcome?.status === "failed" ||
+      outcome?.status === "cancelled" ||
+      turn.stopping ||
+      turn.timedOut
         ? []
         : parseIdeas(reply).slice(
             0,
@@ -1617,10 +1724,17 @@ export class CrewRunner {
 
   /**
    * A turn that waits on you (an approval, a question) puts its card in
-   * Needs you while it waits, and back once you answer.
+   * Needs you while it waits, and back once you answer. A busy chat a turn
+   * waited for is free again: the crews are looked at now.
    */
   observe(sessions: readonly Session[]) {
     if (!this.running) return;
+    for (const id of [...this.waitingOn]) {
+      const chat = sessions.find((session) => session.id === id);
+      if (chat && chatAtWork(chat)) continue;
+      this.waitingOn.delete(id);
+      this.schedule();
+    }
     for (const [key, turn] of this.turns) {
       if (!turn.cardId || !turn.sessionId) continue;
       const chat = sessions.find((session) => session.id === turn.sessionId);

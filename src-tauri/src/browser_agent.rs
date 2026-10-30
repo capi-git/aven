@@ -143,8 +143,15 @@ enum PendingKind {
 /// A window's list of its tabs, asked for by `tabs` and by a tab id.
 struct PendingTabs {
     owner: String,
-    sender: mpsc::Sender<Vec<TabRecord>>,
+    sender: mpsc::Sender<(Vec<TabRecord>, Option<HashSet<String>>)>,
 }
+
+/// The projects each window that answered says it shows. Every window
+/// remembers every project's tabs; see `tab_listing`.
+type ShownProjects = HashMap<String, HashSet<String>>;
+
+/// Each window's list of its tabs.
+type WindowTabs = Vec<(String, Vec<TabRecord>)>;
 
 /// One browser tab as the window that shows it describes it. Pages and
 /// titles come from websites; nothing here is trusted beyond its bounds.
@@ -739,6 +746,7 @@ pub fn browser_agent_bind(
     any_tab: Option<bool>,
     own_browser_ids: Option<Vec<String>>,
     work_dir: Option<String>,
+    user_typed: Option<bool>,
 ) -> Result<BrowserAgentBinding, String> {
     crate::browser::label(&caller, "agent-check")?;
     let own = own_browser_ids.unwrap_or_default();
@@ -783,6 +791,10 @@ pub fn browser_agent_bind(
         // A chat without a usable folder still browses; only export needs it.
         grant.work_dir = work_dir.filter(|folder| valid_simulator_project(folder));
         crate::desktop_control::bind_session(token, actor.as_ref())?;
+        // Only a message the user wrote ends their Stop and declines.
+        if user_typed == Some(true) {
+            crate::desktop_control::user_turn(token);
+        }
     }
     Ok(BrowserAgentBinding {
         socket_path: server.socket_path.clone(),
@@ -997,6 +1009,7 @@ pub fn browser_agent_tabs_result(
     caller: Webview,
     request_id: String,
     tabs: Vec<TabRecord>,
+    shown_projects: Option<Vec<String>>,
 ) -> Result<(), String> {
     crate::browser::label(&caller, "agent-check")?;
     let Some(Ok(server)) = SERVER.get() else {
@@ -1017,7 +1030,14 @@ pub fn browser_agent_tabs_result(
         .take(500)
         .map(TabRecord::bounded)
         .collect();
-    let _ = request.sender.send(tabs);
+    let shown = shown_projects.map(|projects| {
+        projects
+            .into_iter()
+            .filter(|project| project.len() <= 4096)
+            .take(500)
+            .collect()
+    });
+    let _ = request.sender.send((tabs, shown));
     Ok(())
 }
 
@@ -2238,7 +2258,7 @@ fn resolve_page(
         .get_webview(&window)
         .filter(|_| crate::window::is_workspace_label(&window))
         .ok_or("That tab's window has closed. Run {\"action\":\"tabs\"} again.")?;
-    let (lists, _) = collect_tabs(server, &grant.session_id, std::slice::from_ref(&window));
+    let (lists, _, _) = collect_tabs(server, &grant.session_id, std::slice::from_ref(&window));
     let record = lists
         .into_iter()
         .flat_map(|(_, tabs)| tabs)
@@ -2336,12 +2356,13 @@ fn tab_step(request: &Request) -> crate::desktop_presence::Step {
 }
 
 /// Ask `windows` for their tabs, all at once, and wait at most `TABS_WAIT`.
-/// Returns each window's list and the windows that did not answer.
+/// Returns each window's list, the windows that did not answer, and the
+/// projects each says it shows.
 fn collect_tabs(
     server: &Server,
     session_id: &str,
     windows: &[String],
-) -> (Vec<(String, Vec<TabRecord>)>, Vec<String>) {
+) -> (WindowTabs, Vec<String>, ShownProjects) {
     let mut waiting = Vec::new();
     for window in windows {
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -2367,6 +2388,7 @@ fn collect_tabs(
     let deadline = Instant::now() + TABS_WAIT;
     let mut lists = Vec::new();
     let mut missing = Vec::new();
+    let mut shown = ShownProjects::new();
     for (window, request_id, receiver, emitted) in waiting {
         let answer = emitted
             .then(|| {
@@ -2379,11 +2401,16 @@ fn collect_tabs(
             pending.remove(&request_id);
         }
         match answer {
-            Some(tabs) => lists.push((window, tabs)),
+            Some((tabs, projects)) => {
+                if let Some(projects) = projects {
+                    shown.insert(window.clone(), projects);
+                }
+                lists.push((window, tabs));
+            }
             None => missing.push(window),
         }
     }
-    (lists, missing)
+    (lists, missing, shown)
 }
 
 /// Ask `window` to wake (or first load) one of its tabs, out of sight, and
@@ -2452,8 +2479,8 @@ fn list_tabs(server: &Server, grant: &Grant) -> Value {
                 .unwrap_or(0),
         )
     });
-    let (lists, missing) = collect_tabs(server, &grant.session_id, &windows);
-    tab_listing(grant, lists, &missing, |window, native| {
+    let (lists, missing, shown) = collect_tabs(server, &grant.session_id, &windows);
+    tab_listing(grant, lists, &missing, &shown, |window, native| {
         let owner = server.app.get_webview(window)?;
         crate::browser::agent_tab_states(&owner, &[native.to_owned()])
             .into_iter()
@@ -2464,12 +2491,36 @@ fn list_tabs(server: &Server, grant: &Grant) -> Value {
 /// The `tabs` result from each window's list: ids agents can use, the live
 /// title and address of pages that are awake, and whose each tab is for the
 /// asking chat. Its project's tabs come first, then those on screen.
+///
+/// Every window remembers every project's tabs, so a window's copy of a tab
+/// whose project another window shows (and it does not) is left out, unless
+/// it has a page here: it may be one the user closed there. A project no
+/// window shows is listed as each window remembers it, once.
 fn tab_listing(
     grant: &Grant,
     lists: Vec<(String, Vec<TabRecord>)>,
     missing: &[String],
+    shown: &ShownProjects,
     live: impl Fn(&str, &str) -> Option<Value>,
 ) -> Value {
+    // The windows that show each project, its detached windows included.
+    let mut owners: HashMap<String, HashSet<String>> = HashMap::new();
+    for (window, projects) in shown {
+        for project in projects {
+            owners
+                .entry(project.clone())
+                .or_default()
+                .insert(window.clone());
+        }
+    }
+    for (window, tabs) in &lists {
+        for tab in tabs.iter().filter(|tab| tab.detached) {
+            owners
+                .entry(tab.project.clone())
+                .or_default()
+                .insert(window.clone());
+        }
+    }
     let mut entries = Vec::new();
     for (window, tabs) in lists {
         for tab in tabs {
@@ -2481,6 +2532,12 @@ fn tab_listing(
                 .native_id
                 .as_deref()
                 .and_then(|native| live(&window, native));
+            let elsewhere = owners
+                .get(&tab.project)
+                .is_some_and(|windows| !windows.is_empty() && !windows.contains(&window));
+            if elsewhere && state.is_none() && !(chat_window && tab.scope) {
+                continue;
+            }
             let text = |key: &str, saved: &str| {
                 state
                     .as_ref()
@@ -2523,9 +2580,30 @@ fn tab_listing(
             {
                 entry["loading"] = Value::Bool(true);
             }
-            entries.push((!(chat_window && tab.scope), !tab.on_screen, entry));
+            // Where several windows hold one tab, the copy with a live page
+            // (then the one on screen, then the chat's own window's) stands
+            // for it.
+            let preference = (state.is_some(), tab.on_screen, chat_window && tab.scope);
+            entries.push((
+                tab.surface_id,
+                preference,
+                (!(chat_window && tab.scope), !tab.on_screen, entry),
+            ));
         }
     }
+    let mut best: HashMap<String, (usize, (bool, bool, bool))> = HashMap::new();
+    for (index, (surface, preference, _)) in entries.iter().enumerate() {
+        let current = best.entry(surface.clone()).or_insert((index, *preference));
+        if *preference > current.1 {
+            *current = (index, *preference);
+        }
+    }
+    let mut entries: Vec<_> = entries
+        .into_iter()
+        .enumerate()
+        .filter(|(index, (surface, _, _))| best.get(surface).is_some_and(|(kept, _)| kept == index))
+        .map(|(_, (_, _, entry))| entry)
+        .collect();
     entries.sort_by_key(|(other, hidden, _)| (*other, *hidden));
     // At most 200 tabs, and only as many as fit the reply.
     let mut room = TABS_REPLY_BYTES;
@@ -3012,15 +3090,18 @@ without the site's menus. Export saves the same into the chat's project as
 title, and its images downloaded beside it in <to>/images/ through the page's
 own signed-in session, with relative links; images it cannot save keep their
 web address and are listed as skipped. Export refuses to replace an existing
-file unless "replace":true. It saves at most 150 images, 10 MB each and 100 MB
-in all, and stops after about 75 seconds. Toggles closed in the page have no
-content to save; the result says so. Reading never changes the user's tab: no
-navigation, focus or scrolling. A sleeping tab is loaded again in the
+file unless "replace":true, which replaces only <name>.md and the images its
+earlier export saved; other files in images/ are kept, and a new image whose
+name is taken gets a new number. It saves at most 150 images, 10 MB each and
+100 MB in all, and stops after about 75 seconds. Toggles closed in the page
+have no content to save; the result says so. Reading never changes the user's
+tab: no navigation, focus or scrolling. A sleeping tab is loaded again in the
 background to read it ("woke":true). Ids from list work too. Tabs outside this
 chat's project need Settings > Browser > Agents can read any open tab (on
 unless the user turned it off); without it, tabs lists this project's tabs.
 Using any tab that is not yours shows the user a bar naming you and the tab;
-if they press Stop, other tabs stay closed to you until their next message.
+if they press Stop, other tabs stay closed to you until their next message,
+and if they press Pause, until they resume or your reply ends.
 Act (click, fill, press, scroll, navigate, upload) in the user's tabs only
 when they asked; never type passwords, sign-in codes or card details into a
 tab that is not yours (Aven refuses). If the user presses Stop, other tabs
@@ -5040,7 +5121,13 @@ mod tests {
                 .then(|| json!({"title":"Live title","url":"https://example.com/live","loading":true}))
                 .or_else(|| (native == "native-own" || native == "native-w1").then(|| json!({"title":""})))
         };
-        let listed = tab_listing(&chat(true), lists.clone(), &["window-2".into()], live);
+        let listed = tab_listing(
+            &chat(true),
+            lists.clone(),
+            &["window-2".into()],
+            &ShownProjects::new(),
+            live,
+        );
         let tabs = listed["tabs"].as_array().unwrap();
         let ids: Vec<&str> = tabs.iter().map(|tab| tab["id"].as_str().unwrap()).collect();
         // The chat's project first (on screen first), then everything else.
@@ -5065,7 +5152,7 @@ mod tests {
         assert_eq!(listed["untrusted"], crate::browser_export::UNTRUSTED);
         assert!(listed["missing"].as_str().unwrap().starts_with("Window 3"));
         // With the setting off, only the chat's project, and it says why.
-        let off = tab_listing(&chat(false), lists, &[], live);
+        let off = tab_listing(&chat(false), lists, &[], &ShownProjects::new(), live);
         let ids: Vec<&str> = off["tabs"]
             .as_array()
             .unwrap()
@@ -5074,6 +5161,114 @@ mod tests {
             .collect();
         assert_eq!(ids, [B, A]);
         assert!(off["note"].as_str().unwrap().starts_with(TABS_OFF_NOTE));
+    }
+
+    #[test]
+    fn a_tab_two_windows_hold_is_listed_once_by_the_copy_with_a_page() {
+        // Both windows keep the same project's tabs: the main window shows
+        // the Inbox, Window 2 only remembers it.
+        let lists = vec![
+            (
+                "window-1".to_owned(),
+                vec![record(C, "notes", json!({})), record(D, "notes", json!({}))],
+            ),
+            (
+                "main".to_owned(),
+                vec![
+                    record(C, "notes", json!({"nativeId":"native-inbox"})),
+                    record(D, "notes", json!({})),
+                ],
+            ),
+        ];
+        let live = |window: &str, native: &str| {
+            (window == "main" && native == "native-inbox").then(|| json!({"title":"Inbox"}))
+        };
+        let listed = tab_listing(&chat(true), lists, &[], &ShownProjects::new(), live);
+        let tabs = listed["tabs"].as_array().unwrap();
+        let ids: Vec<&str> = tabs.iter().map(|tab| tab["id"].as_str().unwrap()).collect();
+        // The live copy stands for the Inbox; a tab neither window has a
+        // page for is listed once, from the first window that answered.
+        assert_eq!(ids, [format!("w1-{D}"), C.to_owned()]);
+        assert_eq!(tabs[0]["asleep"], true);
+        assert_eq!(tabs[1]["title"], "Inbox");
+        assert!(tabs[1].get("asleep").is_none());
+    }
+
+    #[test]
+    fn a_window_lists_projects_it_does_not_show_unless_another_window_shows_them() {
+        let shows = |entries: &[(&str, &[&str])]| -> ShownProjects {
+            entries
+                .iter()
+                .map(|(window, projects)| {
+                    (
+                        (*window).to_owned(),
+                        projects
+                            .iter()
+                            .map(|project| format!("/{project}"))
+                            .collect(),
+                    )
+                })
+                .collect()
+        };
+        let ids = |listed: Value| -> Vec<String> {
+            listed["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tab| tab["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        // One window in front of the site: its sleeping tabs in a project
+        // with no chat are still listed.
+        let one = vec![(
+            "main".to_owned(),
+            vec![
+                record(A, "site", json!({"nativeId":"native-own","scope":true})),
+                record(C, "notes", json!({})),
+            ],
+        )];
+        let shown = shows(&[("main", &["site"])]);
+        assert_eq!(
+            ids(tab_listing(&chat(true), one, &[], &shown, |_, _| None)),
+            [A, C]
+        );
+        // Window 2 shows the notes, where the user closed tab C; the main
+        // window still remembers C, and has no page for it.
+        let two = vec![
+            ("main".to_owned(), vec![record(C, "notes", json!({}))]),
+            ("window-1".to_owned(), vec![record(D, "notes", json!({}))]),
+        ];
+        let shown = shows(&[("main", &["site"]), ("window-1", &["notes"])]);
+        assert_eq!(
+            ids(tab_listing(
+                &chat(true),
+                two.clone(),
+                &[],
+                &shown,
+                |_, _| None
+            )),
+            [format!("w1-{D}")]
+        );
+        // A page the main window holds for it is still listed.
+        let mut held = two;
+        held[0].1 = vec![record(C, "notes", json!({"nativeId":"native-c"}))];
+        let listed = tab_listing(&chat(true), held, &[], &shown, |_, native| {
+            (native == "native-c").then(|| json!({"title":"Notes"}))
+        });
+        assert_eq!(ids(listed), [C.to_owned(), format!("w1-{D}")]);
+        // A project shown only in another window's detached window counts.
+        let detached = vec![
+            ("main".to_owned(), vec![record(C, "notes", json!({}))]),
+            (
+                "window-1".to_owned(),
+                vec![record(D, "notes", json!({"detached":true}))],
+            ),
+        ];
+        let shown = shows(&[("main", &["site"]), ("window-1", &[])]);
+        assert_eq!(
+            ids(tab_listing(&chat(true), detached, &[], &shown, |_, _| None)),
+            [format!("w1-{D}")]
+        );
     }
 
     #[test]
@@ -5133,7 +5328,13 @@ mod tests {
                 tab
             })
             .collect();
-        let listed = tab_listing(&chat(true), vec![("main".into(), tabs)], &[], |_, _| None);
+        let listed = tab_listing(
+            &chat(true),
+            vec![("main".into(), tabs)],
+            &[],
+            &ShownProjects::new(),
+            |_, _| None,
+        );
         let size = serde_json::to_vec(&listed).unwrap().len();
         assert!(size < MAX_RESPONSE_BYTES, "{size}");
         let shown = listed["tabs"].as_array().unwrap().len();

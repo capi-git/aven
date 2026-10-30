@@ -1,4 +1,9 @@
-import { crewStageDetail, crewStageLabel, roundLimit } from "./crewLoop";
+import {
+  cardTriesAgain,
+  crewStageDetail,
+  crewStageLabel,
+  roundLimit,
+} from "./crewLoop";
 import {
   cardBuilder,
   cardChecker,
@@ -73,17 +78,19 @@ export function crewStatus(
         (!!member.doing ||
           (!!member.sessionId && !!input.busy?.has(member.sessionId))),
     );
+  // A turn running now is Working, even while paused (it finishes).
+  if (memberBusy || active.some((card) => !!card.turn) || fixer === "working")
+    return "working";
+  // Paused by you or a limit: a card waiting for its next turn waits too.
+  if (crew.on && (crew.paused || crew.hold)) return "paused";
   if (
-    memberBusy ||
     active.some(
       (card) =>
         (card.stage === "building" || card.stage === "checking") &&
         !card.paused,
-    ) ||
-    fixer === "working"
+    )
   )
     return "working";
-  if (crew.on && (crew.paused || crew.hold)) return "paused";
   if (!crew.on && fixer === "paused") return "paused";
   return "watching";
 }
@@ -288,9 +295,9 @@ function fixingLine(card: CrewCard, checker: string): string | undefined {
 
 /**
  * A crew card on the Board. Every button is Aven's word for the card's
- * stage: Watch while it works; Review and Apply when Ready; One more round,
- * Take over in a chat, Back to Ideas and Throw away when Stuck; Answer for a
- * question.
+ * stage: Back to Ideas while Queued; Watch while it works; Review and Apply
+ * when Ready; One more round, Take over in a chat, Back to Ideas and Throw
+ * away when Stuck; Answer for a question.
  */
 export function crewBoardInfo(
   card: CrewCard,
@@ -343,7 +350,8 @@ export function crewBoardInfo(
   const turnChat = card.turn?.sessionId;
   switch (card.stage) {
     case "queued":
-      return { ...base, actions: [] };
+      // Not started yet: you can take it back.
+      return { ...base, actions: [A.backToIdeas] };
     case "building":
     case "checking": {
       const holder = card.holder ?? "builder";
@@ -400,11 +408,7 @@ export function crewBoardInfo(
           actions: [A.answer],
         };
       // A turn that didn't finish runs again in the same round: Try again.
-      const retry =
-        card.stuck?.reason === "failed" ||
-        card.stuck?.reason === "timeout" ||
-        card.stuck?.reason === "stopped" ||
-        card.stuck?.reason === "no-verdict";
+      const retry = cardTriesAgain(card);
       return {
         ...base,
         needsYou: true,

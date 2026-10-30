@@ -3,10 +3,13 @@ import {
   isRailed,
   layoutLeaves,
   leafIds,
+  neighborLeafId,
   unrailed,
   validRail,
+  type FocusDir,
   type LayoutNode,
 } from "./layout";
+import { stepPane } from "./paneDock";
 
 export { healRails, isRailed };
 
@@ -225,4 +228,48 @@ export function nearestOpenLeaf(
       };
     })
     .sort((a, b) => a.distance - b.distance)[0]?.id;
+}
+
+/**
+ * The open pane `step` along from `id` in layout order, as the next and
+ * previous pane keys step: collapsed panes are passed over, staying
+ * collapsed until chosen themselves.
+ */
+export function stepOpenPane(
+  layout: LayoutNode | null,
+  id: string,
+  step: number,
+): string | null {
+  return layout ? stepPane(openLeafIds(layout), id, step) : null;
+}
+
+/** The open pane beside `id` toward `dir`, past any collapsed one. */
+export function openNeighborLeafId(
+  layout: LayoutNode | null,
+  id: string,
+  dir: FocusDir,
+): string | null {
+  return layout
+    ? neighborLeafId(layout, id, dir, new Set(openLeafIds(layout)))
+    : null;
+}
+
+/**
+ * Where ⌘⌥ and an arrow take focus: within the split of the tab in front
+ * (a chat beside its terminal) first, then the open pane of the workspace
+ * that way. The tab's own split is asked only while its pane is the one
+ * focused: with a page focused, the last chat's split is somewhere else.
+ */
+export function focusDirTarget(
+  view: { layout: LayoutNode | null; focusedId: string },
+  tab: { id: string; layout: LayoutNode; focusedId: string } | undefined,
+  dir: FocusDir,
+): { inner: string } | { pane: string } | null {
+  const inner =
+    tab && tab.id === view.focusedId
+      ? neighborLeafId(tab.layout, tab.focusedId, dir)
+      : null;
+  if (inner) return { inner };
+  const pane = openNeighborLeafId(view.layout, view.focusedId, dir);
+  return pane ? { pane } : null;
 }

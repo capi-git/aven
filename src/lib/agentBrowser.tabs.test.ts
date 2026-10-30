@@ -136,6 +136,30 @@ describe("tabs across Aven for agents", () => {
     expect(other.tabs.every((entry) => !entry.scope)).toBe(true);
   });
 
+  it("says which projects the window shows, so another window's copies can be left out", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => [],
+      open: vi.fn(),
+      tabs: () => [tab("site"), tab("notes", { project: "/notes" })],
+      shownProjects: () => ["/project"],
+    });
+    await Promise.resolve();
+    await mocks.handlers.get("browser-agent-tabs")!({
+      payload: { requestId: "list", sessionId: "chat" },
+    });
+    const reply = lastCall("browser_agent_tabs_result") as {
+      tabs: { surfaceId: string }[];
+      shownProjects: string[];
+    };
+    // Every tab still goes; the native side decides what to leave out.
+    expect(reply.tabs.map((entry) => entry.surfaceId)).toEqual([
+      "site",
+      "notes",
+    ]);
+    expect(reply.shownProjects).toEqual(["/project"]);
+  });
+
   it("loads a tab never shown, or wakes a sleeping one, out of sight for a read and names its page", async () => {
     const api = await import("./agentBrowser");
     const reach = vi.fn((surface: string) => {

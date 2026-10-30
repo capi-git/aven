@@ -160,6 +160,12 @@
   touch-action: none;
 }
 
+/* A card the crew holds stays where its stage puts it: no drag, so touch
+   scrolls past it as usual. */
+.work-board-card[data-fixed] {
+  touch-action: auto;
+}
+
 /* A card one of whose chats waits on you keeps its place, marked in amber. */
 .work-board-card[data-needs-you] {
   border-color: var(--aven-needs-you-edge);

@@ -8,12 +8,15 @@ import {
 } from "./layout";
 import {
   evenSplit,
+  focusDirTarget,
   healRails,
   nearestOpenLeaf,
   openLeafIds,
+  openNeighborLeafId,
   railSide,
   railedLeafIds,
   restoreRail,
+  stepOpenPane,
   unrailLeaf,
 } from "./paneRails";
 import {
@@ -333,5 +336,64 @@ describe("a split never stands with every pane collapsed", () => {
       "x",
     );
     expect(openLeafIds(next.layout)).toContain(next.focusedId);
+  });
+});
+
+describe("moving focus between panes from the keyboard", () => {
+  /** A, B collapsed, C in a row; under C, D. */
+  const layout = split(
+    "row",
+    "right",
+    [
+      leaf("A"),
+      railed("B", 0.3),
+      split("column", "down", [leaf("C"), leaf("D")], [0.5, 0.5]),
+    ],
+    [0.48, 0.04, 0.48],
+  );
+
+  it("steps to the next and previous open pane, past a collapsed one", () => {
+    expect(stepOpenPane(layout, "A", 1)).toBe("C");
+    expect(stepOpenPane(layout, "C", -1)).toBe("A");
+    expect(stepOpenPane(layout, "D", 1)).toBe("A");
+    expect(stepOpenPane(null, "A", 1)).toBeNull();
+  });
+
+  it("finds the open pane beside, past a collapsed one", () => {
+    expect(openNeighborLeafId(layout, "A", "right")).toBe("C");
+    expect(openNeighborLeafId(layout, "C", "left")).toBe("A");
+    expect(openNeighborLeafId(layout, "C", "down")).toBe("D");
+    expect(openNeighborLeafId(layout, "A", "left")).toBeNull();
+  });
+
+  /** A chat with its terminal beside it, inside its own tab. */
+  const chatTab = {
+    id: "A",
+    layout: split("inner", "right", [leaf("chat"), leaf("term")], [0.5, 0.5]),
+    focusedId: "chat",
+  };
+
+  it("moves within the focused tab's own split first, then between panes", () => {
+    const view = { layout, focusedId: "A" };
+    expect(focusDirTarget(view, chatTab, "right")).toEqual({ inner: "term" });
+    expect(
+      focusDirTarget(view, { ...chatTab, focusedId: "term" }, "right"),
+    ).toEqual({ pane: "C" });
+  });
+
+  it("leaves the last chat's own split alone while another pane is focused", () => {
+    // A page focused in C: the chat tab is still the active tab.
+    const view = { layout, focusedId: "C" };
+    expect(focusDirTarget(view, chatTab, "right")).toBeNull();
+    expect(focusDirTarget(view, chatTab, "down")).toEqual({ pane: "D" });
+    expect(focusDirTarget(view, chatTab, "left")).toEqual({ pane: "A" });
+    // A page alone in front, the chat on another strip entry.
+    expect(
+      focusDirTarget(
+        { layout: leaf("page"), focusedId: "page" },
+        chatTab,
+        "right",
+      ),
+    ).toBeNull();
   });
 });

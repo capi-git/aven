@@ -270,6 +270,16 @@ describe("grouping by what needs doing", () => {
         .empty,
     ).toBe(false);
   });
+
+  it("names an agent that isn't installed quietly, not as needing you", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([]),
+      codex: { status: "missing" },
+    });
+    expect(overview.needsYou).toEqual([]);
+    expect(overview.checking).toEqual([]);
+    expect(overview.missing).toEqual(["codex"]);
+  });
 });
 
 describe("duplicates", () => {

@@ -17,10 +17,17 @@ import {
   updateCrew,
   withCard,
   withIdea,
+  withMemberId,
   type Crew,
 } from "./crews";
 import { queueCard } from "./crewLoop";
-import { resumeCrewCard } from "./crewActions";
+import {
+  removeCrewMember,
+  resumeCrewCard,
+  turnOffCrew,
+  updateCrewMember,
+} from "./crewActions";
+import { crewStatus } from "./crewView";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import type { BotDiff } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -57,7 +64,7 @@ type Reply = {
   text: string;
   /** What the copy holds after the turn: its fingerprint and files. */
   copy?: { hash: string; files: string[] } | null;
-  status?: "completed" | "failed";
+  status?: "completed" | "failed" | "cancelled";
   error?: string;
   /** The turn waits on you (a question) instead of ending. */
   asks?: boolean;
@@ -1389,6 +1396,172 @@ describe("Security on Codex", () => {
     expect(h.sent.filter((item) => item.role === "security")).toHaveLength(2);
     expect(card()).toMatchObject({ stage: "ready" });
     expect(card().rounds[0].security?.pass).toBe(true);
+    h.runner.stop();
+  });
+});
+
+describe("a member's line ends with its turn", () => {
+  it("leaves no Builder Working after its card was thrown away mid-turn", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+    });
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "builder-2", role: "builder" },
+        { id: "checker", role: "checker" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(1_000);
+    expect(crewMember(getCrew(PATH)!, "builder")?.doing?.text).toBe(
+      "Building Dark mode toggle · round 1",
+    );
+    // Thrown away while its turn runs: the turn's end finds no card.
+    updateCrew(PATH, (crew) =>
+      withCard(crew, { ...card(), stage: "discarded", turn: undefined }),
+    );
+    await h.advance(MINUTE + 5_000);
+    const crew = getCrew(PATH)!;
+    expect(crewMember(crew, "builder")?.doing).toBeUndefined();
+    expect(crewStatus(crew)).toBe("watching");
+    expect(removeCrewMember(PATH, "builder")).toBeNull();
+    h.runner.stop();
+  });
+
+  it("clears what members of an earlier page were doing, but a card's turn it reads again", async () => {
+    const h = harness({});
+    onCrew({
+      members: [
+        { id: "builder", role: "builder", sessionId: "builder-chat" },
+        { id: "checker", role: "checker" },
+        {
+          id: "scout",
+          role: "scout",
+          sessionId: "scout-chat",
+          doing: { at: NOON - MINUTE, text: "Looking for ideas" },
+        },
+      ],
+    });
+    updateCrew(PATH, (crew) =>
+      withMemberId(crew, "builder", (member) => ({
+        ...member,
+        doing: { at: NOON - MINUTE, text: "Building X · round 1" },
+      })),
+    );
+    give();
+    updateCrew(PATH, (crew) =>
+      withCard(crew, {
+        ...card(),
+        stage: "building",
+        round: 1,
+        holder: "builder",
+        base: BASE,
+        turn: {
+          role: "builder",
+          sessionId: "builder-chat",
+          turnId: "earlier",
+          sentAt: NOON - MINUTE,
+        },
+      }),
+    );
+    h.runner.start();
+    const crew = getCrew(PATH)!;
+    expect(crewMember(crew, "scout")?.doing).toBeUndefined();
+    expect(crewMember(crew, "builder")?.doing?.text).toBe(
+      "Building X · round 1",
+    );
+    h.runner.stop();
+  });
+
+  it("turning the crew off leaves nobody Working", async () => {
+    const h = harness({ builder: () => ({ text: "", asks: true }) });
+    onCrew();
+    give();
+    h.runner.start();
+    await h.advance(1_000);
+    expect(crewMember(getCrew(PATH)!, "builder")?.doing).toBeTruthy();
+    await turnOffCrew(PATH);
+    expect(crewMember(getCrew(PATH)!, "builder")?.doing).toBeUndefined();
+    h.runner.stop();
+  });
+});
+
+describe("Security turned off while a card waits for it", () => {
+  it("makes the card Ready on the Checker's pass instead of waiting forever", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+      security: () => ({ text: "", status: "failed", error: "boom" }),
+    });
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "security", role: "security" },
+      ],
+    });
+    give();
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card()).toMatchObject({ stage: "stuck", holder: "security" });
+    // You turn Security off, and Try again.
+    updateCrewMember(PATH, "security", { paused: true });
+    resumeCrewCard(PATH, "card-1", undefined, h.now);
+    await h.advance(MINUTE);
+    expect(card()).toMatchObject({ stage: "ready", fix: { hash: "h1" } });
+    expect(card().holder).toBeUndefined();
+    expect(getCrew(PATH)!.hold).toBeUndefined();
+    expect(h.moves).toContainEqual({ id: "card-1", column: "review" });
+    const feed = getCrew(PATH)!.feed.map((entry) => entry.text);
+    expect(feed).toContain(
+      "Security is off, so “Dark mode toggle” is Ready on Owl's check alone",
+    );
+    expect(feed.at(-1)).toBe("Ready for you · passed Owl's check in round 1");
+    // No Security turn went after it was off.
+    expect(h.sent.map((item) => item.role)).toEqual([
+      "builder",
+      "checker",
+      "security",
+    ]);
+    h.runner.stop();
+  });
+});
+
+describe("the Scout's look", () => {
+  const ideas = fence("aven-ideas", {
+    ideas: [{ title: "Remember the last open note", size: "small" }],
+  });
+
+  it("adds nothing when its look was stopped", async () => {
+    const h = harness({ scout: () => ({ text: ideas, status: "cancelled" }) });
+    onCrew();
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
+    expect(h.board.size).toBe(0);
+    expect(getCrew(PATH)!.ideasAdded).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("says in the feed when it couldn't look", async () => {
+    const h = harness({ scout: () => ({ text: ideas }) });
+    onCrew();
+    h.copy.prepare.mockRejectedValueOnce(new Error("disk full"));
+    h.runner.start();
+    await h.advance(0);
+    expect(h.sent).toEqual([]);
+    const last = getCrew(PATH)!.feed.at(-1);
+    expect(last).toMatchObject({ kind: "hold", who: "aven", member: "scout" });
+    expect(last?.text).toContain("Fox couldn't look for ideas:");
+    expect(last?.text).toContain("disk full");
     h.runner.stop();
   });
 });

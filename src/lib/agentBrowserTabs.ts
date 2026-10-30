@@ -1,3 +1,4 @@
+import { leafIds, type LayoutNode } from "./layout";
 import {
   browserIdForTab,
   normalizeBrowserWorkspace,
@@ -74,6 +75,26 @@ export function agentBrowserTabs({
 }
 
 /**
+ * The projects whose browser tabs a window shows: the project in front and
+ * those of the chats in its workspace tabs. Every window remembers every
+ * project's tabs; Aven lists a tab from a window that does not show its
+ * project only when no other window does (see `tab_listing`).
+ */
+export function shownBrowserProjects(
+  current: string,
+  tabs: readonly { layout: LayoutNode }[],
+  sessions: readonly { id: string; cwd: string }[],
+): Set<string> {
+  const chats = new Set(tabs.flatMap((tab) => leafIds(tab.layout)));
+  return new Set([
+    current,
+    ...sessions.flatMap((session) =>
+      chats.has(session.id) ? [session.cwd] : [],
+    ),
+  ]);
+}
+
+/**
  * The window's tabs for one asking chat: which have a live page (the rest
  * are asleep or were never shown), and which are in that chat's scope.
  */
@@ -91,4 +112,31 @@ export function agentTabRecords(
       scope: scope.has(tab.surfaceId),
     };
   });
+}
+
+/**
+ * Make sure a tab has a page to read, without changing what the user sees.
+ * A tab with a page is left as it is; one in a window detached from this
+ * one is loaded there, since this window holds no page for it; any other
+ * is loaded out of sight here.
+ */
+export async function reachAgentTab(
+  surfaceId: string,
+  {
+    registered,
+    detached,
+    loadDetached,
+    load,
+  }: {
+    registered: (surfaceId: string) => boolean;
+    detached: (surfaceId: string) => boolean;
+    /** False when no detached window holds the tab any more. */
+    loadDetached: (surfaceId: string) => Promise<boolean>;
+    load: (surfaceId: string) => void;
+  },
+): Promise<void> {
+  if (registered(surfaceId)) return;
+  if (!detached(surfaceId)) return load(surfaceId);
+  if (!(await loadDetached(surfaceId)))
+    throw new Error("That tab's window has closed.");
 }

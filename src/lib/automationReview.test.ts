@@ -169,6 +169,32 @@ describe("automation review cards", () => {
     expect(prompt).toContain("```aven-review");
     expect(prompt).toContain("save it as a draft");
     expect(prompt).toContain("Publish the draft now.");
+    expect(prompt).toContain(
+      '"needs-you" when you could not finish without the user',
+    );
+    expect(prompt).toContain("Try again from the start.");
     expect(prompt).not.toContain('"message"');
+  });
+
+  it("asks for you, with Try again, when a run couldn't finish", () => {
+    const card = parseAutomationReview(
+      reply(
+        JSON.stringify({
+          kind: "needs-you",
+          title: "Notion couldn't be read",
+          summary: "Connect Notion in Claude, then try again.",
+        }),
+      ),
+      3,
+    );
+    expect(card!.kind).toBe("needs-you");
+    // Not an approval: nothing was made to approve.
+    expect(reviewHeading(card!)).toBe("Needs you");
+    expect(reviewAction(card!)).toEqual({
+      label: "Try again",
+      message: "Try again from the start.",
+    });
+    // Kept as it is across launches.
+    expect(normalizeAutomationReview(card)?.kind).toBe("needs-you");
   });
 });

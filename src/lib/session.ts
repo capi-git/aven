@@ -213,6 +213,8 @@ export type QueuedMessage = {
   displayText?: string;
   /** Another agent's words: sent without skill or @ expansion. */
   verbatim?: boolean;
+  /** The user wrote it (see `prepareAgentBrowserPrompt`'s `typed`). */
+  typed?: boolean;
 };
 
 export type MessageQueueStatus = "active" | "paused" | "resuming";

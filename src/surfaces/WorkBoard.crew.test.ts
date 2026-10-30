@@ -3,9 +3,12 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { afterBuild, afterCheck, queueCard, startCard } from "../lib/crewLoop";
+import { focusCrewTell } from "../lib/crewActions";
 import {
+  crewCard,
   getCrew,
   resetCrewsCache,
+  setCrewsAllRunsPerDay,
   updateCrew,
   withCard,
   withFeed,
@@ -25,7 +28,7 @@ import {
   publishWorkBoardFeed,
   resetWorkBoardFeed,
 } from "../lib/workBoardFeed";
-import { WorkBoard } from "./WorkBoard";
+import { WorkBoard, cardMenuItems } from "./WorkBoard";
 
 const actions = vi.hoisted(() => ({
   applyCrewCard: vi.fn(async () => null as string | null),
@@ -82,14 +85,17 @@ vi.mock("../chrome/ConfirmDialog", async () => {
   return {
     ConfirmDialog: ({
       title,
+      body,
       onConfirm,
     }: {
       title: string;
+      body: string;
       onConfirm: () => void;
     }) =>
       react.createElement(
         "div",
         { "data-confirm-dialog": title },
+        react.createElement("p", null, body),
         react.createElement("button", { onClick: onConfirm }, "Confirm"),
       ),
   };
@@ -767,6 +773,240 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(container.querySelector("[data-crew-feed]")!.textContent).toContain(
       "You told the crew · standing",
     );
+  });
+
+  it("lets you take a Queued card back to Ideas", async () => {
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
+    );
+    const queued = card(boards[5].id);
+    await act(async () => button(queued, "Back to Ideas")!.click());
+    expect(actions.discardCrewCard).toHaveBeenCalledWith(
+      PROJECT,
+      boards[5].id,
+      "ideas",
+    );
+  });
+
+  it("Delete on a card the crew has throws its crew card away too", async () => {
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
+    );
+    await act(async () =>
+      card(boards[5].id)
+        .querySelector<HTMLButtonElement>(".work-board-card-more")!
+        .click(),
+    );
+    await act(async () =>
+      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
+    );
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-confirm-dialog="Delete this card?"]',
+    )!;
+    expect(dialog.textContent).toContain("It leaves the crew's queue too.");
+    await act(async () => button(dialog, "Confirm")!.click());
+    await settle();
+    expect(crewCard(getCrew(PROJECT)!, boards[5].id)?.stage).toBe("discarded");
+    expect(
+      container.querySelector(`[data-board-card="${boards[5].id}"]`),
+    ).toBeNull();
+  });
+
+  it("offers no Move to… for a card the crew places by its stage", () => {
+    const board = {
+      id: "b1",
+      title: "Dark mode toggle",
+      column: "building",
+    } as Parameters<typeof cardMenuItems>[0];
+    const live = crewCardFor(
+      { id: "b1", title: "Dark mode toggle" } as FeatureCard,
+      "fixing",
+    );
+    const labels = (held?: CrewCard) =>
+      cardMenuItems(board, held).flatMap((item) =>
+        item.kind === "item" ? [item.label] : [],
+      );
+    expect(labels(live).some((label) => label.startsWith("Move to"))).toBe(
+      false,
+    );
+    expect(labels(live)).toContain("Delete");
+    // A card the crew is done with moves like any other.
+    expect(labels({ ...live, stage: "applied" })).toContain("Move to Ideas");
+    expect(labels()).toContain("Move to Ideas");
+  });
+
+  it("never lifts a card the crew holds when you drag it", async () => {
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "fixing")),
+    );
+    const pointer = (type: string, clientX: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX,
+        clientY: 50,
+      });
+    const press = async (id: string) => {
+      const element = card(id);
+      await act(async () => {
+        element
+          .querySelector(".work-board-card-name")!
+          .dispatchEvent(pointer("pointerdown", 50));
+        window.dispatchEvent(pointer("pointermove", 60));
+        window.dispatchEvent(pointer("pointermove", 200));
+      });
+      return element;
+    };
+    const held = await press(boards[2].id);
+    expect(held.hasAttribute("data-fixed")).toBe(true);
+    expect(held.hasAttribute("data-dragging")).toBe(false);
+    await act(async () => window.dispatchEvent(pointer("pointerup", 200)));
+    // An ordinary card still lifts.
+    const idea = await press(boards[0].id);
+    expect(idea.hasAttribute("data-fixed")).toBe(false);
+    expect(idea.hasAttribute("data-dragging")).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      window.dispatchEvent(pointer("pointerup", 200));
+    });
+    await settle();
+  });
+
+  it("says when the all-crews ceiling holds the crew", async () => {
+    setCrewsAllRunsPerDay(5);
+    await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
+    );
+    const hold = container.querySelector<HTMLElement>("[data-crew-hold]")!;
+    expect(hold.dataset.crewHold).toBe("all-crews-cap");
+    expect(hold.textContent).toContain("All crews' 5 runs today are used");
+  });
+
+  it("asks before throwing a Ready card away from its sheet", async () => {
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[3], "ready")),
+    );
+    await act(async () => button(card(boards[3].id), "Review")!.click());
+    const sheet = document.querySelector<HTMLElement>(
+      `[data-crew-ready="${boards[3].id}"]`,
+    )!;
+    await act(async () =>
+      sheet
+        .querySelector<HTMLButtonElement>('[aria-label="More for this card"]')!
+        .click(),
+    );
+    await act(async () =>
+      button(document.querySelector("[data-menu]")!, "Throw away")!.click(),
+    );
+    expect(actions.discardCrewCard).not.toHaveBeenCalled();
+    const confirm = document.querySelector<HTMLElement>(
+      "[data-crew-throw-confirm]",
+    )!;
+    expect(confirm.textContent).toContain("is thrown away");
+    await act(async () => button(confirm, "Throw away")!.click());
+    expect(actions.discardCrewCard).toHaveBeenCalledWith(
+      PROJECT,
+      boards[3].id,
+      "delete",
+    );
+  });
+
+  it("shows why a Ready card couldn't go back to Ideas", async () => {
+    actions.discardCrewCard.mockResolvedValueOnce("The copy is busy.");
+    const boards = await setUp(
+      (boards) => (crew) => withCard(crew, crewCardFor(boards[3], "ready")),
+    );
+    await act(async () => button(card(boards[3].id), "Review")!.click());
+    const sheet = () =>
+      document.querySelector<HTMLElement>(
+        `[data-crew-ready="${boards[3].id}"]`,
+      );
+    await act(async () =>
+      sheet()!
+        .querySelector<HTMLButtonElement>('[aria-label="More for this card"]')!
+        .click(),
+    );
+    await act(async () =>
+      button(document.querySelector("[data-menu]")!, "Back to Ideas")!.click(),
+    );
+    await settle();
+    expect(sheet()?.querySelector('[role="alert"]')?.textContent).toBe(
+      "The copy is busy.",
+    );
+  });
+
+  it("asks before turning the crew off from its header", async () => {
+    await setUp(() => (crew) => crew);
+    const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
+    await act(async () =>
+      header
+        .querySelector<HTMLButtonElement>('[aria-label="More for the crew"]')!
+        .click(),
+    );
+    await act(async () =>
+      button(
+        header.querySelector("[data-menu]")!,
+        "Turn the crew off",
+      )!.click(),
+    );
+    expect(getCrew(PROJECT)!.on).toBe(true);
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-confirm-dialog="Turn the crew off?"]',
+    )!;
+    await act(async () => button(dialog, "Confirm")!.click());
+    await settle();
+    expect(getCrew(PROJECT)!.on).toBe(false);
+  });
+
+  it("puts the cursor in Tell the crew when asked from elsewhere", async () => {
+    await setUp(() => (crew) => crew);
+    await act(async () => focusCrewTell(PROJECT));
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(document.activeElement).toBe(
+      container.querySelector('input[aria-label="Tell the crew"]'),
+    );
+  });
+
+  it("warns that Delete throws away the crew's Ready change, even while the crew is off", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(crew, crewCardFor(boards[3], "ready")),
+      on: false,
+    }));
+    // A plain board: no crew face on the card, yet the crew still has it.
+    expect(container.querySelector("[data-crew-header]")).toBeNull();
+    await act(async () =>
+      card(boards[3].id)
+        .querySelector<HTMLButtonElement>(".work-board-card-more")!
+        .click(),
+    );
+    await act(async () =>
+      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
+    );
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-confirm-dialog="Delete this card?"]',
+    )!;
+    expect(dialog.textContent).toContain(
+      "The crew's Ready change is thrown away too.",
+    );
+    // An ordinary card's Delete says nothing about the crew.
+    await act(async () =>
+      card(boards[0].id)
+        .querySelector<HTMLButtonElement>(".work-board-card-more")!
+        .click(),
+    );
+    await act(async () =>
+      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
+    );
+    expect(
+      document.querySelector('[data-confirm-dialog="Delete this card?"]')!
+        .textContent,
+    ).not.toContain("crew");
   });
 
   it("is a plain board while the crew is off", async () => {

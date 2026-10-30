@@ -48,6 +48,12 @@ export type AgentBrowserHost = {
    */
   tabs?(): AgentBrowserTab[];
   /**
+   * The projects this window shows (`shownBrowserProjects`). Every window
+   * remembers every project's tabs, so Aven leaves out a window's copy of a
+   * tab whose project only another window shows.
+   */
+  shownProjects?(): string[];
+  /**
    * Make sure a tab has a page to read: one never shown since Aven started
    * loads, out of sight, without changing what the user sees.
    */
@@ -232,9 +238,15 @@ export function agentBrowserSocket(): string | undefined {
   return browserSocket;
 }
 
+/**
+ * Grant the chat its pages. `userTurn` names the agent for this turn's
+ * bars; `typed` says the user wrote this turn's message, which alone ends
+ * their Stop on other tabs and their declines.
+ */
 function bind(
   context: AgentBrowserContext,
   userTurn = false,
+  typed = false,
 ): Promise<Binding> {
   const previous = bindingTails.get(context.sessionId) ?? Promise.resolve();
   const operation = previous
@@ -270,6 +282,7 @@ function bind(
         ...(ownBrowserIds.length ? { ownBrowserIds } : {}),
         anyTab: SETTINGS.agentsReadAnyTab.load(),
         workDir: context.cwd,
+        ...(userTurn && typed ? { userTyped: true } : {}),
       });
     });
   bindingTails.set(context.sessionId, operation);
@@ -496,6 +509,7 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
             ? contexts.get(payload.sessionId)
             : undefined;
           let tabs: ReturnType<typeof agentTabRecords> = [];
+          let shownProjects: string[] | undefined;
           try {
             const scope = new Set(
               context ? (next.surfaces(context) ?? []) : [],
@@ -505,12 +519,14 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
               (surface) => nativePages.get(surface),
               scope,
             );
+            shownProjects = next.shownProjects?.();
           } catch {
             // An empty list: the window's tabs are left out.
           }
           await invoke("browser_agent_tabs_result", {
             requestId: payload.requestId,
             tabs,
+            ...(shownProjects ? { shownProjects } : {}),
           }).catch(() => {});
         },
       )
@@ -612,7 +628,15 @@ export function agentBrowserInstructions(
 export async function prepareAgentBrowserPrompt(
   text: string,
   context: AgentBrowserContext,
-  options: { worker?: boolean } = {},
+  options: {
+    worker?: boolean;
+    /**
+     * The user wrote this message. Only such a turn ends their Stop on the
+     * chat's use of other tabs and its declined requests; another agent's
+     * message, a bot's card or Aven's own follow-up never does.
+     */
+    typed?: boolean;
+  } = {},
 ): Promise<string> {
   // The Git preference applies even when browser tools are unavailable.
   // Not to a lead's workers, which share one checkout and must not commit,
@@ -621,12 +645,17 @@ export async function prepareAgentBrowserPrompt(
     options.worker || isRaceLanePath(context.cwd)
       ? null
       : agentGitInstructions();
-  return withBrowserGuidance(git ? `${git}\n\n${text}` : text, context);
+  return withBrowserGuidance(
+    git ? `${git}\n\n${text}` : text,
+    context,
+    options.typed === true,
+  );
 }
 
 async function withBrowserGuidance(
   text: string,
   context: AgentBrowserContext,
+  typed: boolean,
 ): Promise<string> {
   if (!isTauri()) return text;
   if (!host) return browserUnavailablePrompt(text);
@@ -641,12 +670,12 @@ async function withBrowserGuidance(
     try {
       // Sleeping pages stay asleep: the agent's first look at its pages
       // wakes them (`wakeForAgent`), so a message never waits for them.
-      const binding = await bind(stored, true).catch(async (error) => {
+      const binding = await bind(stored, true, typed).catch(async (error) => {
         if (!failureText(error, "").includes(PAGE_FALLING_ASLEEP)) throw error;
         // A page was falling asleep as the message went out. Let it finish
         // and wake it, then try once more.
         await wakeSessionBrowserPages(stored);
-        return bind(stored, true);
+        return bind(stored, true, typed);
       });
       // Running dev servers reach the agent in the shared-work note
       // (`sharedWorkNote.ts`), only when they change.

@@ -123,7 +123,11 @@ import {
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import { projectDisplayName } from "./hooks/useProjectLabels";
-import { agentBrowserTabs } from "./lib/agentBrowserTabs";
+import {
+  agentBrowserTabs,
+  reachAgentTab,
+  shownBrowserProjects,
+} from "./lib/agentBrowserTabs";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import {
@@ -147,7 +151,7 @@ import {
   workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
-import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
+import { seamNeighbours, type DockEdge } from "./lib/paneDock";
 import { focusPaneContent, workspacePane } from "./lib/paneFocus";
 import {
   applyWorkspaceIntent,
@@ -177,6 +181,7 @@ import {
   stripDropKeeps,
   stripItems,
   stripView,
+  stripViewReshapes,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
   type WorkspaceStrip,
@@ -315,8 +320,10 @@ import {
   type ScheduledRun,
 } from "./lib/scheduledAgents";
 import {
+  answerRunStops,
   automationChatTitle,
   canAnswerCard,
+  cardAnswerProblem,
   continueAutomationRun,
   startAutomationRun,
   type AutomationRunNotice,
@@ -349,7 +356,7 @@ import { paneRailContent } from "./chrome/PaneRail";
 import { LayoutNotice, type LayoutNoticeState } from "./chrome/LayoutNotice";
 import { describeStripChange, stripTabLocation } from "./lib/layoutNotice";
 import { BrowserTabIcon } from "./chrome/BrowserTabIcon";
-import { openLeafIds } from "./lib/paneRails";
+import { focusDirTarget, openLeafIds, stepOpenPane } from "./lib/paneRails";
 import { PANE_MIN_PX, workspaceTabPaneKind } from "./lib/paneFit";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
@@ -422,7 +429,6 @@ import {
   newSimulatorTab,
   simulatorProjectOf,
   movePane,
-  neighborLeafId,
   newFileTab,
   newPlanTab,
   newTab,
@@ -451,11 +457,7 @@ import {
   type WorkspaceTab,
 } from "./lib/layout";
 import { paneTitleRow, workspaceTabOwnHeader } from "./lib/filePaneHeader";
-import {
-  paneMinimizeControls,
-  paneMinimizeKey,
-  paneMinimizeLabel,
-} from "./lib/paneMinimize";
+import { paneCollapseItems } from "./lib/paneMinimize";
 import {
   loadBundledChangelog,
   releaseNotesForVersion,
@@ -891,6 +893,7 @@ import { useCrews } from "./hooks/useCrews";
 import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
 import type { SidebarCrew, SidebarCrewAction } from "./chrome/SidebarCrews";
 import {
+  focusCrewTell,
   installCrewWorkspace,
   pickCrewModels,
   setCrewPaused,
@@ -1483,17 +1486,29 @@ export default function App({
             },
           });
         },
+        shownProjects: () => [
+          ...shownBrowserProjects(
+            projectCwdRef.current,
+            tabsRef.current,
+            sessionsRef.current,
+          ),
+        ],
         reach(surfaceId) {
           // A tab not shown since Aven started has no page yet: load it out
-          // of sight, as an agent's own page in another project loads.
-          if (getRegisteredAgentBrowserPage(surfaceId)) return;
-          flushSync(() =>
-            setAgentBrowserSurfaces((current) =>
-              current.has(surfaceId)
-                ? current
-                : new Set([...current, surfaceId]),
-            ),
-          );
+          // of sight, as an agent's own page in another project loads. A
+          // detached window loads its own, its panes left as they are.
+          return reachAgentTab(surfaceId, {
+            registered: (id) => !!getRegisteredAgentBrowserPage(id),
+            detached: (id) => detachedIdsRef.current.has(id),
+            loadDetached: (id) =>
+              detachedFocusBrowser.current(id, { arrange: false }),
+            load: (id) =>
+              flushSync(() =>
+                setAgentBrowserSurfaces((current) =>
+                  current.has(id) ? current : new Set([...current, id]),
+                ),
+              ),
+          });
         },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(
@@ -1823,11 +1838,16 @@ export default function App({
       const before = viewRef.current.view;
       const after = update(before);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
+      const { strip } = viewRef.current;
+      // A change that reshapes the strip beyond the entry in front (a tab
+      // brought in from another entry, a split put back together as one
+      // pane) is undone by putting the whole strip back.
       const next = pushWorkspaceLayoutUndo(
         recoveryRef.current,
         workspaceKeyRef.current,
         before,
-        viewRef.current.strip.front,
+        strip.front,
+        stripViewReshapes(strip, after) ? strip : undefined,
       );
       recoveryRef.current = next;
       setRecovery(next);
@@ -1860,6 +1880,11 @@ export default function App({
     nonce: number;
   } | null>(null);
   const [paneLanding, setPaneLanding] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
+  /** A pane collapsed from its own menu: its rail takes the keyboard. */
+  const [railFocus, setRailFocus] = useState<{
     id: string;
     nonce: number;
   } | null>(null);
@@ -5021,10 +5046,11 @@ export default function App({
   const onPrev = useCallback(() => cycleSurface(-1), [cycleSurface]);
   // Cydonia's pane keys: the next or previous pane in layout order (left to
   // right, each column top to bottom), and expanding the focused pane.
+  // Collapsed panes are passed over.
   const onStepPane = useCallback(
     (step: number) => {
       const { layout, focusedId } = viewRef.current.view;
-      const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
+      const next = stepOpenPane(layout, focusedId, step);
       if (!next) return;
       onSelectSurface(next);
       // The keyboard goes with the focus: into its message box, or the
@@ -6187,16 +6213,15 @@ export default function App({
     (dir: FocusDir) => {
       // A split inside the tab first; past its edge, the workspace's pane
       // that way. (With VoiceOver, which keeps ⌃⌥ for itself, this is how
-      // to move between panes.)
-      const inner =
-        activeTab && neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
-      if (inner) {
-        onFocusPane(inner);
+      // to move between panes.) A page focused has no split of its own, and
+      // collapsed panes are passed over.
+      const target = focusDirTarget(viewRef.current.view, activeTab, dir);
+      if (!target) return;
+      if ("inner" in target) {
+        onFocusPane(target.inner);
         return;
       }
-      const { layout, focusedId } = viewRef.current.view;
-      const pane = layout ? neighborLeafId(layout, focusedId, dir) : null;
-      if (!pane) return;
+      const { pane } = target;
       onSelectSurface(pane);
       window.setTimeout(() => focusPaneContent(workspacePane(pane)), 0);
     },
@@ -7098,6 +7123,11 @@ export default function App({
          */
         prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
+        /**
+         * The user wrote this message. Only such a turn ends their Stop on
+         * the chat's use of other tabs and its declined requests.
+         */
+        typed?: boolean;
       },
     ) => {
       const controlError = orchestrator.submissionError(
@@ -7260,6 +7290,7 @@ export default function App({
                         ? { displayText: options.displayText }
                         : {}),
                       ...(options?.verbatim ? { verbatim: true } : {}),
+                      ...(options?.typed ? { typed: true } : {}),
                     },
                   ],
                   queueStatus: s.queueStatus === "paused" ? "paused" : "active",
@@ -7318,6 +7349,7 @@ export default function App({
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
+                    typed: options?.typed === true,
                   },
                 );
             await steerHarnessTurn({
@@ -7768,6 +7800,7 @@ export default function App({
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                  typed: options?.typed === true,
                 },
               );
           const turnPrompt = proposalDraft
@@ -8112,7 +8145,8 @@ export default function App({
       ) =>
         onSubmit(sessionId, text, options.attachments ?? [], {
           displayText: options.displayText,
-          ...(options.botWake ? { botWake: options.botWake } : {}),
+          // A wake-up is the bot's own; anything else is your message.
+          ...(options.botWake ? { botWake: options.botWake } : { typed: true }),
           ...(options.prepareText ? { prepareText: options.prepareText } : {}),
           userBlockId: options.blockId,
           // The bot posts its own entry: a fix, or what it said.
@@ -8123,7 +8157,7 @@ export default function App({
         sessionId: string,
         text: string,
         attachments: Attachment[],
-      ) => void onSubmit(sessionId, text, attachments),
+      ) => void onSubmit(sessionId, text, attachments, { typed: true }),
       announce: announceActivity,
       onWorking: setBotWorkingChats,
     }),
@@ -8152,7 +8186,11 @@ export default function App({
         messageBot(sessionId, text, attachments)
       )
         return;
-      return onSubmit(sessionId, text, attachments, options);
+      // The chat's own message box: the user wrote it.
+      return onSubmit(sessionId, text, attachments, {
+        ...options,
+        typed: true,
+      });
     },
     [messageBot, onSubmit],
   );
@@ -8255,10 +8293,12 @@ export default function App({
       if (target && session.modelSettings) {
         saveLastModelSettings(session.modelSettings, "fill");
       }
+      // The user pressed Build.
       onSubmit(sessionId, "Build approved plan", [], {
         intent: "build",
         planBlockId: blockId,
         buildTarget: target,
+        typed: true,
       });
     },
     [onSubmit],
@@ -8614,7 +8654,7 @@ export default function App({
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
   useDuplicateServerMessenger((sessionId, text) =>
-    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue", typed: true }),
   );
 
   const autoContinueKey = sessions
@@ -8904,6 +8944,14 @@ export default function App({
     },
     [flushHarnessEvents, announceActivity],
   );
+  // Stop pressed in another window on an automation run whose turn this
+  // window is taking: stopped here, where its turn settles it.
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+  useEffect(
+    () => answerRunStops((sessionId) => onStopRef.current(sessionId)),
+    [],
+  );
 
   /** Stop a bot's chat and wait, a few seconds at most, until it has. */
   const stopBotChat = useCallback(
@@ -9004,9 +9052,12 @@ export default function App({
             requestId: id,
             decision: "cancelled",
           }),
+        // The user's own answer to a question that has expired.
         send: (text) =>
-          onSubmit(sessionId, text, [], { followUpBehavior: "queue" }) !==
-          false,
+          onSubmit(sessionId, text, [], {
+            followUpBehavior: "queue",
+            typed: true,
+          }) !== false,
         note: (text) => {
           enqueueHarnessEvent(sessionId, { type: "status", text });
           flushHarnessEvents();
@@ -9598,7 +9649,11 @@ export default function App({
           (block) => block.id === blockId,
         )?.orchestration;
         if (!session || session.busy || !proposal) return;
-        onSubmit(leadId, proposal.request, [], { intent: "orchestrate" });
+        // The user retries their own request.
+        onSubmit(leadId, proposal.request, [], {
+          intent: "orchestrate",
+          typed: true,
+        });
       },
     }),
     [
@@ -10593,7 +10648,10 @@ export default function App({
     reviewAnswersInFlight.current.add(run.id);
     try {
       const session = await ensureOpenSession(run.sessionId);
-      if (!session || session.busy || session.queuedMessages?.length) return;
+      // The card says why nothing was sent.
+      const problem = cardAnswerProblem(session);
+      if (problem) throw new Error(problem);
+      if (!session) return;
       continueAutomationRun(run.id, {
         session,
         submit: (id, text, settle) =>
@@ -10900,7 +10958,8 @@ export default function App({
         session.id,
         racePrompt(race.prompt, race.lanes.length),
         first?.attachments ?? [],
-        { teamMember: { id: `race:${race.id}`, kind: "race" } },
+        // The user retries the lane.
+        { teamMember: { id: `race:${race.id}`, kind: "race" }, typed: true },
       );
       return null;
     },
@@ -11403,9 +11462,11 @@ export default function App({
         setCrewPaused(path, action === "pause");
       else if (action === "settings") setCrewSheet(path);
       else {
-        // Open crew, and Tell the crew…: the Feed's box is on its Board.
+        // Open crew, and Tell the crew…: the Feed's box is on its Board,
+        // and Tell the crew… puts the cursor in it.
         closeUtilityViews();
         onOpenBoard(path);
+        if (action === "tell") focusCrewTell(path);
       }
     },
     [closeUtilityViews, onOpenBoard],
@@ -11700,26 +11761,32 @@ export default function App({
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
-  // Each pane offers to hide itself beside its divider in its own "…".
-  const paneMinimizes = paneMinimizeControls(view.layout);
+  // Each pane offers to collapse itself, or the column or row it is in, in
+  // its own "…".
+  const paneCollapses = paneCollapseItems(view.layout);
   const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
     const across = seamNeighbours(paneLeaves, owner);
     return {
-      paneHides: (paneMinimizes.get(owner) ?? []).map((control) => ({
-        key: paneMinimizeKey(control),
-        label: paneMinimizeLabel(control),
+      paneHides: (paneCollapses.get(owner) ?? []).map(({ key, label }) => ({
+        key,
+        label,
       })),
       onHidePane: (key: string) => {
-        const control = paneMinimizeControls(viewRef.current.view.layout)
+        const item = paneCollapseItems(viewRef.current.view.layout)
           .get(owner)
-          ?.find((entry) => paneMinimizeKey(entry) === key);
-        if (control)
-          onWorkspaceIntent({
-            type: "minimize",
-            split: control.sash.splitId,
-            index: control.sash.index,
-            side: control.side,
-          });
+          ?.find((entry) => entry.key === key);
+        if (!item) return;
+        onWorkspaceIntent({
+          type: "minimize",
+          split: item.split,
+          index: item.index,
+          side: item.side,
+        });
+        // Its menu went with its title row: the keyboard goes to its rail.
+        setRailFocus((previous) => ({
+          id: owner,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
       },
       paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
       onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
@@ -12574,6 +12641,7 @@ export default function App({
                               onRestoreRail={(id) =>
                                 onWorkspaceIntent({ type: "unrail", id })
                               }
+                              focusRail={railFocus}
                               landed={paneLanding}
                               dragging={surfaceDragging}
                               dragLabel="Move tab"

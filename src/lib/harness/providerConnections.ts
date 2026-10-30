@@ -23,6 +23,7 @@ import {
 } from "./claudeProtocol";
 import { asRecord, stringField } from "./codexProtocol";
 import { JsonRpcClient } from "./jsonRpc";
+import { errorText } from "../errors";
 
 export type ConnectionState =
   "ready" | "needs-sign-in" | "failed" | "starting" | "inactive" | "off";
@@ -56,6 +57,20 @@ export type ProviderConnection = {
   /** Where a server is turned off, when Aven can't turn it on itself. */
   offNote?: string;
 };
+
+/** The provider's CLI isn't installed: there is nothing of its to check. */
+export class ProviderNotInstalledError extends Error {}
+
+/** The provider's CLI, or a `ProviderNotInstalledError` saying it has none. */
+async function installedBinary(
+  resolve: () => Promise<{ path: string }>,
+): Promise<{ path: string }> {
+  try {
+    return await resolve();
+  } catch (error) {
+    throw new ProviderNotInstalledError(errorText(error));
+  }
+}
 
 const PROBE_TIMEOUT_MS = 25_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -119,7 +134,7 @@ async function withClaudeControl<T>(
   work: (request: ClaudeRequest) => Promise<T>,
   { saves = false }: { saves?: boolean } = {},
 ): Promise<T> {
-  const { path } = await resolveClaudeBinary();
+  const { path } = await installedBinary(resolveClaudeBinary);
   const releaseBridge = await acquireHarnessBridge();
   // Unique per run: a shared id would let one run's cleanup kill another.
   const claudeProbeId = `aven-claude-${purpose}-${crypto.randomUUID()}`;
@@ -354,7 +369,7 @@ async function withCodexAppServer<T>(
   purpose: string,
   work: (rpc: JsonRpcClient) => Promise<T>,
 ): Promise<T> {
-  const { path } = await resolveCodexBinary();
+  const { path } = await installedBinary(resolveCodexBinary);
   const releaseBridge = await acquireHarnessBridge();
   const codexProbeId = `aven-codex-${purpose}-${crypto.randomUUID()}`;
   const rpc = new JsonRpcClient(

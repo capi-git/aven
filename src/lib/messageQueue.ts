@@ -79,6 +79,7 @@ export function queuedSubmitOptions(message: QueuedMessage) {
       ? { displayText: message.displayText }
       : {}),
     ...(message.verbatim ? { verbatim: true as const } : {}),
+    ...(message.typed ? { typed: true as const } : {}),
   };
 }
 

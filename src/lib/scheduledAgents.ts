@@ -681,23 +681,43 @@ export function scheduledRunSeenEntry(run: ScheduledRun) {
  * four hours after their latest turn started. Returns the runs it failed.
  */
 export function expireStaleScheduledRuns(now = Date.now()): ScheduledRun[] {
-  const all = runs.read();
-  const stale = all.filter(
+  return failRunningRuns(
     (run) =>
-      run.status === "running" &&
       now - (run.turnStartedAt ?? run.startedAt) >= SCHEDULED_RUN_TIMEOUT_MS,
+    "Aven stopped waiting for this run. Open it to see where it got to.",
+    now,
   );
+}
+
+/**
+ * Mark runs whose latest turn started before this window loaded as failed:
+ * Aven quit during them, so nothing will settle them. Only the first window
+ * of a launch asks, so a run another window is taking is left alone.
+ * Returns the runs it failed.
+ */
+export function failInterruptedScheduledRuns(
+  loadedAt: number,
+  now = Date.now(),
+): ScheduledRun[] {
+  return failRunningRuns(
+    (run) => (run.turnStartedAt ?? run.startedAt) < loadedAt,
+    "Interrupted when Aven quit. Open it to see where it got to.",
+    now,
+  );
+}
+
+function failRunningRuns(
+  due: (run: ScheduledRun) => boolean,
+  error: string,
+  now: number,
+): ScheduledRun[] {
+  const all = runs.read();
+  const stale = all.filter((run) => run.status === "running" && due(run));
   if (!stale.length) return [];
   const failed = new Map(
     stale.map((run) => [
       run.id,
-      {
-        ...run,
-        status: "failed" as const,
-        finishedAt: now,
-        error:
-          "Aven stopped waiting for this run. Open it to see where it got to.",
-      },
+      { ...run, status: "failed" as const, finishedAt: now, error },
     ]),
   );
   runs.write(all.map((run) => failed.get(run.id) ?? run));

@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EVERY_DAY,
   getScheduledAgent,
+  getScheduledRun,
   saveKeepAwake,
   saveScheduledAgent,
+  saveScheduledRun,
   setScheduledAgentEnabled,
   type ScheduledAgent,
 } from "../lib/scheduledAgents";
@@ -128,6 +130,35 @@ describe("scheduled agent checks", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails at once a run Aven quit during, and tells you", async () => {
+    saveScheduledRun({
+      id: "left",
+      scheduleId: agent.id,
+      name: agent.name,
+      project: agent.project,
+      summary: "",
+      startedAt: 0,
+      sessionId: "chat-left",
+      status: "running",
+      inAutomations: true,
+    });
+    const expired = vi.fn();
+    function Opened() {
+      useScheduledAgents(start, async () => false, expired);
+      return null;
+    }
+    await act(async () => root.render(createElement(Opened)));
+    // Before the first check: no four-hour wait.
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(getScheduledRun("left")).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/^Interrupted when Aven quit/),
+    });
+    expect(expired).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "left" }),
+    ]);
   });
 });
 

@@ -1150,11 +1150,15 @@ function rangeOverlap(a0: number, a1: number, b0: number, b1: number): number {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
 
-/** Adjacent leaf in `dir`, preferring panes that share an edge. */
+/**
+ * Adjacent leaf in `dir`, preferring panes that share an edge. With
+ * `among`, only those leaves are candidates (the open ones, say).
+ */
 export function neighborLeafId(
   node: LayoutNode,
   focusedId: string,
   dir: FocusDir,
+  among?: ReadonlySet<string>,
 ): string | null {
   const panes = leafRects(node);
   const current = panes.find((p) => p.id === focusedId);
@@ -1164,7 +1168,7 @@ export function neighborLeafId(
   let best: { id: string; hit: number; gap: number; overlap: number } | null =
     null;
   for (const pane of panes) {
-    if (pane.id === focusedId) continue;
+    if (pane.id === focusedId || (among && !among.has(pane.id))) continue;
     const r = pane.rect;
     let gap = Infinity;
     let perp = 0;
