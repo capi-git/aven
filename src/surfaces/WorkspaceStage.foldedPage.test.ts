@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserBounds } from "../lib/browser";
 import { resetBrowserHandoff } from "../lib/browserHandoff";
 import {
+  browserLayoutRecord,
   createBrowserPresentation,
   type BrowserPresentation,
   type BrowserPresentationState,
 } from "../lib/browserPresentation";
+import { foldedPageProblem } from "../lib/devSmokeRail";
 import type { LayoutNode } from "../lib/layout";
 import { WorkspaceStage, type WorkspaceStageProps } from "./WorkspaceStage";
 
@@ -159,6 +161,10 @@ describe("a page pane folded to its rail by a divider drag", () => {
     await settle();
     expect(container.querySelector('[data-pane-rail="page"]')).not.toBeNull();
     expect(page.visible).toBe(false);
+    // What the real-app check reads while the mouse is still held.
+    expect(
+      foldedPageProblem(browserLayoutRecord("page"), "while held"),
+    ).toBeNull();
     // More frames of the drag, and the end of a glide, re-place pages.
     act(() => window.dispatchEvent(pointer("pointermove", 1080)));
     flushFrame();
