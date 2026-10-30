@@ -107,8 +107,27 @@ function noticeFor(
     notify?.({ kind: "review", run: saved, session });
 }
 
-/** Start one run of `agent` now. Resolves with the run as first saved. */
-export async function startAutomationRun(
+/** Runs on their way to starting, by automation: a second press joins it. */
+const starting = new Map<string, Promise<ScheduledRun>>();
+
+/**
+ * Start one run of `agent` now. Resolves with the run as first saved.
+ * Pressed again while that run is still starting, it starts no second one.
+ */
+export function startAutomationRun(
+  agent: ScheduledAgent,
+  deps: AutomationRunDeps,
+): Promise<ScheduledRun> {
+  const pending = starting.get(agent.id);
+  if (pending) return pending;
+  const next = beginAutomationRun(agent, deps).finally(() =>
+    starting.delete(agent.id),
+  );
+  starting.set(agent.id, next);
+  return next;
+}
+
+async function beginAutomationRun(
   agent: ScheduledAgent,
   deps: AutomationRunDeps,
 ): Promise<ScheduledRun> {

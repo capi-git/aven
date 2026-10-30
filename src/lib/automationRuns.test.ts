@@ -304,6 +304,25 @@ describe("starting an automation run", () => {
       error: expect.stringMatching(/stopped waiting/),
     });
   });
+
+  it("starts one run when Run now is pressed again while it starts", async () => {
+    let checked: () => void = () => {};
+    const checking = new Promise<null>(
+      (resolve) => (checked = () => resolve(null)),
+    );
+    // The harness probe and folder check take a moment.
+    const space = workspace({ problem: () => checking });
+    const first = startAutomationRun(agent, space.deps);
+    const second = startAutomationRun(agent, space.deps);
+    checked();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.id).toBe(b.id);
+    expect(space.chats).toHaveLength(1);
+    expect(space.turns).toHaveLength(1);
+    // Once it has started, Run now starts another as before.
+    await startAutomationRun(agent, space.deps);
+    expect(space.chats).toHaveLength(2);
+  });
 });
 
 describe("data from before runs stayed in Automations", () => {
