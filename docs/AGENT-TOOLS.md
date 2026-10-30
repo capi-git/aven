@@ -140,7 +140,7 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   `"replace":true` (an image name already taken gets a new number instead).
 - The Markdown is inert text under CommonMark, raw-HTML renderers and MDX:
   page text cannot become markup, an `{expression}` or an `import` line, and
-  equations are kept as math code (`` $`…`$ `` and ```` ```math ````).
+  equations are kept as math code (``$`…`$`` and ` ```math `).
 - Toggles closed in a Notion page have no content in the page to save. The
   Markdown keeps their title (`<details><summary>…`) and the result says how
   many were closed, so the agent can ask you to open them.
@@ -297,13 +297,16 @@ them shows the run in Automations.
 The agent is told the run is unattended. When it finishes with something for
 you to review or publish, it saves that as a draft and ends its final reply
 with one `aven-review` block: a JSON object with a `title`, and optionally a
-`kind` (`publish` or `review`), a `summary` and a `url` (http or https only).
+`kind` (`publish`, `review` or `needs-you`), a `summary` and a `url` (http or
+https only).
 Only a single block at the very end of the reply counts; one quoted inside
 another fence, a quote or a list is text. Aven turns it into a **Ready to
-publish** or **Ready to review** card in the Inbox and at the top of the run.
-The card's button is Aven's, never the agent's: **Publish** sends "Publish the
-draft now." and **Approve** sends "Approved. Go ahead." to the run's chat, once,
-and only while the run is not working. **Done** takes the card away. A reply
+publish**, **Ready to review** or **Needs you** card in the Inbox and at the top
+of the run; **Needs you** is for a run that couldn't finish without you. The
+card's button is Aven's, never the agent's: **Publish** sends "Publish the
+draft now.", **Approve** sends "Approved. Go ahead." and **Try again** sends
+"Try again from the start." to the run's chat, once, and only while the run is
+not working. **Done** takes the card away. A reply
 without the block leaves no card.
 
 ### Publish articles from Notion
@@ -340,7 +343,7 @@ afterwards. Each run is told to:
   changes that publishing would include, and whose link is the Framer project
   or the site. When nothing is new it leaves no card. When it cannot finish,
   for example because Notion could not be read, it changes nothing and leaves
-  a review card saying what it needs.
+  a **Needs you** card saying what it needs; its **Try again** starts over.
 - Publish only on "Publish the draft now.": exactly what the card listed, then
   name other pending changes that went out too, mark the articles published
   in the record, check each live address and reply with the live URLs.

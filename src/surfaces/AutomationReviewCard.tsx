@@ -5,6 +5,7 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { isNoProject, NO_PROJECT_NAME } from "../lib/automationFolders";
 import { reviewAction, reviewHeading } from "../lib/automationReview";
 import { canAnswerCard } from "../lib/automationRuns";
+import { errorText } from "../lib/errors";
 import { formatRelativeTime } from "../lib/githubTasks";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { LiveSessionsContext } from "../lib/liveSessions";
@@ -100,10 +101,13 @@ export function AutomationReviewCard({
             }
             onClick={() => {
               if (!ready) return;
+              setError("");
               setSending(true);
-              void Promise.resolve(onAction(run)).finally(() =>
-                setSending(false),
-              );
+              // Nothing sent (the chat is busy, or can't be opened) says why.
+              void Promise.resolve()
+                .then(() => onAction(run))
+                .catch((reason: unknown) => setError(errorText(reason)))
+                .finally(() => setSending(false));
             }}
           >
             {action.label}

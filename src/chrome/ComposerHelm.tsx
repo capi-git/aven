@@ -425,6 +425,14 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     },
     [onReturnFocus],
   );
+  // The dialog and the agent panel live in portals, so a parked pane or a
+  // hidden window takes them away; left open, they would float over the
+  // chat on screen now and change this one.
+  useEffect(() => {
+    if (!paused) return;
+    close(false);
+    setPanel(null);
+  }, [paused, close]);
   // With the agent panel open, Cmd+., Switch Model… and the critter close
   // it and hand the keyboard back, as the old agent pill's did.
   const closePanel = useCallback(() => {
@@ -606,6 +614,26 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       event.stopPropagation();
       if (page !== "main") backToMain(page);
       else close(true);
+      return;
+    }
+    // The dialog sits in a portal at the page's end, so Tab past its first or
+    // last control would leave for whatever ends the page. Shift+Tab goes
+    // back to the critter, Tab back to the message.
+    if (event.key === "Tab") {
+      const stops = [
+        ...(dialogRef.current?.querySelectorAll<HTMLElement>(
+          "button, input, select, textarea, [tabindex]",
+        ) ?? []),
+      ].filter(
+        (element) => element.tabIndex >= 0 && !element.matches(":disabled"),
+      );
+      const edge = event.shiftKey ? stops[0] : stops.at(-1);
+      if (stops.length && document.activeElement !== edge) return;
+      event.preventDefault();
+      if (event.shiftKey) {
+        close(false);
+        critterRef.current?.focus();
+      } else close(true);
       return;
     }
     if (page === "main") {
@@ -1102,13 +1130,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
               setOpened("pinned");
             }
           }}
-          onFocus={(event) => {
-            if (event.currentTarget.matches(":focus-visible") && !opened) {
-              setCursor(0);
-              setPage("main");
-              setOpened("keyboard");
-            }
-          }}
+          // Tabbing onto the critter only focuses it. Enter and Space press
+          // it (its click), and an arrow key opens the dialog the same way.
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();

@@ -2,7 +2,10 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProviderConnection } from "../lib/harness/providerConnections";
+import {
+  ProviderNotInstalledError,
+  type ProviderConnection,
+} from "../lib/harness/providerConnections";
 
 const invoke = vi.hoisted(() => vi.fn());
 const claude = vi.hoisted(() => vi.fn());
@@ -286,6 +289,32 @@ describe("MCP servers page", () => {
     expect(notice()).toBe("Turned on rea.");
   });
 
+  it("says what changed when one agent turns a server off and the other fails", async () => {
+    setCodex.mockRejectedValue(new Error("The file changed. Try again."));
+    await mount();
+    await click(button("Turn off rea"));
+    expect(setClaude).toHaveBeenCalledWith(expect.any(String), "rea", false);
+    expect(notice()).toBe(
+      "Turned off rea for Claude in this project, but Codex (Personal) failed: The file changed. Try again.",
+    );
+
+    // And back on: the same, the other way.
+    const off = (rows: ProviderConnection[]) =>
+      rows.map((row) =>
+        row.key === "rea"
+          ? { ...row, state: "off" as const, toolCount: undefined }
+          : row,
+      );
+    claude.mockResolvedValue(off(structuredClone(CLAUDE_ROWS)));
+    codex.mockResolvedValue(off(structuredClone(CODEX_ROWS)));
+    await click(button("Check again"));
+    await click(button("Turned off 1"));
+    await click(button("Turn on rea"));
+    expect(notice()).toBe(
+      "Turned on rea in Claude (Personal), but Codex (Personal) failed: The file changed. Try again.",
+    );
+  });
+
   it("offers the other actions from the row's menu", async () => {
     await mount();
     await click(button("More for scape"));
@@ -409,6 +438,21 @@ describe("MCP servers page", () => {
     expect(container.textContent).toContain("No MCP servers yet.");
   });
 
+  it("notes quietly that Codex isn't installed, with no failure to fix", async () => {
+    codex.mockRejectedValue(
+      new ProviderNotInstalledError("Codex CLI not found."),
+    );
+    await mount();
+    expect(group("Needs you")).not.toBeUndefined();
+    expect(rowNames(group("Needs you"))).not.toContain("Codex");
+    expect(container.textContent).not.toContain("Aven couldn’t start Codex");
+    expect(container.querySelector("[data-mcp-missing]")?.textContent).toBe(
+      "Codex isn’t installed.",
+    );
+    // Claude's servers are listed as before.
+    expect(rowNames(group("Working"))).toContain("rea");
+  });
+
   it("adds one server to both providers with each one's settings", async () => {
     await mount();
     await click(button("Add server"));
@@ -445,6 +489,37 @@ describe("MCP servers page", () => {
     ]);
     expect(notice()).toBe("Added acme to Claude and Codex.");
     expect(container.querySelector("form")).toBeNull();
+  });
+
+  it("offers an agent that isn't installed unticked and greyed out", async () => {
+    codex.mockRejectedValue(
+      new ProviderNotInstalledError("Codex CLI not found."),
+    );
+    await mount();
+    await click(button("Add server"));
+    const form = container.querySelector("form")!;
+    const target = (label: string) =>
+      [...form.querySelectorAll<HTMLLabelElement>(".provider-targets label")]
+        .find((item) => item.textContent === label)!
+        .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(target("Claude").checked).toBe(true);
+    expect(target("Codex").checked).toBe(false);
+    expect(target("Codex").disabled).toBe(true);
+    expect(target("Codex").closest("label")!.hasAttribute("data-missing")).toBe(
+      true,
+    );
+    expect(form.querySelector("[data-mcp-missing]")?.textContent).toBe(
+      "Codex isn’t installed.",
+    );
+    // Codex's own settings aren't asked for.
+    expect(form.textContent).not.toContain("Codex servers apply");
+    await type("github", "acme");
+    await type("npx", "npx");
+    await act(async () => form.requestSubmit());
+    expect(invoke.mock.calls.map(([, args]) => args.request.provider)).toEqual([
+      "claude",
+    ]);
+    expect(notice()).toBe("Added acme to Claude.");
   });
 
   it("explains a failure without closing the form", async () => {

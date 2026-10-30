@@ -234,6 +234,17 @@ describe("the Notion articles prompt", () => {
     expect(text).toContain("Leave no aven-review block in that reply.");
   });
 
+  it("asks for you with a Needs you card when it can't finish, and starts over on Try again", () => {
+    const text = prompt();
+    expect(text).toContain(
+      'change nothing on the site and end with one aven-review block of kind "needs-you"',
+    );
+    expect(text).toContain(
+      `If I answer "${REVIEW_ACTIONS["needs-you"].message}", start again from step 1.`,
+    );
+    expect(text).not.toContain(REVIEW_ACTIONS.review.message);
+  });
+
   it("is not itself a card, even with Aven's run instructions after it", () => {
     // The prompt is the run's first message; a reply only counts as a card
     // when it ends with a fenced block.

@@ -14,6 +14,8 @@ import type { McpProvider } from "./mcpServers";
 export type McpInventory =
   | { status: "loading" }
   | { status: "loaded"; connections: ProviderConnection[] }
+  /** The agent isn't installed: nothing to check, and nothing broken. */
+  | { status: "missing" }
   | { status: "error"; message: string };
 
 export const MCP_AGENTS: readonly McpProvider[] = ["claude", "codex"];
@@ -88,6 +90,8 @@ export type McpOverview = {
   checking: McpProvider[];
   /** Agents that list connectors from the account (claude.ai, ChatGPT). */
   accountConnectors: McpProvider[];
+  /** Agents that aren't installed, said in a quiet note. */
+  missing: McpProvider[];
   /** Every agent has answered, and none has any server. */
   empty: boolean;
 };
@@ -567,6 +571,7 @@ export function buildMcpOverview(
   const tucked = new Map<string, McpEntry[]>();
   const needsYou: McpRow[] = [];
   const checking: McpProvider[] = [];
+  const missing: McpProvider[] = [];
   const accountConnectors = new Set<McpProvider>();
   let listed = 0;
 
@@ -574,6 +579,10 @@ export function buildMcpOverview(
     const inventory = inventories[provider];
     if (inventory.status === "loading") {
       checking.push(provider);
+      continue;
+    }
+    if (inventory.status === "missing") {
+      missing.push(provider);
       continue;
     }
     if (inventory.status === "error") {
@@ -638,6 +647,7 @@ export function buildMcpOverview(
     accountConnectors: MCP_AGENTS.filter((agent) =>
       accountConnectors.has(agent),
     ),
+    missing,
     empty: !checking.length && !needsYou.length && listed === 0,
   };
 }

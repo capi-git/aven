@@ -429,6 +429,9 @@
   gap: 6px;
   color: var(--color-content);
 }
+.provider-targets label[data-missing] {
+  color: var(--aven-muted);
+}
 .provider-form-actions {
   display: flex;
   flex-wrap: wrap;

@@ -316,8 +316,10 @@ import {
   type ScheduledRun,
 } from "./lib/scheduledAgents";
 import {
+  answerRunStops,
   automationChatTitle,
   canAnswerCard,
+  cardAnswerProblem,
   continueAutomationRun,
   startAutomationRun,
   type AutomationRunNotice,
@@ -8911,6 +8913,14 @@ export default function App({
     },
     [flushHarnessEvents, announceActivity],
   );
+  // Stop pressed in another window on an automation run whose turn this
+  // window is taking: stopped here, where its turn settles it.
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+  useEffect(
+    () => answerRunStops((sessionId) => onStopRef.current(sessionId)),
+    [],
+  );
 
   /** Stop a bot's chat and wait, a few seconds at most, until it has. */
   const stopBotChat = useCallback(
@@ -10600,7 +10610,10 @@ export default function App({
     reviewAnswersInFlight.current.add(run.id);
     try {
       const session = await ensureOpenSession(run.sessionId);
-      if (!session || session.busy || session.queuedMessages?.length) return;
+      // The card says why nothing was sent.
+      const problem = cardAnswerProblem(session);
+      if (problem) throw new Error(problem);
+      if (!session) return;
       continueAutomationRun(run.id, {
         session,
         submit: (id, text, settle) =>

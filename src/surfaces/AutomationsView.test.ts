@@ -364,6 +364,43 @@ describe("Automations view", () => {
     expect(onOpenRunAsChat.mock.calls[0]![0]).toMatchObject({ id: "run-1" });
   });
 
+  it("stops a run Aven quit during, which no turn here will settle", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun({
+      ...finished,
+      status: "running",
+      finishedAt: undefined,
+      summary: "",
+    });
+    const onStopRun = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(AutomationsView, {
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 2 }],
+          onStopRun,
+        }),
+      ),
+    );
+    await click(row("daily"));
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await click(button("Stop"));
+    expect(onStopRun).toHaveBeenCalledWith("session-1");
+    expect(getScheduledRun("run-1")!.status).toBe("cancelled");
+    expect(
+      container.querySelector(".automation-run-when")!.textContent,
+    ).toContain("Stopped");
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (item) => item.textContent?.trim() === "Stop",
+      ),
+    ).toBe(false);
+  });
+
   it("shows the run asked for elsewhere, opening its folder", async () => {
     saveScheduledAgent(schedule);
     saveScheduledRun(finished);
@@ -1027,6 +1064,44 @@ describe("Inbox without the Scheduled tab", () => {
     expect(approve.title).toBe("The run is still working");
     await click(approve);
     expect(onReviewAction).not.toHaveBeenCalled();
+  });
+
+  it("says why when a card's button could send nothing", async () => {
+    saveScheduledRun({
+      ...finished,
+      id: "run-4",
+      review: {
+        kind: "publish",
+        title: "2 new articles",
+        summary: "",
+        status: "open",
+        postedAt: Date.now(),
+      },
+    });
+    const onReviewAction = vi.fn(async () => {
+      throw new Error("The run’s chat is busy. Try again once it finishes.");
+    });
+    await act(async () =>
+      root.render(
+        createElement(InboxView, {
+          onAsk: async () => "",
+          onAskRestart: async () => "",
+          onAskMount: () => {},
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 1 }],
+          onReviewAction,
+        }),
+      ),
+    );
+    const publish = button("Publish");
+    await click(publish);
+    await flush();
+    expect(onReviewAction).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector(".automation-review-error")?.textContent,
+    ).toBe("The run’s chat is busy. Try again once it finishes.");
+    // The button can be pressed again once the chat is free.
+    expect(publish.disabled).toBe(false);
   });
 
   it("hides a card from a project the Inbox's filters hide", async () => {

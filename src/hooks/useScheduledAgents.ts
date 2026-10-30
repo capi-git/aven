@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   claimScheduledSlot,
+  failInterruptedScheduledRuns,
   listScheduledAgents,
   loadKeepAwake,
   runDueScheduledAgents,
@@ -15,6 +16,10 @@ import {
 export const SCHEDULE_CHECK_MS = 30_000;
 /** Give a restored window time to settle before a missed schedule fires. */
 export const SCHEDULE_FIRST_CHECK_MS = 5_000;
+/** The first window of a launch claims this and looks for runs Aven quit during. */
+const LAUNCH_SLOT = "launch";
+/** Every run this window starts begins after this. */
+const WINDOW_LOADED_AT = Date.now();
 
 /**
  * Start due scheduled agents while this window is open. Hidden windows have
@@ -24,7 +29,10 @@ export const SCHEDULE_FIRST_CHECK_MS = 5_000;
 export function useScheduledAgents(
   start: (agent: ScheduledAgent) => void,
   claim: (slot: string) => Promise<boolean> = claimScheduledSlot,
-  /** Runs a check gave up on (no reply in four hours), to tell you about. */
+  /**
+   * Runs a check gave up on (no reply in four hours, or Aven quit during
+   * them), to tell you about.
+   */
   expired?: (runs: ScheduledRun[]) => void,
 ) {
   const startRef = useRef(start);
@@ -37,6 +45,15 @@ export function useScheduledAgents(
   useEffect(() => {
     let checking = false;
     let disposed = false;
+    // Runs a previous launch was taking will never settle: say so now rather
+    // than show them running for hours. Later windows of this launch skip
+    // this, so a run another window is taking is left alone. (Not tied to
+    // this effect: StrictMode's remount would lose the one claim.)
+    void claimScheduledSlot(LAUNCH_SLOT).then((first) => {
+      if (!first) return;
+      const interrupted = failInterruptedScheduledRuns(WINDOW_LOADED_AT);
+      if (interrupted.length) expiredRef.current?.(interrupted);
+    });
     const check = () => {
       if (checking || disposed) return;
       checking = true;
