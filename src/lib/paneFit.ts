@@ -354,3 +354,37 @@ export function workspaceTabPaneKind(
   if (ids.every((id) => terminals.has(id))) return "terminal";
   return "file";
 }
+
+/**
+ * Where a divider inside a tab's own split (a chat beside its terminal)
+ * stands, as a share of its group, for the pointer at `pointer`. `origin`
+ * and `span` are the group's start and length in the viewport's pixels, as
+ * the pointer is; `zoom` the CSS zoom between them and the tree's own
+ * pixels, in which each pane of the pair keeps `min` (or half the pair, when
+ * the pair has less than two minimums). `before` and `after` bound the pair.
+ */
+export function innerSashBoundary({
+  pointer,
+  origin,
+  span,
+  zoom = 1,
+  before,
+  after,
+  min,
+}: {
+  pointer: number;
+  origin: number;
+  span: number;
+  zoom?: number;
+  before: number;
+  after: number;
+  min: number;
+}): number {
+  if (span <= 0) return (before + after) / 2;
+  const local = span / (zoom > 0 ? zoom : 1);
+  const least = Math.min(min / local, (after - before) / 2);
+  return Math.min(
+    after - least,
+    Math.max(before + least, (pointer - origin) / span),
+  );
+}

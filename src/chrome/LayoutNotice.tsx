@@ -14,42 +14,78 @@ export type LayoutNoticeState = {
 export const LAYOUT_NOTICE_MS = 6000;
 
 /**
- * A quiet notice at the foot of the workspace after a tab moves into or out
+ * A quiet notice under the panes' title rows after a tab moves into or out
  * of a split, or a split comes apart: what happened, in a line, and Undo.
- * It never takes focus, waits while pointed at, and goes on its own. It is
- * cut out of a native page under it (`data-native-browser-occluded`), so it
- * shows over a page too.
+ * It never takes focus, waits while pointed at or focused, and goes on its
+ * own. It is cut out of a native page under it
+ * (`data-native-browser-occluded`), so it shows over a page too.
+ *
+ * Screen readers hear it from one live region that stays mounted, whose
+ * words change, since a region mounted with its words already in it is
+ * often not read. `shown` false (Settings open, say) keeps the region and
+ * hides only the pill.
  */
 export function LayoutNotice({
   notice,
+  shown = true,
   onUndo,
   onDismiss,
 }: {
   notice: LayoutNoticeState | null;
+  shown?: boolean;
   onUndo: () => void;
   onDismiss: () => void;
 }) {
-  const [held, setHeld] = useState(false);
+  return (
+    <>
+      <div role="status" aria-live="polite" className="sr-only">
+        {notice?.text ?? ""}
+      </div>
+      {notice && shown ? (
+        <NoticePill
+          key={notice.id}
+          notice={notice}
+          onUndo={onUndo}
+          onDismiss={onDismiss}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * One notice's pill. Keyed by the notice, so whether it is held (pointed
+ * at, focused) starts afresh with each one: a pill taken away under the
+ * pointer, by Undo or its cross, never leaves the next one held for good.
+ */
+function NoticePill({
+  notice,
+  onUndo,
+  onDismiss,
+}: {
+  notice: LayoutNoticeState;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  const [pointed, setPointed] = useState(false);
+  const [focused, setFocused] = useState(false);
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
+  const held = pointed || focused;
   useEffect(() => {
-    if (!notice || held) return;
+    if (held) return;
     const timer = window.setTimeout(() => dismiss.current(), LAYOUT_NOTICE_MS);
     return () => window.clearTimeout(timer);
-  }, [notice, held]);
-  if (!notice) return null;
+  }, [held]);
   return (
     <div
-      key={notice.id}
-      role="status"
-      aria-live="polite"
       className="aven-layout-notice"
       data-layout-notice
       data-native-browser-occluded="true"
-      onPointerEnter={() => setHeld(true)}
-      onPointerLeave={() => setHeld(false)}
-      onFocusCapture={() => setHeld(true)}
-      onBlurCapture={() => setHeld(false)}
+      onPointerEnter={() => setPointed(true)}
+      onPointerLeave={() => setPointed(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={() => setFocused(false)}
     >
       <p className="aven-layout-notice-text">{notice.text}</p>
       {notice.canUndo ? (

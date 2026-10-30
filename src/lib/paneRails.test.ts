@@ -17,9 +17,11 @@ import {
   unrailLeaf,
 } from "./paneRails";
 import {
+  closeWorkspaceViews,
   pruneViewLayout,
   resolveWorkspaceView,
   selectWorkspaceView,
+  splitWorkspaceView,
   swapWorkspacePanes,
   withOpenFocus,
   type WorkspaceView,
@@ -263,5 +265,73 @@ describe("rails through the arrangement's other changes", () => {
     expect(next.children[1]).toEqual(railed("c", 0.4));
     const opened = removePane(layout, "c") as Split;
     expect(opened.children[1]).toEqual(railed("d", 0.4));
+  });
+});
+
+describe("a split never stands with every pane collapsed", () => {
+  // One open pane beside two rails, as a person might leave it.
+  const view = (): WorkspaceView => ({
+    layout: split(
+      "row",
+      "right",
+      [leaf("A"), railed("B", 0.3), railed("C", 0.3)],
+      [0.9, 0.05, 0.05],
+    ),
+    focusedId: "A",
+    order: ["A", "B", "C"],
+    groups: { A: ["A"], B: ["B"], C: ["C"] },
+  });
+
+  it("opens a rail when the open pane's tab is gone, read back or closed", () => {
+    // Its tab gone from the tabs open (closed elsewhere, or across a restart).
+    for (const next of [
+      resolveWorkspaceView(view(), ["B", "C"], "A"),
+      resolveWorkspaceView(JSON.parse(JSON.stringify(view())), ["B", "C"], "A"),
+      closeWorkspaceViews(view(), ["A"], "A"),
+    ]) {
+      expect(openLeafIds(next.layout)).toHaveLength(1);
+      expect(railedLeafIds(next.layout)).toHaveLength(1);
+      // Focus is on the pane that opened.
+      expect(openLeafIds(next.layout)).toContain(next.focusedId);
+    }
+  });
+
+  it("opens a rail when the open pane is removed or moved away", () => {
+    const layout = view().layout!;
+    const removed = removePane(layout, "A")!;
+    expect(openLeafIds(removed)).toHaveLength(1);
+    // The open pane moved into a column beside a rail: the rails left
+    // behind in its split keep one open.
+    const nested = split(
+      "row",
+      "right",
+      [
+        split("column", "down", [leaf("A"), railed("B", 0.4)], [0.95, 0.05]),
+        leaf("D"),
+      ],
+      [0.5, 0.5],
+    );
+    const moved = movePane(nested, "A", "D", "right");
+    for (const node of [moved]) {
+      const column = (node as Split).children.find(
+        (child) => child.type === "split" && child.id === "column",
+      );
+      if (column) expect(railedLeafIds(column)).toEqual([]);
+    }
+    expect(openLeafIds(moved)).toEqual(expect.arrayContaining(["A", "D"]));
+  });
+
+  it("moves focus off a pane that is now collapsed when a tab leaves its split", () => {
+    const next = splitWorkspaceView(
+      {
+        ...view(),
+        groups: { A: ["A", "x"], B: ["B"], C: ["C"] },
+        order: ["A", "x", "B", "C"],
+      },
+      "A",
+      "right",
+      "x",
+    );
+    expect(openLeafIds(next.layout)).toContain(next.focusedId);
   });
 });

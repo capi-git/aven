@@ -756,6 +756,37 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
       expect(current.view.groups["b-web"]).toContain("b-new");
     });
 
+    it("keeps saving every project when one project's stored strip is broken", async () => {
+      storage.set(
+        WORKSPACE_SPACES_KEY,
+        JSON.stringify({
+          version: 1,
+          projects: {
+            [projectB]: split,
+            "/projects/broken": {
+              entries: [{ kind: "space", id: "s", view: null }, null],
+            },
+            "/projects/worse": { entries: "x" },
+            "/projects/gone": null,
+          },
+        }),
+      );
+      await render({
+        project: projectB,
+        ids: ["b-web", "b-docs", "b-chat"],
+        requestedFocus: "b-web",
+      });
+      await act(async () => current.select("b-chat"));
+      const saved = spaces().projects;
+      // The broken strips are dropped; the good one keeps saving.
+      expect(Object.keys(saved).sort()).toEqual(
+        ["/projects/broken", projectB].sort(),
+      );
+      expect(saved["/projects/broken"]).toEqual({ entries: [], front: "" });
+      expect(saved[projectB].front).toBe("b-chat");
+      expect(JSON.parse(storage.get(STORAGE_KEY)!)[projectB]).toBeDefined();
+    });
+
     it("saves each tab in exactly one place, in every project's strip", async () => {
       // Another project's strip holds a tab twice (an older Aven, a bug).
       stored({

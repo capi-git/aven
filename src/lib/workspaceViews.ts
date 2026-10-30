@@ -11,6 +11,7 @@ import {
 import {
   healRails,
   nearestOpenLeaf,
+  openLeafIds,
   railSide,
   railedLeafIds,
   unrailLeaf,
@@ -182,7 +183,10 @@ function resolveWorkspaceSnapshot(
     groups[preferred] = [preferred];
     claimed.add(preferred);
   }
-  const visible = layout ? leafIds(layout) : [];
+  // A pane dropped above may have been its split's only open one: one opens
+  // again, and focus stays on an open pane.
+  if (layout) layout = healRails(layout);
+  const visible = openLeafIds(layout);
   const previousFocus = value?.focusedId
     ? replacements.get(value.focusedId)
     : undefined;
@@ -416,7 +420,7 @@ function detachWorkspaceTab(view: WorkspaceView, id: string): WorkspaceView {
   const layout = active
     ? replaceLeafId(view.layout, owner, active)
     : removePane(view.layout, owner);
-  return {
+  return withOpenFocus({
     ...view,
     layout,
     groups,
@@ -424,7 +428,7 @@ function detachWorkspaceTab(view: WorkspaceView, id: string): WorkspaceView {
       view.focusedId === owner
         ? (active ?? (layout ? leafIds(layout)[0] : ""))
         : view.focusedId,
-  };
+  });
 }
 
 export function splitWorkspaceView(
@@ -667,8 +671,10 @@ export function combineWorkspaceGroups(
   const source = workspaceGroupOwner(view, sourceId);
   const target = workspaceGroupOwner(view, targetId);
   if (!source || !target || source === target || !view.layout) return view;
-  const layout = removePane(view.layout, source);
-  if (!layout) return view;
+  const removed = removePane(view.layout, source);
+  if (!removed) return view;
+  // The pane taking the tabs is shown, opened if it was collapsed.
+  const layout = unrailLeaf(removed, target);
   const groups = {
     ...view.groups,
     [target]: [...view.groups[target], ...view.groups[source]],

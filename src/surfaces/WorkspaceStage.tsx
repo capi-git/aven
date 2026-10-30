@@ -78,6 +78,7 @@ import {
   TAB_UNIT_PRECISION,
 } from "../lib/motionTokens";
 import { SpringAnimator } from "../lib/spring";
+import { flushSync } from "react-dom";
 import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
@@ -898,7 +899,10 @@ export function WorkspaceStage({
       ...committedShown.current.filter((id) =>
         retainedGeometry.current.has(id),
       ),
-    ].filter((id) => visible && !shownIds.includes(id)),
+    ].filter(
+      // A pane folding to its rail is not handed off: its page hides at once.
+      (id) => visible && !shownIds.includes(id) && !railed.has(id),
+    ),
   );
   const heldKey = [...held].join("\0");
   useLayoutEffect(() => {
@@ -1102,7 +1106,7 @@ export function WorkspaceStage({
   } | null>(null);
   useLayoutEffect(() => {
     const draft = dragDraft.current;
-    if (draft) paint(draft.tree, draft.size);
+    if (draft && draftRails) paint(draft.tree, draft.size);
   }, [draftRails]);
   useEffect(() => () => stopResize.current?.(false), []);
 
@@ -1580,11 +1584,15 @@ export function WorkspaceStage({
       cancelPaint();
       const next = resizeSash(tree, fitted, offset).layout;
       dragDraft.current = { tree: next, size: measured };
-      // A pane folding to its rail, or opening from it, shows at once.
+      // A pane folding to its rail, or opening from it, shows in this same
+      // frame: drawn now, its surface hidden (so its native page hides at
+      // once, never a hole) or shown, and painted once by the effect that
+      // follows the draw. Each frame paints, and tells native pages, once.
       const rails = railedLeafIds(next);
       if (rails.join("\0") !== drawnRails) {
         drawnRails = rails.join("\0");
-        setDraftRails(new Set(rails));
+        flushSync(() => setDraftRails(new Set(rails)));
+        return;
       }
       paint(next, measured);
     };

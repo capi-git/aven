@@ -10,6 +10,7 @@ import {
   healWorkspaceStrip,
   insertStripPane,
   joinStripSplit,
+  recordedStripIds,
   resolveWorkspaceStrip,
   separateStripSpace,
   stripProblems,
@@ -339,10 +340,104 @@ describe("moves on the strip never lose a tab (fuzzed)", () => {
         expect(stripProblems(strip, ids), `seed ${seed}, move ${move}`).toEqual(
           [],
         );
+        expect(everySplitOpen(strip), `seed ${seed}, move ${move}`).toBe(true);
         for (const entry of strip.entries)
           if (entry.kind === "space")
             expect(viewMembers(entry.view).length).toBeGreaterThan(1);
       }
+    }
+  });
+});
+
+/** No split of any space stands with every pane collapsed. */
+function everySplitOpen(strip: WorkspaceStrip): boolean {
+  const open = (node: LayoutNode): boolean =>
+    node.type === "leaf" ||
+    (node.children.some((child) => child.rail === undefined) &&
+      node.children.every(open));
+  return strip.entries.every(
+    (entry) =>
+      entry.kind === "item" || !entry.view.layout || open(entry.view.layout),
+  );
+}
+
+describe("healing what an older or broken save left", () => {
+  it("never throws on a strip that is not a strip, and keeps nothing of it", () => {
+    for (const bad of [
+      { entries: [null] },
+      { entries: {} },
+      { entries: "x" },
+      { entries: [{ kind: "space", id: "s", view: null }] },
+      null,
+      7,
+      "strip",
+    ]) {
+      expect(() => healWorkspaceStrip(bad, ["a"])).not.toThrow();
+      const healed = healWorkspaceStrip(bad, ["a"]);
+      expect(stripProblems(healed, ["a"])).toEqual([]);
+      expect(recordedStripIds(bad)).toEqual([]);
+    }
+  });
+
+  it("holds each tab once, never leaves a split all collapsed, and is the same healed twice (fuzzed)", () => {
+    // Spaces with one to three panes, rails on any of them, tabs held twice,
+    // hidden groups and fronts that are not there, as a broken save may be.
+    for (let seed = 1; seed <= 4000; seed++) {
+      const r = random(seed * 104729);
+      const pool = ["a", "b", "c", "d", "e", "f"];
+      const entries: unknown[] = [];
+      for (let i = 0, count = 1 + r.int(4); i < count; i++) {
+        if (r.chance(0.5)) {
+          entries.push({ kind: "item", id: r.pick(pool) });
+          continue;
+        }
+        const panes = [r.pick(pool), r.pick(pool), r.pick(pool)].slice(
+          0,
+          1 + r.int(3),
+        );
+        const groups: Record<string, string[]> = {};
+        for (const pane of panes)
+          groups[pane] = [pane, ...(r.chance(0.4) ? [r.pick(pool)] : [])];
+        const children = panes.map((pane) => ({
+          type: "leaf",
+          id: pane,
+          ...(r.chance(0.4) ? { rail: r.next() } : {}),
+        }));
+        entries.push({
+          kind: "space",
+          id: `s${i}`,
+          view: {
+            layout:
+              children.length === 1
+                ? children[0]
+                : {
+                    type: "split",
+                    id: "r",
+                    dir: "right",
+                    children,
+                    sizes: children.map(() => 1 / children.length),
+                  },
+            focusedId: r.pick(panes),
+            order: r.chance(0.3) ? [...panes, r.pick(pool)] : panes,
+            groups,
+            ...(r.chance(0.2)
+              ? { hiddenGroups: { [r.pick(pool)]: [r.pick(pool)] } }
+              : {}),
+          },
+        });
+      }
+      const stored = { entries, front: r.chance(0.5) ? "zzz" : r.pick(pool) };
+      const ids = recordedStripIds(stored);
+      const healed = healWorkspaceStrip(stored, ids);
+      expect(stripProblems(healed, ids), `seed ${seed}`).toEqual([]);
+      expect(everySplitOpen(healed), `seed ${seed}`).toBe(true);
+      expect(
+        healWorkspaceStrip(
+          JSON.parse(JSON.stringify(healed)),
+          recordedStripIds(healed),
+        ),
+        `seed ${seed}`,
+      ).toEqual(healed);
     }
   });
 });

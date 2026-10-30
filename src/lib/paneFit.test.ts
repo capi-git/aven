@@ -7,6 +7,7 @@ import {
   distributeLengths,
   fitLayout,
   fitShares,
+  innerSashBoundary,
   minAlong,
   resizeSash,
   stepSash,
@@ -254,5 +255,43 @@ describe("what a tab's pane needs", () => {
     expect(workspaceTabPaneKind(chat)).toBe("chat");
     expect(workspaceTabPaneKind(file)).toBe("file");
     expect(workspaceTabPaneKind(terminal)).toBe("terminal");
+  });
+});
+
+describe("a divider inside a tab's own split", () => {
+  const at = (pointer: number, zoom = 1) =>
+    innerSashBoundary({
+      pointer,
+      origin: 100,
+      span: 1000,
+      zoom,
+      before: 0,
+      after: 1,
+      min: 160,
+    });
+
+  it("follows the pointer between the panes' minimums", () => {
+    expect(at(600)).toBeCloseTo(0.5);
+    expect(at(150)).toBeCloseTo(0.16);
+    expect(at(1090)).toBeCloseTo(0.84);
+  });
+
+  it("keeps the minimum in the tree's own pixels, so it grows with CSS zoom", () => {
+    // At 2x, 1000 viewport pixels are 500 of the tree's: 160 is 32%.
+    expect(at(150, 2)).toBeCloseTo(0.32);
+    expect(at(1090, 2)).toBeCloseTo(0.68);
+  });
+
+  it("shares a pair too small for two minimums", () => {
+    expect(
+      innerSashBoundary({
+        pointer: 0,
+        origin: 0,
+        span: 200,
+        before: 0,
+        after: 1,
+        min: 160,
+      }),
+    ).toBeCloseTo(0.5);
   });
 });

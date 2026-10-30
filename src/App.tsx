@@ -1815,7 +1815,7 @@ export default function App({
   // What a move on the strip did, said in a notice with Undo, and where it
   // landed, lit once on the strip and on the stage.
   const [layoutNotice, setLayoutNotice] = useState<
-    (LayoutNoticeState & { undo: object | null }) | null
+    (Omit<LayoutNoticeState, "canUndo"> & { undo: object | null }) | null
   >(null);
   const [stripLanding, setStripLanding] = useState<{
     entry: string;
@@ -11619,7 +11619,6 @@ export default function App({
     setLayoutNotice({
       id: nonce,
       text: change.text,
-      canUndo: !!move?.undo,
       undo: move?.undo ?? null,
     });
     if (change.landed) {
@@ -12056,13 +12055,21 @@ export default function App({
                             className="relative min-h-0 min-w-0"
                             style={{ gridArea: "main" }}
                           >
-                            {workspaceVisible && !settingsOpen ? (
-                              <LayoutNotice
-                                notice={layoutNotice}
-                                onUndo={onNoticeUndo}
-                                onDismiss={() => setLayoutNotice(null)}
-                              />
-                            ) : null}
+                            <LayoutNotice
+                              notice={
+                                layoutNotice && {
+                                  ...layoutNotice,
+                                  // Undo while the move is still the last
+                                  // layout change, as of now.
+                                  canUndo:
+                                    !!layoutNotice.undo &&
+                                    latestLayoutUndo() === layoutNotice.undo,
+                                }
+                              }
+                              shown={workspaceVisible && !settingsOpen}
+                              onUndo={onNoticeUndo}
+                              onDismiss={() => setLayoutNotice(null)}
+                            />
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage

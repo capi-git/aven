@@ -1,4 +1,14 @@
-import { layoutLeaves, leafIds, type LayoutNode } from "./layout";
+import {
+  healRails,
+  isRailed,
+  layoutLeaves,
+  leafIds,
+  unrailed,
+  validRail,
+  type LayoutNode,
+} from "./layout";
+
+export { healRails, isRailed };
 
 /**
  * Collapsed panes. A pane dragged past its smallest useful size, or
@@ -18,25 +28,6 @@ type SplitNode = Extract<LayoutNode, { type: "split" }>;
 const SHARE_FLOOR = 0.08;
 /** What a pane just collapsed keeps of its split until it is drawn. */
 const RAIL_SHARE = 0.02;
-
-export function isRailed(node: LayoutNode): boolean {
-  return node.rail !== undefined;
-}
-
-function validRail(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    value > 0 &&
-    value < 1
-  );
-}
-
-function unrailed<T extends LayoutNode>(node: T): T {
-  if (node.rail === undefined) return node;
-  const { rail: _rail, ...rest } = node;
-  return rest as T;
-}
 
 /** Leaves drawn on a rail: their own node, or one holding them, collapsed. */
 export function railedLeafIds(layout: LayoutNode | null): string[] {
@@ -61,38 +52,6 @@ export function openLeafIds(layout: LayoutNode | null): string[] {
   if (!layout) return [];
   const railed = new Set(railedLeafIds(layout));
   return leafIds(layout).filter((id) => !railed.has(id));
-}
-
-/**
- * Make a stored or edited arrangement valid: no rail at its root, a rail's
- * share a real share, and in each split at least one pane open (the one
- * that had the most room, if all were collapsed).
- */
-export function healRails(layout: LayoutNode): LayoutNode {
-  const heal = (node: LayoutNode, root: boolean): LayoutNode => {
-    let next: LayoutNode = node;
-    if (root) next = unrailed(next);
-    else if (next.rail !== undefined && !validRail(next.rail))
-      next = { ...next, rail: 0.5 };
-    if (next.type === "leaf") return next;
-    const split: SplitNode = next;
-    let children = split.children.map((child) => heal(child, false));
-    if (children.length && children.every(isRailed)) {
-      const widest = children.reduce(
-        (best, child, index) =>
-          (child.rail ?? 0) > (children[best].rail ?? 0) ? index : best,
-        0,
-      );
-      children = children.map((child, index) =>
-        index === widest ? unrailed(child) : child,
-      );
-    }
-    const changed = children.some(
-      (child, index) => child !== split.children[index],
-    );
-    return changed || next !== node ? { ...split, children } : node;
-  };
-  return heal(layout, true);
 }
 
 function mapSplit(

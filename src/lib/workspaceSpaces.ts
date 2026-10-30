@@ -86,10 +86,13 @@ function storedMembers(view: Partial<WorkspaceView>): string[] {
   );
 }
 
-/** The tabs a stored strip records, for a project not open right now. */
-export function recordedStripIds(strip: WorkspaceStrip | undefined): string[] {
+/**
+ * The tabs a stored strip records, for a project not open right now.
+ * Anything that is not a strip records none.
+ */
+export function recordedStripIds(strip: unknown): string[] {
   return unique(
-    (strip?.entries ?? []).flatMap((entry) =>
+    (parseEntries(strip)?.entries ?? []).flatMap((entry) =>
       entry.kind === "item" ? [entry.id] : storedMembers(entry.view),
     ),
   );
@@ -123,7 +126,11 @@ export function stripFromView(
   };
 }
 
-function parseEntries(value: unknown): {
+/**
+ * A stored strip's entries that have the shape of entries, or null when it
+ * is no strip at all (not an object, no list of entries).
+ */
+export function parseEntries(value: unknown): {
   entries: StripEntry[];
   front: string;
 } | null {
@@ -918,9 +925,10 @@ export function stripProblems(
  * stands on the strip on its own, in the order the strip recorded it.
  */
 export function healWorkspaceStrip(
-  strip: WorkspaceStrip,
+  stored: unknown,
   ids: readonly string[],
 ): WorkspaceStrip {
+  const strip = parseEntries(stored) ?? EMPTY_STRIP;
   const flat = (): WorkspaceView => {
     const order = unique([...recordedStripIds(strip), ...ids]).filter((id) =>
       ids.includes(id),
@@ -935,10 +943,15 @@ export function healWorkspaceStrip(
         }
       : { layout: null, focusedId: "", order: [], groups: {} };
   };
-  const healed = resolveWorkspaceStrip(strip, ids, strip.front, flat, {
-    newcomersOnStrip: true,
-  });
-  if (!stripProblems(healed, ids).length) return healed;
+  let healed: WorkspaceStrip | null = null;
+  try {
+    healed = resolveWorkspaceStrip(strip, ids, strip.front, flat, {
+      newcomersOnStrip: true,
+    });
+  } catch {
+    // Something stored no resolving survives: every tab on its own below.
+  }
+  if (healed && !stripProblems(healed, ids).length) return healed;
   const order = flat().order;
   return {
     entries: order.map((id): StripItem => ({ kind: "item", id })),
