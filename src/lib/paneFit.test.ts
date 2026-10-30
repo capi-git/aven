@@ -10,6 +10,7 @@ import {
   innerSashBoundary,
   minAlong,
   resizeSash,
+  sashOffset,
   stepSash,
   workspaceTabPaneKind,
   type FitSash,
@@ -214,6 +215,45 @@ describe("dragging a divider", () => {
     const next = resizeSash(layout, fitted, 0).layout as Split;
     expect(next.children[0].rail).toBeCloseTo(fitted.lengths[0] / 1000);
     expect(next.children[1].rail).toBeUndefined();
+  });
+
+  describe("between two rails, beside an open pane", () => {
+    const layout = () =>
+      columns(
+        [0.028, 0.028, 0.944],
+        [
+          { ...leaf("chat-a"), rail: 0.3 },
+          { ...leaf("chat-b"), rail: 0.3 },
+          leaf("page"),
+        ],
+      );
+    const railed = (next: LayoutNode) =>
+      (next as Split).children.map((child) => child.rail !== undefined);
+
+    it("opens neither for a nudge or a short drag", () => {
+      const fitted = sash(layout());
+      for (const travel of [2, 60]) {
+        const next = resizeSash(layout(), fitted, sashOffset(fitted) + travel);
+        expect(railed(next.layout)).toEqual([true, true, false]);
+        expect(next.railed).toEqual({ before: true, after: true });
+      }
+    });
+
+    it("opens the rail dragged out past its threshold, and only it", () => {
+      const fitted = sash(layout());
+      const next = resizeSash(layout(), fitted, sashOffset(fitted) + 150);
+      expect(railed(next.layout)).toEqual([false, true, false]);
+    });
+
+    it("opens the other side when nothing else in the split is open", () => {
+      const two = columns(
+        [0.028, 0.972],
+        [{ ...leaf("chat-a"), rail: 0.3 }, leaf("chat-b")],
+      );
+      // The chat on the right folds; the rail on the left must open.
+      const next = resizeSash(two, sash(two), 1000).layout;
+      expect(railed(next)).toEqual([false, true]);
+    });
   });
 });
 
