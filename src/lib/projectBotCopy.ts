@@ -58,7 +58,56 @@ export const botCopyHost = {
     invoke<void>("bot_copy_discard", { copy, base, branch }),
   remove: (cwd: string, copy: string, branch: string) =>
     invoke<void>("bot_copy_remove", { cwd, copy, branch }),
+  /**
+   * A crew's stack: what the copy holds now becomes a commit on the crew's
+   * branch on top of `parent` (the card's starting point, the branch's
+   * commit). Resolves with the new commit.
+   */
+  stack: (copy: string, branch: string, parent: string, message: string) =>
+    invoke<string>("bot_copy_stack", { copy, branch, parent, message }),
+  /** What changed between two of the stack's commits, with its fingerprint. */
+  range: (copy: string, from: string, to: string) =>
+    invoke<BotDiff>("bot_copy_range", { copy, from, to }),
+  rangeFileDiff: (copy: string, from: string, to: string, path: string) =>
+    invoke<RaceFileDiff>("bot_copy_range_file_diff", { copy, from, to, path }),
+  /**
+   * Apply the stacked range onto the user's files, only while it is the
+   * change with this fingerprint (the one the user reviewed). Protected
+   * paths are refused; a conflict changes nothing.
+   */
+  applyRange: (
+    cwd: string,
+    copy: string,
+    from: string,
+    to: string,
+    hash: string,
+  ) => invoke<RaceDiff>("bot_copy_apply_range", { cwd, copy, from, to, hash }),
+  /**
+   * Replay the stacked cards onto the user's files now, each its own commit
+   * again. A card that no longer fits leaves the stack exactly as it was.
+   */
+  restack: (
+    cwd: string,
+    copy: string,
+    branch: string,
+    from: string,
+    commits: readonly string[],
+  ) =>
+    invoke<{ base: string; commits: string[] }>("bot_copy_restack", {
+      cwd,
+      copy,
+      branch,
+      from,
+      commits,
+    }),
 };
+
+/** The host refused a restack: the user's files changed where the crew worked. */
+export function isRestackConflict(error: unknown): boolean {
+  return /^Your files changed where the crew worked/.test(
+    String(error instanceof Error ? error.message : error),
+  );
+}
 
 /** The host refused to apply a fix that changed after it was reviewed. */
 export function isFixChanged(error: unknown): boolean {

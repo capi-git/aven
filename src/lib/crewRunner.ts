@@ -71,6 +71,7 @@ import {
   withCheckerOnClaude,
   withDoingCleared,
   withoutFallbacks,
+  stackHead,
   type Crew,
   type CrewCard,
   type CrewChange,
@@ -155,6 +156,18 @@ export type CrewRunnerDeps = {
      * the user; with `remove`, removed. Checked before every turn.
      */
     planted: (copy: string, remove: boolean) => Promise<string[]>;
+    /**
+     * Stack a passed card: what the copy holds becomes a commit on the
+     * crew's branch on top of `parent`. Resolves with the commit.
+     */
+    stack: (
+      copy: string,
+      branch: string,
+      parent: string,
+      message: string,
+    ) => Promise<string>;
+    /** Throw away what the copy holds since `base` (it goes back to `base`). */
+    discard: (copy: string, base: string, branch: string) => Promise<void>;
   };
   /** The Claude week's use, percent, when known. */
   weeklyUsed: (now: number) => number | null;
@@ -585,17 +598,31 @@ export class CrewRunner {
    */
   private async withoutSecurity(crew: Crew, card: CrewCard) {
     const now = this.deps.now();
-    if (!securityOff(card, now))
-      return this.hold(crew, crewNoMemberGate("security"));
+    const passed = securityOff(card, now);
+    if (!passed) return this.hold(crew, crewNoMemberGate("security"));
     const checkerId =
       card.checkerId ?? cardChecker(crew, card)?.id ?? "checker";
+    // Stacked on the crew's branch like any passed card, the copy held
+    // meanwhile so nothing else starts on top of it.
+    if (!claimCrewJob(crew.path, this.deps.owner, now)) return;
+    let step: LoopStep;
+    try {
+      step = await this.stackPassed(crew, passed, "checker", checkerId, now);
+    } finally {
+      releaseCrewJob(crew.path, this.deps.owner);
+    }
     let ready = false;
     updateCrew(crew.path, (current) => {
       const known = crewCard(current, card.id);
-      const step =
-        known && !known.turn && !known.paused && securityOff(known, now);
-      if (!step || cardSecurity(current)) return current;
-      ready = true;
+      if (
+        !known ||
+        known.turn ||
+        known.paused ||
+        !securityOff(known, now) ||
+        cardSecurity(current)
+      )
+        return current;
+      ready = step.event.kind === "ready";
       const checker = this.deps.name(current, checkerId);
       const noted = withFeed(
         { ...current, hold: undefined },
@@ -909,13 +936,17 @@ export class CrewRunner {
       if (!queued || !from || !cardStillAt(queued, from))
         return this.endTurn(path, turn);
       const fresh = queued.stage === "queued";
-      const prepared = await this.prepareCopy(path, fresh);
+      // With passed work stacked on the crew's branch, a new card builds on
+      // top of it; the copy is matched to your files only when none is.
+      const onStack = fresh ? stackHead(before) : undefined;
+      const prepared = await this.prepareCopy(path, fresh && !onStack);
       if (!prepared || !this.stillOn(path, onAt))
         return this.endTurn(path, turn);
       const crew = prepared.crew;
       let card = crewCard(crew, cardId);
       if (!card) return this.endTurn(path, turn);
-      if (fresh) card = { ...startCard(card, now), base: prepared.base };
+      if (fresh)
+        card = { ...startCard(card, now), base: onStack ?? prepared.base };
       begun = card;
       if (!card.base)
         throw new Error("The card has no starting point in the copy.");
@@ -1355,11 +1386,50 @@ export class CrewRunner {
       }
     }
     if (!this.stillOn(path, turn.onAt)) return;
+    if (step.event.kind === "ready")
+      step = await this.stackPassed(crew, step, role, turn.memberId, now);
     updateCrew(path, (current) =>
       this.commit(current, step, role, now, turn.memberId),
     );
     if (step.event.kind === "ready")
       await Promise.resolve(this.deps.board.move(path, step.card.id, "review"));
+  }
+
+  /**
+   * A card passed every check: its work becomes a commit on the crew's
+   * branch, so the next card builds on top and it waits, with the others,
+   * for your Apply. It can't be stacked (the copy moved): it stops, with
+   * why, and nothing is lost.
+   */
+  private async stackPassed(
+    crew: Crew,
+    step: LoopStep,
+    role: CrewLoopRole,
+    memberId: string,
+    now: number,
+  ): Promise<LoopStep> {
+    const card = step.card;
+    if (!crew.copy || !card.base) return step;
+    try {
+      const commit = await this.deps.copy.stack(
+        crew.copy.path,
+        crew.copy.branch,
+        card.base,
+        card.title,
+      );
+      return {
+        ...step,
+        card: { ...card, stacked: { commit, parent: card.base } },
+      };
+    } catch (error) {
+      logError("Crew stack", error);
+      return turnFailed(card, {
+        role,
+        error: `its work couldn't be stacked on the crew's branch: ${errorText(error)}`,
+        now,
+        name: this.deps.name(crew, memberId),
+      });
+    }
   }
 
   /** Save a step: the card, the feed line, the member's line, and an Inbox card when it ends. */
@@ -1476,6 +1546,9 @@ export class CrewRunner {
         }),
       };
     let next = withFeed(withCard(crew, card), entry);
+    // The first card on the crew's branch starts the batch.
+    if (card.stacked && !next.stack)
+      next = { ...next, stack: { base: card.stacked.parent } };
     next = withMemberId(next, memberId, (member) =>
       member.doing ? { ...member, doing: undefined } : member,
     );
@@ -1517,8 +1590,9 @@ export class CrewRunner {
     };
     this.beginTurn(key, turn);
     try {
-      // The copy is idle (no card in it), so it is safe to match it to your files.
-      const prepared = await this.prepareCopy(path, true);
+      // The copy is idle (no card in it), so it is safe to match it to your
+      // files, unless passed work waits on the crew's branch: never lost.
+      const prepared = await this.prepareCopy(path, !stackHead(before));
       if (!prepared || !this.stillOn(path, turn.onAt))
         return this.endTurn(path, turn);
       const crew = prepared.crew;

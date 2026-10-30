@@ -92,6 +92,8 @@ function busyRunner(known: boolean) {
       diff: async () => ({ files: [], additions: 0, deletions: 0, hash: "e" }),
       sources: async () => [],
       planted: async () => [],
+      stack: async () => "c".repeat(40),
+      discard: async () => {},
     },
     weeklyUsed: () => 40,
     fixerRuns: () => 0,

@@ -330,6 +330,8 @@ describe("Apply lands exactly the reviewed change", () => {
         }),
         sources: async () => [],
         planted: async () => [],
+        stack: async () => "c".repeat(40),
+        discard: async () => {},
       },
       weeklyUsed: () => null,
       fixerRuns: () => 0,

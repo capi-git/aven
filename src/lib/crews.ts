@@ -405,6 +405,14 @@ export type CrewCard = {
   inbox?: AutomationReview;
   /** Why the last Apply did not go through. */
   error?: string;
+  /**
+   * It passed its checks and its work is a commit on the crew's branch
+   * (`commit`, on top of `parent`): the next card builds on it, and it
+   * waits there for Apply, with the others, as one batch.
+   */
+  stacked?: { commit: string; parent: string };
+  /** Planned by the crew towards its goal. */
+  goal?: true;
 };
 
 export type CrewIdeaSize = "small" | "medium" | "large";
@@ -519,6 +527,27 @@ export type Crew = {
   /** Why the crew is holding now, when a limit holds it. */
   hold?: { reason: CrewHoldReason; at: number };
   lastError?: { at: number; text: string };
+  /**
+   * Passed work stacked on the crew's branch and not applied yet: `base` is
+   * the commit the batch starts from (your files when the first card
+   * started, or the last card you applied).
+   */
+  stack?: { base: string; conflict?: string };
+  /** A goal the crew keeps building towards, card after card. */
+  goal?: CrewGoal;
+  /** Replies in member chats already turned into cards: each is read once. */
+  asks?: string[];
+};
+
+/**
+ * The crew's goal: it plans its own cards towards it and builds them one
+ * after another, within its limits. `done` once it is met, or the crew
+ * found nothing left to plan or couldn't plan (it stops and says why).
+ */
+export type CrewGoal = {
+  text: string;
+  at: number;
+  done?: { at: number; text: string; met: boolean };
 };
 
 type Store = {
@@ -536,6 +565,8 @@ const NOTES_KEPT = 20;
 const DONE_CARDS_KEPT = 20;
 const IDEAS_KEPT = 60;
 export const CREW_NOTE_MAX = 500;
+export const CREW_GOAL_MAX = 300;
+const ASKS_KEPT = 50;
 export const CREW_BRIEF_MAX = 4_000;
 const TEXT_MAX = 600;
 const FINDINGS_KEPT = 5;
@@ -595,6 +626,31 @@ function strings(value: unknown, keep: number, max = TEXT_MAX): string[] {
         .filter((item): item is string => !!item)
         .slice(0, keep)
     : [];
+}
+
+/** A full git commit id. */
+export function isSha(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
+}
+
+function readGoal(value: unknown): CrewGoal | undefined {
+  const raw = value as Partial<CrewGoal> | null | undefined;
+  const goal = text(raw?.text, CREW_GOAL_MAX);
+  if (!raw || !goal) return undefined;
+  const done = raw.done as CrewGoal["done"] | undefined;
+  return {
+    text: goal,
+    at: finite(raw.at, 0, 8.64e15, 0),
+    ...(done && typeof done.at === "number" && typeof done.text === "string"
+      ? {
+          done: {
+            at: done.at,
+            text: done.text.slice(0, 400),
+            met: done.met === true,
+          },
+        }
+      : {}),
+  };
 }
 
 function dayCount(value: unknown): { day: string; count: number } | undefined {
@@ -811,6 +867,11 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const note = text(raw.note, CREW_NOTE_MAX);
   const sourceUrl = text(raw.sourceUrl, 2048);
   const error = text(raw.error, 300);
+  const stackedRaw = raw.stacked as CrewCard["stacked"] | undefined;
+  const stacked =
+    stackedRaw && isSha(stackedRaw.commit) && isSha(stackedRaw.parent)
+      ? { commit: stackedRaw.commit, parent: stackedRaw.parent }
+      : undefined;
   return {
     id,
     title,
@@ -887,6 +948,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
     updatedAt: finite(raw.updatedAt, 0, 8.64e15, 0),
     ...(inbox ? { inbox } : {}),
     ...(error ? { error } : {}),
+    ...(stacked ? { stacked } : {}),
+    ...(raw.goal === true ? { goal: true as const } : {}),
   };
 }
 
@@ -1114,6 +1177,9 @@ export function readCrew(value: unknown): Crew | null {
   const extra = dayCount(raw.extra);
   const autoStarts = dayCount(raw.autoStarts);
   const ideasAdded = dayCount(raw.ideasAdded);
+  const stack = raw.stack as Crew["stack"] | undefined;
+  const goal = readGoal(raw.goal);
+  const asks = strings(raw.asks, ASKS_KEPT, 200);
   return {
     ...base,
     on: raw.on === true,
@@ -1164,6 +1230,18 @@ export function readCrew(value: unknown): Crew | null {
     ...(typeof raw.scoutAt === "number" ? { scoutAt: raw.scoutAt } : {}),
     ...(typeof raw.sweepAt === "number" ? { sweepAt: raw.sweepAt } : {}),
     ...(Object.keys(ideas).length ? { ideas } : {}),
+    ...(stack && isSha(stack.base)
+      ? {
+          stack: {
+            base: stack.base,
+            ...(typeof stack.conflict === "string"
+              ? { conflict: stack.conflict.slice(0, 400) }
+              : {}),
+          },
+        }
+      : {}),
+    ...(goal ? { goal } : {}),
+    ...(asks.length ? { asks } : {}),
     cards,
     feed,
     notes,
@@ -2086,9 +2164,42 @@ export function crewCard(
   return crew.cards.find((card) => card.id === id);
 }
 
-/** The card in the crew's copy now: being built or checked, Ready, or Stuck. */
+/**
+ * The card in the crew's copy now: being built or checked, Ready, or Stuck.
+ * A Ready card stacked on the crew's branch no longer holds it: the next
+ * card builds on top.
+ */
 export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
-  return crew.cards.find((card) => HOLDS_COPY.has(card.stage));
+  return crew.cards.find((card) => HOLDS_COPY.has(card.stage) && !card.stacked);
+}
+
+/**
+ * The crew's stack: Ready cards whose work is a commit on its branch, in
+ * the order they were stacked (each on the one before), from the batch's
+ * start. Cards not on that chain (a stack from an older copy) are left out.
+ */
+export function stackedCards(crew: Pick<Crew, "cards" | "stack">): CrewCard[] {
+  const base = crew.stack?.base;
+  if (!base) return [];
+  const byParent = new Map<string, CrewCard>();
+  for (const card of crew.cards)
+    if (card.stage === "ready" && card.stacked)
+      byParent.set(card.stacked.parent, card);
+  const out: CrewCard[] = [];
+  for (
+    let next = byParent.get(base);
+    next && out.length < crew.cards.length;
+    next = byParent.get(next.stacked!.commit)
+  )
+    out.push(next);
+  return out;
+}
+
+/** The commit the next card builds on: the stack's top, if anything is stacked. */
+export function stackHead(
+  crew: Pick<Crew, "cards" | "stack">,
+): string | undefined {
+  return stackedCards(crew).at(-1)?.stacked?.commit ?? crew.stack?.base;
 }
 
 export function queuedCards(crew: Pick<Crew, "cards">): CrewCard[] {

@@ -7,8 +7,10 @@ import {
   resetCrewRunnerSession,
 } from "./crewRunner";
 import {
+  cardInCopy,
   crewCard,
   crewMember,
+  stackedCards,
   crewMemberApp,
   crewMemberName,
   defaultCrewLimits,
@@ -111,6 +113,8 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   const stopped: string[] = [];
   const fresh: string[] = [];
   let copyState: { hash: string; files: string[] } | null = null;
+  let stacked = 0;
+  const commits: { commit: string; parent: string }[] = [];
   const board = new Map<string, FeatureCard>();
   const moves: { id: string; column: FeatureColumn }[] = [];
   const roleOf = new Map<string, Role>();
@@ -149,6 +153,14 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     diff: vi.fn(async () => diff()),
     sources: vi.fn(async () => [`${COPY}/src`, `${COPY}/package.json`]),
     planted: vi.fn(async (): Promise<string[]> => []),
+    // The crew's branch: each passed card a commit, the next on top.
+    stack: vi.fn(async (_copy: string, _branch: string, parent: string) => {
+      stacked += 1;
+      const commit = String(stacked).padStart(40, "c");
+      commits.push({ commit, parent });
+      return commit;
+    }),
+    discard: vi.fn(async () => {}),
   };
 
   const update = (id: string, change: (chat: Session) => Session) => {
@@ -332,6 +344,11 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   };
 }
 
+const NO_SCOUT: Crew["members"] = [
+  { id: "builder", role: "builder" },
+  { id: "checker", role: "checker" },
+];
+
 /** The crew on, with a Builder, a Checker and a Scout unless the test says. */
 function onCrew(patch: Partial<Crew> = {}) {
   updateCrew(PATH, (crew) => ({
@@ -407,7 +424,7 @@ describe("the loop with stand-in agents", () => {
               ),
             },
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give();
     h.runner.start();
     await h.advance(0);
@@ -463,7 +480,13 @@ describe("the loop with stand-in agents", () => {
       "handoff",
       "ready",
     ]);
-    // Nothing more starts while the Ready card holds the copy.
+    // Stacked on the crew's branch, on top of where it started.
+    expect(ready.stacked).toEqual({
+      commit: "c".repeat(39) + "1",
+      parent: BASE,
+    });
+    expect(crew.stack).toEqual({ base: BASE });
+    // Nothing else is queued, so nothing more starts.
     await h.advance(10 * MINUTE);
     expect(h.sent).toHaveLength(4);
     h.runner.stop();
@@ -629,7 +652,7 @@ describe("fresh eyes", () => {
               : verdict([]),
       }),
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give("first", "First");
     h.runner.start();
     await h.advance(10 * MINUTE);
@@ -658,8 +681,8 @@ describe("fresh eyes", () => {
   });
 });
 
-describe("one card at a time", () => {
-  it("starts the next queued card only after the first is applied or thrown away", async () => {
+describe("one card at a time, stacked", () => {
+  it("builds the next queued card on top of the one that passed", async () => {
     const h = harness({
       builder: (_text, nth) => ({
         text: handoff("Built"),
@@ -667,23 +690,86 @@ describe("one card at a time", () => {
       }),
       checker: () => ({ text: verdict([]) }),
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give("first", "First");
     give("second", "Second");
     h.runner.start();
-    await h.advance(10 * MINUTE);
-    expect(card("first").stage).toBe("ready");
+    await h.advance(MINUTE + 5_000);
+    // While the first is at work, the second waits.
+    expect(card("first").stage).toBe("checking");
     expect(card("second").stage).toBe("queued");
-    expect(h.sent.every((item) => !item.text.includes("Second"))).toBe(true);
-
-    updateCrew(PATH, (crew) => ({
-      ...crew,
-      cards: crew.cards.map((item) =>
-        item.id === "first" ? { ...item, stage: "applied" } : item,
-      ),
-    }));
     await h.advance(10 * MINUTE);
-    expect(card("second").stage).toBe("ready");
+    const first = card("first");
+    const second = card("second");
+    expect(first.stage).toBe("ready");
+    expect(second.stage).toBe("ready");
+    // The second started on the first's commit, never on a fresh copy of
+    // your files: one sync, at the start of the batch.
+    expect(h.copy.sync).toHaveBeenCalledTimes(1);
+    expect(second.base).toBe(first.stacked!.commit);
+    expect(second.stacked!.parent).toBe(first.stacked!.commit);
+    expect(stackedCards(getCrew(PATH)!).map((item) => item.id)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(cardInCopy(getCrew(PATH)!)).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("never matches the copy to your files while work waits on the branch", async () => {
+    const h = harness({
+      scout: () => ({ text: fence("aven-ideas", { ideas: [] }) }),
+    });
+    const commit = "d".repeat(40);
+    onCrew({
+      stack: { base: BASE },
+      cards: [
+        {
+          ...queueCard(
+            {
+              id: "done",
+              title: "Done",
+              brief: "x",
+              from: "you",
+              maxRounds: 3,
+            },
+            NOON,
+          ),
+          stage: "ready",
+          round: 1,
+          base: BASE,
+          stacked: { commit, parent: BASE },
+        },
+      ],
+    });
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    // The Scout looked, in the copy as the branch holds it.
+    expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
+    expect(h.copy.sync).not.toHaveBeenCalled();
+    h.runner.stop();
+  });
+
+  it("keeps a passed card that can't be stacked, stopped with why", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockRejectedValueOnce(
+      new Error("The crew's copy moved since its last card."),
+    );
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card()).toMatchObject({ stage: "stuck" });
+    expect(card().stuck?.text).toContain(
+      "its work couldn't be stacked on the crew's branch",
+    );
+    expect(card().stacked).toBeUndefined();
     h.runner.stop();
   });
 });

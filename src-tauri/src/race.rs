@@ -366,8 +366,12 @@ pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
         ],
     )?)
     .to_string();
-    let statuses = parse_name_status(&names);
-    let files: Vec<RaceFile> = parse_numstat(&numstat)
+    Ok(diff_from_stats(&numstat, &names))
+}
+
+fn diff_from_stats(numstat: &str, names: &str) -> RaceDiff {
+    let statuses = parse_name_status(names);
+    let files: Vec<RaceFile> = parse_numstat(numstat)
         .into_iter()
         .map(|(path, additions, deletions, binary)| RaceFile {
             status: statuses
@@ -381,11 +385,120 @@ pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
             binary,
         })
         .collect();
-    Ok(RaceDiff {
+    RaceDiff {
         additions: files.iter().map(|file| file.additions).sum(),
         deletions: files.iter().map(|file| file.deletions).sum(),
         files,
+    }
+}
+
+/// Everything that changed between two commits (`from` an ancestor of
+/// `to`), read from the repository alone: no checkout or index is touched.
+pub(crate) fn range_diff(dir: &Path, from: &str, to: &str) -> Result<RaceDiff, String> {
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    let numstat = text_lossy(run(
+        dir,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--numstat",
+            from,
+            to,
+        ],
+    )?);
+    let names = text_lossy(run(
+        dir,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-status",
+            from,
+            to,
+        ],
+    )?);
+    Ok(diff_from_stats(&numstat, &names))
+}
+
+fn text_lossy(bytes: Vec<u8>) -> String {
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+/// The binary patch between two commits, as `patch` makes for a checkout.
+pub(crate) fn range_patch(dir: &Path, from: &str, to: &str) -> Result<Vec<u8>, String> {
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    run(
+        dir,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--binary",
+            "--no-renames",
+            from,
+            to,
+        ],
+    )
+}
+
+/// A file as it was at `from` and as it is at `to`.
+pub(crate) fn range_file_diff(
+    dir: &Path,
+    from: &str,
+    to: &str,
+    path: &str,
+) -> Result<RaceFileDiff, String> {
+    let path = clean_relative(path)?;
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    let show = |at: &str| {
+        run(dir, &["show", "--no-textconv", &format!("{at}:{path}")])
+            .ok()
+            .and_then(readable)
+    };
+    Ok(RaceFileDiff {
+        original: show(from),
+        current: show(to),
     })
+}
+
+/// A commit of everything in `worktree` now (new files too, ignored ones
+/// not), on top of `parent`, made from a scratch index so the checkout's
+/// own index is untouched and no hook runs. Its author is Aven, so it never
+/// needs (or borrows) the user's git identity.
+pub(crate) fn snapshot(worktree: &Path, parent: &str, message: &str) -> Result<String, String> {
+    if !is_sha(parent) {
+        return Err("Invalid race base".into());
+    }
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    let tree = text(run_staged(worktree, &index, &["write-tree"])?);
+    let mut cmd = git(worktree);
+    for (key, value) in [
+        ("GIT_AUTHOR_NAME", "Aven crew"),
+        ("GIT_AUTHOR_EMAIL", "crew@aven.invalid"),
+        ("GIT_COMMITTER_NAME", "Aven crew"),
+        ("GIT_COMMITTER_EMAIL", "crew@aven.invalid"),
+    ] {
+        cmd.env(key, value);
+    }
+    let sha = text(run_git(
+        cmd,
+        &["commit-tree", &tree, "-p", parent, "-F", "-"],
+        Some(message.as_bytes()),
+    )?);
+    if !is_sha(&sha) {
+        return Err("Could not record the crew's work".into());
+    }
+    Ok(sha)
 }
 
 const MAX_DIFF_TEXT: usize = 2 * 1024 * 1024;

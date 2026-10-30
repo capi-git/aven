@@ -17,6 +17,7 @@ import {
   bumpToday,
   cardInCopy,
   queuedCards,
+  stackedCards,
   crewCard,
   crewMemberName,
   getCrew,
@@ -52,7 +53,7 @@ import { isMascotName } from "./projectMascots";
 import { isHarnessAvailable } from "./harness/availability";
 import { pickerModelsFor, preferredModelId } from "./models";
 import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
-import { logError } from "./errors";
+import { errorText, logError } from "./errors";
 import {
   addFeatureIdea,
   deleteFeatureCard,
@@ -62,7 +63,13 @@ import {
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
 import { projectKey, projectName } from "./paths";
-import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
+import {
+  botCopyError,
+  botCopyHost,
+  isFixChanged,
+  isRestackConflict,
+  type BotDiff,
+} from "./projectBotCopy";
 import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
 import { normalizeProjectPath } from "./recents";
@@ -658,6 +665,9 @@ export async function applyCrewCard(
 ): Promise<string | null> {
   const crew = getCrew(path);
   const card = crew ? crewCard(crew, cardId) : undefined;
+  // On the crew's branch: Apply lands the batch up to it.
+  if (card?.stage === "ready" && card.stacked)
+    return applyCrewBatch(path, { upTo: cardId }, now);
   if (!crew?.copy || !card || card.stage !== "ready" || !card.fix)
     return NOT_READY;
   if (card.turn || jobIsLive(crew.job, now)) return STILL_WORKING;
@@ -725,6 +735,9 @@ export async function discardCrewCard(
   const crew = getCrew(path);
   const card = crew ? crewCard(crew, cardId) : undefined;
   if (!crew || !card) return null;
+  // On the crew's branch: only the top card comes off it.
+  if (card.stage === "ready" && card.stacked)
+    return dropStackedCard(path, cardId, then, now);
   if (card.turn) await stopCrewCard(path, cardId, now);
   if (crew.copy && card.base && cardInCopy(crew)?.id === cardId) {
     try {
@@ -757,6 +770,264 @@ export async function discardCrewCard(
   });
   if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
   else await deleteFeatureCard(path, cardId);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// The batch on the crew's branch: cards that passed every check, each a
+// commit, applied together (or up to one of them) by exactly the change
+// reviewed. Your files change only here.
+
+/** The batch waiting on the crew's branch, oldest card first, or null. */
+export type CrewBatch = { from: string; cards: CrewCard[] };
+
+export function crewBatch(crew: Crew | undefined): CrewBatch | null {
+  if (!crew?.stack) return null;
+  const cards = stackedCards(crew);
+  return cards.length ? { from: crew.stack.base, cards } : null;
+}
+
+const NOT_ON_BRANCH = "That card isn't on the crew's branch any more.";
+const BRANCH_MOVED =
+  "The crew's branch changed since you looked. Review it again.";
+
+/** Where the batch ends: at `upTo`, else its last card. */
+function batchEnd(
+  batch: CrewBatch,
+  upTo: string | undefined,
+): { cards: CrewCard[]; to: string } | null {
+  const at = upTo
+    ? batch.cards.findIndex((card) => card.id === upTo)
+    : batch.cards.length - 1;
+  if (at < 0) return null;
+  const cards = batch.cards.slice(0, at + 1);
+  return { cards, to: cards.at(-1)!.stacked!.commit };
+}
+
+/**
+ * The batch's combined change up to a card (its last when not given), as
+ * the crew's branch holds it: what Apply would land, with its fingerprint.
+ */
+export async function reviewCrewBatch(
+  path: string,
+  upTo?: string,
+): Promise<
+  | { diff: BotDiff; from: string; to: string; cards: CrewCard[] }
+  | { error: string }
+> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  const end = batch && batchEnd(batch, upTo);
+  if (!crew?.copy || !batch || !end) return { error: NOT_ON_BRANCH };
+  try {
+    const diff = await botCopyHost.range(crew.copy.path, batch.from, end.to);
+    return { diff, from: batch.from, to: end.to, cards: end.cards };
+  } catch (error) {
+    logError("Review crew batch", error);
+    return { error: botCopyError(error) };
+  }
+}
+
+/**
+ * Apply the batch, or up to one of its cards, to your files: exactly the
+ * combined change between the batch's start and that card's commit, by its
+ * fingerprint (`hash`, from the Review you saw, when you saw one). Settings
+ * an app would run as you are never applied this way, and a conflict with
+ * your files changes nothing: the crew's branch can be updated onto them.
+ * Resolves with why it couldn't, or null once applied.
+ */
+export async function applyCrewBatch(
+  path: string,
+  options: { upTo?: string; hash?: string } = {},
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  const end = batch && batchEnd(batch, options.upTo);
+  if (!crew?.copy || !batch || !end) return NOT_ON_BRANCH;
+  const copy = crew.copy;
+  let range: BotDiff;
+  try {
+    range = await botCopyHost.range(copy.path, batch.from, end.to);
+  } catch (error) {
+    logError("Apply crew batch", error);
+    return botCopyError(error);
+  }
+  if (options.hash && options.hash !== range.hash) return BRANCH_MOVED;
+  const guarded = protectedFixPaths(range.files.map((file) => file.path));
+  if (guarded.length)
+    return `Aven didn't apply this: it changes settings or hooks that could run commands as you (${guarded.join(", ")}). Take it over in a chat to apply that part yourself.`;
+  try {
+    await botCopyHost.applyRange(
+      path,
+      copy.path,
+      batch.from,
+      end.to,
+      range.hash,
+    );
+  } catch (error) {
+    if (isFixChanged(error)) return BRANCH_MOVED;
+    logError("Apply crew batch", error);
+    if (!/conflict/i.test(errorText(error))) return botCopyError(error);
+    const text =
+      "Your files changed where the crew worked, so nothing was applied. Update the crew's branch onto your files, then Apply again.";
+    updateCrew(path, (current) =>
+      current.stack
+        ? { ...current, stack: { ...current.stack, conflict: text } }
+        : current,
+    );
+    return text;
+  }
+  const applied = new Set(end.cards.map((card) => card.id));
+  updateCrew(path, (current) => {
+    let next: Crew = current;
+    for (const card of current.cards)
+      if (applied.has(card.id))
+        next = withCard(
+          next,
+          withInboxResolved(markApplied(card, now), "done", now),
+        );
+    const left = stackedCards({ ...next, stack: { base: end.to } }).length;
+    next = { ...next, stack: left ? { base: end.to } : undefined };
+    if (!next.stack) delete next.stack;
+    const only = end.cards.length === 1 ? end.cards[0] : undefined;
+    return withFeed(next, {
+      at: now,
+      kind: "applied",
+      who: "you",
+      ...(only ? { cardId: only.id, title: only.title } : {}),
+      text: only
+        ? `Applied “${only.title}” to your files`
+        : `Applied ${end.cards.length} cards to your files: ${end.cards
+            .map((card) => card.title)
+            .join(" · ")}`,
+    });
+  });
+  notifyGitChanged(path);
+  for (const card of end.cards)
+    await moveFeatureCard(path, card.id, "shipped", "");
+  return null;
+}
+
+/** The card the crew is at work on (or that waits on you) builds on its branch. */
+const BUILDS_ON_TOP = (title: string) =>
+  `“${title}” builds on top of the crew's branch. Finish it or throw it away first.`;
+
+/**
+ * Take the top card off the crew's branch (Back to Ideas or Throw away):
+ * the branch goes back to the card before it. Only the top card, and only
+ * while no card builds on top of it.
+ */
+export async function dropStackedCard(
+  path: string,
+  cardId: string,
+  then: "ideas" | "delete",
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  const card = batch?.cards.at(-1);
+  if (!crew?.copy || !batch || !card) return NOT_ON_BRANCH;
+  if (card.id !== cardId)
+    return "Only the last card on the crew's branch can come off it.";
+  const busy = cardInCopy(crew);
+  if (busy) return BUILDS_ON_TOP(busy.title);
+  try {
+    await botCopyHost.discard(
+      crew.copy.path,
+      card.stacked!.parent,
+      crew.copy.branch,
+    );
+  } catch (error) {
+    logError("Drop crew card", error);
+    return botCopyError(error);
+  }
+  updateCrew(path, (current) => {
+    const known = crewCard(current, cardId);
+    if (!known) return current;
+    let next = withCard(
+      current,
+      withInboxResolved(
+        { ...markDiscarded(known, now), stacked: undefined },
+        "dismissed",
+        now,
+      ),
+    );
+    if (!stackedCards(next).length) {
+      next = { ...next };
+      delete next.stack;
+    }
+    const idea = next.ideas?.[cardId];
+    if (idea) next = withIdea(next, cardId, { ...idea, declined: true });
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      cardId,
+      title: known.title,
+      text:
+        then === "ideas"
+          ? `“${known.title}” came off the crew's branch and went back to Ideas`
+          : `You took “${known.title}” off the crew's branch and threw it away`,
+    });
+  });
+  if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
+  else await deleteFeatureCard(path, cardId);
+  return null;
+}
+
+/**
+ * Your files moved on where the batch would land: replay the crew's branch
+ * onto them, one card at a time. A card that no longer fits leaves the
+ * branch exactly as it was, and says which. Not while a card builds on it.
+ */
+export async function restackCrew(
+  path: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  if (!crew?.copy || !batch) return NOT_ON_BRANCH;
+  const busy = cardInCopy(crew);
+  if (busy) return BUILDS_ON_TOP(busy.title);
+  let moved: { base: string; commits: string[] };
+  try {
+    moved = await botCopyHost.restack(
+      path,
+      crew.copy.path,
+      crew.copy.branch,
+      batch.from,
+      batch.cards.map((card) => card.stacked!.commit),
+    );
+  } catch (error) {
+    logError("Restack crew", error);
+    const text = isRestackConflict(error)
+      ? `${botCopyError(error)}. Nothing was lost: take the last card off the branch, or take it over in a chat.`
+      : botCopyError(error);
+    updateCrew(path, (current) =>
+      current.stack
+        ? { ...current, stack: { ...current.stack, conflict: text } }
+        : current,
+    );
+    return text;
+  }
+  updateCrew(path, (current) => {
+    let next: Crew = { ...current, stack: { base: moved.base } };
+    let parent = moved.base;
+    batch.cards.forEach((card, index) => {
+      const known = crewCard(next, card.id);
+      const commit = moved.commits[index];
+      if (!known || !commit) return;
+      next = withCard(next, { ...known, stacked: { commit, parent } });
+      parent = commit;
+    });
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "aven",
+      text: `Updated the crew's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"})`,
+    });
+  });
   return null;
 }
 
