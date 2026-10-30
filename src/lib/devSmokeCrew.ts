@@ -1,6 +1,8 @@
 import {
-  applyCrewCard,
+  applyCrewBatch,
+  crewBatch,
   giveCardToCrew,
+  reviewCrewBatch,
   setCrewQuietHours,
   turnOffCrew,
 } from "./crewActions";
@@ -20,9 +22,9 @@ import type { Session } from "./session";
  * The real-app check's crew step: a crew in the check's project builds a
  * card with the stand-in agents (the Builder in the crew's copy with its
  * rules, the Checker saying "not yet" once, Security passing), the card is
- * Ready after round 2, Apply changes the project by exactly the reviewed
- * change, and a turn held while it was prepared never goes once the crew
- * is turned off.
+ * Ready after round 2 and stacked on the crew's branch, the Pipeline's
+ * Apply all changes the project by exactly the reviewed change, and a turn
+ * held while it was prepared never goes once the crew is turned off.
  */
 
 /** In a card's note: the stand-in answers its crew turns by role. */
@@ -103,6 +105,29 @@ export function appliedProblem(
     return `Apply also changed ${extra.join(", ")}, which wasn't in the reviewed change`;
   if (missing.length)
     return `Apply didn't change ${missing.join(", ")} from the reviewed change`;
+  return null;
+}
+
+/**
+ * Why a Ready card isn't waiting as the Pipeline shows it: committed on the
+ * crew's branch as the batch's only card, and the batch's Review (`shown`,
+ * its files) is the card's reviewed change. Null when it is.
+ */
+export function stackProblem(
+  crew: Crew | undefined,
+  cardId: string,
+  shown: readonly string[],
+): string | null {
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  if (!card?.stacked)
+    return "The Ready card isn't stacked on the crew's branch";
+  const ids = crewBatch(crew)?.cards.map((item) => item.id) ?? [];
+  if (ids.length !== 1 || ids[0] !== cardId)
+    return `The crew's branch holds ${ids.join(", ") || "nothing"}, not just the check's card`;
+  const fix = (card.fix?.paths ?? []).map((entry) => entry.path).sort();
+  const seen = [...shown].sort();
+  if (fix.join("\n") !== seen.join("\n"))
+    return `The batch's Review shows ${seen.join(", ") || "nothing"}, not the card's reviewed change (${fix.join(", ")})`;
   return null;
 }
 
@@ -247,11 +272,30 @@ export async function checkCrew(
     const fix = ready.fix;
     if (!fix) throw new Error("The Ready card has no reviewed change");
 
-    // Apply changes your files by exactly the reviewed change.
+    // Passed work waits on the crew's branch: one batch, reviewed as the
+    // Pipeline's Review shows it, then Apply all by that fingerprint changes
+    // your files by exactly the reviewed change.
+    const review = await reviewCrewBatch(project);
+    if ("error" in review)
+      throw new Error(`The batch's Review failed: ${review.error}`);
+    const stacked = stackProblem(
+      getCrew(project),
+      idea.id,
+      review.diff.files.map((file) => file.path),
+    );
+    if (stacked) throw new Error(stacked);
     const before = await gitDiffIndex(project);
-    const applied = await applyCrewCard(project, idea.id);
-    if (applied) throw new Error(`Apply refused: ${applied}`);
+    const applied = await applyCrewBatch(project, { hash: review.diff.hash });
+    if (applied) throw new Error(`Apply all refused: ${applied}`);
     const after = await gitDiffIndex(project);
+    const left = getCrew(project);
+    if (left?.stack)
+      throw new Error("The crew's branch still holds a batch after Apply all");
+    const done = left ? crewCard(left, idea.id) : undefined;
+    if (done?.stage !== "applied")
+      throw new Error(
+        `The card is ${done?.stage ?? "gone"} after Apply all, not applied`,
+      );
     const problem = appliedProblem(
       before.files,
       after.files,
@@ -263,7 +307,7 @@ export async function checkCrew(
       throw new Error(
         `${SMOKE_CREW_FILE} reads ${JSON.stringify(written)} after Apply, not round 2's`,
       );
-    summary = `Ready after round 2 (${fix.files} file, fingerprint ${fix.hash.slice(0, 8)}), applied as reviewed`;
+    summary = `Ready after round 2 (${fix.files} file, fingerprint ${fix.hash.slice(0, 8)}), stacked on the crew's branch and applied as reviewed with Apply all`;
   } catch (error) {
     fail(error, idea.id);
   }
