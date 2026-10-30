@@ -840,6 +840,28 @@ export function keepUnseenStripEntries(
 }
 
 /**
+ * Whether writing `next` back as the view in front reshapes the strip
+ * beyond the entry in front: a tab taken from another entry, or the entry
+ * in front coming apart into single tabs or becoming a split. The view in
+ * front alone cannot undo that; the whole strip as it was can.
+ */
+export function stripViewReshapes(
+  strip: WorkspaceStrip,
+  next: WorkspaceView,
+): boolean {
+  const after = applyStripView(strip, next);
+  const others = (value: WorkspaceStrip) =>
+    JSON.stringify(
+      value.entries.filter((entry) => entryKey(entry) !== strip.front),
+    );
+  return (
+    JSON.stringify(after.entries.map(entryKey)) !==
+      JSON.stringify(strip.entries.map(entryKey)) ||
+    others(after) !== others(strip)
+  );
+}
+
+/**
  * Undo a layout change on the entry it was made in, not whichever entry is
  * in front now: that entry comes to the front and takes the arrangement
  * back. An entry that has since been split or come apart is found by the

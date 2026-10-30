@@ -177,6 +177,7 @@ import {
   stripDropKeeps,
   stripItems,
   stripView,
+  stripViewReshapes,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
   type WorkspaceStrip,
@@ -1823,11 +1824,16 @@ export default function App({
       const before = viewRef.current.view;
       const after = update(before);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
+      const { strip } = viewRef.current;
+      // A change that reshapes the strip beyond the entry in front (a tab
+      // brought in from another entry, a split put back together as one
+      // pane) is undone by putting the whole strip back.
       const next = pushWorkspaceLayoutUndo(
         recoveryRef.current,
         workspaceKeyRef.current,
         before,
-        viewRef.current.strip.front,
+        strip.front,
+        stripViewReshapes(strip, after) ? strip : undefined,
       );
       recoveryRef.current = next;
       setRecovery(next);
