@@ -3,12 +3,24 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const host = vi.hoisted(() => ({
-  mac: true,
-  tauri: true,
-  invoke: vi.fn(),
-  listen: vi.fn(async () => () => {}),
-}));
+const host = vi.hoisted(() => {
+  const listeners = new Map<string, (event: { payload: unknown }) => void>();
+  return {
+    mac: true,
+    tauri: true,
+    invoke: vi.fn(),
+    listeners,
+    listen: vi.fn(
+      async (
+        event: string,
+        callback: (event: { payload: unknown }) => void,
+      ) => {
+        listeners.set(event, callback);
+        return () => {};
+      },
+    ),
+  };
+});
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: host.invoke,
   isTauri: () => host.tauri,
@@ -57,6 +69,7 @@ beforeEach(() => {
   host.mac = true;
   host.tauri = true;
   host.invoke.mockReset();
+  host.listeners.clear();
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -278,6 +291,98 @@ describe("the iPhone pane", () => {
       ).toEqual(["Home", "Rotate", "Copy a screenshot"]);
     } finally {
       release();
+    }
+  });
+
+  it("keeps a Run's newer status rather than the state it read while opening", async () => {
+    // Listing devices takes seconds while the simulator is busy; the Run
+    // moves on from installing meanwhile.
+    let listed: (() => void) | null = null;
+    host.invoke.mockImplementation(async (command: string) => {
+      if (command === "ios_sim_devices" && !listed)
+        await new Promise<void>((resolve) => {
+          listed = resolve;
+        });
+      const reply = await answer(command);
+      if (command !== "ios_sim_state") return reply;
+      const idle = reply as { status: object; logs: string[] };
+      return {
+        logs: ["installing"],
+        status: {
+          ...idle.status,
+          phase: "installing",
+          message: "Installing…",
+          udid: "AAAA",
+          bundleId: "com.example.pom",
+        },
+      };
+    });
+    const pane = await render();
+    await act(async () => {
+      host.listeners.get("ios-sim-status")?.({
+        payload: {
+          project: "/work/pom/",
+          status: {
+            phase: "failed",
+            message: "Could not open the app: The request was denied",
+            udid: "AAAA",
+            bundleId: "com.example.pom",
+            builtMs: 3000,
+            errors: [],
+            logPath: null,
+          },
+        },
+      });
+    });
+    await act(async () => {
+      listed?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(pane.querySelector('[role="status"]')?.textContent).toBe(
+      "Could not open the app: The request was denied",
+    );
+    expect(pane.querySelector(".ios-sim-run")?.textContent).toBe("Run");
+  });
+
+  it("goes live without being reopened once the live view works again", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    try {
+      let live = false;
+      host.invoke.mockImplementation(async (command: string) =>
+        command === "ios_sim_support"
+          ? {
+              xcode: true,
+              live,
+              developerDir: "/X",
+              reason: live ? null : "Not tested with this Xcode",
+            }
+          : answer(command),
+      );
+      const pane = await render();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(pane.textContent).toContain("Basic mode");
+      const supportChecks = () =>
+        host.invoke.mock.calls.filter(
+          ([command]) => command === "ios_sim_support",
+        ).length;
+      expect(supportChecks()).toBe(1);
+      live = true;
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(supportChecks()).toBe(2);
+      expect(pane.textContent).not.toContain("Basic mode");
+      // The device is prepared again for live input.
+      expect(
+        host.invoke.mock.calls.filter(
+          ([command]) => command === "ios_sim_use_device",
+        ),
+      ).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

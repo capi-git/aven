@@ -1111,6 +1111,9 @@ fn release_later(project: &str, udid: &str) {
             if ours_running {
                 stop(&project);
             }
+            // So does Aven's agent server: its runner would start the device
+            // again to retry.
+            crate::ios_sim_xcuitest::stop_device(&udid);
             if simctl(&["shutdown", &udid], Duration::from_secs(120)).is_ok_and(|o| o.success) {
                 let mut state = state();
                 state.ready.remove(&udid);
@@ -1300,21 +1303,73 @@ pub(crate) fn start_run(request: RunRequest) -> Result<u64, String> {
             ..Default::default()
         };
     });
-    std::thread::Builder::new()
+    let project = request.project.clone();
+    let spawned = std::thread::Builder::new()
         .name("ios-sim-run".into())
-        .spawn(move || {
-            let project = request.project.clone();
-            if let Err(error) = run_pipeline(&request, &container, generation) {
-                set_status(&project, Some(generation), |s| {
-                    if s.phase != Phase::Failed {
-                        s.phase = Phase::Failed;
-                        s.message = error;
-                    }
-                });
+        .spawn({
+            let project = project.clone();
+            move || {
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_pipeline(&request, &container, generation)
+                }));
+                let error = match outcome {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(error),
+                    Err(_) => Some(RUN_BROKE.into()),
+                };
+                set_status(&project, Some(generation), |s| finish_run(s, error));
             }
-        })
-        .map_err(|error| error.to_string())?;
+        });
+    if let Err(error) = spawned {
+        set_status(&project, Some(generation), |s| {
+            finish_run(s, Some(format!("Could not start the Run: {error}")))
+        });
+        return Err(error.to_string());
+    }
     Ok(generation)
+}
+
+const RUN_BROKE: &str = "Aven hit an error during this Run; press Run again";
+const RUN_ENDED: &str = "The Run ended before the app opened; press Run again";
+
+/// A Run's last word, so its strip never stays on a step that has ended: an
+/// error fails it, and a Run that stopped while still building, waiting or
+/// installing failed too. Opening the app is its console's to finish (see
+/// `launch_state`); Running, Failed and Stopped stay as they are.
+pub(crate) fn finish_run(status: &mut RunStatus, error: Option<String>) {
+    match error {
+        Some(error) if status.phase != Phase::Failed => {
+            status.phase = Phase::Failed;
+            status.message = error;
+        }
+        None if matches!(
+            status.phase,
+            Phase::Building | Phase::Waiting | Phase::Installing
+        ) =>
+        {
+            status.phase = Phase::Failed;
+            status.message = RUN_ENDED.into();
+        }
+        _ => {}
+    }
+}
+
+/// Whether a Run is installing or opening its app on `udid`.
+pub(crate) fn installing_on(udid: &str) -> bool {
+    installs_on(state().projects.values().map(|run| &run.status), udid)
+}
+
+pub(crate) fn installs_on<'a>(
+    statuses: impl IntoIterator<Item = &'a RunStatus>,
+    udid: &str,
+) -> bool {
+    statuses.into_iter().any(|status| {
+        matches!(status.phase, Phase::Installing | Phase::Launching)
+            && status
+                .udid
+                .as_deref()
+                .is_some_and(|device| device.eq_ignore_ascii_case(udid))
+    })
 }
 
 fn current(project: &str, generation: u64) -> bool {
@@ -1545,22 +1600,20 @@ fn run_pipeline(
         s.bundle_id = Some(bundle_id.clone());
     });
     let app = product.app_path.to_string_lossy().into_owned();
-    checked(
-        simctl(&["install", udid, &app], Duration::from_secs(300))?,
-        "Installing the app",
-    )?;
+    let installing = simctl(&["install", udid, &app], Duration::from_secs(300))
+        .map_err(|error| format!("Could not install the app: {error}"))?;
+    checked(installing, "Installing the app")?;
     if !current(project, generation) {
         return Ok(());
     }
-    launch(project, udid, &bundle_id, generation, Some(built_ms))?;
-    if readiness == Readiness::NeedsPick {
-        set_status(project, Some(generation), |s| {
-            if s.phase == Phase::Running {
-                s.message = format!("{} · {NEEDS_PICK}", s.message);
-            }
-        });
-    }
-    Ok(())
+    launch(
+        project,
+        udid,
+        &bundle_id,
+        generation,
+        Some(built_ms),
+        readiness == Readiness::NeedsPick,
+    )
 }
 
 /// Waits for the device a Run prepared beside its build, showing its
@@ -1634,13 +1687,86 @@ fn build_log(scheme: &str, summary: &ios_sim_xcode::BuildSummary, text: &str) ->
     out
 }
 
-/// Launches (or relaunches) the app with its console attached.
+/// How long simctl's console may stay quiet before the app counts as
+/// running anyway: it names the app's process as soon as the app opened.
+const LAUNCH_SETTLE: Duration = Duration::from_secs(2);
+
+/// Where opening the app stands, from simctl's console process.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LaunchState {
+    Opening,
+    Running,
+    /// The app ran, and quit.
+    Quit,
+    /// The app never opened: why.
+    Failed(String),
+}
+
+/// `exit` is None while the console runs, else whether it exited cleanly.
+/// `announced`: it printed something (first the app's process, which only
+/// an app that opened has). `errors`: simctl's own error lines.
+pub(crate) fn launch_state(
+    exit: Option<bool>,
+    announced: bool,
+    elapsed: Duration,
+    errors: &[String],
+) -> LaunchState {
+    match exit {
+        None if announced || elapsed >= LAUNCH_SETTLE => LaunchState::Running,
+        None => LaunchState::Opening,
+        Some(_) if announced => LaunchState::Quit,
+        Some(true) if elapsed >= LAUNCH_SETTLE => LaunchState::Quit,
+        Some(_) => LaunchState::Failed(launch_failure(errors)),
+    }
+}
+
+/// "Could not open the app: <what simctl said>", without its error-domain
+/// preamble.
+fn launch_failure(errors: &[String]) -> String {
+    let said: Vec<&str> = errors
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with("An error was encountered processing the command")
+                && !line.starts_with("Underlying error")
+        })
+        .take(2)
+        .collect();
+    let said = said.join(" ");
+    let mut end = said.len().min(300);
+    while !said.is_char_boundary(end) {
+        end -= 1;
+    }
+    if said.is_empty() {
+        "Could not open the app".into()
+    } else {
+        format!("Could not open the app: {}", &said[..end])
+    }
+}
+
+/// The strip while the app runs.
+fn running_message(built_ms: Option<u64>, needs_pick: bool) -> String {
+    let mut message = match built_ms {
+        Some(ms) => format!("Running · {}", ios_sim_xcode::built_in_label(ms)),
+        None => "Running".into(),
+    };
+    if needs_pick {
+        message.push_str(" · ");
+        message.push_str(NEEDS_PICK);
+    }
+    message
+}
+
+/// Launches (or relaunches) the app with its console attached. The strip
+/// says Running once the app opened, or why it did not.
 pub(crate) fn launch(
     project: &str,
     udid: &str,
     bundle_id: &str,
     generation: u64,
     built_ms: Option<u64>,
+    needs_pick: bool,
 ) -> Result<(), String> {
     set_status(project, Some(generation), |s| {
         s.phase = Phase::Launching;
@@ -1671,16 +1797,12 @@ pub(crate) fn launch(
     let Some(child) = register_child(project, generation, child) else {
         return Ok(());
     };
-    let message = match built_ms {
-        Some(ms) => format!("Running · {}", ios_sim_xcode::built_in_label(ms)),
-        None => "Running".into(),
-    };
-    set_status(project, Some(generation), |s| {
-        s.phase = Phase::Running;
-        s.message = message;
-    });
-    let owner = project.to_owned();
-    let pump = |pipe: Option<Box<dyn Read + Send>>, owner: String| {
+    let announced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let errors: Arc<Mutex<VecDeque<String>>> = Arc::default();
+    let pump = |pipe: Option<Box<dyn Read + Send>>,
+                seen: Option<Arc<std::sync::atomic::AtomicBool>>,
+                kept: Option<Arc<Mutex<VecDeque<String>>>>| {
+        let owner = project.to_owned();
         std::thread::spawn(move || {
             let Some(pipe) = pipe else { return };
             let mut reader = BufReader::new(pipe);
@@ -1695,6 +1817,16 @@ pub(crate) fn launch(
                         let text = String::from_utf8_lossy(&line)
                             .trim_end_matches(['\r', '\n'])
                             .to_owned();
+                        if let Some(seen) = &seen {
+                            seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let Some(kept) = &kept {
+                            let mut kept = kept.lock().unwrap_or_else(|p| p.into_inner());
+                            if kept.len() >= 20 {
+                                kept.pop_front();
+                            }
+                            kept.push_back(text.clone());
+                        }
                         batch.push(text);
                         if batch.len() >= 50 || last.elapsed() > Duration::from_millis(100) {
                             push_logs(&owner, generation, std::mem::take(&mut batch));
@@ -1708,25 +1840,72 @@ pub(crate) fn launch(
     };
     let out = pump(
         stdout.map(|p| Box::new(p) as Box<dyn Read + Send>),
-        owner.clone(),
+        Some(announced.clone()),
+        None,
     );
-    let err = pump(stderr.map(|p| Box::new(p) as Box<dyn Read + Send>), owner);
+    let err = pump(
+        stderr.map(|p| Box::new(p) as Box<dyn Read + Send>),
+        None,
+        Some(errors.clone()),
+    );
+    let message = running_message(built_ms, needs_pick);
     std::thread::spawn({
         let project = project.to_owned();
         move || {
-            loop {
+            let started = Instant::now();
+            let state_now = |exit: Option<bool>| {
+                let errors: Vec<String> = errors
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .iter()
+                    .cloned()
+                    .collect();
+                launch_state(
+                    exit,
+                    announced.load(std::sync::atomic::Ordering::SeqCst),
+                    started.elapsed(),
+                    &errors,
+                )
+            };
+            let mut shown = false;
+            let exit = loop {
                 let done = child.lock().unwrap_or_else(|p| p.into_inner()).try_wait();
-                match done {
-                    Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-                    _ => break,
+                let exit = match done {
+                    Ok(None) => None,
+                    Ok(Some(status)) => Some(status.success()),
+                    Err(_) => Some(false),
+                };
+                if exit.is_some() {
+                    break exit;
                 }
-            }
+                if !shown && state_now(None) == LaunchState::Running {
+                    shown = true;
+                    set_status(&project, Some(generation), |s| {
+                        if s.phase == Phase::Launching {
+                            s.phase = Phase::Running;
+                            s.message = message.clone();
+                        }
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+            // Every line of its output, for the reason.
             let _ = out.join();
             let _ = err.join();
+            let ended = state_now(exit);
             set_status(&project, Some(generation), |s| {
-                if s.phase == Phase::Running {
-                    s.phase = Phase::Stopped;
-                    s.message = "The app quit".into();
+                if !matches!(s.phase, Phase::Launching | Phase::Running) {
+                    return;
+                }
+                match ended {
+                    LaunchState::Failed(reason) => {
+                        s.phase = Phase::Failed;
+                        s.message = reason;
+                    }
+                    _ => {
+                        s.phase = Phase::Stopped;
+                        s.message = "The app quit".into();
+                    }
                 }
             });
         }
@@ -1745,9 +1924,33 @@ pub(crate) fn relaunch(project: &str, udid: &str, bundle_id: &str) -> Result<u64
     if let Some(child) = previous {
         kill_child(&child);
     }
-    ensure_device(project, udid, Some(generation), false, true)?;
-    launch(project, udid, bundle_id, generation, None)?;
-    Ok(generation)
+    // This is a Run too: the strip follows it from the start and always
+    // ends on the app running or why it is not.
+    set_status(project, Some(generation), |s| {
+        *s = RunStatus {
+            phase: Phase::Launching,
+            message: "Opening the app…".into(),
+            udid: Some(udid.to_uppercase()),
+            bundle_id: Some(bundle_id.to_owned()),
+            ..Default::default()
+        };
+    });
+    let result = ensure_device(project, udid, Some(generation), false, true).and_then(|ready| {
+        launch(
+            project,
+            udid,
+            bundle_id,
+            generation,
+            None,
+            ready == Readiness::NeedsPick,
+        )
+    });
+    if let Err(error) = &result {
+        set_status(project, Some(generation), |s| {
+            finish_run(s, Some(error.clone()))
+        });
+    }
+    result.map(|()| generation)
 }
 
 #[tauri::command]
@@ -2654,6 +2857,122 @@ mod tests {
     fn a_runs_wait_for_its_device_is_busy_and_reads_waiting() {
         assert!(Phase::Waiting.busy());
         assert_eq!(serde_json::to_value(Phase::Waiting).unwrap(), "waiting");
+    }
+
+    fn at(phase: Phase, message: &str) -> RunStatus {
+        RunStatus {
+            phase,
+            message: message.into(),
+            udid: Some("E5B294CF-EC79-4FE6-B919-D3175705B784".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_run_never_ends_on_a_step_that_stopped() {
+        // Ended quietly while installing (or building, or waiting): failed,
+        // with a reason, instead of "Installing…" for good.
+        for phase in [Phase::Building, Phase::Waiting, Phase::Installing] {
+            let mut status = at(phase, "Installing…");
+            finish_run(&mut status, None);
+            assert_eq!(status.phase, Phase::Failed);
+            assert_eq!(status.message, RUN_ENDED);
+        }
+        // An error says what went wrong.
+        let mut status = at(Phase::Installing, "Installing…");
+        finish_run(
+            &mut status,
+            Some("Could not install the app: timed out".into()),
+        );
+        assert_eq!(
+            (status.phase, status.message.as_str()),
+            (Phase::Failed, "Could not install the app: timed out")
+        );
+        // A build failure keeps its own message; a running app, a stop and a
+        // launch its console is still settling are left alone.
+        let mut failed = at(Phase::Failed, "Build failed: 2 errors");
+        finish_run(&mut failed, Some("other".into()));
+        assert_eq!(failed.message, "Build failed: 2 errors");
+        for phase in [Phase::Running, Phase::Stopped, Phase::Launching] {
+            let mut status = at(phase, "x");
+            finish_run(&mut status, None);
+            assert_eq!(status.phase, phase);
+        }
+    }
+
+    #[test]
+    fn says_running_only_once_the_app_opened_and_why_it_did_not() {
+        let quick = Duration::from_millis(300);
+        let later = LAUNCH_SETTLE + Duration::from_millis(1);
+        assert_eq!(launch_state(None, false, quick, &[]), LaunchState::Opening);
+        // simctl names the app's process once it opened it.
+        assert_eq!(launch_state(None, true, quick, &[]), LaunchState::Running);
+        // A console that stays quiet but alive is an app that runs.
+        assert_eq!(launch_state(None, false, later, &[]), LaunchState::Running);
+        // It ended before the app opened: failed, in simctl's words.
+        let said = [
+            "An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=1):".to_owned(),
+            "Simulator device failed to launch com.jackhagan.pom.".to_owned(),
+            "The request was denied by service delegate (SBMainWorkspace).".to_owned(),
+            "Underlying error (domain=FBSOpenApplicationServiceErrorDomain, code=1):".to_owned(),
+        ];
+        assert_eq!(
+            launch_state(Some(false), false, quick, &said),
+            LaunchState::Failed(
+                "Could not open the app: Simulator device failed to launch com.jackhagan.pom. The request was denied by service delegate (SBMainWorkspace).".into()
+            )
+        );
+        assert_eq!(
+            launch_state(Some(false), false, later, &[]),
+            LaunchState::Failed("Could not open the app".into())
+        );
+        // It ran, then quit.
+        assert_eq!(
+            launch_state(Some(true), true, quick, &[]),
+            LaunchState::Quit
+        );
+        assert_eq!(
+            launch_state(Some(false), true, later, &[]),
+            LaunchState::Quit
+        );
+        assert_eq!(
+            launch_state(Some(true), false, later, &[]),
+            LaunchState::Quit
+        );
+    }
+
+    #[test]
+    fn names_runs_installing_or_opening_on_a_device() {
+        let device = "e5b294cf-ec79-4fe6-b919-d3175705b784";
+        let installing = at(Phase::Installing, "Installing…");
+        let opening = at(Phase::Launching, "Opening the app…");
+        let running = at(Phase::Running, "Running");
+        assert!(installs_on([&installing], device));
+        assert!(installs_on([&running, &opening], device));
+        assert!(!installs_on([&running], device));
+        assert!(!installs_on(
+            [&installing],
+            "32BA9274-974F-481F-BEAF-D565EEFDE4F0"
+        ));
+    }
+
+    #[test]
+    fn a_reopen_that_cannot_reach_its_device_fails_with_the_reason() {
+        let project = "/tests/relaunch-without-device";
+        set_status(project, None, |s| {
+            *s = at(Phase::Installing, "Installing…");
+        });
+        assert!(relaunch(project, "not-a-simulator", "com.example.app").is_err());
+        let status = status_of(project);
+        assert_eq!(status.phase, Phase::Failed);
+        assert_eq!(status.message, "Not a simulator");
+    }
+
+    #[test]
+    fn says_running_with_the_build_time_and_any_pick_hint() {
+        assert_eq!(running_message(None, false), "Running");
+        assert!(running_message(Some(14_000), false).starts_with("Running · "));
+        assert!(running_message(None, true).ends_with(NEEDS_PICK));
     }
 
     #[test]

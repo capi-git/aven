@@ -506,7 +506,10 @@ Rotate, Screenshot (copies the screen to the clipboard) and **Run**. Run
 builds the scheme for the simulator, installs and opens the app, and becomes
 **Stop** while it builds or runs. The strip below reads "Building…",
 "Running · built in 1.8 s" or "Build failed · 2 errors" with **Show errors**,
-which opens the build log with the errors listed first. **Logs** opens the
+which opens the build log with the errors listed first. A Run always ends on
+the app running or on why it is not, such as "Could not install the app: …"
+or "Could not open the app: …" in simctl's words; it says Running once the
+app has opened. **Logs** opens the
 app's console output. Builds use their own DerivedData in Aven's app data
 folder (`ios-sim/<project>`), removed with the project; the chosen device and
 scheme are remembered per project.
@@ -529,8 +532,10 @@ touches need it. With an Xcode whose simulator frameworks Aven has not been
 tested with, or when the check fails, the pane falls back to **Basic mode**:
 screenshots a few times a second, with taps, swipes and typing anywhere on the
 screen through Aven's XCUITest agent (`AVEN_IOS_SIM_ALLOW_UNTESTED=1` tries
-the live view on an untested Xcode). When only Xcode's command line tools are
-selected, the pane says how to select Xcode instead.
+the live view on an untested Xcode). An open pane checks again every 30
+seconds and switches between the live view and Basic mode without being
+reopened. When only Xcode's command line tools are selected, the pane says
+how to select Xcode instead.
 
 Agents use the same simulator with `--aven-simulator`, over the chat's scoped
 connection, only while an iPhone pane is open beside that chat, and only on
@@ -554,7 +559,11 @@ Each such turn carries a short `<aven-iphone>` note with the command.
   value, frame) of the project's app when it is in front, otherwise of the
   home screen, with the screen's size in points. It comes from Aven's XCUITest
   agent, which Aven builds into its app data the first time (about a minute)
-  and starts per device (about ten seconds). Secure fields read `<redacted>`.
+  and starts per device (about ten seconds). A device's agent starts once at
+  a time, after a Run on it has installed and opened its app; requests that
+  arrive meanwhile wait for that start, and after a failed start Aven reports
+  the reason and waits 5 seconds before trying again, doubling up to a
+  minute. Secure fields read `<redacted>`.
 - `tap`, `swipe`, `type`, `press` (Enter, Tab, Backspace, arrows…), `button`
   (home, lock) and `rotate` act on the device. Coordinates are the screen's
   upright points from its top-left corner, the same as snapshot frames and
