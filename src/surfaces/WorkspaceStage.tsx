@@ -867,7 +867,7 @@ export function WorkspaceStage({
       target.focus({ preventScroll: true });
       pendingFocus.current = null;
     }
-  }, [layout, visible, focusedId, restoreHeaderId, focusRail?.nonce]);
+  }, [layout, visible, focusedId, restoreHeaderId, focusRail]);
   // Hidden tabs already keep their React/native owners. Keep the last visited
   // layout too, so returning to a workspace does not rebuild every text/editor
   // measurement from a display:none subtree. Only committed visits are warm;
