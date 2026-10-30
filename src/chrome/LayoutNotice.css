@@ -65,7 +65,7 @@
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .aven-layout-notice-dismiss:hover {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--aven-control-bg);
   color: var(--color-content);
 }
 .aven-layout-notice :is(button):focus-visible {
