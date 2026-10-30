@@ -345,3 +345,39 @@ describe("the pro look's shapes", () => {
     expect(motion).toContain("--aven-pop-scale: 0.97;");
   });
 });
+
+describe("no pixel art", () => {
+  const tracked = (pattern: string) =>
+    execFileSync("git", ["ls-files", pattern], { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean);
+
+  it("draws marks and art in round dots, never crisp square pixels", () => {
+    // Aven's own mark is drawn from the app icon's grid; nothing else is.
+    const crisp = tracked("src/*.tsx")
+      .filter((file) => !file.includes(".test."))
+      .filter((file) => /crispEdges|crisp-edges/.test(read(file)));
+    expect(crisp).toEqual(["src/chrome/AvenMark.tsx"]);
+  });
+
+  it("moves things smoothly: no stepped sprite timing or pixelated images", () => {
+    const stepped = tracked("src/*.css").filter((file) =>
+      /steps\(|step-end|step-start|image-rendering:\s*pixelated/.test(
+        read(file).replace(/\/\*[\s\S]*?\*\//g, ""),
+      ),
+    );
+    expect(stepped).toEqual([]);
+  });
+
+  it("labels the helm's menu in the system font, with round effort dots and a room line", () => {
+    const helm = read("src/chrome/ComposerHelm.css");
+    expect(helm).not.toMatch(/polygon\(/);
+    expect(rule("src/chrome/ComposerHelm.css", ".helm-pips i")).toContain(
+      "border-radius: 50%;",
+    );
+    expect(rule("src/chrome/ComposerHelm.css", ".helm-room")).toContain(
+      "height: 2px;",
+    );
+    expect(read("src/chrome/ComposerHelm.tsx")).not.toMatch(/pixelFont|"▶"/);
+  });
+});
