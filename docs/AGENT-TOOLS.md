@@ -171,9 +171,11 @@ in a tab that is not its own. These protections stay:
   what it is doing ("Reading the page"), the window and project, and the chat,
   with **Pause** and **Stop**. Several agents' uses show together without
   replacing desktop control's. It fades a few seconds after the last action.
-  Pause holds that chat's reading, saving and acting in other tabs (an export
-  stops before its next image) until you press Resume or Stop or its reply
-  ends; the bar keeps naming it, and desktop control is not paused. Stop
+  Pause, offered while a use is running, holds that chat's reading, saving
+  and acting in other tabs (an export stops before its next image) until you
+  press Resume or Stop, write to the chat, or its reply ends; the bar keeps
+  naming it, beside any other chat's use with its own Pause and Stop, and
+  desktop control is not paused. Stop
   closes other tabs to that chat until your next message, one you write
   (another agent's message or a bot's card does not count): an export stops
   before its next image and saves nothing more, and `tabs` is refused too.

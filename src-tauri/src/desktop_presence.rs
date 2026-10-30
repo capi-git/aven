@@ -723,8 +723,8 @@ pub(crate) struct Presence {
     tabs_stopped: HashSet<String>,
     /// Chats the user paused from a bar that showed only their use of tabs,
     /// the latest first: they read and act in no other tab until the user
-    /// resumes, stops them, or their reply ends. Desktop control is not
-    /// paused by it.
+    /// resumes, stops or writes to them, or their reply ends. Desktop
+    /// control is not paused by it.
     tabs_paused: Vec<String>,
     /// Uses of tabs that are not the chats' own, by ticket.
     tab_uses: std::collections::BTreeMap<u64, TabActivity>,
@@ -757,6 +757,7 @@ impl Presence {
     pub(crate) fn user_turn(&mut self, scope: &str) {
         self.denied.remove(scope);
         self.tabs_stopped.remove(scope);
+        self.tabs_paused.retain(|paused| paused != scope);
     }
 
     /// A chat's reply ended: a Pause of its use of tabs has nothing left to
@@ -1296,13 +1297,17 @@ impl Presence {
         self.tabs_paused.clear();
     }
 
-    /// Pause from a bar about agents' use of tabs: the chats it shows read
-    /// and act in no other tab (an export stops at its next step) until the
-    /// user resumes or stops them, or their reply ends.
+    /// Pause from a bar about agents' use of tabs: the chats whose use is
+    /// still running read and act in no other tab (an export stops at its
+    /// next step) until the user resumes, stops or writes to them, or their
+    /// reply ends.
     pub(crate) fn pause_tabs(&mut self, now: Instant) {
+        // Only uses still running: a chat whose use has ended may have
+        // finished its reply, and nothing would end its pause.
         let scopes: Vec<String> = self
             .live_tabs(now)
             .into_iter()
+            .filter(|tab| tab.in_flight)
             .map(|tab| tab.scope.clone())
             .collect();
         for scope in scopes.into_iter().rev() {
@@ -1619,10 +1624,28 @@ impl Presence {
                 buttons: buttons(&activity.scope),
             });
         }
-        if let Some(scope) = self.tabs_paused.first() {
+        // Chats whose use of tabs the user paused: one line each beside
+        // another chat's use, so that one keeps its own Pause and Stop.
+        let paused_lines: Vec<String> = self
+            .tabs_paused
+            .iter()
+            .map(|scope| format!("Also: {} \u{2014} paused", self.actor(scope).name))
+            .collect();
+        let resume = BarButton {
+            label: "Resume",
+            action: ButtonAction::Resume,
+            style: ButtonStyle::Prominent,
+        };
+        let running: Vec<&TabActivity> = tabs
+            .iter()
+            .copied()
+            .filter(|tab| !self.tabs_paused.contains(&tab.scope))
+            .collect();
+        let Some((tab, others)) = running.split_first() else {
+            let scope = self.tabs_paused.first()?;
             let actor = self.actor(scope);
             return Some(BarModel {
-                lines: vec![],
+                lines: paused_lines.into_iter().skip(1).take(3).collect(),
                 kind: BarKind::Paused,
                 color: PAUSED_COLOR,
                 title: format!("Paused {}", actor.name),
@@ -1631,11 +1654,7 @@ impl Presence {
                     None => "It won\u{2019}t read or use your other tabs until you resume".into(),
                 },
                 buttons: vec![
-                    BarButton {
-                        label: "Resume",
-                        action: ButtonAction::Resume,
-                        style: ButtonStyle::Prominent,
-                    },
+                    resume,
                     BarButton {
                         label: "Stop",
                         action: ButtonAction::StopTabs(scope.clone()),
@@ -1643,11 +1662,32 @@ impl Presence {
                     },
                 ],
             });
-        }
-        let (tab, others) = tabs.split_first()?;
+        };
         let actor = self.actor(&tab.scope);
+        // Only the tabs' use: desktop control is not paused or stopped.
+        // Pause holds a use still running; one that has ended has nothing
+        // left to hold.
+        let mut buttons = Vec::new();
+        if !self.tabs_paused.is_empty() {
+            buttons.push(resume);
+        }
+        if tab.in_flight {
+            buttons.push(BarButton {
+                label: "Pause",
+                action: ButtonAction::PauseTabs,
+                style: ButtonStyle::Plain,
+            });
+        }
+        buttons.push(BarButton {
+            label: "Stop",
+            action: ButtonAction::StopTabs(tab.scope.clone()),
+            style: ButtonStyle::Destructive,
+        });
+        let mut lines = self.tab_lines(others);
+        lines.extend(paused_lines);
+        lines.truncate(3);
         Some(BarModel {
-            lines: self.tab_lines(others),
+            lines,
             kind: BarKind::Acting,
             color: actor.color,
             title: format!("{} is using {}", actor.name, tab.tab),
@@ -1660,19 +1700,7 @@ impl Presence {
             .flatten()
             .collect::<Vec<_>>()
             .join(" \u{b7} "),
-            // Only the tabs' use: desktop control is not paused or stopped.
-            buttons: vec![
-                BarButton {
-                    label: "Pause",
-                    action: ButtonAction::PauseTabs,
-                    style: ButtonStyle::Plain,
-                },
-                BarButton {
-                    label: "Stop",
-                    action: ButtonAction::StopTabs(tab.scope.clone()),
-                    style: ButtonStyle::Destructive,
-                },
-            ],
+            buttons,
         })
     }
 
@@ -3367,6 +3395,73 @@ mod tests {
         presence.pause_tabs(later);
         assert!(presence.admit_tab("reader", Step::ReadingPage).is_err());
         presence.resume();
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+    }
+
+    #[test]
+    fn another_chats_use_shows_with_its_own_pause_and_stop_while_one_is_paused() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("reader", Some(actor("claude", None)));
+        presence.bind("saver", Some(actor("codex", None)));
+        presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main", now);
+        presence.pause_tabs(now);
+        // Another chat starts using a tab: the bar names it, with its own
+        // Pause and Stop, and still offers Resume for the paused one.
+        let saving = presence.begin_tab("saver", Step::SavingPage, "Launch plan", "Main", now);
+        assert!(presence.check_tab(&saving).is_ok());
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.kind, BarKind::Acting);
+        assert_eq!(
+            bar.title,
+            "Codex is using the tab \u{201c}Launch plan\u{201d}"
+        );
+        assert_eq!(
+            bar.buttons
+                .iter()
+                .map(|button| button.action.clone())
+                .collect::<Vec<_>>(),
+            [
+                ButtonAction::Resume,
+                ButtonAction::PauseTabs,
+                ButtonAction::StopTabs("saver".into())
+            ]
+        );
+        assert!(bar
+            .lines
+            .iter()
+            .any(|line| line == "Also: Claude \u{2014} paused"));
+        // Once its use ends, the paused chat's bar is back.
+        presence.end_tab(&saving, now);
+        let bar = presence.model(now + IDLE_FADE).unwrap();
+        assert_eq!(bar.title, "Paused Claude");
+    }
+
+    #[test]
+    fn pause_holds_only_uses_still_running_and_the_users_message_ends_it() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("reader", Some(actor("claude", None)));
+        let read = presence.begin_tab("reader", Step::ReadingPage, "Inbox", "Main", now);
+        presence.end_tab(&read, now);
+        // The read has ended and is only fading: its bar offers no Pause,
+        // and a Pause pressed anyway holds nothing that would never end.
+        let bar = presence.model(now).unwrap();
+        assert!(!bar
+            .buttons
+            .iter()
+            .any(|button| button.action == ButtonAction::PauseTabs));
+        presence.pause_tabs(now);
+        assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
+        assert!(presence.model(now + IDLE_FADE).is_none());
+        // A use still running is held, until the user writes to the chat.
+        presence.begin_tab("reader", Step::SavingPage, "Inbox", "Main", now);
+        presence.pause_tabs(now);
+        assert_eq!(
+            presence.admit_tab("reader", Step::ReadingPage).unwrap_err(),
+            TABS_PAUSED
+        );
+        presence.user_turn("reader");
         assert!(presence.admit_tab("reader", Step::ReadingPage).is_ok());
     }
 
