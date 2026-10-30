@@ -451,11 +451,7 @@ import {
   type WorkspaceTab,
 } from "./lib/layout";
 import { paneTitleRow, workspaceTabOwnHeader } from "./lib/filePaneHeader";
-import {
-  paneMinimizeControls,
-  paneMinimizeKey,
-  paneMinimizeLabel,
-} from "./lib/paneMinimize";
+import { paneCollapseItems } from "./lib/paneMinimize";
 import {
   loadBundledChangelog,
   releaseNotesForVersion,
@@ -11705,25 +11701,26 @@ export default function App({
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
-  // Each pane offers to hide itself beside its divider in its own "…".
-  const paneMinimizes = paneMinimizeControls(view.layout);
+  // Each pane offers to collapse itself, or the column or row it is in, in
+  // its own "…".
+  const paneCollapses = paneCollapseItems(view.layout);
   const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
     const across = seamNeighbours(paneLeaves, owner);
     return {
-      paneHides: (paneMinimizes.get(owner) ?? []).map((control) => ({
-        key: paneMinimizeKey(control),
-        label: paneMinimizeLabel(control),
+      paneHides: (paneCollapses.get(owner) ?? []).map(({ key, label }) => ({
+        key,
+        label,
       })),
       onHidePane: (key: string) => {
-        const control = paneMinimizeControls(viewRef.current.view.layout)
+        const item = paneCollapseItems(viewRef.current.view.layout)
           .get(owner)
-          ?.find((entry) => paneMinimizeKey(entry) === key);
-        if (control)
+          ?.find((entry) => entry.key === key);
+        if (item)
           onWorkspaceIntent({
             type: "minimize",
-            split: control.sash.splitId,
-            index: control.sash.index,
-            side: control.side,
+            split: item.split,
+            index: item.index,
+            side: item.side,
           });
       },
       paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,

@@ -1,9 +1,11 @@
 import {
+  isRailed,
   layoutLeaves,
   layoutSashes,
   type LayoutNode,
   type LayoutSash,
 } from "./layout";
+import { openLeafIds } from "./paneRails";
 
 /** Hiding one side of a divider, offered by a pane on that side. */
 export type PaneMinimize = { sash: LayoutSash; side: "before" | "after" };
@@ -76,4 +78,57 @@ export function paneMinimizeLabel({ sash, side }: PaneMinimize): string {
 
 export function paneMinimizeKey({ sash, side }: PaneMinimize): string {
   return `${sash.splitId}:${sash.index}:${side}`;
+}
+
+/**
+ * Collapsing from a pane's own "…": the pane itself ("Collapse pane"), then
+ * each column or row it stands in, innermost first, as one choice each. The
+ * divider and side are what `railSide` takes to collapse that part.
+ */
+export type PaneCollapse = {
+  key: string;
+  label: string;
+  split: string;
+  index: number;
+  side: "before" | "after";
+};
+
+/**
+ * What each open pane's "…" offers to collapse. A part already collapsed,
+ * or the only one open in its split (collapsing it would do nothing), is
+ * not offered.
+ */
+export function paneCollapseItems(
+  layout: LayoutNode | null,
+): Map<string, PaneCollapse[]> {
+  const items = new Map<string, PaneCollapse[]>();
+  const walk = (split: Extract<LayoutNode, { type: "split" }>) => {
+    split.children.forEach((child, index) => {
+      if (isRailed(child)) return;
+      if (child.type === "split") walk(child);
+      if (split.children.every((other, at) => at === index || isRailed(other)))
+        return;
+      const last = index === split.children.length - 1;
+      const item: PaneCollapse = {
+        key: `${split.id}:${index}`,
+        label:
+          child.type === "leaf"
+            ? "Collapse pane"
+            : child.dir === "down"
+              ? "Collapse column"
+              : "Collapse row",
+        split: split.id,
+        index: last ? index - 1 : index,
+        side: last ? "after" : "before",
+      };
+      for (const id of openLeafIds(child)) {
+        const list = items.get(id) ?? [];
+        // Innermost first; a label already offered is not offered again.
+        if (!list.some((entry) => entry.label === item.label))
+          items.set(id, [...list, item]);
+      }
+    });
+  };
+  if (layout?.type === "split") walk(layout);
+  return items;
 }
