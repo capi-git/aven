@@ -159,7 +159,9 @@ in a tab that is not its own. These protections stay:
 - Agents never type into password, sign-in code or card fields in a tab that
   is not the chat's own page (known by type, autocomplete, name and label,
   and split one-digit code boxes); Aven refuses. Snapshots of such tabs leave
-  those fields' values out.
+  those fields' values out, and the text of an editable code or card field
+  out of the page text and labels too. A field that was a password field
+  stays one after a "show password" toggle makes it plain text.
 - Every upload still asks you.
 - While an agent uses any tab that is not its chat's own page, Aven's presence
   bar shows at the top of the screen: "Claude is using the tab “Launch plan”",
