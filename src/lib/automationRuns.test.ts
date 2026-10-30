@@ -11,6 +11,7 @@ import {
   canAnswerCard,
   continueAutomationRun,
   startAutomationRun,
+  stopUnattendedRun,
   type AutomationRunDeps,
 } from "./automationRuns";
 import type { ControlOutcome } from "./orchestration";
@@ -21,6 +22,7 @@ import {
   chatsToArchive,
   EVERY_DAY,
   expireStaleScheduledRuns,
+  failInterruptedScheduledRuns,
   getScheduledRun,
   listScheduledAgents,
   listScheduledRuns,
@@ -322,6 +324,58 @@ describe("starting an automation run", () => {
     // Once it has started, Run now starts another as before.
     await startAutomationRun(agent, space.deps);
     expect(space.chats).toHaveLength(2);
+  });
+});
+
+describe("runs Aven quit during", () => {
+  const LOADED = 50 * HOUR;
+  const left = (id: string, at: number, patch: Partial<ScheduledRun> = {}) =>
+    saveScheduledRun({
+      id,
+      scheduleId: agent.id,
+      name: agent.name,
+      project: PROJECT,
+      summary: "",
+      startedAt: at,
+      sessionId: `chat-${id}`,
+      status: "running",
+      inAutomations: true,
+      ...patch,
+    });
+
+  it("fails the runs an earlier launch was taking, at once", () => {
+    left("before", LOADED - HOUR);
+    // Publish pressed before Aven quit: its turn is what was interrupted.
+    left("card", LOADED - 9 * HOUR, { turnStartedAt: LOADED - 60_000 });
+    left("now", LOADED + 1_000);
+    left("done", LOADED - HOUR, { status: "completed" });
+    const given = failInterruptedScheduledRuns(LOADED, LOADED + 2_000);
+    expect(given.map((run) => run.id).sort()).toEqual(["before", "card"]);
+    expect(getScheduledRun("before")).toMatchObject({
+      status: "failed",
+      finishedAt: LOADED + 2_000,
+      error: expect.stringMatching(/^Interrupted when Aven quit/),
+    });
+    // A run this launch started, and a finished one, are left alone.
+    expect(getScheduledRun("now")!.status).toBe("running");
+    expect(getScheduledRun("done")!.status).toBe("completed");
+  });
+
+  it("lets Stop end a run no turn here is taking, and leaves a live one to its turn", async () => {
+    left("orphan", 0);
+    expect(stopUnattendedRun("orphan", 5_000)).toBe(true);
+    expect(getScheduledRun("orphan")).toMatchObject({
+      status: "cancelled",
+      finishedAt: 5_000,
+    });
+    // A run this window is taking settles when its turn stops.
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    expect(stopUnattendedRun(run.id)).toBe(false);
+    expect(getScheduledRun(run.id)!.status).toBe("running");
+    space.finish("", { status: "cancelled" });
+    expect(getScheduledRun(run.id)!.status).toBe("cancelled");
+    expect(stopUnattendedRun(run.id)).toBe(false);
   });
 });
 

@@ -21,6 +21,7 @@ import {
   type AutomationItem,
 } from "../lib/automationFolders";
 import { reviewHeading } from "../lib/automationReview";
+import { stopUnattendedRun } from "../lib/automationRuns";
 import type { ApprovalDecision } from "../lib/harness";
 import { isInboxEntryUnread, markInboxItemSeen } from "../lib/inboxSeen";
 import { LiveSessionsContext } from "../lib/liveSessions";
@@ -344,7 +345,11 @@ export function AutomationRunView({
             <button
               type="button"
               className={ACTION_GHOST}
-              onClick={() => onStop(sessionId)}
+              onClick={() => {
+                onStop(sessionId);
+                // A run Aven quit during has no turn here to stop.
+                stopUnattendedRun(run.id);
+              }}
             >
               <Square className="size-3" strokeWidth={1.75} /> Stop
             </button>

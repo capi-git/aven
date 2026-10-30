@@ -109,6 +109,8 @@ function noticeFor(
 
 /** Runs on their way to starting, by automation: a second press joins it. */
 const starting = new Map<string, Promise<ScheduledRun>>();
+/** Runs whose turn this window is taking, and will settle. */
+const liveRuns = new Set<string>();
 
 /**
  * Start one run of `agent` now. Resolves with the run as first saved.
@@ -125,6 +127,18 @@ export function startAutomationRun(
   );
   starting.set(agent.id, next);
   return next;
+}
+
+/**
+ * Stop on a run whose turn this window isn't taking (Aven quit during it):
+ * nothing else will settle it, so it ends here as stopped. Returns whether
+ * it did.
+ */
+export function stopUnattendedRun(runId: string, now = Date.now()): boolean {
+  const run = getScheduledRun(runId);
+  if (run?.status !== "running" || liveRuns.has(runId)) return false;
+  updateScheduledRun(runId, { status: "cancelled", finishedAt: now });
+  return true;
 }
 
 async function beginAutomationRun(
@@ -178,11 +192,13 @@ async function beginAutomationRun(
   };
   // Saved before the chat exists, so no list ever shows it as a chat.
   saveScheduledRun(run);
+  liveRuns.add(run.id);
   deps.addChat(session);
   let settled = false;
   const settle = (outcome: ControlOutcome) => {
     if (settled) return;
     settled = true;
+    liveRuns.delete(run.id);
     const saved = settleAutomationRun(
       run.id,
       outcome,
@@ -258,10 +274,12 @@ export function continueAutomationRun(
     turnStartedAt,
     review: { ...review, status: "done", resolvedAt: turnStartedAt },
   });
+  liveRuns.add(runId);
   let settled = false;
   const settle = (outcome: ControlOutcome) => {
     if (settled) return;
     settled = true;
+    liveRuns.delete(runId);
     const saved = settleAutomationRun(
       runId,
       outcome,

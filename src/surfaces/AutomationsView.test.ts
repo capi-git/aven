@@ -364,6 +364,43 @@ describe("Automations view", () => {
     expect(onOpenRunAsChat.mock.calls[0]![0]).toMatchObject({ id: "run-1" });
   });
 
+  it("stops a run Aven quit during, which no turn here will settle", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun({
+      ...finished,
+      status: "running",
+      finishedAt: undefined,
+      summary: "",
+    });
+    const onStopRun = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(AutomationsView, {
+          cwd: PROJECT,
+          recents: [{ path: PROJECT, openedAt: 2 }],
+          onStopRun,
+        }),
+      ),
+    );
+    await click(row("daily"));
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await click(button("Stop"));
+    expect(onStopRun).toHaveBeenCalledWith("session-1");
+    expect(getScheduledRun("run-1")!.status).toBe("cancelled");
+    expect(
+      container.querySelector(".automation-run-when")!.textContent,
+    ).toContain("Stopped");
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (item) => item.textContent?.trim() === "Stop",
+      ),
+    ).toBe(false);
+  });
+
   it("shows the run asked for elsewhere, opening its folder", async () => {
     saveScheduledAgent(schedule);
     saveScheduledRun(finished);
