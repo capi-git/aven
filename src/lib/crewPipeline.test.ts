@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { afterBuild, afterCheck, queueCard, startCard } from "./crewLoop";
 import { crewPipeline, type PipelineBoardCard } from "./crewPipeline";
 import { newCrew, type Crew, type CrewCard } from "./crews";
-import { crewBoardInfo } from "./crewView";
+import { crewBoardInfo, crewCardWho } from "./crewView";
 import { localDay } from "./projectBots";
 
 const NOW = new Date(2026, 9, 29, 15).getTime();
@@ -334,5 +334,39 @@ describe("the Pipeline", () => {
       id: "security",
       state: "skip",
     });
+  });
+
+  it("says who a waiting card goes to only when you chose", () => {
+    const crew = crewOf(
+      [
+        fixing("timer", "Timer screen"),
+        queued("pause", "Pause and resume"),
+        queued("stats", "Stats page", { builderId: "builder2" }),
+      ],
+      {
+        members: [
+          { id: "builder", role: "builder" },
+          { id: "builder2", role: "builder" },
+          { id: "checker", role: "checker" },
+        ],
+      },
+    );
+    // The face says who builds whenever there's a choice of Builders.
+    const cards = crew.cards.map((card): PipelineBoardCard => {
+      const { names: who, who: faces } = crewCardWho(crew, card, name);
+      return {
+        id: card.id,
+        title: card.title,
+        column: "building",
+        at: NOW,
+        actions: [],
+        crew: crewBoardInfo(card, who, faces),
+      };
+    });
+    const view = crewPipeline({ crew, cards, now: NOW, name });
+    expect(view.upNext.map((row) => row.status)).toEqual([
+      "From you · waits for Timer screen",
+      "From you · builder2 builds · Owl checks",
+    ]);
   });
 });

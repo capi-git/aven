@@ -226,6 +226,16 @@ function inProgressRow(
 }
 
 /** Where an Up next card came from. */
+/** You picked who builds or checks it, its model, or its rounds. */
+function chose(crew: Crew, card: CrewCard): boolean {
+  return (
+    !!card.builderId ||
+    !!card.checkerId ||
+    !!card.override ||
+    card.maxRounds !== crew.limits.roundsPerCard
+  );
+}
+
 function fromWords(card: CrewCard, name: (who: string) => string): string {
   if (card.goal) return "Planned for the goal";
   if (card.from === "security") return `From ${name("security")}`;
@@ -330,8 +340,8 @@ export function crewPipeline(input: {
     title: card.title,
     status: [
       fromWords(card, name),
-      // Who it went to, and how, when you chose.
-      byId.get(card.id)?.crew?.assigned ??
+      // Who it went to, and how, only when you chose.
+      (chose(crew, card) ? byId.get(card.id)?.crew?.assigned : undefined) ??
         (working ? `waits for ${working.title}` : "next up"),
     ].join(" · "),
     steps: cardSteps(crew, card),
