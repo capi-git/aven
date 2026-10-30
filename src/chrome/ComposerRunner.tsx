@@ -42,9 +42,8 @@ import {
   MASCOT_REACTION_MS,
   type MascotReaction,
 } from "../lib/mascotReactions";
-import { projectSigil } from "../lib/dotSigils";
-import { projectKey, projectName } from "../lib/paths";
-import { loadTabGroupMascots, resolveTabGroupMascot } from "../lib/tabGroups";
+import { projectKey } from "../lib/paths";
+import { projectSigilAt } from "../lib/projectAppearance";
 import { DotMark } from "./DotMark";
 
 type Props = {
@@ -86,7 +85,6 @@ export function ComposerRunner({
   enabledRef.current = enabled;
   onExitedRef.current = onExited;
 
-  const project = projectName(cwd);
   const key = projectKey(cwd);
   // Watched for the whole turn, so the turn's own end is new to this window.
   const reaction = useMascotReaction(key);
@@ -101,11 +99,7 @@ export function ComposerRunner({
       : null;
   const reactionRef = useRef<MascotReaction | null>(ownReaction);
   reactionRef.current = ownReaction;
-  const sigil = useMemo(
-    () =>
-      projectSigil(resolveTabGroupMascot(key, loadTabGroupMascots()), project),
-    [key, project],
-  );
+  const sigil = useMemo(() => projectSigilAt(cwd), [cwd]);
 
   useLayoutEffect(() => {
     const layer = layerRef.current;

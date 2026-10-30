@@ -1,26 +1,56 @@
 /* Aven's marks (DotMark.tsx): a 5×5 grid of round dots in the theme's text
-   colour, the unlit ones a faint texture, the lit ones the sigil. Only the
-   small status dot in the corner has colour, from the theme's status
-   tokens. Motion is opacity and transform only, and none of it repeats
-   unless the mark is idle, working or needs you. */
+   colour, the lit ones the sigil. Only the small status dot in the corner
+   has colour, from the theme's status tokens. Motion is opacity and
+   transform only, and none of it repeats unless the mark is idle, working
+   or needs you.
+
+   Each dot is a zero-length round-capped stroke, so a dot's size is the
+   stroke's width (in the mark's 100-unit box, cells 20 apart). A small
+   mark (under 24px: lists, rails, tabs) draws its sigil alone, in bigger
+   dots, so the sigil is all you see; a bigger one keeps the unlit dots as
+   a faint hint of the grid. */
+
+/* Its size, in a layer so a utility (size-3) or a caller's own rule wins. */
+@layer components {
+  .dot-mark {
+    width: 15px;
+    height: 15px;
+  }
+}
+
 .dot-mark {
-  --dot-mark-unlit: 0.1;
+  --dot-mark-unlit: 0.065;
   --dot-mark-lit: 0.92;
   position: relative;
   display: inline-block;
   flex: none;
-  width: 16px;
-  height: 16px;
+  container-type: inline-size;
   color: var(--dot-mark-ink, var(--color-content));
   line-height: 0;
   vertical-align: middle;
 }
 
 .dot-mark-art {
+  --dot-mark-dot: 13;
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: var(--dot-mark-dot);
+}
+
+@container (max-width: 23.5px) {
+  .dot-mark-art {
+    --dot-mark-dot: 14.6;
+  }
+
+  .dot-mark-grid,
+  .dot-mark-grid-d {
+    display: none;
+  }
 }
 
 .dot-mark-grid,
@@ -150,10 +180,10 @@
 @keyframes dot-mark-sweep-faint {
   0%,
   100% {
-    opacity: 0.06;
+    opacity: 0.04;
   }
   30% {
-    opacity: 0.28;
+    opacity: 0.2;
   }
 }
 

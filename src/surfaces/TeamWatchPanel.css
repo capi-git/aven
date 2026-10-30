@@ -39,7 +39,7 @@
   min-width: 0;
 }
 .team-watch-tile .discussion-avatar {
-  --discussion-mark: 28px;
+  --discussion-mark: 30px;
   width: 46px;
   height: 46px;
   border-radius: 12px;
@@ -153,7 +153,7 @@
   min-width: 0;
 }
 .team-watch-member-face .discussion-avatar {
-  --discussion-mark: 14px;
+  --discussion-mark: 15px;
   width: 24px;
   height: 24px;
   border-radius: 7px;
@@ -404,7 +404,7 @@ button.team-watch-row-open:focus-visible {
   border-color: var(--aven-needs-you-edge);
 }
 .team-pill-tray .discussion-pill .discussion-avatar {
-  --discussion-mark: 11px;
+  --discussion-mark: 10px;
   width: 16px;
   height: 16px;
   border-radius: 5px;

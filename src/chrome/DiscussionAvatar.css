@@ -2,7 +2,7 @@
    side's provider colour stays on its bubbles, never on its mark. */
 .discussion-avatar {
   --discussion-voice: var(--color-content);
-  --discussion-mark: 16px;
+  --discussion-mark: 15px;
   --dot-mark-surface: var(--color-background-base);
   position: relative;
   display: inline-grid;
@@ -15,7 +15,7 @@
   border: 1px solid var(--aven-line);
 }
 .discussion-avatar[data-size="large"] {
-  --discussion-mark: 22px;
+  --discussion-mark: 20px;
   width: 36px;
   height: 36px;
   border-radius: var(--aven-radius-lg);

@@ -194,7 +194,7 @@ it("customizes the name and mark from the actions menu, and resets", async () =>
   expect(dialog()!.querySelector('button[aria-label="Color 3"]')).toBeNull();
   await act(async () =>
     dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Bars"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Pillars"]')!
       .click(),
   );
   // Saved under the critter name the mark stands for, as before marks.

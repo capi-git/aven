@@ -40,7 +40,7 @@ type Props = {
   reaction?: MascotReactionKind | null;
   /** Identifies one reaction, so a new one restarts its motion. */
   reactionId?: string;
-  /** Sizes the mark (16px when not set). */
+  /** Sizes the mark (15px when not set). */
   className?: string;
   style?: CSSProperties;
 };
@@ -55,9 +55,9 @@ const FALLBACK: DotSigil = { key: "custom", label: "Mark", rows: [] };
 
 /**
  * One of Aven's marks: a 5×5 grid of round dots in the theme's text colour,
- * its sigil lit. One small SVG; every state is CSS on its paths (opacity and
- * transform only), so nothing runs per frame in script, and a still mark
- * draws two paths.
+ * its sigil lit (a small mark draws only the sigil). One small SVG; every
+ * state is CSS on its paths (opacity and transform only), so nothing runs
+ * per frame in script, and a still mark draws two paths.
  */
 export const DotMark = memo(function DotMark({
   sigil,
@@ -95,7 +95,6 @@ export const DotMark = memo(function DotMark({
       <svg
         className="dot-mark-art"
         viewBox={DOT_VIEW_BOX}
-        fill="currentColor"
         aria-hidden
         focusable="false"
       >

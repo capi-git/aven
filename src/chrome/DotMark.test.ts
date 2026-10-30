@@ -50,10 +50,9 @@ describe("DotMark", () => {
     expect(host.querySelector(".dot-mark-lit")?.getAttribute("d")).toBe(
       litPath(sigilByKey("checker")!.rows),
     );
-    // Ink is the text colour, never a tint.
-    expect(host.querySelector("svg")?.getAttribute("fill")).toBe(
-      "currentColor",
-    );
+    // No colour of its own: the stylesheet strokes it in the text colour.
+    expect(host.querySelector("svg")?.getAttribute("fill")).toBeNull();
+    expect(host.querySelector("svg")?.getAttribute("stroke")).toBeNull();
     expect(host.querySelector(".dot-mark-status")).toBeNull();
   });
 
@@ -74,8 +73,15 @@ describe("DotMark", () => {
       "8",
     ]);
     const lit = [...host.querySelectorAll<SVGElement>(".dot-mark-lit-d")];
-    // The Builder's blocks reach every diagonal.
-    expect(lit).toHaveLength(9);
+    // Only the diagonals the Builder's two blocks reach: 0-2 and 6-8.
+    expect(lit.map((path) => path.style.getPropertyValue("--d"))).toEqual([
+      "0",
+      "1",
+      "2",
+      "6",
+      "7",
+      "8",
+    ]);
     expect(host.querySelector(".dot-mark-lit")).toBeNull();
   });
 
@@ -158,6 +164,17 @@ describe("DotMark.css", () => {
       expect(moving).toContain(`[data-state="${state}"]`);
     const outside = css.replace(moving ?? "", "");
     expect(outside).not.toMatch(/animation:/);
+  });
+
+  it("strokes its dots in the text colour, hides the grid when small", () => {
+    expect(css).toMatch(/stroke: currentColor;/);
+    expect(css).toMatch(/color: var\(--dot-mark-ink, var\(--color-content\)\)/);
+    const small = /@container \(max-width: [\d.]+px\)\s*\{([\s\S]*?)\n\}/.exec(
+      css,
+    )?.[1];
+    expect(small).toMatch(
+      /\.dot-mark-grid,\s*\.dot-mark-grid-d\s*\{\s*display: none;/,
+    );
   });
 
   it("colours only the status dot, from the theme's status tokens", () => {

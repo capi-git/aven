@@ -33,7 +33,6 @@ import { InboxFiltersMenu } from "../chrome/InboxFiltersMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { DotMark } from "../chrome/DotMark";
-import { projectSigil } from "../lib/dotSigils";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -85,11 +84,8 @@ import {
   markInboxItemsSeen,
   useInboxSeenTick,
 } from "../lib/inboxSeen";
-import {
-  loadTabGroupMascots,
-  resolveTabGroupLogo,
-  resolveTabGroupMascot,
-} from "../lib/tabGroups";
+import { projectSigilAt } from "../lib/projectAppearance";
+import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown } from "./AgentMarkdown";
 import {
   InboxComments,
@@ -223,7 +219,6 @@ export function InboxView({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const logos = useTabGroupLogos();
-  const [groupMascots] = useState(loadTabGroupMascots);
 
   const [searchInput, setSearchInput] = useState("");
   const [items, setItems] = useState<InboxItem[]>(
@@ -557,7 +552,6 @@ export function InboxView({
                     item={item}
                     active={selected != null && key === inboxItemKey(selected)}
                     logoPath={resolveTabGroupLogo(projectId, logos)}
-                    mascotName={resolveTabGroupMascot(projectId, groupMascots)}
                     onSelect={() => {
                       markInboxItemSeen({
                         key,
@@ -753,13 +747,11 @@ function InboxCard({
   item,
   active,
   logoPath,
-  mascotName,
   onSelect,
 }: {
   item: InboxItem;
   active: boolean;
   logoPath: string | null;
-  mascotName: string | null;
   onSelect: () => void;
 }) {
   useInboxSeenTick();
@@ -826,8 +818,8 @@ function InboxCard({
             />
           ) : (
             <DotMark
-              sigil={projectSigil(mascotName, name)}
-              className="size-3 shrink-0"
+              sigil={projectSigilAt(item.projectPath)}
+              className="size-[15px] shrink-0"
             />
           )}
           <span className="min-w-0 truncate">{source}</span>

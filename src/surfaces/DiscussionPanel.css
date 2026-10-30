@@ -167,7 +167,7 @@ button.discussion-side:focus-visible {
   outline-offset: 1px;
 }
 .discussion-side .discussion-avatar {
-  --discussion-mark: 34px;
+  --discussion-mark: 35px;
   width: 54px;
   height: 54px;
   border-radius: 12px;
@@ -342,7 +342,7 @@ button.discussion-side:focus-visible {
   gap: 2px;
 }
 .discussion-pill .discussion-avatar {
-  --discussion-mark: 13px;
+  --discussion-mark: 15px;
   width: 20px;
   height: 20px;
   border: 0;

@@ -947,8 +947,8 @@ describe("choosing the mark", () => {
     await act(async () => {
       window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
     });
-    // The owl picked before marks reads as the Target.
-    expect(mark().dataset.sigil).toBe("target");
+    // The owl picked before marks reads as the Eye.
+    expect(mark().dataset.sigil).toBe("eye");
     await openPicker();
     // Marks have no colour, so the picker offers none.
     expect(document.body.querySelector(".helm-critter-colors")).toBeNull();

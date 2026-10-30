@@ -9,6 +9,7 @@
  * changes: each critter reads as one project sigil here, one to one, and a
  * crew member's critter reads as its role's sigil.
  */
+import type { ProjectAppearance } from "./projectAppearance";
 import { currentMascotName, projectMascot } from "./projectMascots";
 
 export const DOT_GRID = 5;
@@ -25,18 +26,23 @@ export type DotSigil = {
 const sigil = (key: string, label: string, rows: readonly string[]) =>
   ({ key, label, rows }) as const satisfies DotSigil;
 
-/** Crew roles and ready-made members, keyed by role or preset. */
+/**
+ * Crew roles and ready-made members, keyed by role or preset. Every sigil
+ * lights 7 to 13 of the 25 dots: a strong outline with open space around
+ * it, so it still reads as its own shape at 15px.
+ */
+// prettier-ignore
 export const ROLE_SIGILS = [
-  // Two offset blocks: one piece set on another.
-  sigil("builder", "Builder", ["11100", "11100", "11111", "00111", "00111"]),
+  // Two blocks, one set on from the other.
+  sigil("builder", "Builder", ["11000", "11000", "00000", "00011", "00011"]),
   // A ring.
   sigil("checker", "Checker", ["01110", "10001", "10001", "10001", "01110"]),
   // A shield.
-  sigil("security", "Security", ["11111", "11111", "11111", "01110", "00100"]),
+  sigil("security", "Security", ["11111", "10001", "10001", "01010", "00100"]),
   // A diamond, looking out on every side.
   sigil("scout", "Scout", ["00100", "01010", "10001", "01010", "00100"]),
-  // A pen's stroke, corner to corner.
-  sigil("designer", "Designer", ["00011", "00111", "01110", "11100", "11000"]),
+  // A brush: its head, then its stroke.
+  sigil("designer", "Designer", ["00011", "00011", "00100", "01000", "10000"]),
   // A test card's checkerboard.
   sigil("tester", "Tester", ["10101", "01010", "10101", "01010", "10101"]),
   // Lines of text, the last one short.
@@ -48,25 +54,20 @@ export const ROLE_SIGILS = [
 ] as const;
 
 /** Projects and chats: twelve, one for each critter they may have saved. */
+// prettier-ignore
 export const PROJECT_SIGILS = [
-  sigil("target", "Target", ["11111", "10001", "10101", "10001", "11111"]),
-  sigil("five", "Five", ["10001", "00000", "00100", "00000", "10001"]),
-  sigil("hourglass", "Hourglass", [
-    "11111",
-    "01110",
-    "00100",
-    "01110",
-    "11111",
-  ]),
+  sigil("frame", "Frame", ["11011", "10001", "00000", "10001", "11011"]),
+  sigil("spark", "Spark", ["10001", "00100", "01010", "00100", "10001"]),
+  sigil("hourglass", "Hourglass", ["01110", "01010", "00100", "01010", "01110"]),
   sigil("spiral", "Spiral", ["01111", "10000", "10110", "10010", "01110"]),
-  sigil("bars", "Bars", ["10101", "10101", "10101", "10101", "10101"]),
+  sigil("pillars", "Pillars", ["10001", "10001", "10001", "10001", "10001"]),
   sigil("corner", "Corner", ["10000", "10000", "10000", "10000", "11111"]),
-  sigil("stairs", "Stairs", ["00001", "00011", "00111", "01111", "11111"]),
   sigil("peak", "Peak", ["00000", "00100", "01110", "11111", "00000"]),
   sigil("flag", "Flag", ["11100", "11110", "11100", "10000", "10000"]),
-  sigil("disc", "Disc", ["01110", "11111", "11111", "11111", "01110"]),
-  sigil("quad", "Quad", ["11011", "11011", "00000", "11011", "11011"]),
-  sigil("sun", "Sun", ["10101", "01110", "11111", "01110", "10101"]),
+  sigil("moon", "Moon", ["00110", "01000", "01000", "01000", "00110"]),
+  sigil("eye", "Eye", ["00000", "01110", "10101", "01110", "00000"]),
+  sigil("pin", "Pin", ["01110", "10001", "01110", "00100", "00100"]),
+  sigil("anchor", "Anchor", ["00100", "01110", "00100", "10101", "01110"]),
 ] as const;
 
 export type RoleSigilKey = (typeof ROLE_SIGILS)[number]["key"];
@@ -101,18 +102,18 @@ export function sigilByKey(key: string): DotSigil | undefined {
  * still do.
  */
 export const CRITTER_SIGILS: Readonly<Record<string, ProjectSigilKey>> = {
-  owl: "target",
-  axolotl: "five",
+  owl: "eye",
+  axolotl: "spark",
   moth: "hourglass",
   snail: "spiral",
-  jelly: "bars",
+  jelly: "pillars",
   cactus: "corner",
-  sprout: "stairs",
+  sprout: "pin",
   puffin: "peak",
   fox: "flag",
-  whale: "disc",
-  beetle: "quad",
-  hedgehog: "sun",
+  whale: "anchor",
+  beetle: "frame",
+  hedgehog: "moon",
 };
 
 /** The critter a project sigil stands for in storage: "target" is "owl". */
@@ -134,6 +135,31 @@ export function projectSigil(
   const direct = saved ? BY_KEY.get(saved) : undefined;
   if (direct) return direct;
   return BY_KEY.get(CRITTER_SIGILS[projectMascot(seed, saved).name])!;
+}
+
+/**
+ * The sigil a project shows. One it picked is its own. One it never picked
+ * was told apart before by its critter and its colour, both worked out from
+ * its name; marks have no colour, so the colour moves its critter's sigil
+ * along the twelve instead, and two projects with the same automatic critter
+ * in different colours still look different.
+ */
+export function appearanceSigil(
+  appearance: Pick<
+    ProjectAppearance,
+    "key" | "mascot" | "mascotOverride" | "colorIndex" | "automaticColorIndex"
+  >,
+): DotSigil {
+  if (appearance.mascotOverride)
+    return projectSigil(appearance.mascotOverride, appearance.key);
+  const at = PROJECT_SIGILS.findIndex(
+    (item) => item.key === CRITTER_SIGILS[appearance.mascot],
+  );
+  if (at < 0) return projectSigil(appearance.mascot, appearance.key);
+  const colour = appearance.colorIndex ?? appearance.automaticColorIndex;
+  const count = PROJECT_SIGILS.length;
+  // 5 is prime to 12, so each of the palette's colours lands on its own sigil.
+  return PROJECT_SIGILS[(((at + 5 * colour) % count) + count) % count];
 }
 
 /**
@@ -186,22 +212,20 @@ export function litCells(rows: readonly string[]): [number, number][] {
 }
 
 /*
- * Geometry over a 100-unit square: dots 12 across with gaps of 9, the grid
- * inset 2 from each edge.
+ * Geometry over a 100-unit square: five cells of 20, each dot centred in its
+ * cell, so at 15, 20 or 25px (or any multiple of 5) every centre lands on a
+ * whole device pixel at 2× (and at 1× for multiples of 10). Each dot is a
+ * zero-length stroke with round caps, so its size is the stroke's width,
+ * which DotMark.css sets for the mark's size: bigger dots when it is small.
  */
 const VIEW = 100;
-const INSET = 2;
-const DOT = 12;
-const GAP = 9;
-const PITCH = DOT + GAP;
+const PITCH = 20;
 
 export const DOT_VIEW_BOX = `0 0 ${VIEW} ${VIEW}`;
 
 function dotPath(y: number, x: number): string {
-  const r = DOT / 2;
-  const cx = INSET + r + x * PITCH;
-  const cy = INSET + r + y * PITCH;
-  return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${DOT} 0a${r} ${r} 0 1 0 ${-DOT} 0z`;
+  // A hair of length, so every engine draws the round caps.
+  return `M${PITCH / 2 + x * PITCH} ${PITCH / 2 + y * PITCH}h0.01`;
 }
 
 /** One path of the dots at `cells`. */

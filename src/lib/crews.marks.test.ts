@@ -101,7 +101,7 @@ describe("crew members' names and marks", () => {
       "checker",
       "security",
       "designer",
-      "sun",
+      "moon",
     ]);
     // Nothing stored changed by reading it.
     expect(

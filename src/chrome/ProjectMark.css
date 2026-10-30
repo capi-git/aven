@@ -3,8 +3,8 @@
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 .project-mark-logo {
   width: 100%;

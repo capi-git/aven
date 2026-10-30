@@ -1,3 +1,4 @@
+import { appearanceSigil, type DotSigil } from "./dotSigils";
 import { projectKey, projectName } from "./paths";
 import { projectLogoSrc } from "./projectLogos";
 import { currentMascotName, projectMascot } from "./projectMascots";
@@ -218,6 +219,11 @@ export function projectAppearance(path: string): ProjectAppearance {
   previous.delete(path);
   resolved.set(path, next);
   return next;
+}
+
+/** The sigil a project's mark shows, where only its folder is at hand. */
+export function projectSigilAt(path: string): DotSigil {
+  return appearanceSigil(projectAppearance(path));
 }
 
 /** Changes whenever saved appearance may have changed, in this or another window. */

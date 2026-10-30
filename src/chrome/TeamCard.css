@@ -160,7 +160,7 @@ button.team-card-member-open:hover {
 }
 /* A member looks the same on the card and in the panel. */
 .team-card-member-face .discussion-avatar {
-  --discussion-mark: 14px;
+  --discussion-mark: 15px;
   width: 24px;
   height: 24px;
   border-radius: 7px;
@@ -359,7 +359,7 @@ button.team-card-member-open:hover {
   align-items: center;
 }
 .team-mini-faces .discussion-avatar {
-  --discussion-mark: 12px;
+  --discussion-mark: 10px;
   width: 18px;
   height: 18px;
   border-radius: 5px;
@@ -387,7 +387,7 @@ button.team-card-member-open:hover {
   color: var(--aven-needs-you);
 }
 .sidebar-team-badge .team-mini-faces .discussion-avatar {
-  --discussion-mark: 11px;
+  --discussion-mark: 10px;
   width: 16px;
   height: 16px;
   border-radius: 4px;

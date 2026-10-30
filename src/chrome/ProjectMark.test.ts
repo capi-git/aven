@@ -86,7 +86,7 @@ describe("project marks", () => {
     const mark = container.querySelector<HTMLElement>(".project-mark")!;
     expect(mark.dataset.kind).toBe("mark");
     // The jellyfish it saved reads as its sigil.
-    expect(dots().dataset.sigil).toBe("bars");
+    expect(dots().dataset.sigil).toBe("pillars");
     expect(dots().dataset.state).toBe("still");
     expect(lit()).toBe(litPath(projectSigil("jelly").rows));
     expect(dots().getAttribute("style")).toBeNull();

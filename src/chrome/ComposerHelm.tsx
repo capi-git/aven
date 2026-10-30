@@ -43,7 +43,12 @@ import {
 } from "../lib/contextUsage";
 import { isHarnessAvailable } from "../lib/harness/availability";
 import { pickerModelsFor, preferredModelId } from "../lib/models";
-import { PROJECT_SIGILS, SIGIL_CRITTERS, projectSigil } from "../lib/dotSigils";
+import {
+  PROJECT_SIGILS,
+  SIGIL_CRITTERS,
+  appearanceSigil,
+  projectSigil,
+} from "../lib/dotSigils";
 import { MOD } from "../lib/platform";
 import { hasProjectAppearance } from "../lib/projectAppearance";
 import {
@@ -255,8 +260,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   );
   const inProject = hasProjectAppearance(critterPath) && !!appearance;
   const critterKey = inProject ? appearance.key : "aven-helm";
-  const critterName = inProject ? appearance.mascot : personal.mascot;
-  const mark = projectSigil(critterName, critterKey);
+  const mark = inProject
+    ? appearanceSigil(appearance)
+    : projectSigil(personal.mascot, critterKey);
 
   // What the agent is.
   const agent = useAgentSummary({

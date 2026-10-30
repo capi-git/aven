@@ -9,6 +9,7 @@ import {
   ROLE_SIGILS,
   SIGIL_CRITTERS,
   TICK_ROWS,
+  appearanceSigil,
   crewMemberSigil,
   diagonalPaths,
   dotArtPath,
@@ -44,9 +45,17 @@ describe("sigils", () => {
     ]) {
       expect(sigil.rows, sigil.key).toHaveLength(5);
       for (const row of sigil.rows) expect(row, sigil.key).toMatch(/^[01]{5}$/);
-      // Enough dots to read at 16px, and some unlit for the grid to show.
+      // Enough dots to read at 15px, and open space around them.
       expect(lit(sigil.rows), sigil.key).toBeGreaterThanOrEqual(5);
-      expect(lit(sigil.rows), sigil.key).toBeLessThanOrEqual(21);
+      expect(lit(sigil.rows), sigil.key).toBeLessThanOrEqual(13);
+      expect(25 - lit(sigil.rows), sigil.key).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("keeps every sigil sparse and iconic: 7 to 13 lit dots", () => {
+    for (const sigil of ALL_SIGILS) {
+      expect(lit(sigil.rows), sigil.key).toBeGreaterThanOrEqual(7);
+      expect(lit(sigil.rows), sigil.key).toBeLessThanOrEqual(13);
     }
   });
 
@@ -109,9 +118,9 @@ describe("old choices as sigils", () => {
 
   it("maps a saved pick, an old sprite's name and a sigil key alike", () => {
     expect(projectSigil("snail").key).toBe("spiral");
-    expect(projectSigil("owl").key).toBe("target");
+    expect(projectSigil("owl").key).toBe("eye");
     // "robot" was saved before the critters, and reads as the owl.
-    expect(projectSigil("robot").key).toBe("target");
+    expect(projectSigil("robot").key).toBe("eye");
     expect(projectSigil("spiral").key).toBe("spiral");
   });
 
@@ -124,6 +133,33 @@ describe("old choices as sigils", () => {
     expect(projectSigil("nope", "aven-site")).toBe(
       projectSigil(null, "aven-site"),
     );
+  });
+
+  it("tells apart projects that shared a critter by their colour", () => {
+    const auto = (colorIndex: number | null, automaticColorIndex = 0) =>
+      appearanceSigil({
+        key: "/p",
+        mascot: "whale",
+        mascotOverride: null,
+        colorIndex,
+        automaticColorIndex,
+      }).key;
+    // The palette's nine colours each move the whale's sigil somewhere else.
+    const shown = Array.from({ length: 9 }, (_, colour) => auto(null, colour));
+    expect(new Set(shown).size).toBe(9);
+    expect(auto(null, 0)).toBe("anchor");
+    // A colour picked by hand counts as the automatic one did.
+    expect(auto(3, 0)).toBe(auto(null, 3));
+    // A pick is the mark it picked, whatever the colour.
+    expect(
+      appearanceSigil({
+        key: "/p",
+        mascot: "snail",
+        mascotOverride: "snail",
+        colorIndex: 4,
+        automaticColorIndex: 2,
+      }).key,
+    ).toBe("spiral");
   });
 
   it("spreads projects with no pick across the sigils", () => {
@@ -152,10 +188,10 @@ describe("old choices as sigils", () => {
     // Only on a member of that role: a Builder that wore the hedgehog
     // never shows Security's shield, nor a Checker the moth's Designer.
     expect(crewMemberSigil("security", "hedgehog").key).toBe("security");
-    expect(crewMemberSigil("builder", "hedgehog").key).toBe("sun");
+    expect(crewMemberSigil("builder", "hedgehog").key).toBe("moon");
     expect(crewMemberSigil("checker", "moth").key).toBe("hourglass");
     // Any other critter reads as its project sigil.
-    expect(crewMemberSigil("builder", "whale").key).toBe("disc");
+    expect(crewMemberSigil("builder", "whale").key).toBe("anchor");
     // A mark chosen since marks is its own.
     expect(crewMemberSigil("builder", "spiral").key).toBe("spiral");
     expect(crewMemberSigil("checker", "custom").key).toBe("custom");
@@ -184,8 +220,15 @@ describe("drawing", () => {
     ]);
     expect(circles(litPath(TICK_ROWS))).toBe(5);
     expect(litPath(TICK_ROWS)).toBe(dotsPath(tick));
-    // Arcs, not squares.
-    expect(litPath(TICK_ROWS)).toContain("a6 6 0 1 0");
+    // Round-capped strokes centred in their cells, 20 apart: at 15px
+    // (or any multiple of 5) each centre lands on a whole device pixel.
+    expect(litPath(TICK_ROWS).split("M").slice(1)).toEqual([
+      "90 30h0.01",
+      "70 50h0.01",
+      "10 70h0.01",
+      "50 70h0.01",
+      "30 90h0.01",
+    ]);
   });
 
   it("splits a sigil's dots by diagonal for the working sweep", () => {

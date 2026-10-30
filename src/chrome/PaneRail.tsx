@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { projectSigil } from "../lib/dotSigils";
+import { appearanceSigil } from "../lib/dotSigils";
 import { DotMark } from "./DotMark";
 
 /** One tab of a collapsed pane, as its rail shows it. */
@@ -76,7 +76,7 @@ export function PaneRail({
       {appearance ? (
         <span className="aven-pane-rail-critter">
           <DotMark
-            sigil={projectSigil(appearance.mascot, appearance.key)}
+            sigil={appearanceSigil(appearance)}
             state={tabs.some((tab) => tab.busy) ? "working" : "still"}
           />
         </span>

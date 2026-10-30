@@ -1,16 +1,11 @@
 import { File, X } from "./icons";
-import { useState } from "react";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 import { DotMark } from "./DotMark";
-import { projectSigil } from "../lib/dotSigils";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { noteSourceProject, type NoteCardMeta } from "../lib/notes";
 import { projectKey } from "../lib/paths";
-import {
-  loadTabGroupMascots,
-  resolveTabGroupLogo,
-  resolveTabGroupMascot,
-} from "../lib/tabGroups";
+import { projectSigilAt } from "../lib/projectAppearance";
+import { resolveTabGroupLogo } from "../lib/tabGroups";
 
 type Props = {
   card: NoteCardMeta;
@@ -20,11 +15,9 @@ type Props = {
 
 export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
   const logos = useTabGroupLogos();
-  const [mascots] = useState(loadTabGroupMascots);
   const project = noteSourceProject(card.sourceCwd);
   const key = card.sourceCwd ? projectKey(card.sourceCwd) : null;
   const logoPath = key ? resolveTabGroupLogo(key, logos) : null;
-  const mascotName = key ? resolveTabGroupMascot(key, mascots) : null;
 
   const inner = (
     <div
@@ -55,8 +48,8 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
               />
             ) : (
               <DotMark
-                sigil={projectSigil(mascotName, project)}
-                className="size-3 shrink-0"
+                sigil={projectSigilAt(card.sourceCwd!)}
+                className="size-[15px] shrink-0"
               />
             )}
             <span className="min-w-0 truncate">{project}</span>

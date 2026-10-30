@@ -8,8 +8,8 @@
 }
 
 .crew-header .dot-mark.crew-critter {
-  width: 22px;
-  height: 22px;
+  width: 25px;
+  height: 25px;
 }
 
 .crew-header-actions {
@@ -82,8 +82,8 @@
 
 .crew-strip-tile .dot-mark.crew-strip-critter {
   --dot-mark-surface: var(--color-background-base);
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
 }
 
 .crew-strip-text {

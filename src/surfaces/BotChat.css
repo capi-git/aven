@@ -13,8 +13,8 @@
   color: var(--color-content);
 }
 .dot-mark.bot-chat-critter {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
 }
 .bot-chat-heading {
   display: flex;
@@ -47,8 +47,8 @@
   color: var(--color-content);
 }
 .dot-mark.bot-chat-intro-critter {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin-top: 1px;
 }
 .bot-chat-intro-body {

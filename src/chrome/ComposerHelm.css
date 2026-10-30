@@ -68,14 +68,14 @@
 .helm-perch {
   position: relative;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 35px;
+  height: 35px;
   margin-bottom: 3px;
 }
 .helm-critter-button {
   display: block;
-  width: 34px;
-  height: 34px;
+  width: 35px;
+  height: 35px;
   padding: 0;
   border: 0;
   border-radius: var(--aven-radius-md);
@@ -88,8 +88,8 @@
     var(--color-background-base)
   );
   display: block;
-  width: 34px;
-  height: 34px;
+  width: 35px;
+  height: 35px;
 }
 
 /* The room left in the chat: a thin line over the mark. */
@@ -434,8 +434,8 @@
 }
 .dot-mark.helm-mini-critter {
   --dot-mark-surface: var(--helm-fill);
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 .helm-quiet {
   color: var(--helm-quiet);
@@ -515,8 +515,8 @@
   font-size: 13px;
 }
 .dot-mark.helm-critter-preview {
-  width: 34px;
-  height: 34px;
+  width: 35px;
+  height: 35px;
 }
 .helm-critter-grid {
   display: grid;

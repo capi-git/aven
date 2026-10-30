@@ -5,7 +5,11 @@ import { logError } from "../lib/errors";
 import { projectName } from "../lib/paths";
 import { projectMemoryEdited } from "../lib/projectMemory";
 import { clearProjectLogo, pickAndSetProjectLogo } from "../lib/projectLogos";
-import { PROJECT_SIGILS, SIGIL_CRITTERS, projectSigil } from "../lib/dotSigils";
+import {
+  PROJECT_SIGILS,
+  SIGIL_CRITTERS,
+  appearanceSigil,
+} from "../lib/dotSigils";
 import {
   clearTabGroupSettings,
   saveTabGroupLabel,
@@ -106,7 +110,7 @@ function ProjectAppearancePopover({
     appearance.customLabel != null ||
     appearance.mascotOverride != null ||
     appearance.logoPath != null;
-  const shown = projectSigil(appearance.mascot, folder).key;
+  const shown = appearanceSigil(appearance).key;
 
   return (
     <Popover
@@ -173,7 +177,7 @@ function ProjectAppearancePopover({
                   : "hover:bg-content/8"
               }`}
             >
-              <DotMark sigil={sigil} className="size-[18px]" />
+              <DotMark sigil={sigil} className="size-5" />
             </button>
           );
         })}

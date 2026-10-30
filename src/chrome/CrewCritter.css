@@ -7,8 +7,8 @@
 
 .dot-mark.crew-critter {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 /* A crew's marks side by side. */
@@ -430,9 +430,9 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   box-shadow: inset 0 0 0 1px var(--aven-line);
 }
 
-.crew-critter-cell-art {
-  width: 24px;
-  height: 24px;
+.dot-mark.crew-critter-cell-art {
+  width: 20px;
+  height: 20px;
 }
 
 .crew-agent-list {
