@@ -25,6 +25,7 @@
 ### Fixed
 
 - Undo after **Separate split** undoes the separate, not the step before it.
+- A link opened just as its page closed now opens, instead of showing a blank page.
 
 ## [0.1.159] - 2026-10-29
 
