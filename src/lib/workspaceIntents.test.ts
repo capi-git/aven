@@ -377,6 +377,28 @@ describe("a chord a page forwards to a detached window", () => {
     });
   });
 
+  it("steps past a collapsed pane, leaving it collapsed", () => {
+    const three: WorkspaceView = {
+      layout: {
+        type: "split",
+        id: "row",
+        dir: "right",
+        children: [leaf("a"), { ...leaf("b"), rail: 0.3 }, leaf("c")],
+        sizes: [0.48, 0.04, 0.48],
+      },
+      focusedId: "a",
+      order: ["a", "b", "c"],
+      groups: { a: ["a"], b: ["b"], c: ["c"] },
+    };
+    expect(pageShortcutOutcome(three, "next-pane")).toEqual({
+      type: "select",
+      id: "c",
+    });
+    expect(
+      pageShortcutOutcome({ ...three, focusedId: "c" }, "prev-pane"),
+    ).toEqual({ type: "select", id: "a" });
+  });
+
   it("does nothing it cannot, and nothing it is not named", () => {
     const alone = resolveWorkspaceView(
       {

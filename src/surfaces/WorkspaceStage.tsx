@@ -35,6 +35,7 @@ import {
   type PaneMinimum,
 } from "../lib/paneFit";
 import { evenSplit, railedLeafIds, unrailLeaf } from "../lib/paneRails";
+import { focusPaneContent } from "../lib/paneFocus";
 import {
   captureScrollOffsets,
   HiddenSurfaceClock,
@@ -144,6 +145,12 @@ export type WorkspaceStageProps = {
   railContent?: (id: string) => { label: string; content: ReactNode } | null;
   /** A rail was clicked: open its pane and focus it. */
   onRestoreRail?: (id: string) => void;
+  /**
+   * A pane collapsed from its own menu (by its tab in front): its rail takes
+   * the keyboard once drawn, since the menu went with the pane's title row.
+   * A new `nonce` asks again.
+   */
+  focusRail?: { id: string; nonce: number } | null;
   /**
    * The pane a tab just moved into (by its tab in front): its title row
    * glows once, as its strip entry does. A new `nonce` plays it again.
@@ -392,6 +399,18 @@ function paneCanGlide(surface: HTMLElement): "html" | "pictured" | null {
   return surface.querySelector(".browser-motion-image") ? "pictured" : null;
 }
 
+/**
+ * Where the keyboard goes once the layout it waits for is drawn: a divider
+ * or title row ("split"), the rail of a pane just collapsed (named, or the
+ * first not drawn `before`), or a pane just opened from its rail.
+ */
+type PendingFocus =
+  | "split"
+  | { rail: string | null; before: ReadonlySet<string>; until: number }
+  | { pane: string; until: number };
+/** How long a focus waits for a change that applies late (a page pictured first). */
+const FOCUS_WAIT_MS = 1500;
+
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
 const DRAG_FRAME_DEADLINE_MS = 16;
@@ -609,6 +628,7 @@ export function WorkspaceStage({
   paneMinimum = defaultPaneMinimum,
   railContent,
   onRestoreRail,
+  focusRail = null,
   landed = null,
 }: WorkspaceStageProps) {
   const stage = useRef<HTMLDivElement>(null);
@@ -689,7 +709,7 @@ export function WorkspaceStage({
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
   const railNodes = useRef(new Map<string, HTMLButtonElement>());
   const lastMinimizedSash = useRef<string | null>(null);
-  const pendingFocus = useRef<"restore" | "split" | null>(null);
+  const pendingFocus = useRef<PendingFocus | null>(null);
   useLayoutEffect(() => {
     if (
       !dragging ||
@@ -755,7 +775,12 @@ export function WorkspaceStage({
   function minimizePane(sash: LayoutSash, side: "before" | "after") {
     if (!current.current.onMinimizeSide) return;
     lastMinimizedSash.current = sashKey(sash);
-    pendingFocus.current = "restore";
+    // The rail the collapsed pane becomes: one not drawn before.
+    pendingFocus.current = {
+      rail: null,
+      before: new Set(railedLeafIds(layout)),
+      until: Date.now() + FOCUS_WAIT_MS,
+    };
     current.current.onMinimizeSide(sash.splitId, sash.index, side);
   }
   // Keep controls inside the header's reserved 32px strip. Chromium draws above
@@ -796,14 +821,42 @@ export function WorkspaceStage({
   const headerContents = new Map(
     displayHeaders.map(({ id, content }) => [id, content]),
   );
+  const askedRail = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (!visible || !pendingFocus.current) return;
+    if (focusRail && askedRail.current !== focusRail.nonce) {
+      askedRail.current = focusRail.nonce;
+      pendingFocus.current = {
+        rail: focusRail.id,
+        before: new Set(),
+        until: Date.now() + FOCUS_WAIT_MS,
+      };
+    }
+    const pending = pendingFocus.current;
+    if (!visible || !pending) return;
+    if (typeof pending !== "string" && Date.now() > pending.until) {
+      pendingFocus.current = null;
+      return;
+    }
+    if (typeof pending !== "string" && "pane" in pending) {
+      // Opened from its rail: the keyboard goes into the pane, as stepping
+      // to it does (its message box, or its first field or control).
+      if (railNodes.current.has(pending.pane)) return;
+      const pane = surfaceNodes.current.get(pending.pane);
+      if (pane && !pane.hidden && focusPaneContent(pane))
+        pendingFocus.current = null;
+      return;
+    }
     const target =
-      pendingFocus.current === "restore"
-        ? (stage.current?.querySelector<HTMLElement>(
-            ".workspace-pane-restore",
-          ) ??
-          stage.current?.querySelector<HTMLElement>(".workspace-pane-rail"))
+      typeof pending !== "string"
+        ? pending.rail
+          ? railNodes.current.get(pending.rail)
+          : // A pane hidden behind a Show control instead (an older view).
+            ([...railNodes.current].find(
+              ([id]) => !pending.before.has(id),
+            )?.[1] ??
+            stage.current?.querySelector<HTMLElement>(
+              ".workspace-pane-restore",
+            ))
         : ((lastMinimizedSash.current
             ? sashNodes.current.get(lastMinimizedSash.current)
             : null) ??
@@ -814,7 +867,7 @@ export function WorkspaceStage({
       target.focus({ preventScroll: true });
       pendingFocus.current = null;
     }
-  }, [layout, visible, focusedId, restoreHeaderId]);
+  }, [layout, visible, focusedId, restoreHeaderId, focusRail]);
   // Hidden tabs already keep their React/native owners. Keep the last visited
   // layout too, so returning to a workspace does not rebuild every text/editor
   // measurement from a display:none subtree. Only committed visits are warm;
@@ -1337,6 +1390,22 @@ export function WorkspaceStage({
   // timeline WebKit holds back under a native page never leaves a preview,
   // a clip or a fading pane on screen. Unmounting stops them all.
   const stageMotions = useRef(new Set<BoundedMotion>());
+  // A glide or slide moves a pane by a transform: no size changes and no
+  // layout event follows when it ends. A native page placed while it ran
+  // (a held page let go before a held-back timeline caught up, a page
+  // coming in under a slide) would stay where the transform had it, so
+  // pages are told to take their final bounds once the stage's motions end.
+  const settleQueued = useRef(false);
+  const motionSettled = () => {
+    if (settleQueued.current) return;
+    settleQueued.current = true;
+    queueMicrotask(() => {
+      settleQueued.current = false;
+      stage.current?.dispatchEvent(
+        new Event("supermono:workspace-layout", { bubbles: true }),
+      );
+    });
+  };
   const play = (
     element: Element,
     keyframes: Keyframe[],
@@ -1350,6 +1419,7 @@ export function WorkspaceStage({
       options,
       () => {
         motions.delete(motion);
+        if (!motions.size) motionSettled();
         onEnd?.();
       },
     );
@@ -1939,6 +2009,11 @@ export function WorkspaceStage({
             style={surfaceStyle(rect)}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => {
+              // The rail goes as its pane opens: the keyboard goes into it.
+              pendingFocus.current = {
+                pane: id,
+                until: Date.now() + FOCUS_WAIT_MS,
+              };
               if (onRestoreRail) {
                 onRestoreRail(id);
                 return;

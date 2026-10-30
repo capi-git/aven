@@ -147,7 +147,7 @@ import {
   workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
-import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
+import { seamNeighbours, type DockEdge } from "./lib/paneDock";
 import { focusPaneContent, workspacePane } from "./lib/paneFocus";
 import {
   applyWorkspaceIntent,
@@ -177,6 +177,7 @@ import {
   stripDropKeeps,
   stripItems,
   stripView,
+  stripViewReshapes,
   viewMembers,
   NO_PROJECT_STRIP_KEY,
   type WorkspaceStrip,
@@ -349,7 +350,7 @@ import { paneRailContent } from "./chrome/PaneRail";
 import { LayoutNotice, type LayoutNoticeState } from "./chrome/LayoutNotice";
 import { describeStripChange, stripTabLocation } from "./lib/layoutNotice";
 import { BrowserTabIcon } from "./chrome/BrowserTabIcon";
-import { openLeafIds } from "./lib/paneRails";
+import { focusDirTarget, openLeafIds, stepOpenPane } from "./lib/paneRails";
 import { PANE_MIN_PX, workspaceTabPaneKind } from "./lib/paneFit";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
@@ -422,7 +423,6 @@ import {
   newSimulatorTab,
   simulatorProjectOf,
   movePane,
-  neighborLeafId,
   newFileTab,
   newPlanTab,
   newTab,
@@ -451,11 +451,7 @@ import {
   type WorkspaceTab,
 } from "./lib/layout";
 import { paneTitleRow, workspaceTabOwnHeader } from "./lib/filePaneHeader";
-import {
-  paneMinimizeControls,
-  paneMinimizeKey,
-  paneMinimizeLabel,
-} from "./lib/paneMinimize";
+import { paneCollapseItems } from "./lib/paneMinimize";
 import {
   loadBundledChangelog,
   releaseNotesForVersion,
@@ -1824,11 +1820,16 @@ export default function App({
       const before = viewRef.current.view;
       const after = update(before);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
+      const { strip } = viewRef.current;
+      // A change that reshapes the strip beyond the entry in front (a tab
+      // brought in from another entry, a split put back together as one
+      // pane) is undone by putting the whole strip back.
       const next = pushWorkspaceLayoutUndo(
         recoveryRef.current,
         workspaceKeyRef.current,
         before,
-        viewRef.current.strip.front,
+        strip.front,
+        stripViewReshapes(strip, after) ? strip : undefined,
       );
       recoveryRef.current = next;
       setRecovery(next);
@@ -1861,6 +1862,11 @@ export default function App({
     nonce: number;
   } | null>(null);
   const [paneLanding, setPaneLanding] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
+  /** A pane collapsed from its own menu: its rail takes the keyboard. */
+  const [railFocus, setRailFocus] = useState<{
     id: string;
     nonce: number;
   } | null>(null);
@@ -5022,10 +5028,11 @@ export default function App({
   const onPrev = useCallback(() => cycleSurface(-1), [cycleSurface]);
   // Cydonia's pane keys: the next or previous pane in layout order (left to
   // right, each column top to bottom), and expanding the focused pane.
+  // Collapsed panes are passed over.
   const onStepPane = useCallback(
     (step: number) => {
       const { layout, focusedId } = viewRef.current.view;
-      const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
+      const next = stepOpenPane(layout, focusedId, step);
       if (!next) return;
       onSelectSurface(next);
       // The keyboard goes with the focus: into its message box, or the
@@ -6188,16 +6195,15 @@ export default function App({
     (dir: FocusDir) => {
       // A split inside the tab first; past its edge, the workspace's pane
       // that way. (With VoiceOver, which keeps ⌃⌥ for itself, this is how
-      // to move between panes.)
-      const inner =
-        activeTab && neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
-      if (inner) {
-        onFocusPane(inner);
+      // to move between panes.) A page focused has no split of its own, and
+      // collapsed panes are passed over.
+      const target = focusDirTarget(viewRef.current.view, activeTab, dir);
+      if (!target) return;
+      if ("inner" in target) {
+        onFocusPane(target.inner);
         return;
       }
-      const { layout, focusedId } = viewRef.current.view;
-      const pane = layout ? neighborLeafId(layout, focusedId, dir) : null;
-      if (!pane) return;
+      const { pane } = target;
       onSelectSurface(pane);
       window.setTimeout(() => focusPaneContent(workspacePane(pane)), 0);
     },
@@ -11703,26 +11709,32 @@ export default function App({
   const spaceMode = workspaceIsSpace(view);
   const paneZoomed = workspaceZoomed(view);
   const paneLeaves = view.layout ? layoutLeaves(view.layout) : [];
-  // Each pane offers to hide itself beside its divider in its own "…".
-  const paneMinimizes = paneMinimizeControls(view.layout);
+  // Each pane offers to collapse itself, or the column or row it is in, in
+  // its own "…".
+  const paneCollapses = paneCollapseItems(view.layout);
   const paneTitleTools = (owner: string): Partial<TitleBarProps> => {
     const across = seamNeighbours(paneLeaves, owner);
     return {
-      paneHides: (paneMinimizes.get(owner) ?? []).map((control) => ({
-        key: paneMinimizeKey(control),
-        label: paneMinimizeLabel(control),
+      paneHides: (paneCollapses.get(owner) ?? []).map(({ key, label }) => ({
+        key,
+        label,
       })),
       onHidePane: (key: string) => {
-        const control = paneMinimizeControls(viewRef.current.view.layout)
+        const item = paneCollapseItems(viewRef.current.view.layout)
           .get(owner)
-          ?.find((entry) => paneMinimizeKey(entry) === key);
-        if (control)
-          onWorkspaceIntent({
-            type: "minimize",
-            split: control.sash.splitId,
-            index: control.sash.index,
-            side: control.side,
-          });
+          ?.find((entry) => entry.key === key);
+        if (!item) return;
+        onWorkspaceIntent({
+          type: "minimize",
+          split: item.split,
+          index: item.index,
+          side: item.side,
+        });
+        // Its menu went with its title row: the keyboard goes to its rail.
+        setRailFocus((previous) => ({
+          id: owner,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
       },
       paneZoom: spaceMode ? (paneZoomed ? "restore" : "expand") : undefined,
       onTogglePaneZoom: () => onWorkspaceIntent({ type: "zoom", group: owner }),
@@ -12577,6 +12589,7 @@ export default function App({
                               onRestoreRail={(id) =>
                                 onWorkspaceIntent({ type: "unrail", id })
                               }
+                              focusRail={railFocus}
                               landed={paneLanding}
                               dragging={surfaceDragging}
                               dragLabel="Move tab"

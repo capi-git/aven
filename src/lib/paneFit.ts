@@ -260,6 +260,9 @@ function replaceSplit(
  * dragged past its collapse threshold folds to a rail, and a rail dragged
  * out past it opens at its minimum. The split's shares become what is drawn,
  * and a pane that collapses keeps its share from before for when it opens.
+ * A rail across the divider from a pane that folds stays a rail unless the
+ * divider was taken past its threshold too, so nudging the divider between
+ * two rails opens neither; the split always keeps a pane open.
  */
 export function resizeSash(
   layout: LayoutNode,
@@ -275,7 +278,8 @@ export function resizeSash(
   const minBefore = sash.opens[i];
   const minAfter = sash.opens[i + 1];
   // Collapsing one side opens the other, so the split keeps a pane open.
-  let before = offset - start;
+  const wanted = offset - start;
+  let before = wanted;
   let railBefore = false;
   let railAfter = false;
   if (before < collapseThreshold(minBefore)) {
@@ -294,12 +298,21 @@ export function resizeSash(
   }
   lengths[i] = before;
   lengths[i + 1] = pair - before;
+  const kept = { before: false, after: false };
   const next = replaceSplit(layout, sash.splitId, (split) => {
+    const othersOpen = split.children.some(
+      (child, at) => at !== i && at !== i + 1 && child.rail === undefined,
+    );
     const children = split.children.map((child, at): LayoutNode => {
       if (at !== i && at !== i + 1) return child;
       const collapse = at === i ? railBefore : railAfter;
       if (!collapse) {
         if (child.rail === undefined) return child;
+        const length = at === i ? wanted : pair - wanted;
+        if (othersOpen && length < collapseThreshold(sash.opens[at])) {
+          kept[at === i ? "before" : "after"] = true;
+          return child;
+        }
         const { rail: _rail, ...open } = child;
         return open;
       }
@@ -316,7 +329,13 @@ export function resizeSash(
       sizes: lengths.map((length) => length / total),
     };
   });
-  return { layout: next, railed: { before: railBefore, after: railAfter } };
+  return {
+    layout: next,
+    railed: {
+      before: railBefore || kept.before,
+      after: railAfter || kept.after,
+    },
+  };
 }
 
 /**
