@@ -1,4 +1,11 @@
-import { parseHandoff, parseIdeas, parseVerdict } from "./crewHandoff";
+import {
+  parseGoal,
+  parseHandoff,
+  parseIdeas,
+  parseTasks,
+  parseVerdict,
+  type CrewTask,
+} from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import {
   allCrewRunsToday,
@@ -35,6 +42,7 @@ import {
   checkerMessage,
   crewBrief,
   crewTurnLabel,
+  goalMessage,
   scoutMessage,
   securityMessage,
   sweepMessage,
@@ -72,6 +80,11 @@ import {
   withDoingCleared,
   withoutFallbacks,
   stackHead,
+  goalCardsDone,
+  goalPlanner,
+  withGoal,
+  NO_PLANNER,
+  queuedCards,
   type Crew,
   type CrewCard,
   type CrewChange,
@@ -237,6 +250,11 @@ type LiveTurn = {
   onAt?: number;
   /** Aven asked its chat to stop (the card was stopped, the crew turned off). */
   stopping?: boolean;
+  /**
+   * A goal turn: the commit the copy held when it began, so anything a
+   * Builder planning it wrote there is undone.
+   */
+  goal?: { base?: string };
 };
 
 /** Where a card stood when Aven began preparing its turn. */
@@ -281,6 +299,28 @@ function chatNeedsYou(chat: Session): string | null {
   if (chat.pendingQuestion) return "a question";
   if (chat.blocks.some((block) => block.approval && !block.approval.decided))
     return "an approval";
+  return null;
+}
+
+/**
+ * What a member queues from its chat: its last reply, when it answers your
+ * own message (not a turn Aven sent it) with an `aven-tasks` block.
+ */
+export function memberAsk(
+  chat: Session,
+): { replyId: string; tasks: CrewTask[]; goal?: string } | null {
+  let reply: Session["blocks"][number] | undefined;
+  for (let index = chat.blocks.length - 1; index >= 0; index -= 1) {
+    const block = chat.blocks[index]!;
+    if (block.role === "user") {
+      // Aven's own turns carry their wake; yours don't.
+      if (block.botWake || !reply) return null;
+      const asked = parseTasks(reply.text);
+      return asked ? { replyId: reply.id, ...asked } : null;
+    }
+    if (!reply && block.role === "assistant" && block.text.trim())
+      reply = block;
+  }
   return null;
 }
 
@@ -551,6 +591,22 @@ export class CrewRunner {
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
       return this.sendCardTurn(path, next, "builder", builder.id);
+    }
+    // Idle with a goal: is it met, and what's the next card towards it.
+    // The crew keeps going, card after card, until it's met or it stops
+    // to ask (a Stuck card holds the copy, so nothing gets here).
+    if (crew.goal && !crew.goal.done) {
+      if (!goalPlanner(crew)) return this.stopGoal(crew, NO_PLANNER, now);
+      const gate = this.gate(crew, now);
+      if (!gate.ok) return this.hold(crew, gate);
+      this.clearHold(crew);
+      let board: readonly FeatureCard[] = [];
+      try {
+        board = await this.deps.board.cards(path);
+      } catch (error) {
+        logError("Crew board", error);
+      }
+      return this.sendGoalTurn(path, board);
     }
     // Idle. A Scout idea may start by itself, or the Scout may look. The
     // Board is read only when one of them could go.
@@ -1248,7 +1304,8 @@ export class CrewRunner {
   async afterTurn(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
     if (!this.markHandled(turn.turnId)) return;
     try {
-      if (turn.role === "scout" || turn.sweep)
+      if (turn.goal) await this.afterGoal(path, turn, outcome);
+      else if (turn.role === "scout" || turn.sweep)
         await this.afterScout(path, turn, outcome);
       else await this.afterCardTurn(path, turn, outcome);
     } catch (error) {
@@ -1716,6 +1773,351 @@ export class CrewRunner {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Asked for work in a member's own chat
+
+  /**
+   * You asked a member for work in its own chat, and it answered with what
+   * it queues (an `aven-tasks` block): Aven queues those cards for the crew,
+   * or sets its goal. A member never edits for it, and each reply is read
+   * once (kept in the store, so a reload doesn't queue it again).
+   */
+  private takeAsks(sessions: readonly Session[]) {
+    for (const crew of activeCrews())
+      for (const member of crew.members) {
+        if (member.role === "fixer" || !member.sessionId) continue;
+        const chat = sessions.find((item) => item.id === member.sessionId);
+        if (!chat || chatAtWork(chat)) continue;
+        const ask = memberAsk(chat);
+        if (!ask || crew.asks?.includes(ask.replyId)) continue;
+        void this.queueAsk(crew.path, member.id, ask).catch((error) =>
+          logError("Crew ask", error),
+        );
+      }
+  }
+
+  private async queueAsk(
+    path: string,
+    memberId: string,
+    ask: NonNullable<ReturnType<typeof memberAsk>>,
+  ) {
+    const now = this.deps.now();
+    let fresh = false;
+    // Read once: marked before anything is queued.
+    updateCrew(path, (crew) => {
+      if (crew.asks?.includes(ask.replyId)) return crew;
+      fresh = true;
+      return { ...crew, asks: [...(crew.asks ?? []), ask.replyId].slice(-50) };
+    });
+    if (!fresh) return;
+    const added = ask.tasks.length
+      ? await this.deps.board.add(
+          path,
+          ask.tasks.map((task) => ({
+            title: task.title,
+            ...(task.why ? { note: task.why } : {}),
+            column: "building" as const,
+          })),
+        )
+      : [];
+    updateCrew(path, (current) => {
+      let next = current;
+      added.forEach((card, index) => {
+        const task = ask.tasks[index]!;
+        next = withCard(
+          next,
+          queueCard(
+            {
+              id: card.id,
+              title: card.title,
+              brief: [card.title, task.why].filter(Boolean).join("\n\n"),
+              // The member's words for what you asked: read as data.
+              from: "scout",
+              maxRounds: current.limits.roundsPerCard,
+            },
+            now,
+          ),
+        );
+      });
+      const who = this.deps.name(current, memberId);
+      if (added.length)
+        next = withFeed(next, {
+          at: now,
+          kind: "start",
+          who: "aven",
+          member: memberId,
+          text: `${who} queued ${added.length === 1 ? "a card" : `${added.length} cards`} from your chat: ${added
+            .map((card) => card.title)
+            .join(" · ")}`,
+        });
+      if (ask.goal) next = withGoal(next, ask.goal, now, memberId, who);
+      return next;
+    });
+    this.schedule();
+  }
+
+  // -------------------------------------------------------------------------
+  // The goal
+
+  /** The goal stops, with why: met, nothing left to plan, or no one to plan. */
+  private stopGoal(crew: Crew, text: string, now: number, met = false) {
+    updateCrew(crew.path, (current) =>
+      current.goal && !current.goal.done
+        ? withFeed(
+            {
+              ...current,
+              goal: { ...current.goal, done: { at: now, text, met } },
+            },
+            {
+              at: now,
+              kind: met ? "ready" : "hold",
+              who: "aven",
+              text: met ? `Goal met: ${text}` : text,
+            },
+          )
+        : current,
+    );
+  }
+
+  /**
+   * A goal turn: the Scout (or a Builder, when the crew has no Scout) reads
+   * the project as the crew's copy holds it and says whether the goal is
+   * met, or plans the next card. It only reads: anything written in the
+   * copy meanwhile is undone.
+   */
+  private async sendGoalTurn(path: string, cards: readonly FeatureCard[]) {
+    const key = projectKey(path);
+    const now = this.deps.now();
+    const before = getCrew(path);
+    const planner = before ? goalPlanner(before) : undefined;
+    if (
+      !before?.goal ||
+      !planner ||
+      this.memberChatAtWork(before, planner.id) ||
+      !claimCrewJob(path, this.deps.owner, now)
+    )
+      return;
+    const turn: LiveTurn = {
+      role: planner.role === "scout" ? "scout" : "builder",
+      memberId: planner.id,
+      goal: {},
+      sessionId: "",
+      turnId: this.newId(),
+      onAt: before.onAt,
+    };
+    this.beginTurn(key, turn);
+    try {
+      const onStack = stackHead(before);
+      const prepared = await this.prepareCopy(path, !onStack);
+      if (!prepared || !this.stillOn(path, turn.onAt))
+        return this.endTurn(path, turn);
+      turn.goal = {
+        ...((onStack ?? prepared.base)
+          ? { base: onStack ?? prepared.base }
+          : {}),
+      };
+      const crew = prepared.crew;
+      const member = crewMemberById(crew, turn.memberId);
+      if (!member || member.paused || !crew.goal || crew.goal.done)
+        return this.endTurn(path, turn);
+      const chat = await this.deps.ensureChat(crew, turn.memberId);
+      if (!chat)
+        throw new Error(
+          `Couldn't open ${this.deps.name(crew, turn.memberId)}'s chat.`,
+        );
+      if (chatAtWork(chat)) {
+        this.waitingOn.add(chat.id);
+        return this.endTurn(path, turn, true);
+      }
+      turn.sessionId = chat.id;
+      this.updateWorking();
+      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      const brief =
+        chat.providerSessionId && !this.deps.freshConversation
+          ? undefined
+          : crewBrief({
+              role: turn.role === "scout" ? "scout" : "builder",
+              name: this.deps.name(crew, turn.memberId),
+              project: crew.path,
+              copyPath: crew.copy?.path ?? "",
+              names: this.names(crew),
+              harness: crewMemberApp(member).harness,
+              maxRounds: crew.limits.roundsPerCard,
+            });
+      const text = goalMessage({
+        goal: crew.goal.text,
+        ...(crew.goal.by ? { goalBy: this.deps.name(crew, crew.goal.by) } : {}),
+        done: goalCardsDone(crew),
+        notes: crew.notes,
+        boardTitles: cards
+          .filter((card) => card.column !== "shipped")
+          .map((card) => card.title),
+        brief,
+        sync: prepared.sync,
+        guidance: {
+          ...(member.instructions ? { instructions: member.instructions } : {}),
+        },
+      });
+      const label = "Goal · what's next";
+      const idle = getCrew(path);
+      if (
+        !this.mayStillSend(path, turn.onAt) ||
+        !idle?.goal ||
+        idle.goal.done ||
+        cardInCopy(idle) ||
+        queuedCards(idle).length
+      )
+        return this.endTurn(path, turn);
+      const sent = this.deps.send(chat.id, text, {
+        displayText: label,
+        botWake: { label },
+        blockId: turn.turnId,
+        onSettled: (outcome) => void this.afterTurn(path, turn, outcome),
+      });
+      if (!sent)
+        throw new Error(
+          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+        );
+      turn.sentAt = this.deps.now();
+      updateCrew(path, (current) =>
+        withMemberId(
+          {
+            ...withCrewRun(current, turn.sentAt!),
+            // The Scout's look for today is this one.
+            ...(turn.role === "scout" ? { scoutAt: turn.sentAt } : {}),
+          },
+          turn.memberId,
+          (entry) => ({
+            ...entry,
+            sessionId: chat.id,
+            doing: {
+              at: turn.sentAt!,
+              text: "Planning the next card for the goal",
+            },
+          }),
+        ),
+      );
+      this.armTimeout(path, turn, crew.limits.turnMinutes);
+    } catch (error) {
+      logError("Crew goal", error);
+      const current = getCrew(path);
+      if (current)
+        this.stopGoal(
+          current,
+          `${this.deps.name(current, turn.memberId)} couldn't plan the next card: ${errorText(error)}`,
+          this.deps.now(),
+        );
+      this.endTurn(path, turn);
+    }
+  }
+
+  /**
+   * A goal turn ended: the goal is met, or its next card is queued (and
+   * starts within the crew's limits), or the crew found nothing left to
+   * plan and stops to ask. A turn that failed or ran too long stops it too.
+   */
+  private async afterGoal(
+    path: string,
+    turn: LiveTurn,
+    outcome?: ControlOutcome,
+  ) {
+    const crew = getCrew(path);
+    if (!crew?.on || !this.stillOn(path, turn.onAt) || !crew.goal) return;
+    const now = this.deps.now();
+    const who = this.deps.name(crew, turn.memberId);
+    // Planning only reads: whatever was written in the copy meanwhile goes.
+    const base = turn.goal?.base;
+    if (base && crew.copy) {
+      const diff = await this.deps.copy
+        .diff(crew.copy.path, base)
+        .catch(() => null);
+      if (diff?.files.length) {
+        await this.deps.copy
+          .discard(crew.copy.path, base, crew.copy.branch)
+          .catch((error) => logError("Crew goal undo", error));
+        updateCrew(path, (current) =>
+          withFeed(current, {
+            at: now,
+            kind: "hold",
+            who: "aven",
+            text: `Aven undid what ${who} changed in the crew's copy while planning: planning only reads.`,
+          }),
+        );
+      }
+    }
+    if (crew.goal.done) return;
+    if (
+      outcome?.status === "failed" ||
+      outcome?.status === "cancelled" ||
+      turn.stopping ||
+      turn.timedOut
+    )
+      return this.stopGoal(
+        crew,
+        turn.timedOut
+          ? `${who}'s planning ran past ${crew.limits.turnMinutes} minutes, so the crew stopped. Keep going to try again.`
+          : `${who}'s planning didn't finish${outcome?.error ? `: ${outcome.error}` : ""}. Keep going to try again.`,
+        now,
+      );
+    const reply =
+      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+      outcome?.text?.trim() ||
+      "";
+    const answer = parseGoal(reply);
+    if (!answer)
+      return this.stopGoal(
+        crew,
+        `${who}'s planning ended without an answer, so the crew stopped. Keep going to try again.`,
+        now,
+      );
+    if (answer.met)
+      return this.stopGoal(crew, answer.summary || crew.goal.text, now, true);
+    if (!answer.next.length)
+      return this.stopGoal(
+        crew,
+        `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. The crew stops here.`,
+        now,
+      );
+    const drafts = answer.next.map((task) => ({
+      title: task.title,
+      ...(task.why ? { note: task.why } : {}),
+      column: "building" as const,
+    }));
+    const added = await this.deps.board.add(path, drafts);
+    updateCrew(path, (current) => {
+      let next = withMemberId(current, turn.memberId, (member) =>
+        member.doing ? { ...member, doing: undefined } : member,
+      );
+      added.forEach((card, index) => {
+        const task = answer.next[index]!;
+        next = withCard(next, {
+          ...queueCard(
+            {
+              id: card.id,
+              title: card.title,
+              brief: [card.title, task.why].filter(Boolean).join("\n\n"),
+              // A bot's words: the Builder reads them as data.
+              from: "scout",
+              maxRounds: current.limits.roundsPerCard,
+            },
+            now,
+          ),
+          goal: true,
+        });
+      });
+      return withFeed(next, {
+        at: now,
+        kind: "idea",
+        who: turn.role === "scout" ? "scout" : "builder",
+        member: turn.memberId,
+        text: `${who} planned the next card for the goal: ${added
+          .map((card) => card.title)
+          .join(" · ")}`,
+      });
+    });
+    this.schedule();
+  }
+
   /**
    * The Scout's ideas land in Ideas, at most the day's ideas left. A sweep's
    * security cards land there too, a few at most, marked so that none ever
@@ -1805,6 +2207,7 @@ export class CrewRunner {
    */
   observe(sessions: readonly Session[]) {
     if (!this.running) return;
+    this.takeAsks(sessions);
     for (const id of [...this.waitingOn]) {
       const chat = sessions.find((session) => session.id === id);
       if (chat && chatAtWork(chat)) continue;

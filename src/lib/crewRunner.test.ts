@@ -10,6 +10,7 @@ import {
   cardInCopy,
   crewCard,
   crewMember,
+  queuedCards,
   stackedCards,
   crewMemberApp,
   crewMemberName,
@@ -1646,6 +1647,262 @@ describe("the Scout's look", () => {
     expect(last).toMatchObject({ kind: "hold", who: "aven", member: "scout" });
     expect(last?.text).toContain("Fox couldn't look for ideas:");
     expect(last?.text).toContain("disk full");
+    h.runner.stop();
+  });
+});
+
+describe("a goal: the crew keeps going", () => {
+  const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
+  const builds = (
+    _text: string,
+    nth: number,
+  ): { text: string; copy: { hash: string; files: string[] } } => ({
+    text: handoff(`Built ${nth}`),
+    copy: { hash: `h${nth}`, files: [`src/part${nth}.ts`] },
+  });
+
+  it("plans, builds and stacks card after card until the goal is met", async () => {
+    const plans = [
+      {
+        met: false,
+        summary: "No timer yet.",
+        next: [{ title: "Timer screen", why: "The core" }],
+      },
+      {
+        met: false,
+        summary: "Timer works.",
+        next: [{ title: "Pause and resume" }],
+      },
+      { met: true, summary: "The timer app is complete." },
+    ];
+    const h = harness({
+      scout: (_text, nth) => goalReply(plans[nth - 1]!),
+      builder: builds,
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(30 * MINUTE);
+    expect(h.sent.map((item) => item.role)).toEqual([
+      "scout",
+      "builder",
+      "checker",
+      "scout",
+      "builder",
+      "checker",
+      "scout",
+    ]);
+    // Each goal turn reads where things stand, and what was built so far.
+    expect(h.sent[0].text).toContain("Build the whole Pom app");
+    expect(h.sent[3].text).toContain("- Timer screen");
+    const crew = getCrew(PATH)!;
+    expect(stackedCards(crew).map((item) => item.title)).toEqual([
+      "Timer screen",
+      "Pause and resume",
+    ]);
+    expect(stackedCards(crew).every((item) => item.goal)).toBe(true);
+    expect(crew.goal?.done).toMatchObject({
+      met: true,
+      text: "The timer app is complete.",
+    });
+    expect(crew.feed.at(-1)?.text).toBe("Goal met: The timer app is complete.");
+    // Nothing more runs once it's met.
+    await h.advance(60 * MINUTE);
+    expect(h.sent).toHaveLength(7);
+    h.runner.stop();
+  });
+
+  it("stops and says so when planning finds nothing left", async () => {
+    const h = harness({
+      scout: () =>
+        goalReply({
+          met: false,
+          summary: "Needs a design decision.",
+          next: [],
+        }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
+    expect(crew.goal?.done).toMatchObject({ met: false });
+    expect(crew.goal?.done?.text).toBe(
+      "Nothing left to plan for the goal: Needs a design decision. The crew stops here.",
+    );
+    h.runner.stop();
+  });
+
+  it("stops to ask when a card is Stuck, and plans nothing more", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+      builder: () => ({
+        text: handoff("Half", { question: "Which sound at zero?" }),
+        copy: { hash: "h1", files: ["src/timer.ts"] },
+      }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(60 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(
+      crew.cards.find((item) => item.title === "Timer screen")?.stage,
+    ).toBe("stuck");
+    expect(h.sent.filter((item) => item.role === "scout")).toHaveLength(1);
+    expect(crew.goal?.done).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("holds within the crew's limits", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+    });
+    onCrew({
+      goal: { text: "Build the whole Pom app", at: NOON },
+      runs: { day: localDay(NOON), count: 20 },
+    });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent).toEqual([]);
+    expect(getCrew(PATH)!.hold?.reason).toBe("daily-cap");
+    h.runner.stop();
+  });
+
+  it("plans with the Builder when there's no Scout, and undoes anything it wrote", async () => {
+    const h = harness({
+      builder: (text) =>
+        text.includes("aven-goal")
+          ? {
+              text: fence("aven-goal", { met: true, summary: "Done already." }),
+              copy: { hash: "oops", files: ["stray.ts"] },
+            }
+          : { text: handoff("x") },
+    });
+    onCrew({
+      members: NO_SCOUT,
+      goal: { text: "Build the whole Pom app", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(5 * MINUTE);
+    expect(h.sent.map((item) => item.role)).toEqual(["builder"]);
+    expect(h.copy.discard).toHaveBeenCalledWith(COPY, BASE, expect.any(String));
+    const crew = getCrew(PATH)!;
+    expect(crew.goal?.done?.met).toBe(true);
+    expect(crew.feed.map((entry) => entry.text)).toContain(
+      "Aven undid what Beetle changed in the crew's copy while planning: planning only reads.",
+    );
+    h.runner.stop();
+  });
+
+  it("stops when a planning turn fails, until you ask it to keep going", async () => {
+    const h = harness({
+      scout: () => ({ text: "", status: "failed", error: "boom" }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent).toHaveLength(1);
+    expect(getCrew(PATH)!.goal?.done?.text).toBe(
+      "Fox's planning didn't finish: boom. Keep going to try again.",
+    );
+    h.runner.stop();
+  });
+});
+
+describe("asking a member for work in its own chat", () => {
+  const chat = (blocks: Session["blocks"]): Session =>
+    ({
+      id: "scout-chat",
+      harness: "claude",
+      model: "claude:test",
+      modelSettings: {},
+      runtimeMode: "auto",
+      title: "Fox",
+      cwd: PATH,
+      worktreeCwd: COPY,
+      blocks,
+    }) as Session;
+  const asked = (wake?: boolean) =>
+    chat([
+      {
+        id: "u1",
+        role: "user",
+        text: "You can keep going, we want to build this entire app with no bugs",
+        ...(wake ? { botWake: { label: "Scout" } } : {}),
+      } as Session["blocks"][number],
+      {
+        id: "a1",
+        role: "assistant",
+        text: `I'll queue the first two cards and keep going on the app.\n\n${fence(
+          "aven-tasks",
+          {
+            tasks: [
+              { title: "Timer screen", why: "The core of Pom" },
+              { title: "Pause and resume" },
+            ],
+            goal: "Build the whole Pom app",
+          },
+        )}`,
+      } as Session["blocks"][number],
+    ]);
+
+  it("queues the cards and sets the goal, once", async () => {
+    const h = harness({});
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout", sessionId: "scout-chat" },
+      ],
+      paused: true,
+    });
+    h.runner.start();
+    await h.advance(0);
+    h.runner.observe([asked()]);
+    await h.advance(0);
+    h.runner.observe([asked()]);
+    await h.advance(0);
+    const crew = getCrew(PATH)!;
+    expect(queuedCards(crew).map((item) => item.title)).toEqual([
+      "Timer screen",
+      "Pause and resume",
+    ]);
+    expect(queuedCards(crew)[0].from).toBe("scout");
+    expect(crew.goal).toMatchObject({
+      text: "Build the whole Pom app",
+      by: "scout",
+    });
+    expect(crew.asks).toEqual(["a1"]);
+    expect(crew.feed.map((entry) => entry.text)).toEqual(
+      expect.arrayContaining([
+        "Fox queued 2 cards from your chat: Timer screen · Pause and resume",
+        "Fox set the crew's goal: Build the whole Pom app",
+      ]),
+    );
+    expect(
+      [...h.board.values()].map((item) => [item.title, item.column]),
+    ).toEqual([
+      ["Timer screen", "building"],
+      ["Pause and resume", "building"],
+    ]);
+    h.runner.stop();
+  });
+
+  it("never queues from a turn Aven sent", async () => {
+    const h = harness({});
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout", sessionId: "scout-chat" },
+      ],
+      paused: true,
+    });
+    h.runner.start();
+    h.runner.observe([asked(true)]);
+    await h.advance(0);
+    expect(getCrew(PATH)!.cards).toEqual([]);
+    expect(getCrew(PATH)!.goal).toBeUndefined();
     h.runner.stop();
   });
 });

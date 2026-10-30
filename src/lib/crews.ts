@@ -547,6 +547,8 @@ export type Crew = {
 export type CrewGoal = {
   text: string;
   at: number;
+  /** The member that took it down from your words in its chat, if one did. */
+  by?: string;
   done?: { at: number; text: string; met: boolean };
 };
 
@@ -638,9 +640,11 @@ function readGoal(value: unknown): CrewGoal | undefined {
   const goal = text(raw?.text, CREW_GOAL_MAX);
   if (!raw || !goal) return undefined;
   const done = raw.done as CrewGoal["done"] | undefined;
+  const by = text(raw.by, 60);
   return {
     text: goal,
     at: finite(raw.at, 0, 8.64e15, 0),
+    ...(by ? { by } : {}),
     ...(done && typeof done.at === "number" && typeof done.text === "string"
       ? {
           done: {
@@ -2193,6 +2197,60 @@ export function stackedCards(crew: Pick<Crew, "cards" | "stack">): CrewCard[] {
   )
     out.push(next);
   return out;
+}
+
+/**
+ * The crew's goal set (and said in the feed): yours, or one a member took
+ * down from your words in its chat (`by`).
+ */
+export function withGoal(
+  crew: Crew,
+  text: string,
+  now: number,
+  by?: string,
+  /** That member's name as the crew shows it. */
+  byName?: string,
+): Crew {
+  const goal = text.replace(/\s+/g, " ").trim().slice(0, CREW_GOAL_MAX);
+  if (!goal) return crew;
+  return withFeed(
+    { ...crew, goal: { text: goal, at: now, ...(by ? { by } : {}) } },
+    {
+      at: now,
+      kind: "note",
+      who: by ? "aven" : "you",
+      ...(by ? { member: by } : {}),
+      text: by
+        ? `${byName ?? crewMemberName(crew, by)} set the crew's goal: ${goal}`
+        : `You set the crew's goal: ${goal}`,
+    },
+  );
+}
+
+/** Who plans the crew's goal: its Scout while on, else its default Builder. */
+export function goalPlanner(crew: Crew): CrewMember | undefined {
+  const scout = crew.members.find(
+    (member) => member.role === "scout" && memberOn(member),
+  );
+  return scout ?? defaultBuilder(crew);
+}
+
+/** Said when the crew has no one on who could plan its goal. */
+export const NO_PLANNER =
+  "The goal waits: turn on a Scout or a Builder to plan its cards.";
+
+/** Titles of the cards built towards the goal since it was set: passed, or applied. */
+export function goalCardsDone(crew: Crew): string[] {
+  const since = crew.goal?.at ?? 0;
+  return crew.cards
+    .filter(
+      (card) =>
+        (card.stage === "applied" ||
+          (card.stage === "ready" && card.stacked)) &&
+        (card.endedAt ?? card.updatedAt) >= since,
+    )
+    .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0))
+    .map((card) => card.title);
 }
 
 /** The commit the next card builds on: the stack's top, if anything is stacked. */

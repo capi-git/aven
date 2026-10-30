@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowMoreRunsToday,
   applyCrewCard,
+  clearCrewGoal,
   crewNudge,
   crewTaskTitle,
   deleteBoardCard,
@@ -13,6 +14,7 @@ import {
   pickCrewModels,
   resumeCrewCard,
   setCrewPaused,
+  setCrewGoal,
   setCrewQuietHours,
   stopCrewCard,
   takeCrewTell,
@@ -785,5 +787,33 @@ describe("Tell the crew… gives it work", () => {
       "You resumed the crew",
       "Tell the crew what to build, or add an idea.",
     ]);
+  });
+});
+
+describe("a goal from Tell the crew…", () => {
+  it("sets, keeps going after a stop, and clears", () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    setCrewGoal(PATH, "  Build the whole   Pom app ", NOON);
+    expect(getCrew(PATH)!.goal).toEqual({
+      text: "Build the whole Pom app",
+      at: NOON,
+    });
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "You set the crew's goal: Build the whole Pom app",
+    );
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      goal: {
+        ...crew.goal!,
+        done: { at: NOON, text: "Nothing left", met: false },
+      },
+    }));
+    // "keep going" picks a stopped goal up again.
+    return tellCrewWork(PATH, "keep going", NOON + 1).then((why) => {
+      expect(why).toBeNull();
+      expect(getCrew(PATH)!.goal?.done).toBeUndefined();
+      clearCrewGoal(PATH, NOON + 2);
+      expect(getCrew(PATH)!.goal).toBeUndefined();
+    });
   });
 });

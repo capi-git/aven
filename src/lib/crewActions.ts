@@ -36,6 +36,7 @@ import {
   memberCritter,
   newMemberId,
   withMemberId,
+  withGoal,
   withNote,
   withoutCard,
   withoutMember,
@@ -265,6 +266,59 @@ export function tellCrew(path: string, text: string, now = Date.now()) {
   updateCrew(path, (crew) => withNote(crew, text, now));
 }
 
+/**
+ * Give the crew a goal: it plans its own cards towards it and builds them
+ * one after another, within its limits, until the goal is met or it stops
+ * to ask (a card is Stuck, or it can't plan more). `by` is the member that
+ * took it down from your words in its chat.
+ */
+export function setCrewGoal(
+  path: string,
+  text: string,
+  now = Date.now(),
+  by?: string,
+) {
+  updateCrew(path, (crew) => withGoal(crew, text, now, by));
+}
+
+/** No goal any more: the crew builds only what it's given. */
+export function clearCrewGoal(path: string, now = Date.now()) {
+  updateCrew(path, (crew) => {
+    if (!crew.goal) return crew;
+    const next = { ...crew };
+    delete next.goal;
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      text: "You cleared the crew's goal",
+    });
+  });
+}
+
+/** Keep going: a goal the crew stopped at is worked on again. */
+export function resumeCrewGoal(path: string, now = Date.now()) {
+  updateCrew(path, (crew) => {
+    if (!crew.goal?.done) return crew;
+    return withFeed(
+      {
+        ...crew,
+        goal: {
+          text: crew.goal.text,
+          at: crew.goal.at,
+          ...(crew.goal.by ? { by: crew.goal.by } : {}),
+        },
+      },
+      {
+        at: now,
+        kind: "note",
+        who: "you",
+        text: `You asked the crew to keep going: ${crew.goal.text}`,
+      },
+    );
+  });
+}
+
 /** What the crew says to a nudge when it has nothing to start. */
 export const CREW_NOTHING_TO_BUILD =
   "Tell the crew what to build, or add an idea.";
@@ -383,6 +437,11 @@ function nudgeCrew(path: string, words: string, now: number) {
     return;
   }
   const next = card ?? queuedCards(crew)[0];
+  // A goal it stopped at: it keeps going.
+  if (!next && crew.goal?.done && !crew.goal.done.met) {
+    resumeCrewGoal(path, now);
+    return;
+  }
   // Resumed with work waiting: that says enough.
   if (acted && next) return;
   const reply = !next
