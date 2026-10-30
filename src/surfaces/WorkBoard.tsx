@@ -61,7 +61,6 @@ import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
 import { findModel } from "../lib/models";
 import { CrewGiveChooser } from "./CrewGiveChooser";
-import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
   crewDeleteNote,
@@ -186,9 +185,8 @@ export function WorkBoard({
   // where they stand, and Ideas offer Give to crew.
   const crew = useCrew(project);
   const bot = useProjectBot(project);
-  const appearance = useProjectAppearance(project);
   const crewOn = !!crew?.on && botsAvailable();
-  const fixerName = bot ? botName(bot, appearance?.mascot) : undefined;
+  const fixerName = bot ? botName(bot) : undefined;
   const columns = useMemo(
     () =>
       crewOn && crew

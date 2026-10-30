@@ -358,7 +358,7 @@ describe("the crew view: the Board with the crew on it", () => {
     ).toBe(`Choose who builds “${boards[0].title}”`);
     const scouted = card(boards[1].id);
     expect(scouted.querySelector(".crew-card-line")?.textContent).toBe(
-      "From Fox · small",
+      "From Scout · small",
     );
     expect(
       [

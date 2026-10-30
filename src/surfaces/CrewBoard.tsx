@@ -51,6 +51,7 @@ import {
   crewMembers,
   memberCritter,
   crewCard,
+  securityReviewBy,
   updateCrew,
   useCrewsAllRunsPerDay,
   withoutNote,
@@ -988,7 +989,7 @@ export function CrewReadySheet({
       title={card.title}
       description={[
         secured
-          ? `Passed ${names.checker}'s check and ${security}'s security review in round ${card.round}`
+          ? `Passed ${names.checker}'s check and ${securityReviewBy(security)} in round ${card.round}`
           : `Passed ${names.checker}'s check in round ${card.round}`,
         minutes ? `${minutes} min` : "",
         plural(card.runs, "run"),

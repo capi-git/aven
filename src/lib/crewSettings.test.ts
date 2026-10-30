@@ -78,7 +78,7 @@ function crewWith(patch: Partial<Crew> = {}): Crew {
 const MOLE = {
   id: "builder-2",
   role: "builder" as const,
-  name: "Mole",
+  name: "Juno",
 };
 
 describe("routing a card to a Builder", () => {
@@ -353,7 +353,7 @@ describe("changing a member", () => {
       /mark/,
     );
     updateCrewMember(PATH, "builder", {
-      name: "  Mole  ",
+      name: "  Juno  ",
       critter: "hedgehog",
       instructions: "x".repeat(5_000),
       scope: `./src/ui/\n${PATH}/src/styles/*.css, src/ui`,
@@ -363,7 +363,7 @@ describe("changing a member", () => {
     updateCrewMember(PATH, "scout", { schedule: "weekly" });
     const crew = getCrew(PATH)!;
     expect(crewMemberById(crew, "builder")).toMatchObject({
-      name: "Mole",
+      name: "Juno",
       critter: "hedgehog",
       scope: ["src/ui", "src/styles/*.css"],
       paused: true,
@@ -477,7 +477,7 @@ describe("a card's own Builder, Checker, model, effort and rounds", () => {
       maxRounds: 2,
     });
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "You gave the crew “Hero” for Mole",
+      "You gave the crew “Hero” for Juno",
     );
     await giveCardToCrew(PATH, { id: "c2", title: "Plain" }, NOW);
     const plain = crewCard(getCrew(PATH)!, "c2")!;

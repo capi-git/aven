@@ -15,7 +15,7 @@ import {
   botStatus,
   botWakeDecision,
   claimBotJob,
-  defaultBotName,
+  DEFAULT_BOT_NAME,
   fixForTurn,
   formatClockMinutes,
   getProjectBot,
@@ -102,7 +102,7 @@ describe("project bot settings", () => {
     const bot = readProjectBot({
       path: PATH,
       on: true,
-      name: "  Jelly  ",
+      name: "  Sam  ",
       wakes: { chatFinished: false, github: true },
       can: { fix: false, browser: false },
       limits: { runsPerDay: 9999, pauseAtPercent: 1, quiet: { start: -5 } },
@@ -114,7 +114,7 @@ describe("project bot settings", () => {
       job: { owner: "w", since: 1, heartbeat: 2 },
     })!;
     expect(bot.on).toBe(true);
-    expect(bot.name).toBe("Jelly");
+    expect(bot.name).toBe("Sam");
     expect(bot.wakes).toEqual({ chatFinished: false, devServer: true });
     expect(bot.can).toEqual({ fix: false });
     expect(bot.limits.runsPerDay).toBe(200);
@@ -124,6 +124,21 @@ describe("project bot settings", () => {
     expect(bot.lastSkip).toBeUndefined();
     expect(bot.job).toEqual({ owner: "w", since: 1, heartbeat: 2 });
     expect(readProjectBot({ on: true })).toBeNull();
+  });
+
+  it("reads a critter's name a bot was given by default as the Fixer", () => {
+    const named = (name: string) =>
+      readProjectBot({ path: PATH, scope: "project", name })?.name;
+    // Aven's own defaults, in any case and as older sprites' names.
+    for (const name of ["Jelly", "Puffin", "owl", "JELLYFISH", "Robot", "Mole"])
+      expect(named(name), name).toBeUndefined();
+    // A name you typed stays, even one that starts like a critter's.
+    expect(named("Sam")).toBe("Sam");
+    expect(named("Jelly Bean")).toBe("Jelly Bean");
+    expect(named("Foxy")).toBe("Foxy");
+    expect(
+      botName(readProjectBot({ path: PATH, scope: "project", name: "Jelly" })!),
+    ).toBe("Fixer");
     expect(readProjectBot("nope")).toBeNull();
   });
 
@@ -132,14 +147,14 @@ describe("project bot settings", () => {
     expect(getProjectBot(PATH)).toBeUndefined();
     const heard = vi.fn();
     const stop = subscribeProjectBots(heard);
-    updateProjectBot(PATH, (bot) => ({ ...bot, on: true, name: "Jelly" }));
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true, name: "Sam" }));
     expect(heard).toHaveBeenCalledTimes(1);
     const raw = JSON.parse(localStorage.getItem(PROJECT_BOTS_KEY)!);
     expect(raw.version).toBe(1);
-    expect(raw.bots[PATH]).toMatchObject({ on: true, name: "Jelly" });
+    expect(raw.bots[PATH]).toMatchObject({ on: true, name: "Sam" });
     // Another build's write is read back through the same rules.
     resetProjectBotsCache();
-    expect(getProjectBot(`${PATH}/`)?.name).toBe("Jelly");
+    expect(getProjectBot(`${PATH}/`)?.name).toBe("Sam");
     // No change writes nothing, and a missing bot is never made by a no-op.
     updateProjectBot(PATH, (bot) => bot);
     updateProjectBot("/elsewhere", (bot) => bot);
@@ -212,13 +227,11 @@ describe("project bot settings", () => {
     expect(isBotChat("chat-1")).toBe(false);
   });
 
-  it("names a bot after its critter unless you named it", () => {
-    const fallback = defaultBotName(PATH);
-    expect(fallback).toMatch(/^[A-Z][a-z]+$/);
-    expect(defaultBotName(PATH, "jelly")).toBe("Jelly");
-    expect(defaultBotName(PATH, "fox")).toBe("Fox");
-    expect(botName({ path: PATH }, "owl")).toBe("Owl");
-    expect(botName({ path: PATH, name: "Sam" }, "owl")).toBe("Sam");
+  it("calls a bot the Fixer unless you named it", () => {
+    expect(DEFAULT_BOT_NAME).toBe("Fixer");
+    expect(botName({})).toBe("Fixer");
+    expect(botName({ name: "  " })).toBe("Fixer");
+    expect(botName({ name: "Sam" })).toBe("Sam");
     expect(botBranch("Jelly", PATH)).toMatch(/^aven\/bot\/jelly-[0-9a-f]{4}$/);
     expect(botBranch("  Mr. Bot 2! ", PATH)).toMatch(
       /^aven\/bot\/mr-bot-2-[0-9a-f]{4}$/,

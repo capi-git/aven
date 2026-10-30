@@ -166,7 +166,7 @@ export function SidebarCrewRows({
                     className="personal-other-task personal-task-card personal-bot-row personal-crew-member"
                     data-crew-member={member.id}
                     data-crew-role={member.role}
-                    title={`${member.name} · ${member.roleLabel}\n${member.job ?? CREW_ROLE_INFO[member.role].job}${member.line ? `\n${member.line}` : ""}`}
+                    title={`${[member.name, titleBeside(member.name, member.roleLabel)].filter(Boolean).join(" · ")}\n${member.job ?? CREW_ROLE_INFO[member.role].job}${member.line ? `\n${member.line}` : ""}`}
                     aria-current={
                       member.sessionId && member.sessionId === activeSessionId
                         ? "true"

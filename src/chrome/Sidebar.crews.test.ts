@@ -242,6 +242,47 @@ it("lists a crew per project in Crews, with its critters and one word", async ()
   expect(bot.querySelector(".personal-task-title")?.textContent).toBe("Puffin");
 });
 
+it("says a role once when a member goes by it, and shows a Fixer's project", async () => {
+  const roles: SidebarCrew = {
+    ...crew,
+    members: [
+      { ...crew.members[0], name: "Builder" },
+      { ...crew.members[0], id: "builder-2", name: "Builder 2", active: false },
+      { ...crew.members[1], name: "Checker" },
+      { ...crew.members[3], name: "Fixer" },
+    ],
+  };
+  await act(async () =>
+    root.render(
+      createElement(Sidebar, {
+        ...props,
+        crews: [roles],
+        bots: [{ ...puffin, name: "Fixer" }],
+      }),
+    ),
+  );
+  await act(async () => button("Show aven-site's crew")!.click());
+  const members = [
+    ...section().querySelectorAll<HTMLElement>("[data-crew-member]"),
+  ];
+  expect(
+    members.map((member) => [
+      member.querySelector(".personal-task-title")?.textContent,
+      member.querySelector(".personal-crew-role")?.textContent ?? null,
+      member.title.split("\n")[0],
+    ]),
+  ).toEqual([
+    ["Builder", null, "Builder"],
+    ["Builder 2", null, "Builder 2"],
+    ["Checker", null, "Checker"],
+    ["Fixer", null, "Fixer"],
+  ]);
+  // A bot called by its role keeps its project in view, not only on hover.
+  const bot = section().querySelector<HTMLElement>("[data-bot-row]")!;
+  expect(bot.querySelector(".personal-task-title")?.textContent).toBe("Fixer");
+  expect(bot.hasAttribute("data-role-name")).toBe(true);
+});
+
 it("unfolds into each bot with its role, its word and what it's doing", async () => {
   const onOpenCrewMember = vi.fn();
   await act(async () =>

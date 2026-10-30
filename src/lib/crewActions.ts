@@ -30,7 +30,6 @@ import {
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
   crewMemberById,
-  legacyCritter,
   memberCritter,
   newMemberId,
   withMemberId,
@@ -860,12 +859,6 @@ export function updateCrewMember(
     !isMascotName(change.critter)
   )
     return "That mark isn't one of Aven's.";
-  // A member made before marks is called by its critter; a new mark keeps
-  // the name it had.
-  const keepName =
-    change.critter && change.name === undefined && !member.name
-      ? legacyCritter(member)
-      : undefined;
   const scoped =
     change.scope !== undefined
       ? crewScopeList(change.scope, crew.path)
@@ -884,8 +877,6 @@ export function updateCrewMember(
       if (change.name !== undefined) set("name", cleanText(change.name, 40));
       if (change.critter !== undefined)
         set("critter", change.critter ?? undefined);
-      if (keepName && !legacyCritter(next))
-        set("name", keepName[0]!.toUpperCase() + keepName.slice(1));
       if (change.label !== undefined) set("label", cleanText(change.label, 40));
       if (change.job !== undefined) set("job", cleanText(change.job, 120));
       if (change.harness !== undefined && change.harness !== entry.harness) {

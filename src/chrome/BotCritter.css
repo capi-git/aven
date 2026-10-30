@@ -47,7 +47,8 @@
   transition: opacity 120ms ease;
 }
 .personal-bot-row:hover .personal-bot-project,
-.personal-bot-row:focus-visible .personal-bot-project {
+.personal-bot-row:focus-visible .personal-bot-project,
+.personal-bot-row[data-role-name] .personal-bot-project {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {

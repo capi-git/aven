@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { registerGuardedChats } from "./harness/sessionPermissions";
 import { isEqualOrInside, projectKey } from "./paths";
-import { projectMascot } from "./projectMascots";
+import { isDefaultAgentName } from "./projectMascots";
 import { IS_WIN } from "./platform";
 import { normalizeProjectPath } from "./recents";
 
@@ -298,7 +298,11 @@ export function readProjectBot(value: unknown): ProjectBot | null {
     ...(typeof raw.onAt === "number" && Number.isFinite(raw.onAt)
       ? { onAt: raw.onAt }
       : {}),
-    ...(text(raw.name, 40) ? { name: text(raw.name, 40)!.trim() } : {}),
+    // A critter's name ("Jelly") was Aven's default, not yours: it is the
+    // Fixer now.
+    ...(text(raw.name, 40) && !isDefaultAgentName(text(raw.name, 40)!)
+      ? { name: text(raw.name, 40)!.trim() }
+      : {}),
     ...(text(raw.sessionId, 256)
       ? { sessionId: text(raw.sessionId, 256) }
       : {}),
@@ -695,20 +699,12 @@ export function useProjectBotsStore(): Readonly<Record<string, ProjectBot>> {
 // ---------------------------------------------------------------------------
 // Names
 
-function capitalized(word: string): string {
-  return word ? word[0].toUpperCase() + word.slice(1) : word;
-}
+/** A bot with no name of its own goes by its role in its crew: the Fixer. */
+export const DEFAULT_BOT_NAME = "Fixer";
 
-/** The critter's name, capitalised: "Jelly", "Fox". */
-export function defaultBotName(path: string, mascot?: string | null): string {
-  return capitalized(projectMascot(projectKey(path), mascot).name);
-}
-
-export function botName(
-  bot: Pick<ProjectBot, "path" | "name">,
-  mascot?: string | null,
-): string {
-  return bot.name?.trim() || defaultBotName(bot.path, mascot);
+/** The bot's name: the one you gave it, or "Fixer". */
+export function botName(bot: Pick<ProjectBot, "name">): string {
+  return bot.name?.trim() || DEFAULT_BOT_NAME;
 }
 
 /**

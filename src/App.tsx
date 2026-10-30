@@ -8113,7 +8113,7 @@ export default function App({
         // The user's default Claude model, in auto mode with its asks.
         ...newSession("claude", bot.path, undefined, "auto"),
         ...(bot.sessionId ? { id: bot.sessionId } : {}),
-        title: botName(bot, projectAppearance(bot.path).mascot),
+        title: botName(bot),
         worktreeCwd: copy,
       };
       const next = [...sessionsRef.current, session];
@@ -11138,7 +11138,7 @@ export default function App({
       return {
         path: bot.path,
         ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
-        name: botName(bot, appearance.mascot),
+        name: botName(bot),
         project: appearance.label,
         status,
         headline: botHeadline(bot, status, now),
@@ -11416,7 +11416,7 @@ export default function App({
             now,
           )
         : undefined;
-      const fixerName = bot ? botName(bot, appearance.mascot) : undefined;
+      const fixerName = bot ? botName(bot) : undefined;
       const fixerRuns = bot?.on ? runsToday(bot, now) : 0;
       return {
         path: crew.path,
@@ -12965,9 +12965,7 @@ export default function App({
                 path={crewSheet}
                 fixerName={(() => {
                   const bot = getProjectBot(crewSheet);
-                  return bot?.on
-                    ? botName(bot, projectAppearance(crewSheet).mascot)
-                    : undefined;
+                  return bot?.on ? botName(bot) : undefined;
                 })()}
                 onTurnOn={turnOnCrewFor}
                 onAddFixer={(path) => {

@@ -24,7 +24,6 @@ import {
   getProjectBot,
   runsToday,
 } from "../lib/projectBots";
-import { projectAppearance } from "../lib/projectAppearance";
 import type { Session } from "../lib/session";
 import { claudeWeeklyUsed } from "./useProjectBots";
 
@@ -112,11 +111,7 @@ export function useCrews(
       },
       name: (crew, who) => {
         const bot = getProjectBot(crew.path);
-        return crewMemberName(
-          crew,
-          who,
-          bot ? botName(bot, projectAppearance(crew.path).mascot) : undefined,
-        );
+        return crewMemberName(crew, who, bot ? botName(bot) : undefined);
       },
       onWorking: (ids) => hostRef.current.onWorking(ids),
     });
