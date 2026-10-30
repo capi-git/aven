@@ -430,6 +430,147 @@ describe("the crew view: the Board with the crew on it", () => {
     );
   });
 
+  describe("the Feed", () => {
+    /** Scroll metrics for the Feed's scrolling area, which happy-dom doesn't lay out. */
+    const metrics = { scrollHeight: 1_000, clientHeight: 300 };
+    let top = 0;
+    const isFeed = (element: HTMLElement) =>
+      element.dataset?.crewFeedScroll !== undefined;
+    beforeEach(() => {
+      top = 0;
+      metrics.scrollHeight = 1_000;
+      for (const [name, value] of Object.entries({
+        scrollHeight: {
+          get(this: HTMLElement) {
+            return isFeed(this) ? metrics.scrollHeight : 0;
+          },
+        },
+        clientHeight: {
+          get(this: HTMLElement) {
+            return isFeed(this) ? metrics.clientHeight : 0;
+          },
+        },
+        scrollTop: {
+          get(this: HTMLElement) {
+            return isFeed(this) ? top : 0;
+          },
+          set(this: HTMLElement, next: number) {
+            if (isFeed(this))
+              top = Math.max(
+                0,
+                Math.min(next, metrics.scrollHeight - metrics.clientHeight),
+              );
+          },
+        },
+      }))
+        Object.defineProperty(HTMLElement.prototype, name, {
+          configurable: true,
+          ...value,
+        });
+    });
+    afterEach(() => {
+      for (const name of ["scrollHeight", "clientHeight", "scrollTop"])
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>)[
+          name
+        ];
+    });
+    const feed = () =>
+      container.querySelector<HTMLElement>("[data-crew-feed-scroll]")!;
+    const add = async (text: string, grow = 100) => {
+      metrics.scrollHeight += grow;
+      await act(async () => {
+        updateCrew(PROJECT, (crew) =>
+          withFeed(crew, { at: NOW, kind: "note", who: "aven", text }),
+        );
+      });
+    };
+    const scrollTo = async (next: number) =>
+      act(async () => {
+        feed().scrollTop = next;
+        feed().dispatchEvent(new Event("scroll"));
+      });
+
+    it("opens at the newest entry and stays there while you're at the bottom", async () => {
+      await setUp(() => (crew) => crew);
+      expect(feed().scrollTop).toBe(700);
+      await add("A handoff");
+      expect(feed().scrollTop).toBe(800);
+      await add("A verdict");
+      expect(feed().scrollTop).toBe(900);
+      expect(container.querySelector("[data-crew-feed-new]")).toBeNull();
+    });
+
+    it("doesn't jump while you read further up; N new takes you down", async () => {
+      await setUp(() => (crew) => crew);
+      await scrollTo(120);
+      await add("One");
+      await add("Two");
+      expect(feed().scrollTop).toBe(120);
+      const pill = container.querySelector<HTMLButtonElement>(
+        "[data-crew-feed-new]",
+      )!;
+      expect(pill.textContent).toBe("2 new ↓");
+      await act(async () => pill.click());
+      expect(feed().scrollTop).toBe(
+        metrics.scrollHeight - metrics.clientHeight,
+      );
+      expect(container.querySelector("[data-crew-feed-new]")).toBeNull();
+      // Reading again, then back to the bottom by hand: the pill goes.
+      await scrollTo(0);
+      await add("Three");
+      expect(container.querySelector("[data-crew-feed-new]")).not.toBeNull();
+      await scrollTo(metrics.scrollHeight);
+      expect(container.querySelector("[data-crew-feed-new]")).toBeNull();
+    });
+
+    it("folds a long entry to a few lines with Show more", async () => {
+      await setUp(() => (crew) => crew);
+      const long = `Owl's turn didn't finish: ${"Codex couldn't be locked down here. ".repeat(12)}`;
+      await add(long);
+      const entry = [
+        ...container.querySelectorAll<HTMLElement>(".crew-feed-entry"),
+      ].at(-1)!;
+      const text = entry.querySelector<HTMLElement>(".crew-feed-words")!;
+      expect(text.hasAttribute("data-folded")).toBe(true);
+      const more = button(entry, "Show more")!;
+      await act(async () => more.click());
+      expect(text.hasAttribute("data-folded")).toBe(false);
+      expect(button(entry, "Show less")).toBeTruthy();
+      // A short one never folds.
+      await add("Short");
+      const short = [
+        ...container.querySelectorAll<HTMLElement>(".crew-feed-entry"),
+      ].at(-1)!;
+      expect(short.querySelector("[data-folded]")).toBeNull();
+      expect(button(short, "Show more")).toBeUndefined();
+    });
+
+    it("keeps its history: Show earlier brings older entries back", async () => {
+      await setUp(() => (crew) => {
+        let next = crew;
+        for (let n = 1; n <= 55; n += 1)
+          next = withFeed(next, {
+            at: NOW - (60 - n) * 60_000,
+            kind: "note",
+            who: "aven",
+            text: `Entry ${n}`,
+          });
+        return next;
+      });
+      const shown = () => container.querySelectorAll(".crew-feed-entry").length;
+      expect(shown()).toBe(40);
+      expect(feed().textContent).toContain("Entry 55");
+      expect(feed().textContent).not.toContain("Entry 5\n");
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>("[data-crew-feed-earlier]")!
+          .click(),
+      );
+      expect(shown()).toBeGreaterThanOrEqual(55);
+      expect(container.querySelector("[data-crew-feed-earlier]")).toBeNull();
+    });
+  });
+
   it("Apply on a Ready card applies it; Review opens what changed and what was checked", async () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[3], "ready")),

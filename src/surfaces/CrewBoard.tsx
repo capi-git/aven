@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   CrewCritter,
   CrewCritters,
@@ -49,6 +57,14 @@ import { errorText, logError } from "../lib/errors";
 import { addFeatureIdea } from "../lib/featureCards";
 import { botCopyHost } from "../lib/projectBotCopy";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
+import {
+  FEED_FOLLOW_START,
+  feedEntryFolds,
+  feedGrew,
+  feedScrolled,
+  unseenLabel,
+  type FeedFollow,
+} from "../lib/feedFollow";
 import { plural } from "../lib/words";
 import { homeElapsed } from "../lib/workspaceHome";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
@@ -432,6 +448,9 @@ function FeedMark({
 
 const QUOTED = new Set(["handoff", "verdict", "note", "stuck"]);
 
+/** Entries the Feed shows at first, and adds with each Show earlier. */
+const FEED_SHOWN = 40;
+
 /** The critter a line's member was drawn as, when you chose one. */
 function feedCritter(crew: Crew, entry: CrewFeedEntry): { critter?: string } {
   const member = entry.member ? crewMemberById(crew, entry.member) : undefined;
@@ -458,10 +477,55 @@ export function CrewFeed({
   name: (who: string) => string;
 }) {
   const [text, setText] = useState("");
-  const entries = crew.feed.slice(-40);
+  // The newest entries, and more on Show earlier: the store keeps the rest.
+  const [shown, setShown] = useState(FEED_SHOWN);
+  const [follow, setFollow] = useState<FeedFollow>(FEED_FOLLOW_START);
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const scroller = useRef<HTMLDivElement>(null);
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const newest = crew.feed.at(-1)?.id;
+  const seenNewest = useRef(newest);
+  const keepFromBottom = useRef<number | null>(null);
+  const entries = crew.feed.slice(-shown);
   const standing = new Set(crew.notes.map((note) => note.text));
   const today = new Date().toDateString();
   let lastDay = "";
+  const toBottom = () => {
+    const element = scroller.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  };
+  // It opens at the newest entry.
+  useLayoutEffect(() => {
+    toBottom();
+  }, []);
+  // New entries: followed at the bottom, counted while you read further up.
+  useLayoutEffect(() => {
+    if (newest === seenNewest.current) return;
+    const at = seenNewest.current
+      ? crew.feed.findIndex((entry) => entry.id === seenNewest.current)
+      : -1;
+    const added = at >= 0 ? crew.feed.length - 1 - at : 1;
+    seenNewest.current = newest;
+    const step = feedGrew(followRef.current, added);
+    if (step.scrollToBottom) toBottom();
+    else {
+      setFollow(step.state);
+      // Nothing above what you're reading drops off while you read.
+      setShown((count) => count + added);
+    }
+  }, [newest, crew.feed]);
+  // Show earlier keeps what you were reading where it was.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element || keepFromBottom.current === null) return;
+    element.scrollTop = element.scrollHeight - keepFromBottom.current;
+    keepFromBottom.current = null;
+  }, [shown]);
+  const jumpToNewest = () => {
+    toBottom();
+    setFollow(FEED_FOLLOW_START);
+  };
   return (
     <section
       className="work-board-column crew-feed"
@@ -471,50 +535,105 @@ export function CrewFeed({
       <h2 className="work-board-column-title">
         <span>Feed</span>
       </h2>
-      {entries.length ? (
-        <ol className="crew-feed-list">
-          {entries.map((entry) => {
-            const day = new Date(entry.at).toDateString();
-            const divider =
-              day !== lastDay && lastDay !== "" ? (
-                <li className="crew-feed-day" aria-hidden="true">
-                  <span>{day === today ? "Today" : day}</span>
-                </li>
-              ) : null;
-            lastDay = day;
-            const note =
-              entry.kind === "note" &&
-              entry.who === "you" &&
-              standing.has(entry.text)
-                ? crew.notes.find((item) => item.text === entry.text)
-                : undefined;
-            return (
-              <FeedRow
-                key={entry.id}
-                divider={divider}
-                path={crew.path}
-                entry={entry}
-                {...feedCritter(crew, entry)}
-                who={whoName(entry, name)}
-                to={
-                  entry.to ? name(feedTo(crew, entry) ?? entry.to) : undefined
-                }
-                pinned={!!note}
-                onUnpin={
-                  note
-                    ? () =>
-                        updateCrew(crew.path, (current) =>
-                          withoutNote(current, note.id),
-                        )
-                    : undefined
-                }
-              />
+      <div className="crew-feed-scroll-wrap">
+        <div
+          ref={scroller}
+          className="crew-feed-scroll"
+          data-crew-feed-scroll
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            setFollow((current) =>
+              feedScrolled(current, {
+                scrollTop: element.scrollTop,
+                scrollHeight: element.scrollHeight,
+                clientHeight: element.clientHeight,
+              }),
             );
-          })}
-        </ol>
-      ) : (
-        <p className="work-board-empty">Handoffs and verdicts show here.</p>
-      )}
+          }}
+        >
+          {crew.feed.length > shown ? (
+            <button
+              type="button"
+              className="crew-feed-earlier"
+              data-crew-feed-earlier
+              onClick={() => {
+                const element = scroller.current;
+                if (element)
+                  keepFromBottom.current =
+                    element.scrollHeight - element.scrollTop;
+                setShown((count) => count + FEED_SHOWN);
+              }}
+            >
+              Show earlier
+            </button>
+          ) : null}
+          {entries.length ? (
+            <ol className="crew-feed-list">
+              {entries.map((entry) => {
+                const day = new Date(entry.at).toDateString();
+                const divider =
+                  day !== lastDay && lastDay !== "" ? (
+                    <li className="crew-feed-day" aria-hidden="true">
+                      <span>{day === today ? "Today" : day}</span>
+                    </li>
+                  ) : null;
+                lastDay = day;
+                const note =
+                  entry.kind === "note" &&
+                  entry.who === "you" &&
+                  standing.has(entry.text)
+                    ? crew.notes.find((item) => item.text === entry.text)
+                    : undefined;
+                return (
+                  <FeedRow
+                    key={entry.id}
+                    divider={divider}
+                    path={crew.path}
+                    entry={entry}
+                    {...feedCritter(crew, entry)}
+                    who={whoName(entry, name)}
+                    to={
+                      entry.to
+                        ? name(feedTo(crew, entry) ?? entry.to)
+                        : undefined
+                    }
+                    pinned={!!note}
+                    open={open.has(entry.id)}
+                    onToggle={() =>
+                      setOpen((current) => {
+                        const next = new Set(current);
+                        if (next.has(entry.id)) next.delete(entry.id);
+                        else next.add(entry.id);
+                        return next;
+                      })
+                    }
+                    onUnpin={
+                      note
+                        ? () =>
+                            updateCrew(crew.path, (current) =>
+                              withoutNote(current, note.id),
+                            )
+                        : undefined
+                    }
+                  />
+                );
+              })}
+            </ol>
+          ) : (
+            <p className="work-board-empty">Handoffs and verdicts show here.</p>
+          )}
+        </div>
+        {follow.unseen > 0 ? (
+          <button
+            type="button"
+            className="crew-feed-new"
+            data-crew-feed-new
+            onClick={jumpToNewest}
+          >
+            {unseenLabel(follow.unseen)}
+          </button>
+        ) : null}
+      </div>
       <form
         className="crew-tell"
         onSubmit={(event) => {
@@ -522,6 +641,8 @@ export function CrewFeed({
           if (!text.trim()) return;
           tellCrew(crew.path, text);
           setText("");
+          // What you told it is the newest entry: show it.
+          setFollow(FEED_FOLLOW_START);
         }}
       >
         <input
@@ -554,6 +675,8 @@ function FeedRow({
   who,
   to,
   pinned,
+  open,
+  onToggle,
   onUnpin,
 }: {
   divider: React.ReactNode;
@@ -564,8 +687,13 @@ function FeedRow({
   who: string;
   to?: string;
   pinned: boolean;
+  /** A long entry is shown whole (else folded to about four lines). */
+  open: boolean;
+  onToggle: () => void;
   onUnpin?: () => void;
 }) {
+  const folds = entry.kind !== "ready" && feedEntryFolds(entry.text);
+  const folded = folds && !open ? "" : undefined;
   const headline =
     entry.kind === "handoff" || entry.kind === "verdict" ? (
       <>
@@ -607,10 +735,28 @@ function FeedRow({
           {entry.kind === "ready" ? (
             <p className="crew-feed-ready">Ready for you</p>
           ) : quoted ? (
-            <p className="crew-feed-quote">{entry.text}</p>
+            <p className="crew-feed-quote">
+              <span className="crew-feed-words" data-folded={folded}>
+                {entry.text}
+              </span>
+            </p>
           ) : (
-            <p className="crew-feed-text">{entry.text}</p>
+            <p className="crew-feed-text">
+              <span className="crew-feed-words" data-folded={folded}>
+                {entry.text}
+              </span>
+            </p>
           )}
+          {folds ? (
+            <button
+              type="button"
+              className="crew-feed-more"
+              aria-expanded={open}
+              onClick={onToggle}
+            >
+              {open ? "Show less" : "Show more"}
+            </button>
+          ) : null}
           {onUnpin ? (
             <button type="button" className="crew-feed-unpin" onClick={onUnpin}>
               Stop telling the crew this
@@ -718,6 +864,7 @@ export function CrewReadySheet({
 }) {
   const card = crewCard(crew, cardId);
   const appearance = useProjectAppearance(crew.path);
+  const workspace = useCrewWorkspace();
   const [reviewing, setReviewing] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -990,12 +1137,19 @@ export function CrewReadySheet({
           gap={4}
           ariaLabel="More for this card"
           items={[
+            { kind: "item", id: "take-over", label: "Take over in a chat" },
             { kind: "item", id: "ideas", label: "Back to Ideas" },
             { kind: "item", id: "throw", label: "Throw away", danger: true },
           ]}
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);
+            if (id === "take-over") {
+              // Its Builder's chat, in the crew's copy, where you can finish it yourself.
+              workspace?.openChat(crew.path, card.builderId ?? "builder");
+              onClose();
+              return;
+            }
             void discardCrewCard(
               crew.path,
               card.id,

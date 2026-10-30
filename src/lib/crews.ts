@@ -534,7 +534,8 @@ type Store = {
   others: Record<string, unknown>;
 };
 
-const FEED_KEPT = 80;
+/** Feed entries kept: the Feed shows the newest, and older ones on Show earlier. */
+const FEED_KEPT = 200;
 const NOTES_KEPT = 20;
 const DONE_CARDS_KEPT = 20;
 const IDEAS_KEPT = 60;

@@ -133,12 +133,17 @@
 
   .work-board[data-crew] .crew-feed {
     grid-column: 1 / -1;
-    min-height: 0;
+    height: 420px;
   }
 
-  .work-board[data-crew] .crew-feed-list {
-    max-height: 360px;
-    overflow-y: auto;
+  /* Two rows: the board scrolls, and each column keeps to its own height. */
+  .work-board[data-crew] .work-board-columns {
+    flex: none;
+    align-items: start;
+  }
+
+  .work-board[data-crew] .work-board-column:not(.crew-feed) {
+    max-height: 520px;
   }
 }
 
@@ -212,9 +217,6 @@
 }
 
 /* The Feed. */
-.crew-feed {
-  min-height: 320px;
-}
 
 .crew-feed-list {
   display: flex;
@@ -547,4 +549,82 @@
   justify-content: flex-end;
   gap: 6px;
   margin-top: 2px;
+}
+
+/* The Feed scrolls on its own, sized to its column; Tell the crew stays at
+   the bottom. */
+.crew-feed {
+  min-height: 0;
+}
+
+.crew-feed-scroll-wrap {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+.crew-feed-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.crew-feed .crew-tell {
+  flex: none;
+}
+
+.crew-feed-earlier {
+  display: block;
+  margin: 0 auto 10px;
+  padding: 2px 8px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-feed-earlier:hover {
+  background: var(--aven-fill-quaternary);
+  color: var(--color-content);
+}
+
+/* What arrived while you read further up: one tap back to the newest. */
+.crew-feed-new {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  padding: 3px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-raised);
+  box-shadow: 0 2px 8px #0000002e;
+  color: var(--color-content);
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
+
+.crew-feed-new:hover {
+  background: var(--aven-hover);
+}
+
+/* A long entry folds to about four lines until you ask for the rest. */
+.crew-feed-words[data-folded] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.crew-feed-more {
+  align-self: flex-start;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+}
+
+.crew-feed-more:hover {
+  color: var(--color-content);
 }
