@@ -93,6 +93,10 @@ const WORKSPACE_ACTIONS = new Set([
   "onOpenBot",
   "onBotSettings",
   "onAddBot",
+  "onOpenCrew",
+  "onOpenCrewMember",
+  "onCrewAction",
+  "onAddCrew",
 ]);
 
 /**

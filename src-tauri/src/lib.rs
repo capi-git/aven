@@ -461,6 +461,7 @@ pub fn run() {
             project_bots::bot_copy_prepare,
             project_bots::bot_copy_sync,
             project_bots::bot_copy_diff,
+            project_bots::bot_copy_planted,
             project_bots::bot_copy_file_diff,
             project_bots::bot_copy_apply,
             project_bots::bot_copy_discard,

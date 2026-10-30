@@ -48,6 +48,22 @@ import {
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
+import { CODEX_TOOLS_OPEN, shortList } from "./codexLockdown";
+import {
+  launchRefusal,
+  permissionRulesKey,
+  sessionPermissions,
+} from "./sessionPermissions";
+
+/** A chat that may only read (a crew's Checker), whatever its mode says. */
+function readOnlyChat(sessionId: string): boolean {
+  return sessionPermissions(sessionId)?.readOnly === true;
+}
+
+/** A chat whose commands never leave the sandbox (a crew's Builder), whatever its mode says. */
+function noEscalationChat(sessionId: string): boolean {
+  return sessionPermissions(sessionId)?.noEscalation === true;
+}
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -96,6 +112,10 @@ type Live = {
   memoryPrefix?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
+  /** A chat that runs without MCP servers: any server request is declined. */
+  noMcp: boolean;
+  /** Its tools and rules when it started: a reuse must match (see `toolsKey`). */
+  toolsKey: string;
   /** Last model/effort Codex reported or accepted, to restate turn modes. */
   threadModel?: string;
   threadEffort?: string;
@@ -381,12 +401,185 @@ function projectMemoryFor(
   return memoryByThread.get(input.sessionId);
 }
 
-async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+/** Thrown when a chat that must run with its tools closed still has some open. */
+class ToolsStillOpen extends Error {}
+
+/**
+ * MCP servers and plugins Codex reported for any chat, by name: a chat that
+ * must run without them (a crew's Checker) starts with each switched off.
+ */
+const knownMcpServers = new Set<string>();
+const knownPlugins = new Set<string>();
+
+function enabledEntries(table: unknown): string[] {
+  return Object.entries(asRecord(table) ?? {})
+    .filter(([, value]) => asRecord(value)?.enabled !== false)
+    .map(([name]) => name);
+}
+
+/** The MCP servers a `config/read` response has switched on. Exported for tests. */
+export function enabledMcpServers(response: unknown): string[] {
+  return enabledEntries(asRecord(asRecord(response)?.config)?.mcp_servers);
+}
+
+/** The plugins a `config/read` response has switched on. Exported for tests. */
+export function enabledPlugins(response: unknown): string[] {
+  return enabledEntries(asRecord(asRecord(response)?.config)?.plugins);
+}
+
+/**
+ * Whether Codex's `-c` can name it. Its key parser splits on every dot and
+ * keeps quotes as part of the name, so a name is written bare: `@`, `-` and
+ * the like are fine (`github@openai-curated`), a dot, quote, space or `=`
+ * isn't. Such a name stays on, and a closed chat then can't start (see
+ * `ensureLive`).
+ */
+const codexName = (name: string) => /^[^.=\s"'[\]]+$/.test(name);
+
+/**
+ * `-c mcp_servers.<name>.enabled=false` for each server Codex can name.
+ * Exported for tests.
+ */
+export function codexMcpOffArgs(names: Iterable<string>): string[] {
+  return [...names]
+    .filter(codexName)
+    .flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]);
+}
+
+/**
+ * Features that hand an agent tools beyond reading files and running
+ * commands: apps, plugins (all of them, bundled ones included), remote
+ * plugins, tool suggestions, and browser and computer use.
+ */
+const TOOL_FEATURES = [
+  "apps",
+  "plugins",
+  "remote_plugin",
+  "tool_suggest",
+  "browser_use",
+  "browser_use_external",
+  "computer_use",
+  "in_app_browser",
+];
+
+/**
+ * Everything that could give a closed chat (a crew's Checker) a tool beyond
+ * reading the copy, switched off: web search, apps and their instructions,
+ * plugins, browser and computer use, and each known MCP server and plugin
+ * by name too. Exported for tests.
+ */
+export function codexClosedToolArgs(
+  servers: Iterable<string>,
+  plugins: Iterable<string>,
+): string[] {
+  return [
+    "-c",
+    'web_search="disabled"',
+    ...TOOL_FEATURES.flatMap((feature) => ["-c", `features.${feature}=false`]),
+    "-c",
+    "include_apps_instructions=false",
+    ...codexMcpOffArgs(servers),
+    ...[...plugins]
+      .filter(codexName)
+      .flatMap((name) => ["-c", `plugins.${name}.enabled=false`]),
+  ];
+}
+
+/**
+ * What a `config/read` response still has open for a chat that must run
+ * with its tools closed: empty when everything is off. With the plugins
+ * feature off, no plugin loads whatever its own entry says. Exported for
+ * tests.
+ */
+export function codexOpenTools(response: unknown): string[] {
+  const config = asRecord(asRecord(response)?.config);
+  const features = asRecord(config?.features);
+  const tools = asRecord(config?.tools);
+  const open: string[] = [];
+  if (config?.web_search !== "disabled" || tools?.web_search === true)
+    open.push("web search");
+  for (const feature of TOOL_FEATURES)
+    if (features && feature in features && features[feature] !== false)
+      open.push(feature);
+  open.push(...enabledMcpServers(response).map((name) => `MCP ${name}`));
+  if (features?.plugins !== false)
+    open.push(...enabledPlugins(response).map((name) => `plugin ${name}`));
+  return open;
+}
+
+/**
+ * The project settings folders a `config/read` response (with its layers)
+ * applies: Codex loads a folder's `.codex` settings, hooks and rules only
+ * for a trusted project, and says so on the layers it leaves out. Exported
+ * for tests.
+ */
+export function enabledProjectLayers(response: unknown): string[] {
+  const layers = asRecord(response)?.layers;
+  if (!Array.isArray(layers)) return [];
+  return layers
+    .map((layer) => asRecord(layer))
+    .filter((layer) => {
+      const name = asRecord(layer?.name);
+      return name?.type === "project" && !layer?.disabledReason;
+    })
+    .map((layer) => {
+      const folder = asRecord(layer?.name)?.dotCodexFolder;
+      return typeof folder === "string" ? folder : "the project";
+    });
+}
+
+/** What a reused process must still match: its closed tools and rules. */
+function toolsKey(sessionId: string): string {
+  const permissions = sessionPermissions(sessionId);
+  return JSON.stringify([
+    permissions?.noMcp === true,
+    permissions?.readOnly === true,
+    permissions?.noEscalation === true,
+    permissionRulesKey(permissions),
+  ]);
+}
+
+async function ensureLive(
+  input: HarnessSessionInput,
+  retried = false,
+): Promise<Live> {
+  // A crew's chat runs only with its rules, in its copy: never unsandboxed,
+  // never in the user's folder (see `launchRefusal`).
+  const refusal = launchRefusal(input.sessionId, input.cwd);
+  if (refusal) throw new Error(refusal);
+  try {
+    return await startLive(input);
+  } catch (error) {
+    if (!(error instanceof ToolsStillOpen)) throw error;
+    // Its servers and plugins are known now: start once more with each off.
+    if (!retried) return ensureLive(input, true);
+    const open = error.message.split(", ").filter(Boolean);
+    // The whole list for the Details pane; a short one for the chat and card.
+    logError(
+      "Codex",
+      new Error(`Tools Codex kept on for a closed chat: ${open.join(", ")}`),
+    );
+    throw new Error(
+      `${CODEX_TOOLS_OPEN}: ${shortList(open)} stayed on, so this chat didn't start.`,
+    );
+  }
+}
+
+async function startLive(input: HarnessSessionInput): Promise<Live> {
+  const noMcp = sessionPermissions(input.sessionId)?.noMcp === true;
+  const key = toolsKey(input.sessionId);
   // Native stop addresses the session ID. Never let it race a replacement
   // process spawned under the same ID.
   await stoppingByThread.get(input.sessionId);
   const existing = liveByThread.get(input.sessionId);
-  if (existing && !existing.retired && existing.cwd === input.cwd) {
+  // Reused only while its tools and rules are still the ones it started
+  // with; otherwise it restarts, as a Claude chat does.
+  if (
+    existing &&
+    !existing.retired &&
+    existing.cwd === input.cwd &&
+    existing.toolsKey === key
+  ) {
     return existing;
   }
   // A new app-server takes a moment before it answers; the chat says so.
@@ -454,7 +647,18 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   );
 
   try {
-    await spawnChild(input.sessionId, path, ["app-server"], input.cwd);
+    // Again, with nothing awaited before the spawn: a bot or crew turned
+    // off (or its rules gone) while this was prepared never starts.
+    const lateRefusal = launchRefusal(input.sessionId, input.cwd);
+    if (lateRefusal) throw new Error(lateRefusal);
+    await spawnChild(
+      input.sessionId,
+      path,
+      noMcp
+        ? [...codexClosedToolArgs(knownMcpServers, knownPlugins), "app-server"]
+        : ["app-server"],
+      input.cwd,
+    );
     await rpc.request("initialize", {
       clientInfo: {
         name: "aven",
@@ -471,7 +675,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     try {
       effectiveConfig = await rpc.request(
         "config/read",
-        { cwd: input.cwd, includeLayers: false },
+        // A closed chat also checks where its settings came from.
+        { cwd: input.cwd, includeLayers: noMcp },
         3000,
       );
     } catch {
@@ -480,6 +685,21 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       );
     }
     assertCodexStorage(effectiveConfig, storage.home);
+    for (const name of enabledMcpServers(effectiveConfig))
+      knownMcpServers.add(name);
+    for (const name of enabledPlugins(effectiveConfig)) knownPlugins.add(name);
+    // A closed chat starts only once Codex itself reports everything off.
+    if (noMcp) {
+      const open = [
+        ...codexOpenTools(effectiveConfig),
+        // Settings from the folder it runs in (a crew's copy, where an
+        // agent could have written them) never apply to a closed chat.
+        ...enabledProjectLayers(effectiveConfig).map(
+          (folder) => `project settings in ${folder}`,
+        ),
+      ];
+      if (open.length) throw new ToolsStillOpen(open.join(", "));
+    }
     // Preserve effective developer instructions without logging or editing them.
     const hostInstructions =
       codexBrowserHostInstructionsFromConfig(effectiveConfig);
@@ -508,6 +728,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             browserHostInstructions,
             runtimeMode: input.runtimeMode,
             controlsAgents: input.controlsAgents,
+            readOnly: readOnlyChat(input.sessionId),
+            noEscalation: noEscalationChat(input.sessionId),
             model,
             serviceTier,
           }),
@@ -526,6 +748,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
               browserHostInstructions,
               runtimeMode: input.runtimeMode,
               controlsAgents: input.controlsAgents,
+              readOnly: readOnlyChat(input.sessionId),
+              noEscalation: noEscalationChat(input.sessionId),
               model,
               serviceTier,
             }),
@@ -557,6 +781,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           browserHostInstructions,
           runtimeMode: input.runtimeMode,
           controlsAgents: input.controlsAgents,
+          readOnly: readOnlyChat(input.sessionId),
+          noEscalation: noEscalationChat(input.sessionId),
           model,
           serviceTier,
         }),
@@ -576,6 +802,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       memoryPrefix: !didResume && !browserHostInstructions ? memory : undefined,
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
+      noMcp,
+      toolsKey: key,
       threadModel: stringField(asRecord(opened), "model"),
       threadEffort: stringField(asRecord(opened), "reasoningEffort"),
       onEvent: input.onEvent,
@@ -646,6 +874,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     threadId: live.threadId,
     runtimeMode: input.runtimeMode,
     controlsAgents: input.controlsAgents,
+    readOnly: readOnlyChat(input.sessionId),
+    noEscalation: noEscalationChat(input.sessionId),
     prompt: text.trim() || undefined,
     attachments,
     model,
@@ -1158,8 +1388,8 @@ async function handleElicitationRequest(
     await respond("decline");
     return;
   }
-  if (live.planning) {
-    // Plan turns never act; a connected server must not act on their behalf.
+  if (live.planning || live.noMcp) {
+    // Plan turns never act, and a crew's chat has no servers to act for it.
     await respond("decline");
     return;
   }

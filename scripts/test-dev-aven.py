@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import socket
 import subprocess
 import sys
@@ -431,6 +432,42 @@ class RealAppCheck(unittest.TestCase):
         subprocess.run([str(stand_in), '--input-format', 'stream-json'],
                        input=json.dumps(quick) + '\n', capture_output=True, text=True, timeout=10)
         self.assertLess(time.monotonic() - started, 0.6)
+
+    def test_stand_in_answers_crew_turns_by_role_with_their_blocks(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        copy = self.root / 'crew-copy'
+        copy.mkdir()
+        settings = json.dumps({'disableAllHooks': True, 'sandbox': {'enabled': True}})
+        args = [str(stand_in), '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio',
+                '--setting-sources=user', '--settings', settings, '--strict-mcp-config']
+
+        def turn(text):
+            request = {'type': 'user', 'uuid': 'turn-crew',
+                       'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]}}
+            chat = subprocess.run(args, cwd=copy, input=json.dumps(request) + '\n',
+                                  capture_output=True, text=True, timeout=10)
+            reply = json.loads(chat.stdout.splitlines()[-1])['result']
+            fenced = re.search(r'```([\w-]+)\n(.*)\n```', reply, re.S)
+            return fenced.group(1), json.loads(fenced.group(2))
+
+        card = "The user's card:\nCrew check\n\nWrite the check file. AVEN_SMOKE_CREW\n\n"
+        fence, handoff = turn(card + 'Round 2 of 3. Build it.\n\nEnd your turn with your `aven-handoff` block.')
+        self.assertEqual(fence, 'aven-handoff')
+        # The Builder wrote its file in its folder, and says how it was started.
+        self.assertEqual((copy / 'aven-crew-check.txt').read_text(), 'round 2\n')
+        self.assertIn('AVEN_SMOKE_CREW_ENV sources=user hooks=off sandbox=on mcp=strict cwd=', handoff['summary'])
+        self.assertTrue(handoff['summary'].endswith(str(copy.resolve())) or
+                        handoff['summary'].endswith(str(copy)), handoff['summary'])
+        fence, first = turn(card + 'Beetle finished round 1 of 3. Its note:')
+        self.assertEqual((fence, first['pass'], len(first['mustFix'])), ('aven-verdict', False, 1))
+        _, again = turn(card + 'Beetle finished round 2 of 3.\nThis is a re-check.')
+        self.assertEqual((again['pass'], again['mustFix']), (True, []))
+        _, security = turn(card + 'Owl passed round 2 of 3 by Beetle.')
+        self.assertTrue(security['pass'])
+        self.assertIn('AVEN_SMOKE_CREW_ENV', security['summary'])
+        logged = [json.loads(line) for line in (stand_in.parent / 'fake-claude.log').read_text().splitlines()]
+        self.assertEqual([entry['crew'] for entry in logged if entry.get('crew')],
+                         ['builder', 'checker', 'checker', 'security'])
 
     def test_stand_in_answers_a_tool_free_keeper_call_with_memory_sections(self):
         stand_in = self.root / 'home/.local/bin/claude'

@@ -31,7 +31,13 @@ export type CodexThreadConfig = {
   approvalsReviewer: "user" | "auto_review";
   sandboxPolicy:
     | { type: "readOnly"; networkAccess?: boolean }
-    | { type: "workspaceWrite"; networkAccess?: boolean }
+    | {
+        type: "workspaceWrite";
+        networkAccess?: boolean;
+        /** Not even the shared temp folders: only the working folder. */
+        excludeSlashTmp?: boolean;
+        excludeTmpdirEnvVar?: boolean;
+      }
     | { type: "dangerFullAccess" };
 };
 
@@ -48,10 +54,43 @@ function withNetwork(
   };
 }
 
+/**
+ * A chat that may only read (a crew's Checker): Codex's read-only sandbox,
+ * no network, and nothing ever escalates, so a command that would write
+ * fails instead of asking.
+ */
+export const CODEX_READ_ONLY_CONFIG: CodexThreadConfig = {
+  approvalPolicy: "never",
+  sandbox: "read-only",
+  approvalsReviewer: "user",
+  sandboxPolicy: { type: "readOnly" },
+};
+
+/**
+ * A chat whose commands must never leave the sandbox (a crew's Builder on
+ * Codex): it writes only in its working folder and the temp folder, with no
+ * network, and approvals are off, so nothing escalates or asks.
+ */
+export const CODEX_NO_ESCALATION_CONFIG: CodexThreadConfig = {
+  approvalPolicy: "never",
+  sandbox: "workspace-write",
+  approvalsReviewer: "user",
+  // Its working folder only: not the temp folders other processes share.
+  sandboxPolicy: {
+    type: "workspaceWrite",
+    excludeSlashTmp: true,
+    excludeTmpdirEnvVar: true,
+  },
+};
+
 export function runtimeModeToCodexConfig(
   mode: RuntimeMode,
   controlsAgents?: boolean,
+  readOnly?: boolean,
+  noEscalation?: boolean,
 ): CodexThreadConfig {
+  if (readOnly) return CODEX_READ_ONLY_CONFIG;
+  if (noEscalation) return CODEX_NO_ESCALATION_CONFIG;
   return withNetwork(baseCodexConfig(mode), controlsAgents);
 }
 
@@ -92,6 +131,10 @@ export function buildThreadStartParams(input: {
   cwd: string;
   runtimeMode: RuntimeMode;
   controlsAgents?: boolean;
+  /** Read-only, whatever the mode (see `CODEX_READ_ONLY_CONFIG`). */
+  readOnly?: boolean;
+  /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
+  noEscalation?: boolean;
   model?: string;
   serviceTier?: string;
   /** Merged host/config instructions; isolated text helpers leave this unset. */
@@ -100,6 +143,8 @@ export function buildThreadStartParams(input: {
   const config = runtimeModeToCodexConfig(
     input.runtimeMode,
     input.controlsAgents,
+    input.readOnly,
+    input.noEscalation,
   );
   return {
     cwd: input.cwd,
@@ -189,6 +234,10 @@ export function buildTurnStartParams(input: {
   threadId: string;
   runtimeMode: RuntimeMode;
   controlsAgents?: boolean;
+  /** Read-only, whatever the mode or intent (see `CODEX_READ_ONLY_CONFIG`). */
+  readOnly?: boolean;
+  /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
+  noEscalation?: boolean;
   prompt?: string;
   attachments?: CodexAttachmentInput[];
   model?: string;
@@ -203,18 +252,22 @@ export function buildTurnStartParams(input: {
     input.runtimeMode,
     input.controlsAgents,
   );
-  const config: CodexThreadConfig =
-    input.intent === "plan"
-      ? withNetwork(
-          {
-            approvalPolicy: "never",
-            sandbox: "read-only",
-            approvalsReviewer: "auto_review",
-            sandboxPolicy: { type: "readOnly" },
-          },
-          input.controlsAgents,
-        )
-      : runtimeConfig;
+  // Read-only, then never escalating, win over a plan turn's own sandbox.
+  const config: CodexThreadConfig = input.readOnly
+    ? CODEX_READ_ONLY_CONFIG
+    : input.noEscalation
+      ? CODEX_NO_ESCALATION_CONFIG
+      : input.intent === "plan"
+        ? withNetwork(
+            {
+              approvalPolicy: "never",
+              sandbox: "read-only",
+              approvalsReviewer: "auto_review",
+              sandboxPolicy: { type: "readOnly" },
+            },
+            input.controlsAgents,
+          )
+        : runtimeConfig;
   const turnInput: Array<Record<string, unknown>> = [];
   if (input.prompt) {
     turnInput.push({ type: "text", text: input.prompt });
