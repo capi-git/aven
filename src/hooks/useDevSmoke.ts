@@ -52,6 +52,7 @@ import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
 import { checkCrew, type SmokeCrew } from "../lib/devSmokeCrew";
+import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
   agentOpensSummary,
@@ -3552,6 +3553,23 @@ export async function runDevSmoke(
           checkLoneTabDrag(config.projectPath, pageUrl, get),
           120_000,
           "moving a page by its header",
+        );
+      },
+    );
+
+  // 0.1.159 squeezed a pane to a sliver when its divider was dragged, or
+  // hid it whole at the edge. With the Mac's own mouse, a page's divider
+  // dragged to the edge folds it to a rail beside the chat, and one click
+  // on the rail opens it at its size again.
+  if (IS_MAC && pageUrl && get().loneTab)
+    await step(
+      "a divider dragged to the edge folds a pane to a rail that opens it again",
+      () => {
+        get().motion?.showWorkspace?.();
+        return withTimeout(
+          checkDividerRail(config.projectPath, pageUrl, get),
+          60_000,
+          "folding a pane to its rail",
         );
       },
     );

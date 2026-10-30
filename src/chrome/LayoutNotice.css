@@ -1,0 +1,74 @@
+/* The notice after a tab moves: the popup material in a short pill under
+   the panes' title rows, near the strip where the move landed and clear of
+   every message box, dropping in a little as it appears. One line of plain
+   words, Undo, and a dismiss cross; grey like the rest of the chrome. */
+.aven-layout-notice {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(680px, calc(100% - 32px));
+  padding: 5px 5px 5px 14px;
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-bubble, 12px);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
+  translate: -50% 0;
+  animation: aven-layout-notice-in var(--aven-motion-base)
+    var(--aven-ease-spring) backwards;
+}
+@keyframes aven-layout-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+.aven-layout-notice-text {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.aven-layout-notice-undo {
+  flex: none;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: var(--aven-radius-xs);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  line-height: 18px;
+}
+.aven-layout-notice-undo:hover {
+  background: var(--aven-control-hover);
+}
+.aven-layout-notice-undo:active {
+  background: var(--aven-control-pressed);
+}
+.aven-layout-notice-dismiss {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--aven-radius-xs);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.aven-layout-notice-dismiss:hover {
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+}
+.aven-layout-notice :is(button):focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}

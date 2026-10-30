@@ -161,16 +161,19 @@ import {
 import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
 import {
   addStripPane,
+  combineStripTabs,
+  detachStripTab,
   entryKey,
   insertStripPane,
   isSpaceKey,
+  joinStripSplit,
+  separateStripSpace,
   spacePanes,
   stepStripEntry,
   stripEntryAt,
   stripEntryFocus,
   stripEntryKeyOf,
   stripEntryShown,
-  stripCombineUndo,
   stripDropKeeps,
   stripItems,
   stripView,
@@ -325,6 +328,7 @@ import {
   type PaletteChat,
   type DevPaletteCommandId,
   type PaletteCommandId,
+  type PaletteTab,
 } from "./lib/commandPalette";
 import {
   availablePaletteAgents,
@@ -333,11 +337,19 @@ import {
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
 import {
+  TabIdentity,
   TitleBar,
+  splitSegmentLabel,
   type StripSplit,
   type Tab as TitleTab,
   type TitleBarProps,
 } from "./chrome/TitleBar";
+import { paneRailContent } from "./chrome/PaneRail";
+import { LayoutNotice, type LayoutNoticeState } from "./chrome/LayoutNotice";
+import { describeStripChange, stripTabLocation } from "./lib/layoutNotice";
+import { BrowserTabIcon } from "./chrome/BrowserTabIcon";
+import { openLeafIds } from "./lib/paneRails";
+import { PANE_MIN_PX, workspaceTabPaneKind } from "./lib/paneFit";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
 import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
@@ -1822,7 +1834,59 @@ export default function App({
     },
     [],
   );
+  /**
+   * A move on the strip about to happen: which tab moves, the strip before
+   * it, and the undo it can be taken back with. The strip that follows is
+   * described in a notice (see `layoutNotice` below).
+   */
+  const pendingMove = useRef<{
+    key: string;
+    moved: string | null;
+    before: WorkspaceStrip;
+    at: number;
+    undo: object | null;
+  } | null>(null);
+  /** Until when strip changes go undescribed (an undo putting things back). */
+  const noticeQuietUntil = useRef(0);
+  // What a move on the strip did, said in a notice with Undo, and where it
+  // landed, lit once on the strip and on the stage.
+  const [layoutNotice, setLayoutNotice] = useState<
+    (Omit<LayoutNoticeState, "canUndo"> & { undo: object | null }) | null
+  >(null);
+  const [stripLanding, setStripLanding] = useState<{
+    entry: string;
+    segment?: string;
+    nonce: number;
+  } | null>(null);
+  const [paneLanding, setPaneLanding] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
+  const noticeSeq = useRef(0);
+
+  const latestLayoutUndo = useCallback(
+    (): object | null =>
+      [...recoveryRef.current.layouts]
+        .reverse()
+        .find((entry) => entry.cwd === workspaceKeyRef.current) ?? null,
+    [],
+  );
+  const noteStripMove = useCallback(
+    (moved: string | null, before: WorkspaceStrip) => {
+      pendingMove.current = {
+        key: workspaceKeyRef.current,
+        moved,
+        before,
+        at: Date.now(),
+        undo: latestLayoutUndo(),
+      };
+    },
+    [latestLayoutUndo],
+  );
   const onUndoLayout = useCallback(() => {
+    // What it puts back needs no notice, and the last one is out of date.
+    noticeQuietUntil.current = Date.now() + 1500;
+    setLayoutNotice(null);
     const current = viewRef.current.view;
     const result = popWorkspaceLayoutUndo(
       recoveryRef.current,
@@ -1899,22 +1963,44 @@ export default function App({
   const onCombineOnStrip = useCallback(
     (target: string, dragged: string) => {
       const views = viewRef.current;
-      const undo = stripCombineUndo(views.strip, target, dragged);
-      if (undo) {
-        const next = pushWorkspaceLayoutUndo(
-          recoveryRef.current,
-          workspaceKeyRef.current,
-          undo.view,
-          undo.entry,
-          undo.strip,
-        );
-        recoveryRef.current = next;
-        setRecovery(next);
-      }
+      const before = views.strip;
+      const joining = isSpaceKey(dragged);
+      const after = joining
+        ? joinStripSplit(before, dragged, target)
+        : combineStripTabs(before, target, dragged);
+      if (after === before) return;
+      // Undo puts the whole strip back as it was, and the notice names
+      // what moved: the tab let go, or the tab a split was let go on.
+      pushStripUndo(before);
+      noteStripMove(joining ? target : dragged, before);
       stripDropKeeps(target, dragged).forEach(onKeepBrowser);
       views.combine(target, dragged);
     },
-    [onKeepBrowser],
+    [onKeepBrowser, pushStripUndo, noteStripMove],
+  );
+  /** A tab pulled out of its split onto the strip, before `before`. */
+  const onDetachFromSplit = useCallback(
+    (id: string, before: string | null) => {
+      const views = viewRef.current;
+      const strip = views.strip;
+      if (detachStripTab(strip, id, before) === strip) return;
+      pushStripUndo(strip);
+      noteStripMove(id, strip);
+      views.detach(id, before);
+    },
+    [pushStripUndo, noteStripMove],
+  );
+  /** A split's tabs stand on the strip as single tabs again. */
+  const onSeparateSplit = useCallback(
+    (key: string) => {
+      const views = viewRef.current;
+      const strip = views.strip;
+      if (separateStripSpace(strip, key) === strip) return;
+      pushStripUndo(strip);
+      noteStripMove(null, strip);
+      views.separate(key);
+    },
+    [pushStripUndo, noteStripMove],
   );
   // A native page in an arrangement change moves as a picture of itself,
   // taken just before the change (browserMotion.ts).
@@ -1925,9 +2011,8 @@ export default function App({
     if (motionReduced()) return null;
     const { view } = viewRef.current;
     const pages = browserIdsRef.current;
-    const live = (view.layout ? leafIds(view.layout) : []).filter((id) =>
-      pages.has(id),
-    );
+    // A page on a rail is not showing: it comes in, as from another entry.
+    const live = openLeafIds(view.layout).filter((id) => pages.has(id));
     const coming = incoming.filter((id) => pages.has(id) && !live.includes(id));
     if (!live.length && !coming.length) return null;
     return holdMotionPages(live, coming);
@@ -1936,20 +2021,24 @@ export default function App({
   const [paneGlide, setPaneGlide] = useState(0);
   const applyIntent = useCallback(
     (intent: WorkspaceIntent) => {
+      const before = viewRef.current;
       // A tab from elsewhere on the strip (a single tab dropped into the
       // space in front, say) joins the view in front for the move.
-      const result = applyWorkspaceIntent(
-        viewRef.current.viewWith(workspaceIntentIds(intent)),
-        intent,
-      );
+      const ids = workspaceIntentIds(intent);
+      const result = applyWorkspaceIntent(before.viewWith(ids), intent);
       // A drop that moved nothing changes nothing, and keeps no preview.
-      if (JSON.stringify(result.view) === JSON.stringify(viewRef.current.view))
-        return;
+      if (JSON.stringify(result.view) === JSON.stringify(before.view)) return;
       result.keep.forEach(onKeepBrowser);
+      const members = new Set(viewMembers(before.view));
+      const arrived = ids.find((id) => !members.has(id));
       changeLayout(() => result.view);
+      // A tab brought in from another entry, or a split put back together
+      // as one pane, is described in a notice with Undo.
+      if (arrived) noteStripMove(arrived, before.strip);
+      else if (intent.type === "unsplit") noteStripMove(null, before.strip);
       if (GLIDING_INTENTS.has(intent.type)) setPaneGlide((glide) => glide + 1);
     },
-    [changeLayout, onKeepBrowser],
+    [changeLayout, onKeepBrowser, noteStripMove],
   );
   const onWorkspaceIntent = useCallback(
     (intent: WorkspaceIntent) => {
@@ -1967,7 +2056,9 @@ export default function App({
     },
     [applyIntent, holdPagesForMotion],
   );
-  const visibleSurfaceIds = view.layout ? leafIds(view.layout) : [];
+  // A pane collapsed to a rail is not on screen: its page is hidden, its
+  // chat unread, and it draws no title row.
+  const visibleSurfaceIds = openLeafIds(view.layout);
   const browserFocused = browserSurfaces.some(
     (tab) => tab.surfaceId === view.focusedId,
   );
@@ -10162,6 +10253,62 @@ export default function App({
       ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
     : [];
   const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
+  // Where each open tab lives, so search can say ("in the split with …,
+  // right pane") and go straight there.
+  const paletteStrip = workspaceViews.strip;
+  const paletteName = (id: string) => {
+    const tab = titleTabs.find((entry) => entry.id === id);
+    if (tab) return splitSegmentLabel({ id, tab });
+    const page = browserSurfaces.find((entry) => entry.surfaceId === id);
+    return page?.title || page?.url || "Browser";
+  };
+  const paletteChatLocations = paletteOpen
+    ? new Map(
+        deckProjectTabs.flatMap((tab) => {
+          const location = stripTabLocation(paletteStrip, tab.id, paletteName);
+          if (!location) return [];
+          const panes = new Set(
+            [...tab.editorPanes, ...(tab.terminalPanes ?? [])].map(
+              (pane) => pane.id,
+            ),
+          );
+          return leafIds(tab.layout)
+            .filter((id) => !panes.has(id))
+            .map((sessionId) => [sessionId, location] as const);
+        }),
+      )
+    : undefined;
+  const paletteTabs: PaletteTab[] = paletteOpen
+    ? [
+        ...browserSurfaces.map((page): PaletteTab => ({
+          id: page.surfaceId,
+          title: page.title || page.url || "Browser",
+          location:
+            stripTabLocation(paletteStrip, page.surfaceId, paletteName) ??
+            "On the strip",
+          kind: "page",
+          favicon: page.favicon,
+        })),
+        ...deckProjectTabs.flatMap((tab): PaletteTab[] => {
+          const kind = workspaceTabPaneKind(tab);
+          if (kind === "chat") return [];
+          const title = titleTabs.find((entry) => entry.id === tab.id);
+          return [
+            {
+              id: tab.id,
+              title: title
+                ? splitSegmentLabel({ id: tab.id, tab: title })
+                : "Tab",
+              location:
+                stripTabLocation(paletteStrip, tab.id, paletteName) ??
+                "On the strip",
+              kind: kind === "terminal" ? "terminal" : "file",
+              fileName: title?.files[0],
+            },
+          ];
+        }),
+      ]
+    : [];
   const boardProject =
     looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
       ? projectCwd
@@ -11811,6 +11958,89 @@ export default function App({
       },
     ];
   });
+  // Names outlive their tabs, so a notice can name a tab that just closed.
+  const knownNames = useRef(new Map<string, string>());
+  for (const tab of titleTabs)
+    knownNames.current.set(tab.id, splitSegmentLabel({ id: tab.id, tab }));
+  for (const page of browserTabsFor(
+    browserSurfaces.map((tab) => tab.surfaceId),
+  ))
+    knownNames.current.set(page.id, page.title || "Browser");
+  const existingRef = useRef(existingSurfaceIds);
+  existingRef.current = existingSurfaceIds;
+  const noticeStrip = useRef<{ key: string; strip: WorkspaceStrip } | null>(
+    null,
+  );
+  useEffect(() => {
+    const previous = noticeStrip.current;
+    noticeStrip.current = { key: workspaceKey, strip };
+    const pending = pendingMove.current;
+    // Another project's strip: a notice about the last one is out of place.
+    if (previous && previous.key !== workspaceKey) setLayoutNotice(null);
+    if (!previous || previous.key !== workspaceKey || previous.strip === strip)
+      return;
+    pendingMove.current = null;
+    if (Date.now() < noticeQuietUntil.current) return;
+    const move =
+      pending && pending.key === workspaceKey && Date.now() - pending.at < 3000
+        ? pending
+        : null;
+    const open = new Set(existingRef.current);
+    const change = describeStripChange(
+      move?.before ?? previous.strip,
+      strip,
+      move?.moved ?? null,
+      (id) => knownNames.current.get(id) ?? "Tab",
+      (id) => open.has(id),
+    );
+    if (!change) return;
+    const nonce = ++noticeSeq.current;
+    setLayoutNotice({
+      id: nonce,
+      text: change.text,
+      undo: move?.undo ?? null,
+    });
+    if (change.landed) {
+      setStripLanding({
+        entry: change.landed.entry,
+        segment: change.landed.pane,
+        nonce,
+      });
+      const pane =
+        change.landed.pane ??
+        (isSpaceKey(change.landed.entry) ? undefined : change.landed.entry);
+      if (pane) setPaneLanding({ id: pane, nonce });
+    }
+  }, [strip, workspaceKey]);
+  /**
+   * Light where a tab lives once it is in front (search went there): its
+   * strip entry or split segment, and its pane's title row.
+   */
+  const showWhere = (id: string) =>
+    window.setTimeout(() => {
+      const { strip: now, view: front } = viewRef.current;
+      const entry = stripEntryKeyOf(now, id);
+      if (!entry) return;
+      const pane = isSpaceKey(entry)
+        ? Object.keys(front.groups).find((owner) =>
+            front.groups[owner].includes(id),
+          )
+        : entry;
+      const nonce = ++noticeSeq.current;
+      setStripLanding({
+        entry,
+        ...(isSpaceKey(entry) && pane ? { segment: pane } : {}),
+        nonce,
+      });
+      if (pane) setPaneLanding({ id: pane, nonce });
+      // Long enough for a switch's pages to be pictured and the panes drawn.
+    }, 120);
+  /** Undo from the notice: only while its move is the last layout change. */
+  const onNoticeUndo = () => {
+    const notice = layoutNotice;
+    setLayoutNotice(null);
+    if (notice?.undo && latestLayoutUndo() === notice.undo) onUndoLayout();
+  };
   /** Close every tab in a split, leaving a chat outside it in front. */
   const onCloseSplit = (key: string) => {
     const entry = strip.entries.find(
@@ -11839,7 +12069,7 @@ export default function App({
       (entry) => entry.kind === "space" && viewMembers(entry.view).includes(id),
     );
     if (inSplit) {
-      workspaceViews.detach(id, before);
+      onDetachFromSplit(id, before);
       return;
     }
     const keys = strip.entries.map(entryKey);
@@ -11944,14 +12174,16 @@ export default function App({
               : addStripPane(before, key, id);
             if (next === before) return;
             pushStripUndo(before);
+            noteStripMove(id, before);
             stripDropKeeps(key, id).forEach(onKeepBrowser);
             if (beside)
               workspaceViews.insertPane(key, id, beside.pane, beside.side);
             else workspaceViews.addPane(key, id);
           },
           onCombineTabs: onCombineOnStrip,
-          onDetachFromSplit: (id, before) => workspaceViews.detach(id, before),
-          onSeparateSplit: (key) => workspaceViews.separate(key),
+          onDetachFromSplit,
+          onSeparateSplit,
+          landed: stripLanding,
           onCloseSplit,
           onSelect: onSelectSurface,
           onSelectBrowser: (id) =>
@@ -12202,6 +12434,21 @@ export default function App({
                             className="relative min-h-0 min-w-0"
                             style={{ gridArea: "main" }}
                           >
+                            <LayoutNotice
+                              notice={
+                                layoutNotice && {
+                                  ...layoutNotice,
+                                  // Undo while the move is still the last
+                                  // layout change, as of now.
+                                  canUndo:
+                                    !!layoutNotice.undo &&
+                                    latestLayoutUndo() === layoutNotice.undo,
+                                }
+                              }
+                              shown={workspaceVisible && !settingsOpen}
+                              onUndo={onNoticeUndo}
+                              onDismiss={() => setLayoutNotice(null)}
+                            />
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <WorkspaceStage
@@ -12276,6 +12523,65 @@ export default function App({
                                 step: arrangementStep,
                               }}
                               glide={paneGlide}
+                              paneMinimum={(id) => {
+                                if (browserSurfaceIds.has(id))
+                                  return PANE_MIN_PX.page;
+                                const tab = tabs.find(
+                                  (entry) => entry.id === id,
+                                );
+                                return PANE_MIN_PX[
+                                  tab ? workspaceTabPaneKind(tab) : "file"
+                                ];
+                              }}
+                              railContent={(owner) => {
+                                const members = view.groups[owner] ?? [owner];
+                                return paneRailContent({
+                                  members,
+                                  front: owner,
+                                  tabs: new Map(
+                                    titleTabs
+                                      .filter((tab) => members.includes(tab.id))
+                                      .map((tab) => [
+                                        tab.id,
+                                        {
+                                          busy: tab.busyHarnesses.length > 0,
+                                          needsYou: !!tab.needsInput,
+                                          chat: tab.harnesses.length > 0,
+                                        },
+                                      ]),
+                                  ),
+                                  pages: new Map(
+                                    browserTabsFor(members).map((page) => [
+                                      page.id,
+                                      page,
+                                    ]),
+                                  ),
+                                  project: projectCwd,
+                                  identity: (id) => {
+                                    const tab = titleTabs.find(
+                                      (entry) => entry.id === id,
+                                    );
+                                    return tab ? (
+                                      <TabIdentity tab={tab} active />
+                                    ) : null;
+                                  },
+                                  pageIcon: (favicon) => (
+                                    <BrowserTabIcon favicon={favicon} />
+                                  ),
+                                  labelOf: (id) => {
+                                    const tab = titleTabs.find(
+                                      (entry) => entry.id === id,
+                                    );
+                                    return tab
+                                      ? splitSegmentLabel({ id, tab })
+                                      : "Tab";
+                                  },
+                                });
+                              }}
+                              onRestoreRail={(id) =>
+                                onWorkspaceIntent({ type: "unrail", id })
+                              }
+                              landed={paneLanding}
                               dragging={surfaceDragging}
                               dragLabel="Move tab"
                               dragTarget={surfaceDrop}
@@ -12706,7 +13012,14 @@ export default function App({
                   searchChats={searchPaletteChats}
                   searchSettings={searchSettings}
                   onRunCommand={runPaletteCommand}
-                  onOpenChat={(id) => void onSelectHistorySession(id)}
+                  onOpenChat={(id) => {
+                    void onSelectHistorySession(id);
+                    // An open chat's place lights up once it is in front.
+                    const tab = tabsRef.current.find((entry) =>
+                      leafIds(entry.layout).includes(id),
+                    );
+                    if (tab) showWhere(tab.id);
+                  }}
                   onOpenProject={onSelectProject}
                   onOpenFile={(path) => onOpenFile(path)}
                   onOpenSetting={(setting) => {
@@ -12720,6 +13033,12 @@ export default function App({
                     );
                   }}
                   onStartChat={startPaletteChat}
+                  tabs={paletteTabs}
+                  chatLocations={paletteChatLocations}
+                  onOpenTab={(id) => {
+                    onSelectSurface(id);
+                    showWhere(id);
+                  }}
                   onStartRace={(request) =>
                     // A race that can't start explains why; keep what was typed.
                     void startRace(request).then((started) => {

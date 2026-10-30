@@ -39,6 +39,7 @@ import {
   workspaceSurfaceDropAt,
   type WorkspaceSurfaceDropTarget,
 } from "./WorkspaceStage";
+import { openLeafIds } from "../lib/paneRails";
 import { nativeBrowser } from "../lib/browser";
 import { browserIdForTab } from "../lib/personalWorkspace";
 import { orderByIds } from "../lib/reorder";
@@ -920,7 +921,7 @@ export function DetachedWorkspace() {
   useEffect(() => {
     const state = envelope?.state;
     if (!state) return;
-    const active = new Set(state.view.layout ? leafIds(state.view.layout) : []);
+    const active = new Set(openLeafIds(state.view.layout));
     const ids =
       focused && documentVisible
         ? state.tabs
@@ -977,7 +978,8 @@ export function DetachedWorkspace() {
     }));
   const action = (id: string, name: string, args: unknown[]) =>
     void nativeWorkspaceWindow.action(id, name, args).catch(report);
-  const active = new Set(state.view.layout ? leafIds(state.view.layout) : []);
+  // A pane on a rail is not on screen.
+  const active = new Set(openLeafIds(state.view.layout));
   const titleTabs: Tab[] = state.tabs.map((tab) => {
     const ids = leafIds(tab.layout);
     const sessions = state.sessions
@@ -1398,6 +1400,20 @@ export function DetachedWorkspace() {
           onMinimizeSide={(split, index, side) =>
             arrange({ type: "minimize", split, index, side })
           }
+          onRestoreRail={(id) => arrange({ type: "unrail", id })}
+          railContent={(id) => {
+            const tab = titleTabs.find((entry) => entry.id === id);
+            const page = state.browsers.find((entry) => entry.id === id);
+            const label = tab?.title || page?.title || page?.url || "pane";
+            return {
+              label,
+              content: (
+                <span className="aven-pane-rail" aria-hidden>
+                  <span className="aven-pane-rail-label">{label}</span>
+                </span>
+              ),
+            };
+          }}
           onRestoreSplit={
             state.view.restoreView
               ? () => arrange({ type: "restore" })

@@ -293,3 +293,35 @@ export function mergePaletteChats(
     }
   return merged;
 }
+
+/**
+ * A tab open in the project on screen that is not a chat (a page, a file,
+ * a terminal, a board), with where it lives, so search finds it there.
+ */
+export type PaletteTab = {
+  id: string;
+  title: string;
+  /** Where it lives: "In the split with “X” · right pane", or the strip. */
+  location: string;
+  kind: "page" | "file" | "terminal" | "other";
+  favicon?: string;
+  /** For a file, its name, for its icon. */
+  fileName?: string;
+};
+
+/** Open tabs whose titles match `text`, best first. */
+export function rankPaletteTabs(
+  tabs: readonly PaletteTab[],
+  text: string,
+  limit = 5,
+): PaletteTab[] {
+  if (!text) return tabs.slice(0, limit);
+  return tabs
+    .flatMap((tab) => {
+      const hit = fuzzyMatch(text, tab.title);
+      return hit ? [{ tab, score: hit.score }] : [];
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ tab }) => tab);
+}

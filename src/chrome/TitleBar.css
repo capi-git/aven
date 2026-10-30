@@ -851,6 +851,7 @@ html.theme-light .personal-shell {
   box-shadow: none;
 }
 .aven-split-segment {
+  position: relative;
   display: flex;
   flex: 1 1 0;
   align-items: center;

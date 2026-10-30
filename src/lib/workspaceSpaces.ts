@@ -86,10 +86,13 @@ function storedMembers(view: Partial<WorkspaceView>): string[] {
   );
 }
 
-/** The tabs a stored strip records, for a project not open right now. */
-export function recordedStripIds(strip: WorkspaceStrip | undefined): string[] {
+/**
+ * The tabs a stored strip records, for a project not open right now.
+ * Anything that is not a strip records none.
+ */
+export function recordedStripIds(strip: unknown): string[] {
   return unique(
-    (strip?.entries ?? []).flatMap((entry) =>
+    (parseEntries(strip)?.entries ?? []).flatMap((entry) =>
       entry.kind === "item" ? [entry.id] : storedMembers(entry.view),
     ),
   );
@@ -123,7 +126,11 @@ export function stripFromView(
   };
 }
 
-function parseEntries(value: unknown): {
+/**
+ * A stored strip's entries that have the shape of entries, or null when it
+ * is no strip at all (not an object, no list of entries).
+ */
+export function parseEntries(value: unknown): {
   entries: StripEntry[];
   front: string;
 } | null {
@@ -707,10 +714,9 @@ export function joinStripSplit(
 
 /**
  * A tab pulled out of its split and let go on the strip: it stands on its
- * own before the entry `before` (or at the end). Focus stays with the tab
- * that had it: a tab that had focus in the split in front comes to the
- * front alone; a split in front that comes apart leaves its focused tab
- * in front.
+ * own before the entry `before` (or at the end), and comes to the front, so
+ * what was just moved is what is shown. A split left with one pane comes
+ * apart in its place.
  */
 export function detachStripTab(
   strip: WorkspaceStrip,
@@ -732,18 +738,7 @@ export function detachStripTab(
         ? entries.findIndex((entry) => entryKey(entry) === before)
         : -1;
   entries.splice(at < 0 ? entries.length : at, 0, { kind: "item", id });
-  let front = strip.front;
-  if (front === key) {
-    const focus = source.view.focusedId;
-    if (focus === id) front = id;
-    else if (!rest.some((entry) => entry.kind === "space"))
-      front = rest.some((entry) => entryKey(entry) === focus)
-        ? focus
-        : rest[0]
-          ? entryKey(rest[0])
-          : id;
-  }
-  return { entries, front };
+  return { entries, front: id };
 }
 
 /**
@@ -873,4 +868,93 @@ export function undoStripLayout(
     current.focusedId,
   );
   return applyStripView(front, restored);
+}
+
+/** Every tab a strip holds, once per place it is held. */
+function heldIds(strip: WorkspaceStrip): string[] {
+  return strip.entries.flatMap((entry) =>
+    entry.kind === "item"
+      ? [entry.id]
+      : [
+          ...Object.values(entry.view.groups ?? {}).flat(),
+          ...Object.values(entry.view.hiddenGroups ?? {}).flat(),
+        ],
+  );
+}
+
+/**
+ * What is wrong with a strip for the tabs `ids` that are open: a tab held
+ * twice or not at all, a tab held that is not open, a split with one pane,
+ * a pane with no tabs, or an entry in front that is not there. Empty when
+ * every open tab is in exactly one place a person can reach.
+ */
+export function stripProblems(
+  strip: WorkspaceStrip,
+  ids: readonly string[],
+): string[] {
+  const problems: string[] = [];
+  const open = new Set(ids);
+  const counts = new Map<string, number>();
+  for (const id of heldIds(strip)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const id of open)
+    if ((counts.get(id) ?? 0) !== 1)
+      problems.push(`${id} held ${counts.get(id) ?? 0} times`);
+  for (const id of counts.keys())
+    if (!open.has(id)) problems.push(`${id} held but not open`);
+  for (const entry of strip.entries) {
+    if (entry.kind !== "space") continue;
+    if (!workspaceIsSpace(entry.view))
+      problems.push(`${entryKey(entry)} is not a split`);
+    const panes = entry.view.layout ? leafIds(entry.view.layout) : [];
+    for (const pane of panes)
+      if (!entry.view.groups[pane]?.includes(pane))
+        problems.push(`${entryKey(entry)} pane ${pane} holds nothing`);
+  }
+  if (strip.entries.length && !frontEntry(strip))
+    problems.push(`front ${strip.front} is not on the strip`);
+  return problems;
+}
+
+/**
+ * The self-heal a strip gets when it is read back and before it is saved:
+ * every open tab in exactly one place. A tab named twice keeps its first
+ * place, a tab no entry holds stands on the strip as a single tab beside
+ * the entry in front (never tucked into a split's pane, where it would be
+ * hard to find), entries with nothing open leave, and the entry in front is
+ * one that is there. Should resolving still leave a problem, each tab
+ * stands on the strip on its own, in the order the strip recorded it.
+ */
+export function healWorkspaceStrip(
+  stored: unknown,
+  ids: readonly string[],
+): WorkspaceStrip {
+  const strip = parseEntries(stored) ?? EMPTY_STRIP;
+  const flat = (): WorkspaceView => {
+    const order = unique([...recordedStripIds(strip), ...ids]).filter((id) =>
+      ids.includes(id),
+    );
+    const first = order[0];
+    return first
+      ? {
+          layout: leaf(first),
+          focusedId: first,
+          order,
+          groups: { [first]: order },
+        }
+      : { layout: null, focusedId: "", order: [], groups: {} };
+  };
+  let healed: WorkspaceStrip | null = null;
+  try {
+    healed = resolveWorkspaceStrip(strip, ids, strip.front, flat, {
+      newcomersOnStrip: true,
+    });
+  } catch {
+    // Something stored no resolving survives: every tab on its own below.
+  }
+  if (healed && !stripProblems(healed, ids).length) return healed;
+  const order = flat().order;
+  return {
+    entries: order.map((id): StripItem => ({ kind: "item", id })),
+    front: order.includes(strip.front) ? strip.front : (order[0] ?? ""),
+  };
 }

@@ -487,65 +487,89 @@ describe("workspace stage", () => {
     rendered.mockClear();
     // Grabbing off-center must not snap the divider to the pointer.
     act(() => sash().dispatchEvent(pointer("pointerdown", 600, 353)));
+    act(() => window.dispatchEvent(pointer("pointermove", 600, 383)));
     act(() => window.dispatchEvent(pointer("pointermove", 600, 413)));
-    act(() => window.dispatchEvent(pointer("pointermove", 600, 473)));
     act(() => vi.advanceTimersByTime(15));
     expect(surface("chat").style.height).toBe("calc(50% - 0.5px)");
     act(() => vi.advanceTimersByTime(1));
-    expect(surface("chat").style.height).toBe("calc(70% - 0.5px)");
-    expect(surface("browser").style.top).toBe("calc(70% + 0.5px)");
+    expect(surface("chat").style.height).toBe("calc(60% - 0.5px)");
+    expect(surface("browser").style.top).toBe("calc(60% + 0.5px)");
     expect(painted).toHaveBeenCalledOnce();
     expect(rendered).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
 
     // Release can arrive before the final move or animation callback.
-    act(() => window.dispatchEvent(pointer("pointermove", 600, 483)));
-    act(() => window.dispatchEvent(pointer("pointerup", 600, 503)));
+    act(() => window.dispatchEvent(pointer("pointermove", 600, 423)));
+    act(() => window.dispatchEvent(pointer("pointerup", 600, 443)));
     expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
-      rows([0.75, 0.25]),
+      rows([0.65, 0.35]),
     );
-    expect(surface("chat").style.height).toBe("calc(75% - 0.5px)");
+    expect(surface("chat").style.height).toBe("calc(65% - 0.5px)");
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
     expect(painted).toHaveBeenCalledTimes(2);
   });
 
+  it("stops a divider at a pane's minimum, in the stage's own pixels", async () => {
+    await render({
+      layout: columns(),
+      paneMinimum: (id) => (id === "chat" ? 240 : 200),
+    });
+    bindStageBounds();
+    // 150px left of the middle would leave the chat 350px: allowed. 300px
+    // would leave it 200px, under its 240: it stops there.
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+    act(() => window.dispatchEvent(pointer("pointerup", 300)));
+    expect(props.onLayoutChange).toHaveBeenLastCalledWith(
+      columns([0.24, 0.76]),
+    );
+    // The other way, the page keeps its 200px.
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+    act(() => window.dispatchEvent(pointer("pointerup", 950)));
+    expect(props.onLayoutChange).toHaveBeenLastCalledWith(columns([0.8, 0.2]));
+  });
+
   it.each([
-    ["before", 124, "browser", "left"],
-    ["after", 1076, "chat", "right"],
+    ["before", 124, "browser"],
+    ["after", 1076, "chat"],
   ] as const)(
-    "hides the %s pane only on a deliberate edge release",
-    async (side, x, surviving, label) => {
+    "folds the %s pane to a rail past half its minimum, live, and commits it on release",
+    async (side, x, surviving) => {
       const minimize = vi.fn();
       await render({ layout: columns(), onMinimizeSide: minimize });
       bindStageBounds();
-      const draft = input("chat");
+      const folded = side === "before" ? "chat" : "browser";
+      const draft = input(folded);
       draft.value = "Keep my unfinished prompt";
-      const originalGeometry = surface("chat").style.cssText;
-      rendered.mockClear();
       act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
       act(() => window.dispatchEvent(pointer("pointermove", x)));
       flushFrame();
-      const cue = header(surviving)!.querySelector<HTMLElement>(
-        "[data-minimize-cue]",
-      )!;
-      expect(cue.hidden).toBe(false);
-      expect(cue.textContent).toBe(`Release to hide ${label} pane`);
-      expect(minimize).not.toHaveBeenCalled();
-      expect(rendered).not.toHaveBeenCalled();
-      act(() => window.dispatchEvent(pointer("pointerup", x)));
-      expect(minimize).toHaveBeenCalledExactlyOnceWith("columns", 0, side);
-      expect(props.onLayoutChange).not.toHaveBeenCalled();
-      expect(surface("chat").style.cssText).toBe(originalGeometry);
-      expect(cue.hidden).toBe(true);
-      await render({ layout: leaf(surviving), onRestoreSplit: vi.fn() });
-      expect(input("chat")).toBe(draft);
-      expect(draft.value).toBe("Keep my unfinished prompt");
-      expect(document.activeElement).toBe(
-        container.querySelector(".workspace-pane-restore"),
+      // While the drag lasts, the pane is already its rail.
+      const rail = container.querySelector<HTMLElement>(
+        `[data-pane-rail="${folded}"]`,
       );
+      expect(rail).not.toBeNull();
+      expect(surface(folded).hidden).toBe(true);
+      expect(surface(surviving).hidden).toBe(false);
+      expect(rail!.style.width).toBe(
+        side === "before" ? "calc(2.8% - 0.5px)" : "calc(2.8% - 0.5px)",
+      );
+      expect(props.onLayoutChange).not.toHaveBeenCalled();
+      act(() => window.dispatchEvent(pointer("pointerup", x)));
+      expect(minimize).not.toHaveBeenCalled();
+      const committed = vi.mocked(props.onLayoutChange).mock.calls[0][0];
+      expect(committed).toEqual({
+        ...columns(side === "before" ? [0.028, 0.972] : [0.972, 0.028]),
+        children:
+          side === "before"
+            ? [{ ...leaf("chat"), rail: 0.5 }, leaf("browser")]
+            : [leaf("chat"), { ...leaf("browser"), rail: 0.5 }],
+      });
+      await render({ layout: committed });
+      expect(input(folded)).toBe(draft);
+      expect(draft.value).toBe("Keep my unfinished prompt");
       expect(unmounted).not.toHaveBeenCalled();
     },
   );
@@ -563,72 +587,78 @@ describe("workspace stage", () => {
     },
   );
 
-  it("requires travel intent and clears the armed cue when dragging away", async () => {
-    const minimize = vi.fn();
-    await render({ layout: columns([0.02, 0.98]), onMinimizeSide: minimize });
-    bindStageBounds();
-    act(() => sash().dispatchEvent(pointer("pointerdown", 120)));
-    act(() => window.dispatchEvent(pointer("pointerup", 115)));
-    expect(minimize).not.toHaveBeenCalled();
+  it("opens a pane dragged back out of its rail, at its minimum or more", async () => {
     await render({ layout: columns() });
+    bindStageBounds();
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
     act(() => window.dispatchEvent(pointer("pointermove", 120)));
-    const cue = header("browser")!.querySelector<HTMLElement>(
-      "[data-minimize-cue]",
-    )!;
-    expect(cue.hidden).toBe(false);
-    act(() => window.dispatchEvent(pointer("pointermove", 400)));
-    expect(cue.hidden).toBe(true);
+    flushFrame();
+    expect(container.querySelector("[data-pane-rail]")).not.toBeNull();
+    // Back past half the minimum: open again, held at the minimum.
+    act(() => window.dispatchEvent(pointer("pointermove", 230)));
+    flushFrame();
+    expect(container.querySelector("[data-pane-rail]")).toBeNull();
+    expect(surface("chat").hidden).toBe(false);
+    expect(surface("chat").style.width).toBe("calc(20% - 0.5px)");
     act(() => window.dispatchEvent(pointer("pointerup", 400)));
-    expect(minimize).not.toHaveBeenCalled();
+    expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
+      columns([0.3, 0.7]),
+    );
   });
 
-  it("uses CSS zoom and an interior adjacent child's outside edge for minimization", async () => {
-    const minimize = vi.fn();
-    await render({
-      layout: {
-        type: "split",
-        id: "three",
-        dir: "right",
-        children: [leaf("third"), leaf("chat"), leaf("browser")],
-        sizes: [0.2, 0.3, 0.5],
-      },
-      surfaces: [...props.surfaces, { id: "third", content: "Third pane" }],
-      onMinimizeSide: minimize,
-    });
+  it("measures travel in the stage's own pixels under CSS zoom", async () => {
+    await render({ layout: columns() });
     stage().style.zoom = "2";
     bindStageBounds();
-    act(() => sash(1).dispatchEvent(pointer("pointerdown", 600)));
-    // Child chat starts at x300. The 24px local threshold is 48 viewport px.
-    act(() => window.dispatchEvent(pointer("pointerup", 348)));
-    expect(minimize).toHaveBeenCalledExactlyOnceWith("three", 1, "before");
-    expect(props.onLayoutChange).not.toHaveBeenCalled();
+    // 1000 viewport pixels are 500 of the stage's; 200 of travel is 100,
+    // leaving the left pane 150px, under its 200: it stops at 200.
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+    act(() => window.dispatchEvent(pointer("pointerup", 400)));
+    expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
+      columns([0.4, 0.6]),
+    );
   });
 
   it.each([
-    ["before", 74],
-    ["after", 626],
-  ] as const)("supports the %s edge of horizontal panes", async (side, y) => {
-    const minimize = vi.fn();
-    await render({
-      layout: {
+    ["before", 74, "chat"],
+    ["after", 626, "browser"],
+  ] as const)(
+    "folds the %s pane of a column to a rail as wide as it",
+    async (side, y, folded) => {
+      const rows = (sizes = [0.5, 0.5]): LayoutNode => ({
         type: "split",
         id: "rows",
         dir: "down",
         children: [leaf("chat"), leaf("browser")],
-        sizes: [0.5, 0.5],
-      },
-      onMinimizeSide: minimize,
-    });
-    bindStageBounds();
-    act(() => sash().dispatchEvent(pointer("pointerdown", 600, 350)));
-    act(() => window.dispatchEvent(pointer("pointerup", 600, y)));
-    expect(minimize).toHaveBeenCalledExactlyOnceWith("rows", 0, side);
-    expect(props.onLayoutChange).not.toHaveBeenCalled();
-  });
+        sizes,
+      });
+      await render({ layout: rows() });
+      bindStageBounds();
+      act(() => sash().dispatchEvent(pointer("pointerdown", 600, 350)));
+      act(() => window.dispatchEvent(pointer("pointerup", 600, y)));
+      const committed = vi.mocked(props.onLayoutChange).mock.calls[0][0];
+      expect(committed).toEqual({
+        ...rows(
+          side === "before" ? [28 / 600, 572 / 600] : [572 / 600, 28 / 600],
+        ),
+        children: [
+          folded === "chat" ? { ...leaf("chat"), rail: 0.5 } : leaf("chat"),
+          folded === "browser"
+            ? { ...leaf("browser"), rail: 0.5 }
+            : leaf("browser"),
+        ],
+      });
+      await render({ layout: committed });
+      const rail = container.querySelector<HTMLElement>(
+        `[data-pane-rail="${folded}"]`,
+      )!;
+      expect(rail.dataset.axis).toBe("y");
+      expect(rail.style.width).toBe("100%");
+    },
+  );
 
   it.each(["Escape", "pointercancel", "blur", "lostpointercapture"])(
-    "never minimizes an armed drag ended by %s",
+    "leaves no drafted rail behind a drag ended by %s",
     async (ending) => {
       const minimize = vi.fn();
       await render({ layout: columns(), onMinimizeSide: minimize });
@@ -636,6 +666,7 @@ describe("workspace stage", () => {
       act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
       act(() => window.dispatchEvent(pointer("pointermove", 110)));
       flushFrame();
+      expect(container.querySelector("[data-pane-rail]")).not.toBeNull();
       act(() => {
         if (ending === "Escape")
           window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
@@ -648,12 +679,15 @@ describe("workspace stage", () => {
       });
       act(() => window.dispatchEvent(pointer("pointerup", 110)));
       expect(minimize).not.toHaveBeenCalled();
+      // A cancel puts the panes back; leaving the window keeps the fold,
+      // which arrives as the new layout.
+      expect(vi.mocked(props.onLayoutChange).mock.calls.length).toBe(
+        ending === "Escape" || ending === "pointercancel" ? 0 : 1,
+      );
+      expect(container.querySelector("[data-pane-rail]")).toBeNull();
+      expect(surface("chat").hidden).toBe(false);
+      expect(surface("chat").style.width).toBe("calc(50% - 0.5px)");
       expect(stage().hasAttribute("data-resizing")).toBe(false);
-      expect(
-        [
-          ...container.querySelectorAll<HTMLElement>("[data-minimize-cue]"),
-        ].every((cue) => cue.hidden),
-      ).toBe(true);
       expect(document.body.style.cursor).toBe("");
       expect(frames.size).toBe(0);
     },
@@ -679,7 +713,7 @@ describe("workspace stage", () => {
         ],
       });
       const hide = container.querySelector<HTMLButtonElement>(
-        `button[aria-label="Hide ${edge} pane"]`,
+        `button[aria-label="Collapse ${edge} pane"]`,
       )!;
       expect(hide.type).toBe("button");
       expect(hide.closest("[data-workspace-header]")).toBe(header(hidden));
@@ -750,7 +784,7 @@ describe("workspace stage", () => {
         onMinimizeSide: minimize,
       });
       const hide = container.querySelector<HTMLButtonElement>(
-        `button[aria-label="Hide ${position} pane"]`,
+        `button[aria-label="Collapse ${position} pane"]`,
       )!;
       expect(hide.type).toBe("button");
       expect(hide.closest("[data-workspace-header]")).toBe(header(id));
@@ -789,10 +823,10 @@ describe("workspace stage", () => {
     expect(header("third")!.style.paddingLeft).toBe("28px");
     expect(header("third")!.style.paddingRight).toBe("28px");
     const hideBefore = middle.querySelector<HTMLButtonElement>(
-      'button[aria-label="Hide left pane"]',
+      'button[aria-label="Collapse left pane"]',
     )!;
     const hideAfter = middle.querySelector<HTMLButtonElement>(
-      'button[aria-label="Hide right pane"]',
+      'button[aria-label="Collapse right pane"]',
     )!;
     act(() => hideBefore.click());
     expect(minimize).toHaveBeenLastCalledWith("three", 1, "before");
@@ -825,7 +859,7 @@ describe("workspace stage", () => {
     const topHeader = header("chat")!;
     expect(topHeader.style.paddingRight).toBe("54px");
     const hide = topHeader.querySelector<HTMLButtonElement>(
-      'button[aria-label="Hide upper pane"]',
+      'button[aria-label="Collapse upper pane"]',
     )!;
     expect(hide.parentElement!.style.right).toBe("28px");
     act(() => hide.click());
@@ -1135,41 +1169,73 @@ describe("workspace stage", () => {
     expect(props.onLayoutChange).not.toHaveBeenCalled();
   });
 
-  it("supports keyboard resize and balances only the adjacent pair on double-click", async () => {
-    await render({
-      layout: {
-        type: "split",
-        id: "three",
-        dir: "right",
-        children: [leaf("chat"), leaf("browser"), leaf("third")],
-        sizes: [0.2, 0.3, 0.5],
-      },
+  it("resizes from the keyboard down to the minimums, folds with Home and End, and evens on double-click", async () => {
+    const three = (
+      sizes = [0.3, 0.3, 0.4],
+      children: LayoutNode[] = [leaf("chat"), leaf("browser"), leaf("third")],
+    ): LayoutNode => ({
+      type: "split",
+      id: "three",
+      dir: "right",
+      children,
+      sizes,
     });
-    act(() =>
-      sash(1).dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-      ),
-    );
+    await render({ layout: three() });
+    bindStageBounds();
     const change = vi.mocked(props.onLayoutChange);
-    layoutLeaves(change.mock.calls[0][0]).forEach(({ rect }, index) => {
-      expect(rect.w).toBeCloseTo([0.2, 0.32, 0.48][index]);
+    const key = (index: number, key: string, shiftKey = false) =>
+      act(() =>
+        sash(index).dispatchEvent(
+          new KeyboardEvent("keydown", { key, shiftKey, bubbles: true }),
+        ),
+      );
+    // 1000px: 300 | 300 | 400. A step is 20px.
+    key(1, "ArrowRight");
+    let widths = layoutLeaves(change.mock.lastCall![0]).map(
+      ({ rect }) => rect.w,
+    );
+    expect(widths[0]).toBeCloseTo(0.3);
+    expect(widths[1]).toBeCloseTo(0.32);
+    expect(widths[2]).toBeCloseTo(0.38);
+    // Five steps at once stop at the third pane's 200px minimum.
+    await render({ layout: three([0.3, 0.45, 0.25]) });
+    key(1, "ArrowRight", true);
+    widths = layoutLeaves(change.mock.lastCall![0]).map(({ rect }) => rect.w);
+    expect(widths[1]).toBeCloseTo(0.5);
+    expect(widths[2]).toBeCloseTo(0.2);
+    // Pressing on against the minimum folds that pane to a rail.
+    await render({ layout: three([0.3, 0.5, 0.2]) });
+    key(1, "ArrowRight");
+    const folded = change.mock.lastCall![0] as Extract<
+      LayoutNode,
+      { type: "split" }
+    >;
+    expect(folded.children[2].rail).toBeCloseTo(0.2);
+    expect(folded.sizes[2]).toBeCloseTo(0.028);
+    // Home folds the pane before a divider; End the one after.
+    await render({ layout: three() });
+    key(0, "Home");
+    expect(
+      (change.mock.lastCall![0] as Extract<LayoutNode, { type: "split" }>)
+        .children[0].rail,
+    ).toBeCloseTo(0.3);
+    // A double-click evens every pane of the split, a folded one opened.
+    await render({
+      layout: three(
+        [0.028, 0.572, 0.4],
+        [{ ...leaf("chat"), rail: 0.3 }, leaf("browser"), leaf("third")],
+      ),
     });
     change.mockClear();
     act(() =>
       sash(1).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
     );
-    const widths = layoutLeaves(change.mock.calls[0][0]).map(
-      ({ rect }) => rect.w,
-    );
-    expect(widths[0]).toBeCloseTo(0.2);
-    expect(widths[1]).toBeCloseTo(0.4);
-    expect(widths[2]).toBeCloseTo(0.4);
-    act(() =>
-      sash().dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-      ),
-    );
-    expect(layoutLeaves(change.mock.lastCall![0])[0].rect.w).toBeCloseTo(0.08);
+    const even = change.mock.lastCall![0] as Extract<
+      LayoutNode,
+      { type: "split" }
+    >;
+    expect(even.children.every((child) => child.rail === undefined)).toBe(true);
+    expect(even.sizes).toEqual([1 / 3, 1 / 3, 1 / 3]);
   });
 
   it("focuses surfaces and shows drop hints without occluding the browser", async () => {

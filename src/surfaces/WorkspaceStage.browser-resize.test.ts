@@ -244,11 +244,12 @@ describe("workspace divider and native page presentation", () => {
     );
     const resized = { ...bounds, x: 0, width: 1000, height: 416 };
     native.bounds.mockReturnValue(resized);
+    // Two moves within the chat's minimum below, coalesced into one paint.
     await act(async () =>
-      window.dispatchEvent(pointer("pointermove", 500, 362)),
+      window.dispatchEvent(pointer("pointermove", 500, 332)),
     );
     await act(async () =>
-      window.dispatchEvent(pointer("pointermove", 500, 422)),
+      window.dispatchEvent(pointer("pointermove", 500, 362)),
     );
     await act(async () => vi.advanceTimersByTime(16));
     expect(native.layout).toHaveBeenCalledExactlyOnceWith(
@@ -259,8 +260,8 @@ describe("workspace divider and native page presentation", () => {
     expect(
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!
         .style.height,
-    ).toBe("calc(70% - 0.5px)");
-    await act(async () => window.dispatchEvent(pointer("pointerup", 500, 422)));
+    ).toBe("calc(60% - 0.5px)");
+    await act(async () => window.dispatchEvent(pointer("pointerup", 500, 362)));
     await flushFrames();
     expect(native.create).toHaveBeenCalledOnce();
     expect(native.close).not.toHaveBeenCalled();
@@ -269,6 +270,56 @@ describe("workspace divider and native page presentation", () => {
     expect(native.layout.mock.calls.every((call) => call[2] === true)).toBe(
       true,
     );
+  });
+
+  it("hides the page the moment its pane folds mid-drag, painting once a frame", async () => {
+    // A page whose pane is hidden measures nothing, as browserBounds does.
+    native.bounds.mockImplementation((element: HTMLElement) =>
+      element.closest("[hidden]") ? null : bounds,
+    );
+    const painted = vi.fn();
+    window.addEventListener("supermono:workspace-layout", painted);
+    const page = () =>
+      container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!;
+    try {
+      await act(async () =>
+        divider().dispatchEvent(pointer("pointerdown", 500)),
+      );
+      // Narrower, still open: one paint for the frame.
+      await act(async () => window.dispatchEvent(pointer("pointermove", 700)));
+      await act(async () => window.dispatchEvent(pointer("pointermove", 750)));
+      await flushFrames();
+      expect(painted).toHaveBeenCalledTimes(1);
+      expect(page().hidden).toBe(false);
+      native.layout.mockClear();
+      // Past half its 200px minimum: it folds to its rail in that frame,
+      // still painted once, and the live page is hidden, not left behind
+      // at its old size.
+      await act(async () => window.dispatchEvent(pointer("pointermove", 960)));
+      await flushFrames();
+      expect(painted).toHaveBeenCalledTimes(2);
+      expect(page().hidden).toBe(true);
+      expect(container.querySelector('[data-pane-rail="page"]')).not.toBeNull();
+      expect(native.layout).toHaveBeenCalledOnce();
+      expect(native.layout.mock.calls[0][2]).toBe(false);
+      // Back out past half its minimum: shown again where its pane is.
+      native.layout.mockClear();
+      await act(async () => window.dispatchEvent(pointer("pointermove", 700)));
+      await flushFrames();
+      expect(painted).toHaveBeenCalledTimes(3);
+      expect(page().hidden).toBe(false);
+      expect(native.layout).toHaveBeenLastCalledWith(
+        native.create.mock.calls[0][0],
+        bounds,
+        true,
+      );
+      await act(async () => window.dispatchEvent(pointer("pointerup", 960)));
+      expect(props.onLayoutChange).toHaveBeenCalledOnce();
+      expect(native.snapshot).not.toHaveBeenCalled();
+      expect(native.close).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("supermono:workspace-layout", painted);
+    }
   });
 
   it.each([

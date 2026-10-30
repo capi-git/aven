@@ -8,7 +8,12 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ComponentProps,
 } from "react";
-import { setGrabbing, suppressTextSelection } from "../lib/drag";
+import {
+  clientRectScale,
+  effectiveCssZoom,
+  setGrabbing,
+  suppressTextSelection,
+} from "../lib/drag";
 import { paneDropFromPoint, useExternalPaneDrop } from "../lib/paneDrop";
 import type { ApprovalDecision, UserQuestionReply } from "../lib/harness";
 import type { EditorNavigationTarget } from "../lib/search";
@@ -33,6 +38,7 @@ import {
   type Session,
   type ComposerTurnOptions,
 } from "../lib/session";
+import { innerSashBoundary } from "../lib/paneFit";
 import { FilePane } from "./FilePane";
 import { SessionPane } from "./SessionPane";
 
@@ -148,6 +154,11 @@ type PaneDrag = {
 };
 
 const DRAG_THRESHOLD = 5;
+/**
+ * The least room a pane inside a tab keeps while its divider is dragged
+ * (a chat beside its terminal, say), so none is squeezed out of sight.
+ */
+const INNER_PANE_MIN_PX = 160;
 
 function PaneTreeComponent({
   visible,
@@ -527,6 +538,10 @@ function Sash({
     .slice(0, sash.index + 1)
     .reduce((sum, size) => sum + size, 0);
   const group = sash.group;
+  const before = sash.sizes
+    .slice(0, sash.index)
+    .reduce((sum, size) => sum + size, 0);
+  const after = before + sash.sizes[sash.index] + sash.sizes[sash.index + 1];
 
   return (
     <div
@@ -568,7 +583,17 @@ function Sash({
           const parent = containerRef.current;
           if (!parent) return;
           handle.setPointerCapture(e.pointerId);
-          const rect = parent.getBoundingClientRect();
+          // In the viewport's pixels, as the pointer is, on either WebKit
+          // (older WebKit reports a CSS-zoomed element's rects divided by
+          // its zoom).
+          const toViewport = clientRectScale(parent);
+          const box = parent.getBoundingClientRect();
+          const rect = {
+            left: box.left * toViewport,
+            top: box.top * toViewport,
+            width: box.width * toViewport,
+            height: box.height * toViewport,
+          };
           const restoreSelection = suppressTextSelection();
           const previousCursor = document.body.style.cursor;
           document.body.style.cursor = row ? "col-resize" : "row-resize";
@@ -576,6 +601,7 @@ function Sash({
             ? rect.left + group.x * rect.width
             : rect.top + group.y * rect.height;
           const span = row ? group.w * rect.width : group.h * rect.height;
+          const zoom = effectiveCssZoom(parent) || 1;
           let nextBoundary = boundary;
           let moved = false;
           let frame: number | null = null;
@@ -584,7 +610,17 @@ function Sash({
             const pos = row ? ev.clientX : ev.clientY;
             if (span <= 0) return;
             moved = true;
-            nextBoundary = (pos - origin) / span;
+            // Each pane of the pair keeps its minimum, in the tree's own CSS
+            // pixels as the stage's panes do, so it grows with zoom.
+            nextBoundary = innerSashBoundary({
+              pointer: pos,
+              origin,
+              span,
+              zoom,
+              before,
+              after,
+              min: INNER_PANE_MIN_PX,
+            });
             if (frame != null) return;
             frame = requestAnimationFrame(() => {
               frame = null;
@@ -621,6 +657,8 @@ function Sash({
           handle.addEventListener("pointercancel", cancel);
           window.addEventListener("keydown", keydown);
         }}
+        // Even out the two panes beside it.
+        onDoubleClick={() => onCommit((before + after) / 2)}
       />
     </div>
   );

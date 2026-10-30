@@ -15,11 +15,14 @@ import {
   parsePaletteQuery,
   rankPaletteChats,
   rankPaletteCommands,
+  rankPaletteTabs,
   type PaletteAgent,
   type PaletteChat,
   type PaletteCommand,
   type PaletteCommandId,
+  type PaletteTab,
 } from "../lib/commandPalette";
+import { BrowserTabIcon } from "./BrowserTabIcon";
 import {
   loadProjectFiles,
   peekProjectFiles,
@@ -98,13 +101,20 @@ type Props = {
   onStartChat: (request: PaletteChatRequest) => void;
   /** Absent hides races. */
   onStartRace?: (request: PaletteRaceRequest) => void;
+  /** Pages, files and terminals open in this project, and where each is. */
+  tabs?: readonly PaletteTab[];
+  /** Where each chat open in this project lives, by its chat's id. */
+  chatLocations?: ReadonlyMap<string, string>;
+  /** Go straight to an open tab: its split comes forward, its pane focused. */
+  onOpenTab?: (id: string) => void;
 };
 
 type Item =
   | { kind: "new-chat"; key: string }
   | { kind: "race"; key: string }
   | { kind: "command"; key: string; command: PaletteCommand }
-  | { kind: "chat"; key: string; chat: PaletteChat }
+  | { kind: "chat"; key: string; chat: PaletteChat; location?: string }
+  | { kind: "tab"; key: string; tab: PaletteTab }
   | { kind: "project"; key: string; project: PaletteProject }
   | { kind: "file"; key: string; file: RankedFile }
   | { kind: "setting"; key: string; setting: SettingsSearchResult };
@@ -143,6 +153,9 @@ function CommandPaletteBody({
   onOpenSetting,
   onStartChat,
   onStartRace,
+  tabs = [],
+  chatLocations,
+  onOpenTab,
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement | null>(null);
@@ -231,7 +244,16 @@ function CommandPaletteBody({
         kind: "chat",
         key: `chat:${chat.id}`,
         chat,
+        location: chatLocations?.get(chat.id),
       }));
+    const tabItems = (limit: number) =>
+      onOpenTab
+        ? rankPaletteTabs(tabs, text, limit).map((tab): Item => ({
+            kind: "tab",
+            key: `tab:${tab.id}`,
+            tab,
+          }))
+        : [];
     const projectItems = (found: PaletteProject[]) =>
       found.map((item): Item => ({
         kind: "project",
@@ -292,6 +314,7 @@ function CommandPaletteBody({
           ...(canRace ? [{ kind: "race" as const, key: "race" }] : []),
         ],
       });
+    add("Open tabs", tabItems(5));
     add(
       "Chats",
       chatItems(
@@ -318,6 +341,9 @@ function CommandPaletteBody({
     searchSettings,
     newChat,
     canRace,
+    tabs,
+    chatLocations,
+    onOpenTab,
   ]);
 
   const items = useMemo(
@@ -354,6 +380,7 @@ function CommandPaletteBody({
     onClose();
     if (item.kind === "command") onRunCommand(item.command.id);
     else if (item.kind === "chat") onOpenChat(item.chat.id);
+    else if (item.kind === "tab") onOpenTab?.(item.tab.id);
     else if (item.kind === "project") onOpenProject(item.project.path);
     else if (item.kind === "file") onOpenFile(item.file.path);
     else onOpenSetting(item.setting);
@@ -614,8 +641,44 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
         <span className="min-w-0 flex-1 truncate text-content">
           {sessionDisplayTitle(item.chat.title, item.chat.harness)}
         </span>
-        <span className="shrink-0 truncate text-ui-label text-content/40">
-          {item.chat.busy ? "running" : projectLabel(item.chat.cwd, project)}
+        {item.location ? (
+          // Where it is open: which split, which pane.
+          <span
+            className="min-w-0 max-w-[55%] shrink truncate text-ui-label text-content/45"
+            data-palette-location
+          >
+            {item.location}
+          </span>
+        ) : (
+          <span className="shrink-0 truncate text-ui-label text-content/40">
+            {item.chat.busy ? "running" : projectLabel(item.chat.cwd, project)}
+          </span>
+        )}
+      </>
+    );
+  if (item.kind === "tab")
+    return (
+      <>
+        <span className="grid size-4 shrink-0 place-items-center text-content/55">
+          {item.tab.kind === "page" ? (
+            <BrowserTabIcon favicon={item.tab.favicon} />
+          ) : item.tab.kind === "terminal" ? (
+            <Terminal className="size-3.5" />
+          ) : (
+            <FileTypeIcon
+              name={item.tab.fileName ?? item.tab.title}
+              isDir={false}
+            />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-content">
+          {item.tab.title}
+        </span>
+        <span
+          className="min-w-0 max-w-[55%] shrink truncate text-ui-label text-content/45"
+          data-palette-location
+        >
+          {item.tab.location}
         </span>
       </>
     );

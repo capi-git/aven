@@ -1,12 +1,21 @@
 import {
   leaf,
   leafIds,
+  liftOnlyChild,
   placePane,
   replaceLeafId,
   removePane,
   type LayoutNode,
   type PaneEdge,
 } from "./layout";
+import {
+  healRails,
+  nearestOpenLeaf,
+  openLeafIds,
+  railSide,
+  railedLeafIds,
+  unrailLeaf,
+} from "./paneRails";
 
 export type ViewEdge = "left" | "right" | "up" | "down";
 export type WorkspaceViewSnapshot = {
@@ -34,6 +43,8 @@ export function pruneViewLayout(
 ): LayoutNode | null {
   if (!value || typeof value !== "object" || depth > 20) return null;
   const node = value as Partial<LayoutNode>;
+  // A collapsed pane stays collapsed; healRails checks its share.
+  const rail = typeof node.rail === "number" ? { rail: node.rail } : {};
   if (node.type === "leaf") {
     if (
       typeof node.id !== "string" ||
@@ -42,7 +53,7 @@ export function pruneViewLayout(
     )
       return null;
     seen.add(node.id);
-    return leaf(node.id);
+    return { ...leaf(node.id), ...rail };
   }
   if (
     node.type !== "split" ||
@@ -64,15 +75,22 @@ export function pruneViewLayout(
     );
   });
   if (!children.length) return null;
-  if (children.length === 1) return children[0];
-  const total = sizes.reduce((a, b) => a + b, 0);
-  return {
+  const split: Extract<LayoutNode, { type: "split" }> = {
     type: "split",
     id: typeof node.id === "string" ? node.id : `view-${depth}`,
     dir: node.dir!,
     children,
-    sizes: sizes.map((n) => n / total),
+    sizes: [],
+    ...rail,
   };
+  const result =
+    children.length === 1
+      ? liftOnlyChild(split, children[0])
+      : (() => {
+          const total = sizes.reduce((a, b) => a + b, 0);
+          return { ...split, sizes: sizes.map((n) => n / total) };
+        })();
+  return depth === 0 ? healRails(result) : result;
 }
 
 function uniqueIds(value: unknown, allowed?: Set<string>): string[] {
@@ -165,7 +183,10 @@ function resolveWorkspaceSnapshot(
     groups[preferred] = [preferred];
     claimed.add(preferred);
   }
-  const visible = layout ? leafIds(layout) : [];
+  // A pane dropped above may have been its split's only open one: one opens
+  // again, and focus stays on an open pane.
+  if (layout) layout = healRails(layout);
+  const visible = openLeafIds(layout);
   const previousFocus = value?.focusedId
     ? replacements.get(value.focusedId)
     : undefined;
@@ -333,6 +354,9 @@ export function selectWorkspaceView(
   view = revealHiddenWorkspaceTargets(view, [id]);
   const owner = workspaceGroupOwner(view, id);
   if (!owner || !view.layout) return view;
+  // Selecting a tab shows it: a collapsed pane holding it opens.
+  if (railedLeafIds(view.layout).includes(owner))
+    view = { ...view, layout: unrailLeaf(view.layout, owner) };
   if (owner === id)
     return view.focusedId === id ? view : { ...view, focusedId: id };
   const groups = { ...view.groups, [id]: view.groups[owner] };
@@ -340,9 +364,32 @@ export function selectWorkspaceView(
   return {
     ...view,
     focusedId: id,
-    layout: replaceLeafId(view.layout, owner, id),
+    layout: replaceLeafId(view.layout!, owner, id),
     groups,
   };
+}
+
+/** Focus off a collapsed pane, onto the open pane nearest it. */
+export function withOpenFocus(view: WorkspaceView): WorkspaceView {
+  if (!view.layout || !railedLeafIds(view.layout).includes(view.focusedId))
+    return view;
+  const next = nearestOpenLeaf(view.layout, view.focusedId);
+  return next ? { ...view, focusedId: next } : view;
+}
+
+/**
+ * Collapse one side of a divider to a rail ("Collapse left pane"). Its
+ * tabs stay where they are, on the rail, and focus moves off it.
+ */
+export function railWorkspaceSide(
+  view: WorkspaceView,
+  splitId: string,
+  index: number,
+  side: "before" | "after",
+): WorkspaceView {
+  if (!view.layout) return view;
+  const layout = railSide(view.layout, splitId, index, side);
+  return layout === view.layout ? view : withOpenFocus({ ...view, layout });
 }
 
 /** Closing active tabs promotes neighbors in their own pane before removing it. */
@@ -373,7 +420,7 @@ function detachWorkspaceTab(view: WorkspaceView, id: string): WorkspaceView {
   const layout = active
     ? replaceLeafId(view.layout, owner, active)
     : removePane(view.layout, owner);
-  return {
+  return withOpenFocus({
     ...view,
     layout,
     groups,
@@ -381,7 +428,7 @@ function detachWorkspaceTab(view: WorkspaceView, id: string): WorkspaceView {
       view.focusedId === owner
         ? (active ?? (layout ? leafIds(layout)[0] : ""))
         : view.focusedId,
-  };
+  });
 }
 
 export function splitWorkspaceView(
@@ -624,8 +671,10 @@ export function combineWorkspaceGroups(
   const source = workspaceGroupOwner(view, sourceId);
   const target = workspaceGroupOwner(view, targetId);
   if (!source || !target || source === target || !view.layout) return view;
-  const layout = removePane(view.layout, source);
-  if (!layout) return view;
+  const removed = removePane(view.layout, source);
+  if (!removed) return view;
+  // The pane taking the tabs is shown, opened if it was collapsed.
+  const layout = unrailLeaf(removed, target);
   const groups = {
     ...view.groups,
     [target]: [...view.groups[target], ...view.groups[source]],
@@ -727,7 +776,7 @@ export function minimizeWorkspaceSide(
     if (node.id !== splitId)
       return { ...node, children: node.children.map(replace) };
     const children = node.children.filter((_, i) => i !== removedIndex);
-    if (children.length === 1) return children[0];
+    if (children.length === 1) return liftOnlyChild(node, children[0]);
     // Give the freed space to the adjacent sibling; unrelated panes stay put.
     const sizes = node.sizes.map((size, i) =>
       i === receivingIndex ? size + node.sizes[removedIndex] : size,
@@ -785,13 +834,25 @@ export function swapWorkspacePanes(
   if (!view.layout || id === otherId) return view;
   const panes = leafIds(view.layout);
   if (!panes.includes(id) || !panes.includes(otherId)) return view;
+  // Each pane moves whole, a collapsed one staying collapsed.
   const swapIn = (layout: LayoutNode, a: string, b: string): LayoutNode => {
+    const find = (node: LayoutNode, id: string): LayoutNode | undefined =>
+      node.type === "leaf"
+        ? node.id === id
+          ? node
+          : undefined
+        : node.children.reduce<LayoutNode | undefined>(
+            (found, child) => found ?? find(child, id),
+            undefined,
+          );
+    const nodeA = find(layout, a) ?? leaf(a);
+    const nodeB = find(layout, b) ?? leaf(b);
     const swap = (node: LayoutNode): LayoutNode =>
       node.type === "leaf"
         ? node.id === a
-          ? leaf(b)
+          ? nodeB
           : node.id === b
-            ? leaf(a)
+            ? nodeA
             : node
         : { ...node, children: node.children.map(swap) };
     return swap(layout);

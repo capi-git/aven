@@ -5,14 +5,16 @@ import { stepPane } from "./paneDock";
 import {
   collapseWorkspaceView,
   combineWorkspaceGroups,
-  minimizeWorkspaceSide,
   moveWorkspaceTab,
   pairWorkspaceTabs,
   reorderWorkspaceGroup,
+  railWorkspaceSide,
   restoreWorkspaceSplit,
+  selectWorkspaceView,
   splitWorkspaceView,
   swapWorkspacePanes,
   toggleWorkspaceExpansion,
+  withOpenFocus,
   workspaceIsSpace,
   type ViewEdge,
   type WorkspaceView,
@@ -34,12 +36,15 @@ export type WorkspaceIntent =
    */
   | { type: "pair"; id: string; target: string }
   | { type: "unsplit"; group: string }
+  /** Collapse one side of a divider to a rail. */
   | {
       type: "minimize";
       split: string;
       index: number;
       side: "before" | "after";
     }
+  /** Open the collapsed pane holding `id`, and focus it (its rail clicked). */
+  | { type: "unrail"; id: string }
   | { type: "restore" }
   | { type: "resize"; layout: LayoutNode }
   /** Swap a pane with the one across a seam (Cydonia's Move). */
@@ -64,6 +69,7 @@ export const GLIDING_INTENTS: ReadonlySet<WorkspaceIntent["type"]> = new Set([
   "pair",
   "unsplit",
   "minimize",
+  "unrail",
   "restore",
   "swap",
 ]);
@@ -79,6 +85,8 @@ export function workspaceIntentIds(intent: WorkspaceIntent): string[] {
   if (intent.type === "split")
     return intent.beside ? [intent.id, intent.beside] : [intent.id];
   if (intent.type === "pair") return [intent.id, intent.target];
+  // A collapsed pane opening comes into view, as a tab from elsewhere does.
+  if (intent.type === "unrail") return [intent.id];
   return [];
 }
 
@@ -129,19 +137,21 @@ export function applyWorkspaceIntent(
         keep: view.layout ? leafIds(view.layout) : [],
       };
     case "minimize":
+      // A collapsed pane stays on a rail beside the others, never hidden.
       return {
-        view: minimizeWorkspaceSide(
-          view,
-          intent.split,
-          intent.index,
-          intent.side,
-        ),
+        view: railWorkspaceSide(view, intent.split, intent.index, intent.side),
         keep: [],
       };
+    case "unrail":
+      return { view: selectWorkspaceView(view, intent.id), keep: [] };
     case "restore":
       return { view: restoreWorkspaceSplit(view), keep: [] };
     case "resize":
-      return { view: { ...view, layout: intent.layout }, keep: [] };
+      // A divider dragged to a rail takes focus off the pane it folded.
+      return {
+        view: withOpenFocus({ ...view, layout: intent.layout }),
+        keep: [],
+      };
     case "swap":
       return {
         view: swapWorkspacePanes(view, intent.group, intent.with),

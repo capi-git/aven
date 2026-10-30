@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf } from "../lib/layout";
 import {
-  minimizeWorkspaceSide,
+  railWorkspaceSide,
   restoreWorkspaceSplit,
   selectWorkspaceView,
   type WorkspaceView,
@@ -66,9 +66,12 @@ describe("workspace pane minimization and visible tab headers", () => {
       onLayoutChange: (layout) =>
         setView((current) => ({ ...current, layout })),
       onMinimizeSide: (split, index, side) =>
-        setView((current) =>
-          minimizeWorkspaceSide(current, split, index, side),
-        ),
+        setView((current) => railWorkspaceSide(current, split, index, side)),
+      onRestoreRail: selectExternal,
+      railContent: (id) => ({
+        label: `${id} rail`,
+        content: createElement("span", null, (view.groups[id] ?? []).join(",")),
+      }),
       onRestoreSplit: view.restoreView
         ? () => setView(restoreWorkspaceSplit)
         : undefined,
@@ -105,41 +108,56 @@ describe("workspace pane minimization and visible tab headers", () => {
       `button[aria-label="${label}"]`,
     )!;
 
+  const rail = () =>
+    container.querySelector<HTMLButtonElement>("[data-pane-rail]");
+
   it.each([
-    ["left", "chat", ["web", "web-two"], "30%"],
-    ["right", "web", ["chat", "chat-two"], "70%"],
+    ["left", "chat", ["web", "web-two"], "web", "30%"],
+    ["right", "web", ["chat", "chat-two"], "chat", "70%"],
   ] as const)(
-    "removes the %s pane's entire tab strip and restores its original group and draft",
-    async (side, hidden, remainingTabs, width) => {
-      const hiddenDraft = draft(hidden);
-      hiddenDraft.value = "Unsent content remains here";
+    "collapses the %s pane to a rail that names its tabs, and opens it with its draft",
+    async (side, collapsed, remainingTabs, open, width) => {
+      const collapsedDraft = draft(collapsed);
+      collapsedDraft.value = "Unsent content remains here";
       expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
-      await act(async () => button(`Hide ${side} pane`).click());
+      await act(async () => button(`Collapse ${side} pane`).click());
+      // Its tabs leave the title rows for its rail; nothing is hidden away.
       expect(tabIds()).toEqual(remainingTabs);
       expect(
-        container.querySelector(`[data-workspace-header="${hidden}"]`),
+        container.querySelector(`[data-workspace-header="${collapsed}"]`),
       ).toBeNull();
-      expect(draft(hidden)).toBe(hiddenDraft);
+      expect(draft(collapsed)).toBe(collapsedDraft);
       expect(
-        hiddenDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
+        collapsedDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
       ).toBe(true);
-      expect(document.activeElement).toBe(button("Show hidden pane"));
-      await act(async () => button("Show hidden pane").click());
-      expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
+      expect(rail()?.dataset.paneRail).toBe(collapsed);
+      expect(rail()?.getAttribute("aria-label")).toBe(`Open ${collapsed} rail`);
+      expect(rail()?.textContent).toBe(
+        collapsed === "chat" ? "chat,chat-two" : "web,web-two",
+      );
+      expect(document.activeElement).toBe(rail());
       expect(
-        hiddenDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
+        container
+          .querySelector(`[data-workspace-surface="${open}"]`)!
+          .getAttribute("data-focused"),
+      ).toBe("true");
+      await act(async () => rail()!.click());
+      expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
+      expect(rail()).toBeNull();
+      expect(
+        collapsedDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
       ).toBe(false);
-      expect(hiddenDraft.value).toBe("Unsent content remains here");
+      expect(collapsedDraft.value).toBe("Unsent content remains here");
       expect(
         container.querySelector<HTMLElement>(
-          `[data-workspace-surface="${hidden}"]`,
+          `[data-workspace-surface="${collapsed}"]`,
         )!.style.width,
       ).toBe(`calc(${width} - 0.5px)`);
     },
   );
 
-  it("restores a hidden group when a task is explicitly selected elsewhere", async () => {
-    await act(async () => button("Hide left pane").click());
+  it("opens a collapsed pane when one of its tabs is selected elsewhere", async () => {
+    await act(async () => button("Collapse left pane").click());
     expect(tabIds()).not.toContain("chat-two");
     await act(async () => selectExternal("chat-two"));
     expect(tabIds().sort()).toEqual(["chat", "chat-two", "web", "web-two"]);
@@ -151,14 +169,11 @@ describe("workspace pane minimization and visible tab headers", () => {
       ].map((tab) => tab.dataset.surfaceTabId),
     ).toEqual(["chat", "chat-two"]);
     expect(
-      container.querySelector('[data-workspace-header="chat-two"]'),
-    ).not.toBeNull();
-    expect(
       container
         .querySelector('[data-workspace-surface="chat-two"]')!
         .getAttribute("data-focused"),
     ).toBe("true");
-    expect(container.querySelector(".workspace-pane-restore")).toBeNull();
+    expect(rail()).toBeNull();
   });
 });
 

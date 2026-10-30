@@ -60,7 +60,7 @@ export function paneMinimizeControls(
   return controls;
 }
 
-/** "Hide left pane", "Hide lower pane", … */
+/** "Collapse left pane", "Collapse lower pane", … */
 export function paneMinimizeLabel({ sash, side }: PaneMinimize): string {
   const before = side === "before";
   const direction =
@@ -71,7 +71,7 @@ export function paneMinimizeLabel({ sash, side }: PaneMinimize): string {
       : before
         ? "upper"
         : "lower";
-  return `Hide ${direction} pane`;
+  return `Collapse ${direction} pane`;
 }
 
 export function paneMinimizeKey({ sash, side }: PaneMinimize): string {
