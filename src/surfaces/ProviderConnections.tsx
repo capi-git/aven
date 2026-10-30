@@ -133,6 +133,37 @@ function turnedOffWhere(entries: McpEntry[]): string {
   return claude ? "for Claude in this project" : "in Codex";
 }
 
+/**
+ * Turns each entry off or on in turn, returning the agents' notes. When one
+ * fails after others changed, the error says what did change, as Remove's
+ * does.
+ */
+async function setEachEnabled(
+  entries: McpEntry[],
+  folder: string,
+  enabled: boolean,
+  name: string,
+): Promise<string[]> {
+  const notes: string[] = [];
+  const done: McpEntry[] = [];
+  for (const entry of entries) {
+    try {
+      const result = await setServerEnabled(entry, folder, enabled);
+      if (result?.note) notes.push(result.note);
+      done.push(entry);
+    } catch (error) {
+      if (!done.length) throw error;
+      const where = enabled
+        ? `in ${joinAnd(done.map(entryLabel))}`
+        : turnedOffWhere(done);
+      throw new Error(
+        `Turned ${enabled ? "on" : "off"} ${name} ${where}, but ${entryLabel(entry)} failed: ${errorText(error)}`,
+      );
+    }
+  }
+  return notes;
+}
+
 const BUSY_LABEL: Record<McpAction["kind"], string> = {
   "sign-in": "Signing in…",
   remove: "Removing…",
@@ -335,11 +366,12 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         void run(
           label,
           async () => {
-            const notes: string[] = [];
-            for (const entry of switchable) {
-              const result = await setServerEnabled(entry, folder, false);
-              if (result?.note) notes.push(result.note);
-            }
+            const notes = await setEachEnabled(
+              switchable,
+              folder,
+              false,
+              row.name,
+            );
             if (tucked.length) setMcpHidden(ids(tucked), true);
             return [
               `Turned off ${row.name} ${turnedOffWhere(switchable)}.`,
@@ -365,11 +397,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         void run(
           label,
           async () => {
-            const notes: string[] = [];
-            for (const entry of off) {
-              const result = await setServerEnabled(entry, folder, true);
-              if (result?.note) notes.push(result.note);
-            }
+            const notes = await setEachEnabled(off, folder, true, row.name);
             return [`Turned on ${row.name}.`, ...notes].join(" ");
           },
           providersOf(off),

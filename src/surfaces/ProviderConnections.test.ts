@@ -289,6 +289,32 @@ describe("MCP servers page", () => {
     expect(notice()).toBe("Turned on rea.");
   });
 
+  it("says what changed when one agent turns a server off and the other fails", async () => {
+    setCodex.mockRejectedValue(new Error("The file changed. Try again."));
+    await mount();
+    await click(button("Turn off rea"));
+    expect(setClaude).toHaveBeenCalledWith(expect.any(String), "rea", false);
+    expect(notice()).toBe(
+      "Turned off rea for Claude in this project, but Codex (Personal) failed: The file changed. Try again.",
+    );
+
+    // And back on: the same, the other way.
+    const off = (rows: ProviderConnection[]) =>
+      rows.map((row) =>
+        row.key === "rea"
+          ? { ...row, state: "off" as const, toolCount: undefined }
+          : row,
+      );
+    claude.mockResolvedValue(off(structuredClone(CLAUDE_ROWS)));
+    codex.mockResolvedValue(off(structuredClone(CODEX_ROWS)));
+    await click(button("Check again"));
+    await click(button("Turned off 1"));
+    await click(button("Turn on rea"));
+    expect(notice()).toBe(
+      "Turned on rea in Claude (Personal), but Codex (Personal) failed: The file changed. Try again.",
+    );
+  });
+
   it("offers the other actions from the row's menu", async () => {
     await mount();
     await click(button("More for scape"));
