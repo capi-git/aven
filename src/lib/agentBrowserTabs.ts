@@ -1,3 +1,4 @@
+import { leafIds, type LayoutNode } from "./layout";
 import {
   browserIdForTab,
   normalizeBrowserWorkspace,
@@ -24,10 +25,15 @@ export type AgentBrowserTab = {
   agentName?: string;
   detached: boolean;
   onScreen: boolean;
+  /**
+   * The window remembers the tab but does not show its project (it is open
+   * in another window): listed only if this window has a page for it.
+   */
+  elsewhere?: true;
 };
 
 /** What the native `tabs` request receives for each tab. */
-export type AgentTabRecord = AgentBrowserTab & {
+export type AgentTabRecord = Omit<AgentBrowserTab, "elsewhere"> & {
   nativeId?: string;
   asleep: boolean;
   /** In the asking chat's own project scope (its page grant). */
@@ -40,18 +46,25 @@ export function agentBrowserTabs({
   onScreen,
   projectName,
   chatName,
+  shown,
 }: {
   workspaces: Readonly<Record<string, BrowserWorkspace | undefined>>;
   detached: ReadonlySet<string>;
   onScreen: ReadonlySet<string>;
   projectName: (project: string) => string;
   chatName: (sessionId: string) => string | undefined;
+  /**
+   * Whether this window shows the project: every window remembers every
+   * project's tabs, but another window's are only copies here.
+   */
+  shown?: (project: string) => boolean;
 }): AgentBrowserTab[] {
   return Object.entries(workspaces).flatMap(([project, saved]) => {
     if (!saved) return [];
     const workspace = normalizeBrowserWorkspace(saved);
     if (!workspace.open) return [];
     const name = projectName(project);
+    const here = shown?.(project) ?? true;
     return workspace.tabs.flatMap((tab) => {
       if (!tab.url) return [];
       const surfaceId = browserIdForTab(project, tab.id);
@@ -67,6 +80,9 @@ export function agentBrowserTabs({
           ...(agentName ? { agentName } : {}),
           detached: detached.has(surfaceId),
           onScreen: onScreen.has(surfaceId),
+          ...(here || detached.has(surfaceId)
+            ? {}
+            : { elsewhere: true as const }),
         },
       ];
     });
@@ -74,21 +90,48 @@ export function agentBrowserTabs({
 }
 
 /**
+ * The projects whose browser tabs a window shows: the project in front and
+ * those of the chats in its workspace tabs.
+ */
+export function shownBrowserProjects(
+  current: string,
+  tabs: readonly { layout: LayoutNode }[],
+  sessions: readonly { id: string; cwd: string }[],
+): Set<string> {
+  const chats = new Set(tabs.flatMap((tab) => leafIds(tab.layout)));
+  return new Set([
+    current,
+    ...sessions.flatMap((session) =>
+      chats.has(session.id) ? [session.cwd] : [],
+    ),
+  ]);
+}
+
+/**
  * The window's tabs for one asking chat: which have a live page (the rest
- * are asleep or were never shown), and which are in that chat's scope.
+ * are asleep or were never shown), and which are in that chat's scope. A
+ * tab of a project this window does not show is left out unless the window
+ * has a page for it, so a tab another window shows (or closed) is never
+ * listed, or loaded again, as this window's.
  */
 export function agentTabRecords(
   tabs: readonly AgentBrowserTab[],
   nativeId: (surfaceId: string) => string | undefined,
   scope: ReadonlySet<string>,
 ): AgentTabRecord[] {
-  return tabs.slice(0, 500).map((tab) => {
-    const id = nativeId(tab.surfaceId);
-    return {
-      ...tab,
-      ...(id ? { nativeId: id } : {}),
-      asleep: !id,
-      scope: scope.has(tab.surfaceId),
-    };
-  });
+  return tabs
+    .flatMap(({ elsewhere, ...tab }) => {
+      const id = nativeId(tab.surfaceId);
+      const inScope = scope.has(tab.surfaceId);
+      if (elsewhere && !id && !inScope) return [];
+      return [
+        {
+          ...tab,
+          ...(id ? { nativeId: id } : {}),
+          asleep: !id,
+          scope: inScope,
+        },
+      ];
+    })
+    .slice(0, 500);
 }

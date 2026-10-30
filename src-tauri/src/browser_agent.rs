@@ -2528,9 +2528,30 @@ fn tab_listing(
             {
                 entry["loading"] = Value::Bool(true);
             }
-            entries.push((!(chat_window && tab.scope), !tab.on_screen, entry));
+            // Where several windows hold one tab, the copy with a live page
+            // (then the one on screen, then the chat's own window's) stands
+            // for it.
+            let preference = (state.is_some(), tab.on_screen, chat_window && tab.scope);
+            entries.push((
+                tab.surface_id,
+                preference,
+                (!(chat_window && tab.scope), !tab.on_screen, entry),
+            ));
         }
     }
+    let mut best: HashMap<String, (usize, (bool, bool, bool))> = HashMap::new();
+    for (index, (surface, preference, _)) in entries.iter().enumerate() {
+        let current = best.entry(surface.clone()).or_insert((index, *preference));
+        if *preference > current.1 {
+            *current = (index, *preference);
+        }
+    }
+    let mut entries: Vec<_> = entries
+        .into_iter()
+        .enumerate()
+        .filter(|(index, (surface, _, _))| best.get(surface).is_some_and(|(kept, _)| kept == index))
+        .map(|(_, (_, _, entry))| entry)
+        .collect();
     entries.sort_by_key(|(other, hidden, _)| (*other, *hidden));
     // At most 200 tabs, and only as many as fit the reply.
     let mut room = TABS_REPLY_BYTES;
@@ -5082,6 +5103,37 @@ mod tests {
             .collect();
         assert_eq!(ids, [B, A]);
         assert!(off["note"].as_str().unwrap().starts_with(TABS_OFF_NOTE));
+    }
+
+    #[test]
+    fn a_tab_two_windows_hold_is_listed_once_by_the_copy_with_a_page() {
+        // Both windows keep the same project's tabs: the main window shows
+        // the Inbox, Window 2 only remembers it.
+        let lists = vec![
+            (
+                "window-1".to_owned(),
+                vec![record(C, "notes", json!({})), record(D, "notes", json!({}))],
+            ),
+            (
+                "main".to_owned(),
+                vec![
+                    record(C, "notes", json!({"nativeId":"native-inbox"})),
+                    record(D, "notes", json!({})),
+                ],
+            ),
+        ];
+        let live = |window: &str, native: &str| {
+            (window == "main" && native == "native-inbox").then(|| json!({"title":"Inbox"}))
+        };
+        let listed = tab_listing(&chat(true), lists, &[], live);
+        let tabs = listed["tabs"].as_array().unwrap();
+        let ids: Vec<&str> = tabs.iter().map(|tab| tab["id"].as_str().unwrap()).collect();
+        // The live copy stands for the Inbox; a tab neither window has a
+        // page for is listed once, from the first window that answered.
+        assert_eq!(ids, [format!("w1-{D}"), C.to_owned()]);
+        assert_eq!(tabs[0]["asleep"], true);
+        assert_eq!(tabs[1]["title"], "Inbox");
+        assert!(tabs[1].get("asleep").is_none());
     }
 
     #[test]

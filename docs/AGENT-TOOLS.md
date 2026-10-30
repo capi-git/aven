@@ -108,7 +108,10 @@ and `{"action":"export","id":"TAB_ID","to":"/absolute/folder","name":"article","
   is: the asking chat's own page ("yours"), "the user's", or "another chat's"
   (named). It says when a tab is asleep or on screen. The id stays the same
   while a tab sleeps and wakes (`browser-…`; a second Aven window's tabs start
-  `w1-…`). The asking chat's project comes first.
+  `w1-…`). The asking chat's project comes first. Each window lists the
+  projects it shows (the one in front and its chats'), plus any other tab it
+  has a page for; a tab two windows hold is listed once, by the window with
+  its page.
 - `read` returns the page's main content as Markdown, without the site's
   menus, sidebars and footers: headings, paragraphs with bold, italic, code
   and links, lists, to-dos, toggles, callouts, quotes, code blocks with their

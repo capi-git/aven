@@ -123,7 +123,7 @@ import {
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import { projectDisplayName } from "./hooks/useProjectLabels";
-import { agentBrowserTabs } from "./lib/agentBrowserTabs";
+import { agentBrowserTabs, shownBrowserProjects } from "./lib/agentBrowserTabs";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import {
@@ -1466,6 +1466,11 @@ export default function App({
         tabs() {
           const sessions = sessionsRef.current;
           const labels = loadTabGroupLabels();
+          const shown = shownBrowserProjects(
+            projectCwdRef.current,
+            tabsRef.current,
+            sessions,
+          );
           return agentBrowserTabs({
             workspaces: browserWorkspacesRef.current,
             detached: detachedIdsRef.current,
@@ -1481,6 +1486,7 @@ export default function App({
               const agent = HARNESS_TITLE[session.harness];
               return title ? `${agent} · ${title}` : agent;
             },
+            shown: (project) => shown.has(project),
           });
         },
         reach(surfaceId) {
