@@ -1270,7 +1270,7 @@ export default function App({
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
   const [crewSheet, setCrewSheet] = useState<string | null>(null);
   /** The page the crew's settings open at: its member gallery, or its own. */
-  const [crewSheetPage, setCrewSheetPage] = useState<"add" | undefined>();
+  const [crewSheetPage, setCrewSheetPage] = useState<string | undefined>();
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(

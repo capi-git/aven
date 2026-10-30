@@ -2,6 +2,7 @@ import type { AutomationReview } from "./automationReview";
 import {
   CREW_ROLE_INFO,
   securityReviewBy,
+  stackedCards,
   type Crew,
   type CrewCard,
 } from "./crews";
@@ -109,9 +110,37 @@ export function openCrewInboxItems(
   crews: Readonly<Record<string, Crew>>,
 ): CrewInboxItem[] {
   const items: CrewInboxItem[] = [];
-  for (const [key, crew] of Object.entries(crews))
+  for (const [key, crew] of Object.entries(crews)) {
+    // The cards on the crew's branch are one batch: one Inbox card, whose
+    // Apply lands them all as one change.
+    const batch = stackedCards(crew).filter(
+      (card) => card.inbox?.status === "open",
+    );
+    const top = batch.at(-1);
+    if (top?.inbox)
+      items.push({
+        key: `crew:${key}:batch`,
+        project: crew.path,
+        card: top,
+        review: {
+          ...top.inbox,
+          title:
+            batch.length === 1
+              ? top.title
+              : `${batch.length} cards ready on the crew's branch`.slice(
+                  0,
+                  120,
+                ),
+          summary: (batch.length === 1
+            ? top.inbox.summary
+            : `${batch.map((card) => card.title).join(" · ")} · each checked on its own; Apply lands them together`
+          ).slice(0, 600),
+          postedAt: Math.max(...batch.map((card) => card.inbox!.postedAt)),
+        },
+      });
     for (const card of crew.cards)
       if (
+        !card.stacked &&
         card.inbox?.status === "open" &&
         (card.stage === "ready" || card.stage === "stuck")
       )
@@ -121,5 +150,6 @@ export function openCrewInboxItems(
           card,
           review: card.inbox,
         });
+  }
   return items.sort((a, b) => b.review.postedAt - a.review.postedAt);
 }

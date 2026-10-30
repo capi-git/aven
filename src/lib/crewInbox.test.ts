@@ -7,7 +7,7 @@ import {
   withInboxResolved,
 } from "./crewInbox";
 import { queueCard, startCard } from "./crewLoop";
-import { newCrew, withCard, type CrewCard } from "./crews";
+import { newCrew, withCard, type Crew, type CrewCard } from "./crews";
 
 function card(patch: Partial<CrewCard>): CrewCard {
   return {
@@ -103,5 +103,35 @@ describe("crew cards in the Inbox", () => {
     // A card picked up again leaves the Inbox even before it's resolved.
     crew = withCard(crew, { ...crew.cards[0], stage: "building" });
     expect(openCrewInboxItems({ k: crew })).toEqual([]);
+  });
+
+  it("shows the cards on the crew's branch as one batch to apply", () => {
+    let crew: Crew = {
+      ...newCrew("/Users/me/aven-site"),
+      stack: { base: "a".repeat(40) },
+    };
+    const one = card({ id: "a", title: "Timer", stage: "ready" });
+    const two = card({ id: "b", title: "Settings", stage: "ready" });
+    crew = withCard(crew, {
+      ...one,
+      inbox: crewInboxCard(one, 5),
+      stacked: { commit: "1".repeat(40), parent: "a".repeat(40) },
+    });
+    crew = withCard(crew, {
+      ...two,
+      inbox: crewInboxCard(two, 9),
+      stacked: { commit: "2".repeat(40), parent: "1".repeat(40) },
+    });
+    const items = openCrewInboxItems({ k: crew });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "crew:k:batch",
+      card: { id: "b" },
+      review: {
+        title: "2 cards ready on the crew's branch",
+        postedAt: 9,
+      },
+    });
+    expect(items[0].review.summary).toContain("Timer · Settings");
   });
 });

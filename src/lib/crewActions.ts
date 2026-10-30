@@ -1592,9 +1592,9 @@ export type CrewWorkspace = {
   openCrew: (path: string) => void;
   /**
    * Open the crew's settings (turning it on, when it is off); with "add",
-   * at its gallery of members to add.
+   * at its gallery of members to add, or with a member's id, at that member.
    */
-  openSettings: (path: string, page?: "add") => void;
+  openSettings: (path: string, page?: string) => void;
   /** Stop a chat's turn, and wait until it has. */
   stop: (sessionId: string) => Promise<void>;
 };

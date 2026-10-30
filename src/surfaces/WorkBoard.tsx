@@ -61,6 +61,7 @@ import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
 import { findModel } from "../lib/models";
 import { CrewGiveChooser } from "./CrewGiveChooser";
+import { CrewPipeline } from "./CrewPipeline";
 import {
   applyCrewCard,
   crewDeleteNote,
@@ -77,7 +78,6 @@ import { crewCard, crewMemberName, useCrew, type Crew } from "../lib/crews";
 import {
   crewBoardColumns,
   crewCardMenu,
-  crewMemberViews,
   type CrewBoardActionId,
 } from "../lib/crewView";
 import {
@@ -87,16 +87,7 @@ import {
   runsToday,
   useProjectBot,
 } from "../lib/projectBots";
-import {
-  CrewAnswerBox,
-  CrewCardFace,
-  CrewFeed,
-  CrewHeader,
-  CrewHoldLine,
-  CrewIdleLine,
-  CrewReadySheet,
-  CrewStrip,
-} from "./CrewBoard";
+import { CrewAnswerBox, CrewCardFace, CrewReadySheet } from "./CrewBoard";
 // The frame brings the board's styles, loaded with the workspace.
 import { WorkBoardHeading } from "./WorkBoardFrame";
 
@@ -452,31 +443,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       aria-busy={loading || undefined}
       aria-label={`${projectDisplayName(project, labels)} ${crew ? "crew" : "board"}`}
     >
-      {crew ? (
-        <>
-          <CrewHeader crew={crew} now={now} fixerRuns={fixer?.runs ?? 0} />
-          <CrewHoldLine crew={crew} now={now} fixerRuns={fixer?.runs ?? 0} />
-          <CrewIdleLine crew={crew} />
-          <CrewStrip
-            path={project}
-            members={crewMemberViews(crew, {
-              name: crewName,
-              ...(fixer
-                ? {
-                    fixer: {
-                      status: fixer.status,
-                      ...(fixer.sessionId
-                        ? { sessionId: fixer.sessionId }
-                        : {}),
-                    },
-                  }
-                : {}),
-            })}
-          />
-        </>
-      ) : (
-        <WorkBoardHeading project={project} line={today} />
-      )}
+      {crew ? null : <WorkBoardHeading project={project} line={today} />}
       {error ? (
         <p className="work-board-error" role="alert">
           {error}
@@ -485,86 +452,122 @@ export const WorkBoardView = memo(function WorkBoardView({
       {outside.length && !loading ? (
         <OutsideLine project={project} outside={outside} />
       ) : null}
-      <div className="work-board-columns">
-        {BOARD_COLUMNS.map((column) => {
-          const cards = columns[column.id];
-          const older = column.id === "shipped" ? olderShipped : 0;
-          const ideas = column.id === "idea";
-          return (
-            <section
-              key={column.id}
-              className="work-board-column"
-              data-board-column={column.id}
-              aria-label={column.title}
-            >
-              <h2 className="work-board-column-title">
-                <span>{column.title}</span>
-                <span className="work-board-count">{cards.length}</span>
-                {ideas && !loading ? (
-                  <BoardIssueImport project={project} visible={live} />
+      {crew ? (
+        <CrewPipeline
+          project={project}
+          crew={crew}
+          columns={columns}
+          now={now}
+          fixerRuns={fixer?.runs ?? 0}
+          name={crewName}
+          answering={answering}
+          onAnswerDone={() => setAnswering(null)}
+          problems={crewProblems}
+          editing={editing}
+          onCrewAction={crewAction}
+          onMenu={openMenu}
+          onChoose={(cardId, anchor) =>
+            setChoosing((open) =>
+              open?.cardId === cardId ? null : { cardId, anchor },
+            )
+          }
+          boardButtons={(card, actions) =>
+            actions.map((action) => (
+              <BoardButton
+                key={action.kind}
+                primary={PRIMARY.has(action.kind)}
+                onClick={() => runAction(project, card, action)}
+              >
+                {boardActionLabel(action)}
+              </BoardButton>
+            ))
+          }
+          editor={(card) => (
+            <CardEditor project={project} card={card} onDone={stopEditing} />
+          )}
+          addIdea={loading ? null : <AddIdea project={project} />}
+        />
+      ) : (
+        <div className="work-board-columns">
+          {BOARD_COLUMNS.map((column) => {
+            const cards = columns[column.id];
+            const older = column.id === "shipped" ? olderShipped : 0;
+            const ideas = column.id === "idea";
+            return (
+              <section
+                key={column.id}
+                className="work-board-column"
+                data-board-column={column.id}
+                aria-label={column.title}
+              >
+                <h2 className="work-board-column-title">
+                  <span>{column.title}</span>
+                  <span className="work-board-count">{cards.length}</span>
+                  {ideas && !loading ? (
+                    <BoardIssueImport project={project} visible={live} />
+                  ) : null}
+                </h2>
+                {cards.length ? (
+                  <ul className="work-board-list" role="list">
+                    {cards.map((card) => (
+                      <li key={card.id} className="work-board-item">
+                        <BoardCardView
+                          project={project}
+                          card={card}
+                          live={live}
+                          now={now}
+                          editing={editing === card.id}
+                          menuOpen={menu?.cardId === card.id}
+                          answering={answering === card.id}
+                          crewProblem={crewProblems[card.id]}
+                          onMenu={openMenu}
+                          onEdit={setEditing}
+                          onEditDone={stopEditing}
+                          onAnswerDone={() => setAnswering(null)}
+                          onCrewAction={crew ? crewAction : undefined}
+                          onCrewChoose={
+                            crew
+                              ? (cardId, anchor) =>
+                                  setChoosing((open) =>
+                                    open?.cardId === cardId
+                                      ? null
+                                      : { cardId, anchor },
+                                  )
+                              : undefined
+                          }
+                          choosing={choosing?.cardId === card.id}
+                          onPointerDown={startDrag}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p
+                    className="work-board-empty"
+                    data-invite={(ideas && empty && !loading) || undefined}
+                  >
+                    {loading
+                      ? "Loading…"
+                      : ideas && empty
+                        ? BOARD_EMPTY_INVITATION
+                        : column.empty}
+                  </p>
+                )}
+                {older || (column.id === "shipped" && showOlder) ? (
+                  <button
+                    type="button"
+                    className="work-board-older"
+                    onClick={onShowOlder}
+                  >
+                    {showOlder ? "Show this week only" : `${older} older`}
+                  </button>
                 ) : null}
-              </h2>
-              {cards.length ? (
-                <ul className="work-board-list" role="list">
-                  {cards.map((card) => (
-                    <li key={card.id} className="work-board-item">
-                      <BoardCardView
-                        project={project}
-                        card={card}
-                        live={live}
-                        now={now}
-                        editing={editing === card.id}
-                        menuOpen={menu?.cardId === card.id}
-                        answering={answering === card.id}
-                        crewProblem={crewProblems[card.id]}
-                        onMenu={openMenu}
-                        onEdit={setEditing}
-                        onEditDone={stopEditing}
-                        onAnswerDone={() => setAnswering(null)}
-                        onCrewAction={crew ? crewAction : undefined}
-                        onCrewChoose={
-                          crew
-                            ? (cardId, anchor) =>
-                                setChoosing((open) =>
-                                  open?.cardId === cardId
-                                    ? null
-                                    : { cardId, anchor },
-                                )
-                            : undefined
-                        }
-                        choosing={choosing?.cardId === card.id}
-                        onPointerDown={startDrag}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p
-                  className="work-board-empty"
-                  data-invite={(ideas && empty && !loading) || undefined}
-                >
-                  {loading
-                    ? "Loading…"
-                    : ideas && empty
-                      ? BOARD_EMPTY_INVITATION
-                      : column.empty}
-                </p>
-              )}
-              {older || (column.id === "shipped" && showOlder) ? (
-                <button
-                  type="button"
-                  className="work-board-older"
-                  onClick={onShowOlder}
-                >
-                  {showOlder ? "Show this week only" : `${older} older`}
-                </button>
-              ) : null}
-              {ideas && !loading ? <AddIdea project={project} /> : null}
-            </section>
-          );
-        })}
-        {crew ? <CrewFeed crew={crew} name={crewName} /> : null}
-      </div>
+                {ideas && !loading ? <AddIdea project={project} /> : null}
+              </section>
+            );
+          })}
+        </div>
+      )}
       {crew && choosing && cardById(choosing.cardId) ? (
         <CrewGiveChooser
           crew={crew}
@@ -745,6 +748,12 @@ const ACTION_LABEL: Record<BoardAction["kind"], string> = {
   pr: "Open pull request",
 };
 
+function boardActionLabel(action: BoardAction): string {
+  return action.kind === "pr"
+    ? `Open PR #${action.number}`
+    : ACTION_LABEL[action.kind];
+}
+
 /** The action a card leads with. */
 const PRIMARY = new Set<BoardAction["kind"]>([
   "build",
@@ -832,10 +841,7 @@ const BoardCardView = memo(function BoardCardView({
     cardId: string,
   ) => void;
 }) {
-  const label = (action: BoardAction) =>
-    action.kind === "pr"
-      ? `Open PR #${action.number}`
-      : ACTION_LABEL[action.kind];
+  const label = boardActionLabel;
   const crew = onCrewAction ? card.crew : undefined;
   // A crew card in the loop or Ready opens what it is: the holder's chat,
   // or the Ready card. Otherwise, as any card.

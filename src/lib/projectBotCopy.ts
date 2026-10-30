@@ -104,8 +104,8 @@ export const botCopyHost = {
 
 /** The host refused a restack: the user's files changed where the crew worked. */
 export function isRestackConflict(error: unknown): boolean {
-  return /^Your files changed where the crew worked/.test(
-    String(error instanceof Error ? error.message : error),
+  return String(error instanceof Error ? error.message : error).startsWith(
+    "Your files changed where the crew worked",
   );
 }
 

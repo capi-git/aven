@@ -1,0 +1,453 @@
+/* The crew's Pipeline: one header, the task box, cards as rows with their
+   path through Build, Check, Security and You, and a quiet footer. Dark and
+   grey; colour only for a small status (a card that waits on you). */
+.crew-pipe {
+  --crew-pipe-faint: color-mix(in srgb, var(--color-content) 40%, transparent);
+  --crew-pipe-line-strong: color-mix(
+    in srgb,
+    var(--color-content) 15%,
+    transparent
+  );
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 6px 10px 24px;
+}
+
+/* Header: marks, name, one sentence, Pause and ⋯. */
+.crew-pipe-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.crew-pipe-marks {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.crew-pipe-mark {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.crew-pipe-mark:hover,
+.crew-pipe-mark:focus-visible {
+  background: var(--aven-hover);
+}
+
+.crew-pipe-mark-dots {
+  width: 18px;
+  height: 18px;
+}
+
+.crew-pipe-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.crew-pipe-heading h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.crew-pipe-sentence {
+  margin: 2px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body, 13px);
+}
+
+.crew-pipe-sentence b {
+  color: var(--color-content);
+  font-weight: 600;
+}
+
+.crew-pipe-goal {
+  margin: 3px 0 0;
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+}
+
+.crew-pipe-goal-word {
+  color: var(--aven-muted);
+  font-weight: 600;
+}
+
+.crew-pipe-goal .crew-pipe-link {
+  margin-left: 8px;
+}
+
+.crew-pipe-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.crew-pipe-link {
+  padding: 0;
+  color: var(--color-content);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--aven-line);
+  text-underline-offset: 2px;
+}
+
+.crew-pipe-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.crew-pipe-link:disabled {
+  opacity: 0.5;
+}
+
+/* What should the crew build next? */
+.crew-pipe-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 7px 8px 7px 14px;
+  border: 1px solid var(--crew-pipe-line-strong);
+  border-radius: 12px;
+  background: var(--aven-raised);
+}
+
+.crew-pipe-ask:focus-within {
+  border-color: color-mix(in srgb, var(--color-content) 26%, transparent);
+}
+
+.crew-pipe-ask-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font-size: 14px;
+  outline: none;
+}
+
+.crew-pipe-ask-input::placeholder {
+  color: var(--crew-pipe-faint);
+}
+
+.crew-pipe-ask-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+}
+
+.crew-pipe-ask-mode:hover,
+.crew-pipe-ask-mode[aria-expanded="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.crew-pipe-ask-mode:not([data-mode="card"]) {
+  color: var(--color-content);
+}
+
+.crew-pipe-ask-send {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.crew-pipe-ask-send:disabled {
+  color: var(--crew-pipe-faint);
+}
+
+/* Groups and rows. */
+.crew-pipe-label {
+  margin: 20px 0 2px;
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-micro, 11px);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.crew-pipe-row {
+  display: grid;
+  /* A fixed column for buttons keeps every row's path in line. */
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 216px;
+  gap: 8px 18px;
+  align-items: center;
+  padding: 13px 0;
+  border-top: 1px solid var(--aven-line);
+}
+
+.crew-pipe-label + .crew-pipe-row {
+  border-top: 0;
+}
+
+.crew-pipe-row > :nth-child(n + 4) {
+  grid-column: 1 / -1;
+}
+
+.crew-pipe-row-name {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.crew-pipe-row-title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-pipe-row-status {
+  overflow: hidden;
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-pipe-row[data-needs-you] .crew-pipe-row-status {
+  color: var(--aven-needs-you);
+}
+
+.crew-pipe-bar {
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+
+.crew-pipe-bar i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--color-content) 88%, transparent);
+  transition: width 400ms ease;
+}
+
+.crew-pipe-steps {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.crew-pipe-step {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid var(--aven-line);
+  border-radius: 8px;
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+  white-space: nowrap;
+}
+
+.crew-pipe-step[data-state="done"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  color: var(--aven-muted);
+}
+
+.crew-pipe-step[data-state="now"] {
+  border-color: var(--crew-pipe-line-strong);
+  background: var(--aven-raised);
+  color: var(--color-content);
+}
+
+.crew-pipe-step[data-state="stuck"] {
+  border-color: var(--aven-needs-you-edge);
+  color: var(--color-content);
+}
+
+.crew-pipe-step[data-state="skip"] {
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+.crew-pipe-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crew-pipe-tick {
+  color: var(--aven-muted);
+}
+
+.crew-pipe-step-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* You: the step that waits for your Apply. */
+.crew-pipe-you {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-content);
+}
+
+.crew-pipe-nosteps {
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+}
+
+.crew-pipe-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.crew-pipe-more {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--aven-muted);
+}
+
+.crew-pipe-more:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.crew-pipe-problem {
+  margin: 8px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* Add an idea: its words line up with the rows' names. */
+.crew-pipe-group .work-board-add {
+  margin: 6px 0 0 -10px;
+}
+
+/* Footer: shipped this week, Activity, the limits. */
+.crew-pipe-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--aven-line);
+  color: var(--crew-pipe-faint);
+  font-size: var(--text-ui-label);
+}
+
+.crew-pipe-shipped {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-pipe-activity {
+  padding: 0;
+  color: var(--aven-muted);
+  font: inherit;
+}
+
+.crew-pipe-activity:hover {
+  color: var(--color-content);
+}
+
+/* Activity: the full Feed, in a sheet. */
+.crew-activity .crew-feed {
+  min-height: 0;
+  max-height: none;
+  padding: 0 16px 12px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.crew-activity .crew-feed > .work-board-column-title {
+  display: none;
+}
+
+.crew-activity .crew-feed-scroll {
+  max-height: min(64vh, 640px);
+}
+
+/* The batch's Review: each card, and Apply up to one of them. */
+.crew-batch-cards {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crew-batch-cards li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--aven-line);
+  opacity: 0.55;
+}
+
+.crew-batch-cards li:first-child {
+  border-top: 0;
+}
+
+.crew-batch-cards li[data-included] {
+  opacity: 1;
+}
+
+.crew-batch-card {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.crew-batch-meta {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* Narrow: a row's path sits under its name. */
+@container (max-width: 720px) {
+  .crew-pipe-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .crew-pipe-row > .crew-pipe-steps,
+  .crew-pipe-row > .crew-pipe-nosteps {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .crew-pipe-head {
+    flex-wrap: wrap;
+  }
+}
