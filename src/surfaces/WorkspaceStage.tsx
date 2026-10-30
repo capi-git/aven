@@ -1390,6 +1390,22 @@ export function WorkspaceStage({
   // timeline WebKit holds back under a native page never leaves a preview,
   // a clip or a fading pane on screen. Unmounting stops them all.
   const stageMotions = useRef(new Set<BoundedMotion>());
+  // A glide or slide moves a pane by a transform: no size changes and no
+  // layout event follows when it ends. A native page placed while it ran
+  // (a held page let go before a held-back timeline caught up, a page
+  // coming in under a slide) would stay where the transform had it, so
+  // pages are told to take their final bounds once the stage's motions end.
+  const settleQueued = useRef(false);
+  const motionSettled = () => {
+    if (settleQueued.current) return;
+    settleQueued.current = true;
+    queueMicrotask(() => {
+      settleQueued.current = false;
+      stage.current?.dispatchEvent(
+        new Event("supermono:workspace-layout", { bubbles: true }),
+      );
+    });
+  };
   const play = (
     element: Element,
     keyframes: Keyframe[],
@@ -1403,6 +1419,7 @@ export function WorkspaceStage({
       options,
       () => {
         motions.delete(motion);
+        if (!motions.size) motionSettled();
         onEnd?.();
       },
     );
