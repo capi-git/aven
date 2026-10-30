@@ -52,14 +52,21 @@ define_class!(
             }
             let action = BAR.with(|slot| slot.borrow().as_ref().and_then(|bar| bound_action(&bar.actions, bar.button_base, sender.tag()).cloned()));
             if let Some(action) = action {
+                // Pausing or stopping a chat's use of tabs leaves desktop
+                // control, and its pointer, as they are.
+                let tabs_only = matches!(action, ButtonAction::PauseTabs | ButtonAction::StopTabs(_));
                 presence::with(|state| match action {
                     ButtonAction::Pause => state.pause(presence::Pause::ByUser),
+                    ButtonAction::PauseTabs => state.pause_tabs(Instant::now()),
                     ButtonAction::Resume => state.resume(),
                     ButtonAction::Stop(scope) => state.stop(&scope, Instant::now()),
+                    ButtonAction::StopTabs(scope) => state.stop_tabs(&scope, Instant::now()),
                     ButtonAction::Allow(id) => { state.answer(id, true); },
                     ButtonAction::Deny(id) => { state.answer(id, false); },
                 });
-                agent_cursor::clear_scope(None);
+                if !tabs_only {
+                    agent_cursor::clear_scope(None);
+                }
                 changed();
             }
         }

@@ -739,6 +739,7 @@ pub fn browser_agent_bind(
     any_tab: Option<bool>,
     own_browser_ids: Option<Vec<String>>,
     work_dir: Option<String>,
+    user_typed: Option<bool>,
 ) -> Result<BrowserAgentBinding, String> {
     crate::browser::label(&caller, "agent-check")?;
     let own = own_browser_ids.unwrap_or_default();
@@ -783,6 +784,10 @@ pub fn browser_agent_bind(
         // A chat without a usable folder still browses; only export needs it.
         grant.work_dir = work_dir.filter(|folder| valid_simulator_project(folder));
         crate::desktop_control::bind_session(token, actor.as_ref())?;
+        // Only a message the user wrote ends their Stop and declines.
+        if user_typed == Some(true) {
+            crate::desktop_control::user_turn(token);
+        }
     }
     Ok(BrowserAgentBinding {
         socket_path: server.socket_path.clone(),

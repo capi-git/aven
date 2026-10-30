@@ -940,3 +940,33 @@ it.each(["codex", "claude"])(
     });
   },
 );
+
+it("ends the user's Stop and declines only on a message the user wrote", async () => {
+  const api = await import("./agentBrowser");
+  dispose = api.installAgentBrowserHost({
+    surfaces: () => [],
+    open: vi.fn(),
+  });
+  const context = {
+    sessionId: "worker",
+    cwd: "/p",
+    harness: "claude",
+    title: "Read the inbox",
+  };
+  const binds = () =>
+    mocks.invoke.mock.calls.filter(([name]) => name === "browser_agent_bind");
+  // A lead steering its worker, or a crew's card: the agent is named for
+  // the bar, but nothing the user refused is lifted.
+  await api.prepareAgentBrowserPrompt("Keep going", context, { worker: true });
+  expect(binds().at(-1)?.[1]).toMatchObject({
+    actor: { harness: "claude", title: "Read the inbox" },
+  });
+  expect(binds().at(-1)?.[1]).not.toHaveProperty("userTyped");
+  await api.prepareAgentBrowserPrompt("Read it again", context, {
+    typed: true,
+  });
+  expect(binds().at(-1)?.[1]).toMatchObject({ userTyped: true });
+  // A passive refresh never does either.
+  await api.refreshAgentBrowserScopes();
+  expect(binds().at(-1)?.[1]).not.toHaveProperty("userTyped");
+});

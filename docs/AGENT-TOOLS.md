@@ -163,11 +163,16 @@ in a tab that is not its own. These protections stay:
   what it is doing ("Reading the page"), the window and project, and the chat,
   with **Pause** and **Stop**. Several agents' uses show together without
   replacing desktop control's. It fades a few seconds after the last action.
-  Pause holds clicks and typing in tabs while reading goes on, as with desktop
-  control. Stop closes other tabs to that chat until your next message (an
-  export stops before its next image and saves nothing more, and `tabs` is
-  refused too), and stops its desktop control. While the Mac is locked, when
-  nobody could see the bar, agents may read other tabs but not act in them.
+  Pause holds that chat's reading, saving and acting in other tabs (an export
+  stops before its next image) until you press Resume or Stop or its reply
+  ends; the bar keeps naming it, and desktop control is not paused. Stop
+  closes other tabs to that chat until your next message, one you write
+  (another agent's message or a bot's card does not count): an export stops
+  before its next image and saves nothing more, and `tabs` is refused too.
+  Desktop control and its approval are left as they are. Pause or Stop on
+  desktop control's own bar also holds or closes the agents' other tabs.
+  While the Mac is locked, when nobody could see the bar, agents may read
+  other tabs but not act in them.
 
 Everything a page contains is untrusted. Tab titles and addresses, what `read`
 and `export` return, and the files `export` saves are marked as content from

@@ -7098,6 +7098,11 @@ export default function App({
          */
         prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
+        /**
+         * The user wrote this message. Only such a turn ends their Stop on
+         * the chat's use of other tabs and its declined requests.
+         */
+        typed?: boolean;
       },
     ) => {
       const controlError = orchestrator.submissionError(
@@ -7260,6 +7265,7 @@ export default function App({
                         ? { displayText: options.displayText }
                         : {}),
                       ...(options?.verbatim ? { verbatim: true } : {}),
+                      ...(options?.typed ? { typed: true } : {}),
                     },
                   ],
                   queueStatus: s.queueStatus === "paused" ? "paused" : "active",
@@ -7318,6 +7324,7 @@ export default function App({
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
+                    typed: options?.typed === true,
                   },
                 );
             await steerHarnessTurn({
@@ -7768,6 +7775,7 @@ export default function App({
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                  typed: options?.typed === true,
                 },
               );
           const turnPrompt = proposalDraft
@@ -8112,7 +8120,8 @@ export default function App({
       ) =>
         onSubmit(sessionId, text, options.attachments ?? [], {
           displayText: options.displayText,
-          ...(options.botWake ? { botWake: options.botWake } : {}),
+          // A wake-up is the bot's own; anything else is your message.
+          ...(options.botWake ? { botWake: options.botWake } : { typed: true }),
           ...(options.prepareText ? { prepareText: options.prepareText } : {}),
           userBlockId: options.blockId,
           // The bot posts its own entry: a fix, or what it said.
@@ -8123,7 +8132,7 @@ export default function App({
         sessionId: string,
         text: string,
         attachments: Attachment[],
-      ) => void onSubmit(sessionId, text, attachments),
+      ) => void onSubmit(sessionId, text, attachments, { typed: true }),
       announce: announceActivity,
       onWorking: setBotWorkingChats,
     }),
@@ -8152,7 +8161,11 @@ export default function App({
         messageBot(sessionId, text, attachments)
       )
         return;
-      return onSubmit(sessionId, text, attachments, options);
+      // The chat's own message box: the user wrote it.
+      return onSubmit(sessionId, text, attachments, {
+        ...options,
+        typed: true,
+      });
     },
     [messageBot, onSubmit],
   );

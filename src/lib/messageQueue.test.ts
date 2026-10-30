@@ -173,6 +173,21 @@ describe("busy follow-up routing", () => {
     expect(queuedSubmitOptions(saved[0])).not.toHaveProperty("verbatim");
     expect(queuedSubmitOptions(saved[0])).not.toHaveProperty("displayText");
   });
+  it("keeps whether the user wrote a queued message, so only theirs lifts a Stop", () => {
+    const yours: QueuedMessage = {
+      id: "yours",
+      text: "Read it again",
+      attachments: [],
+      typed: true,
+    };
+    expect(persistedMessageQueue([yours])).toEqual([yours]);
+    expect(queuedSubmitOptions(yours)).toMatchObject({ typed: true });
+    const agents = persistedMessageQueue([
+      { id: "lead", text: "Keep going", attachments: [], typed: "yes" },
+    ]);
+    expect(agents[0]).not.toHaveProperty("typed");
+    expect(queuedSubmitOptions(agents[0])).not.toHaveProperty("typed");
+  });
   it("queues fx even when the user prefers steering, while keeping supported steering", () => {
     registerHarness(codexAdapter);
     registerHarness(fxAdapter);
