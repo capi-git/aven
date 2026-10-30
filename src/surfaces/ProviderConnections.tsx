@@ -187,10 +187,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         .then((dir) => provider.list(dir))
         .then(
           (connections): Inventory => ({ status: "loaded", connections }),
-          (error: unknown): Inventory => ({
-            status: "error",
-            message: errorText(error),
-          }),
+          (error: unknown): Inventory =>
+            // An agent that isn't installed has nothing to fix here.
+            error instanceof connectionLists.ProviderNotInstalledError
+              ? { status: "missing" }
+              : { status: "error", message: errorText(error) },
         )
         .then((inventory) => {
           if (inventory.status === "loaded")
@@ -556,6 +557,13 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                 : "ChatGPT apps come with your Codex sign-in; manage them in ChatGPT.",
             )
             .join(" ")}
+        </p>
+      ) : null}
+      {overview.missing.length ? (
+        <p className="mcp-footnote" data-mcp-missing>
+          {`${joinAnd(overview.missing.map((agent) => MCP_AGENT_LABEL[agent]))} ${
+            overview.missing.length > 1 ? "aren’t" : "isn’t"
+          } installed.`}
         </p>
       ) : null}
     </div>

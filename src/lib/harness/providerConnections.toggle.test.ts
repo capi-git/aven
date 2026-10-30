@@ -246,10 +246,18 @@ function codexAnswer(message: { method?: string; params?: unknown }) {
   }
 }
 
+/** Whether Codex's CLI is on this Mac. */
+let codexInstalled = true;
+
 vi.mock("./child", () => ({
   acquireHarnessBridge: async () => () => undefined,
   resolveClaudeBinary: async () => ({ path: "/fake/claude" }),
-  resolveCodexBinary: async () => ({ path: "/fake/codex" }),
+  resolveCodexBinary: async () => {
+    // As harness_resolve_codex answers when the CLI isn't found.
+    if (!codexInstalled)
+      throw "Codex CLI not found. Install it from https://developers.openai.com/codex/cli and run `codex login`, then retry.";
+    return { path: "/fake/codex" };
+  },
   spawnChild: async (
     id: string,
     binary: string,
@@ -305,6 +313,7 @@ vi.mock("./child", () => ({
 const {
   listClaudeConnections,
   listCodexConnections,
+  ProviderNotInstalledError,
   setClaudeServerEnabled,
   setCodexServerEnabled,
 } = await import("./providerConnections");
@@ -315,6 +324,17 @@ beforeEach(() => {
   claudeJson = structuredClone(CLAUDE_FIXTURE);
   configToml = CODEX_FIXTURE;
   sent.length = 0;
+  codexInstalled = true;
+});
+
+describe("an agent that isn't installed", () => {
+  it("says so apart from a failure, starting nothing", async () => {
+    codexInstalled = false;
+    const listed = listCodexConnections(PROJECT);
+    await expect(listed).rejects.toBeInstanceOf(ProviderNotInstalledError);
+    await expect(listed).rejects.toThrow("Codex CLI not found");
+    expect(children.size).toBe(0);
+  });
 });
 
 describe("turning Claude Code servers off and on", () => {

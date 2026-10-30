@@ -2,7 +2,10 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProviderConnection } from "../lib/harness/providerConnections";
+import {
+  ProviderNotInstalledError,
+  type ProviderConnection,
+} from "../lib/harness/providerConnections";
 
 const invoke = vi.hoisted(() => vi.fn());
 const claude = vi.hoisted(() => vi.fn());
@@ -407,6 +410,21 @@ describe("MCP servers page", () => {
     codex.mockResolvedValue([]);
     await mount();
     expect(container.textContent).toContain("No MCP servers yet.");
+  });
+
+  it("notes quietly that Codex isn't installed, with no failure to fix", async () => {
+    codex.mockRejectedValue(
+      new ProviderNotInstalledError("Codex CLI not found."),
+    );
+    await mount();
+    expect(group("Needs you")).not.toBeUndefined();
+    expect(rowNames(group("Needs you"))).not.toContain("Codex");
+    expect(container.textContent).not.toContain("Aven couldn’t start Codex");
+    expect(container.querySelector("[data-mcp-missing]")?.textContent).toBe(
+      "Codex isn’t installed.",
+    );
+    // Claude's servers are listed as before.
+    expect(rowNames(group("Working"))).toContain("rea");
   });
 
   it("adds one server to both providers with each one's settings", async () => {
