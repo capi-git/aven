@@ -2,6 +2,7 @@ import type { Tab } from "../chrome/TitleBar";
 import type { WorkspaceSurfaceDropTarget } from "../surfaces/WorkspaceStage";
 import { leafIds, neighborLeafId, type LayoutNode } from "./layout";
 import { stepPane } from "./paneDock";
+import { stepOpenPane } from "./paneRails";
 import {
   collapseWorkspaceView,
   combineWorkspaceGroups,
@@ -222,8 +223,9 @@ export function pageShortcutOutcome(
     return next && next !== focused ? { type: "select", id: next } : null;
   }
   if (action === "next-pane" || action === "prev-pane") {
-    const next = stepPane(
-      leafIds(view.layout),
+    // Collapsed panes are passed over, as in the main window.
+    const next = stepOpenPane(
+      view.layout,
       focused,
       action === "next-pane" ? 1 : -1,
     );

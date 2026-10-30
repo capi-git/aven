@@ -147,7 +147,7 @@ import {
   workspaceZoomed,
   type WorkspaceView,
 } from "./lib/workspaceViews";
-import { seamNeighbours, stepPane, type DockEdge } from "./lib/paneDock";
+import { seamNeighbours, type DockEdge } from "./lib/paneDock";
 import { focusPaneContent, workspacePane } from "./lib/paneFocus";
 import {
   applyWorkspaceIntent,
@@ -350,7 +350,7 @@ import { paneRailContent } from "./chrome/PaneRail";
 import { LayoutNotice, type LayoutNoticeState } from "./chrome/LayoutNotice";
 import { describeStripChange, stripTabLocation } from "./lib/layoutNotice";
 import { BrowserTabIcon } from "./chrome/BrowserTabIcon";
-import { openLeafIds } from "./lib/paneRails";
+import { focusDirTarget, openLeafIds, stepOpenPane } from "./lib/paneRails";
 import { PANE_MIN_PX, workspaceTabPaneKind } from "./lib/paneFit";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
@@ -423,7 +423,6 @@ import {
   newSimulatorTab,
   simulatorProjectOf,
   movePane,
-  neighborLeafId,
   newFileTab,
   newPlanTab,
   newTab,
@@ -5027,10 +5026,11 @@ export default function App({
   const onPrev = useCallback(() => cycleSurface(-1), [cycleSurface]);
   // Cydonia's pane keys: the next or previous pane in layout order (left to
   // right, each column top to bottom), and expanding the focused pane.
+  // Collapsed panes are passed over.
   const onStepPane = useCallback(
     (step: number) => {
       const { layout, focusedId } = viewRef.current.view;
-      const next = layout ? stepPane(leafIds(layout), focusedId, step) : null;
+      const next = stepOpenPane(layout, focusedId, step);
       if (!next) return;
       onSelectSurface(next);
       // The keyboard goes with the focus: into its message box, or the
@@ -6193,16 +6193,15 @@ export default function App({
     (dir: FocusDir) => {
       // A split inside the tab first; past its edge, the workspace's pane
       // that way. (With VoiceOver, which keeps ⌃⌥ for itself, this is how
-      // to move between panes.)
-      const inner =
-        activeTab && neighborLeafId(activeTab.layout, activeTab.focusedId, dir);
-      if (inner) {
-        onFocusPane(inner);
+      // to move between panes.) A page focused has no split of its own, and
+      // collapsed panes are passed over.
+      const target = focusDirTarget(viewRef.current.view, activeTab, dir);
+      if (!target) return;
+      if ("inner" in target) {
+        onFocusPane(target.inner);
         return;
       }
-      const { layout, focusedId } = viewRef.current.view;
-      const pane = layout ? neighborLeafId(layout, focusedId, dir) : null;
-      if (!pane) return;
+      const { pane } = target;
       onSelectSurface(pane);
       window.setTimeout(() => focusPaneContent(workspacePane(pane)), 0);
     },
