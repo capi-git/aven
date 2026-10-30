@@ -315,6 +315,7 @@ import {
   type ScheduledRun,
 } from "./lib/scheduledAgents";
 import {
+  answerRunStops,
   automationChatTitle,
   canAnswerCard,
   cardAnswerProblem,
@@ -8904,6 +8905,14 @@ export default function App({
       }
     },
     [flushHarnessEvents, announceActivity],
+  );
+  // Stop pressed in another window on an automation run whose turn this
+  // window is taking: stopped here, where its turn settles it.
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
+  useEffect(
+    () => answerRunStops((sessionId) => onStopRef.current(sessionId)),
+    [],
   );
 
   /** Stop a bot's chat and wait, a few seconds at most, until it has. */

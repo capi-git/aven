@@ -7,13 +7,18 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import {
+  answerRunStops,
   automationChatTitle,
   canAnswerCard,
   cardAnswerProblem,
   continueAutomationRun,
+  RUN_STOP_CLAIM_EVENT,
+  RUN_STOP_EVENT,
   startAutomationRun,
+  stopAutomationRun,
   stopUnattendedRun,
   type AutomationRunDeps,
+  type RunStopEvents,
 } from "./automationRuns";
 import type { ControlOutcome } from "./orchestration";
 import {
@@ -31,6 +36,7 @@ import {
   onScheduledRunsTrimmed,
   resolveRunReview,
   saveScheduledRun,
+  updateScheduledRun,
   type ScheduledAgent,
   type ScheduledRun,
 } from "./scheduledAgents";
@@ -389,6 +395,104 @@ describe("runs Aven quit during", () => {
     space.finish("", { status: "cancelled" });
     expect(getScheduledRun(run.id)!.status).toBe("cancelled");
     expect(stopUnattendedRun(run.id)).toBe(false);
+  });
+});
+
+describe("Stop in a window that isn't taking the run's turn", () => {
+  /** Every window's events, as Tauri's emit and listen carry them. */
+  function windows() {
+    const handlers = new Map<string, Set<(runId: string) => void>>();
+    const sent: [string, string][] = [];
+    const events: RunStopEvents = {
+      emit: async (event, runId) => {
+        sent.push([event, runId]);
+        for (const handler of handlers.get(event) ?? []) handler(runId);
+      },
+      listen: async (event, handler) => {
+        const set = handlers.get(event) ?? new Set();
+        set.add(handler);
+        handlers.set(event, set);
+        return () => void set.delete(handler);
+      },
+    };
+    return { events, sent };
+  }
+  const elsewhere = (id: string) =>
+    saveScheduledRun({
+      id,
+      scheduleId: agent.id,
+      name: agent.name,
+      project: PROJECT,
+      summary: "",
+      startedAt: 0,
+      sessionId: `chat-${id}`,
+      status: "running",
+      inAutomations: true,
+    });
+
+  it("keeps a run stopped while its turn ran stopped, whatever the turn says", async () => {
+    // The reviewer's proof: Stop in another window said Stopped, then the
+    // run went on to finish and leave a card.
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    updateScheduledRun(run.id, { status: "cancelled", finishedAt: 1_000 });
+    space.finish('```aven-review\n{"title":"Draft","kind":"publish"}\n```');
+    expect(getScheduledRun(run.id)).toMatchObject({ status: "cancelled" });
+    expect(getScheduledRun(run.id)!.review).toBeUndefined();
+    expect(space.notify).not.toHaveBeenCalled();
+  });
+
+  it("asks the window taking the turn to stop it, and marks nothing itself", async () => {
+    const { events, sent } = windows();
+    elsewhere("theirs");
+    // The other window: it is taking this turn, so it answers.
+    void events.listen(RUN_STOP_EVENT, (runId) => {
+      if (runId === "theirs") void events.emit(RUN_STOP_CLAIM_EVENT, runId);
+    });
+    const stopChat = vi.fn();
+    expect(
+      await stopAutomationRun("theirs", stopChat, { events, waitMs: 1_000 }),
+    ).toBe("elsewhere");
+    expect(sent[0]).toEqual([RUN_STOP_EVENT, "theirs"]);
+    expect(stopChat).not.toHaveBeenCalled();
+    // Its own turn settles it there.
+    expect(getScheduledRun("theirs")!.status).toBe("running");
+  });
+
+  it("marks a run stopped when no window answers", async () => {
+    const { events } = windows();
+    elsewhere("orphan");
+    const stopChat = vi.fn();
+    expect(
+      await stopAutomationRun("orphan", stopChat, {
+        events,
+        waitMs: 5,
+        now: () => 7_000,
+      }),
+    ).toBe("nowhere");
+    expect(getScheduledRun("orphan")).toMatchObject({
+      status: "cancelled",
+      finishedAt: 7_000,
+    });
+  });
+
+  it("stops its own turn when asked from another window, and only its own", async () => {
+    const { events, sent } = windows();
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    const stopChat = vi.fn();
+    const stop = answerRunStops(stopChat, events);
+    await Promise.resolve();
+    await events.emit(RUN_STOP_EVENT, "someone-else");
+    expect(stopChat).not.toHaveBeenCalled();
+    await events.emit(RUN_STOP_EVENT, run.id);
+    expect(stopChat).toHaveBeenCalledWith(run.sessionId);
+    expect(sent).toContainEqual([RUN_STOP_CLAIM_EVENT, run.id]);
+    // Pressed here, it stops here without asking anyone.
+    stopChat.mockClear();
+    expect(await stopAutomationRun(run.id, stopChat, { events })).toBe("here");
+    expect(stopChat).toHaveBeenCalledWith(run.sessionId);
+    stop();
   });
 });
 
