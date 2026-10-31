@@ -545,7 +545,7 @@ async function ensureLive(
 ): Promise<Live> {
   // A crew's chat runs only with its rules, in its copy: never unsandboxed,
   // never in the user's folder (see `launchRefusal`).
-  const refusal = launchRefusal(input.sessionId, input.cwd);
+  const refusal = launchRefusal(input.sessionId, input.cwd, "codex");
   if (refusal) throw new Error(refusal);
   try {
     return await startLive(input);
@@ -649,7 +649,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
   try {
     // Again, with nothing awaited before the spawn: a bot or crew turned
     // off (or its rules gone) while this was prepared never starts.
-    const lateRefusal = launchRefusal(input.sessionId, input.cwd);
+    const lateRefusal = launchRefusal(input.sessionId, input.cwd, "codex");
     if (lateRefusal) throw new Error(lateRefusal);
     await spawnChild(
       input.sessionId,

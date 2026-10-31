@@ -5,6 +5,7 @@ import {
   buildTurnStartParams,
 } from "./harness/codexProtocol";
 import {
+  launchRefusal,
   permissionRulesKey,
   sessionPermissions,
 } from "./harness/sessionPermissions";
@@ -17,6 +18,7 @@ import {
   crewPermissionRules,
   crewSandbox,
   installBotPermissions,
+  protectedFixPaths,
   teammateChatRefusal,
   teammateHarness,
 } from "./projectBotPermissions";
@@ -385,5 +387,88 @@ describe("a crew's or bot's chat stays on its own app", () => {
       teammateChatRefusal(chat("someone-else", "grok", PROJECT)),
     ).toBeNull();
     stop();
+  });
+});
+
+describe("a member that writes runs only on Claude Code", () => {
+  it("keeps a Tester (a Builder) off Codex, which can't keep it out of the copy's settings", () => {
+    const stop = installBotPermissions();
+    updateCrew(PROJECT, (current) => ({
+      ...current,
+      ...crew,
+      on: true,
+      members: [
+        {
+          id: "tester",
+          role: "builder",
+          sessionId: "t-chat",
+          harness: "codex",
+          label: "Tester",
+        },
+        {
+          id: "checker",
+          role: "checker",
+          sessionId: "c-chat",
+          harness: "codex",
+        },
+      ],
+    }));
+    expect(teammateHarness("t-chat")).toBe("claude");
+    // Codex's own guard refuses a crew chat that writes; one that only
+    // reads runs, locked down.
+    expect(launchRefusal("t-chat", COPY, "codex")).toMatch(
+      /only on Claude Code/,
+    );
+    expect(launchRefusal("t-chat", COPY, "claude")).toBeNull();
+    expect(launchRefusal("c-chat", COPY, "codex")).toBeNull();
+    stop();
+  });
+});
+
+describe("paths Apply never brings into your files", () => {
+  it("refuses settings however git or Windows would spell them", () => {
+    expect(
+      protectedFixPaths([
+        ".claude/skills/café/SKILL.md",
+        '".claude/skills/caf\\303\\251/SKILL.md"',
+        ".claude./settings.json",
+        ".Codex /config.toml",
+        "src/tab\there.ts",
+        "src/app.ts",
+      ]),
+    ).toEqual([
+      ".claude/skills/café/SKILL.md",
+      '".claude/skills/caf\\303\\251/SKILL.md"',
+      ".claude./settings.json",
+      ".Codex /config.toml",
+      "src/tab\there.ts",
+    ]);
+  });
+
+  it("refuses names a case-insensitive file system folds into a settings folder", () => {
+    // APFS reads "ſ" as "s" and "ﬁ" as "fi"; NFKC folds full-width letters.
+    expect(
+      protectedFixPaths([
+        ".v\u017fcode/tasks.json",
+        ".mcp.j\u017fon",
+        ".hu\u017fky/pre-commit",
+        ".\uff43laude/settings.json",
+        ".pre-commit-con\ufb01g.yaml",
+        // A dotfile-style name that isn't plain ASCII, as a margin.
+        ".n\u00f6tes/run.sh",
+        // Ordinary names with accents apply like any other.
+        "Donn\u00e9es/notes.md",
+        "R\u00e9sum\u00e9.md",
+        "src/caf\u00e9.ts",
+        "src/app.ts",
+      ]),
+    ).toEqual([
+      ".v\u017fcode/tasks.json",
+      ".mcp.j\u017fon",
+      ".hu\u017fky/pre-commit",
+      ".\uff43laude/settings.json",
+      ".pre-commit-con\ufb01g.yaml",
+      ".n\u00f6tes/run.sh",
+    ]);
   });
 });

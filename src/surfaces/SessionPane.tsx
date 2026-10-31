@@ -857,6 +857,7 @@ export const SessionPane = memo(function SessionPane({
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
                 botProject={botProject}
+                chatId={session.id}
               />
             </DiscussionActions>
             <PromptOutline

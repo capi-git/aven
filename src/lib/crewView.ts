@@ -1,4 +1,5 @@
 import {
+  cardCanGoOn,
   cardTriesAgain,
   crewStageDetail,
   crewStageLabel,
@@ -350,8 +351,8 @@ export function crewBoardInfo(
   const turnChat = card.turn?.sessionId;
   switch (card.stage) {
     case "queued":
-      // Not started yet: you can take it back.
-      return { ...base, actions: [A.backToIdeas] };
+      // Not started yet: Not now takes it back to Ideas.
+      return { ...base, actions: [{ ...A.backToIdeas, label: "Not now" }] };
     case "building":
     case "checking": {
       const holder = card.holder ?? "builder";
@@ -414,7 +415,10 @@ export function crewBoardInfo(
         needsYou: true,
         rounds,
         actions: [
-          retry ? { ...A.more, label: "Try again" } : A.more,
+          // A file's name the crew can't bring to you: yours to change.
+          ...(cardCanGoOn(card)
+            ? [retry ? { ...A.more, label: "Try again" } : A.more]
+            : []),
           A.takeOver,
           A.backToIdeas,
           A.throwAway,

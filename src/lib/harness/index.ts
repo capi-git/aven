@@ -6,6 +6,7 @@ export {
   appendSteerUser,
   promoteLastAssistantToPlan,
   stopStreaming,
+  typedTurn,
 } from "./apply";
 export {
   sendCursorTurn,

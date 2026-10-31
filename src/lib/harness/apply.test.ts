@@ -8,6 +8,7 @@ import {
   appendSteerUser,
   promoteLastAssistantToPlan,
   stopStreaming,
+  typedTurn,
 } from "./apply";
 
 let now = 0;
@@ -1076,5 +1077,49 @@ describe("a project bot's wake-up", () => {
     expect(sanitizeSessionForPersist(session).blocks.at(-1)?.botWake).toEqual({
       label: "Chat finished · Add sign-up flow",
     });
+  });
+});
+
+describe("a message you typed yourself", () => {
+  // As App's send builds a user turn: its cards, with what its options say.
+  const send = (options: Parameters<typeof typedTurn>[0]) => ({
+    ...typedTurn(options),
+  });
+
+  it("keeps its typed mark, sent or steered into a running turn", () => {
+    const session = newSession("claude", "/repo");
+    const sent = appendUser(
+      session,
+      "Build a timer",
+      [],
+      send({ typed: true }),
+    );
+    expect(sent.blocks.at(-1)).toMatchObject({ role: "user", typed: true });
+    // Saved and read back.
+    expect(sanitizeSessionForPersist(sent).blocks.at(-1)!.typed).toBe(true);
+    const steered = appendSteerUser(
+      { ...sent, busy: true },
+      "and a settings page",
+      [],
+      send({ typed: true }),
+    );
+    expect(steered.blocks.at(-1)).toMatchObject({ role: "user", typed: true });
+  });
+
+  it("never marks Aven's own sends: wake-ups, a lead's workers, automatic ones", () => {
+    const session = newSession("claude", "/repo");
+    for (const options of [
+      { typed: true, botWake: { label: "Card" } },
+      { typed: true, managed: true },
+      {},
+      undefined,
+    ]) {
+      expect(
+        appendUser(session, "x", [], send(options)).blocks.at(-1)!.typed,
+      ).toBeUndefined();
+      expect(
+        appendSteerUser(session, "x", [], send(options)).blocks.at(-1)!.typed,
+      ).toBeUndefined();
+    }
   });
 });

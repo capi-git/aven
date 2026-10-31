@@ -33,7 +33,6 @@ describe("sends the user made", () => {
       "an answer to an expired question",
       "const onQuestionReply = useCallback(",
     ],
-    ["Ask the agent to stop a second server", "useDuplicateServerMessenger("],
     ["Retry on an orchestration", "retry: (leadId: string, blockId: string)"],
     ["Retry on a race lane", "retry: async (race, lane)"],
   ])("%s ends the user's Stop", (_, anchor) => {
@@ -41,6 +40,8 @@ describe("sends the user made", () => {
   });
 
   it.each([
+    // Its words are Aven's, not yours.
+    ["Ask the agent to stop a second server", "useDuplicateServerMessenger("],
     ["auto-continue", "onSubmit(id, CONTINUE_PROMPT)"],
     ["a lead's worker", "managed: true"],
     ["an automation", "const startScheduledAgent = "],
@@ -48,5 +49,31 @@ describe("sends the user made", () => {
     const at = app.indexOf(anchor);
     expect(at).toBeGreaterThan(-1);
     expect(app.slice(at, at + 400)).not.toContain("typed: true");
+  });
+});
+
+describe("the message you typed keeps its mark", () => {
+  /** The source of the block from `anchor` to the next `return` after it. */
+  const from = (anchor: string, length = 1600) => {
+    const at = app.indexOf(anchor);
+    if (at < 0) throw new Error(`Missing ${anchor}`);
+    return app.slice(at, at + length);
+  };
+
+  it("on a new turn and on one steered into a running turn", () => {
+    // Steered: the cards passed to appendSteerUser.
+    expect(from("if (current.busy && !pendingSwitch) {")).toMatch(
+      /const cards = \{[^}]*typedTurn\(options\)/,
+    );
+    // A new turn: the cards passed to appendUser.
+    expect(from("const cards = {\n        ...(rawCommand")).toContain(
+      "...typedTurn(options)",
+    );
+  });
+
+  it("once you edit a queued message, it's yours", () => {
+    expect(from("const onEditQueuedMessage = useCallback(")).toContain(
+      "typed: true",
+    );
   });
 });

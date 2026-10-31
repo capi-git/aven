@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CrewRunner,
   crewBranch,
+  memberAsk,
   replyForTurn,
   resetCrewRunnerSession,
 } from "./crewRunner";
 import {
+  cardInCopy,
   crewCard,
   crewMember,
+  stackedCards,
   crewMemberApp,
   crewMemberName,
   defaultCrewLimits,
@@ -19,6 +22,7 @@ import {
   withIdea,
   withMemberId,
   type Crew,
+  type CrewCard,
 } from "./crews";
 import { queueCard } from "./crewLoop";
 import {
@@ -27,7 +31,7 @@ import {
   turnOffCrew,
   updateCrewMember,
 } from "./crewActions";
-import { crewStatus } from "./crewView";
+import { crewBoardInfo, crewStatus } from "./crewView";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import type { BotDiff } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -111,7 +115,11 @@ function harness(agents: Partial<Record<Role, Agent>>) {
   const stopped: string[] = [];
   const fresh: string[] = [];
   let copyState: { hash: string; files: string[] } | null = null;
+  let stacked = 0;
+  const commits: { commit: string; parent: string }[] = [];
   const board = new Map<string, FeatureCard>();
+  /** The Board adds nothing (it couldn't save). */
+  let boardFull = false;
   const moves: { id: string; column: FeatureColumn }[] = [];
   const roleOf = new Map<string, Role>();
   const ensured: {
@@ -149,6 +157,26 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     diff: vi.fn(async () => diff()),
     sources: vi.fn(async () => [`${COPY}/src`, `${COPY}/package.json`]),
     planted: vi.fn(async (): Promise<string[]> => []),
+    // The crew's branch: each passed card a commit, the next on top, only
+    // while the copy holds the change its checks passed.
+    stack: vi.fn(
+      async (
+        _copy: string,
+        _branch: string,
+        parent: string,
+        _message: string,
+        hash: string,
+      ) => {
+        if ((copyState?.hash ?? "empty") !== hash)
+          throw new Error("The copy changed after the card's checks.");
+        stacked += 1;
+        const commit = String(stacked).padStart(40, "c");
+        commits.push({ commit, parent });
+        return commit;
+      },
+    ),
+    unstack: vi.fn(async () => {}),
+    discard: vi.fn(async () => {}),
   };
 
   const update = (id: string, change: (chat: Session) => Session) => {
@@ -251,20 +279,22 @@ function harness(agents: Partial<Record<Role, Agent>>) {
         if (card) board.set(id, { ...card, column });
       },
       add: async (_project, drafts: readonly FeatureCardDraft[]) =>
-        drafts.map((draft, index) => {
-          const card: FeatureCard = {
-            id: `idea-${board.size + index + 1}`,
-            title: draft.title,
-            ...(draft.note ? { note: draft.note } : {}),
-            column: draft.column ?? "idea",
-            chatIds: [],
-            createdAt: now,
-            updatedAt: now,
-            movedAt: now,
-          };
-          board.set(card.id, card);
-          return card;
-        }),
+        boardFull
+          ? []
+          : drafts.map((draft, index) => {
+              const card: FeatureCard = {
+                id: `idea-${board.size + index + 1}`,
+                title: draft.title,
+                ...(draft.note ? { note: draft.note } : {}),
+                column: draft.column ?? "idea",
+                chatIds: [],
+                createdAt: now,
+                updatedAt: now,
+                movedAt: now,
+              };
+              board.set(card.id, card);
+              return card;
+            }),
     },
     name: (crew, who) =>
       (
@@ -329,8 +359,17 @@ function harness(agents: Partial<Record<Role, Agent>>) {
     setNow: (at: number) => {
       now = at;
     },
+    /** The Board stops adding cards. */
+    fillBoard: () => {
+      boardFull = true;
+    },
   };
 }
+
+const NO_SCOUT: Crew["members"] = [
+  { id: "builder", role: "builder" },
+  { id: "checker", role: "checker" },
+];
 
 /** The crew on, with a Builder, a Checker and a Scout unless the test says. */
 function onCrew(patch: Partial<Crew> = {}) {
@@ -407,7 +446,7 @@ describe("the loop with stand-in agents", () => {
               ),
             },
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give();
     h.runner.start();
     await h.advance(0);
@@ -463,7 +502,22 @@ describe("the loop with stand-in agents", () => {
       "handoff",
       "ready",
     ]);
-    // Nothing more starts while the Ready card holds the copy.
+    // Stacked on the crew's branch, on top of where it started.
+    // Stacked as exactly the change its checks passed, by its fingerprint.
+    expect(ready.stacked).toEqual({
+      commit: "c".repeat(39) + "1",
+      parent: BASE,
+      hash: ready.fix!.hash,
+    });
+    expect(h.copy.stack).toHaveBeenCalledWith(
+      COPY,
+      expect.any(String),
+      BASE,
+      ready.title,
+      ready.fix!.hash,
+    );
+    expect(crew.stack).toEqual({ base: BASE });
+    // Nothing else is queued, so nothing more starts.
     await h.advance(10 * MINUTE);
     expect(h.sent).toHaveLength(4);
     h.runner.stop();
@@ -629,7 +683,7 @@ describe("fresh eyes", () => {
               : verdict([]),
       }),
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give("first", "First");
     h.runner.start();
     await h.advance(10 * MINUTE);
@@ -658,8 +712,8 @@ describe("fresh eyes", () => {
   });
 });
 
-describe("one card at a time", () => {
-  it("starts the next queued card only after the first is applied or thrown away", async () => {
+describe("one card at a time, stacked", () => {
+  it("builds the next queued card on top of the one that passed", async () => {
     const h = harness({
       builder: (_text, nth) => ({
         text: handoff("Built"),
@@ -667,23 +721,309 @@ describe("one card at a time", () => {
       }),
       checker: () => ({ text: verdict([]) }),
     });
-    onCrew();
+    onCrew({ members: NO_SCOUT });
     give("first", "First");
     give("second", "Second");
     h.runner.start();
-    await h.advance(10 * MINUTE);
-    expect(card("first").stage).toBe("ready");
+    await h.advance(MINUTE + 5_000);
+    // While the first is at work, the second waits.
+    expect(card("first").stage).toBe("checking");
     expect(card("second").stage).toBe("queued");
-    expect(h.sent.every((item) => !item.text.includes("Second"))).toBe(true);
+    await h.advance(10 * MINUTE);
+    const first = card("first");
+    const second = card("second");
+    expect(first.stage).toBe("ready");
+    expect(second.stage).toBe("ready");
+    // The second started on the first's commit, never on a fresh copy of
+    // your files: one sync, at the start of the batch.
+    expect(h.copy.sync).toHaveBeenCalledTimes(1);
+    expect(second.base).toBe(first.stacked!.commit);
+    expect(second.stacked!.parent).toBe(first.stacked!.commit);
+    expect(stackedCards(getCrew(PATH)!).map((item) => item.id)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(cardInCopy(getCrew(PATH)!)).toBeUndefined();
+    h.runner.stop();
+  });
 
+  it("never matches the copy to your files while work waits on the branch", async () => {
+    const h = harness({
+      scout: () => ({ text: fence("aven-ideas", { ideas: [] }) }),
+    });
+    const commit = "d".repeat(40);
+    onCrew({
+      stack: { base: BASE },
+      cards: [
+        {
+          ...queueCard(
+            {
+              id: "done",
+              title: "Done",
+              brief: "x",
+              from: "you",
+              maxRounds: 3,
+            },
+            NOON,
+          ),
+          stage: "ready",
+          round: 1,
+          base: BASE,
+          stacked: { commit, parent: BASE },
+        },
+      ],
+    });
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    // The Scout looked, in the copy as the branch holds it.
+    expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
+    expect(h.copy.sync).not.toHaveBeenCalled();
+    h.runner.stop();
+  });
+
+  it("keeps a passed card that can't be stacked, stopped with why", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockRejectedValueOnce(
+      new Error("The crew's copy moved since its last card."),
+    );
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card()).toMatchObject({ stage: "stuck" });
+    expect(card().stuck?.text).toContain(
+      "its work couldn't be stacked on the crew's branch",
+    );
+    expect(card().stacked).toBeUndefined();
+    h.runner.stop();
+  });
+});
+
+describe("stacking only what was checked", () => {
+  it("sends a card back for another check when the copy changed after it passed", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockRejectedValueOnce(
+      new Error("The copy changed after the card's checks."),
+    );
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card()).toMatchObject({
+      stage: "stuck",
+      holder: "checker",
+      stuck: { reason: "changed" },
+    });
+    expect(card().stuck?.text).toContain("wasn't stacked");
+    expect(card().stacked).toBeUndefined();
+    expect(getCrew(PATH)!.stack).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("stops a card whose file name reads as a settings folder, with no Try again", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockRejectedValueOnce(
+      new Error(
+        "A file's name reads as a settings folder on a Mac: .v\u017fcode/tasks.json",
+      ),
+    );
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const stuck = card();
+    expect(stuck).toMatchObject({
+      stage: "stuck",
+      stuck: { reason: "unsafe-name" },
+    });
+    expect(stuck.stuck!.text).toBe(
+      "“.v\u017fcode/tasks.json” reads as a settings folder on a Mac, so it can't go to your files. Take it over in a chat to rename it, or throw the card away.",
+    );
+    // No Try again: it would only stop the same way, run after run.
+    const actions = crewBoardInfo(stuck, {
+      builder: "Beetle",
+      checker: "Owl",
+    }).actions.map((action) => action.label);
+    expect(actions).not.toContain("Try again");
+    expect(actions).not.toContain("One more round");
+    expect(actions).toContain("Take over in a chat");
+    const runs = getCrew(PATH)!.runs;
+    resumeCrewCard(PATH, "card-1", undefined, h.now);
+    expect(card().stage).toBe("stuck");
+    await h.advance(30 * MINUTE);
+    expect(getCrew(PATH)!.runs).toEqual(runs);
+    h.runner.stop();
+  });
+
+  it("takes a card back off the branch when you stopped it while it was stacked", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockImplementationOnce(async () => {
+      // You press Stop while its check's end is being read.
+      updateCrew(PATH, (crew) => {
+        const known = crewCard(crew, "card-1")!;
+        return withCard(crew, {
+          ...known,
+          turn: undefined,
+          stage: "stuck",
+          stuck: { reason: "stopped", text: "You stopped it" },
+        });
+      });
+      return "e".repeat(40);
+    });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(card().stage).toBe("stuck");
+    expect(card().stacked).toBeUndefined();
+    expect(getCrew(PATH)!.stack).toBeUndefined();
+    expect(h.copy.unstack).toHaveBeenCalledWith(
+      COPY,
+      expect.any(String),
+      "e".repeat(40),
+      BASE,
+    );
+    h.runner.stop();
+  });
+
+  it("makes the copy again at the stack, never at your HEAD, while cards wait there", async () => {
+    const h = harness({
+      scout: () => ({ text: fence("aven-ideas", { ideas: [] }) }),
+    });
+    const commit = "d".repeat(40);
+    onCrew({
+      stack: { base: BASE },
+      cards: [
+        {
+          ...queueCard(
+            {
+              id: "done",
+              title: "Done",
+              brief: "x",
+              from: "you",
+              maxRounds: 3,
+            },
+            NOON,
+          ),
+          stage: "ready",
+          round: 1,
+          base: BASE,
+          stacked: { commit, parent: BASE },
+        },
+      ],
+    });
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(h.copy.prepare).toHaveBeenCalledWith(
+      PATH,
+      expect.any(String),
+      expect.any(String),
+      commit,
+    );
+    h.runner.stop();
+  });
+});
+
+describe("cards waiting for your review", () => {
+  const waiting = (n: number) => {
+    const cards: CrewCard[] = [];
+    let parent = BASE;
+    for (let index = 1; index <= n; index += 1) {
+      const commit = String(index).padStart(40, "f");
+      cards.push({
+        ...queueCard(
+          {
+            id: `done-${index}`,
+            title: `Done ${index}`,
+            brief: "x",
+            from: "you",
+            maxRounds: 3,
+          },
+          NOON,
+        ),
+        stage: "ready",
+        round: 1,
+        base: parent,
+        stacked: { commit, parent },
+      });
+      parent = commit;
+    }
+    return cards;
+  };
+
+  it("starts no new card once 5 wait on the branch, and says why", async () => {
+    const h = harness({
+      builder: () => ({ text: handoff("Built") }),
+    });
+    onCrew({ members: NO_SCOUT, stack: { base: BASE }, cards: waiting(5) });
+    give("next", "Next");
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent).toEqual([]);
+    expect(card("next").stage).toBe("queued");
+    const crew = getCrew(PATH)!;
+    expect(crew.hold?.reason).toBe("review");
+    expect(crew.feed.at(-1)?.text).toContain(
+      "5 cards wait for you: review them to keep going",
+    );
+    h.runner.stop();
+  });
+
+  it("plans nothing for the goal either, until you review them", async () => {
+    const h = harness({
+      scout: () => ({ text: fence("aven-goal", { met: false, next: [] }) }),
+    });
+    onCrew({
+      stack: { base: BASE },
+      cards: waiting(5),
+      goal: { text: "Build the whole Pom app", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent.filter((item) => item.text.includes("aven-goal"))).toEqual(
+      [],
+    );
+    expect(getCrew(PATH)!.hold?.reason).toBe("review");
+    h.runner.stop();
+  });
+
+  it("keeps building below the limit you set", async () => {
+    const h = harness({
+      builder: () => ({ text: handoff("Built") }),
+    });
+    onCrew({ members: NO_SCOUT, stack: { base: BASE }, cards: waiting(5) });
     updateCrew(PATH, (crew) => ({
       ...crew,
-      cards: crew.cards.map((item) =>
-        item.id === "first" ? { ...item, stage: "applied" } : item,
-      ),
+      limits: { ...crew.limits, readyCap: 8 },
     }));
-    await h.advance(10 * MINUTE);
-    expect(card("second").stage).toBe("ready");
+    give("next", "Next");
+    h.runner.start();
+    await h.advance(MINUTE);
+    expect(h.sent.map((item) => item.role)).toEqual(["builder"]);
     h.runner.stop();
   });
 });
@@ -1561,5 +1901,344 @@ describe("the Scout's look", () => {
     expect(last?.text).toContain("Fox couldn't look for ideas:");
     expect(last?.text).toContain("disk full");
     h.runner.stop();
+  });
+});
+
+describe("a goal: the crew keeps going", () => {
+  const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
+  const builds = (
+    _text: string,
+    nth: number,
+  ): { text: string; copy: { hash: string; files: string[] } } => ({
+    text: handoff(`Built ${nth}`),
+    copy: { hash: `h${nth}`, files: [`src/part${nth}.ts`] },
+  });
+
+  it("plans, builds and stacks card after card until the goal is met", async () => {
+    const plans = [
+      {
+        met: false,
+        summary: "No timer yet.",
+        next: [{ title: "Timer screen", why: "The core" }],
+      },
+      {
+        met: false,
+        summary: "Timer works.",
+        next: [{ title: "Pause and resume" }],
+      },
+      { met: true, summary: "The timer app is complete." },
+    ];
+    const h = harness({
+      scout: (_text, nth) => goalReply(plans[nth - 1]!),
+      builder: builds,
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(30 * MINUTE);
+    expect(h.sent.map((item) => item.role)).toEqual([
+      "scout",
+      "builder",
+      "checker",
+      "scout",
+      "builder",
+      "checker",
+      "scout",
+    ]);
+    // Each goal turn reads where things stand, and what was built so far.
+    expect(h.sent[0].text).toContain("Build the whole Pom app");
+    expect(h.sent[3].text).toContain("- Timer screen");
+    const crew = getCrew(PATH)!;
+    expect(stackedCards(crew).map((item) => item.title)).toEqual([
+      "Timer screen",
+      "Pause and resume",
+    ]);
+    expect(stackedCards(crew).every((item) => item.goal)).toBe(true);
+    expect(crew.goal?.done).toMatchObject({
+      met: true,
+      text: "The timer app is complete.",
+    });
+    expect(crew.feed.at(-1)?.text).toBe("Goal met: The timer app is complete.");
+    // Nothing more runs once it's met.
+    await h.advance(60 * MINUTE);
+    expect(h.sent).toHaveLength(7);
+    h.runner.stop();
+  });
+
+  it("stops and says so when planning finds nothing left", async () => {
+    const h = harness({
+      scout: () =>
+        goalReply({
+          met: false,
+          summary: "Needs a design decision.",
+          next: [],
+        }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
+    expect(crew.goal?.done).toMatchObject({ met: false });
+    expect(crew.goal?.done?.text).toBe(
+      "Nothing left to plan for the goal: Needs a design decision. The crew stops here.",
+    );
+    h.runner.stop();
+  });
+
+  it("stops to ask when a card is Stuck, and plans nothing more", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+      builder: () => ({
+        text: handoff("Half", { question: "Which sound at zero?" }),
+        copy: { hash: "h1", files: ["src/timer.ts"] },
+      }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(60 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(
+      crew.cards.find((item) => item.title === "Timer screen")?.stage,
+    ).toBe("stuck");
+    expect(h.sent.filter((item) => item.role === "scout")).toHaveLength(1);
+    expect(crew.goal?.done).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("holds within the crew's limits", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+    });
+    onCrew({
+      goal: { text: "Build the whole Pom app", at: NOON },
+      runs: { day: localDay(NOON), count: 20 },
+    });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent).toEqual([]);
+    expect(getCrew(PATH)!.hold?.reason).toBe("daily-cap");
+    h.runner.stop();
+  });
+
+  it("plans with the Builder when there's no Scout, and undoes anything it wrote", async () => {
+    const h = harness({
+      builder: (text) =>
+        text.includes("aven-goal")
+          ? {
+              text: fence("aven-goal", { met: true, summary: "Done already." }),
+              copy: { hash: "oops", files: ["stray.ts"] },
+            }
+          : { text: handoff("x") },
+    });
+    onCrew({
+      members: NO_SCOUT,
+      goal: { text: "Build the whole Pom app", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(5 * MINUTE);
+    expect(h.sent.map((item) => item.role)).toEqual(["builder"]);
+    // Undone only while the branch is still where planning began.
+    expect(h.copy.discard).toHaveBeenCalledWith(
+      COPY,
+      BASE,
+      expect.any(String),
+      BASE,
+    );
+    const crew = getCrew(PATH)!;
+    expect(crew.goal?.done?.met).toBe(true);
+    expect(crew.feed.map((entry) => entry.text)).toContain(
+      "Aven undid what Beetle changed in the crew's copy while planning: planning only reads.",
+    );
+    h.runner.stop();
+  });
+
+  it("stops when a planning turn fails, until you ask it to keep going", async () => {
+    const h = harness({
+      scout: () => ({ text: "", status: "failed", error: "boom" }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    expect(h.sent).toHaveLength(1);
+    expect(getCrew(PATH)!.goal?.done?.text).toBe(
+      "Fox's planning didn't finish: boom. Keep going to try again.",
+    );
+    h.runner.stop();
+  });
+});
+
+describe("a goal's turn answers the goal it was asked about", () => {
+  const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
+
+  it("ignores an answer about a goal you changed meanwhile, and plans the new one", async () => {
+    const h = harness({
+      scout: (_text, nth) => {
+        if (nth > 1) return goalReply({ met: true, summary: "Settings done." });
+        // You set a new goal while it planned the old one.
+        updateCrew(PATH, (crew) => ({
+          ...crew,
+          goal: { text: "Just the settings page", at: NOON + 1 },
+        }));
+        return goalReply({ met: true, summary: "The old goal is done." });
+      },
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(crew.goal).toMatchObject({
+      text: "Just the settings page",
+      done: { met: true, text: "Settings done." },
+    });
+    expect(crew.feed.map((entry) => entry.text)).not.toContain(
+      "Goal met: The old goal is done.",
+    );
+    expect(h.sent[1].text).toContain("Just the settings page");
+    h.runner.stop();
+  });
+
+  it("undoes a planner's edits even when the goal was cleared meanwhile", async () => {
+    const h = harness({
+      builder: () => {
+        updateCrew(PATH, (crew) => {
+          const next = { ...crew };
+          delete next.goal;
+          return next;
+        });
+        return {
+          ...goalReply({ met: false, next: [{ title: "X" }] }),
+          copy: { hash: "oops", files: ["stray.ts"] },
+        };
+      },
+    });
+    onCrew({
+      members: NO_SCOUT,
+      goal: { text: "Build the whole Pom app", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(2 * MINUTE);
+    expect(h.copy.discard).toHaveBeenCalledWith(
+      COPY,
+      BASE,
+      expect.any(String),
+      BASE,
+    );
+    h.runner.stop();
+  });
+
+  it("stops, with why, when planning added no card", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    h.fillBoard();
+    h.runner.start();
+    await h.advance(2 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(crew.goal?.done?.met).toBe(false);
+    expect(crew.goal?.done?.text).toContain("couldn't add the card");
+    await h.advance(30 * MINUTE);
+    expect(h.sent.filter((item) => item.role === "scout")).toHaveLength(1);
+    h.runner.stop();
+  });
+
+  it("never plans a card you threw away again", async () => {
+    const h = harness({
+      scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
+    });
+    onCrew({
+      goal: {
+        text: "Build the whole Pom app",
+        at: NOON,
+        dropped: ["Timer Screen"],
+      },
+    });
+    h.runner.start();
+    await h.advance(2 * MINUTE);
+    const crew = getCrew(PATH)!;
+    expect(h.sent[0].text).toContain("threw these away");
+    expect(crew.cards).toEqual([]);
+    expect(crew.goal?.done?.text).toContain("only cards you threw away");
+    h.runner.stop();
+  });
+});
+
+describe("asking a member for work in its own chat", () => {
+  const chat = (blocks: Session["blocks"]): Session =>
+    ({
+      id: "scout-chat",
+      harness: "claude",
+      model: "claude:test",
+      modelSettings: {},
+      runtimeMode: "auto",
+      title: "Fox",
+      cwd: PATH,
+      worktreeCwd: COPY,
+      blocks,
+    }) as Session;
+  const asked = (wake?: boolean) =>
+    chat([
+      {
+        id: "u1",
+        role: "user",
+        text: "You can keep going, we want to build this entire app with no bugs",
+        ...(wake ? { botWake: { label: "Scout" } } : {}),
+      } as Session["blocks"][number],
+      {
+        id: "a1",
+        role: "assistant",
+        text: `I'll queue the first two cards and keep going on the app.\n\n${fence(
+          "aven-tasks",
+          {
+            tasks: [
+              { title: "Timer screen", why: "The core of Pom" },
+              { title: "Pause and resume" },
+            ],
+            goal: "Build the whole Pom app",
+          },
+        )}`,
+      } as Session["blocks"][number],
+    ]);
+
+  const typed = (blocks: Session["blocks"]) =>
+    chat(
+      blocks.map((block) =>
+        block.role === "user" && !block.botWake
+          ? { ...block, typed: true as const }
+          : block,
+      ),
+    );
+
+  it("never queues or starts anything by itself: a member's reply only offers it", async () => {
+    const h = harness({});
+    onCrew({
+      members: [
+        { id: "builder", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "scout", role: "scout", sessionId: "scout-chat" },
+      ],
+    });
+    h.runner.start();
+    await h.advance(0);
+    h.runner.observe([typed(asked().blocks)]);
+    await h.advance(0);
+    const crew = getCrew(PATH)!;
+    expect(crew.cards).toEqual([]);
+    expect(crew.goal).toBeUndefined();
+    expect(h.board.size).toBe(0);
+    // What the block's card offers: the reply to your own typed words.
+    expect(memberAsk(typed(asked().blocks), "a1")).toMatchObject({
+      replyId: "a1",
+      tasks: [{ title: "Timer screen" }, { title: "Pause and resume" }],
+      goal: "Build the whole Pom app",
+    });
+    h.runner.stop();
+  });
+
+  it("offers nothing for a turn Aven sent, or words you didn't type", () => {
+    expect(memberAsk(typed(asked(true).blocks), "a1")).toBeNull();
+    // Another agent's words relayed into the chat aren't yours.
+    expect(memberAsk(asked(), "a1")).toBeNull();
   });
 });

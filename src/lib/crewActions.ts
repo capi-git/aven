@@ -3,6 +3,7 @@ import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import { claudeCheckerModel } from "./crewModels";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import {
+  cardCanGoOn,
   cardTriesAgain,
   changedAfterCheck,
   markApplied,
@@ -13,8 +14,14 @@ import {
 } from "./crewLoop";
 import {
   CREW_EXTRA_RUNS,
+  CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
+  claimCrewJob,
+  releaseCrewJob,
+  renewCrewJob,
+  queuedCards,
+  stackedCards,
   crewCard,
   crewMemberName,
   getCrew,
@@ -33,6 +40,11 @@ import {
   memberCritter,
   newMemberId,
   withMemberId,
+  withGoal,
+  withGoalCardDropped,
+  stackedHash,
+  waitsForReview,
+  yourGoal,
   withNote,
   withoutCard,
   withoutMember,
@@ -50,16 +62,25 @@ import { isMascotName } from "./projectMascots";
 import { isHarnessAvailable } from "./harness/availability";
 import { pickerModelsFor, preferredModelId } from "./models";
 import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
-import { logError } from "./errors";
+import { errorText, logError } from "./errors";
 import {
+  addFeatureIdea,
   deleteFeatureCard,
+  featureBoardState,
   featureBrief,
+  loadFeatureCards,
   moveFeatureCard,
   type FeatureCard,
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
-import { projectKey } from "./paths";
-import { botCopyError, botCopyHost, isFixChanged } from "./projectBotCopy";
+import { projectKey, projectName } from "./paths";
+import {
+  botCopyError,
+  botCopyHost,
+  isFixChanged,
+  isRestackConflict,
+  type BotDiff,
+} from "./projectBotCopy";
 import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
 import { normalizeProjectPath } from "./recents";
@@ -250,9 +271,212 @@ export function allowMoreRunsToday(path: string, now = Date.now()) {
   );
 }
 
-/** Tell the crew: standing guidance every bot reads at each turn. */
+/** Remember for every card: standing guidance every bot reads at each turn. */
 export function tellCrew(path: string, text: string, now = Date.now()) {
   updateCrew(path, (crew) => withNote(crew, text, now));
+}
+
+/**
+ * Give the crew a goal: it plans its own cards towards it and builds them
+ * one after another, within its limits, until the goal is met or it stops
+ * to ask (a card is Stuck, or it can't plan more). `by` is the member that
+ * took it down from your words in its chat.
+ */
+export function setCrewGoal(
+  path: string,
+  text: string,
+  now = Date.now(),
+  by?: string,
+) {
+  updateCrew(path, (crew) => withGoal(crew, text, now, by));
+}
+
+/** No goal any more: the crew builds only what it's given. */
+export function clearCrewGoal(path: string, now = Date.now()) {
+  updateCrew(path, (crew) => {
+    if (!crew.goal) return crew;
+    const next = { ...crew };
+    delete next.goal;
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      text: "You cleared the crew's goal",
+    });
+  });
+}
+
+/** Keep going: a goal the crew stopped at is worked on again. */
+export function resumeCrewGoal(path: string, now = Date.now()) {
+  updateCrew(path, (crew) => {
+    if (!crew.goal?.done) return crew;
+    return withFeed(
+      {
+        ...crew,
+        goal: {
+          text: crew.goal.text,
+          at: crew.goal.at,
+          ...(crew.goal.by ? { by: crew.goal.by } : {}),
+        },
+      },
+      {
+        at: now,
+        kind: "note",
+        who: "you",
+        text: `You asked the crew to keep going: ${crew.goal.text}`,
+      },
+    );
+  });
+}
+
+/** What the crew says to a nudge when it has nothing to start. */
+export const CREW_NOTHING_TO_BUILD =
+  "Tell the crew what to build, or add an idea.";
+
+const escapeWord = (word: string) =>
+  word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * "go", "keep going", "continue", "start building pom": a nudge with no
+ * task in it, which shouldn't become a vague card. `project` is the
+ * project's folder: its name counts as no task ("keep working on Pom").
+ */
+export function crewNudge(text: string, project?: string): boolean {
+  const name = project ? projectName(project).trim() : "";
+  const it = [
+    "it",
+    "this",
+    "that",
+    "everything",
+    "the (?:project|app|work|crew)",
+    ...(name ? [escapeWord(name)] : []),
+  ].join("|");
+  const nudge = new RegExp(
+    "^(?:(?:ok(?:ay)?|so|now|please|just|then|and|alright|right|hey)\\s+)*" +
+      "(?:go(?:\\s+(?:on|ahead))?|get\\s+(?:going|started|to\\s+work)" +
+      "|keep\\s+(?:going|at\\s+it|working|building)|carry\\s+on|continue" +
+      "|resume|proceed|start(?:\\s+(?:working|building))?|begin|work|build" +
+      "|do\\s+it|next)" +
+      `(?:\\s+(?:on|with))?(?:\\s+(?:${it}))?` +
+      "(?:\\s+(?:please|now|then|again))*$",
+    "i",
+  );
+  return nudge.test(
+    text
+      .replace(/[.!…]+$/u, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+}
+
+/**
+ * A Board card's title from what you told the crew: its first line, with a
+ * capital first letter, cut at a word near 80 characters.
+ */
+export function crewTaskTitle(text: string): string {
+  const line = text.trim().split("\n")[0]!.replace(/\s+/g, " ").trim();
+  const cut =
+    line.length <= 80
+      ? line
+      : `${line.slice(0, 80).replace(/\s+\S*$/, "") || line.slice(0, 80)}…`;
+  return cut.charAt(0).toUpperCase() + cut.slice(1);
+}
+
+/**
+ * Tell the crew…: what you say is a task. It becomes a Board card (its
+ * title from your words, your words as its note when they say more) that
+ * goes to the crew as Give to crew does, so it starts within the crew's
+ * limits. A nudge with no task in it starts or resumes what the crew has
+ * waiting, or the crew asks what to build. Resolves with why it couldn't,
+ * or null.
+ */
+export async function tellCrewWork(
+  path: string,
+  text: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const words = text.trim().slice(0, CREW_NOTE_MAX);
+  if (!words) return null;
+  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  if (crewNudge(words, path)) {
+    nudgeCrew(path, words, now);
+    return null;
+  }
+  const title = crewTaskTitle(words);
+  const card = await addFeatureIdea(path, {
+    title,
+    ...(words.toLowerCase() !== title.toLowerCase() ? { note: words } : {}),
+  });
+  if (!card) return "Couldn't add the card to the Board.";
+  return giveCardToCrew(path, card, now);
+}
+
+/**
+ * A nudge: the crew resumes if you paused it, and the card that waits on
+ * you (paused, or stopped without a question) goes again. Otherwise the
+ * crew says where things stand, or that it has nothing to build.
+ */
+function nudgeCrew(path: string, words: string, now: number) {
+  const crew = getCrew(path);
+  if (!crew) return;
+  updateCrew(path, (current) =>
+    withFeed(current, { at: now, kind: "note", who: "you", text: words }),
+  );
+  let acted = false;
+  if (crew.paused) {
+    setCrewPaused(path, false, now);
+    acted = true;
+  }
+  const card = cardInCopy(crew);
+  if (card?.paused) {
+    setCrewCardPaused(path, card.id, false);
+    updateCrew(path, (current) =>
+      withFeed(current, {
+        at: now,
+        kind: "note",
+        who: "you",
+        cardId: card.id,
+        title: card.title,
+        text: `You resumed “${card.title}”`,
+      }),
+    );
+    return;
+  }
+  if (
+    card?.stage === "stuck" &&
+    card.stuck?.reason !== "question" &&
+    cardCanGoOn(card)
+  ) {
+    resumeCrewCard(path, card.id, undefined, now);
+    return;
+  }
+  const next = card ?? queuedCards(crew)[0];
+  // A goal it stopped at: it keeps going.
+  if (!next && crew.goal?.done && !crew.goal.done.met) {
+    resumeCrewGoal(path, now);
+    return;
+  }
+  // Resumed with work waiting: that says enough.
+  if (acted && next && !waitsForReview(crew)) return;
+  // Passed work waiting on the branch is yours to review, not the crew's.
+  const waiting = stackedCards(crew).length;
+  const onBranch = `${waiting === 1 ? "One card waits" : `${waiting} cards wait`} for you on the crew's branch`;
+  const reply = !next
+    ? waiting
+      ? `${onBranch}: ${waiting === 1 ? "review it to apply it" : "review them to apply them"}.`
+      : CREW_NOTHING_TO_BUILD
+    : next.stage === "stuck"
+      ? cardCanGoOn(next)
+        ? `“${next.title}” waits for your answer on its card.`
+        : (next.stuck?.text ?? `“${next.title}” waits for you.`)
+      : next.stage === "ready"
+        ? `“${next.title}” is Ready: apply it or send it back from its card.`
+        : next.stage === "queued" && waitsForReview(crew)
+          ? `${onBranch}: review them to keep going.`
+          : `The crew is on “${next.title}”.`;
+  updateCrew(path, (current) =>
+    withFeed(current, { at: now, kind: "note", who: "aven", text: reply }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +577,148 @@ export async function giveCardToCrew(
     );
   });
   await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+/**
+ * Give to crew from an ideas block in a chat: each idea's Board card in
+ * Ideas (by its title), or a new one, goes to the crew. Resolves with why
+ * it couldn't, or null.
+ */
+export async function giveIdeasToCrew(
+  path: string,
+  titles: readonly string[],
+  now = Date.now(),
+): Promise<string | null> {
+  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  await loadFeatureCards(path);
+  for (const title of titles) {
+    const known = featureBoardState(path).cards.find(
+      (card) =>
+        card.column === "idea" &&
+        card.title.toLowerCase() === title.toLowerCase(),
+    );
+    const card = known ?? (await addFeatureIdea(path, { title }));
+    if (!card) return "Couldn't add the card to the Board.";
+    const problem = await giveCardToCrew(path, card, now);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Work a member took down in its own chat
+
+/** Whether a member's reply was already queued or set as the goal. */
+export function memberAskTaken(
+  crew: Pick<Crew, "asks"> | undefined,
+  replyId: string,
+): boolean {
+  return !!crew?.asks?.includes(replyId);
+}
+
+/** Marks a reply as taken, once; false when it already was. */
+function takeAsk(path: string, replyId: string): boolean {
+  let fresh = false;
+  updateCrew(path, (crew) => {
+    if (memberAskTaken(crew, replyId)) return crew;
+    fresh = true;
+    return { ...crew, asks: [...(crew.asks ?? []), replyId].slice(-50) };
+  });
+  return fresh;
+}
+
+/**
+ * Queue these: the cards a member took down from your words in its chat
+ * (its `aven-tasks` block) go to the crew, marked as from that member. Only
+ * ever from your press, and once per reply. Resolves with why it couldn't,
+ * or null.
+ */
+export async function queueMemberTasks(
+  path: string,
+  memberId: string,
+  replyId: string,
+  tasks: readonly { title: string; why?: string }[],
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the crew on first.";
+  if (!crewMemberById(crew, memberId)) return "That member isn't in the crew.";
+  if (!tasks.length) return null;
+  if (!takeAsk(path, replyId)) return null;
+  const added: FeatureCard[] = [];
+  for (const task of tasks) {
+    const card = await addFeatureIdea(path, {
+      title: task.title,
+      ...(task.why ? { note: task.why } : {}),
+    });
+    if (!card) return "Couldn't add the card to the Board.";
+    added.push(card);
+  }
+  updateCrew(path, (current) => {
+    let next = current;
+    for (const [index, card] of added.entries()) {
+      const task = tasks[index]!;
+      next = withCard(
+        withoutCard(next, card.id),
+        queueCard(
+          {
+            id: card.id,
+            title: card.title,
+            brief: [card.title, task.why].filter(Boolean).join("\n\n"),
+            // The member's words for what you asked: read as data.
+            from: "member",
+            fromMember: memberId,
+            maxRounds: current.limits.roundsPerCard,
+          },
+          now,
+        ),
+      );
+    }
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      member: memberId,
+      text: `You queued ${added.length === 1 ? "the card" : `${added.length} cards`} ${crewMemberName(current, memberId)} took down in its chat: ${added
+        .map((card) => card.title)
+        .join(" · ")}`,
+    });
+  });
+  for (const card of added)
+    await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+/**
+ * Set as goal: the goal a member took down from your words in its chat
+ * becomes the crew's, from your press. It replaces a goal you set yourself
+ * only with `replace` (you said so).
+ */
+export function setMemberGoal(
+  path: string,
+  memberId: string,
+  replyId: string,
+  goal: string,
+  options: { replace?: boolean } = {},
+  now = Date.now(),
+): string | null {
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the crew on first.";
+  if (!crewMemberById(crew, memberId)) return "That member isn't in the crew.";
+  if (yourGoal(crew) && !options.replace)
+    return "The crew already has your goal. Replace it to use this one.";
+  if (!takeAsk(path, replyId)) return null;
+  updateCrew(path, (current) =>
+    withGoal(
+      current,
+      goal,
+      now,
+      memberId,
+      crewMemberName(current, memberId),
+      options.replace,
+    ),
+  );
   return null;
 }
 
@@ -523,6 +889,8 @@ export async function applyCrewCard(
 ): Promise<string | null> {
   const crew = getCrew(path);
   const card = crew ? crewCard(crew, cardId) : undefined;
+  // On the crew's branch: it lands only as part of the batch you reviewed.
+  if (card?.stage === "ready" && card.stacked) return REVIEW_FIRST;
   if (!crew?.copy || !card || card.stage !== "ready" || !card.fix)
     return NOT_READY;
   if (card.turn || jobIsLive(crew.job, now)) return STILL_WORKING;
@@ -590,6 +958,9 @@ export async function discardCrewCard(
   const crew = getCrew(path);
   const card = crew ? crewCard(crew, cardId) : undefined;
   if (!crew || !card) return null;
+  // On the crew's branch: only the top card comes off it.
+  if (card.stage === "ready" && card.stacked)
+    return dropStackedCard(path, cardId, then, now);
   if (card.turn) await stopCrewCard(path, cardId, now);
   if (crew.copy && card.base && cardInCopy(crew)?.id === cardId) {
     try {
@@ -602,9 +973,12 @@ export async function discardCrewCard(
   updateCrew(path, (current) => {
     const known = crewCard(current, cardId);
     if (!known) return current;
-    let next = withCard(
-      current,
-      withInboxResolved(markDiscarded(known, now), "dismissed", now),
+    let next = withGoalCardDropped(
+      withCard(
+        current,
+        withInboxResolved(markDiscarded(known, now), "dismissed", now),
+      ),
+      known,
     );
     const idea = next.ideas?.[cardId];
     if (idea) next = withIdea(next, cardId, { ...idea, declined: true });
@@ -622,6 +996,355 @@ export async function discardCrewCard(
   });
   if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
   else await deleteFeatureCard(path, cardId);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// The batch on the crew's branch: cards that passed every check, each a
+// commit, applied together (or up to one of them) by exactly the change
+// reviewed. Your files change only here.
+
+/** The batch waiting on the crew's branch, oldest card first, or null. */
+export type CrewBatch = { from: string; cards: CrewCard[] };
+
+export function crewBatch(crew: Crew | undefined): CrewBatch | null {
+  if (!crew?.stack) return null;
+  const cards = stackedCards(crew);
+  return cards.length ? { from: crew.stack.base, cards } : null;
+}
+
+const NOT_ON_BRANCH = "That card isn't on the crew's branch any more.";
+const BRANCH_MOVED =
+  "The crew's branch changed since you looked. Review it again.";
+/** Said when an Apply didn't say exactly what it reviewed. */
+export const REVIEW_FIRST =
+  "Review the crew's branch first: Apply lands exactly the change you reviewed.";
+/** Said when the crew is at work in its copy. */
+const CREW_AT_WORK =
+  "The crew is at work in its copy. Try again once its turn ends.";
+
+/** Where the batch ends: at `upTo` (a card's id), else its last card. */
+function batchEnd(
+  batch: CrewBatch,
+  upTo: string | undefined,
+): { cards: CrewCard[]; to: string } | null {
+  const at = upTo
+    ? batch.cards.findIndex((card) => card.id === upTo)
+    : batch.cards.length - 1;
+  if (at < 0) return null;
+  const cards = batch.cards.slice(0, at + 1);
+  return { cards, to: cards.at(-1)!.stacked!.commit };
+}
+
+/** The batch's cards up to the one whose commit is `to`. */
+function batchTo(batch: CrewBatch, to: string): CrewCard[] | null {
+  const at = batch.cards.findIndex((card) => card.stacked?.commit === to);
+  return at < 0 ? null : batch.cards.slice(0, at + 1);
+}
+
+/** A card a restack replayed onto your files, not checked again since. */
+export function cardReplayed(card: CrewCard): boolean {
+  return card.stacked?.replayed === true;
+}
+
+/**
+ * The batch's combined change up to a card (its last when not given), as
+ * the crew's branch holds it: what Apply would land, with its fingerprint.
+ */
+export async function reviewCrewBatch(
+  path: string,
+  upTo?: string,
+): Promise<
+  | { diff: BotDiff; from: string; to: string; cards: CrewCard[] }
+  | { error: string }
+> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  const end = batch && batchEnd(batch, upTo);
+  if (!crew?.copy || !batch || !end) return { error: NOT_ON_BRANCH };
+  try {
+    const diff = await botCopyHost.range(crew.copy.path, batch.from, end.to);
+    return { diff, from: batch.from, to: end.to, cards: end.cards };
+  } catch (error) {
+    logError("Review crew batch", error);
+    return { error: botCopyError(error) };
+  }
+}
+
+/**
+ * Apply the batch, or up to one of its cards, to your files: exactly the
+ * change you saw, named by its last commit (`to`) and fingerprint (`hash`),
+ * and every card in it the change its checks passed. A card a restack
+ * replayed lands only from the batch's Review (`reviewed`). Settings an app
+ * would run as you are never applied this way, and a conflict with your
+ * files changes nothing: the crew's branch can be updated onto them.
+ * Resolves with why it couldn't, or null once applied.
+ */
+export async function applyCrewBatch(
+  path: string,
+  shown: { to: string; hash: string; reviewed?: boolean },
+  now = Date.now(),
+): Promise<string | null> {
+  if (!shown.to || !shown.hash) return REVIEW_FIRST;
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  if (!crew?.copy || !batch) return NOT_ON_BRANCH;
+  const cards = batchTo(batch, shown.to);
+  if (!cards) return BRANCH_MOVED;
+  if (!shown.reviewed && cards.some(cardReplayed)) return REVIEW_FIRST;
+  const chain = cards.map((card) => ({
+    commit: card.stacked!.commit,
+    hash: stackedHash(card) ?? "",
+  }));
+  if (chain.some((card) => !card.hash)) return REVIEW_FIRST;
+  const copy = crew.copy;
+  let range: BotDiff;
+  try {
+    range = await botCopyHost.range(copy.path, batch.from, shown.to);
+  } catch (error) {
+    logError("Apply crew batch", error);
+    return botCopyError(error);
+  }
+  if (shown.hash !== range.hash) return BRANCH_MOVED;
+  const guarded = protectedFixPaths(range.files.map((file) => file.path));
+  if (guarded.length)
+    return `Aven didn't apply this: it changes settings or hooks that could run commands as you (${guarded.join(", ")}). Take it over in a chat to apply that part yourself.`;
+  try {
+    await botCopyHost.applyRange(
+      path,
+      copy.path,
+      batch.from,
+      shown.to,
+      shown.hash,
+      chain,
+    );
+  } catch (error) {
+    if (isFixChanged(error)) return BRANCH_MOVED;
+    logError("Apply crew batch", error);
+    if (!/conflict/i.test(errorText(error))) return botCopyError(error);
+    const text =
+      "Your files changed where the crew worked, so nothing was applied. Update the crew's branch onto your files, then Apply again.";
+    updateCrew(path, (current) =>
+      current.stack
+        ? { ...current, stack: { ...current.stack, conflict: text } }
+        : current,
+    );
+    return text;
+  }
+  const to = shown.to;
+  const applied = new Set(cards.map((card) => card.id));
+  updateCrew(path, (current) => {
+    let next: Crew = current;
+    for (const card of current.cards)
+      if (applied.has(card.id))
+        next = withCard(
+          next,
+          withInboxResolved(markApplied(card, now), "done", now),
+        );
+    const left = stackedCards({ ...next, stack: { base: to } }).length;
+    next = { ...next, stack: left ? { base: to } : undefined };
+    if (!next.stack) delete next.stack;
+    const only = cards.length === 1 ? cards[0] : undefined;
+    return withFeed(next, {
+      at: now,
+      kind: "applied",
+      who: "you",
+      ...(only ? { cardId: only.id, title: only.title } : {}),
+      text: only
+        ? `Applied “${only.title}” to your files`
+        : `Applied ${cards.length} cards to your files: ${cards
+            .map((card) => card.title)
+            .join(" · ")}`,
+    });
+  });
+  notifyGitChanged(path);
+  for (const card of cards) await moveFeatureCard(path, card.id, "shipped", "");
+  return null;
+}
+
+/** The card the crew is at work on (or that waits on you) builds on its branch. */
+const BUILDS_ON_TOP = (title: string) =>
+  `“${title}” builds on top of the crew's branch. Finish it or throw it away first.`;
+
+/**
+ * Take the top card off the crew's branch (Back to Ideas or Throw away):
+ * the branch goes back to the card before it. Only the top card, and only
+ * while no card builds on top of it.
+ */
+export function dropStackedCard(
+  path: string,
+  cardId: string,
+  then: "ideas" | "delete",
+  now = Date.now(),
+): Promise<string | null> {
+  return holdingCrewJob(path, now, () =>
+    dropStackedCardHeld(path, cardId, then, now),
+  );
+}
+
+let branchHolds = 0;
+
+/**
+ * Hold the crew's job (its copy) for as long as `work` moves the crew's
+ * branch, so the runner starts nothing in the copy meanwhile: renewed while
+ * it runs, and let go however it ends. Says the crew is at work when it
+ * holds the copy itself.
+ */
+async function holdingCrewJob(
+  path: string,
+  now: number,
+  work: () => Promise<string | null>,
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew) return NOT_ON_BRANCH;
+  branchHolds += 1;
+  const owner = `branch-${branchHolds}-${now}`;
+  // Off, no runner works in the copy, though another window may still.
+  const held = crew.on
+    ? claimCrewJob(path, owner, now)
+    : !jobIsLive(crew.job, now);
+  if (!held) return CREW_AT_WORK;
+  const renew = setInterval(() => renewCrewJob(path, owner), 30_000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(renew);
+    releaseCrewJob(path, owner);
+  }
+}
+
+async function dropStackedCardHeld(
+  path: string,
+  cardId: string,
+  then: "ideas" | "delete",
+  now: number,
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  const card = batch?.cards.at(-1);
+  if (!crew?.copy || !batch || !card) return NOT_ON_BRANCH;
+  if (card.id !== cardId)
+    return "Only the last card on the crew's branch can come off it.";
+  const busy = cardInCopy(crew);
+  if (busy) return BUILDS_ON_TOP(busy.title);
+  try {
+    // Only while the branch is still at this card: nothing stacked since
+    // is thrown away with it.
+    await botCopyHost.discard(
+      crew.copy.path,
+      card.stacked!.parent,
+      crew.copy.branch,
+      card.stacked!.commit,
+    );
+  } catch (error) {
+    logError("Drop crew card", error);
+    return botCopyError(error);
+  }
+  updateCrew(path, (current) => {
+    const known = crewCard(current, cardId);
+    if (!known) return current;
+    let next = withGoalCardDropped(
+      withCard(
+        current,
+        withInboxResolved(
+          { ...markDiscarded(known, now), stacked: undefined },
+          "dismissed",
+          now,
+        ),
+      ),
+      known,
+    );
+    if (!stackedCards(next).length) {
+      next = { ...next };
+      delete next.stack;
+    } else if (next.stack?.conflict) {
+      // What conflicted may have been this card: Apply finds out again.
+      next = { ...next, stack: { base: next.stack.base } };
+    }
+    const idea = next.ideas?.[cardId];
+    if (idea) next = withIdea(next, cardId, { ...idea, declined: true });
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      cardId,
+      title: known.title,
+      text:
+        then === "ideas"
+          ? `“${known.title}” came off the crew's branch and went back to Ideas`
+          : `You took “${known.title}” off the crew's branch and threw it away`,
+    });
+  });
+  if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
+  else await deleteFeatureCard(path, cardId);
+  return null;
+}
+
+/**
+ * Your files moved on where the batch would land: replay the crew's branch
+ * onto them, one card at a time. A card that no longer fits leaves the
+ * branch exactly as it was, and says which. Not while a card builds on it.
+ */
+export function restackCrew(
+  path: string,
+  now = Date.now(),
+): Promise<string | null> {
+  return holdingCrewJob(path, now, () => restackCrewHeld(path, now));
+}
+
+async function restackCrewHeld(
+  path: string,
+  now: number,
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  if (!crew?.copy || !batch) return NOT_ON_BRANCH;
+  const busy = cardInCopy(crew);
+  if (busy) return BUILDS_ON_TOP(busy.title);
+  let moved: { base: string; commits: string[]; hashes: string[] };
+  try {
+    moved = await botCopyHost.restack(
+      path,
+      crew.copy.path,
+      crew.copy.branch,
+      batch.from,
+      batch.cards.map((card) => card.stacked!.commit),
+    );
+  } catch (error) {
+    logError("Restack crew", error);
+    const text = isRestackConflict(error)
+      ? `${botCopyError(error)}. Nothing was lost: take the last card off the branch, or take it over in a chat.`
+      : botCopyError(error);
+    updateCrew(path, (current) =>
+      current.stack
+        ? { ...current, stack: { ...current.stack, conflict: text } }
+        : current,
+    );
+    return text;
+  }
+  updateCrew(path, (current) => {
+    let next: Crew = { ...current, stack: { base: moved.base } };
+    let parent = moved.base;
+    batch.cards.forEach((card, index) => {
+      const known = crewCard(next, card.id);
+      const commit = moved.commits[index];
+      const hash = moved.hashes[index];
+      if (!known || !commit || !hash) return;
+      // Replayed onto your files, each card is no longer exactly what its
+      // checks passed: its Apply goes through Review.
+      next = withCard(next, {
+        ...known,
+        stacked: { commit, parent, hash, replayed: true },
+      });
+      parent = commit;
+    });
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "aven",
+      text: `Updated the crew's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"}): replayed, not checked again, so Review them before you apply`,
+    });
+  });
   return null;
 }
 
@@ -1097,8 +1820,11 @@ export type CrewWorkspace = {
   openChat: (path: string, who: string) => void;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
-  /** Open the crew's settings (turning it on, when it is off). */
-  openSettings: (path: string) => void;
+  /**
+   * Open the crew's settings (turning it on, when it is off); with "add",
+   * at its gallery of members to add, or with a member's id, at that member.
+   */
+  openSettings: (path: string, page?: string) => void;
   /** Stop a chat's turn, and wait until it has. */
   stop: (sessionId: string) => Promise<void>;
 };
@@ -1167,4 +1893,22 @@ export function subscribeCrewTell(listener: () => void): () => void {
   return () => {
     tellListeners.delete(listener);
   };
+}
+
+let reviewFor: string | null = null;
+
+/**
+ * Open the batch's Review on the crew's Pipeline (from the Inbox): the
+ * only way an Apply there knows exactly what you saw.
+ */
+export function requestCrewReview(path: string) {
+  reviewFor = tellKey(path);
+  for (const listener of [...tellListeners]) listener();
+}
+
+/** The Pipeline takes a Review request for its crew, once. */
+export function takeCrewReview(path: string): boolean {
+  if (reviewFor === null || reviewFor !== tellKey(path)) return false;
+  reviewFor = null;
+  return true;
 }

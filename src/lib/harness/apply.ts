@@ -471,9 +471,24 @@ type UserTurnExtra = {
   noteCard?: Block["noteCard"];
   botWake?: Block["botWake"];
   internal?: boolean;
+  /** You typed it yourself: never a bot's wake-up or a lead's worker turn. */
+  typed?: true;
   /** The message's id, when the sender needs to know it (a project bot). */
   id?: string;
 };
+
+/**
+ * A send's mark that the words are your own (`typed`): a member's chat
+ * offers to queue what it took down from these only. Never on a bot's
+ * wake-up or a lead's turn for its worker.
+ */
+export function typedTurn(
+  options?: { typed?: boolean; botWake?: unknown; managed?: boolean } | null,
+): { typed?: true } {
+  return options?.typed && !options.botWake && !options.managed
+    ? { typed: true }
+    : {};
+}
 
 function userTurnFields(extra?: UserTurnExtra) {
   return {
@@ -482,6 +497,9 @@ function userTurnFields(extra?: UserTurnExtra) {
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
     ...(extra?.botWake ? { botWake: extra.botWake } : {}),
     ...(extra?.internal ? { internal: true } : {}),
+    ...(extra?.typed && !extra.botWake && !extra.internal
+      ? { typed: true as const }
+      : {}),
   };
 }
 

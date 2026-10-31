@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCrew, resetCrewsCache } from "./crews";
-import { appliedProblem, checkCrew, crewLaunchProblem } from "./devSmokeCrew";
+import { queueCard } from "./crewLoop";
+import { getCrew, newCrew, resetCrewsCache, type Crew } from "./crews";
+import {
+  appliedProblem,
+  checkCrew,
+  crewLaunchProblem,
+  stackProblem,
+} from "./devSmokeCrew";
 
 const COPY =
   "/var/folders/x/aven-smoke-1/home/Library/Application Support/com.capi.aven.dev/bots/project-1a2b";
@@ -63,6 +69,59 @@ describe("the real-app check's crew step", () => {
         ["aven-crew-check.txt"],
       ),
     ).toBe("Apply also changed README.md, which wasn't in the reviewed change");
+  });
+
+  it("expects the Ready card as the only card on the crew's branch, reviewed as its own change", () => {
+    const base = "a".repeat(40);
+    const commit = "1".repeat(40);
+    const fix = {
+      base,
+      hash: "h",
+      files: 1,
+      additions: 1,
+      deletions: 0,
+      paths: [{ path: "aven-crew-check.txt", additions: 1, deletions: 0 }],
+    };
+    const ready = {
+      ...queueCard(
+        {
+          id: "check",
+          title: "Crew check",
+          brief: "",
+          from: "you",
+          maxRounds: 3,
+        },
+        1,
+      ),
+      stage: "ready" as const,
+      fix,
+    };
+    const crew = (patch: Partial<Crew>): Crew => ({
+      ...newCrew("/Users/me/aven-site"),
+      ...patch,
+    });
+    // Ready but never stacked: the old one-card Apply.
+    expect(stackProblem(crew({ cards: [ready] }), "check", [])).toBe(
+      "The Ready card isn't stacked on the crew's branch",
+    );
+    const stacked = { ...ready, stacked: { commit, parent: base } };
+    const onBranch = crew({ cards: [stacked], stack: { base } });
+    expect(stackProblem(onBranch, "check", ["aven-crew-check.txt"])).toBeNull();
+    expect(stackProblem(onBranch, "check", ["README.md"])).toBe(
+      "The batch's Review shows README.md, not the card's reviewed change (aven-crew-check.txt)",
+    );
+    const other = {
+      ...stacked,
+      id: "other",
+      stacked: { commit: "2".repeat(40), parent: commit },
+    };
+    expect(
+      stackProblem(
+        crew({ cards: [stacked, other], stack: { base } }),
+        "check",
+        ["aven-crew-check.txt"],
+      ),
+    ).toBe("The crew's branch holds check, other, not just the check's card");
   });
 
   it("turns quiet hours off even when the fresh profile has no crew yet", async () => {

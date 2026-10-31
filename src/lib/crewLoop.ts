@@ -110,7 +110,9 @@ export function queueCard(
     id: string;
     title: string;
     brief: string;
-    from: "you" | "scout" | "security";
+    from: "you" | "scout" | "security" | "member";
+    /** The member that took it down in its chat (`from: "member"`). */
+    fromMember?: string;
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
@@ -134,6 +136,9 @@ export function queueCard(
     title: input.title,
     brief: input.brief,
     from: input.from,
+    ...(input.from === "member" && input.fromMember
+      ? { fromMember: input.fromMember }
+      : {}),
     ...(input.size ? { size: input.size } : {}),
     ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
     ...(input.builderId ? { builderId: input.builderId } : {}),
@@ -530,6 +535,14 @@ export function stopCard(card: CrewCard, now: number): CrewCard {
  * A Stuck card whose turn didn't finish (it failed, ran too long, was
  * stopped, or ended without a verdict): Try again runs that turn again.
  */
+/**
+ * Whether the crew can take a Stuck card further: not one whose file's name
+ * reads as a settings folder on a Mac, which would only stop again.
+ */
+export function cardCanGoOn(card: Pick<CrewCard, "stage" | "stuck">) {
+  return !(card.stage === "stuck" && card.stuck?.reason === "unsafe-name");
+}
+
 export function cardTriesAgain(card: Pick<CrewCard, "stage" | "stuck">) {
   const reason = card.stage === "stuck" ? card.stuck?.reason : undefined;
   return (
@@ -551,6 +564,8 @@ export function resumeCard(
   input: { note?: string; now: number },
 ): CrewCard {
   if (card.stage !== "stuck" && card.stage !== "ready") return card;
+  // Its file's name can't go to your files: only you can change that.
+  if (!cardCanGoOn(card)) return card;
   const note = input.note?.replace(/\s+/g, " ").trim().slice(0, 500);
   const answering = card.stuck?.reason === "question";
   const sameRound =

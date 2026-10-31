@@ -3,7 +3,9 @@ import {
   MUST_FIX_MAX,
   looksFromOutside,
   parseHandoff,
+  parseGoal,
   parseIdeas,
+  parseTasks,
   parseVerdict,
   replyBefore,
 } from "./crewHandoff";
@@ -277,5 +279,57 @@ describe("the outside check holds against attempts to slip past it", () => {
       "Split the settings file. Keep the old names.",
     ])
       expect(looksFromOutside(title), title).toBe(false);
+  });
+});
+
+describe("a goal turn's answer", () => {
+  it("reads whether the goal is met, and the single next card", () => {
+    expect(
+      parseGoal(
+        reply("aven-goal", {
+          met: false,
+          summary: "No timer yet.",
+          next: [{ title: "Timer screen", why: "The core" }, { title: "More" }],
+        }),
+      ),
+    ).toEqual({
+      met: false,
+      summary: "No timer yet.",
+      next: [{ title: "Timer screen", why: "The core" }],
+    });
+    expect(
+      parseGoal(
+        reply("aven-goal", {
+          met: true,
+          summary: "Done",
+          next: [{ title: "X" }],
+        }),
+      ),
+    ).toEqual({ met: true, summary: "Done", next: [] });
+    expect(parseGoal("No block at all.")).toBeNull();
+  });
+});
+
+describe("work a member queues from its chat", () => {
+  it("reads its cards and goal, clipped and as data", () => {
+    const asked = parseTasks(
+      reply("aven-tasks", {
+        tasks: [
+          "Timer screen",
+          { title: "Pause and resume", why: "So a break keeps its time" },
+          { title: "timer screen" },
+        ],
+        goal: "Build the whole Pom app",
+      }),
+    );
+    expect(asked).toEqual({
+      tasks: [
+        { title: "Timer screen" },
+        { title: "Pause and resume", why: "So a break keeps its time" },
+      ],
+      goal: "Build the whole Pom app",
+    });
+    expect(parseTasks(reply("aven-tasks", { tasks: [] }))).toBeNull();
+    expect(parseTasks("Sure, I'll get on it.")).toBeNull();
   });
 });
