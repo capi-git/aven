@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  REVIEW_FIRST,
   applyCrewBatch,
   applyCrewCard,
   crewBatch,
@@ -9,9 +10,11 @@ import {
   restackCrew,
   reviewCrewBatch,
 } from "./crewActions";
+import { openCrewInboxItems } from "./crewInbox";
 import { queueCard, startCard } from "./crewLoop";
 import {
   crewCard,
+  crewsSnapshot,
   getCrew,
   resetCrewsCache,
   updateCrew,
@@ -97,9 +100,20 @@ function stacked(
     stage: "ready",
     holder: undefined,
     base: parent,
-    stacked: { commit, parent },
+    stacked: { commit, parent, hash: `own-${commit.slice(0, 1)}` },
+    inbox: {
+      kind: "review",
+      title,
+      summary: title,
+      status: "open",
+      postedAt: 3,
+    },
   };
 }
+
+/** What Apply checks for each card: its commit and its own fingerprint. */
+const own = (...commits: string[]) =>
+  commits.map((commit) => ({ commit, hash: `own-${commit.slice(0, 1)}` }));
 
 async function crewWithBatch(
   extra: (cards: CrewCard[]) => CrewCard[] = (c) => c,
@@ -159,8 +173,18 @@ describe("the batch on the crew's branch", () => {
     const ids = await crewWithBatch();
     host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-all"));
     host.applyRange.mockResolvedValue(range(["a.ts", "b.ts"], ""));
-    expect(await applyCrewBatch(PATH, { hash: "h-all" }, NOW)).toBeNull();
-    expect(host.applyRange).toHaveBeenCalledWith(PATH, COPY, BASE, C2, "h-all");
+    expect(
+      await applyCrewBatch(PATH, { to: C2, hash: "h-all" }, NOW),
+    ).toBeNull();
+    // Each card is checked to be the change its checks passed, too.
+    expect(host.applyRange).toHaveBeenCalledWith(
+      PATH,
+      COPY,
+      BASE,
+      C2,
+      "h-all",
+      own(C1, C2),
+    );
     expect(host.apply).not.toHaveBeenCalled();
     const crew = getCrew(PATH)!;
     expect(ids.map((id) => crewCard(crew, id)!.stage)).toEqual([
@@ -182,22 +206,33 @@ describe("the batch on the crew's branch", () => {
     const [timer, settings] = await crewWithBatch();
     host.range.mockResolvedValue(range(["a.ts"], "h-one"));
     host.applyRange.mockResolvedValue(range(["a.ts"], ""));
-    expect(await applyCrewBatch(PATH, { upTo: timer }, NOW)).toBeNull();
-    expect(host.applyRange).toHaveBeenCalledWith(PATH, COPY, BASE, C1, "h-one");
+    expect(
+      await applyCrewBatch(PATH, { to: C1, hash: "h-one" }, NOW),
+    ).toBeNull();
+    expect(host.applyRange).toHaveBeenCalledWith(
+      PATH,
+      COPY,
+      BASE,
+      C1,
+      "h-one",
+      own(C1),
+    );
     const crew = getCrew(PATH)!;
     expect(crewCard(crew, timer)!.stage).toBe("applied");
     expect(crewCard(crew, settings)!.stage).toBe("ready");
     expect(crew.stack).toEqual({ base: C1 });
     expect(crewBatch(crew)!.cards.map((card) => card.id)).toEqual([settings]);
-    // A stacked card's own Apply is the batch up to it.
     host.range.mockResolvedValue(range(["b.ts"], "h-two"));
-    expect(await applyCrewCard(PATH, settings, NOW)).toBeNull();
+    expect(
+      await applyCrewBatch(PATH, { to: C2, hash: "h-two" }, NOW),
+    ).toBeNull();
     expect(host.applyRange).toHaveBeenLastCalledWith(
       PATH,
       COPY,
       C1,
       C2,
       "h-two",
+      own(C2),
     );
     expect(getCrew(PATH)!.stack).toBeUndefined();
   });
@@ -205,7 +240,7 @@ describe("the batch on the crew's branch", () => {
   it("refuses a change that isn't the one you reviewed", async () => {
     const ids = await crewWithBatch();
     host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-now"));
-    expect(await applyCrewBatch(PATH, { hash: "h-seen" }, NOW)).toBe(
+    expect(await applyCrewBatch(PATH, { to: C2, hash: "h-seen" }, NOW)).toBe(
       "The crew's branch changed since you looked. Review it again.",
     );
     expect(host.applyRange).not.toHaveBeenCalled();
@@ -215,7 +250,7 @@ describe("the batch on the crew's branch", () => {
   it("never applies settings or hooks that could run as you", async () => {
     await crewWithBatch();
     host.range.mockResolvedValue(range([".husky/pre-commit", "a.ts"], "h"));
-    const why = await applyCrewBatch(PATH, {}, NOW);
+    const why = await applyCrewBatch(PATH, { to: C2, hash: "h" }, NOW);
     expect(why).toContain("could run commands as you (.husky/pre-commit)");
     expect(host.applyRange).not.toHaveBeenCalled();
   });
@@ -226,7 +261,7 @@ describe("the batch on the crew's branch", () => {
     host.applyRange.mockRejectedValue(
       new Error("These changes conflict with edits in your project: a.ts"),
     );
-    const why = await applyCrewBatch(PATH, {}, NOW);
+    const why = await applyCrewBatch(PATH, { to: C2, hash: "h" }, NOW);
     expect(why).toBe(
       "Your files changed where the crew worked, so nothing was applied. Update the crew's branch onto your files, then Apply again.",
     );
@@ -239,12 +274,107 @@ describe("the batch on the crew's branch", () => {
   });
 });
 
+describe("Apply lands only what you saw", () => {
+  it("never applies without the last commit and fingerprint you saw", async () => {
+    await crewWithBatch();
+    host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-all"));
+    // An Apply that can't say what it saw (as the row's and the Inbox's
+    // once did) lands nothing.
+    for (const shown of [
+      {},
+      { hash: "h-all" },
+      { to: C2 },
+      { to: "", hash: "" },
+    ])
+      expect(await applyCrewBatch(PATH, shown as never, NOW)).toBe(
+        REVIEW_FIRST,
+      );
+    expect(host.applyRange).not.toHaveBeenCalled();
+  });
+
+  it("never lands a card that stacked after you looked", async () => {
+    const ids = await crewWithBatch();
+    const [, , third] = await addFeatureCards(PATH, [
+      { title: "Haptics", column: "review" },
+    ]).then((cards) => [...ids, cards[0]!.id]);
+    // What the row showed: two cards, up to C2. A third stacks before the click.
+    updateCrew(PATH, (crew) =>
+      withCard(crew, stacked(third!, "Haptics", C2, C3)),
+    );
+    host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-two"));
+    host.applyRange.mockResolvedValue(range(["a.ts", "b.ts"], ""));
+    expect(
+      await applyCrewBatch(PATH, { to: C2, hash: "h-two" }, NOW),
+    ).toBeNull();
+    expect(host.range).toHaveBeenCalledWith(COPY, BASE, C2);
+    expect(host.applyRange).toHaveBeenCalledWith(
+      PATH,
+      COPY,
+      BASE,
+      C2,
+      "h-two",
+      own(C1, C2),
+    );
+    expect(crewCard(getCrew(PATH)!, third!)!.stage).toBe("ready");
+  });
+
+  it("sends the Inbox's and a card's own Apply to the batch's Review", async () => {
+    const [, settings] = await crewWithBatch();
+    const item = openCrewInboxItems(crewsSnapshot())[0]!;
+    expect(item.batch).toBe(true);
+    expect(await applyCrewCard(item.project, item.card.id, NOW)).toBe(
+      REVIEW_FIRST,
+    );
+    expect(await applyCrewCard(PATH, settings, NOW)).toBe(REVIEW_FIRST);
+    expect(host.range).not.toHaveBeenCalled();
+    expect(host.applyRange).not.toHaveBeenCalled();
+  });
+
+  it("lands a replayed card only from Review", async () => {
+    const [timer, settings] = await crewWithBatch();
+    updateCrew(PATH, (crew) =>
+      withCard(crew, {
+        ...crewCard(crew, settings)!,
+        stacked: { commit: C2, parent: C1, hash: "replayed", replayed: true },
+      }),
+    );
+    host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-all"));
+    host.applyRange.mockResolvedValue(range(["a.ts", "b.ts"], ""));
+    expect(await applyCrewBatch(PATH, { to: C2, hash: "h-all" }, NOW)).toBe(
+      REVIEW_FIRST,
+    );
+    // Up to the card before it, nothing replayed: fine.
+    host.range.mockResolvedValue(range(["a.ts"], "h-one"));
+    expect(
+      await applyCrewBatch(PATH, { to: C1, hash: "h-one" }, NOW),
+    ).toBeNull();
+    expect(crewCard(getCrew(PATH)!, timer)!.stage).toBe("applied");
+    host.range.mockResolvedValue(range(["b.ts"], "h-rest"));
+    expect(
+      await applyCrewBatch(
+        PATH,
+        { to: C2, hash: "h-rest", reviewed: true },
+        NOW,
+      ),
+    ).toBeNull();
+    expect(host.applyRange).toHaveBeenLastCalledWith(
+      PATH,
+      COPY,
+      C1,
+      C2,
+      "h-rest",
+      [{ commit: C2, hash: "replayed" }],
+    );
+  });
+});
+
 describe("updating the branch onto your files", () => {
   it("replays every card, each its own commit again", async () => {
     const [timer, settings] = await crewWithBatch();
     host.restack.mockResolvedValue({
       base: C3,
       commits: ["4".repeat(40), "5".repeat(40)],
+      hashes: ["r4", "r5"],
     });
     expect(await restackCrew(PATH, NOW)).toBeNull();
     expect(host.restack).toHaveBeenCalledWith(PATH, COPY, BRANCH, BASE, [
@@ -253,13 +383,18 @@ describe("updating the branch onto your files", () => {
     ]);
     const crew = getCrew(PATH)!;
     expect(crew.stack).toEqual({ base: C3 });
+    // Replayed, not checked again: each with its new fingerprint.
     expect(crewCard(crew, timer)!.stacked).toEqual({
       commit: "4".repeat(40),
       parent: C3,
+      hash: "r4",
+      replayed: true,
     });
     expect(crewCard(crew, settings)!.stacked).toEqual({
       commit: "5".repeat(40),
       parent: "4".repeat(40),
+      hash: "r5",
+      replayed: true,
     });
   });
 
@@ -278,6 +413,7 @@ describe("updating the branch onto your files", () => {
     expect(crewCard(crew, timer)!.stacked).toEqual({
       commit: C1,
       parent: BASE,
+      hash: "own-1",
     });
   });
 
@@ -306,17 +442,48 @@ describe("updating the branch onto your files", () => {
     );
     expect(host.restack).not.toHaveBeenCalled();
   });
+
+  it("waits while the crew is at work in its copy", async () => {
+    await crewWithBatch();
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      job: { owner: "other", since: NOW, heartbeat: NOW },
+    }));
+    expect(await restackCrew(PATH, NOW)).toBe(
+      "The crew is at work in its copy. Try again once its turn ends.",
+    );
+    expect(
+      await dropStackedCard(
+        PATH,
+        crewBatch(getCrew(PATH))!.cards[1]!.id,
+        "ideas",
+        NOW,
+      ),
+    ).toBe("The crew is at work in its copy. Try again once its turn ends.");
+    expect(host.restack).not.toHaveBeenCalled();
+    expect(host.discard).not.toHaveBeenCalled();
+  });
 });
 
 describe("taking a card off the branch", () => {
   it("takes the top card off, back to the card before it", async () => {
     const [timer, settings] = await crewWithBatch();
     host.discard.mockResolvedValue(undefined);
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      stack: {
+        base: BASE,
+        conflict: "Your files changed where the crew worked",
+      },
+    }));
     expect(await discardCrewCard(PATH, settings, "ideas", NOW)).toBeNull();
-    expect(host.discard).toHaveBeenCalledWith(COPY, C1, BRANCH);
+    // Only while the branch is still at that card.
+    expect(host.discard).toHaveBeenCalledWith(COPY, C1, BRANCH, C2);
     const crew = getCrew(PATH)!;
     expect(crewCard(crew, settings)!.stage).toBe("discarded");
     expect(crewBatch(crew)!.cards.map((card) => card.id)).toEqual([timer]);
+    // What conflicted may have been that card: Apply finds out again.
+    expect(crew.stack).toEqual({ base: BASE });
     expect(
       featureBoardState(PATH).cards.find((card) => card.id === settings)
         ?.column,
@@ -337,6 +504,21 @@ describe("taking a card off the branch", () => {
     await dropStackedCard(PATH, settings, "delete", NOW);
     await dropStackedCard(PATH, timer, "delete", NOW);
     expect(getCrew(PATH)!.stack).toBeUndefined();
-    expect(host.discard).toHaveBeenLastCalledWith(COPY, BASE, BRANCH);
+    expect(host.discard).toHaveBeenLastCalledWith(COPY, BASE, BRANCH, C1);
+  });
+});
+
+describe("a goal card you threw away", () => {
+  it("is remembered by the goal, so it isn't planned again", async () => {
+    const [, settings] = await crewWithBatch((cards) =>
+      cards.map((card) => ({ ...card, goal: true as const })),
+    );
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      goal: { text: "Build the whole Pom app", at: 1 },
+    }));
+    host.discard.mockResolvedValue(undefined);
+    expect(await discardCrewCard(PATH, settings, "delete", NOW)).toBeNull();
+    expect(getCrew(PATH)!.goal?.dropped).toEqual(["Settings page"]);
   });
 });

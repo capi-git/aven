@@ -15,6 +15,7 @@ import {
   resumeCrewCard,
   setCrewPaused,
   setCrewGoal,
+  setMemberGoal,
   setCrewQuietHours,
   stopCrewCard,
   takeCrewTell,
@@ -34,7 +35,9 @@ import {
   resetCrewsCache,
   updateCrew,
   withCard,
+  withGoal,
   withIdea,
+  type Crew,
   type CrewCard,
 } from "./crews";
 import {
@@ -333,6 +336,7 @@ describe("Apply lands exactly the reviewed change", () => {
         sources: async () => [],
         planted: async () => [],
         stack: async () => "c".repeat(40),
+        unstack: async () => {},
         discard: async () => {},
       },
       weeklyUsed: () => null,
@@ -787,6 +791,93 @@ describe("Tell the crew… gives it work", () => {
       "You resumed the crew",
       "Tell the crew what to build, or add an idea.",
     ]);
+  });
+});
+
+describe("a nudge with cards waiting on the branch", () => {
+  const ready = (id: string, parent: string, commit: string): CrewCard => ({
+    ...queueCard({ id, title: id, brief: id, from: "you", maxRounds: 3 }, NOON),
+    stage: "ready",
+    round: 1,
+    stacked: { commit, parent },
+  });
+
+  it("says they wait for your review, not that there's nothing to build", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...withCard(
+        withCard(
+          { ...crew, on: true },
+          ready("Timer", "a".repeat(40), "1".repeat(40)),
+        ),
+        ready("Settings", "1".repeat(40), "2".repeat(40)),
+      ),
+      stack: { base: "a".repeat(40) },
+    }));
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "2 cards wait for you on the crew's branch: review them to apply them.",
+    );
+  });
+
+  it("says why a queued card doesn't start once enough wait", async () => {
+    updateCrew(PATH, (crew) => {
+      let next: Crew = {
+        ...crew,
+        on: true,
+        stack: { base: "a".repeat(40) },
+        limits: { ...crew.limits, readyCap: 2 },
+      };
+      next = withCard(next, ready("Timer", "a".repeat(40), "1".repeat(40)));
+      next = withCard(next, ready("Settings", "1".repeat(40), "2".repeat(40)));
+      return withCard(
+        next,
+        queueCard(
+          { id: "next", title: "Next", brief: "x", from: "you", maxRounds: 3 },
+          NOON,
+        ),
+      );
+    });
+    expect(await tellCrewWork(PATH, "keep going", NOON)).toBeNull();
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "2 cards wait for you on the crew's branch: review them to keep going.",
+    );
+  });
+});
+
+describe("a goal a member took down", () => {
+  it("never replaces the goal you set yourself unless you say so", () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: true,
+      members: [
+        ...crew.members,
+        { id: "scout", role: "scout", sessionId: "s-chat" },
+      ],
+    }));
+    setCrewGoal(PATH, "Just the settings page", NOON);
+    // Even from code that doesn't ask first.
+    updateCrew(PATH, (crew) =>
+      withGoal(crew, "Build the whole Pom app", NOON + 1, "scout", "Fox"),
+    );
+    expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
+    expect(
+      setMemberGoal(PATH, "scout", "r1", "Build the whole Pom app", {}, NOON),
+    ).toBe("The crew already has your goal. Replace it to use this one.");
+    expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
+    expect(
+      setMemberGoal(
+        PATH,
+        "scout",
+        "r1",
+        "Build the whole Pom app",
+        { replace: true },
+        NOON,
+      ),
+    ).toBeNull();
+    expect(getCrew(PATH)!.goal).toMatchObject({
+      text: "Build the whole Pom app",
+      by: "scout",
+    });
   });
 });
 

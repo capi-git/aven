@@ -466,6 +466,7 @@ pub fn run() {
             project_bots::bot_copy_apply,
             project_bots::bot_copy_discard,
             project_bots::bot_copy_stack,
+            project_bots::bot_copy_unstack,
             project_bots::bot_copy_range,
             project_bots::bot_copy_range_file_diff,
             project_bots::bot_copy_apply_range,

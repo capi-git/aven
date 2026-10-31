@@ -302,6 +302,8 @@ export type Block = {
    * · Add sign-up flow") instead of the message the bot was sent.
    */
   botWake?: BotWakeMeta;
+  /** You typed this message yourself (not Aven, a bot or another agent). */
+  typed?: true;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */
   statusKey?: string;
 };

@@ -110,7 +110,9 @@ export function queueCard(
     id: string;
     title: string;
     brief: string;
-    from: "you" | "scout" | "security";
+    from: "you" | "scout" | "security" | "member";
+    /** The member that took it down in its chat (`from: "member"`). */
+    fromMember?: string;
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
@@ -134,6 +136,9 @@ export function queueCard(
     title: input.title,
     brief: input.brief,
     from: input.from,
+    ...(input.from === "member" && input.fromMember
+      ? { fromMember: input.fromMember }
+      : {}),
     ...(input.size ? { size: input.size } : {}),
     ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
     ...(input.builderId ? { builderId: input.builderId } : {}),

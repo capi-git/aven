@@ -11,6 +11,7 @@ import {
   allCrewRunsToday,
   crewGate,
   crewNoMemberGate,
+  crewReviewGate,
   ideaMayAutoStart,
   ideasLeft,
   nextAutoStart,
@@ -24,6 +25,7 @@ import {
   afterCheck,
   afterSecurity,
   cardScope,
+  changedAfterCheck,
   earlierFindings,
   earlierSecurityFindings,
   reviewMoved,
@@ -80,9 +82,11 @@ import {
   withDoingCleared,
   withoutFallbacks,
   stackHead,
+  stackedCards,
   goalCardsDone,
+  goalDropped,
   goalPlanner,
-  withGoal,
+  waitsForReview,
   NO_PLANNER,
   queuedCards,
   type Crew,
@@ -101,7 +105,7 @@ import type {
 import type { ControlOutcome } from "./orchestration";
 import { projectKey } from "./paths";
 import type { BotCopyInfo, BotDiff, BotSyncResult } from "./projectBotCopy";
-import { botCopyError } from "./projectBotCopy";
+import { botCopyError, isStackChanged } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
@@ -159,7 +163,13 @@ export type CrewRunnerDeps = {
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
   copy: {
-    prepare: (cwd: string, key: string, branch: string) => Promise<BotCopyInfo>;
+    /** Make the copy when missing; made again, it starts `at` the stack. */
+    prepare: (
+      cwd: string,
+      key: string,
+      branch: string,
+      at?: string,
+    ) => Promise<BotCopyInfo>;
     sync: (cwd: string, copy: string, branch: string) => Promise<BotSyncResult>;
     diff: (copy: string, base: string) => Promise<BotDiff>;
     /** The copy's own files: its top-level entries Git doesn't ignore. */
@@ -171,16 +181,33 @@ export type CrewRunnerDeps = {
     planted: (copy: string, remove: boolean) => Promise<string[]>;
     /**
      * Stack a passed card: what the copy holds becomes a commit on the
-     * crew's branch on top of `parent`. Resolves with the commit.
+     * crew's branch on top of `parent`, only while it is the change its
+     * checks passed (`hash`). Resolves with the commit.
      */
     stack: (
       copy: string,
       branch: string,
       parent: string,
       message: string,
+      hash: string,
     ) => Promise<string>;
-    /** Throw away what the copy holds since `base` (it goes back to `base`). */
-    discard: (copy: string, base: string, branch: string) => Promise<void>;
+    /** Take a card's commit back off the branch; its files stay. */
+    unstack: (
+      copy: string,
+      branch: string,
+      commit: string,
+      parent: string,
+    ) => Promise<void>;
+    /**
+     * Throw away what the copy holds since `base` (it goes back to `base`),
+     * only while the branch is at `expect`, when given.
+     */
+    discard: (
+      copy: string,
+      base: string,
+      branch: string,
+      expect?: string,
+    ) => Promise<void>;
   };
   /** The Claude week's use, percent, when known. */
   weeklyUsed: (now: number) => number | null;
@@ -254,7 +281,12 @@ type LiveTurn = {
    * A goal turn: the commit the copy held when it began, so anything a
    * Builder planning it wrote there is undone.
    */
-  goal?: { base?: string };
+  goal?: {
+    base?: string;
+    /** The goal it was asked about: its words and when it was set. */
+    text?: string;
+    at?: number;
+  };
 };
 
 /** Where a card stood when Aven began preparing its turn. */
@@ -303,23 +335,25 @@ function chatNeedsYou(chat: Session): string | null {
 }
 
 /**
- * What a member queues from its chat: its last reply, when it answers your
- * own message (not a turn Aven sent it) with an `aven-tasks` block.
+ * What a member took down in its chat for the crew: a reply's `aven-tasks`
+ * block, when that reply answers a message you typed yourself (never a
+ * turn Aven sent it, nor another agent's words). Aven only offers it, as
+ * Queue these and Set as goal on the block's card: nothing starts until
+ * you press one.
  */
 export function memberAsk(
-  chat: Session,
+  chat: Pick<Session, "blocks">,
+  replyId: string,
 ): { replyId: string; tasks: CrewTask[]; goal?: string } | null {
-  let reply: Session["blocks"][number] | undefined;
-  for (let index = chat.blocks.length - 1; index >= 0; index -= 1) {
+  const at = chat.blocks.findIndex((block) => block.id === replyId);
+  const reply = chat.blocks[at];
+  if (!reply || reply.role !== "assistant") return null;
+  for (let index = at - 1; index >= 0; index -= 1) {
     const block = chat.blocks[index]!;
-    if (block.role === "user") {
-      // Aven's own turns carry their wake; yours don't.
-      if (block.botWake || !reply) return null;
-      const asked = parseTasks(reply.text);
-      return asked ? { replyId: reply.id, ...asked } : null;
-    }
-    if (!reply && block.role === "assistant" && block.text.trim())
-      reply = block;
+    if (block.role !== "user") continue;
+    if (block.botWake || !block.typed) return null;
+    const asked = parseTasks(reply.text);
+    return asked ? { replyId: reply.id, ...asked } : null;
   }
   return null;
 }
@@ -583,8 +617,12 @@ export class CrewRunner {
       this.clearHold(crew);
       return this.sendCardTurn(path, inCopy.id, role, member.id);
     }
+    // Enough passed work waits on the branch: nothing new starts until you
+    // review it (the Scout may still look, below).
+    const waiting = waitsForReview(crew);
     const next = nextCardToStart(crew);
     if (next) {
+      if (waiting) return this.hold(crew, crewReviewGate(waiting));
       const builder = cardBuilder(crew, crewCard(crew, next)!);
       if (!builder) return this.hold(crew, crewNoMemberGate("builder"));
       const gate = this.gate(crew, now);
@@ -595,6 +633,8 @@ export class CrewRunner {
     // Idle with a goal: is it met, and what's the next card towards it.
     // The crew keeps going, card after card, until it's met or it stops
     // to ask (a Stuck card holds the copy, so nothing gets here).
+    if (crew.goal && !crew.goal.done && waiting)
+      return this.hold(crew, crewReviewGate(waiting));
     if (crew.goal && !crew.goal.done) {
       if (!goalPlanner(crew)) return this.stopGoal(crew, NO_PLANNER, now);
       const gate = this.gate(crew, now);
@@ -623,7 +663,7 @@ export class CrewRunner {
     }
     const inIdeas = (id: string) =>
       cards.some((card) => card.id === id && card.column === "idea");
-    const auto = nextAutoStart(crew, now, inIdeas);
+    const auto = waiting ? null : nextAutoStart(crew, now, inIdeas);
     if (auto) {
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
@@ -668,6 +708,7 @@ export class CrewRunner {
       releaseCrewJob(crew.path, this.deps.owner);
     }
     let ready = false;
+    let saved = false;
     updateCrew(crew.path, (current) => {
       const known = crewCard(current, card.id);
       if (
@@ -678,6 +719,7 @@ export class CrewRunner {
         cardSecurity(current)
       )
         return current;
+      saved = true;
       ready = step.event.kind === "ready";
       const checker = this.deps.name(current, checkerId);
       const noted = withFeed(
@@ -693,6 +735,7 @@ export class CrewRunner {
       );
       return this.commit(noted, step, "checker", now, checkerId);
     });
+    if (!saved) await this.unstackUnsaved(crew, step.card);
     if (ready)
       await Promise.resolve(this.deps.board.move(crew.path, card.id, "review"));
   }
@@ -803,8 +846,15 @@ export class CrewRunner {
     const branch =
       crew.copy?.branch ?? crewBranch(path, this.deps.fixerBranch(path));
     let copy: BotCopyInfo;
+    // Made again (git forgot it), it starts where the stack is.
+    const at = stackedCards(crew).length ? stackHead(crew) : undefined;
     try {
-      copy = await this.deps.copy.prepare(path, crewCopyKey(path), branch);
+      copy = await this.deps.copy.prepare(
+        path,
+        crewCopyKey(path),
+        branch,
+        ...(at ? [at] : []),
+      );
     } catch (error) {
       throw new Error(`Couldn't make the crew's copy: ${botCopyError(error)}`);
     }
@@ -1445,11 +1495,38 @@ export class CrewRunner {
     if (!this.stillOn(path, turn.onAt)) return;
     if (step.event.kind === "ready")
       step = await this.stackPassed(crew, step, role, turn.memberId, now);
-    updateCrew(path, (current) =>
-      this.commit(current, step, role, now, turn.memberId),
-    );
+    let saved = false;
+    updateCrew(path, (current) => {
+      // Stopped, thrown away or picked up again while this was read: the
+      // card is yours now, not this turn's.
+      if (crewCard(current, card.id)?.turn?.turnId !== turn.turnId)
+        return current;
+      saved = true;
+      return this.commit(current, step, role, now, turn.memberId);
+    });
+    if (!saved) {
+      await this.unstackUnsaved(crew, step.card);
+      return;
+    }
     if (step.event.kind === "ready")
       await Promise.resolve(this.deps.board.move(path, step.card.id, "review"));
+  }
+
+  /**
+   * A card was stacked but not saved as Ready (stopped or thrown away
+   * meanwhile): its commit comes back off the branch, its files left in
+   * the copy as they are.
+   */
+  private async unstackUnsaved(crew: Crew, card: CrewCard) {
+    if (!card.stacked || !crew.copy) return;
+    await this.deps.copy
+      .unstack(
+        crew.copy.path,
+        crew.copy.branch,
+        card.stacked.commit,
+        card.stacked.parent,
+      )
+      .catch((error) => logError("Crew unstack", error));
   }
 
   /**
@@ -1467,19 +1544,36 @@ export class CrewRunner {
   ): Promise<LoopStep> {
     const card = step.card;
     if (!crew.copy || !card.base) return step;
+    const hash = card.fix?.hash;
     try {
+      if (!hash) throw new Error("it has no checked change");
       const commit = await this.deps.copy.stack(
         crew.copy.path,
         crew.copy.branch,
         card.base,
         card.title,
+        hash,
       );
       return {
         ...step,
-        card: { ...card, stacked: { commit, parent: card.base } },
+        card: { ...card, stacked: { commit, parent: card.base, hash } },
       };
     } catch (error) {
       logError("Crew stack", error);
+      // The copy changed after its checks: it's checked again, never
+      // stacked as something that wasn't checked.
+      if (isStackChanged(error)) {
+        const checker = this.deps.name(
+          crew,
+          card.checkerId ?? cardChecker(crew, card)?.id ?? "checker",
+        );
+        const text = `The copy changed after ${checker}'s check, so it wasn't stacked. One more round checks it again`;
+        const moved = changedAfterCheck(card, { now, checker });
+        return {
+          card: { ...moved, stuck: { reason: "changed", text } },
+          event: { kind: "stuck", reason: "changed", text },
+        };
+      }
       return turnFailed(card, {
         role,
         error: `its work couldn't be stacked on the crew's branch: ${errorText(error)}`,
@@ -1774,89 +1868,6 @@ export class CrewRunner {
   }
 
   // -------------------------------------------------------------------------
-  // Asked for work in a member's own chat
-
-  /**
-   * You asked a member for work in its own chat, and it answered with what
-   * it queues (an `aven-tasks` block): Aven queues those cards for the crew,
-   * or sets its goal. A member never edits for it, and each reply is read
-   * once (kept in the store, so a reload doesn't queue it again).
-   */
-  private takeAsks(sessions: readonly Session[]) {
-    for (const crew of activeCrews())
-      for (const member of crew.members) {
-        if (member.role === "fixer" || !member.sessionId) continue;
-        const chat = sessions.find((item) => item.id === member.sessionId);
-        if (!chat || chatAtWork(chat)) continue;
-        const ask = memberAsk(chat);
-        if (!ask || crew.asks?.includes(ask.replyId)) continue;
-        void this.queueAsk(crew.path, member.id, ask).catch((error) =>
-          logError("Crew ask", error),
-        );
-      }
-  }
-
-  private async queueAsk(
-    path: string,
-    memberId: string,
-    ask: NonNullable<ReturnType<typeof memberAsk>>,
-  ) {
-    const now = this.deps.now();
-    let fresh = false;
-    // Read once: marked before anything is queued.
-    updateCrew(path, (crew) => {
-      if (crew.asks?.includes(ask.replyId)) return crew;
-      fresh = true;
-      return { ...crew, asks: [...(crew.asks ?? []), ask.replyId].slice(-50) };
-    });
-    if (!fresh) return;
-    const added = ask.tasks.length
-      ? await this.deps.board.add(
-          path,
-          ask.tasks.map((task) => ({
-            title: task.title,
-            ...(task.why ? { note: task.why } : {}),
-            column: "building" as const,
-          })),
-        )
-      : [];
-    updateCrew(path, (current) => {
-      let next = current;
-      added.forEach((card, index) => {
-        const task = ask.tasks[index]!;
-        next = withCard(
-          next,
-          queueCard(
-            {
-              id: card.id,
-              title: card.title,
-              brief: [card.title, task.why].filter(Boolean).join("\n\n"),
-              // The member's words for what you asked: read as data.
-              from: "scout",
-              maxRounds: current.limits.roundsPerCard,
-            },
-            now,
-          ),
-        );
-      });
-      const who = this.deps.name(current, memberId);
-      if (added.length)
-        next = withFeed(next, {
-          at: now,
-          kind: "start",
-          who: "aven",
-          member: memberId,
-          text: `${who} queued ${added.length === 1 ? "a card" : `${added.length} cards`} from your chat: ${added
-            .map((card) => card.title)
-            .join(" · ")}`,
-        });
-      if (ask.goal) next = withGoal(next, ask.goal, now, memberId, who);
-      return next;
-    });
-    this.schedule();
-  }
-
-  // -------------------------------------------------------------------------
   // The goal
 
   /** The goal stops, with why: met, nothing left to plan, or no one to plan. */
@@ -1915,6 +1926,9 @@ export class CrewRunner {
         ...((onStack ?? prepared.base)
           ? { base: onStack ?? prepared.base }
           : {}),
+        ...(prepared.crew.goal
+          ? { text: prepared.crew.goal.text, at: prepared.crew.goal.at }
+          : {}),
       };
       const crew = prepared.crew;
       const member = crewMemberById(crew, turn.memberId);
@@ -1948,6 +1962,7 @@ export class CrewRunner {
         goal: crew.goal.text,
         ...(crew.goal.by ? { goalBy: this.deps.name(crew, crew.goal.by) } : {}),
         done: goalCardsDone(crew),
+        dropped: crew.goal.dropped ?? [],
         notes: crew.notes,
         boardTitles: cards
           .filter((card) => card.column !== "shipped")
@@ -2022,10 +2037,12 @@ export class CrewRunner {
     outcome?: ControlOutcome,
   ) {
     const crew = getCrew(path);
-    if (!crew?.on || !this.stillOn(path, turn.onAt) || !crew.goal) return;
+    if (!crew) return;
     const now = this.deps.now();
     const who = this.deps.name(crew, turn.memberId);
-    // Planning only reads: whatever was written in the copy meanwhile goes.
+    // Planning only reads: whatever was written in the copy meanwhile goes,
+    // whether or not the goal or the crew is still on, and only while the
+    // branch is still where the turn began (nothing stacked since is lost).
     const base = turn.goal?.base;
     if (base && crew.copy) {
       const diff = await this.deps.copy
@@ -2033,7 +2050,7 @@ export class CrewRunner {
         .catch(() => null);
       if (diff?.files.length) {
         await this.deps.copy
-          .discard(crew.copy.path, base, crew.copy.branch)
+          .discard(crew.copy.path, base, crew.copy.branch, base)
           .catch((error) => logError("Crew goal undo", error));
         updateCrew(path, (current) =>
           withFeed(current, {
@@ -2045,7 +2062,12 @@ export class CrewRunner {
         );
       }
     }
+    if (!crew.on || !this.stillOn(path, turn.onAt) || !crew.goal) return;
     if (crew.goal.done) return;
+    // The answer is about the goal it was asked: a goal you changed or set
+    // again meanwhile is planned afresh.
+    if (turn.goal?.text !== crew.goal.text || turn.goal?.at !== crew.goal.at)
+      return;
     if (
       outcome?.status === "failed" ||
       outcome?.status === "cancelled" ||
@@ -2078,12 +2100,35 @@ export class CrewRunner {
         `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. The crew stops here.`,
         now,
       );
+    // A card you threw away is never planned again.
+    const fresh = answer.next.filter((task) => !goalDropped(crew, task.title));
+    if (!fresh.length)
+      return this.stopGoal(
+        crew,
+        `${who} planned only cards you threw away (${answer.next
+          .map((task) => task.title)
+          .join(" · ")}), so the crew stopped. Keep going to plan again.`,
+        now,
+      );
+    answer.next = fresh;
     const drafts = answer.next.map((task) => ({
       title: task.title,
       ...(task.why ? { note: task.why } : {}),
       column: "building" as const,
     }));
-    const added = await this.deps.board.add(path, drafts);
+    let added: readonly FeatureCard[] = [];
+    try {
+      added = await this.deps.board.add(path, drafts);
+    } catch (error) {
+      logError("Crew goal card", error);
+    }
+    // Nothing was added: it stops, with why, rather than plan again and again.
+    if (!added.length)
+      return this.stopGoal(
+        crew,
+        `Aven couldn't add the card ${who} planned for the goal to the Board, so the crew stopped. Keep going to try again.`,
+        now,
+      );
     updateCrew(path, (current) => {
       let next = withMemberId(current, turn.memberId, (member) =>
         member.doing ? { ...member, doing: undefined } : member,
@@ -2207,7 +2252,6 @@ export class CrewRunner {
    */
   observe(sessions: readonly Session[]) {
     if (!this.running) return;
-    this.takeAsks(sessions);
     for (const id of [...this.waitingOn]) {
       const chat = sessions.find((session) => session.id === id);
       if (chat && chatAtWork(chat)) continue;

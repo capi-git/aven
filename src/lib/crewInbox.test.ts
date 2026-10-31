@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CREW_INBOX_ACTIONS,
+  crewInboxActions,
   crewInboxCard,
   crewInboxHeading,
   openCrewInboxItems,
@@ -133,5 +134,23 @@ describe("crew cards in the Inbox", () => {
       },
     });
     expect(items[0].review.summary).toContain("Timer · Settings");
+    // Its only button opens the batch's Review: Apply lands what you saw there.
+    expect(items[0].batch).toBe(true);
+    expect(crewInboxActions(items[0]).map((action) => action.id)).toEqual([
+      "review",
+    ]);
+    expect(
+      crewInboxActions({ ...items[0], batch: undefined }).map(
+        (action) => action.id,
+      ),
+    ).toEqual(["apply", "open-board"]);
+    // Replayed onto your files by a restack: it never says checked.
+    const replayed = withCard(crew, {
+      ...crew.cards[1]!,
+      stacked: { ...crew.cards[1]!.stacked!, replayed: true },
+    });
+    expect(openCrewInboxItems({ k: replayed })[0]!.review.summary).toContain(
+      "replayed onto your files, not re-checked",
+    );
   });
 });

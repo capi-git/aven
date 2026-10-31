@@ -7468,6 +7468,11 @@ export default function App({
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
         ...(options?.discussion ? { discussion: options.discussion } : {}),
         ...(options?.botWake ? { botWake: options.botWake } : {}),
+        // Your own words, as you typed them: a member's chat offers to
+        // queue what it took down from these only.
+        ...(options?.typed && !options.botWake && !options.managed
+          ? { typed: true as const }
+          : {}),
         ...(options?.userBlockId ? { id: options.userBlockId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),

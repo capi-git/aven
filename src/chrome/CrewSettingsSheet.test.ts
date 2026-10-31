@@ -117,7 +117,8 @@ describe("the crew's settings", () => {
     expect(
       sheet().querySelector("[data-crew-limits-summary]")?.textContent,
     ).toBe(
-      "20 runs a day · 3 rounds a card · pauses at 80% of your week · quiet 11 pm–8 am",
+      // "8 am" never breaks over two lines.
+      "20 runs a day · 3 rounds a card · pauses at 80% of your week · quiet 11\u00a0pm–8\u00a0am",
     );
     // Nothing deeper is open, and no limit says its why in a line.
     expect(sheet().querySelector('[aria-label="Rounds a card"]')).toBeNull();
@@ -155,6 +156,14 @@ describe("the crew's settings", () => {
       "100",
     );
     expect(crewsAllRunsPerDay()).toBe(100);
+    // How many passed cards may wait for you before nothing new starts.
+    await pick(
+      sheet().querySelector<HTMLSelectElement>(
+        '[aria-label="Cards waiting for you"]',
+      )!,
+      "3",
+    );
+    expect(getCrew(PATH)!.limits.readyCap).toBe(3);
   });
 
   it("shows the rules for who builds what only when you open them", async () => {

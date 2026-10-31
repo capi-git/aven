@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { afterBuild, afterCheck, queueCard, startCard } from "./crewLoop";
-import { crewPipeline, type PipelineBoardCard } from "./crewPipeline";
+import {
+  crewPipeline,
+  reviewFileNotes,
+  type PipelineBoardCard,
+} from "./crewPipeline";
 import { newCrew, type Crew, type CrewCard } from "./crews";
 import { crewBoardInfo, crewCardWho } from "./crewView";
 import { localDay } from "./projectBots";
@@ -183,6 +187,7 @@ describe("the Pipeline", () => {
       ]),
       now: NOW,
       name,
+      batchFiles: 3,
     });
     // The branch's cards are one batch row.
     expect(view.batch).toMatchObject({
@@ -368,5 +373,92 @@ describe("the Pipeline", () => {
       "From you · waits for Timer screen",
       "From you · builder2 builds · Owl checks",
     ]);
+  });
+
+  it("says checked and secured only when every card had both, with the branch's own file count", () => {
+    const secured = stacked("settings", "Settings page", BASE, A);
+    const unsecured: CrewCard = {
+      ...stacked("widget", "Home screen widget", A, B),
+      rounds: [
+        {
+          n: 1,
+          verdict: { pass: true, summary: "", mustFix: [], later: [], ran: [] },
+        },
+      ],
+    };
+    const crew = crewOf([secured, unsecured], { stack: { base: BASE } });
+    // The file count is the branch's, as Review reads it; none until then.
+    expect(
+      crewPipeline({ crew, cards: board(crew), now: NOW, name }).batch!.status,
+    ).toBe("Settings page · Home screen widget · checked");
+    const view = crewPipeline({
+      crew,
+      cards: board(crew),
+      now: NOW,
+      name,
+      batchFiles: 7,
+    });
+    expect(view.batch!.status).toBe(
+      "Settings page · Home screen widget · 7 files · checked",
+    );
+    expect(view.batch!.reviewFirst).toBe(false);
+    // Replayed onto your files by a restack: not checked again since.
+    const replayed = crewOf(
+      [
+        secured,
+        {
+          ...stacked("widget", "Home screen widget", A, B),
+          stacked: { commit: B, parent: A, hash: "h", replayed: true },
+        },
+      ],
+      { stack: { base: BASE } },
+    );
+    const again = crewPipeline({
+      crew: replayed,
+      cards: board(replayed),
+      now: NOW,
+      name,
+    }).batch!;
+    expect(again.status).toBe(
+      "Settings page · Home screen widget · replayed onto your files, not re-checked",
+    );
+    expect(again.reviewFirst).toBe(true);
+  });
+
+  it("stops starting cards once enough wait on the branch, and says why", () => {
+    const crew = crewOf(
+      [
+        stacked("settings", "Settings page", BASE, A),
+        stacked("widget", "Home screen widget", A, B),
+        queued("pause", "Pause and resume"),
+      ],
+      {
+        stack: { base: BASE },
+        limits: { ...newCrew("/Users/me/pom").limits, readyCap: 2 },
+      },
+    );
+    expect(
+      crewPipeline({ crew, cards: board(crew), now: NOW, name }).sentence,
+    ).toBe("2 cards wait for you: review them to keep going.");
+  });
+
+  it("names what a file does besides its lines: links, programs, binary", () => {
+    expect(
+      reviewFileNotes({
+        binary: false,
+        oldMode: "000000",
+        newMode: "120000",
+        linkTarget: "/Users/me/.ssh",
+      }),
+    ).toEqual(["a link to /Users/me/.ssh"]);
+    expect(
+      reviewFileNotes({ binary: false, oldMode: "100644", newMode: "100755" }),
+    ).toEqual(["runs as a program"]);
+    expect(
+      reviewFileNotes({ binary: true, oldMode: "000000", newMode: "100644" }),
+    ).toEqual(["binary"]);
+    expect(
+      reviewFileNotes({ binary: false, oldMode: "100644", newMode: "100644" }),
+    ).toEqual([]);
   });
 });

@@ -285,7 +285,11 @@ export async function checkCrew(
     );
     if (stacked) throw new Error(stacked);
     const before = await gitDiffIndex(project);
-    const applied = await applyCrewBatch(project, { hash: review.diff.hash });
+    const applied = await applyCrewBatch(project, {
+      to: review.to,
+      hash: review.diff.hash,
+      reviewed: true,
+    });
     if (applied) throw new Error(`Apply all refused: ${applied}`);
     const after = await gitDiffIndex(project);
     const left = getCrew(project);

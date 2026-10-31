@@ -31,9 +31,17 @@ export type BotSyncResult = {
 export const botCopyHost = {
   /** Resolves when the folder can have a bot (a git repository with a commit). */
   ready: (cwd: string) => invoke<void>("bot_project_ready", { cwd }),
-  /** Make the copy when missing; an existing copy is left as it is. */
-  prepare: (cwd: string, key: string, branch: string) =>
-    invoke<BotCopyInfo>("bot_copy_prepare", { cwd, key, branch }),
+  /**
+   * Make the copy when missing; an existing copy is left as it is. A
+   * crew's copy made again starts `at` its stack, so the cards there stay.
+   */
+  prepare: (cwd: string, key: string, branch: string, at?: string) =>
+    invoke<BotCopyInfo>("bot_copy_prepare", {
+      cwd,
+      key,
+      branch,
+      at: at ?? null,
+    }),
   /** Match the copy to the user's files: HEAD plus uncommitted changes. */
   sync: (cwd: string, copy: string, branch: string) =>
     invoke<BotSyncResult>("bot_copy_sync", { cwd, copy, branch }),
@@ -54,17 +62,36 @@ export const botCopyHost = {
    */
   apply: (cwd: string, copy: string, base: string, hash: string) =>
     invoke<RaceDiff>("bot_copy_apply", { cwd, copy, base, hash }),
-  discard: (copy: string, base: string, branch: string) =>
-    invoke<void>("bot_copy_discard", { copy, base, branch }),
+  /**
+   * Throw the copy's work away, back to `base`; with `expect`, only while
+   * the branch is still at that commit.
+   */
+  discard: (copy: string, base: string, branch: string, expect?: string) =>
+    invoke<void>("bot_copy_discard", {
+      copy,
+      base,
+      branch,
+      expect: expect ?? null,
+    }),
   remove: (cwd: string, copy: string, branch: string) =>
     invoke<void>("bot_copy_remove", { cwd, copy, branch }),
   /**
    * A crew's stack: what the copy holds now becomes a commit on the crew's
    * branch on top of `parent` (the card's starting point, the branch's
-   * commit). Resolves with the new commit.
+   * commit), only while it is exactly the change its checks passed (`hash`).
+   * Resolves with the card's commit.
    */
-  stack: (copy: string, branch: string, parent: string, message: string) =>
-    invoke<string>("bot_copy_stack", { copy, branch, parent, message }),
+  stack: (
+    copy: string,
+    branch: string,
+    parent: string,
+    message: string,
+    hash: string,
+  ) =>
+    invoke<string>("bot_copy_stack", { copy, branch, parent, message, hash }),
+  /** Take a card's commit back off the branch, keeping its files in the copy. */
+  unstack: (copy: string, branch: string, commit: string, parent: string) =>
+    invoke<void>("bot_copy_unstack", { copy, branch, commit, parent }),
   /** What changed between two of the stack's commits, with its fingerprint. */
   range: (copy: string, from: string, to: string) =>
     invoke<BotDiff>("bot_copy_range", { copy, from, to }),
@@ -72,8 +99,9 @@ export const botCopyHost = {
     invoke<RaceFileDiff>("bot_copy_range_file_diff", { copy, from, to, path }),
   /**
    * Apply the stacked range onto the user's files, only while it is the
-   * change with this fingerprint (the one the user reviewed). Protected
-   * paths are refused; a conflict changes nothing.
+   * change with this fingerprint (the one the user reviewed) and each of
+   * its cards (`cards`, in order, the last at `to`) is the change its checks
+   * passed. Protected paths are refused; a conflict changes nothing.
    */
   applyRange: (
     cwd: string,
@@ -81,7 +109,16 @@ export const botCopyHost = {
     from: string,
     to: string,
     hash: string,
-  ) => invoke<RaceDiff>("bot_copy_apply_range", { cwd, copy, from, to, hash }),
+    cards: readonly { commit: string; hash: string }[],
+  ) =>
+    invoke<RaceDiff>("bot_copy_apply_range", {
+      cwd,
+      copy,
+      from,
+      to,
+      hash,
+      cards,
+    }),
   /**
    * Replay the stacked cards onto the user's files now, each its own commit
    * again. A card that no longer fits leaves the stack exactly as it was.
@@ -93,19 +130,29 @@ export const botCopyHost = {
     from: string,
     commits: readonly string[],
   ) =>
-    invoke<{ base: string; commits: string[] }>("bot_copy_restack", {
-      cwd,
-      copy,
-      branch,
-      from,
-      commits,
-    }),
+    invoke<{ base: string; commits: string[]; hashes: string[] }>(
+      "bot_copy_restack",
+      {
+        cwd,
+        copy,
+        branch,
+        from,
+        commits,
+      },
+    ),
 };
 
 /** The host refused a restack: the user's files changed where the crew worked. */
 export function isRestackConflict(error: unknown): boolean {
   return String(error instanceof Error ? error.message : error).startsWith(
     "Your files changed where the crew worked",
+  );
+}
+
+/** The copy changed after a card's checks, so it wasn't stacked. */
+export function isStackChanged(error: unknown): boolean {
+  return /copy changed after the card's checks/i.test(
+    String(error instanceof Error ? error.message : error),
   );
 }
 
@@ -160,6 +207,10 @@ export function botCopyError(error: unknown): string {
   const text = String(error instanceof Error ? error.message : error).trim();
   if (isFixChanged(text))
     return "The fix changed since you looked. Review it again, then apply.";
+  if (/isn't the change its checks passed/i.test(text))
+    return "A card on the crew's branch isn't the change its checks passed, so nothing was applied. Take it off the branch, or update the branch and review it again.";
+  if (/name has characters Aven can't read safely/i.test(text))
+    return "A changed file's name has characters Aven can't read safely, so Aven won't use this change. Take it over in a chat.";
   if (/conflict with edits in your project/i.test(text))
     return "These changes conflict with edits in your files. Save or undo those edits, then try again.";
   if (/needs a git repository/i.test(text))

@@ -19,6 +19,7 @@ import { TeamCardButton } from "../chrome/TeamCard";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   applyCrewCard,
+  requestCrewReview,
   discardCrewCard,
   markCrewFixChanged,
   resumeCrewCard,
@@ -666,6 +667,12 @@ export function CrewReadySheet({
       ? Math.max(1, Math.round((card.endedAt - card.startedAt) / 60_000))
       : null;
   const apply = async () => {
+    // On the crew's branch: it lands from the batch's Review.
+    if (card.stacked) {
+      requestCrewReview(crew.path);
+      onClose();
+      return;
+    }
     setBusy(true);
     setProblem(null);
     const error = await applyCrewCard(crew.path, card.id).catch((reason) =>

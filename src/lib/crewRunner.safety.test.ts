@@ -144,6 +144,7 @@ function gatedRunner() {
       sources: async () => [`${COPY}/src`],
       planted: async () => [],
       stack: async () => "c".repeat(40),
+      unstack: async () => {},
       discard: async () => {},
     },
     weeklyUsed: () => null,

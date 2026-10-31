@@ -109,6 +109,7 @@ import { BotCheckedRow, BotFixCard, BotWakeTag } from "./BotChat";
 import { botProgressLine, isNothingToReport } from "../lib/projectBotWake";
 import { useBotTurnOwnsFix } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { CrewFenceSource } from "./CrewFenceCard";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
@@ -200,6 +201,8 @@ type Props = {
    * nothing to report folds to one line, and a turn's fix gets its card.
    */
   botProject?: string;
+  /** The chat's id: a crew member's block of work offers Queue these in it. */
+  chatId?: string;
 };
 
 const NO_PROPOSAL_REPLIES: ReadonlySet<string> = new Set();
@@ -246,6 +249,7 @@ function AgentTranscriptComponent({
   visible = true,
   managed = false,
   botProject,
+  chatId,
 }: Props) {
   const scrollerId = useId();
   const scroller = useRef<HTMLDivElement>(null);
@@ -753,103 +757,109 @@ function AgentTranscriptComponent({
 
   return (
     <ApprovalWords.Provider value={botProject ? BOT_APPROVAL : PLAIN_APPROVAL}>
-      <div
-        id={scrollerId}
-        ref={setScroller}
-        data-transcript-layout={transcriptLayout}
-        className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
-      >
-        <div className="personal-transcript-content mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
-          {firstVisibleTurn > 0 ? (
-            <div className="flex justify-center px-4 py-3">
-              <button
-                type="button"
-                className="rounded-md bg-(--aven-control-bg) px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content"
-                onClick={loadEarlier}
-              >
-                Load earlier messages
-              </button>
-            </div>
+      <CrewFenceSource.Provider value={chatSource(chatId)}>
+        <div
+          id={scrollerId}
+          ref={setScroller}
+          data-transcript-layout={transcriptLayout}
+          className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
+        >
+          <div className="personal-transcript-content mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
+            {firstVisibleTurn > 0 ? (
+              <div className="flex justify-center px-4 py-3">
+                <button
+                  type="button"
+                  className="rounded-md bg-(--aven-control-bg) px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed) hover:text-content"
+                  onClick={loadEarlier}
+                >
+                  Load earlier messages
+                </button>
+              </div>
+            ) : null}
+            {visibleTurns.map((turn, turnIndex) => {
+              const turnAt = firstVisibleTurn + turnIndex;
+              const isLastTurn = turnAt === turns.length - 1;
+              const span = spans.get(turnAt);
+              const spanShown = !!span && spanShownFor(span.key);
+              // A folded discussion shows once, at the start of its span.
+              if (span && !spanShown && turnAt !== span.start) return null;
+              const spanStart =
+                span && turnAt === span.start ? span : undefined;
+              const spanLive =
+                !!spanStart && spanStart.end === turns.length - 1;
+              return (
+                <ChatFileReferencesContext.Provider
+                  key={turn[0].id}
+                  value={chatFiles.forTurn(turnAt)}
+                >
+                  <TranscriptTurn
+                    turn={turn}
+                    isLastTurn={isLastTurn}
+                    stickyIndex={turnAt + 1}
+                    entering={entrances.current?.rises(turn[0].id) ?? false}
+                    fadeReplies={isLastTurn && fadeReplies}
+                    managed={managed}
+                    botProject={botProject}
+                    busy={busy}
+                    visible={visible}
+                    preparingHandoff={preparingHandoff}
+                    waitingForApproval={waitingForApproval}
+                    pendingQuestion={pendingQuestion}
+                    holdUps={isLastTurn ? holdUps : undefined}
+                    harness={harness}
+                    model={model}
+                    turnHarness={
+                      harness
+                        ? harnessForTurn(blocks, turn, harness)
+                        : undefined
+                    }
+                    modelName={modelName}
+                    modelCatalog={modelCatalog}
+                    transcriptLayout={transcriptLayout}
+                    anchored={
+                      promptAnchor &&
+                      anchorTurn &&
+                      (spanStart && !spanShown ? spanLive : isLastTurn)
+                    }
+                    workOpen={!!openWork[turn[0].id]}
+                    toggleWork={toggleWork}
+                    proposalReplyIds={proposalReplyIds}
+                    newestProposalId={newestProposalId}
+                    discussionId={spanStart?.id}
+                    discussionMeta={spanStart?.meta}
+                    discussionKey={spanStart?.key}
+                    discussionTopic={spanStart?.topic}
+                    discussionClosing={spanStart?.closing}
+                    discussionExpanded={spanStart ? spanShown : undefined}
+                    discussionAsking={
+                      spanStart ? askingSpans.has(spanStart.key) : undefined
+                    }
+                    discussionLive={spanLive}
+                    onToggleDiscussion={toggleSpan}
+                    cwd={cwd}
+                    onApproval={onApproval}
+                    onOpenFile={onOpenFile}
+                    onOpenDiff={onOpenDiff}
+                    onOpenPlan={onOpenPlan}
+                    onBuildPlan={onBuildPlan}
+                    onSaveNote={onSaveNote}
+                    memoryProject={memoryProject}
+                    onSecondOpinion={onSecondOpinion}
+                    onHandoff={onHandoff}
+                  />
+                </ChatFileReferencesContext.Provider>
+              );
+            })}
+          </div>
+          {onAddToChat ? (
+            <TranscriptSelectionMenu
+              selection={selection}
+              onAddToChat={onAddToChat}
+              onDismiss={dismissSelection}
+            />
           ) : null}
-          {visibleTurns.map((turn, turnIndex) => {
-            const turnAt = firstVisibleTurn + turnIndex;
-            const isLastTurn = turnAt === turns.length - 1;
-            const span = spans.get(turnAt);
-            const spanShown = !!span && spanShownFor(span.key);
-            // A folded discussion shows once, at the start of its span.
-            if (span && !spanShown && turnAt !== span.start) return null;
-            const spanStart = span && turnAt === span.start ? span : undefined;
-            const spanLive = !!spanStart && spanStart.end === turns.length - 1;
-            return (
-              <ChatFileReferencesContext.Provider
-                key={turn[0].id}
-                value={chatFiles.forTurn(turnAt)}
-              >
-                <TranscriptTurn
-                  turn={turn}
-                  isLastTurn={isLastTurn}
-                  stickyIndex={turnAt + 1}
-                  entering={entrances.current?.rises(turn[0].id) ?? false}
-                  fadeReplies={isLastTurn && fadeReplies}
-                  managed={managed}
-                  botProject={botProject}
-                  busy={busy}
-                  visible={visible}
-                  preparingHandoff={preparingHandoff}
-                  waitingForApproval={waitingForApproval}
-                  pendingQuestion={pendingQuestion}
-                  holdUps={isLastTurn ? holdUps : undefined}
-                  harness={harness}
-                  model={model}
-                  turnHarness={
-                    harness ? harnessForTurn(blocks, turn, harness) : undefined
-                  }
-                  modelName={modelName}
-                  modelCatalog={modelCatalog}
-                  transcriptLayout={transcriptLayout}
-                  anchored={
-                    promptAnchor &&
-                    anchorTurn &&
-                    (spanStart && !spanShown ? spanLive : isLastTurn)
-                  }
-                  workOpen={!!openWork[turn[0].id]}
-                  toggleWork={toggleWork}
-                  proposalReplyIds={proposalReplyIds}
-                  newestProposalId={newestProposalId}
-                  discussionId={spanStart?.id}
-                  discussionMeta={spanStart?.meta}
-                  discussionKey={spanStart?.key}
-                  discussionTopic={spanStart?.topic}
-                  discussionClosing={spanStart?.closing}
-                  discussionExpanded={spanStart ? spanShown : undefined}
-                  discussionAsking={
-                    spanStart ? askingSpans.has(spanStart.key) : undefined
-                  }
-                  discussionLive={spanLive}
-                  onToggleDiscussion={toggleSpan}
-                  cwd={cwd}
-                  onApproval={onApproval}
-                  onOpenFile={onOpenFile}
-                  onOpenDiff={onOpenDiff}
-                  onOpenPlan={onOpenPlan}
-                  onBuildPlan={onBuildPlan}
-                  onSaveNote={onSaveNote}
-                  memoryProject={memoryProject}
-                  onSecondOpinion={onSecondOpinion}
-                  onHandoff={onHandoff}
-                />
-              </ChatFileReferencesContext.Provider>
-            );
-          })}
         </div>
-        {onAddToChat ? (
-          <TranscriptSelectionMenu
-            selection={selection}
-            onAddToChat={onAddToChat}
-            onDismiss={dismissSelection}
-          />
-        ) : null}
-      </div>
+      </CrewFenceSource.Provider>
     </ApprovalWords.Provider>
   );
 }
@@ -1311,36 +1321,88 @@ const TranscriptTurn = memo(function TranscriptTurn({
     </>
   );
   return (
-    <div
-      className={`transcript-turn flex min-w-0 flex-col${
-        isLastTurn ? " transcript-turn-live" : ""
-      }${anchored && userBlock ? " transcript-turn-anchor" : ""}`}
-    >
-      {card
-        ? discussionTopic
-          ? [rows[0], card, ...rows.slice(1)]
-          : [card, ...rows]
-        : rows}
-      {footer}
-      {botProject && userBlock && settled ? (
-        <BotFixCard path={botProject} turnId={userBlock.id} />
-      ) : null}
-      {asides.map((block) => (
-        <div key={block.id} className="flow-root pb-1" data-discussion-aside>
-          <TranscriptBlock
-            block={block}
-            layout={transcriptLayout}
-            stickyIndex={stickyIndex}
-            cwd={cwd}
-            onOpenFile={onOpenFile}
-            planHarness={harness}
-            planModel={model}
-          />
-        </div>
-      ))}
-    </div>
+    <TurnSource userBlock={userBlock}>
+      <div
+        className={`transcript-turn flex min-w-0 flex-col${
+          isLastTurn ? " transcript-turn-live" : ""
+        }${anchored && userBlock ? " transcript-turn-anchor" : ""}`}
+      >
+        {card
+          ? discussionTopic
+            ? [rows[0], card, ...rows.slice(1)]
+            : [card, ...rows]
+          : rows}
+        {footer}
+        {botProject && userBlock && settled ? (
+          <BotFixCard path={botProject} turnId={userBlock.id} />
+        ) : null}
+        {asides.map((block) => (
+          <div key={block.id} className="flow-root pb-1" data-discussion-aside>
+            <TranscriptBlock
+              block={block}
+              layout={transcriptLayout}
+              stickyIndex={stickyIndex}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+              planHarness={harness}
+              planModel={model}
+            />
+          </div>
+        ))}
+      </div>
+    </TurnSource>
   );
 });
+
+/** One chat id's source, kept the same object while the id is. */
+const chatSources = new Map<string, { chatId: string }>();
+function chatSource(chatId: string | undefined): { chatId?: string } {
+  if (!chatId) return {};
+  let source = chatSources.get(chatId);
+  if (!source) {
+    source = { chatId };
+    chatSources.set(chatId, source);
+  }
+  return source;
+}
+
+/**
+ * A turn's replies know whether it began with words you typed yourself:
+ * a crew member's block of work in them offers Queue these only then.
+ */
+function TurnSource({
+  userBlock,
+  children,
+}: {
+  userBlock: Block | undefined;
+  children: ReactNode;
+}) {
+  const outer = useContext(CrewFenceSource);
+  const askedByYou = !!userBlock?.typed && !userBlock.botWake;
+  const value = useMemo(() => ({ ...outer, askedByYou }), [outer, askedByYou]);
+  return (
+    <CrewFenceSource.Provider value={value}>
+      {children}
+    </CrewFenceSource.Provider>
+  );
+}
+
+/** A reply's own source: the block a crew member's block of work is in. */
+function ReplySource({
+  replyId,
+  children,
+}: {
+  replyId: string;
+  children: ReactNode;
+}) {
+  const outer = useContext(CrewFenceSource);
+  const value = useMemo(() => ({ ...outer, replyId }), [outer, replyId]);
+  return (
+    <CrewFenceSource.Provider value={value}>
+      {children}
+    </CrewFenceSource.Provider>
+  );
+}
 
 /** Placeholder for private reasoning before the first assistant text arrives. */
 function InitialThinking({
@@ -1750,12 +1812,14 @@ const TranscriptBlock = memo(function TranscriptBlock({
       data-selectable-agent-response={block.streaming ? undefined : block.id}
       className={`personal-transcript-response min-w-0 px-4 pb-1 text-content ${underLine ? "pt-1" : "pt-3"}`}
     >
-      <AgentMarkdown
-        text={text}
-        streaming={block.streaming}
-        cwd={cwd}
-        onOpenFile={onOpenFile}
-      />
+      <ReplySource replyId={block.id}>
+        <AgentMarkdown
+          text={text}
+          streaming={block.streaming}
+          cwd={cwd}
+          onOpenFile={onOpenFile}
+        />
+      </ReplySource>
     </div>
   );
 });

@@ -95,6 +95,7 @@ export function useCrews(
         sources: copySources,
         planted: botCopyHost.planted,
         stack: botCopyHost.stack,
+        unstack: botCopyHost.unstack,
         discard: botCopyHost.discard,
       },
       weeklyUsed: claudeWeeklyUsed,

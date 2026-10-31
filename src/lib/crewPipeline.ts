@@ -9,11 +9,13 @@ import {
   crewMemberById,
   memberCritter,
   queuedCards,
+  waitsForReview,
   type Crew,
   type CrewCard,
   type CrewLoopRole,
 } from "./crews";
 import type { CrewBoardAction, CrewBoardInfo } from "./crewView";
+import type { RaceFile } from "./race";
 import type { BoardAction } from "./workBoard";
 import { plural } from "./words";
 
@@ -83,6 +85,8 @@ export type PipelineBatch = {
   /** Why the last Apply couldn't land, when your files moved on. */
   conflict?: string;
   steps: PipelineStep[];
+  /** A card on it was replayed and not checked again: Apply goes through Review. */
+  reviewFirst: boolean;
 };
 
 export type Pipeline = {
@@ -225,6 +229,27 @@ function inProgressRow(
   };
 }
 
+/**
+ * What a file in a Review does besides its lines, in a few words: a link
+ * and where it points, a program that runs (or no longer does), binary.
+ */
+export function reviewFileNotes(
+  file: Pick<RaceFile, "binary" | "oldMode" | "newMode" | "linkTarget">,
+): string[] {
+  const notes: string[] = [];
+  if (file.newMode === "120000")
+    notes.push(`a link to ${file.linkTarget ?? "somewhere"}`);
+  else if (file.oldMode === "120000" && file.newMode !== "000000")
+    notes.push("no longer a link");
+  if (file.newMode === "100755" && file.oldMode !== "100755")
+    notes.push("runs as a program");
+  if (file.oldMode === "100755" && file.newMode === "100644")
+    notes.push("no longer runs as a program");
+  if (file.newMode === "160000") notes.push("another repository");
+  if (file.binary) notes.push("binary");
+  return notes;
+}
+
 /** Where an Up next card came from. */
 /** You picked who builds or checks it, its model, or its rounds. */
 function chose(crew: Crew, card: CrewCard): boolean {
@@ -240,6 +265,8 @@ function fromWords(card: CrewCard, name: (who: string) => string): string {
   if (card.goal) return "Planned for the goal";
   if (card.from === "security") return `From ${name("security")}`;
   if (card.from === "scout") return `From ${name("scout")}`;
+  if (card.from === "member")
+    return `From you, via ${name(card.fromMember ?? "builder")}`;
   return "From you";
 }
 
@@ -254,6 +281,8 @@ export function crewPipeline(input: {
   fixerRuns?: number;
   /** Why a limit holds the crew now, when one does: its title. */
   hold?: string;
+  /** The files the batch changes, as the branch's range reads (once read). */
+  batchFiles?: number;
 }): Pipeline {
   const { crew, now, name } = input;
   const byId = new Map(input.cards.map((card) => [card.id, card]));
@@ -262,25 +291,26 @@ export function crewPipeline(input: {
   const queued = queuedCards(crew);
   const crewIds = new Set(crew.cards.map((card) => card.id));
 
-  // Ready for you: the batch on the crew's branch, as one row.
+  // Ready for you: the batch on the crew's branch, as one row. Its checks
+  // are what every card on it had: a card a restack replayed wasn't checked
+  // again, and one Security didn't review makes the batch only "checked".
+  const replayed = !!batchOf?.cards.some((card) => card.stacked?.replayed);
+  const secured =
+    !!batchOf &&
+    batchOf.cards.every((card) =>
+      card.rounds.some((round) => round.n === card.round && round.security),
+    );
   const batch: PipelineBatch | null = batchOf
     ? {
         title: `${plural(batchOf.cards.length, "card")} ready on the crew's branch`,
         status: [
           batchOf.cards.map((card) => card.title).join(" · "),
-          (() => {
-            const paths = new Set(
-              batchOf.cards.flatMap(
-                (card) => card.fix?.paths.map((entry) => entry.path) ?? [],
-              ),
-            );
-            return paths.size ? plural(paths.size, "file") : "";
-          })(),
-          batchOf.cards.some((card) =>
-            card.rounds.some((round) => round.security),
-          )
-            ? "checked and secured"
-            : "checked",
+          input.batchFiles != null ? plural(input.batchFiles, "file") : "",
+          replayed
+            ? "replayed onto your files, not re-checked"
+            : secured
+              ? "checked and secured"
+              : "checked",
         ]
           .filter(Boolean)
           .join(" · "),
@@ -290,6 +320,7 @@ export function crewPipeline(input: {
         })),
         ...(crew.stack?.conflict ? { conflict: crew.stack.conflict } : {}),
         steps: cardSteps(crew, batchOf.cards.at(-1)!),
+        reviewFirst: replayed,
       }
     : null;
 
@@ -416,6 +447,15 @@ export function crewPipeline(input: {
     sentence = "Planning the next card for the goal.";
   if (input.hold && !crew.paused && (working || queued.length))
     sentence = `${input.hold}: ${focus ?? "the crew"} waits.`;
+  // Enough waits on the branch: nothing new starts until you review it.
+  const capped = waitsForReview(crew);
+  if (
+    capped &&
+    !crew.paused &&
+    !working &&
+    (queued.length || (crew.goal && !crew.goal.done))
+  )
+    sentence = `${capped} cards wait for you: review them to keep going.`;
   const idle =
     !working &&
     !queued.length &&
@@ -424,7 +464,13 @@ export function crewPipeline(input: {
     !(crew.goal && !crew.goal.done);
   if (idle && !crew.paused)
     sentence = "Nothing to build. Tell the crew what to do, or add an idea.";
-  sentence = [sentence, waits].filter(Boolean).join(" ");
+  sentence = (
+    capped && sentence.startsWith(`${capped} cards wait`)
+      ? [sentence]
+      : [sentence, waits]
+  )
+    .filter(Boolean)
+    .join(" ");
 
   const goal = crew.goal
     ? {

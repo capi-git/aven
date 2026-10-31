@@ -18,6 +18,7 @@ import {
 import { memoryStorage } from "../lib/devSmoke";
 import { resetProjectBotsCache } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { CrewFenceSource } from "./CrewFenceCard";
 
 /*
  * A crew's fenced blocks never show as raw JSON in a chat: each is a
@@ -180,5 +181,119 @@ describe("Give to crew from an ideas block", () => {
     );
     expect(container.querySelector(".crew-fence")).not.toBeNull();
     expect(container.querySelector(".crew-fence button")).toBeNull();
+  });
+});
+
+describe("work a member took down in its chat", () => {
+  const PROJECT = "/Users/me/pom";
+  const TASKS = fenced("aven-tasks", {
+    tasks: [
+      { title: "Timer screen", why: "The core of Pom" },
+      { title: "Pause and resume" },
+    ],
+    goal: "Build the whole Pom app",
+  });
+  let root: Root;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("localStorage", memoryStorage());
+    resetProjectBotsCache();
+    resetCrewsCache();
+    setFeatureCardBackend(memoryFeatureCardBackend());
+    updateCrew(PROJECT, (crew) => ({
+      ...crew,
+      on: true,
+      members: [
+        { id: "builder", role: "builder", sessionId: "b-chat" },
+        { id: "checker", role: "checker" },
+      ],
+    }));
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    setFeatureCardBackend(null);
+    vi.unstubAllGlobals();
+    resetCrewsCache();
+  });
+
+  const button = (name: string) =>
+    [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === name,
+    );
+  const show = (source: {
+    chatId?: string;
+    replyId?: string;
+    askedByYou?: boolean;
+  }) =>
+    act(async () =>
+      root.render(
+        createElement(
+          CrewFenceSource.Provider,
+          { value: source },
+          createElement(AgentMarkdown, { text: TASKS }),
+        ),
+      ),
+    );
+  const settle = () =>
+    act(async () => {
+      for (let n = 0; n < 10; n += 1)
+        await new Promise((r) => setTimeout(r, 0));
+    });
+
+  it("queues nothing until you press Queue these, then marks the cards as from the member", async () => {
+    await show({ chatId: "b-chat", replyId: "r1", askedByYou: true });
+    expect(getCrew(PROJECT)!.cards).toEqual([]);
+    await act(async () => button("Queue these")!.click());
+    await settle();
+    const crew = getCrew(PROJECT)!;
+    expect(
+      queuedCards(crew).map((card) => [card.title, card.from, card.fromMember]),
+    ).toEqual([
+      ["Timer screen", "member", "builder"],
+      ["Pause and resume", "member", "builder"],
+    ]);
+    expect(crew.asks).toEqual(["r1"]);
+    // Once only.
+    expect(button("Queue these")).toBeUndefined();
+    expect(container.textContent).toContain("Taken");
+  });
+
+  it("offers nothing for words you didn't type, or outside a member's chat", async () => {
+    await show({ chatId: "b-chat", replyId: "r1", askedByYou: false });
+    expect(container.querySelector(".crew-fence button")).toBeNull();
+    await show({ chatId: "someone-else", replyId: "r1", askedByYou: true });
+    expect(container.querySelector(".crew-fence button")).toBeNull();
+  });
+
+  it("sets its goal from your press, and replaces yours only when you say so", async () => {
+    await show({ chatId: "b-chat", replyId: "r1", askedByYou: true });
+    await act(async () => button("Set as goal")!.click());
+    expect(getCrew(PROJECT)!.goal).toMatchObject({
+      text: "Build the whole Pom app",
+      by: "builder",
+    });
+    updateCrew(PROJECT, (crew) => ({
+      ...crew,
+      asks: [],
+      goal: { text: "Just the settings page", at: 1 },
+    }));
+    await show({ chatId: "b-chat", replyId: "r2", askedByYou: true });
+    await act(async () => button("Replace your goal")!.click());
+    // It asks first; Keep mine leaves your goal as it is.
+    expect(getCrew(PROJECT)!.goal?.text).toBe("Just the settings page");
+    await act(async () => button("Keep mine")!.click());
+    expect(getCrew(PROJECT)!.goal?.text).toBe("Just the settings page");
+    await act(async () => button("Replace your goal")!.click());
+    await act(async () => button("Replace")!.click());
+    expect(getCrew(PROJECT)!.goal).toMatchObject({
+      text: "Build the whole Pom app",
+      by: "builder",
+    });
   });
 });

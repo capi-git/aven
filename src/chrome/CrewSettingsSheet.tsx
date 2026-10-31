@@ -92,6 +92,7 @@ const LIMIT_CHOICES: Readonly<Record<CrewLimitName, readonly number[]>> = {
   ideasPerDay: [0, 1, 2, 3, 4, 5, 6, 8, 10],
   turnMinutes: [5, 10, 15, 20, 30, 45, 60, 90, 120],
   pauseAtPercent: [50, 60, 70, 80, 90, 100],
+  readyCap: [1, 2, 3, 5, 8, 10, 15, 20],
 };
 const ALL_RUNS_CHOICES = [20, 30, 40, 60, 80, 100, 150, 200, 300, 500].filter(
   (value) => value >= CREW_ALL_RUNS_RANGE[0] && value <= CREW_ALL_RUNS_RANGE[1],
@@ -591,7 +592,10 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
     `${crew.limits.runsPerDay} runs a day`,
     `${crew.limits.roundsPerCard} ${crew.limits.roundsPerCard === 1 ? "round" : "rounds"} a card`,
     `pauses at ${crew.limits.pauseAtPercent}% of your week`,
-    quiet.on ? `quiet ${quietText(quiet)}` : "",
+    // "8 am" stays together on one line.
+    quiet.on
+      ? `quiet ${quietText(quiet).replace(/ (am|pm)/g, "\u00a0$1")}`
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -683,6 +687,17 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
                   value={crew.limits.autoStartsPerDay}
                   choices={LIMIT_CHOICES.autoStartsPerDay}
                   onChange={limit("autoStartsPerDay")}
+                />
+              </LimitRow>
+              <LimitRow
+                title="Cards waiting for you"
+                detail="Passed cards on the crew's branch before it starts no new one"
+              >
+                <NumberPick
+                  label="Cards waiting for you"
+                  value={crew.limits.readyCap}
+                  choices={LIMIT_CHOICES.readyCap}
+                  onChange={limit("readyCap")}
                 />
               </LimitRow>
               <LimitRow

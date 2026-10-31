@@ -724,6 +724,11 @@ export type RaceFile = {
   additions: number;
   deletions: number;
   binary: boolean;
+  /** Its git mode before and after: "100644", "100755", "120000" for a link. */
+  oldMode?: string;
+  newMode?: string;
+  /** What a link points at, when it is one after the change. */
+  linkTarget?: string;
 };
 export type RaceDiff = {
   files: RaceFile[];

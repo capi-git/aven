@@ -208,6 +208,8 @@ export type CrewLimits = {
   pauseAtPercent: number;
   /** A turn running longer than this is stopped. */
   turnMinutes: number;
+  /** Cards waiting on the crew's branch before it starts no new one. */
+  readyCap: number;
   quiet: BotQuietHours;
 };
 
@@ -219,6 +221,8 @@ export const CREW_DEFAULT_AUTO_STARTS = 3;
 export const CREW_DEFAULT_IDEAS = 3;
 export const CREW_DEFAULT_PAUSE_PERCENT = 80;
 export const CREW_DEFAULT_TURN_MINUTES = 20;
+/** Cards that may wait on the branch, unreviewed, before nothing new starts. */
+export const CREW_DEFAULT_READY_CAP = 5;
 /** "Allow 10 more today". */
 export const CREW_EXTRA_RUNS = 10;
 
@@ -230,6 +234,7 @@ export const CREW_LIMIT_RANGES = {
   ideasPerDay: [0, 10],
   turnMinutes: [5, 120],
   pauseAtPercent: [10, 100],
+  readyCap: [1, 20],
 } as const satisfies Record<string, readonly [number, number]>;
 export type CrewLimitName = keyof typeof CREW_LIMIT_RANGES;
 export const CREW_ALL_RUNS_RANGE = [1, 500] as const;
@@ -243,6 +248,7 @@ export function defaultCrewLimits(): CrewLimits {
     cardsAtOnce: 1,
     pauseAtPercent: CREW_DEFAULT_PAUSE_PERCENT,
     turnMinutes: CREW_DEFAULT_TURN_MINUTES,
+    readyCap: CREW_DEFAULT_READY_CAP,
     quiet: { ...BOT_DEFAULT_QUIET },
   };
 }
@@ -355,7 +361,7 @@ export type CrewCard = {
   /** What to build: the card's title and note. */
   brief: string;
   /** You, or an idea from the Scout or Security's sweep (quoted as data). */
-  from: "you" | "scout" | "security";
+  from: "you" | "scout" | "security" | "member";
   /** The Scout's size for its idea. */
   size?: CrewIdeaSize;
   /** Where the card came from (an issue, a page): outside words. */
@@ -410,9 +416,21 @@ export type CrewCard = {
    * (`commit`, on top of `parent`): the next card builds on it, and it
    * waits there for Apply, with the others, as one batch.
    */
-  stacked?: { commit: string; parent: string };
+  stacked?: {
+    commit: string;
+    parent: string;
+    /**
+     * The fingerprint of its own change (`parent` → `commit`): the one its
+     * checks passed, or a restack's replay of it. Apply checks each card's.
+     */
+    hash?: string;
+    /** Replayed onto your files by a restack, and not checked again since. */
+    replayed?: true;
+  };
   /** Planned by the crew towards its goal. */
   goal?: true;
+  /** Taken down by this member from your words in its chat (`from: "member"`). */
+  fromMember?: string;
 };
 
 export type CrewIdeaSize = "small" | "medium" | "large";
@@ -470,7 +488,8 @@ export type CrewHoldReason =
   | "daily-cap"
   | "all-crews-cap"
   | "usage"
-  | "no-member";
+  | "no-member"
+  | "review";
 
 export type Crew = {
   /** The project's folder. */
@@ -550,6 +569,8 @@ export type CrewGoal = {
   /** The member that took it down from your words in its chat, if one did. */
   by?: string;
   done?: { at: number; text: string; met: boolean };
+  /** Cards planned for it that you threw away: never planned again. */
+  dropped?: string[];
 };
 
 type Store = {
@@ -635,16 +656,26 @@ export function isSha(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
 }
 
+/** Thrown-away goal cards a goal remembers. */
+const GOAL_DROPPED_KEPT = 30;
+
 function readGoal(value: unknown): CrewGoal | undefined {
   const raw = value as Partial<CrewGoal> | null | undefined;
   const goal = text(raw?.text, CREW_GOAL_MAX);
   if (!raw || !goal) return undefined;
   const done = raw.done as CrewGoal["done"] | undefined;
   const by = text(raw.by, 60);
+  const dropped = Array.isArray(raw.dropped)
+    ? raw.dropped
+        .map((title) => text(title, 200))
+        .filter((title): title is string => !!title)
+        .slice(-GOAL_DROPPED_KEPT)
+    : [];
   return {
     text: goal,
     at: finite(raw.at, 0, 8.64e15, 0),
     ...(by ? { by } : {}),
+    ...(dropped.length ? { dropped } : {}),
     ...(done && typeof done.at === "number" && typeof done.text === "string"
       ? {
           done: {
@@ -705,6 +736,7 @@ const HOLDS = new Set<CrewHoldReason>([
   "all-crews-cap",
   "usage",
   "no-member",
+  "review",
 ]);
 
 export function readRan(value: unknown): CrewRan[] {
@@ -874,13 +906,26 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const stackedRaw = raw.stacked as CrewCard["stacked"] | undefined;
   const stacked =
     stackedRaw && isSha(stackedRaw.commit) && isSha(stackedRaw.parent)
-      ? { commit: stackedRaw.commit, parent: stackedRaw.parent }
+      ? {
+          commit: stackedRaw.commit,
+          parent: stackedRaw.parent,
+          ...(text(stackedRaw.hash, 80)
+            ? { hash: text(stackedRaw.hash, 80)! }
+            : {}),
+          ...(stackedRaw.replayed === true ? { replayed: true as const } : {}),
+        }
       : undefined;
   return {
     id,
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
-    from: raw.from === "scout" || raw.from === "security" ? raw.from : "you",
+    from:
+      raw.from === "scout" || raw.from === "security" || raw.from === "member"
+        ? raw.from
+        : "you",
+    ...(raw.from === "member" && text(raw.fromMember, 60)
+      ? { fromMember: text(raw.fromMember, 60) }
+      : {}),
     ...(SIZES.has(raw.size as CrewIdeaSize)
       ? { size: raw.size as CrewIdeaSize }
       : {}),
@@ -1204,6 +1249,7 @@ export function readCrew(value: unknown): Crew | null {
       cardsAtOnce: 1,
       pauseAtPercent: limit("pauseAtPercent"),
       turnMinutes: limit("turnMinutes"),
+      readyCap: limit("readyCap"),
       quiet: {
         on: typeof quiet?.on === "boolean" ? quiet.on : base.limits.quiet.on,
         start: finite(quiet?.start, 0, 1439, base.limits.quiet.start),
@@ -2220,9 +2266,14 @@ export function withGoal(
   by?: string,
   /** That member's name as the crew shows it. */
   byName?: string,
+  /** You chose to replace your own goal with the member's. */
+  replace = false,
 ): Crew {
   const goal = text.replace(/\s+/g, " ").trim().slice(0, CREW_GOAL_MAX);
   if (!goal) return crew;
+  // A goal a member took down never replaces one you set yourself, unless
+  // you said so.
+  if (by && !replace && yourGoal(crew)) return crew;
   return withFeed(
     { ...crew, goal: { text: goal, at: now, ...(by ? { by } : {}) } },
     {
@@ -2235,6 +2286,42 @@ export function withGoal(
         : `You set the crew's goal: ${goal}`,
     },
   );
+}
+
+/** The goal you set yourself, still going. */
+export function yourGoal(crew: Pick<Crew, "goal">): boolean {
+  return !!crew.goal && !crew.goal.by && !crew.goal.done;
+}
+
+/** A goal card you threw away: the goal remembers it, so it isn't planned again. */
+export function withGoalCardDropped(crew: Crew, card: CrewCard): Crew {
+  if (!card.goal || !crew.goal) return crew;
+  const dropped = [...(crew.goal.dropped ?? []), card.title].slice(
+    -GOAL_DROPPED_KEPT,
+  );
+  return { ...crew, goal: { ...crew.goal, dropped } };
+}
+
+/** Whether a planned title is one you threw away (by its words, without case). */
+export function goalDropped(crew: Pick<Crew, "goal">, title: string): boolean {
+  const words = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+  const wanted = words(title);
+  return (crew.goal?.dropped ?? []).some((item) => words(item) === wanted);
+}
+
+/** The fingerprint a stacked card's Apply checks: its own change's. */
+export function stackedHash(card: CrewCard): string | undefined {
+  return card.stacked?.hash ?? card.fix?.hash;
+}
+
+/** Cards on the crew's branch it holds back for you now: as many as its limit. */
+export function waitsForReview(crew: Crew): number | null {
+  const waiting = stackedCards(crew).length;
+  return waiting >= crew.limits.readyCap ? waiting : null;
 }
 
 /** Who plans the crew's goal: its Scout while on, else its default Builder. */

@@ -4,10 +4,11 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import {
   applyCrewCard,
   dismissCrewInbox,
+  requestCrewReview,
   useCrewWorkspace,
 } from "../lib/crewActions";
 import {
-  CREW_INBOX_ACTIONS,
+  crewInboxActions,
   crewInboxHeading,
   type CrewInboxAction,
   type CrewInboxItem,
@@ -30,10 +31,15 @@ export function CrewInboxDetail({ item }: { item: CrewInboxItem }) {
   const workspace = useCrewWorkspace();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const state = item.card.stage === "ready" ? "ready" : "stuck";
   const act = async (id: CrewInboxAction) => {
     setProblem(null);
     if (id === "open-board") return workspace?.openCrew(item.project);
+    if (id === "review") {
+      // The batch's Review, on the crew's Pipeline: Apply happens there.
+      workspace?.openCrew(item.project);
+      requestCrewReview(item.project);
+      return;
+    }
     if (id === "done") return dismissCrewInbox(item.project, item.card.id);
     setBusy(true);
     const error = await applyCrewCard(item.project, item.card.id).catch(
@@ -57,12 +63,16 @@ export function CrewInboxDetail({ item }: { item: CrewInboxItem }) {
       <h2>{item.review.title}</h2>
       {item.review.summary ? <p>{item.review.summary}</p> : null}
       <div className="automation-review-actions">
-        {CREW_INBOX_ACTIONS[state].map((action, index) => (
+        {crewInboxActions(item).map((action, index) => (
           <button
             key={action.id}
             type="button"
             className={`${index === 0 ? ACTION_FILLED : ACTION_GHOST} disabled:cursor-default disabled:opacity-40`}
-            disabled={busy || (action.id === "open-board" && !workspace)}
+            disabled={
+              busy ||
+              ((action.id === "open-board" || action.id === "review") &&
+                !workspace)
+            }
             onClick={() => void act(action.id)}
           >
             {action.id === "apply" && busy ? "Applying…" : action.label}

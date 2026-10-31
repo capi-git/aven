@@ -435,6 +435,36 @@
   font-size: var(--text-ui-label);
 }
 
+/* Every file Apply lands, named, with what it does besides its lines. */
+.crew-batch-files {
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.crew-batch-files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-batch-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A link, a program or a binary file: said in words, never only in colour. */
+.crew-batch-files li[data-flagged] .crew-batch-meta {
+  color: var(--color-content);
+}
+
 /* Narrow: a row's path sits under its name. */
 @container (max-width: 720px) {
   .crew-pipe-row {

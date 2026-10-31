@@ -28,6 +28,7 @@ import {
   setCrewPaused,
   stopCrewNow,
   subscribeCrewTell,
+  takeCrewReview,
   takeCrewTell,
   tellCrew,
   tellCrewWork,
@@ -37,6 +38,7 @@ import {
 import { allCrewRunsToday, crewHoldGate } from "../lib/crewLimits";
 import {
   crewPipeline,
+  reviewFileNotes,
   type PipelineBatch,
   type PipelineRow,
   type PipelineStep,
@@ -138,6 +140,7 @@ export function CrewPipeline({
     }),
     allRunsCap,
   });
+  const range = useBatchRange(project, crew);
   const view = crewPipeline({
     crew,
     cards,
@@ -145,9 +148,18 @@ export function CrewPipeline({
     name,
     fixerRuns,
     ...(held && held.gate.reason !== "paused" ? { hold: held.gate.title } : {}),
+    ...(range ? { batchFiles: range.files } : {}),
   });
   const [activity, setActivity] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  useEffect(() => {
+    // Review from the Inbox: the batch's Review opens here.
+    const take = () => {
+      if (takeCrewReview(project)) setReviewing(true);
+    };
+    take();
+    return subscribeCrewTell(take);
+  }, [project]);
   const taskBox = useRef<{ goal: () => void } | null>(null);
   const row = (item: PipelineRow) => {
     const card = byId.get(item.id);
@@ -206,6 +218,7 @@ export function CrewPipeline({
               project={project}
               crew={crew}
               batch={view.batch}
+              range={range}
               onReview={() => setReviewing(true)}
             />
           ) : null}
@@ -799,16 +812,56 @@ function PipelineRowView({
   );
 }
 
-/** The batch on the crew's branch: one row, Review and Apply all. */
+/** What the batch row shows of the branch: its last commit, fingerprint and files. */
+type BatchRange = { to: string; hash: string; files: number };
+
+/**
+ * The batch's range as the branch holds it now, read again whenever a card
+ * is stacked or applied: what the row's Apply all lands, and its files.
+ * Null while it's read, or once its top moved on (so Apply waits).
+ */
+function useBatchRange(project: string, crew: Crew): BatchRange | null {
+  const top = stackedCards(crew).at(-1)?.stacked?.commit;
+  const base = crew.stack?.base;
+  const [range, setRange] = useState<BatchRange | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!top) return;
+    void reviewCrewBatch(project).then((found) => {
+      if (!live) return;
+      setRange(
+        "error" in found
+          ? null
+          : {
+              to: found.to,
+              hash: found.diff.hash,
+              files: found.diff.files.length,
+            },
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [project, top, base]);
+  return range && range.to === top ? range : null;
+}
+
+/**
+ * The batch on the crew's branch: one row, Review and Apply all. Apply all
+ * lands exactly the range this row read (its last commit and fingerprint);
+ * a card a restack replayed goes through Review instead.
+ */
 function BatchRow({
   project,
   crew,
   batch,
+  range,
   onReview,
 }: {
   project: string;
   crew: Crew;
   batch: PipelineBatch;
+  range: BatchRange | null;
   onReview: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -831,17 +884,33 @@ function BatchRow({
       </div>
       <StepTrack project={project} steps={batch.steps} />
       <div className="crew-pipe-row-actions">
-        <TeamCardButton size="compact" onClick={onReview}>
-          Review
-        </TeamCardButton>
-        <TeamCardButton
-          size="compact"
-          variant="primary"
-          disabled={busy}
-          onClick={() => void run(() => applyCrewBatch(crew.path))}
-        >
-          {busy ? "Applying…" : "Apply all"}
-        </TeamCardButton>
+        {batch.reviewFirst ? (
+          <TeamCardButton size="compact" variant="primary" onClick={onReview}>
+            Review to apply
+          </TeamCardButton>
+        ) : (
+          <>
+            <TeamCardButton size="compact" onClick={onReview}>
+              Review
+            </TeamCardButton>
+            <TeamCardButton
+              size="compact"
+              variant="primary"
+              disabled={busy || !range}
+              onClick={() => {
+                if (!range) return;
+                void run(() =>
+                  applyCrewBatch(crew.path, {
+                    to: range.to,
+                    hash: range.hash,
+                  }),
+                );
+              }}
+            >
+              {busy ? "Applying…" : "Apply all"}
+            </TeamCardButton>
+          </>
+        )}
       </div>
       {conflict ? (
         <p className="crew-pipe-problem" role="alert">
@@ -867,6 +936,9 @@ function BatchRow({
 
 // ---------------------------------------------------------------------------
 // The batch's Review
+
+/** Text files shown line by line in a Review; every file is named either way. */
+const PREVIEWED = 40;
 
 /**
  * Review the batch: the combined change it would land in your files, each
@@ -907,31 +979,34 @@ export function CrewBatchSheet({
         setReview(found);
         if (!copy) return;
         const models = await Promise.all(
-          found.diff.files.slice(0, 40).map(async (file) => {
-            const texts = await botCopyHost
-              .rangeFileDiff(copy, found.from, found.to, file.path)
-              .catch(() => null);
-            const unreadable =
-              !texts ||
-              file.binary ||
-              (texts.original == null && file.status !== "added") ||
-              (texts.current == null && file.status !== "deleted");
-            const unified = unreadable
-              ? null
-              : buildUnifiedFile(texts.original ?? "", texts.current ?? "");
-            return {
-              id: file.path,
-              path: file.path,
-              label: file.path,
-              binary: file.binary,
-              emptyMessage: unreadable
-                ? "No text preview for this file."
-                : undefined,
-              additions: unified?.additions ?? file.additions,
-              deletions: unified?.deletions ?? file.deletions,
-              blocks: unified?.blocks ?? [],
-            } satisfies UnifiedDiffFileModel;
-          }),
+          found.diff.files
+            .filter((file) => !file.binary && file.newMode !== "120000")
+            .slice(0, PREVIEWED)
+            .map(async (file) => {
+              const texts = await botCopyHost
+                .rangeFileDiff(copy, found.from, found.to, file.path)
+                .catch(() => null);
+              const unreadable =
+                !texts ||
+                file.binary ||
+                (texts.original == null && file.status !== "added") ||
+                (texts.current == null && file.status !== "deleted");
+              const unified = unreadable
+                ? null
+                : buildUnifiedFile(texts.original ?? "", texts.current ?? "");
+              return {
+                id: file.path,
+                path: file.path,
+                label: file.path,
+                binary: file.binary,
+                emptyMessage: unreadable
+                  ? "No text preview for this file."
+                  : undefined,
+                additions: unified?.additions ?? file.additions,
+                deletions: unified?.deletions ?? file.deletions,
+                blocks: unified?.blocks ?? [],
+              } satisfies UnifiedDiffFileModel;
+            }),
         );
         if (live) setFiles(models);
       })
@@ -949,9 +1024,11 @@ export function CrewBatchSheet({
     if (!review) return;
     setBusy(true);
     setProblem(null);
+    // Exactly the change shown here: its last commit and fingerprint.
     const why = await applyCrewBatch(project, {
-      ...(upTo ? { upTo } : {}),
+      to: review.to,
       hash: review.diff.hash,
+      reviewed: true,
     }).catch((error) => errorText(error));
     setBusy(false);
     if (why) setProblem(why);
@@ -996,9 +1073,14 @@ export function CrewBatchSheet({
                       {card.fix
                         ? `${plural(card.fix.files, "file")} · +${card.fix.additions} −${card.fix.deletions}`
                         : ""}
-                      {card.rounds.some((round) => round.security)
-                        ? " · checked and secured"
-                        : " · checked"}
+                      {card.stacked?.replayed
+                        ? " · replayed onto your files, not re-checked"
+                        : card.rounds.some(
+                              (round) =>
+                                round.n === card.round && round.security,
+                            )
+                          ? " · checked and secured"
+                          : " · checked"}
                     </span>
                   </span>
                   {index < order.length - 1 ? (
@@ -1032,6 +1114,24 @@ export function CrewBatchSheet({
             })}
           </ol>
         </section>
+        {review ? (
+          <section className="crew-sheet-section">
+            <h3>{`Everything it changes · ${plural(review.diff.files.length, "file")}`}</h3>
+            <ul className="crew-batch-files" data-crew-batch-files>
+              {review.diff.files.map((file) => {
+                const notes = reviewFileNotes(file);
+                return (
+                  <li key={file.path} data-flagged={notes.length || undefined}>
+                    <span className="crew-batch-file">{file.path}</span>
+                    <span className="crew-batch-meta">
+                      {[file.status, ...notes].join(" · ")}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
         {files ? (
           files.length ? (
             <div className="crew-sheet-diff">

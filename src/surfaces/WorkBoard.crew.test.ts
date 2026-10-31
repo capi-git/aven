@@ -1,9 +1,21 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { afterBuild, afterCheck, queueCard, startCard } from "../lib/crewLoop";
-import { focusCrewTell, installCrewWorkspace } from "../lib/crewActions";
+import {
+  focusCrewTell,
+  installCrewWorkspace,
+  requestCrewReview,
+} from "../lib/crewActions";
 import {
   crewCard,
   getCrew,
@@ -1292,8 +1304,14 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
       "2 cards wait for you.",
     );
+    await settle();
+    // Apply all lands exactly the range the row read: its last commit and
+    // fingerprint, never whatever is on the branch by the time it lands.
     await act(async () => button(batch, "Apply all")!.click());
-    expect(actions.applyCrewBatch).toHaveBeenCalledWith(PROJECT);
+    expect(actions.applyCrewBatch).toHaveBeenCalledWith(PROJECT, {
+      to: "2".repeat(40),
+      hash: "h-reviewed",
+    });
     // Your files moved on: Update onto your files replays the branch.
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
@@ -1339,9 +1357,125 @@ describe("the crew view: the Board with the crew on it", () => {
         .click(),
     );
     expect(actions.applyCrewBatch).toHaveBeenLastCalledWith(PROJECT, {
-      upTo: boards[3].id,
+      to: "2".repeat(40),
       hash: "h-reviewed",
+      reviewed: true,
     });
+  });
+
+  it("names every file Review would land, with links, programs and binary files", async () => {
+    const files = Array.from({ length: 45 }, (_, index) => ({
+      path: `src/file-${index}.ts`,
+      status: "added" as const,
+      additions: 1,
+      deletions: 0,
+      binary: false,
+      oldMode: "000000",
+      newMode: "100644",
+    }));
+    files.push(
+      {
+        path: "keys",
+        status: "added",
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        oldMode: "000000",
+        newMode: "120000",
+        linkTarget: "/Users/me/.ssh",
+      } as never,
+      {
+        path: "scripts/run.sh",
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        oldMode: "100644",
+        newMode: "100755",
+      } as never,
+      {
+        path: "logo.png",
+        status: "added",
+        additions: 0,
+        deletions: 0,
+        binary: true,
+        oldMode: "000000",
+        newMode: "100644",
+      } as never,
+    );
+    const usual = actions.reviewCrewBatch.getMockImplementation()!;
+    actions.reviewCrewBatch.mockImplementation(
+      async () =>
+        ({
+          diff: { files, additions: 45, deletions: 0, hash: "h-all" },
+          from: "a".repeat(40),
+          to: "1".repeat(40),
+          cards: [],
+        }) as never,
+    );
+    onTestFinished(() => {
+      actions.reviewCrewBatch.mockImplementation(usual);
+    });
+    await setUp((boards) => (crew) => ({
+      ...withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: { commit: "1".repeat(40), parent: "a".repeat(40) },
+      }),
+      stack: { base: "a".repeat(40) },
+    }));
+    await settle();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    const list = document.querySelector<HTMLElement>(
+      "[data-crew-batch-files]",
+    )!;
+    expect(list.querySelectorAll("li")).toHaveLength(48);
+    expect(list.textContent).toContain("src/file-44.ts");
+    expect(list.textContent).toContain("keys");
+    expect(list.textContent).toContain("a link to /Users/me/.ssh");
+    expect(list.textContent).toContain("runs as a program");
+    expect(list.textContent).toContain("logo.png");
+    expect(list.textContent).toContain("binary");
+  });
+
+  it("sends a replayed batch's Apply through Review, and opens Review from the Inbox", async () => {
+    await setUp((boards) => (crew) => ({
+      ...withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: {
+          commit: "1".repeat(40),
+          parent: "a".repeat(40),
+          hash: "r",
+          replayed: true,
+        },
+      }),
+      stack: { base: "a".repeat(40) },
+    }));
+    await settle();
+    const batch = container.querySelector<HTMLElement>("[data-crew-batch]")!;
+    expect(batch.textContent).toContain(
+      "replayed onto your files, not re-checked",
+    );
+    expect(button(batch, "Apply all")).toBeUndefined();
+    await act(async () => button(batch, "Review to apply")!.click());
+    await settle();
+    expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
+  });
+
+  it("opens the batch's Review when the Inbox asks", async () => {
+    await setUp((boards) => (crew) => ({
+      ...withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: { commit: "1".repeat(40), parent: "a".repeat(40) },
+      }),
+      stack: { base: "a".repeat(40) },
+    }));
+    expect(document.querySelector("[data-crew-batch-review]")).toBeNull();
+    await act(async () => requestCrewReview(PROJECT));
+    await settle();
+    expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
   });
 
   it("is a plain board while the crew is off", async () => {

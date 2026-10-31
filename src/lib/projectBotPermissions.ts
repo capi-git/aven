@@ -252,10 +252,20 @@ export const PROTECTED_FIX_PATHS = [
   ".pre-commit-config.yaml",
 ] as const;
 
-/** The protected paths among a fix's files. */
+/**
+ * The protected paths among a fix's files. A name git would have to quote
+ * (a quote or a control character in it) is never applied either, and
+ * Windows' reading of "name." or "name " as "name" never disguises one.
+ */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
-    const first = path.replace(/\\/g, "/").split("/")[0]!.toLowerCase();
+    // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
+    if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
+    const first = path
+      .replace(/\\/g, "/")
+      .split("/")[0]!
+      .toLowerCase()
+      .replace(/[. ]+$/, "");
     return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
   });
 }

@@ -15,7 +15,7 @@ import { plural } from "./words";
  * never sends a bot's words anywhere.
  */
 
-export type CrewInboxAction = "apply" | "open-board" | "done";
+export type CrewInboxAction = "apply" | "review" | "open-board" | "done";
 
 /** Each state's buttons, in Aven's words: never a bot's. */
 export const CREW_INBOX_ACTIONS: Readonly<
@@ -30,6 +30,18 @@ export const CREW_INBOX_ACTIONS: Readonly<
     { id: "done", label: "Done" },
   ],
 };
+
+/**
+ * An item's buttons: the batch on the crew's branch opens its Review (an
+ * Apply from here couldn't say exactly what you saw); a card of its own is
+ * applied by its fingerprint, as its check passed it.
+ */
+export function crewInboxActions(
+  item: Pick<CrewInboxItem, "card" | "batch">,
+): readonly { id: CrewInboxAction; label: string }[] {
+  if (item.batch) return [{ id: "review", label: "Review" }];
+  return CREW_INBOX_ACTIONS[item.card.stage === "ready" ? "ready" : "stuck"];
+}
 
 /** "Ready" or "Needs you", for the card's heading. */
 export function crewInboxHeading(card: Pick<CrewCard, "stage">): string {
@@ -100,6 +112,8 @@ export type CrewInboxItem = {
   project: string;
   card: CrewCard;
   review: AutomationReview;
+  /** The cards on the crew's branch, as one item. */
+  batch?: true;
 };
 
 /**
@@ -122,6 +136,7 @@ export function openCrewInboxItems(
         key: `crew:${key}:batch`,
         project: crew.path,
         card: top,
+        batch: true,
         review: {
           ...top.inbox,
           title:
@@ -131,9 +146,11 @@ export function openCrewInboxItems(
                   0,
                   120,
                 ),
-          summary: (batch.length === 1
-            ? top.inbox.summary
-            : `${batch.map((card) => card.title).join(" · ")} · each checked on its own; Apply lands them together`
+          summary: (batch.some((card) => card.stacked?.replayed)
+            ? `${batch.map((card) => card.title).join(" · ")} · replayed onto your files, not re-checked; Review them, then Apply`
+            : batch.length === 1
+              ? top.inbox.summary
+              : `${batch.map((card) => card.title).join(" · ")} · each checked on its own; Review them, then Apply lands them together`
           ).slice(0, 600),
           postedAt: Math.max(...batch.map((card) => card.inbox!.postedAt)),
         },

@@ -70,11 +70,18 @@ import {
   discardCrewCard,
   giveCardToCrew,
   notNowIdea,
+  requestCrewReview,
   resumeCrewCard,
   setCrewCardPaused,
   stopCrewCard,
 } from "../lib/crewActions";
-import { crewCard, crewMemberName, useCrew, type Crew } from "../lib/crews";
+import {
+  crewCard,
+  crewMemberName,
+  getCrew,
+  useCrew,
+  type Crew,
+} from "../lib/crews";
 import {
   crewBoardColumns,
   crewCardMenu,
@@ -343,11 +350,18 @@ export const WorkBoardView = memo(function WorkBoardView({
         case "review":
           setReadyCard(card.id);
           return;
-        case "apply":
+        case "apply": {
+          // A card on the crew's branch lands from the batch's Review.
+          const known = getCrew(project);
+          if (known && crewCard(known, card.id)?.stacked) {
+            requestCrewReview(project);
+            return;
+          }
           void applyCrewCard(project, card.id).then((problem) =>
             noteProblem(card.id, problem),
           );
           return;
+        }
         case "more":
           resumeCrewCard(project, card.id);
           return;

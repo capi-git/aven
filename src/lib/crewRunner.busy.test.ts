@@ -93,6 +93,7 @@ function busyRunner(known: boolean) {
       sources: async () => [],
       planted: async () => [],
       stack: async () => "c".repeat(40),
+      unstack: async () => {},
       discard: async () => {},
     },
     weeklyUsed: () => 40,
