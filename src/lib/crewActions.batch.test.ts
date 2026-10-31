@@ -13,6 +13,7 @@ import {
 import { openCrewInboxItems } from "./crewInbox";
 import { queueCard, startCard } from "./crewLoop";
 import {
+  claimCrewJob,
   crewCard,
   crewsSnapshot,
   getCrew,
@@ -28,7 +29,7 @@ import {
   memoryFeatureCardBackend,
   setFeatureCardBackend,
 } from "./featureCards";
-import { resetProjectBotsCache } from "./projectBots";
+import { jobIsLive, resetProjectBotsCache } from "./projectBots";
 
 /*
  * The batch on the crew's branch: cards that passed every check, each a
@@ -249,9 +250,14 @@ describe("the batch on the crew's branch", () => {
 
   it("never applies settings or hooks that could run as you", async () => {
     await crewWithBatch();
-    host.range.mockResolvedValue(range([".husky/pre-commit", "a.ts"], "h"));
+    host.range.mockResolvedValue(
+      range([".husky/pre-commit", ".mcp.j\u017fon", "a.ts"], "h"),
+    );
     const why = await applyCrewBatch(PATH, { to: C2, hash: "h" }, NOW);
-    expect(why).toContain("could run commands as you (.husky/pre-commit)");
+    // ".mcp.jſon" is ".mcp.json" on a Mac.
+    expect(why).toContain(
+      "could run commands as you (.husky/pre-commit, .mcp.j\u017fon)",
+    );
     expect(host.applyRange).not.toHaveBeenCalled();
   });
 
@@ -462,6 +468,37 @@ describe("updating the branch onto your files", () => {
     ).toBe("The crew is at work in its copy. Try again once its turn ends.");
     expect(host.restack).not.toHaveBeenCalled();
     expect(host.discard).not.toHaveBeenCalled();
+  });
+});
+
+describe("the crew's copy is held while the branch moves", () => {
+  it("holds the crew's job for a whole restack, so nothing starts in the copy", async () => {
+    await crewWithBatch();
+    host.restack.mockImplementation(async () => {
+      // Mid-restack: the runner can't take the copy.
+      expect(jobIsLive(getCrew(PATH)!.job, NOW)).toBe(true);
+      expect(claimCrewJob(PATH, "runner", NOW)).toBe(false);
+      return {
+        base: C3,
+        commits: ["4".repeat(40), "5".repeat(40)],
+        hashes: ["r4", "r5"],
+      };
+    });
+    expect(await restackCrew(PATH, NOW)).toBeNull();
+    expect(host.restack).toHaveBeenCalled();
+    // Let go once it's done.
+    expect(getCrew(PATH)!.job).toBeUndefined();
+    expect(claimCrewJob(PATH, "runner", NOW)).toBe(true);
+  });
+
+  it("holds it while a card comes off the branch, and lets go when that fails", async () => {
+    const [, settings] = await crewWithBatch();
+    host.discard.mockImplementation(async () => {
+      expect(claimCrewJob(PATH, "runner", NOW)).toBe(false);
+      throw new Error("The crew's copy moved since its last card.");
+    });
+    expect(await dropStackedCard(PATH, settings, "ideas", NOW)).toBeTruthy();
+    expect(getCrew(PATH)!.job).toBeUndefined();
   });
 });
 

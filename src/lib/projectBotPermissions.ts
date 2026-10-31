@@ -253,19 +253,29 @@ export const PROTECTED_FIX_PATHS = [
 ] as const;
 
 /**
+ * A name as a file system that ignores case reads it: NFKC-normalised and
+ * fully case-folded, so "ſ" is "s", "ﬁ" is "fi" and a full-width "ｃ" is "c"
+ * (APFS reads the first two that way), not just its ASCII letters.
+ */
+export function foldedName(name: string): string {
+  return name.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+}
+
+/**
  * The protected paths among a fix's files. A name git would have to quote
- * (a quote or a control character in it) is never applied either, and
+ * (a quote or a control character in it) is never applied either, nor one
+ * whose top-level name isn't plain ASCII (a case-insensitive file system
+ * may read it as a settings folder). Each part is matched folded, and
  * Windows' reading of "name." or "name " as "name" never disguises one.
  */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
     // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
     if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
-    const first = path
-      .replace(/\\/g, "/")
-      .split("/")[0]!
-      .toLowerCase()
-      .replace(/[. ]+$/, "");
+    const parts = path.replace(/\\/g, "/").split("/");
+    // oxlint-disable-next-line no-control-regex -- ASCII is what this keeps.
+    if (/[^\u0000-\u007f]/.test(parts[0]!)) return true;
+    const first = foldedName(parts[0]!).replace(/[. ]+$/, "");
     return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
   });
 }

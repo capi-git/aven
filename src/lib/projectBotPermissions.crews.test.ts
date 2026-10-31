@@ -444,4 +444,26 @@ describe("paths Apply never brings into your files", () => {
       "src/tab\there.ts",
     ]);
   });
+
+  it("refuses names a case-insensitive file system folds into a settings folder", () => {
+    // APFS reads "ſ" as "s" and "ﬁ" as "fi"; NFKC folds full-width letters.
+    expect(
+      protectedFixPaths([
+        ".v\u017fcode/tasks.json",
+        ".mcp.j\u017fon",
+        ".hu\u017fky/pre-commit",
+        ".\uff43laude/settings.json",
+        "caf\u00e9/notes.md",
+        "src/caf\u00e9.ts",
+        "src/app.ts",
+      ]),
+    ).toEqual([
+      ".v\u017fcode/tasks.json",
+      ".mcp.j\u017fon",
+      ".hu\u017fky/pre-commit",
+      ".\uff43laude/settings.json",
+      // Any top-level name that isn't plain ASCII is refused outright.
+      "caf\u00e9/notes.md",
+    ]);
+  });
 });

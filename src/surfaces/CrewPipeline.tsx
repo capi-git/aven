@@ -160,6 +160,12 @@ export function CrewPipeline({
     take();
     return subscribeCrewTell(take);
   }, [project]);
+  // Nothing on the branch to review: the request is over, so a batch that
+  // arrives later never opens its Review by itself.
+  const hasBatch = !!view.batch;
+  useEffect(() => {
+    if (reviewing && !hasBatch) setReviewing(false);
+  }, [reviewing, hasBatch]);
   const taskBox = useRef<{ goal: () => void } | null>(null);
   const row = (item: PipelineRow) => {
     const card = byId.get(item.id);
@@ -967,6 +973,9 @@ export function CrewBatchSheet({
   const copy = crew.copy?.path;
   useEffect(() => {
     let live = true;
+    // A new selection: nothing is shown, so nothing can be applied, until
+    // its own change has been read.
+    setReview(null);
     setFiles(null);
     void reviewCrewBatch(project, upTo)
       .then(async (found) => {
@@ -1020,8 +1029,15 @@ export function CrewBatchSheet({
   }, [project, upTo, copy]);
   const ordered = review?.cards ?? [];
   const last = stackedCards(crew).at(-1);
+  // The commit the selection ends at: Apply lands only a review of exactly it.
+  const selected = (
+    upTo
+      ? stackedCards(crew).find((card) => card.id === upTo)
+      : stackedCards(crew).at(-1)
+  )?.stacked?.commit;
+  const shown = !!review && review.to === selected;
   const apply = async () => {
-    if (!review) return;
+    if (!review || !shown) return;
     setBusy(true);
     setProblem(null);
     // Exactly the change shown here: its last commit and fingerprint.
@@ -1160,7 +1176,7 @@ export function CrewBatchSheet({
           <div className="crew-sheet-actions">
             <TeamCardButton
               variant="primary"
-              disabled={busy || !review}
+              disabled={busy || !shown}
               onClick={() => void apply()}
             >
               {busy

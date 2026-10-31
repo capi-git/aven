@@ -182,6 +182,8 @@ describe("Apply lands exactly the reviewed change", () => {
             { path: "src/theme.ts", additions: 1, deletions: 0 },
             { path: ".Claude/settings.local.json", additions: 3, deletions: 0 },
             { path: ".husky/pre-commit", additions: 1, deletions: 0 },
+            // APFS reads "ſ" as "s": this lands in your .vscode.
+            { path: ".v\u017fcode/tasks.json", additions: 1, deletions: 0 },
           ],
         },
       });
@@ -189,7 +191,7 @@ describe("Apply lands exactly the reviewed change", () => {
     host.apply.mockClear();
     const problem = await applyCrewCard(PATH, id, NOON);
     expect(problem).toBe(
-      "Aven didn't apply this fix: it changes settings or hooks that could run commands as you (.Claude/settings.local.json, .husky/pre-commit). Take it over in a chat to apply that part yourself.",
+      "Aven didn't apply this fix: it changes settings or hooks that could run commands as you (.Claude/settings.local.json, .husky/pre-commit, .v\u017fcode/tasks.json). Take it over in a chat to apply that part yourself.",
     );
     expect(host.apply).not.toHaveBeenCalled();
     const card = crewCard(getCrew(PATH)!, id)!;

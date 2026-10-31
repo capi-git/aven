@@ -268,12 +268,33 @@ const PROTECTED: &[&str] = &[
     ".pre-commit-config.yaml",
 ];
 
-/// The protected paths among a fix's files (see `PROTECTED`).
+/// A name as a file system that ignores case reads it: folded fully, so
+/// "ſ" is "s", "ﬁ" is "fi" and "K" (Kelvin) is "k", as APFS reads them, not
+/// just its ASCII letters.
+fn folded(name: &str) -> String {
+    name.to_uppercase().to_lowercase()
+}
+
+/// A path whose top-level name isn't plain ASCII: a case-insensitive file
+/// system may read it as a settings folder ("ſ" for "s", "ﬁ" for "fi"), so
+/// none is ever stacked or applied.
+fn look_alike(path: &str) -> bool {
+    !path
+        .replace('\\', "/")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .is_ascii()
+}
+
+/// The protected paths among a fix's files (see `PROTECTED`): matched as a
+/// file system that ignores case reads them, with any top-level name that
+/// isn't plain ASCII refused outright.
 fn protected_paths(paths: &[&str]) -> Vec<String> {
     paths
         .iter()
         .filter(|path| {
-            let lower = path.replace('\\', "/").to_lowercase();
+            let lower = folded(&path.replace('\\', "/"));
             // Windows reads "name." and "name " as "name".
             let first = lower
                 .split('/')
@@ -281,10 +302,15 @@ fn protected_paths(paths: &[&str]) -> Vec<String> {
                 .unwrap_or("")
                 .trim_end_matches(['.', ' ']);
             // A name git would have to quote is never applied either.
-            path.starts_with('"') || PROTECTED.contains(&first)
+            path.starts_with('"') || look_alike(path) || PROTECTED.contains(&first)
         })
         .map(|path| (*path).to_string())
         .collect()
+}
+
+/// The first of `paths` with a look-alike top-level name (see `look_alike`).
+fn first_look_alike<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    paths.into_iter().find(|path| look_alike(path))
 }
 
 /// A settings folder or file at the top of the copy that is a link.
@@ -292,7 +318,7 @@ fn linked_settings(copy: &Path) -> Option<String> {
     let entries = std::fs::read_dir(copy).ok()?;
     entries.flatten().find_map(|entry| {
         let name = entry.file_name().to_string_lossy().to_string();
-        let settings = SETTINGS_ROOTS.contains(&name.to_lowercase().as_str());
+        let settings = SETTINGS_ROOTS.contains(&folded(&name).as_str());
         let link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
         (settings && link).then_some(name)
     })
@@ -345,7 +371,62 @@ fn clear_planted(copy: &Path, remove: bool) -> Result<Vec<String>, String> {
         }
         found.push(path);
     }
+    // `:(icase)` folds ASCII only: a name APFS reads as a settings file
+    // ("ſettings.json", ".mcp.jſon") is found by walking the copy, and is
+    // never the project's own.
+    for path in look_alike_settings(copy) {
+        if found.contains(&path) {
+            continue;
+        }
+        if remove {
+            let _ = std::fs::remove_file(copy.join(&path));
+        }
+        found.push(path);
+    }
     Ok(found)
+}
+
+/// Settings files in the copy (see `PLANTED`) under a name that only folds
+/// to one: anything but its plain ASCII spelling.
+fn look_alike_settings(copy: &Path) -> Vec<String> {
+    let names = |dir: &Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut found = Vec::new();
+    for planted in PLANTED {
+        let (first, rest) = match planted.split_once('/') {
+            Some((first, rest)) => (first, Some(rest)),
+            None => (*planted, None),
+        };
+        for top in names(copy).into_iter().filter(|name| folded(name) == first) {
+            match rest {
+                None => {
+                    if !top.is_ascii() && copy.join(&top).is_file() {
+                        found.push(top);
+                    }
+                }
+                Some(rest) => {
+                    for inner in names(&copy.join(&top))
+                        .into_iter()
+                        .filter(|name| folded(name) == rest)
+                    {
+                        let path = format!("{top}/{inner}");
+                        if !path.is_ascii() && copy.join(&path).is_file() {
+                            found.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    found
 }
 
 fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
@@ -626,7 +707,11 @@ pub fn stack(
     let message: String = message.chars().take(200).collect();
     let sha = race::snapshot(&copy, parent, &format!("Crew: {message}"))?;
     // The commit is made but not yet on the branch: it goes there only as
-    // the change that was checked.
+    // the change that was checked, and with no look-alike settings name.
+    let changes = race::range_diff(&copy, parent, &sha)?;
+    if first_look_alike(changes.files.iter().map(|file| file.path.as_str())).is_some() {
+        return Err(LOOK_ALIKE.into());
+    }
     if patch_hash(&race::range_patch(&copy, parent, &sha)?) != hash {
         return Err(STACK_CHANGED.into());
     }
@@ -663,6 +748,11 @@ const STACK_MOVED: &str = "The crew's copy moved since its last card.";
 
 /// Said when the copy no longer holds the change a card's checks passed.
 const STACK_CHANGED: &str = "The copy changed after the card's checks.";
+
+/// Said when a change has a top-level name that isn't plain ASCII: a case-
+/// insensitive file system may read it as a settings folder.
+const LOOK_ALIKE: &str =
+    "A changed file's top-level name isn't plain ASCII, so it could stand for a settings folder";
 
 /// Said when a card on the branch isn't the change its checks passed.
 const CARD_CHANGED: &str = "A card on the crew's branch isn't the change its checks passed.";
@@ -832,7 +922,15 @@ pub fn restack(
             return Err("Invalid bot range".into());
         }
         let patch = race::range_patch(&worktree, &previous, sha)?;
-        let shape = change_shape(&race::range_diff(&worktree, &previous, sha)?);
+        let changes = race::range_diff(&worktree, &previous, sha)?;
+        if let Some(path) = first_look_alike(changes.files.iter().map(|file| file.path.as_str())) {
+            return Err(format!(
+                "{LOOK_ALIKE}: {path} (card {} of {})",
+                cards.len() + 1,
+                commits.len()
+            ));
+        }
+        let shape = change_shape(&changes);
         let message = race::text(
             race::run(&worktree, &["log", "-1", "--format=%B", sha]).unwrap_or_default(),
         );
@@ -1842,6 +1940,95 @@ mod tests {
         assert!(error.starts_with(PROTECTED_FIX), "{error}");
         assert!(!root.join(".claude").exists());
         assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Names a case-insensitive file system folds into a protected one (APFS
+    // reads "ſ" as "s" and "ﬁ" as "fi") never reach your settings folders.
+    #[cfg(not(windows))]
+    #[test]
+    fn never_applies_look_alike_settings_names() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join(".v\u{17f}code")).unwrap();
+        std::fs::write(
+            copy_path.join(".v\u{17f}code/tasks.json"),
+            "{\"tasks\":[{\"command\":\"echo pwned\"}]}\n",
+        )
+        .unwrap();
+        std::fs::write(copy_path.join(".mcp.j\u{17f}on"), "{}\n").unwrap();
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        // A card's own fix, applied on its own: refused.
+        let fix = diff(&bots, &copy.path, &base).unwrap();
+        let error = apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        // Never stacked either.
+        assert_eq!(
+            stack(&bots, &copy.path, BRANCH, &base, "Look-alike", &fix.hash).unwrap_err(),
+            LOOK_ALIKE
+        );
+        assert_eq!(head(&copy_path).unwrap(), base);
+        // A commit made some other way (an older Aven) is refused at Apply
+        // and at a restack.
+        let sha = race::snapshot(&copy_path, &base, "Crew: Look-alike").unwrap();
+        move_branch(&copy_path, BRANCH, &sha, &base).unwrap();
+        let reviewed = range(&bots, &copy.path, &base, &sha).unwrap();
+        let card = StackedCard {
+            commit: sha.clone(),
+            hash: reviewed.hash.clone(),
+        };
+        let error = apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &sha,
+            &reviewed.hash,
+            &cards(&[&card]),
+        )
+        .unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        std::fs::write(root.join("b.txt"), "keep\nmine\n").unwrap();
+        let error = restack(&root, &bots, &copy.path, BRANCH, &base, &[sha]).unwrap_err();
+        assert!(error.contains(LOOK_ALIKE), "{error}");
+        // Your folder never got them, under either spelling.
+        assert!(!root.join(".vscode").exists());
+        assert!(!root.join(".mcp.json").exists());
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Settings an agent planted under a look-alike name are swept like any.
+    #[cfg(not(windows))]
+    #[test]
+    fn sweeps_look_alike_settings_from_the_copy() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        sync(&root, &bots, &copy.path, BRANCH).unwrap();
+        std::fs::create_dir_all(copy_path.join(".claude")).unwrap();
+        std::fs::write(copy_path.join(".claude/\u{17f}ettings.json"), "{}\n").unwrap();
+        std::fs::write(copy_path.join(".mcp.j\u{17f}on"), "{}\n").unwrap();
+        let mut found = planted(&bots, &copy.path, true).unwrap();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ".claude/\u{17f}ettings.json".to_string(),
+                ".mcp.j\u{17f}on".to_string()
+            ]
+        );
+        assert!(planted(&bots, &copy.path, false).unwrap().is_empty());
         remove(&root, &bots, &copy.path, BRANCH).unwrap();
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&bots);

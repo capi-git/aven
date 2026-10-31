@@ -46,7 +46,8 @@ import { WorkBoard, cardMenuItems } from "./WorkBoard";
 const actions = vi.hoisted(() => ({
   applyCrewBatch: vi.fn(async () => null as string | null),
   restackCrew: vi.fn(async () => null as string | null),
-  reviewCrewBatch: vi.fn(async () => ({
+  // Up to a card: the setups stack their first card at "1…".
+  reviewCrewBatch: vi.fn(async (_project: string, upTo?: string) => ({
     diff: {
       files: [
         {
@@ -62,7 +63,7 @@ const actions = vi.hoisted(() => ({
       hash: "h-reviewed",
     },
     from: "a".repeat(40),
-    to: "2".repeat(40),
+    to: (upTo ? "1" : "2").repeat(40),
     cards: [],
   })),
   applyCrewCard: vi.fn(async () => null as string | null),
@@ -1357,7 +1358,7 @@ describe("the crew view: the Board with the crew on it", () => {
         .click(),
     );
     expect(actions.applyCrewBatch).toHaveBeenLastCalledWith(PROJECT, {
-      to: "2".repeat(40),
+      to: "1".repeat(40),
       hash: "h-reviewed",
       reviewed: true,
     });
@@ -1462,6 +1463,108 @@ describe("the crew view: the Board with the crew on it", () => {
     await act(async () => button(batch, "Review to apply")!.click());
     await settle();
     expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
+  });
+
+  it("never applies the previous selection while the next one is read", async () => {
+    const C1 = "1".repeat(40);
+    const C2 = "2".repeat(40);
+    let release: (() => void) | null = null;
+    const usual = actions.reviewCrewBatch.getMockImplementation()!;
+    actions.reviewCrewBatch.mockImplementation((async (
+      _project: string,
+      upTo?: string,
+    ) => {
+      // Up to one card: read slowly, so the old review would still show.
+      if (upTo) await new Promise<void>((resolve) => (release = resolve));
+      return {
+        diff: {
+          files: [],
+          additions: 0,
+          deletions: 0,
+          hash: upTo ? "h-one" : "h-all",
+        },
+        from: "a".repeat(40),
+        to: upTo ? C1 : C2,
+        cards: [],
+      };
+    }) as never);
+    onTestFinished(() => {
+      actions.reviewCrewBatch.mockImplementation(usual);
+    });
+    await setUp((boards) => (crew) => {
+      let next = withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: { commit: C1, parent: "a".repeat(40) },
+      });
+      next = withCard(next, {
+        ...crewCardFor(boards[4], "ready"),
+        stacked: { commit: C2, parent: C1 },
+      });
+      return { ...next, stack: { base: "a".repeat(40) } };
+    });
+    await settle();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    const sheet = () =>
+      document.querySelector<HTMLElement>("[data-crew-batch-review]")!;
+    const applyButton = () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          ".crew-sheet-actions button",
+        ),
+      ].at(-1)!;
+    expect(applyButton().disabled).toBe(false);
+    await act(async () => button(sheet(), "Apply up to here")!.click());
+    await settle();
+    // Still reading the selection: the whole batch's review is gone.
+    expect(applyButton().disabled).toBe(true);
+    await act(async () => applyButton().click());
+    expect(actions.applyCrewBatch).not.toHaveBeenCalledWith(
+      PROJECT,
+      expect.objectContaining({ to: C2 }),
+    );
+    await act(async () => release!());
+    await settle();
+    expect(applyButton().disabled).toBe(false);
+    await act(async () => applyButton().click());
+    expect(actions.applyCrewBatch).toHaveBeenLastCalledWith(PROJECT, {
+      to: C1,
+      hash: "h-one",
+      reviewed: true,
+    });
+  });
+
+  it("doesn't open Review by itself later when the Inbox asked with nothing to review", async () => {
+    await setUp(() => (crew) => crew);
+    await act(async () => requestCrewReview(PROJECT));
+    await settle();
+    expect(document.querySelector("[data-crew-batch-review]")).toBeNull();
+    // A batch arrives later: it waits for your Review, never opens by itself.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...withCard(crew, {
+          ...crewCardFor(
+            {
+              id: "late",
+              title: "Late",
+              column: "review",
+              chatIds: [],
+              createdAt: 1,
+              updatedAt: 1,
+              movedAt: 1,
+            } as FeatureCard,
+            "ready",
+          ),
+          stacked: { commit: "1".repeat(40), parent: "a".repeat(40) },
+        }),
+        stack: { base: "a".repeat(40) },
+      })),
+    );
+    await settle();
+    expect(document.querySelector("[data-crew-batch]")).not.toBeNull();
+    expect(document.querySelector("[data-crew-batch-review]")).toBeNull();
   });
 
   it("opens the batch's Review when the Inbox asks", async () => {

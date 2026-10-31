@@ -517,6 +517,7 @@ import {
   startHarnessBridge,
   stopStreaming,
   pickTextHarness,
+  typedTurn,
   type ApprovalDecision,
   type HarnessEvent,
   type UserQuestionReply,
@@ -7306,7 +7307,7 @@ export default function App({
 
       if (current.busy && !pendingSwitch) {
         const visible = displayAttachments(attachments);
-        const cards = userTurnCards(noteCard);
+        const cards = { ...userTurnCards(noteCard), ...typedTurn(options) };
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== sessionId) return s;
@@ -7470,9 +7471,7 @@ export default function App({
         ...(options?.botWake ? { botWake: options.botWake } : {}),
         // Your own words, as you typed them: a member's chat offers to
         // queue what it took down from these only.
-        ...(options?.typed && !options.botWake && !options.managed
-          ? { typed: true as const }
-          : {}),
+        ...typedTurn(options),
         ...(options?.userBlockId ? { id: options.userBlockId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
@@ -8425,9 +8424,9 @@ export default function App({
                         ...message,
                         text,
                         attachments,
-                        // Rewritten, it shows as you wrote it.
+                        // Rewritten, it shows as you wrote it, and is yours.
                         ...(text !== message.text
-                          ? { displayText: undefined }
+                          ? { displayText: undefined, typed: true as const }
                           : {}),
                       }
                     : message,
@@ -8672,8 +8671,9 @@ export default function App({
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
+  // Its words are Aven's, not yours: it isn't marked typed.
   useDuplicateServerMessenger((sessionId, text) =>
-    onSubmit(sessionId, text, [], { followUpBehavior: "queue", typed: true }),
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
   );
 
   const autoContinueKey = sessions

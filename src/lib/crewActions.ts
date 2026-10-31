@@ -16,6 +16,9 @@ import {
   CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
+  claimCrewJob,
+  releaseCrewJob,
+  renewCrewJob,
   queuedCards,
   stackedCards,
   crewCard,
@@ -1161,11 +1164,53 @@ const BUILDS_ON_TOP = (title: string) =>
  * the branch goes back to the card before it. Only the top card, and only
  * while no card builds on top of it.
  */
-export async function dropStackedCard(
+export function dropStackedCard(
   path: string,
   cardId: string,
   then: "ideas" | "delete",
   now = Date.now(),
+): Promise<string | null> {
+  return holdingCrewJob(path, now, () =>
+    dropStackedCardHeld(path, cardId, then, now),
+  );
+}
+
+let branchHolds = 0;
+
+/**
+ * Hold the crew's job (its copy) for as long as `work` moves the crew's
+ * branch, so the runner starts nothing in the copy meanwhile: renewed while
+ * it runs, and let go however it ends. Says the crew is at work when it
+ * holds the copy itself.
+ */
+async function holdingCrewJob(
+  path: string,
+  now: number,
+  work: () => Promise<string | null>,
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew) return NOT_ON_BRANCH;
+  branchHolds += 1;
+  const owner = `branch-${branchHolds}-${now}`;
+  // Off, no runner works in the copy, though another window may still.
+  const held = crew.on
+    ? claimCrewJob(path, owner, now)
+    : !jobIsLive(crew.job, now);
+  if (!held) return CREW_AT_WORK;
+  const renew = setInterval(() => renewCrewJob(path, owner), 30_000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(renew);
+    releaseCrewJob(path, owner);
+  }
+}
+
+async function dropStackedCardHeld(
+  path: string,
+  cardId: string,
+  then: "ideas" | "delete",
+  now: number,
 ): Promise<string | null> {
   const crew = getCrew(path);
   const batch = crewBatch(crew);
@@ -1175,7 +1220,6 @@ export async function dropStackedCard(
     return "Only the last card on the crew's branch can come off it.";
   const busy = cardInCopy(crew);
   if (busy) return BUILDS_ON_TOP(busy.title);
-  if (jobIsLive(crew.job, now)) return CREW_AT_WORK;
   try {
     // Only while the branch is still at this card: nothing stacked since
     // is thrown away with it.
@@ -1234,16 +1278,22 @@ export async function dropStackedCard(
  * onto them, one card at a time. A card that no longer fits leaves the
  * branch exactly as it was, and says which. Not while a card builds on it.
  */
-export async function restackCrew(
+export function restackCrew(
   path: string,
   now = Date.now(),
+): Promise<string | null> {
+  return holdingCrewJob(path, now, () => restackCrewHeld(path, now));
+}
+
+async function restackCrewHeld(
+  path: string,
+  now: number,
 ): Promise<string | null> {
   const crew = getCrew(path);
   const batch = crewBatch(crew);
   if (!crew?.copy || !batch) return NOT_ON_BRANCH;
   const busy = cardInCopy(crew);
   if (busy) return BUILDS_ON_TOP(busy.title);
-  if (jobIsLive(crew.job, now)) return CREW_AT_WORK;
   let moved: { base: string; commits: string[]; hashes: string[] };
   try {
     moved = await botCopyHost.restack(
